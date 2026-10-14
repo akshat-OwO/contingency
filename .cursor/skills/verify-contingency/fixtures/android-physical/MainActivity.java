@@ -1,6 +1,5 @@
 package dev.contingency.physicalfixture;
 
-import android.app.Activity;
 import android.os.Bundle;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -10,7 +9,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-public class MainActivity extends Activity {
+public class MainActivity extends FixtureActivity {
+    private PasswordRemovalReceiver removal;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout content = new LinearLayout(this);
@@ -25,6 +25,7 @@ public class MainActivity extends Activity {
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         password.setShowSoftInputOnFocus(false);
         content.addView(password);
+        removal = PasswordRemovalReceiver.register(this, password);
         EditText ordinary = new EditText(this);
         ordinary.setId(1002);
         ordinary.setHint("Public fixture field");
@@ -57,5 +58,10 @@ public class MainActivity extends Activity {
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
+    }
+
+    @Override protected void onDestroy() {
+        unregisterReceiver(removal);
+        super.onDestroy();
     }
 }

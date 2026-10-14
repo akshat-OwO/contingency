@@ -1,6 +1,13 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -15,55 +22,39 @@ if (!sdk || !java) {
   );
 }
 const tools = path.join(sdk, "build-tools/36.0.0");
-const android = path.join(sdk, "platforms/android-36/android.jar");
 const owned = await mkdtemp(
   path.join(tmpdir(), "contingency-physical-fixture-")
 );
 const output = path.resolve(source, "../../artifacts/android-physical/build");
 try {
-  await mkdir(path.join(owned, "classes"));
-  await execute(path.join(java, "bin/javac"), [
-    "-classpath",
-    android,
-    "-d",
-    path.join(owned, "classes"),
-    path.join(source, "MainActivity.java"),
-    path.join(source, "ReplacementActivity.java"),
-  ]);
-  await execute(
-    path.join(tools, "d8"),
-    [
-      "--lib",
-      android,
-      "--output",
-      owned,
-      path.join(
-        owned,
-        "classes/dev/contingency/physicalfixture/MainActivity.class"
-      ),
-      path.join(
-        owned,
-        "classes/dev/contingency/physicalfixture/ReplacementActivity.class"
-      ),
-    ],
-    { env: { ...process.env, JAVA_HOME: java } }
+  await Promise.all(
+    ["build.gradle", "settings.gradle"].map((name) =>
+      copyFile(path.join(source, name), path.join(owned, name))
+    )
   );
-  const unsigned = path.join(owned, "unsigned.apk");
-  await execute(path.join(tools, "aapt"), [
-    "package",
-    "-f",
-    "-M",
-    path.join(source, "AndroidManifest.xml"),
-    "-I",
-    android,
-    "-F",
-    unsigned,
-  ]);
-  await execute(path.join(tools, "aapt"), ["add", unsigned, "classes.dex"], {
-    cwd: owned,
-  });
-  const aligned = path.join(owned, "aligned.apk");
-  await execute(path.join(tools, "zipalign"), ["-f", "4", unsigned, aligned]);
+  await writeFile(
+    path.join(owned, "gradle.properties"),
+    "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx1g\n"
+  );
+  await execute(
+    path.resolve(
+      source,
+      "../../../../../packages/cli/android/private-text-helper/gradlew"
+    ),
+    [
+      "--no-daemon",
+      "--quiet",
+      "--project-dir",
+      owned,
+      `-PfixtureSource=${source}`,
+      "assembleRelease",
+    ],
+    { env: { ...process.env, JAVA_HOME: java }, maxBuffer: 8 * 1024 * 1024 }
+  );
+  const aligned = path.join(
+    owned,
+    "build/outputs/apk/release/contingency-physical-fixture-release-unsigned.apk"
+  );
   const key = path.join(owned, "fixture.jks");
   await execute(path.join(java, "bin/keytool"), [
     "-genkeypair",

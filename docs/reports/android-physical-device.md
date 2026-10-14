@@ -14,13 +14,13 @@ Permission decisions belong to the taught environment and are retained with the 
 
 Workspace accepts a physical-device selection and renders a distinct clear-data request. It supports notification permission and additional `grant android.permission.NAME` or `revoke android.permission.NAME` declarations. Duplicate or malformed declarations are refused.
 
-## Physical private text limitation
+## Physical private text and widget limits
 
 PR [491](https://github.com/akshat-OwO/contingency/pull/491) proved exact private readback in the emulator's Settings password field. The disposable native fixture on the Nothing Phone 3a returns masked accessibility text. The helper reports `input_unverified`; the runtime returns `private_input_uncertain`, pauses, and does not retry. The host now retains that safe error reason without returning helper text or a private value.
 
 This behavior follows Android 16's [TextView accessibility implementation](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android16-release/core/java/android/widget/TextView.java), which exposes the transformed display text. Exact readback depends on the Target App's field implementation. The Settings emulator proof does not establish readback support for every password field.
 
-The maintainer authorized fixture installation, fixture-data clearing, app-scoped notification decisions, and pinned helper installation on the phone. They declined a separate Settings-dialog proof. No phone Settings proof is claimed. Issue [490](https://github.com/akshat-OwO/contingency/issues/490) remains open because a verified physical fill and exact helper readback are unproved within the authorized fixture. Private Variables remain unavailable in Workspace and Runs. Release-signing-key custody is unchanged and remains open.
+The maintainer authorized fixture installation, fixture-data clearing, app-scoped notification decisions, and pinned helper installation on the phone. They declined a separate Settings-dialog proof. No phone Settings proof is claimed. The expanded fixture now proves exact physical readback from a stock Material password widget, as recorded in [the private-text report](android-private-text.md#physical-widget-proof). Native password readback remains uncertain. Private Variables remain unavailable in Workspace and Runs. The existing signing key has a Bitwarden backup whose restored private key passed the signer check.
 
 ## Verification
 
@@ -47,3 +47,11 @@ Two new regressions failed before the fix: active user 10 with the app installed
 The final fixture rerun passed on both Pixel_9 and the Nothing Phone 3a under owner user 0. Phone preparation proved consent refusal, persistent-data clearing, notification grant and denial, and fresh observations. This phone attempt also passed semantic continuation after uncertain private input, all refusal checks, and sentinel audits. It still returned `input_unverified`, so exact physical private readback remains unproved and #490 stays open. This successful attempt does not establish the cause of the original post-fill semantic failure.
 
 Both reruns preserved package, IME, and forward baselines and left no private helper process. Receipts are under `profile-fix-phone/` and `profile-fix-emulator/`. The production Workspace consent explicitly named owner user 0, the fixture package, and serial; refusal blocked preparation. Its screenshot and ARIA readback are under `profile-fix-ui/`. The session and isolated UI instance were closed and the proof-installed fixture removed. No secondary users were created or switched on the phone; those refusal paths use deterministic ADB simulations. USB unplug was not repeated for this revision. The original live disconnect proof remains recorded separately.
+
+## Stock Material private-readback revision
+
+The #490 fixture revision adds stock Material Components 1.13.0 password widgets without a custom accessibility delegate or private readback API. The Nothing Phone 3a completed the expanded fixture proof on 2026-10-14. Material returned `verified` after exact internal readback. Native masking and a same-length filtered Material value returned `private_input_uncertain`, paused, and required recovery without retry. All three controls continued semantic actions in the same agent-device session. Stale observations, ordinary fields, removed fields, and before/after-bind window changes were refused.
+
+Sentinel audits passed for device and host process arguments, logcat, observations, and host diagnostics. Screenshots remained masked and password nodes were named `Private field`. Cleanup preserved package, IME, and forward baselines and left no private helper process. The owned Device panel stream and its forward were stopped separately after runtime cleanup. The daily phone remained connected and running. This revision repeated no disconnect or Workspace path and made no phone Settings or profile changes. The earlier live proofs remain recorded above.
+
+The [widget evidence receipt](android-private-text-widget-evidence.json) records this revision independently of the original failed semantic attempt and the profile-scoping rerun. The failed fixture-removal and focus attempts are retained under ignored `artifacts/android-private-text-490/`; they exposed proof synchronization and parent-container errors. They do not establish the cause of the original semantic failure.
