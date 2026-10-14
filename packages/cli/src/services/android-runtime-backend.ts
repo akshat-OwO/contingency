@@ -306,6 +306,7 @@ const privateTextBinding = (
   const { rect } = node;
   if (
     node.editable !== true ||
+    node.password !== true ||
     node.bundleId === undefined ||
     node.type === undefined ||
     rect === undefined
@@ -608,6 +609,10 @@ export const acquireAndroidBackend = (
           Effect.gen(function* captureAndroid() {
             cleanupRegistry.set(privateTargets, new Map());
             yield* validate();
+            // Fields bind to a window only when it stayed focused across the snapshot.
+            const windowBefore = privateText
+              ? yield* requireOwnership(input)
+              : null;
             const snapshot = yield* io(
               (signal) =>
                 client.capture.snapshot({
@@ -682,8 +687,10 @@ export const acquireAndroidBackend = (
                 image: image.toString("base64"),
               },
             };
-            if (privateText) {
-              const focusedWindow = yield* requireOwnership(input);
+            const focusedWindow = privateText
+              ? yield* requireOwnership(input)
+              : null;
+            if (focusedWindow !== null && focusedWindow === windowBefore) {
               cleanupRegistry.set(
                 privateTargets,
                 new Map(
@@ -717,14 +724,26 @@ export const acquireAndroidBackend = (
             }
             yield* validate();
             // A different focused window means the observed field may be gone.
-            if ((yield* requireOwnership(input)) !== binding.focusedWindow) {
-              return yield* Effect.fail(platformRuntimeError("target_changed"));
-            }
+            const requireWindow = requireOwnership(input).pipe(
+              Effect.flatMap((window) =>
+                window === binding.focusedWindow
+                  ? Effect.void
+                  : Effect.fail(platformRuntimeError("target_changed"))
+              )
+            );
             yield* enterAndroidPrivateText(privateTextHost, {
               binding,
+              requireWindow,
               targetApp: input.targetApp,
               value,
-            });
+            }).pipe(
+              // Retain the device lock: a helper process or forward may remain.
+              Effect.tapError((error) =>
+                error.code === "cleanup_failed"
+                  ? Effect.sync(() => cleanupRegistry.set(cleanupFailure, true))
+                  : Effect.void
+              )
+            );
           }),
         fill: (ref, text) =>
           io((signal) => fillPublic({ ...options(), ref, signal, text })).pipe(

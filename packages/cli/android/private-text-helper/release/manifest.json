@@ -3,7 +3,7 @@
   "instrumentation": "dev.contingency.privatetext/.PrivateText",
   "packageName": "dev.contingency.privatetext",
   "protocol": "contingency-private-text-v1",
-  "sha256": "da15f633942ab9df6cf8d5ed242617a624cad414fd0e2fbc37cee5969d562f14",
+  "sha256": "3391ecaff97427952b634419af52ed5b6debc12672b5f14a04eb7ccc5abe7796",
   "signingCertificateSha256": "f5aad901eaaa4ddc5d529021a435e6f357f32a75dc437f20e5de5eec4612b0de",
   "version": "1.0.0",
   "versionCode": 1

@@ -569,7 +569,8 @@ it.effect(
           })
         )).code
       ).toBe("observation_stale");
-      for (const target of ["@e1~s1", "@e4~s1", "missing"]) {
+      // @e2 is editable but not a password field: its capture would export the value.
+      for (const target of ["@e1~s1", "@e2~s1", "@e4~s1", "missing"]) {
         const observation = yield* declared.runtime.recover();
         expect(
           (yield* Effect.flip(

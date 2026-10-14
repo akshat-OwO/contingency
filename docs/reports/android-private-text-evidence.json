@@ -21,7 +21,7 @@
     "instrumentation": "dev.contingency.privatetext/.PrivateText",
     "packageName": "dev.contingency.privatetext",
     "protocol": "contingency-private-text-v1",
-    "sha256": "da15f633942ab9df6cf8d5ed242617a624cad414fd0e2fbc37cee5969d562f14",
+    "sha256": "3391ecaff97427952b634419af52ed5b6debc12672b5f14a04eb7ccc5abe7796",
     "signingCertificateSha256": "f5aad901eaaa4ddc5d529021a435e6f357f32a75dc437f20e5de5eec4612b0de",
     "version": "1.0.0",
     "versionCode": 1
@@ -89,6 +89,18 @@
       "outcome": "success"
     },
     {
+      "command": "recover before ordinary field",
+      "outcome": "success"
+    },
+    {
+      "command": "recover before window replacement",
+      "outcome": "success"
+    },
+    {
+      "command": "recover before replacement after bind",
+      "outcome": "success"
+    },
+    {
       "command": "recover before foreground change",
       "outcome": "success"
     },
@@ -103,54 +115,58 @@
   ],
   "observations": {
     "afterFill": {
-      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
-      "generation": 538709,
-      "id": "b287ffd7-10fe-41c7-b5f4-83dad87277b4",
+      "backendSessionId": "contingency-android-c1b70b30-8c2d-4950-9001-895ecaef0fdc",
+      "generation": 356431,
+      "id": "e6dd44f2-14ac-4c7e-8e97-7a8cec3e7759",
       "nodeCount": 173,
-      "screenshotSha256": "83deed8a0713921625a0f3d3e75a4d405b502b1c62b88f59d76f2d85acfc0fe7"
+      "screenshotSha256": "bd5d8790b969c1ceed6d86c2cb812a80f6f4e9aa18611fb3491f8a2fe7753c98"
     },
     "afterSemantic": {
-      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
-      "generation": 538710,
-      "id": "90e3111c-c2a7-4426-8d0b-ce044d0ac210",
+      "backendSessionId": "contingency-android-c1b70b30-8c2d-4950-9001-895ecaef0fdc",
+      "generation": 356432,
+      "id": "81b5456c-937e-465b-8045-1501e601a603",
       "nodeCount": 63,
-      "screenshotSha256": "d126cf6d5fc59c441c288592876167a124885d33a47e03b360a4a2664b13f6c8"
+      "screenshotSha256": "eb97f320a5ed80faf61696b03bd4202d8a80c51ef2f64c78dccb08ce8c9261c1"
     },
     "bound": {
-      "backendSessionId": "contingency-android-10e8191f-0d3c-4b67-8b79-ebf331e6e13d",
-      "generation": 538708,
-      "id": "ceab5cbc-08ca-41aa-9874-091e08cf0112",
+      "backendSessionId": "contingency-android-c1b70b30-8c2d-4950-9001-895ecaef0fdc",
+      "generation": 356430,
+      "id": "064ff09a-00c1-4e32-b6d8-133f9a3575f8",
       "nodeCount": 173,
-      "screenshotSha256": "048ad2432e5f84a8053ac40b60830f90d3593a78f9809986f6705a34f634fe82"
+      "screenshotSha256": "4a55093d3ce96b5dd3c84caa6b4b6bf253cb4cc2657e942f1da4c932777e06b3"
     }
   },
   "observeTimingsMs": {
-    "baseline": [2830, 2298, 2061, 1850],
-    "privateInput": [2433, 2266, 2145, 1946]
+    "baseline": [2104, 1936, 1928, 1905],
+    "privateInput": [2226, 2039, 2140, 1976]
   },
   "privateFill": {
     "outcome": "verified",
     "variable": "proof.wifiPassword"
   },
   "refusals": {
+    "enteredIntoReplacement": false,
     "fieldMismatch": "target_changed",
     "foreground": "ownership_unknown",
+    "ordinaryField": "target_unsupported",
     "resolvedValues": 0,
-    "stale": "observation_stale"
+    "stale": "observation_stale",
+    "windowAfterBind": ["target_changed", "window_changed"],
+    "windowBeforeBind": "target_changed"
   },
   "sentinel": {
     "hostDiagnostics": {
       "containedAfterFill": false,
       "containedBeforeClose": false,
       "directories": 1,
-      "files": 12
+      "files": 15
     },
     "logcatContained": false,
     "observationsContained": false,
     "processList": {
       "device": 8,
       "deviceContained": false,
-      "helperSeen": 1,
+      "helperSeen": 2,
       "host": 8,
       "hostContained": false
     },

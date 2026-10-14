@@ -65,7 +65,9 @@ export interface PlatformRuntimeError {
     | "stale_ref"
     | "device_not_found"
     | "request_canceled"
-    | "android_text_input_unverified";
+    | "android_text_input_unverified"
+    | "field_mismatch"
+    | "window_changed";
   readonly code:
     | "observation_stale"
     | "runtime_failed"

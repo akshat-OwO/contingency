@@ -95,6 +95,7 @@ public final class PrivateText extends Instrumentation {
             authorize(bind, "bind");
             Binding binding = new Binding(bind.getJSONObject("target"));
             // The value crosses to the device only after the bound field is found.
+            // Bind fixes the window: fill refuses any other window, even from the same app.
             binding.find(automation, target).recycle();
             write(output, new JSONObject().put("protocol", PROTOCOL).put("id", id).put("bound", true));
             JSONObject fill = new JSONObject(readLine(input));
@@ -138,6 +139,7 @@ public final class PrivateText extends Instrumentation {
     private static void fill(UiAutomation automation, Binding binding, String value, boolean[] sent) throws Exception {
         // Re-resolve immediately before input: the field may have changed since bind.
         AccessibilityNodeInfo node = binding.find(automation, binding.packageName);
+        if (node.getWindowId() != binding.windowId) throw new Failure("window_changed");
         try {
             Bundle arguments = new Bundle();
             arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
@@ -159,6 +161,7 @@ public final class PrivateText extends Instrumentation {
         final String className;
         final Rect bounds;
         final boolean password;
+        int windowId = -1;
 
         Binding(JSONObject target) throws Exception {
             packageName = target.getString("package");
@@ -174,6 +177,11 @@ public final class PrivateText extends Instrumentation {
             AccessibilityNodeInfo root = automation.getRootInActiveWindow();
             if (root == null || root.getPackageName() == null || !app.contentEquals(root.getPackageName())) {
                 throw new Failure("foreground_changed");
+            }
+            if (windowId == -1) {
+                windowId = root.getWindowId();
+            } else if (root.getWindowId() != windowId) {
+                throw new Failure("window_changed");
             }
             List<AccessibilityNodeInfo> matches = new ArrayList<>();
             collect(root, matches, 0, new int[] { 0 });

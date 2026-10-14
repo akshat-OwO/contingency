@@ -8,6 +8,7 @@ import {
   Effect,
   Queue,
   Redacted,
+  Ref,
   Schema,
   Scope,
 } from "effect";
@@ -93,8 +94,13 @@ const failure = (code: PlatformRuntimeError["code"]) =>
 /** Before any value is sent, a refusal leaves the field untouched. */
 const refusal = (error: string | undefined) => {
   switch (error) {
-    case "field_mismatch": {
-      return failure("target_changed");
+    case "field_mismatch":
+    case "window_changed": {
+      return Effect.fail({
+        ...platformRuntimeError("target_changed"),
+        backendReason: error,
+        operation: "private-text" as const,
+      });
     }
     case "foreground_changed": {
       return failure("ownership_unknown");
@@ -139,114 +145,154 @@ export const privateTextInstrumentationArgs = (
   androidPrivateTextRelease.instrumentation,
 ];
 
+export interface AndroidPrivateTextInput {
+  readonly targetApp: string;
+  readonly binding: AndroidPrivateTextBinding;
+  /** Fails unless the observed window is still focused. */
+  readonly requireWindow: Effect.Effect<void, PlatformRuntimeError>;
+  readonly value: Effect.Effect<
+    Redacted.Redacted<string>,
+    PlatformRuntimeError
+  >;
+}
+
+const enterOnce = (
+  host: AndroidPrivateTextHost,
+  input: AndroidPrivateTextInput,
+  cleanup: (
+    effect: Effect.Effect<unknown, PlatformRuntimeError>
+  ) => Effect.Effect<void>
+) =>
+  Effect.gen(function* enterPrivateText() {
+    const running = yield* host.adb([
+      "shell",
+      `pidof ${androidPrivateTextRelease.packageName} ${agentDeviceSnapshotHelperPackage} || true`,
+    ]);
+    if (running !== "") {
+      return yield* failure("helper_owned");
+    }
+    yield* input.requireWindow;
+    const token = randomBytes(24).toString("hex");
+    // Registered first, so it runs after the socket and forward are gone.
+    yield* Scope.addFinalizer(
+      yield* Scope.Scope,
+      cleanup(
+        host
+          .adb([
+            "shell",
+            "am",
+            "force-stop",
+            androidPrivateTextRelease.packageName,
+          ])
+          .pipe(
+            Effect.andThen(
+              host.adb([
+                "shell",
+                `pidof ${androidPrivateTextRelease.packageName} || true`,
+              ])
+            ),
+            Effect.flatMap((survivor) =>
+              survivor === "" ? Effect.void : failure("cleanup_failed")
+            )
+          )
+      )
+    );
+    const helper = yield* host.instrument(
+      privateTextInstrumentationArgs(token, input.targetApp)
+    );
+    const devicePort = yield* helper.ready;
+    const hostPort = yield* Effect.acquireRelease(
+      host
+        .adb(["forward", "tcp:0", `tcp:${devicePort}`])
+        .pipe(
+          Effect.flatMap((output) =>
+            /^\d{1,5}$/u.test(output)
+              ? Effect.succeed(Number(output))
+              : failure("helper_incompatible")
+          )
+        ),
+      (port) => cleanup(host.adb(["forward", "--remove", `tcp:${port}`]))
+    );
+    const connection = yield* host.connect(hostPort);
+    const message = (fields: HelperRequest) =>
+      JSON.stringify({
+        protocol: androidPrivateTextRelease.protocol,
+        token,
+        ...fields,
+      });
+    const bindId = randomUUID();
+    yield* connection.send(
+      message({
+        id: bindId,
+        op: "bind",
+        target: {
+          bounds: input.binding.bounds,
+          className: input.binding.className,
+          package: input.binding.packageName,
+          password: input.binding.password,
+          resourceId: input.binding.resourceId,
+        },
+      })
+    );
+    const bound = yield* decode(yield* connection.receive, bindId);
+    if (bound.bound !== true) {
+      return yield* refusal(bound.error);
+    }
+    // The helper fixed its window at bind; it must still be the observed one.
+    yield* input.requireWindow;
+    // A Variable that fails to resolve closes the socket; the helper times out without input.
+    const value = yield* input.value;
+    const fillId = randomUUID();
+    const filled = yield* connection
+      .send(message({ id: fillId, op: "fill", value: Redacted.value(value) }))
+      .pipe(
+        Effect.andThen(connection.receive),
+        Effect.flatMap((line) => decode(line, fillId)),
+        // Once the value may be on the device, every failure is uncertain.
+        Effect.mapError(() => ({
+          ...platformRuntimeError("private_input_uncertain"),
+          operation: "private-text" as const,
+        }))
+      );
+    if (filled.outcome !== "verified") {
+      return yield* filled.inputSent === false
+        ? refusal(filled.error)
+        : failure("private_input_uncertain");
+    }
+    yield* helper.exited.pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () => Effect.void,
+      })
+    );
+  });
+
 /**
  * Enters one private value through the Contingency helper.
  *
  * Android allows one UiAutomation connection, so this refuses while any
  * helper process runs and holds the device only for this one fill. The value
- * crosses to the device only after the helper has bound the observed field,
- * and only over the authenticated, forwarded loopback socket.
+ * crosses to the device only after the helper has bound the observed field in
+ * the observed window, and only over the authenticated, forwarded loopback
+ * socket. Failed cleanup is reported as `cleanup_failed`, never hidden.
  */
 export const enterAndroidPrivateText = (
   host: AndroidPrivateTextHost,
-  input: {
-    readonly targetApp: string;
-    readonly binding: AndroidPrivateTextBinding;
-    readonly value: Effect.Effect<
-      Redacted.Redacted<string>,
-      PlatformRuntimeError
-    >;
-  }
+  input: AndroidPrivateTextInput
 ): Effect.Effect<void, PlatformRuntimeError> =>
-  Effect.scoped(
-    Effect.gen(function* enterPrivateText() {
-      const running = yield* host.adb([
-        "shell",
-        `pidof ${androidPrivateTextRelease.packageName} ${agentDeviceSnapshotHelperPackage} || true`,
-      ]);
-      if (running !== "") {
-        return yield* failure("helper_owned");
-      }
-      const token = randomBytes(24).toString("hex");
-      // Registered first, so it runs after the socket and forward are gone.
-      yield* Scope.addFinalizer(
-        yield* Scope.Scope,
-        host
-          .adb([
-            "shell",
-            `pidof ${androidPrivateTextRelease.packageName} >/dev/null && am force-stop ${androidPrivateTextRelease.packageName} || true`,
-          ])
-          .pipe(Effect.ignore)
-      );
-      const helper = yield* host.instrument(
-        privateTextInstrumentationArgs(token, input.targetApp)
-      );
-      const devicePort = yield* helper.ready;
-      const hostPort = yield* Effect.acquireRelease(
-        host
-          .adb(["forward", "tcp:0", `tcp:${devicePort}`])
-          .pipe(
-            Effect.flatMap((output) =>
-              /^\d{1,5}$/u.test(output)
-                ? Effect.succeed(Number(output))
-                : failure("helper_incompatible")
-            )
-          ),
-        (port) =>
-          host.adb(["forward", "--remove", `tcp:${port}`]).pipe(Effect.ignore)
-      );
-      const connection = yield* host.connect(hostPort);
-      const message = (fields: HelperRequest) =>
-        JSON.stringify({
-          protocol: androidPrivateTextRelease.protocol,
-          token,
-          ...fields,
-        });
-      const bindId = randomUUID();
-      yield* connection.send(
-        message({
-          id: bindId,
-          op: "bind",
-          target: {
-            bounds: input.binding.bounds,
-            className: input.binding.className,
-            package: input.binding.packageName,
-            password: input.binding.password,
-            resourceId: input.binding.resourceId,
-          },
-        })
-      );
-      const bound = yield* decode(yield* connection.receive, bindId);
-      if (bound.bound !== true) {
-        return yield* refusal(bound.error);
-      }
-      // A Variable that fails to resolve closes the socket; the helper times out without input.
-      const value = yield* input.value;
-      const fillId = randomUUID();
-      const filled = yield* connection
-        .send(message({ id: fillId, op: "fill", value: Redacted.value(value) }))
-        .pipe(
-          Effect.andThen(connection.receive),
-          Effect.flatMap((line) => decode(line, fillId)),
-          // Once the value may be on the device, every failure is uncertain.
-          Effect.mapError(() => ({
-            ...platformRuntimeError("private_input_uncertain"),
-            operation: "private-text" as const,
-          }))
-        );
-      if (filled.outcome !== "verified") {
-        return yield* filled.inputSent === false
-          ? refusal(filled.error)
-          : failure("private_input_uncertain");
-      }
-      yield* helper.exited.pipe(
-        Effect.timeoutOrElse({
-          duration: "10 seconds",
-          orElse: () => Effect.void,
-        })
-      );
-    })
-  );
+  Effect.gen(function* enterWithCleanup() {
+    const cleanupFailed = yield* Ref.make(false);
+    // Every cleanup step runs; any failure is retained, not retried.
+    const cleanup = (effect: Effect.Effect<unknown, PlatformRuntimeError>) =>
+      effect.pipe(Effect.catchCause(() => Ref.set(cleanupFailed, true)));
+    const result = yield* Effect.exit(
+      Effect.scoped(enterOnce(host, input, cleanup))
+    );
+    if (yield* Ref.get(cleanupFailed)) {
+      return yield* failure("cleanup_failed");
+    }
+    return yield* result;
+  });
 
 /** Real ADB host bound to one serial. Child output never leaves this module. */
 export const makeAndroidPrivateTextHost = (

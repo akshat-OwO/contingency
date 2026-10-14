@@ -40,6 +40,10 @@ interface Reply {
 /** A scripted helper. Every message the host sends or the device receives is journaled. */
 const fakeHelper = (options: {
   readonly running?: string;
+  /** Whether the observed window is still focused, per check in order. */
+  readonly windows?: readonly boolean[];
+  readonly survivor?: string;
+  readonly failForwardRemoval?: boolean;
   readonly ready?: Effect.Effect<number, PlatformRuntimeError>;
   readonly bind?: () => Reply | null;
   readonly fill?: () => Reply | null;
@@ -48,17 +52,33 @@ const fakeHelper = (options: {
   const instrumentCalls: string[][] = [];
   const sent: SentMessage[] = [];
   const resolutions: string[] = [];
+  let windowChecks = 0;
+  const requireWindow = Effect.suspend(() => {
+    const focused = options.windows?.[windowChecks] ?? true;
+    windowChecks += 1;
+    return focused
+      ? Effect.void
+      : Effect.fail(platformRuntimeError("target_changed"));
+  });
   const host: AndroidPrivateTextHost = {
     adb: (args) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         adbCalls.push([...args]);
         if (args[0] === "forward" && args[1] === "tcp:0") {
-          return "41000";
+          return Effect.succeed("41000");
         }
-        if (args[1]?.startsWith("pidof") && !args[1].includes("force-stop")) {
-          return options.running ?? "";
+        if (args[0] === "forward" && options.failForwardRemoval === true) {
+          return Effect.fail(platformRuntimeError("device_disconnected"));
         }
-        return "";
+        if (args[1]?.startsWith("pidof")) {
+          // The startup check names both helpers; the cleanup check names one.
+          return Effect.succeed(
+            args[1].includes(" com.")
+              ? (options.running ?? "")
+              : (options.survivor ?? "")
+          );
+        }
+        return Effect.succeed("");
       }),
     connect: () =>
       Effect.gen(function* connect() {
@@ -104,12 +124,21 @@ const fakeHelper = (options: {
     resolutions.push("resolved");
     return Redacted.make(secret);
   });
-  return { adbCalls, host, instrumentCalls, resolutions, sent, value };
+  return {
+    adbCalls,
+    host,
+    instrumentCalls,
+    requireWindow,
+    resolutions,
+    sent,
+    value,
+  };
 };
 
 const enter = (helper: ReturnType<typeof fakeHelper>) =>
   enterAndroidPrivateText(helper.host, {
     binding,
+    requireWindow: helper.requireWindow,
     targetApp: "dev.fixture",
     value: helper.value,
   });
@@ -152,9 +181,10 @@ it.effect(
         "--remove",
         "tcp:41000",
       ]);
-      expect(helper.adbCalls.at(-1)?.[1]).toContain(
-        `am force-stop ${androidPrivateTextRelease.packageName}`
-      );
+      expect(helper.adbCalls.slice(-2)).toEqual([
+        ["shell", "am", "force-stop", androidPrivateTextRelease.packageName],
+        ["shell", `pidof ${androidPrivateTextRelease.packageName} || true`],
+      ]);
     })
 );
 
@@ -259,4 +289,63 @@ it.effect("frames newline-delimited helper responses over a real socket", () =>
     expect(yield* connection.receive).toBe('{"a":1}');
     expect(yield* connection.receive).toBe('{"b":2}');
   }).pipe(Effect.scoped, Effect.timeout("30 seconds"))
+);
+
+it.effect(
+  "refuses a replacement window before bind or before the value resolves",
+  () =>
+    Effect.gen(function* replacedWindow() {
+      const beforeBind = fakeHelper({ windows: [false] });
+      expect((yield* Effect.flip(enter(beforeBind))).code).toBe(
+        "target_changed"
+      );
+      expect(beforeBind.instrumentCalls).toEqual([]);
+      expect(beforeBind.resolutions).toEqual([]);
+
+      const afterBind = fakeHelper({
+        bind: () => ({ bound: true }),
+        windows: [true, false],
+      });
+      expect((yield* Effect.flip(enter(afterBind))).code).toBe(
+        "target_changed"
+      );
+      expect(afterBind.resolutions).toEqual([]);
+      expect(afterBind.sent.map((message) => message.op)).toEqual(["bind"]);
+
+      // The helper itself refuses a window that differs from the one it bound.
+      const atFill = fakeHelper({
+        bind: () => ({ bound: true }),
+        fill: () => ({ error: "window_changed", inputSent: false }),
+      });
+      expect((yield* Effect.flip(enter(atFill))).code).toBe("target_changed");
+    })
+);
+
+it.effect(
+  "reports failed cleanup after verified input and still runs every step",
+  () =>
+    Effect.gen(function* failedCleanup() {
+      const forward = fakeHelper({
+        bind: () => ({ bound: true }),
+        failForwardRemoval: true,
+        fill: () => ({ inputSent: true, outcome: "verified" }),
+      });
+      expect((yield* Effect.flip(enter(forward))).code).toBe("cleanup_failed");
+      expect(forward.adbCalls).toContainEqual([
+        "shell",
+        "am",
+        "force-stop",
+        androidPrivateTextRelease.packageName,
+      ]);
+      const survivor = fakeHelper({
+        bind: () => ({ bound: true }),
+        fill: () => ({ inputSent: true, outcome: "verified" }),
+        survivor: "9001",
+      });
+      expect((yield* Effect.flip(enter(survivor))).code).toBe("cleanup_failed");
+      expect(survivor.sent.map((message) => message.op)).toEqual([
+        "bind",
+        "fill",
+      ]);
+    })
 );

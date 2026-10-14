@@ -180,7 +180,9 @@ export const adaptAndroidRuntime = (input: {
               node === undefined ||
               node.packageName !== input.startup.targetApp ||
               node.covered ||
-              !node.editable
+              !node.editable ||
+              // Captures redact only password fields; a value elsewhere would be exported.
+              !node.password
             ) {
               return yield* Effect.fail(
                 platformRuntimeError("target_unsupported")

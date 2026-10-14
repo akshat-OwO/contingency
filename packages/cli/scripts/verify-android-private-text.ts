@@ -124,12 +124,17 @@ const grant = <Sha extends string>(
     ? { operation, serial: selected, sha256 }
     : undefined;
 
+const dumpScreen = Effect.gen(function* dump() {
+  yield* adb(["shell", "uiautomator", "dump", "/sdcard/contingency-490.xml"]);
+  const xml = yield* adb(["shell", "cat", "/sdcard/contingency-490.xml"]);
+  yield* adb(["shell", "rm", "-f", "/sdcard/contingency-490.xml"]);
+  return xml;
+});
+
 /** UI Automator dump between helper turns locates a control for an external change. */
-const tapText = (text: string) =>
-  Effect.gen(function* externalTap() {
-    yield* adb(["shell", "uiautomator", "dump", "/sdcard/contingency-490.xml"]);
-    const xml = yield* adb(["shell", "cat", "/sdcard/contingency-490.xml"]);
-    yield* adb(["shell", "rm", "-f", "/sdcard/contingency-490.xml"]);
+const locate = (text: string) =>
+  Effect.gen(function* locateText() {
+    const xml = yield* dumpScreen;
     const escaped = text.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
     const match = new RegExp(
       `text="${escaped}"[^>]*?bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"`,
@@ -139,14 +144,19 @@ const tapText = (text: string) =>
       return yield* Effect.fail(new Error(`No on-screen control "${text}".`));
     }
     const [left, top, right, bottom] = match.slice(1).map(Number);
-    yield* adb([
-      "shell",
-      "input",
-      "tap",
-      String(Math.round(((left ?? 0) + (right ?? 0)) / 2)),
-      String(Math.round(((top ?? 0) + (bottom ?? 0)) / 2)),
-    ]);
+    return [
+      Math.round(((left ?? 0) + (right ?? 0)) / 2),
+      Math.round(((top ?? 0) + (bottom ?? 0)) / 2),
+    ] as const;
   });
+
+/** Taps a point found earlier; usable while the helper holds UiAutomation. */
+const tapAt = ([x, y]: readonly [number, number]) =>
+  adb(["shell", "input", "tap", String(x), String(y)]).pipe(
+    Effect.andThen(Effect.sleep("1500 millis"))
+  );
+
+const tapText = (text: string) => Effect.flatMap(locate(text), tapAt);
 
 const deviceState = Effect.all({
   defaultInputMethod: adb([
@@ -303,6 +313,22 @@ Effect.scoped(
     yield* activate(yield* observe("observe Wi-Fi settings"), /^Add network$/u);
     yield* tapText("None");
     yield* tapText("WPA/WPA2-Personal");
+    // A new Settings window from the same app covers the dialog; Back returns to it.
+    // (WIFI_SETTINGS would be delivered to the existing window instead.)
+    const replaceWindow = adb([
+      "shell",
+      "am",
+      "start",
+      "-W",
+      "-a",
+      "android.settings.DEVICE_INFO_SETTINGS",
+    ]).pipe(Effect.andThen(Effect.sleep("1500 millis")));
+    const returnToDialog = adb([
+      "shell",
+      "input",
+      "keyevent",
+      "KEYCODE_BACK",
+    ]).pipe(Effect.andThen(Effect.sleep("1500 millis")));
 
     // Sentinel: generated here, entered once, then searched for everywhere.
     const sentinel = `ctg${randomBytes(12).toString("hex")}`;
@@ -395,14 +421,78 @@ Effect.scoped(
         ...variable("proof.mismatch"),
       })
     );
+    // Restore WPA so the dialog has a password field again.
+    yield* tapText("None");
+    yield* tapText("WPA/WPA2-Personal");
+    const ordinaryObservation = yield* audit(
+      "recover before ordinary field",
+      runtime.recover()
+    );
+    const ordinaryTarget = yield* find(
+      ordinaryObservation,
+      (node) => node.editable && !node.password,
+      "ordinary editable field"
+    );
+    const ordinaryField = (yield* Effect.flip(
+      runtime.enterPrivate(ordinaryObservation.id, {
+        target: ordinaryTarget.target,
+        ...variable("proof.ordinary"),
+      })
+    )).code;
+    const replacedBeforeBind = yield* audit(
+      "recover before window replacement",
+      runtime.recover()
+    );
+    const beforeBindTarget = yield* find(
+      replacedBeforeBind,
+      (node) => node.password && node.editable,
+      "password field before replacement"
+    );
+    yield* replaceWindow;
+    const windowBeforeBind = yield* Effect.flip(
+      runtime.enterPrivate(replacedBeforeBind.id, {
+        target: beforeBindTarget.target,
+        ...variable("proof.windowBeforeBind"),
+      })
+    );
+    yield* returnToDialog;
+    // The value resolves after bind; a new window covers the dialog before the helper fills.
+    const replacedAfterBind = yield* audit(
+      "recover before replacement after bind",
+      runtime.recover()
+    );
+    const afterBindTarget = yield* find(
+      replacedAfterBind,
+      (node) => node.password && node.editable,
+      "password field before replacement after bind"
+    );
+    const afterBindSentinel = `ctg${randomBytes(12).toString("hex")}`;
+    const windowAfterBind = yield* Effect.flip(
+      runtime.enterPrivate(replacedAfterBind.id, {
+        target: afterBindTarget.target,
+        value: replaceWindow.pipe(
+          Effect.mapError(() => ({
+            _tag: "PlatformRuntimeError" as const,
+            code: "runtime_failed" as const,
+            message: "Proof could not replace the window.",
+          })),
+          Effect.as(Redacted.make(afterBindSentinel))
+        ),
+        variable: "proof.windowAfterBind",
+      })
+    );
+    yield* returnToDialog;
+    const enteredIntoReplacement = (yield* dumpScreen).includes(
+      afterBindSentinel
+    );
     const foregroundObservation = yield* audit(
       "recover before foreground change",
       runtime.recover()
     );
     const ssid = yield* find(
       foregroundObservation,
-      (node) => node.editable,
-      "editable field before foreground change"
+      (node) => node.editable && node.password,
+      "password field before foreground change"
     );
     yield* adb([
       "shell",
@@ -420,7 +510,7 @@ Effect.scoped(
         ...variable("proof.foreground"),
       })
     );
-    const refusalsResolved = resolutions.length - refusalResolutions;
+    const foregroundResolved = resolutions.length - refusalResolutions;
 
     // Return to Settings and close the dialog without saving.
     yield* adb([
@@ -486,10 +576,14 @@ Effect.scoped(
       },
       privateFill: filled,
       refusals: {
+        enteredIntoReplacement,
         fieldMismatch: fieldMismatch.code,
         foreground: foreground.code,
-        resolvedValues: refusalsResolved,
+        ordinaryField,
+        resolvedValues: foregroundResolved,
         stale: stale.code,
+        windowAfterBind: [windowAfterBind.code, windowAfterBind.backendReason],
+        windowBeforeBind: windowBeforeBind.code,
       },
       sentinel: {
         hostDiagnostics: {
@@ -526,4 +620,12 @@ Effect.scoped(
       );
     });
   })
-).pipe(NodeRuntime.runMain);
+).pipe(
+  // A failed proof still reports how far it got, without outcomes' contents.
+  Effect.tapError(() =>
+    Effect.sync(() => {
+      process.stderr.write(`${JSON.stringify(journal)}\n`);
+    })
+  ),
+  NodeRuntime.runMain
+);

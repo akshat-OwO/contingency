@@ -13,7 +13,7 @@ Android allows one UiAutomation connection at a time. Two experiments on the Pix
 
 Sharing would need a change to agent-device's helper or a fork. Both are out of scope. The runtime therefore launches its private agent-device daemon in one-shot mode when the Run requires `private-input`, and only then. The pinned agent-device 0.21.25 daemon reads this variable. The runtime still removes every other `AGENT_DEVICE_*` variable.
 
-One-shot capture has no measurable cost at the runtime level. Four observations took 1,850–2,830 ms with the persistent session, and four took 1,946–2,433 ms in one-shot mode. Screenshot transfer and ownership checks dominate both.
+One-shot capture has no measurable cost at the runtime level. Four observations took 1,905–2,104 ms with the persistent session, and four took 1,976–2,226 ms in one-shot mode. Screenshot transfer and ownership checks dominate both.
 
 The runtime serializes observation, actions, recovery, and private fills on one lock, so the turns never overlap. Before it starts the private text helper, the host refuses with `helper_owned` if either helper process is already running. If agent-device's helper still connects first, the private text helper reports `automation_busy` and exits. The host maps that to `helper_owned` too, and no value has been sent.
 
@@ -27,9 +27,10 @@ One fill is one helper lifetime:
 
 1. The host starts `am instrument` with an ephemeral 48-character token and the target package. These are the only instrumentation arguments.
 2. The helper binds an ephemeral loopback port and reports it as instrumentation status. The host forwards a host port to it with `adb forward tcp:0`.
-3. **Bind.** The host sends the observed field: package, resource ID, class, bounds, and password flag. The helper requires the active window to belong to the target app. It requires exactly one enabled, visible, editable node matching all five properties. A failure returns `field_mismatch` or `foreground_changed`, with `inputSent: false`.
-4. **Fill.** Only after a successful bind does the host resolve the Variable and send the value over the socket. The helper re-resolves the node, sets the text with `ACTION_SET_TEXT`, refreshes it, and requires the text to equal the value exactly. It reports `verified`, or an error with `inputSent: true`.
-5. The helper exits. Scoped finalizers close the socket, remove the forward, and force-stop the helper package if it is still running.
+3. **Bind.** The host sends the observed field: package, resource ID, class, bounds, and password flag. The helper requires the active window to belong to the target app. It requires exactly one enabled, visible, editable node matching all five properties. It records that window's accessibility window ID. A failure returns `field_mismatch` or `foreground_changed`, with `inputSent: false`.
+4. **Window check.** The host checks again that the focused window is the one recorded at capture. The capture binds fields only if the same window was focused before and after the snapshot. The host also checks before it starts the helper.
+5. **Fill.** Only now does the host resolve the Variable and send the value over the socket. The helper requires the active window and the re-resolved node to have the window ID recorded at bind; otherwise it returns `window_changed` without input. It sets the text with `ACTION_SET_TEXT`, refreshes the node, and requires the text to equal the value exactly. It reports `verified`, or an error with `inputSent: true`.
+6. The helper exits. Finalizers close the socket, remove the forward, force-stop the helper package, and confirm no helper process remains. Each step runs even if an earlier one fails. Any failure returns `cleanup_failed`, even after a verified fill, and the backend keeps its device lock for inspection.
 
 On API 36, UiAutomation reads a password field's real text, so readback is exact rather than a length comparison. A device that masks password text to UiAutomation returns `input_unverified`. That result is uncertain, not verified.
 
@@ -41,12 +42,16 @@ On API 36, UiAutomation reads a password field's real text, so readback is exact
 | --- | --- | --- | --- |
 | Observation already consumed or replaced | `observation_stale` | No | No |
 | Runtime started without `private-input` | `capability_missing` | No | No |
-| Target absent, covered, foreign, or not editable | `target_unsupported` | No | No |
-| Focused window differs from the observation | `target_changed` | No | No |
-| Helper cannot find exactly the bound field | `target_changed` | No | No |
+| Target absent, covered, foreign, not editable, or not a password field | `target_unsupported` | No | No |
+| Focused window differs from the observation, before or after bind | `target_changed` | No | No |
+| Helper cannot find exactly the bound field | `target_changed` (`field_mismatch`) | No | No |
+| Active window changed between bind and fill | `target_changed` (`window_changed`) | Yes | No |
 | Foreground left the target app | `ownership_unknown` | No | No |
 | Either helper already running | `helper_owned` | No | No |
 | Failure after the fill request was sent | `private_input_uncertain` | Yes | Possibly |
+| Forward removal or helper stop failed | `cleanup_failed` | Yes | Possibly |
+
+Only password fields are accepted. Observations name a password field `Private field`, and its screenshot shows a mask. Any other field would show the value in the next observation's node names and screenshot.
 
 Every failure pauses the runtime and invalidates the observation, as other dispatch failures do. The runtime never retries a fill. After `private_input_uncertain`, the caller must observe before continuing. A verified fill also leaves the outcome `uncertain` until a fresh observation.
 
@@ -60,10 +65,11 @@ On 2026-10-14, `packages/cli/scripts/verify-android-private-text.ts` ran on the 
 
 - **Installation consent.** Startup without `privateTextGrant` failed with `installation_denied`. The proof then installed the helper under an exact grant and uninstalled it at the end.
 - **Sentinel fill.** A generated 27-character value entered the password field and returned `verified`.
-- **Process lists.** During the fill, the runner took 8 device `ps -A -o ARGS` samples and 8 host `ps -axo args` samples. One device sample showed the helper running. No sample contained the value.
-- **Logs and diagnostics.** Device logcat from just before the fill did not contain the value. Neither did any of the 12 files in the runtime's private agent-device directory, read after the fill and again before close. Neither did any full observation, including node names, or the receipt.
+- **Process lists.** During the fill, the runner took 8 device `ps -A -o ARGS` samples and 8 host `ps -axo args` samples. Two device samples showed the helper running. No sample contained the value.
+- **Logs and diagnostics.** Device logcat from just before the fill did not contain the value. Neither did any of the 15 files in the runtime's private agent-device directory, read after the fill and again before close. Neither did any full observation, including node names, or the receipt.
 - **Session kept.** After the fill, the runtime observed and activated **Advanced options** through agent-device. All observations carried the same agent-device session ID, with no recovery between them.
-- **Refusals.** A consumed observation returned `observation_stale`. After the proof changed the security type to None outside Contingency, the password field disappeared and the fill returned `target_changed`. After moving to the Home screen, the fill returned `ownership_unknown`. None of the three resolved the value.
+- **Refusals.** A consumed observation returned `observation_stale`. After the proof changed the security type to None outside Contingency, the password field disappeared and the fill returned `target_changed`. A non-password editable field (Network name) returned `target_unsupported`. Opening Device info over the dialog before the fill returned `target_changed` from the host's window check. After moving to the Home screen, the fill returned `ownership_unknown`. None of these five resolved the value.
+- **Window replaced after bind.** The proof's Variable opened Device info over the dialog while it resolved, after the helper had bound the field. The helper returned `window_changed` with no input. After returning to the dialog, a UI Automator dump showed that this second generated value had not been entered.
 - **Cleanup.** After close, ADB forwards for the serial, the default and enabled input methods, and the saved Wi-Fi networks all matched their values before the proof. No helper process remained.
 
 Traces and the Teaching Timeline were not checked because this path produces neither. Android Teaching capture is unsupported, and private Variables are not wired into Workspace.
