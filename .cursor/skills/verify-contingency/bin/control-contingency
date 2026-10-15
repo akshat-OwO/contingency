@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import {
+  appendFileSync,
   closeSync,
   existsSync,
   mkdirSync,
@@ -1363,15 +1364,88 @@ const cmdCleanup = async () => {
 /** What `browser input-check` types into its fixture field. */
 const INPUT_CHECK_TEXT = "Rapid_typing@123";
 
+/**
+ * Send one native tool call through the broker. Under the single-tool
+ * interface (`CONTINGENCY_MCP_INTERFACE=single-tool` on `mcp start`), the call
+ * becomes one `agent_code_execute` program that awaits that operation alone,
+ * and its answer is translated back into the native result: the operation's
+ * value, its refusal, or the value the interrupted operation returned with an
+ * intervention. Each execution's status and receipts, never its parameters,
+ * are appended to `single-tool.jsonl` in the verify directory.
+ */
+const brokerTool = async (instance, tool, params) => {
+  const send = async (name, args) => {
+    const response = await fetch(`${instance.brokerUrl}call`, {
+      body: JSON.stringify({ params: args, tool: name }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      fail(`${name} failed (${response.status}): ${body}`);
+    }
+    return JSON.parse(body);
+  };
+  if (
+    instance.mcpInterface !== "single-tool" ||
+    tool === "agent_code_execute"
+  ) {
+    return send(tool, params);
+  }
+  if (!/^[a-z_]+$/u.test(tool)) {
+    fail(`${tool} is not an operation name.`);
+  }
+  const code = `const input = ${JSON.stringify(params)};
+try {
+  return { ok: true, value: await tools.${tool}(input) };
+} catch (error) {
+  return { message: error instanceof Error ? error.message : String(error), ok: false };
+}`;
+  const started = Date.now();
+  const raw = await send("agent_code_execute", { code, timeoutMs: 120_000 });
+  const execution = raw.structuredContent ?? {};
+  const answer = (text, isError) => ({
+    content: [{ text, type: "text" }],
+    isError,
+  });
+  appendFileSync(
+    path.join(verifyDir(), "single-tool.jsonl"),
+    `${JSON.stringify({
+      at: new Date(started).toISOString(),
+      diagnostic: execution.diagnostic,
+      durationMs: Date.now() - started,
+      intervention: execution.intervention,
+      receipts: execution.receipts,
+      responseBytes: Buffer.byteLength(JSON.stringify(raw)),
+      status: execution.status,
+      tool,
+      truncated: execution.truncated,
+    })}\n`
+  );
+  if (execution.status === "intervention") {
+    return answer(JSON.stringify(execution.value), false);
+  }
+  if (execution.status === "completed" && execution.truncated !== true) {
+    const { message, ok, value } = execution.value ?? {};
+    return ok === true
+      ? answer(JSON.stringify(value), false)
+      : answer(String(message), true);
+  }
+  if (
+    execution.status === "program_failed" &&
+    execution.diagnostic?.kind === "UnknownTool"
+  ) {
+    return answer(execution.diagnostic.message, true);
+  }
+  return fail(
+    `${tool} through agent_code_execute ended ${execution.status}: ${JSON.stringify(execution.diagnostic ?? raw)}`
+  );
+};
+
 /** Call one MCP tool on the running broker and answer its decoded result. */
 const brokerCall = async (instance, tool, params) => {
-  const response = await fetch(`${instance.brokerUrl}call`, {
-    body: JSON.stringify({ params, tool }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
-  const result = await response.json();
-  if (!response.ok || result.isError === true) {
+  const result = await brokerTool(instance, tool, params);
+  if (result.isError === true) {
     fail(`${tool} failed: ${JSON.stringify(result)}`);
   }
   const text = result.content?.find((entry) => entry.type === "text")?.text;
@@ -1836,6 +1910,7 @@ const cmdMcpStart = async () => {
   writeInstance(directory, {
     ...instance,
     brokerUrl,
+    mcpInterface: process.env.CONTINGENCY_MCP_INTERFACE ?? "native",
     mcpPid: child.pid,
     mcpPort: port,
     mcpUrl,
@@ -1869,16 +1944,8 @@ const cmdMcpCall = async (flags) => {
       );
     }
   }
-  const response = await fetch(`${instance.brokerUrl}call`, {
-    body: JSON.stringify({ params, tool }),
-    headers: { "content-type": "application/json" },
-    method: "POST",
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    fail(`${tool} failed (${response.status}): ${body}`);
-  }
-  const result = JSON.parse(body);
+  const result = await brokerTool(instance, tool, params);
+  const body = JSON.stringify(result);
   // A tool refusal is an answer, not a transport failure: it is printed with a
   // non-zero exit so a drive can assert on the reason it names.
   const text = (result.content ?? [])
