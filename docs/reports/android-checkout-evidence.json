@@ -1,0 +1,177 @@
+{
+  "blockers": [],
+  "builds": [
+    {
+      "appId": "dev.contingency.checkout",
+      "appBuild": "1",
+      "versionName": "1.0.0",
+      "sha256": "d60ccb9283c654f958e881603c7516e1b33ae745fb23f83548a7cbd128a765d6",
+      "variant": "working"
+    },
+    {
+      "appId": "dev.contingency.checkout",
+      "appBuild": "2",
+      "versionName": "2.0.0",
+      "sha256": "224251481a50f38a42d2c071cefe33367fe63f76b7386ebc9a682ca658b4d92c",
+      "variant": "changed"
+    },
+    {
+      "appId": "dev.contingency.checkout",
+      "appBuild": "3",
+      "versionName": "3.0.0",
+      "sha256": "a5efcf22768210aba5476231ab84f67bb3ca1936bfdb6a33365e584c922bfe11",
+      "variant": "broken"
+    }
+  ],
+  "coverage": {
+    "teaching": {
+      "actions": [
+        "Enter public fixture text in text-field Shopper name",
+        "Activate button Sign in",
+        "Activate button Add Anvil to cart",
+        "Activate button Open cart",
+        "Activate button Place mock order"
+      ],
+      "entries": [
+        "started",
+        "keyframe",
+        "keyframe",
+        "action:Enter public fixture text in text-field Shopper name",
+        "keyframe",
+        "keyframe",
+        "action:Activate button Sign in",
+        "keyframe",
+        "instruction",
+        "keyframe",
+        "action:Activate button Add Anvil to cart",
+        "keyframe",
+        "keyframe",
+        "action:Activate button Open cart",
+        "keyframe",
+        "keyframe",
+        "action:Activate button Place mock order",
+        "keyframe",
+        "instruction",
+        "stopped"
+      ],
+      "instructions": [
+        "Sign in with the public fixture shopper name.",
+        "Checkout is done when Order confirmed is visible. The mock order takes no payment."
+      ],
+      "recordingId": "recording-2e9c6a7d-3b70-4548-af46-cb54cd9f3891"
+    },
+    "refusals": {
+      "coordinate": "agent_android_workspace failed (502): {\"error\":{\"code\":-32602,\"message\":\"Invalid parameters for tool 'agent_android_workspace': Expected { readonly \\\"_tag\\\": \\\"activate\\\", ... } | { readonly \\\"_tag\\\": \\\"fill\\\", ... } | { readonly \\\"_tag\\\": \\\"back\\\", ... }\\n  at [\\\"command\\\"][\\\"action\\\"]\"}}",
+      "privateText": "Only public ASCII fixture text is supported. Private Variables are unavailable.",
+      "staleTarget": "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+    },
+    "dryRun": {
+      "assessment": {
+        "explanation": "Order confirmed was observed after the mock checkout.",
+        "observationId": "1a70459b-9d38-4061-919f-6f45c7168c85",
+        "outcome": "working"
+      },
+      "freshStart": true,
+      "id": "agent-android-28414c193737aea57c088a10d041dfba",
+      "purged": true,
+      "verifiedInWorkspace": true
+    },
+    "changedBuild": {
+      "assessment": {
+        "explanation": "The changed build confirmed the mock order.",
+        "observationId": "e8960e58-6426-4df8-ae4f-06a16d399dc2",
+        "outcome": "working"
+      },
+      "differences": [
+        {
+          "field": "appBuild",
+          "selected": "2",
+          "taught": "1"
+        }
+      ],
+      "grantRunScoped": true,
+      "id": "agent-android-48365a2da189f4ae1ed61d47861ff389",
+      "refusal": {
+        "id": "agent-android-ea33c8135c1d3920e74357856d389395",
+        "observeRefused": "This Android session has ended. Open a new prepared session."
+      },
+      "taughtBuildRetained": true
+    },
+    "brokenBuild": {
+      "dispatchOnlyClaim": {
+        "assessment": {
+          "explanation": "Every checkout action was dispatched.",
+          "observationId": "1409465a-edc1-4d10-a0d1-d93f1a488020",
+          "outcome": "inconclusive"
+        },
+        "id": "agent-android-8881441231a6d69cbeb3127c36c33d42"
+      },
+      "notWorking": {
+        "assessment": {
+          "explanation": "Checkout failed: the mock payment service was unavailable and Order confirmed never appeared.",
+          "observationId": "94ae4f87-65cc-48ad-b683-59465368c746",
+          "outcome": "not-working"
+        },
+        "id": "agent-android-8db0fdb00d4eae40607ed677457f91cf"
+      }
+    },
+    "unexpectedApp": {
+      "captureGaps": ["ownership_unknown"],
+      "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused.",
+      "recoveredObservation": "96eeb543-3b26-4fa7-907b-753f02f3b4ee"
+    },
+    "captureLoss": {
+      "captureGaps": ["ownership_unknown"],
+      "claimRefused": "Teaching Recording recording-7f3c177b-fc2d-463a-bae5-5e83807785dd cannot start learning from failed. (teaching_recording_conflict)",
+      "lifecycle": {
+        "_tag": "failed",
+        "error": "Android window ownership is unknown or outside the selected target app. Execution is paused.",
+        "failedAt": "2026-10-13T10:08:10.070Z"
+      }
+    },
+    "restart": {
+      "brokenClaim": {
+        "assessment": "inconclusive",
+        "captureState": null,
+        "cleanup": null
+      },
+      "brokenFailed": {
+        "assessment": "not-working",
+        "captureState": null,
+        "cleanup": null
+      },
+      "changed": {
+        "assessment": "working",
+        "captureState": null,
+        "cleanup": null
+      },
+      "dryRun": {
+        "assessment": "working",
+        "captureState": "verified",
+        "cleanup": "purged"
+      }
+    },
+    "disconnect": {
+      "agentRecoveryRefused": "Recovery requires an explicit same-device Workspace action.",
+      "detectedBy": "The selected Android device is disconnected. Execution is paused.",
+      "captureGaps": ["device_disconnected"],
+      "recoveredObservation": "09c44f00-42f5-4102-ad19-bccf487b176d",
+      "sameSerial": "emulator-5554",
+      "workspaceRecoveryWhileAbsent": "The declared Android setup is unsupported or failed. Input is blocked."
+    }
+  },
+  "device": {
+    "api": 36,
+    "avd": "Pixel_9",
+    "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+    "host": "local",
+    "serial": "emulator-5554"
+  },
+  "feature": "android-checkout",
+  "flowSkillName": "android-checkout-46776",
+  "cleanup": {
+    "fixtureUninstalled": true,
+    "helperProcess": null,
+    "ownedForwards": []
+  }
+}

@@ -317,7 +317,8 @@ export const startTaskRun = (
             );
           }
 
-          const { emulation, source } = yield* startingRunEmulation(skills);
+          const { emulation, source, runtimeRequirements } =
+            yield* startingRunEmulation(skills);
           const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
           const artifactDirectory = yield* store.prepare(runId);
           const startedAt = new Date().toISOString();
@@ -362,6 +363,7 @@ export const startTaskRun = (
             domainScope: { hosts },
             emulation,
             run,
+            runtimeRequirements,
             url: params.url,
             viewport: emulation.viewport,
           };

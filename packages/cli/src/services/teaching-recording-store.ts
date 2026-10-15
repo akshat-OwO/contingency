@@ -30,11 +30,15 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
 export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
+/** Final manifests of purged Recordings, written before their directories are deleted. */
+const PURGED_DIRECTORY = ".purged";
 const VERIFICATION_FILE = "references/verification.md";
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: /mu;
 
@@ -63,7 +67,8 @@ const ioError = (context: string) => (cause: PlatformError) =>
   storeError("teaching_recording_io", `${context}: ${cause.message}`);
 
 export interface TeachingRecordingBegin {
-  readonly emulation: DraftEmulation;
+  readonly emulation: DraftEmulation | null;
+  readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly flowSkillName: FlowSkillName;
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
@@ -81,7 +86,7 @@ export interface TeachingRecordingMutation {
  * declare the one it was demonstrated under.
  */
 export interface TeachingRecordingStart extends TeachingRecordingMutation {
-  readonly emulation: DraftEmulation;
+  readonly emulation: DraftEmulation | null;
 }
 
 export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
@@ -95,6 +100,8 @@ export interface TeachingRecordingDryRunReport extends TeachingRecordingMutation
 }
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
+  /** Runtime requirements finalized from the completed Teaching evidence. */
+  readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly artifacts: readonly TeachingRecordingArtifact[];
   /** Capture ended, but the retained artifacts may still be recovered. */
   readonly failure?: string | undefined;
@@ -361,6 +368,15 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       root = rootFor(recordingId)
     ): string =>
       path.join(recordingDirectory(recordingId, root), MANIFEST_FILE);
+    const purgedFile = (
+      recordingId: TeachingRecordingId,
+      root = rootFor(recordingId)
+    ): string =>
+      path.join(
+        recordingsDirectory(root),
+        PURGED_DIRECTORY,
+        `${recordingId}.json`
+      );
     const manifestLockFile = (
       recordingId: TeachingRecordingId,
       root = rootFor(recordingId)
@@ -485,9 +501,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         withDiskLock(recordingId, operation, createDirectory)
       );
 
-    const readAt = (recordingId: TeachingRecordingId, root: string) =>
+    const readAt = (
+      recordingId: TeachingRecordingId,
+      root: string,
+      file = manifestFile(recordingId, root)
+    ) =>
       Effect.gen(function* readManifest() {
-        const file = manifestFile(recordingId, root);
         const exists = yield* fileSystem
           .exists(file)
           .pipe(
@@ -539,11 +558,11 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       });
 
     const persist = <Manifest extends TeachingRecordingManifest>(
-      manifest: Manifest
+      manifest: Manifest,
+      file = manifestFile(manifest.recordingId)
     ): Effect.Effect<Manifest, TeachingRecordingStoreError> =>
       Effect.gen(function* persistManifest() {
-        const directory = recordingDirectory(manifest.recordingId);
-        const file = manifestFile(manifest.recordingId);
+        const directory = path.dirname(file);
         const temporary = `${file}.${randomUUID()}.tmp`;
         yield* fileSystem
           .makeDirectory(directory, { recursive: true })
@@ -615,9 +634,22 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const read = (recordingId: TeachingRecordingId) => {
       const completed = purged.get(recordingId);
-      return completed === undefined
-        ? readAndRecoverAt(recordingId, rootFor(recordingId))
-        : Effect.succeed(completed);
+      if (completed !== undefined) {
+        return Effect.succeed(completed);
+      }
+      const root = rootFor(recordingId);
+      return readAndRecoverAt(recordingId, root).pipe(
+        Effect.catchIf(
+          (failure) => failure.code === "teaching_recording_not_found",
+          (failure) =>
+            readAt(recordingId, root, purgedFile(recordingId, root)).pipe(
+              Effect.catchIf(
+                (missing) => missing.code === "teaching_recording_not_found",
+                () => Effect.fail(failure)
+              )
+            )
+        )
+      );
     };
 
     const mutate = (
@@ -716,6 +748,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               },
             ],
             recordingId: input.recordingId,
+            runtime: input.runtime ?? browserRequirements,
             schemaVersion: 1,
             sessionId: input.sessionId,
             updatedAt: at,
@@ -820,12 +853,17 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   error: input.failure,
                   failedAt: readyAt,
                 };
-          const ready = yield* validateArtifactPaths({
+          const finalized = {
             ...current,
             artifacts: input.artifacts,
             eventOrigin: origin,
             lifecycle,
-          });
+          };
+          const ready = yield* validateArtifactPaths(
+            input.runtime === undefined
+              ? finalized
+              : { ...finalized, runtime: input.runtime }
+          );
           return yield* persist(
             withReceipt(
               ready,
@@ -1245,11 +1283,38 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
       return Effect.gen(function* writeVerificationReference() {
         const origin = yield* SessionEventOrigin;
+        const skillPath = path.join(
+          path.dirname(verificationPath),
+          "..",
+          "SKILL.md"
+        );
+        const content = yield* fileSystem
+          .readFileString(skillPath)
+          .pipe(
+            Effect.mapError(ioError("Could not read the skill being verified"))
+          );
+        const runtime = readFlowSkillFrontmatter(content)?.runtime;
+        if (
+          runtime === undefined ||
+          runtime.diagnostics.length > 0 ||
+          (manifest.runtime?.platform === "android" &&
+            JSON.stringify(runtime.requirements) !==
+              JSON.stringify(manifest.runtime)) ||
+          runtime.requirements.platform !==
+            (manifest.runtime?.platform ?? "web")
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_conflict",
+              "The saved skill's platform requirements do not match this Dry Run. Restore the requirements and run a fresh Dry Run before verification."
+            )
+          );
+        }
         return yield* fileSystem.readFileString(verificationPath).pipe(
           Effect.flatMap((contents) =>
             fileSystem.writeFileString(
               verificationPath,
-              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Verification origin: ${origin}\n`,
+              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Platform: ${manifest.runtime?.platform ?? "web"}\n- Verification origin: ${origin}\n`,
               { mode: 0o600 }
             )
           ),
@@ -1373,6 +1438,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             origin
           );
           yield* persist(completed);
+          // Retained first so a restart between here and removal still reads the outcome.
+          yield* persist(completed, purgedFile(input.recordingId));
           yield* fileSystem
             .remove(directory, { force: true, recursive: true })
             .pipe(

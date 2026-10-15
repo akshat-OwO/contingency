@@ -17,7 +17,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsdown && nub src/packaging/vendor-runtime.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['skills','dist/skills'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
+    "build": "tsdown && nub src/packaging/vendor-runtime.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['skills','dist/skills'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['android/private-text-helper/release','dist/android/private-text-helper']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
     "check-types": "tsc --noEmit",
     "dev": "nub watch src/index.ts web --no-browser",
     "prepack": "nub run build",
@@ -33,8 +33,10 @@
     "@nubjs/types": "catalog:types",
     "@opencode/codemode": "2.0.27",
     "@types/node": "catalog:types",
+    "agent-device": "0.21.25",
     "axe-core": "^4.13.0",
     "effect": "4.0.1",
+    "expo-device-hub": "0.15.3",
     "jsonc-parser": "^3.3.1",
     "lighthouse": "13.5.0",
     "open": "^11.0.0",
@@ -45,5 +47,8 @@
     "tsdown": "^0.22.14",
     "typescript": "catalog:",
     "vitest": "catalog:effect"
+  },
+  "allowScripts": {
+    "node-datachannel": false
   }
 }

@@ -27,6 +27,7 @@ import {
   prepareAgentResourceDirectory,
 } from "../services/agent-session-resources.ts";
 import { makeAgentSessionLayer } from "../services/agent-session.ts";
+import { makeAndroidWorkspaceLayer } from "../services/android-workspace.ts";
 import {
   defaultGlobalCatalogRoot,
   makeCatalogBrowserLayer,
@@ -43,6 +44,7 @@ import {
 } from "../services/http-server.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
+import { McpAndroidWorkspaceLayer } from "../services/mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
@@ -255,7 +257,7 @@ export const mcpCommand = Command.make(
         const demoSite = demo
           ? Layer.succeedContext(yield* Layer.build(makeDemoSiteLayer()))
           : undefined;
-        const agentSession = Layer.succeedContext(
+        const browserSession = Layer.succeedContext(
           yield* Layer.build(
             makeAgentSessionLayer({
               allowedActivity: "any",
@@ -277,6 +279,14 @@ export const mcpCommand = Command.make(
             )
           )
         );
+        const androidWorkspace = Layer.succeedContext(
+          yield* Layer.build(
+            makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
+              Layer.provide(Layer.merge(teachingRecordingStore, catalog))
+            )
+          )
+        );
+        const agentSession = Layer.merge(browserSession, androidWorkspace);
         const shared = Layer.mergeAll(
           agentSession,
           catalog,
@@ -303,6 +313,7 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 mcpTools,
+                McpAndroidWorkspaceLayer,
                 makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty,
                 codeInterpreter ? McpCodeInterpreterLayer : Layer.empty,

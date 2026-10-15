@@ -15,6 +15,7 @@ import {
 import { AgentRunState, TaskAgentRunState } from "./agent-run.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { PlatformIdentity } from "./platform.ts";
 import {
   FlowSkillName,
   TeachingCaptureState,
@@ -114,6 +115,7 @@ const AgentSessionSnapshotBase = {
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   phase: AgentSessionPhase,
+  platform: Schema.optionalKey(PlatformIdentity),
   setupVariables: Schema.optional(Schema.Array(AgentSetupVariable)),
   takeover: Schema.NullOr(AgentTakeoverRequest),
   /** The most recent attempts, oldest first, in the order they were made. */

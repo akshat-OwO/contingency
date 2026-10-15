@@ -8,9 +8,11 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 ## Language
 
-**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The current runtime is a browser; Android is planned under accepted [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: Agent Harness, Flow Skill, device profile
+**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The supported runtimes are a browser and Android. Android is supported within its [Support Matrix](./docs/reports/android-support-matrix.md) under [ADR 0060](./docs/adr/0060-use-stock-agent-device-for-an-experimental-android-runtime.md); the rest of [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md) remains documented limits. _Avoid_: Agent Harness, Flow Skill, device profile
 
-**Target App**: The Android app the user authorizes a session to operate, with necessary system dialogs included in its execution boundary. Leaving that boundary requires authorization, while the Target App remains authorized when the journey returns. Android support is planned under [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md). _Avoid_: foreground app, every installed app, implicit cross-app authorization
+**Support Matrix**: The named devices, API levels, and actions on which a Platform Runtime is supported. A capability outside it is refused explicitly, and a refusal is a documented limit rather than support. A Platform Runtime is supported only after every cell of its matrix is proven. _Avoid_: broad support, compatibility list, best-effort device coverage
+
+**Target App**: The Android app the user authorizes a session to operate, with necessary system dialogs included in its execution boundary. Leaving that boundary requires authorization, while the Target App remains authorized when the journey returns. Android's [Support Matrix](./docs/reports/android-support-matrix.md) excludes system dialogs and cross-app authorization as documented limits, so leaving the Target App pauses input; [ADR 0058](./docs/adr/0058-android-is-the-next-platform-runtime.md) keeps them as later work. _Avoid_: foreground app, every installed app, implicit cross-app authorization
 
 **Run Environment Permission**: The user's permission for one Android Run to use an Android version, app build, or app identity that differs from its taught environment. It preserves the taught environment and verification history and does not waive starting-state or capability requirements. _Avoid_: re-verification, permanent environment exception, Confirmation
 

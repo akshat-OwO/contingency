@@ -25,6 +25,7 @@ import {
   FileSystem,
   Layer,
   Schema,
+  Scope,
   Stream,
 } from "effect";
 import { vi } from "vitest";
@@ -38,6 +39,8 @@ import {
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser-contract.ts";
+import { browserCapabilities } from "../../src/services/platform-requirements.ts";
+import { makeBrowserRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import * as RunScans from "../../src/services/run-scans.ts";
 import {
   fromAgent,
@@ -216,6 +219,46 @@ const serviceFor = (fake: FakeBrowser, baseUrl = "http://127.0.0.1:7777") =>
     baseUrl,
     processId: "test-owner",
   });
+
+it.effect(
+  "rejects missing runtime capabilities before Teaching or Run input",
+  () =>
+    Effect.gen(function* rejectUnsupportedStartup() {
+      const fake = makeFakeBrowser();
+      let factoryCalls = 0;
+      const factory = makeBrowserRuntimeFactory(fake.browser, ({ scope }) => {
+        factoryCalls += 1;
+        return Scope.provide(scope)(
+          makeInMemoryAgentBrowser({ url: CONTRACT_URL })
+        );
+      });
+      for (const activity of ["teaching", "run"] as const) {
+        const service = yield* makeAgentSessionService(fake.browser, {
+          allowedActivity: "any",
+          baseUrl: "http://127.0.0.1:7777",
+          platformRuntimeFactory: {
+            ...factory,
+            capabilities: browserCapabilities.filter(
+              (capability) => capability !== "private-input"
+            ),
+          },
+        });
+        const failure = yield* Effect.flip(
+          service.start({
+            activity,
+            name: "unsupported",
+            url: CONTRACT_URL,
+            viewport,
+          })
+        );
+        expect(failure.message).toContain("private-input");
+      }
+      expect(fake.created).toEqual([]);
+      expect(fake.emulations).toEqual([]);
+      expect(fake.activePageCalls()).toBe(0);
+      expect(factoryCalls).toBe(0);
+    })
+);
 
 it.effect("guards new takeovers and skips scan interruption on replay", () =>
   Effect.gen(function* guardTakeoverWiring() {

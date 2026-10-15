@@ -9,12 +9,23 @@ export default defineConfig({
     // These packages load files relative to their original module paths.
     // vendor-runtime copies their complete installed trees into dist.
     alwaysBundle: (id) =>
-      !/^(?:playwright-core|lighthouse|puppeteer-core)(?:\/|$)/u.test(id),
-    neverBundle: [/^(?:playwright-core|lighthouse|puppeteer-core)(?:\/|$)/u],
+      !/^(?:playwright-core|lighthouse|puppeteer-core|agent-device|expo-device-hub)(?:\/|$)/u.test(
+        id
+      ),
+    neverBundle: [
+      /^(?:playwright-core|lighthouse|puppeteer-core|agent-device|expo-device-hub)(?:\/|$)/u,
+    ],
     onlyBundle: false,
-    onlyImport: ["playwright-core", "lighthouse", "puppeteer-core"],
+    onlyImport: [
+      "playwright-core",
+      "lighthouse",
+      "puppeteer-core",
+      "agent-device",
+      "expo-device-hub",
+    ],
   },
   entry: {
+    "android-stream-worker": "src/android-stream-worker.ts",
     // The OpenCode interpreter runs in its own process (ADR 0059).
     "code-interpreter-process": "src/services/code-interpreter-process.ts",
     index: "src/index.ts",

@@ -1,0 +1,283 @@
+{
+  "emulator": {
+    "discovery": {
+      "appCount": 22,
+      "command": "android.devices.list; android.apps.list; android.apps.list with mismatched identity",
+      "deviceKind": "emulator",
+      "devices": [
+        {
+          "api": 36,
+          "kind": "physical",
+          "state": "device"
+        },
+        {
+          "api": 36,
+          "kind": "emulator",
+          "state": "device"
+        }
+      ],
+      "entryPoint": "Workspace RPC /ws",
+      "feature": "android-discovery",
+      "refusalTag": "BrowserRpcError",
+      "sample": {
+        "label": "Settings",
+        "launchActivity": "com.android.settings/.Settings",
+        "package": "com.android.settings",
+        "versionCode": "36",
+        "versionName": "16"
+      },
+      "unauthorizedRefused": true,
+      "temporaryArchivesRemoved": true,
+      "unchanged": {
+        "foreground": "92ab1942ca4a9054a53861f7c753e35ab64c2c0bb8012754b6bf3a3b5858033f",
+        "forwards": "17e9addeed8125b63932321e169d71c1c9098906c6ff211d53c5acb063378d47",
+        "packages": "669577fafba00cbb12cd6a24827f3a193e157368a46ad79b5c545c8e72b13059"
+      }
+    },
+    "bounds": {
+      "boundedCount": 173,
+      "deviceKind": "emulator",
+      "entryPoint": "production Android runtime factory and Workspace observation codec",
+      "feature": "android-element-bounds",
+      "height": 2424,
+      "nodeCount": 173,
+      "observationId": "4e04e70a-1ef9-4408-a146-d9a2c7492f8f",
+      "sample": [
+        {
+          "bounds": {
+            "height": 43,
+            "width": 104,
+            "x": 11,
+            "y": 49
+          },
+          "role": "text"
+        },
+        {
+          "bounds": {
+            "height": 142,
+            "width": 58,
+            "x": 115,
+            "y": 0
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 39,
+            "width": 39,
+            "x": 891,
+            "y": 51
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 58,
+            "width": 39,
+            "x": 930,
+            "y": 42
+          },
+          "role": "group"
+        },
+        {
+          "bounds": {
+            "height": 39,
+            "width": 39,
+            "x": 930,
+            "y": 51
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 34,
+            "width": 20,
+            "x": 985,
+            "y": 54
+          },
+          "role": "group"
+        },
+        {
+          "bounds": {
+            "height": 34,
+            "width": 20,
+            "x": 985,
+            "y": 54
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 883,
+            "width": 1080,
+            "x": 0,
+            "y": 1541
+          },
+          "role": "group"
+        }
+      ],
+      "width": 1080
+    }
+  },
+  "phone": {
+    "discovery": {
+      "appCount": 88,
+      "command": "android.devices.list; android.apps.list; android.apps.list with mismatched identity",
+      "deviceKind": "physical",
+      "devices": [
+        {
+          "api": 36,
+          "kind": "physical",
+          "state": "device"
+        },
+        {
+          "api": 36,
+          "kind": "emulator",
+          "state": "device"
+        }
+      ],
+      "entryPoint": "Workspace RPC /ws",
+      "feature": "android-discovery",
+      "refusalTag": "BrowserRpcError",
+      "sample": {
+        "label": "Settings",
+        "launchActivity": "com.android.settings/.Settings",
+        "package": "com.android.settings",
+        "versionCode": "160000",
+        "versionName": "16.040.00-ad5970b0-260928"
+      },
+      "temporaryArchivesRemoved": true,
+      "unauthorizedRefused": true,
+      "unchanged": {
+        "foreground": "4385d395df65931ff95f13b5936dcf4ffac020c25070faf7b62ea739dbad7724",
+        "forwards": "17e9addeed8125b63932321e169d71c1c9098906c6ff211d53c5acb063378d47",
+        "packages": "2534874155373285c07ebdec19fea2d56facf6fe20cd2ec7125aca16b7041083"
+      }
+    },
+    "bounds": {
+      "boundedCount": 49,
+      "deviceKind": "physical",
+      "entryPoint": "production Android runtime factory and Workspace observation codec",
+      "feature": "android-element-bounds",
+      "height": 2392,
+      "nodeCount": 49,
+      "observationId": "28c215c2-2b2f-479e-affb-eee5fd63cfef",
+      "sample": [
+        {
+          "bounds": {
+            "height": 43,
+            "width": 90,
+            "x": 84,
+            "y": 41
+          },
+          "role": "text"
+        },
+        {
+          "bounds": {
+            "height": 126,
+            "width": 58,
+            "x": 174,
+            "y": 0
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 126,
+            "width": 58,
+            "x": 232,
+            "y": 0
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 42,
+            "width": 42,
+            "x": 773,
+            "y": 42
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 58,
+            "width": 42,
+            "x": 828,
+            "y": 34
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 58,
+            "width": 42,
+            "x": 883,
+            "y": 34
+          },
+          "role": "group"
+        },
+        {
+          "bounds": {
+            "height": 42,
+            "width": 42,
+            "x": 883,
+            "y": 42
+          },
+          "role": "image"
+        },
+        {
+          "bounds": {
+            "height": 42,
+            "width": 58,
+            "x": 938,
+            "y": 42
+          },
+          "role": "group"
+        }
+      ],
+      "width": 1080
+    }
+  },
+  "labelFallback": {
+    "appCount": 23,
+    "command": "android.devices.list; android.apps.list; android.apps.list with mismatched identity",
+    "deviceKind": "emulator",
+    "devices": [
+      {
+        "api": 36,
+        "kind": "physical",
+        "state": "device"
+      },
+      {
+        "api": 36,
+        "kind": "emulator",
+        "state": "device"
+      }
+    ],
+    "entryPoint": "Workspace RPC /ws",
+    "feature": "android-discovery",
+    "expectedApp": {
+      "label": "Discovery activity",
+      "launchActivity": "dev.contingency.discoverylabel/android.app.Activity",
+      "package": "dev.contingency.discoverylabel",
+      "versionCode": "1",
+      "versionName": "1.0"
+    },
+    "refusalTag": "BrowserRpcError",
+    "sample": {
+      "label": "Settings",
+      "launchActivity": "com.android.settings/.Settings",
+      "package": "com.android.settings",
+      "versionCode": "36",
+      "versionName": "16"
+    },
+    "temporaryArchivesRemoved": true,
+    "unauthorizedRefused": true,
+    "unchanged": {
+      "foreground": "92ab1942ca4a9054a53861f7c753e35ab64c2c0bb8012754b6bf3a3b5858033f",
+      "forwards": "41a721f782a1a32e5eb23b9eca0f092fcbbec9f412ab64203c59fb498b2470ed",
+      "packages": "a03f038528b8a0a124a67abaa44b2474279b63c6e790ac3d7164eb2f63eca985"
+    }
+  }
+}

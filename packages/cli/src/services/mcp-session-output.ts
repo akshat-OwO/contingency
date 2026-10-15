@@ -5,6 +5,7 @@ import {
   AgentRunSummary,
   AgentSessionCompact,
   DraftEmulation,
+  PlatformRequirements,
   AgentSessionView,
   RunSessionSnapshot,
   SessionEvent,
@@ -130,12 +131,17 @@ export const UnpublishedEmulation = unpublished(
   "The Emulation the recording was demonstrated under. A Dry Run reproduces it."
 );
 
+export const UnpublishedRuntimeRequirements = unpublished(
+  "The recording's PlatformRequirements: platform, environment, and required capabilities."
+);
+
 const encodeAction = Schema.encodeEffect(AgentActionResult);
 const encodeSequence = Schema.encodeEffect(AgentActSequenceResult);
 const encodePursuit = Schema.encodeEffect(AgentPursuitResult);
 const encodeSession = Schema.encodeEffect(SessionResult);
 const encodeSummary = Schema.encodeEffect(AgentRunSummary);
 const encodeEmulation = Schema.encodeEffect(DraftEmulation);
+const encodeRuntimeRequirements = Schema.encodeEffect(PlatformRequirements);
 
 /**
  * Encodes a value whose schema the catalog does not publish. A value that
@@ -157,6 +163,10 @@ export const encodeUnpublishedRunSummary = (value: AgentRunSummary) =>
 
 export const encodeUnpublishedEmulation = (value: DraftEmulation) =>
   Effect.orDie(encodeEmulation(value));
+
+export const encodeUnpublishedRuntimeRequirements = (
+  value: PlatformRequirements
+) => Effect.orDie(encodeRuntimeRequirements(value));
 
 export const encodeUnpublishedActionResult = (value: AgentActionResult) =>
   Effect.orDie(encodeAction(value));

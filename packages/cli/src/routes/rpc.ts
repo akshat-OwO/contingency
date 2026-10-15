@@ -22,6 +22,8 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { androidDiscovery } from "../services/android-discovery.ts";
+import { AndroidWorkspace } from "../services/android-workspace.ts";
 import { CatalogBrowser } from "../services/catalog-browser.ts";
 import type {
   CatalogBrowserError,
@@ -186,6 +188,77 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by Agent Session lifecycle rather than sorted.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "android.stream.access": ({ sessionId }) =>
+        Effect.gen(function* androidStreamAccess() {
+          const service = yield* Effect.serviceOption(AndroidWorkspace);
+          const stream = Option.isSome(service)
+            ? yield* service.value.stream(sessionId)
+            : null;
+          if (!stream) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_session_unavailable",
+                "Prepare the selected Android session before viewing its stream."
+              )
+            );
+          }
+          return stream.access;
+        }),
+      "android.devices.list": () =>
+        androidDiscovery
+          .devices()
+          .pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
+      "android.apps.list": ({ device }) =>
+        androidDiscovery
+          .apps(device)
+          .pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
+      "android.workspace.command": (command) =>
+        Effect.serviceOption(AndroidWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .execute(command, "user")
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.fail(
+                  makeBrowserRpcError(
+                    "agent_session_unavailable",
+                    "Experimental Android Workspace is unavailable in this process."
+                  )
+                )
+          )
+        ),
+      "android.workspace.list": () =>
+        Effect.serviceOption(AndroidWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .list()
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.succeed([])
+          )
+        ),
       "agent.sessions.get": () =>
         agentUnavailable((service) =>
           service.list().pipe(Effect.map((sessions) => ({ sessions })))

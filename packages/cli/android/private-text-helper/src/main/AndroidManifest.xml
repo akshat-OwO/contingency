@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Loopback socket only; the helper never connects outward. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="Contingency private text helper" android:allowBackup="false" android:hasCode="true" />
+    <instrumentation android:name=".PrivateText" android:targetPackage="dev.contingency.privatetext" />
+</manifest>

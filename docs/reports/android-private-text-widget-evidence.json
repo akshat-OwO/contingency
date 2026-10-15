@@ -1,0 +1,242 @@
+{
+  "checkedAt": "2026-10-14T16:38:03.641273+00:00",
+  "entryPoint": "packages/cli/scripts/verify-android-physical.ts",
+  "fixtureBuild": "ba21f0eb27836fc12750af53d772b530ca948b18f96df03b6cde878f7894a8f9",
+  "physical": {
+    "device": {
+      "api": 36,
+      "fingerprint": "Nothing/AsteroidsIND/Asteroids:16/BQ2A.250721.001-BP2A.250605.031.A3/2609281204:user/release-keys",
+      "host": "local",
+      "kind": "physical",
+      "model": "A059",
+      "serial": "001593546001716"
+    },
+    "cleanup": {
+      "forwardsUnchanged": true,
+      "helperProcess": "",
+      "imeUnchanged": true,
+      "packagesUnchanged": true
+    },
+    "checks": {
+      "disconnectProof": null,
+      "preparation": {
+        "consentRefused": true,
+        "freshState": true,
+        "notificationDenial": true,
+        "notificationGrant": true,
+        "persistentDataCleared": true
+      },
+      "privateFill": {
+        "outcome": "uncertain",
+        "reason": "input_unverified"
+      },
+      "filteredPrivateFill": {
+        "privateFill": {
+          "outcome": "uncertain",
+          "reason": "input_unverified"
+        },
+        "sessionPreserved": true,
+        "sentinel": {
+          "diagnostics": {
+            "contained": false,
+            "files": 8
+          },
+          "logcatContained": false,
+          "observationsContained": false,
+          "samples": {
+            "device": 14,
+            "deviceContained": false,
+            "helperSeen": 5,
+            "host": 14,
+            "hostContained": false
+          }
+        }
+      },
+      "verifiedPrivateFill": {
+        "widget": "material-1.13.0-password",
+        "privateFill": {
+          "outcome": "verified"
+        },
+        "refusals": {
+          "afterBind": "target_changed",
+          "beforeBind": "target_changed",
+          "ordinary": "target_unsupported",
+          "fieldMismatch": "target_changed",
+          "resolved": 1,
+          "stale": "observation_stale"
+        },
+        "sentinel": {
+          "diagnostics": {
+            "contained": false,
+            "files": 8
+          },
+          "logcatContained": false,
+          "observationsContained": false,
+          "samples": {
+            "device": 20,
+            "deviceContained": false,
+            "helperSeen": 6,
+            "host": 20,
+            "hostContained": false
+          }
+        },
+        "sessionPreserved": true
+      },
+      "refusals": {
+        "afterBind": "target_changed",
+        "beforeBind": "target_changed",
+        "ordinary": "target_unsupported",
+        "fieldMismatch": "target_changed",
+        "resolved": 1,
+        "stale": "observation_stale"
+      },
+      "sentinel": {
+        "diagnostics": {
+          "contained": false,
+          "files": 8
+        },
+        "logcatContained": false,
+        "observationsContained": false,
+        "samples": {
+          "device": 15,
+          "deviceContained": false,
+          "helperSeen": 6,
+          "host": 15,
+          "hostContained": false
+        }
+      },
+      "sessionPreserved": true
+    }
+  },
+  "emulator": {
+    "device": {
+      "api": 36,
+      "avd": "Pixel_9",
+      "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+      "host": "local",
+      "serial": "emulator-5554"
+    },
+    "cleanup": {
+      "forwardsUnchanged": true,
+      "helperProcess": "",
+      "imeUnchanged": true,
+      "packagesUnchanged": true
+    },
+    "checks": {
+      "disconnectProof": null,
+      "filteredPrivateFill": {
+        "privateFill": {
+          "outcome": "uncertain",
+          "reason": "input_unverified"
+        },
+        "sentinel": {
+          "diagnostics": {
+            "contained": false,
+            "files": 8
+          },
+          "logcatContained": false,
+          "observationsContained": false,
+          "samples": {
+            "device": 6,
+            "deviceContained": false,
+            "helperSeen": 2,
+            "host": 6,
+            "hostContained": false
+          }
+        },
+        "sessionPreserved": true
+      },
+      "preparation": {
+        "consentRefused": true,
+        "freshState": true,
+        "notificationDenial": true,
+        "notificationGrant": true,
+        "persistentDataCleared": false
+      },
+      "privateFill": {
+        "outcome": "uncertain",
+        "reason": "input_unverified"
+      },
+      "refusals": {
+        "afterBind": "target_changed",
+        "beforeBind": "target_changed",
+        "fieldMismatch": "target_changed",
+        "ordinary": "target_unsupported",
+        "resolved": 1,
+        "stale": "observation_stale"
+      },
+      "sentinel": {
+        "diagnostics": {
+          "contained": false,
+          "files": 8
+        },
+        "logcatContained": false,
+        "observationsContained": false,
+        "samples": {
+          "device": 6,
+          "deviceContained": false,
+          "helperSeen": 2,
+          "host": 6,
+          "hostContained": false
+        }
+      },
+      "sessionPreserved": true,
+      "verifiedPrivateFill": {
+        "privateFill": {
+          "outcome": "verified"
+        },
+        "refusals": {
+          "afterBind": "target_changed",
+          "beforeBind": "target_changed",
+          "fieldMismatch": "target_changed",
+          "ordinary": "target_unsupported",
+          "resolved": 1,
+          "stale": "observation_stale"
+        },
+        "sentinel": {
+          "diagnostics": {
+            "contained": false,
+            "files": 8
+          },
+          "logcatContained": false,
+          "observationsContained": false,
+          "samples": {
+            "device": 8,
+            "deviceContained": false,
+            "helperSeen": 3,
+            "host": 8,
+            "hostContained": false
+          }
+        },
+        "sessionPreserved": true,
+        "widget": "material-1.13.0-password"
+      }
+    }
+  },
+  "signingCustody": {
+    "signerMatches": true,
+    "signingCertificateSha256": "f5aad901eaaa4ddc5d529021a435e6f357f32a75dc437f20e5de5eec4612b0de",
+    "signingRoundTrip": true,
+    "temporaryFilesRemoved": true,
+    "vaultRestoredCopy": true,
+    "owner": "akshat",
+    "store": "Bitwarden private Secure Note"
+  },
+  "gaps": [
+    "Exact readback applies to the tested Material 1.13.0 password widget and earlier emulator Settings field; native masked readback remains uncertain.",
+    "This runtime path produces no Traces or Teaching Timeline. Private Variables in Workspace and Runs remain separate work.",
+    "This revision did not repeat Workspace, USB disconnect, wireless ADB, or a physical profile transition. Earlier scoped proofs remain in android-physical-device-evidence.json.",
+    "The original physical post-fill semantic failure remains unexplained; later passing runs do not establish its cause."
+  ],
+  "sources": [
+    "artifacts/android-private-text-490/phone-final-5/receipt.json and widget observations/screenshots",
+    "artifacts/android-private-text-490/emulator-final/receipt.json and widget observations/screenshots",
+    "artifacts/android-private-text-490/signing-restored.json"
+  ],
+  "validation": {
+    "serviceTests": 35,
+    "cliTypeCheck": true,
+    "proofScriptsTypeCheck": true,
+    "wrongPasswordRefusedWithSanitizedDiagnostics": true
+  }
+}

@@ -40,4 +40,4 @@ Lost capture integrity ends Teaching as incomplete. Retain the evidence for insp
 
 Android inherits the existing Teaching evidence privacy and Cleanup policy. Every retained capture source starts at Start recording and ends at Stop. Secret inputs become Variable references in agent-readable evidence. Raw media remains sensitive local evidence, may contain other apps or secrets, and is purged after verification. No pixel-level redaction guarantee is made. Respect secure windows; unavailable required outcome evidence makes the assessment inconclusive.
 
-The user accepted this design after the design interview. Android runtime implementation has not started.
+The user accepted this design after the design interview. An experimental Android runtime with a narrower capability set has shipped under [ADR 0060](./0060-use-stock-agent-device-for-an-experimental-android-runtime.md). This full contract remains unmet.

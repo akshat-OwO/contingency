@@ -150,6 +150,17 @@ import type {
   BoundaryCheck,
   PendingBoundary,
 } from "./execution-boundary.ts";
+import { browserRequirements } from "./platform-requirements.ts";
+import type { SavedPlatformRequirements } from "./platform-requirements.ts";
+import {
+  makeBrowserRuntimeFactory,
+  PlatformRuntimeFactory,
+  validateRuntimeStartup,
+} from "./platform-runtime.ts";
+import type {
+  BrowserPlatformRuntime,
+  BrowserRuntimeFactoryService,
+} from "./platform-runtime.ts";
 import { makeRunFootage } from "./run-footage.ts";
 import type { RunFootage } from "./run-footage.ts";
 import {
@@ -187,6 +198,7 @@ export { coverageOf } from "./run-lifecycle.ts";
 export interface AgentSessionServiceOptions {
   /** Browser behavior supplied at the same seam production uses. */
   readonly agentBrowserFactory?: AgentBrowserFactory;
+  readonly platformRuntimeFactory?: BrowserRuntimeFactoryService;
   readonly allowedActivity: AgentSessionActivity | "any";
   /** The URL at which Workspace is served, normally loopback. */
   readonly baseUrl: string;
@@ -207,6 +219,7 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  readonly runtimeRequirements?: SavedPlatformRequirements;
   readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
   /**
@@ -742,6 +755,7 @@ const snapshotFromReadyManifest = (
     ownerProcessId: owner,
     pendingDecisions: [],
     phase: "closed",
+    platform: manifest.runtime?.platform ?? "web",
     recordingCleanup: manifest.cleanup,
     recordingId: manifest.recordingId,
     run: null,
@@ -852,6 +866,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
     run: input.run?.runId ?? null,
+    runtimeRequirements: input.runtimeRequirements ?? null,
     url: input.url ?? null,
     viewport: {
       deviceScaleFactor: input.viewport.deviceScaleFactor,
@@ -1330,6 +1345,7 @@ type SnapshotWrite = readonly [
 ];
 
 interface SessionRecord {
+  readonly runtime: BrowserPlatformRuntime;
   readonly diagnostics: { reader: BrowserDiagnosticsReader | undefined };
   readonly dryRunControl: { hadTakeover: boolean };
   readonly executionBoundary: ExecutionBoundary | undefined;
@@ -1657,6 +1673,15 @@ const makeAgentSession = (
     const runScans = makeRunScans(fileSystem, now);
     const agentBrowserFactory =
       options.agentBrowserFactory ?? makeChromiumAgentBrowser;
+    const providedRuntimeFactory = yield* Effect.serviceOption(
+      PlatformRuntimeFactory
+    );
+    const runtimeFactory =
+      options.platformRuntimeFactory ??
+      Option.getOrElse(
+        providedRuntimeFactory.pipe(Option.map((factory) => factory.web)),
+        () => makeBrowserRuntimeFactory(browser, agentBrowserFactory)
+      );
 
     const writeTeachingRetentionManifest = (
       directory: string,
@@ -3506,6 +3531,30 @@ const makeAgentSession = (
               );
             }
             const activity = input.activity ?? "run";
+            const declared = input.runtimeRequirements ?? {
+              diagnostics: [],
+              requirements: browserRequirements,
+            };
+            const requirements: SavedPlatformRequirements = {
+              ...declared,
+              requirements: {
+                ...declared.requirements,
+                capabilities: [
+                  ...new Set([
+                    ...browserRequirements.capabilities,
+                    ...declared.requirements.capabilities,
+                    ...(activity === "teaching"
+                      ? ["teaching-capture" as const]
+                      : []),
+                  ]),
+                ],
+              },
+            };
+            yield* validateRuntimeStartup(runtimeFactory, requirements).pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
             if (
               options.allowedActivity !== "any" &&
               activity !== options.allowedActivity
@@ -3589,16 +3638,18 @@ const makeAgentSession = (
                           )
                         );
                     }
-                    const acquired = yield* Scope.provide(sessionScope)(
-                      Effect.acquireRelease(
-                        browser.create(
-                          browserName,
-                          emulation.viewport,
-                          input.domainScope !== undefined,
-                          activity === "run"
-                        ),
-                        (browserSessionId) =>
-                          browser.close(browserSessionId).pipe(Effect.ignore)
+                    const runtime = yield* runtimeFactory.start({
+                      name: browserName,
+                      navigationPolicy: input.domainScope !== undefined,
+                      now,
+                      run: activity === "run",
+                      scope: sessionScope,
+                      viewport: emulation.viewport,
+                    });
+                    const acquired = runtime.browserSessionId;
+                    yield* validateRuntimeStartup(runtime, requirements).pipe(
+                      Effect.mapError((cause) =>
+                        error("agent_session_invalid", cause.message)
                       )
                     );
                     const { retentionFile, traceFile } =
@@ -3630,6 +3681,7 @@ const makeAgentSession = (
                       ownerProcessId: owner,
                       pendingDecisions: [],
                       phase: "starting" as const,
+                      platform: runtime.platform,
                       takeover: null,
                       timeline: [],
                       updatedAt: at,
@@ -3672,12 +3724,7 @@ const makeAgentSession = (
                       ...opening,
                       pendingDecisions: variablePendingDecisions(opening, at),
                     };
-                    const agentBrowser = yield* agentBrowserFactory({
-                      browser,
-                      now,
-                      scope: sessionScope,
-                      sessionId: acquired,
-                    });
+                    const agentBrowser = runtime.browser;
                     const record: SessionRecord = {
                       agentBrowser,
                       artifactDirectory,
@@ -3712,6 +3759,7 @@ const makeAgentSession = (
                         snapshots: new Set(),
                       },
                       runTimeline: [],
+                      runtime,
                       scope: sessionScope,
                       screenshots: { directory: undefined },
                       scroll: { burst: undefined },

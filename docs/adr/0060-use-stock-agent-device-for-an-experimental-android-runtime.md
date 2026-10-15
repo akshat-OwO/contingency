@@ -1,0 +1,23 @@
+---
+status: accepted
+---
+
+# Use stock agent-device for an experimental Android runtime
+
+> Amended by [issue 489](https://github.com/akshat-OwO/contingency/issues/489): Android is no longer experimental. It is supported within the [Android Support Matrix](../reports/android-support-matrix.md), and every capability outside it is a documented limit.
+
+For [issue 467](https://github.com/akshat-OwO/contingency/issues/467), use unmodified, pinned agent-device behind Contingency's Effect services for opt-in experimental Android support. Keep the complete Workspace Teaching, Flow Skill learning, Dry Run, and user verification journey on a selected prepared emulator, using basic semantic input and non-secret text. Defer private Variables and web feature parity. Custom text transport and upstream extension acceptance do not gate this milestone. The [experimental scope](../reports/android-experimental-scope.md) defines supported operations, limits, and required shipping proof. The experimental runtime has shipped behind an opt-in. The [checkout proof](../reports/android-checkout-proof.md#experimental-milestone-matrix) records the live evidence for each experimental milestone criterion and lists the [deferred ADR 0058 requirements](../reports/android-checkout-proof.md#deferred-full-contract-matrix) that remain unmet. Issue 489 later proved every cell of the [Android Support Matrix](../reports/android-support-matrix.md) and removed the opt-in and the Experimental badge. Android is supported only within that matrix; everything outside it is refused as a documented limit.
+
+The [comparison report](../reports/android-backend-comparison.md) pins releases, separates emulator evidence from source inspection and protocol tests, and records gaps. [ADR 0058](./0058-android-is-the-next-platform-runtime.md) remains the target for the full Android capability set, including private login. This milestone retains Teaching and verification with a narrower device and action set and explicitly weaker dispatch guarantees. It does not claim the web Execution Boundary or private Variable guarantees. A verified Android journey applies only to its tested environment and supported capabilities. Starting-state preparation, capture integrity, device selection, installation consent, failure handling, and Cleanup remain required.
+
+## Alternatives and tradeoffs
+
+The typed Node client reuses discovery, session selection, cancellation, normalized snapshots, and upstream helper packaging. Its generation-pinned targets rejected stale references in the live evaluation. Its stock text transport and internal retries do not satisfy Contingency's private-input contract, so secret Variables are unavailable in the experiment. Coordinate input lacks Contingency's observation binding, so that capability is deferred too. Host checks can pause on known or observed app transitions but are not an atomic device-side authorization contract. These limits must be explicit, rather than claiming full support because basic input works.
+
+The [upstream extension investigation](../reports/android-upstream-extension-investigation.md) identifies possible improvements for later milestones. A helper fork would add responsibility for builds, signing, updates, and compatibility tests. Neither path is justified as a prerequisite for the smaller experiment. Revisit them when a specific deferred feature blocks a useful journey. The existing prototype stays evaluation code; the [full-contract handoff](../reports/android-production-handoff.md) stays a conditional reference rather than the experimental implementation plan.
+
+## Mirroring is a separate decision
+
+Evaluate expo-device-hub 0.15.3, source `42918bc8e66021da5a983aaa09b43365e58c3dce`, as the stream implementation behind a Contingency-owned Workspace stream service. The live T3 Device panel opened the selected emulator; this does not verify Contingency Workspace capture or routing. Do not expose the hub's unrestricted input, installation, recording, or replay routes to Workspace. Contingency must authenticate its loopback proxy, bind it to the selected host and serial, route all input through session authority, and own Start-to-Stop evidence intervals. Hub recorder defaults do not satisfy that interval contract.
+
+This mirroring choice is conditional on the handoff's timing, loss detection, transport, and packaging proof. It is not a dependency of the semantic driver. Physical-device streams, system-dialog classification, secure-window outcomes, and production Android support remain unproved. Acceptance of this ADR selected the implementation direction; it does not close the Android completion tracker, issue 457.
