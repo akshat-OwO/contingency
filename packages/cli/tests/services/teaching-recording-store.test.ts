@@ -156,6 +156,23 @@ it.effect(
           operationId: OperationId.make("verification-once"),
           recordingId,
         };
+        const skillFile = path.join(root, "checkout-flow", "SKILL.md");
+        yield* fileSystem.writeFileString(
+          skillFile,
+          `---\nname: checkout-flow\nruntime: ${JSON.stringify({ capabilities: [], environment: { androidVersion: "16", appBuild: "42", appId: "example.app", startingState: "baseline" }, platform: "android" })}\n---\n`
+        );
+        const mismatched = yield* Effect.flip(
+          store.verify({
+            ...verification,
+            operationId: OperationId.make("verification-platform-mismatch"),
+          })
+        );
+        expect(mismatched.code).toBe("teaching_recording_conflict");
+        expect(mismatched.message).toContain("platform requirements");
+        yield* fileSystem.writeFileString(
+          skillFile,
+          "---\nname: checkout-flow\n---\n"
+        );
         yield* store.verify(verification);
         yield* store.verify(verification);
         const cleanup = {
@@ -402,6 +419,13 @@ it.effect("retries purge-pending cleanup when a store starts", () =>
         recordingId: recoveryId,
         skillPath: "recovery-flow/SKILL.md",
       });
+      yield* fileSystem.makeDirectory(path.join(root, "recovery-flow"), {
+        recursive: true,
+      });
+      yield* fileSystem.writeFileString(
+        path.join(root, "recovery-flow", "SKILL.md"),
+        "---\nname: recovery-flow\n---\n"
+      );
       yield* store.startDryRun({
         inputs: [],
         operationId: OperationId.make("recovery-dry"),
@@ -426,6 +450,14 @@ it.effect("retries purge-pending cleanup when a store starts", () =>
 
     expect(yield* fileSystem.exists(directory)).toBe(false);
     expect(yield* fileSystem.exists(artifactFile)).toBe(false);
+
+    // A later process still reads the outcome after the directory is gone.
+    const reopened = yield* Effect.gen(function* readPurgedRecording() {
+      const store = yield* TeachingRecordingStore;
+      return yield* store.read(recoveryId);
+    }).pipe(Effect.provide(layerFor(root)));
+    expect(reopened.lifecycle._tag).toBe("verified");
+    expect(reopened.cleanup._tag).toBe("purged");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

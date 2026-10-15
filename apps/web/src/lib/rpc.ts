@@ -5,6 +5,8 @@ import {
   runVideoStatusPath,
 } from "@contingency/protocol";
 import type {
+  AndroidWorkspaceCommand,
+  AndroidWorkspaceSelection,
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
@@ -61,6 +63,39 @@ export const agentSessionsAtom = ContingencyRpcClient.query(
   "agent.sessions.get",
   {}
 );
+export const androidSessionsAtom = ContingencyRpcClient.query(
+  "android.workspace.list",
+  {}
+);
+export const runAndroidWorkspaceCommand = (command: AndroidWorkspaceCommand) =>
+  Effect.scoped(
+    Effect.gen(function* androidWorkspaceCommand() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.workspace.command", command);
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+/** Devices the host's ADB reports. Reading them changes nothing on a device. */
+export const listAndroidDevices = Effect.scoped(
+  Effect.gen(function* androidDevices() {
+    const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+    return yield* client("android.devices.list", {});
+  })
+).pipe(Effect.provide(RpcProtocolLive));
+/** Launchable apps on one identified device, read without installing. */
+export const listAndroidApps = (device: AndroidWorkspaceSelection["device"]) =>
+  Effect.scoped(
+    Effect.gen(function* androidApps() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.apps.list", { device });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+export const androidStreamAccess = (sessionId: AgentSessionId) =>
+  Effect.scoped(
+    Effect.gen(function* streamAccess() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.stream.access", { sessionId });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
 );

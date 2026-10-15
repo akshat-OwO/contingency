@@ -1,0 +1,368 @@
+{
+  "feature": "android-runtime-468",
+  "runtime": {
+    "cleanup": {
+      "failure": null,
+      "observationId": null,
+      "outcome": "observed",
+      "phase": "closed",
+      "forwardList": "",
+      "helperPid": ""
+    },
+    "entryPoint": "Contingency PlatformRuntimeFactory Android extension",
+    "helper": {
+      "api": "2",
+      "packageName": "com.callstack.agentdevice.snapshothelper",
+      "sha256": "79175080eb71f444224c844a599e75e839d6456790eb96d175fc887f85237a12",
+      "signingCertificateSha256": "f5dc3a7bf83a1b17312c222cd89a2f781230f34a7a407e6033fa28adf0b3cf48",
+      "version": "0.21.25",
+      "versionCode": 21025
+    },
+    "helperFault": {
+      "observation": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 2
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 778760,
+        "id": "03cebf14-eee0-421a-8715-4dee9b3c4612",
+        "nodeCount": 43,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "f90928a5582bb6a19494328202a4735a4f913466783b8e0f857befcc7604b5a1"
+      },
+      "pausedState": {
+        "failure": {
+          "_tag": "PlatformRuntimeError",
+          "code": "helper_incompatible",
+          "message": "The Android helper does not match the pinned release or required API."
+        },
+        "observationId": null,
+        "outcome": "observed",
+        "phase": "paused"
+      },
+      "refusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "helper_incompatible",
+        "message": "The Android helper does not match the pinned release or required API."
+      }
+    },
+    "journal": [
+      {
+        "command": "start selected Android runtime",
+        "outcome": "success"
+      },
+      {
+        "command": "observe selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "observe before semantic action",
+        "outcome": "success"
+      },
+      {
+        "command": "dispatch activate",
+        "outcome": "success"
+      },
+      {
+        "command": "observe selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "dispatch activate",
+        "outcome": "failed"
+      },
+      {
+        "command": "explicitly recover selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "dispatch fill",
+        "outcome": "success"
+      },
+      {
+        "command": "observe selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "dispatch coordinate",
+        "outcome": "failed"
+      },
+      {
+        "command": "explicitly recover selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "dispatch activate",
+        "outcome": "success"
+      },
+      {
+        "command": "observe selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "observe selected device",
+        "outcome": "failed"
+      },
+      {
+        "command": "explicitly recover selected device",
+        "outcome": "success"
+      },
+      {
+        "command": "close owned runtime",
+        "outcome": "success"
+      },
+      {
+        "command": "close owned runtime",
+        "outcome": "success"
+      },
+      {
+        "command": "explicitly recover selected device",
+        "outcome": "failed"
+      }
+    ],
+    "limitations": [
+      "No physical-device or multiple-device coverage",
+      "No secure-window or necessary-system-dialog qualification",
+      "No Android Workspace Teaching integration"
+    ],
+    "observations": {
+      "after": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 3
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 430075,
+        "id": "8761fb2c-335b-4e89-9cd2-849c5094e087",
+        "nodeCount": 148,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "d80c698c5cd3e49b62b2fd30bf6dabeb09455b78778f8345c360f1687968dcc2"
+      },
+      "back": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 2
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 850247,
+        "id": "9d3e7df1-9b7a-412b-895d-7df6b4d6cfeb",
+        "nodeCount": 43,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "f90928a5582bb6a19494328202a4735a4f913466783b8e0f857befcc7604b5a1"
+      },
+      "before": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 2
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 430074,
+        "id": "09f58ba3-7a22-4cda-b215-b33dce143318",
+        "nodeCount": 43,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "f90928a5582bb6a19494328202a4735a4f913466783b8e0f857befcc7604b5a1"
+      },
+      "readback": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 3
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 465410,
+        "id": "4a4a1b04-63da-4df8-9244-d3eb090e4247",
+        "nodeCount": 147,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "cebbf696823350bb74a94432480e699c37a04563ff95e76f72c5bfa64b1486d9"
+      },
+      "recovered": {
+        "backendSessionId": "contingency-android-7a87963e-0b19-453d-a4d1-de577b9622fa",
+        "capture": {
+          "complete": true,
+          "mode": "interactive-windows",
+          "secureWindowVisibility": "unverified",
+          "windowCount": 3
+        },
+        "device": {
+          "api": 36,
+          "avd": "Pixel_9",
+          "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+          "host": "local",
+          "serial": "emulator-5554"
+        },
+        "generation": 465409,
+        "id": "639db99b-7232-486a-b00e-f8296f430d37",
+        "nodeCount": 148,
+        "ownership": {
+          "focusedPackage": "com.android.settings",
+          "kind": "experimental-host-check",
+          "systemDialogAuthority": "unsupported"
+        },
+        "screenshotSha256": "c2d0f3937d8b72b880f39aa84d96fe52576ee4678fc9b8c62a3f7f7a64e820e1"
+      }
+    },
+    "ordinaryTextObserved": true,
+    "refusals": {
+      "capabilityRefusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "capability_missing",
+        "message": "The experimental Android runtime does not support a required capability. Private input, coordinate input, and Teaching capture are unavailable."
+      },
+      "closedRefusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "runtime_closed",
+        "message": "The Android runtime is closed."
+      },
+      "coordinateRefusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "capability_missing",
+        "message": "The experimental Android runtime does not support a required capability. Private input, coordinate input, and Teaching capture are unavailable."
+      },
+      "installationRefusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "installation_denied",
+        "message": "Authorize installation or replacement of this exact helper release on the selected device."
+      },
+      "staleRefusal": {
+        "_tag": "PlatformRuntimeError",
+        "code": "observation_stale",
+        "message": "Take a fresh Android observation before acting. Observations are consumed once."
+      }
+    }
+  },
+  "disconnect": {
+    "paused": {
+      "failure": {
+        "_tag": "PlatformRuntimeError",
+        "code": "device_disconnected",
+        "message": "The selected Android device is disconnected. Execution is paused.",
+        "operation": "host-io"
+      },
+      "paused": {
+        "failure": {
+          "_tag": "PlatformRuntimeError",
+          "code": "device_disconnected",
+          "message": "The selected Android device is disconnected. Execution is paused.",
+          "operation": "host-io"
+        },
+        "observationId": null,
+        "outcome": "observed",
+        "phase": "paused"
+      },
+      "recoveryWhileDisconnected": {
+        "_tag": "PlatformRuntimeError",
+        "code": "device_disconnected",
+        "message": "The selected Android device is disconnected. Execution is paused.",
+        "operation": "host-io"
+      },
+      "beforeId": "1b5d1c86-576e-4c29-b7c9-ee191a23eabd",
+      "device": {
+        "host": "local",
+        "serial": "emulator-5554",
+        "avd": "Pixel_9",
+        "api": 36,
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys"
+      }
+    },
+    "recovered": {
+      "beforeId": "1b5d1c86-576e-4c29-b7c9-ee191a23eabd",
+      "afterId": "33666983-2be6-4504-8708-68c289ad72d1",
+      "device": {
+        "host": "local",
+        "serial": "emulator-5554",
+        "avd": "Pixel_9",
+        "api": 36,
+        "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys"
+      },
+      "capture": {
+        "complete": true,
+        "mode": "interactive-windows",
+        "secureWindowVisibility": "unverified",
+        "windowCount": 2
+      },
+      "cleanup": {
+        "failure": null,
+        "observationId": null,
+        "outcome": "observed",
+        "phase": "closed"
+      }
+    }
+  },
+  "browser": {
+    "entryPoint": "verify-contingency Workspace and saved Emulation recipes",
+    "teaching": true,
+    "learning": true,
+    "freshDryRun": true,
+    "userVerification": true,
+    "persistedReadback": true,
+    "laterRun": true,
+    "cleanup": true,
+    "previewBlocker": "Preview automation snapshot timed out after 15000ms.",
+    "driver": "control-contingency"
+  }
+}

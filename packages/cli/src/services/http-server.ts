@@ -12,6 +12,7 @@ import {
   makeAgentRunArtifactRoutes,
   makeDryRunArtifactRoutes,
 } from "../routes/agent-run-artifacts.ts";
+import { makeAndroidStreamRoutes } from "../routes/android-stream.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
@@ -139,9 +140,16 @@ export const makeHttpServerLayer = ({
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
-    HttpRouter.serve(Layer.mergeAll(routes, mcp, webRoutes)).pipe(
-      Layer.provide(server ?? makeNodeServerLayer({ host, port }))
-    );
+    HttpRouter.serve(
+      Layer.mergeAll(
+        routes,
+        makeAndroidStreamRoutes(allowedOrigins).pipe(
+          Layer.provide(agentSession ?? Layer.empty)
+        ),
+        mcp,
+        webRoutes
+      )
+    ).pipe(Layer.provide(server ?? makeNodeServerLayer({ host, port })));
   // The Agent Run video route exists only where a Run store does: a process
   // that owns no Agent Sessions has no persisted Interactive Runs to serve.
   return agentRunStore === undefined

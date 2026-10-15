@@ -45,10 +45,12 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
  * budgets fail the build when a schema change inflates it, the way #326 to
  * #331 grew it from 140 KB to 216 KB without anyone noticing (ADR 0045).
  */
-const CATALOG_BUDGET_BYTES = 81_000;
+// The Android tools (about 7.3 KB) joined every catalog when Android left its opt-in (#489).
+const CATALOG_BUDGET_BYTES = 91_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
+  "agent_android_sessions_list",
   "agent_browser_screenshot",
   "agent_browser_snapshot",
   "agent_catalog_get",
@@ -62,6 +64,26 @@ const READ_ONLY_TOOLS = new Set([
   "open_run",
 ]);
 
+it.live("lists the bounded Android tools without an opt-in", () =>
+  Effect.gen(function* androidTools() {
+    const origin = yield* servingMcpHttp();
+    const { tools } = Schema.decodeUnknownSync(ToolList)(
+      yield* (yield* connectMcp(origin)).request("tools/list", {})
+    ).result;
+    const android = tools.filter((tool) =>
+      tool.name.startsWith("agent_android_")
+    );
+    expect(android.map((tool) => tool.name).toSorted()).toEqual([
+      "agent_android_sessions_list",
+      "agent_android_workspace",
+    ]);
+    expect(bytes(android)).toBeLessThanOrEqual(10_000);
+    for (const tool of android) {
+      expect(bytes(tool)).toBeLessThanOrEqual(TOOL_BUDGET_BYTES);
+    }
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
 it.live("keeps the emitted tool catalog inside its byte budget", () =>
   Effect.gen(function* catalogBudget() {
     const origin = yield* servingMcpHttp();
@@ -70,7 +92,7 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(35);
+    expect(tools).toHaveLength(37);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_variable_request"
@@ -84,6 +106,9 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       // Shared protocol shapes are referenced, never inlined twice.
       expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
         '"captureState"'
+      );
+      expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
+        '"androidVersion"'
       );
     }
     expect(tools.map((tool) => tool.name)).not.toContain(

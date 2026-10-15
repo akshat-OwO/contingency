@@ -8,12 +8,14 @@ import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
 import { AgentHarnessesLive } from "./services/agent-harnesses.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
+import { PlatformRuntimeFactoryLive } from "./services/platform-runtime-live.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
 const servicesLayer = Layer.mergeAll(
   AgentHarnessesLive,
   CreateBrowserLive,
-  UiInterfaceLive
+  UiInterfaceLive,
+  PlatformRuntimeFactoryLive.pipe(Layer.provide(CreateBrowserLive))
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 /**

@@ -5,6 +5,7 @@ import { makeHostMiddleware } from "../routes/rpc.ts";
 import type { DemoSiteService } from "./demo-site.ts";
 import { McpAgentRunLayer } from "./mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "./mcp-agent-session.ts";
+import { McpAndroidWorkspaceLayer } from "./mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "./mcp-catalog.ts";
 import { McpCodeInterpreterLayer } from "./mcp-code-interpreter.ts";
@@ -85,6 +86,7 @@ export const makeMcpHttpLayer = <R = never>(
       version: "0.0.1",
     }),
     McpAgentSessionLayer,
+    McpAndroidWorkspaceLayer,
     McpAgentCatalogLayer,
     McpAgentRunLayer,
     McpTeachingRecordingLayer,

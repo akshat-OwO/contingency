@@ -9,6 +9,7 @@ import {
   AgentNavigateAction,
 } from "./agent-browser.ts";
 import { AgentPendingDecisionResolve } from "./agent-decision.ts";
+import { AgentSessionId } from "./agent-identifiers.ts";
 import { AgentRunOpen, AgentRunSummary, AgentRunViewer } from "./agent-run.ts";
 import {
   AgentSessionClose,
@@ -23,6 +24,14 @@ import {
   AgentSessionTakeover,
   AgentSetupVariableAnswer,
 } from "./agent-session.ts";
+import {
+  AndroidDiscoveredApp,
+  AndroidDiscoveredDevice,
+  AndroidWorkspaceSelection,
+  AndroidWorkspaceCommand,
+  AndroidWorkspaceSnapshot,
+  AndroidWorkspaceSummary,
+} from "./android-workspace.ts";
 import { browserAttachmentsField } from "./browser-checks.ts";
 import { BrowserTabId } from "./browser-identifiers.ts";
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
@@ -53,6 +62,7 @@ import { Viewport } from "./viewport.ts";
 // The protocol package intentionally exposes one public contract surface.
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./browser-checks.ts";
+export * from "./android-workspace.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./scans.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
@@ -63,6 +73,7 @@ export * from "./storage.ts";
 export * from "./agent-identifiers.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-session.ts";
+export * from "./platform.ts";
 export * from "./agent-session-compact.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-browser.ts";
@@ -957,6 +968,31 @@ const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
   success: CatalogFlowSkillResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
+  Rpc.make("android.devices.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(AndroidDiscoveredDevice),
+  }),
+  Rpc.make("android.apps.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ device: AndroidWorkspaceSelection.fields.device }),
+    success: Schema.Array(AndroidDiscoveredApp),
+  }),
+  Rpc.make("android.workspace.command", {
+    error: BrowserRpcError,
+    payload: AndroidWorkspaceCommand,
+    success: AndroidWorkspaceSnapshot,
+  }),
+  Rpc.make("android.workspace.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(AndroidWorkspaceSummary),
+  }),
+  Rpc.make("android.stream.access", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ sessionId: AgentSessionId }),
+    success: Schema.Struct({ path: Schema.String, token: Schema.String }),
+  }),
   AgentSessionsGetRpc,
   AgentSessionStartRpc,
   AgentSessionGetRpc,

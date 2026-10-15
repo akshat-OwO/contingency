@@ -1,10 +1,19 @@
-import type { FlowSkillDiagnostic, FlowSkillFile } from "@contingency/protocol";
+import type {
+  FlowSkillDiagnostic,
+  FlowSkillFile,
+  PlatformRequirements,
+} from "@contingency/protocol";
 import { Result } from "effect";
 
 import {
   parseBrowserChecks,
   BROWSER_CHECKS_FILE,
 } from "./browser-check-requirements.ts";
+import {
+  browserRequirements,
+  readPlatformRequirements,
+} from "./platform-requirements.ts";
+import type { SavedPlatformRequirements } from "./platform-requirements.ts";
 import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
 
 /**
@@ -34,6 +43,7 @@ const diagnostic = (
 ): FlowSkillDiagnostic => ({ code, message, path: [...path] });
 
 export interface FlowSkillFrontmatter {
+  readonly runtime: SavedPlatformRequirements;
   /** Everything after the closing delimiter, where the procedure lives. */
   readonly body: string;
   readonly description: string | undefined;
@@ -358,6 +368,11 @@ export const readFlowSkillFrontmatter = (
     return undefined;
   }
   const [matched] = match;
+  const lines = (match.groups?.block ?? "").split(/\r?\n/u);
+  const runtimeValues = lines.flatMap((raw) => {
+    const line = readFrontmatterLine(raw);
+    return !line.indented && line.key === "runtime" ? [line.value] : [];
+  });
   const hosts: string[] = [];
   const inputs: MutableFlowSkillInput[] = [];
   const malformedInputs: string[] = [];
@@ -371,7 +386,7 @@ export const readFlowSkillFrontmatter = (
   let inPermissions = false;
   /** The mapping-form input an indented key still belongs to, when any. */
   let openInput: MutableFlowSkillInput | undefined;
-  for (const raw of (match.groups?.block ?? "").split(/\r?\n/u)) {
+  for (const raw of lines) {
     const line = readFrontmatterLine(raw);
     if (line.item !== undefined) {
       openInput = undefined;
@@ -440,11 +455,12 @@ export const readFlowSkillFrontmatter = (
     inputs,
     malformedInputs,
     name: scalars.name,
+    runtime: readPlatformRequirements(runtimeValues),
   };
 };
 
 /**
- * Replace the `hosts` and `emulation` keys of a SKILL.md's frontmatter with
+ * Replace the `hosts`, `emulation`, and `runtime` keys of a SKILL.md's frontmatter with
  * what the Teaching Recording actually observed.
  *
  * Contingency stamps these rather than trusting the agent to author them: a
@@ -453,7 +469,7 @@ export const readFlowSkillFrontmatter = (
  * and the recording is deleted once the user verifies, so the package is the
  * only place left to keep them.
  */
-const STAMPED_KEYS = new Set(["emulation", "hosts"]);
+const STAMPED_KEYS = new Set(["emulation", "hosts", "runtime"]);
 
 /** The frontmatter lines that are not part of a key Contingency owns. */
 const withoutStampedKeys = (block: string): string[] => {
@@ -516,8 +532,9 @@ const emulationLines = (emulation: FlowSkillEmulation): string[] => {
 export const stampFlowSkillProvenance = (
   content: string,
   provenance: {
-    readonly emulation: FlowSkillEmulation;
+    readonly emulation: FlowSkillEmulation | null;
     readonly hosts: readonly string[];
+    readonly runtime?: PlatformRequirements | undefined;
   }
 ): string => {
   const match = FRONTMATTER.exec(content);
@@ -527,10 +544,17 @@ export const stampFlowSkillProvenance = (
   const [matched] = match;
   const stamped = [
     ...withoutStampedKeys(match.groups?.block ?? ""),
-    "hosts:",
-    ...provenance.hosts.map((host) => `  - ${host}`),
-    "emulation:",
-    ...emulationLines(provenance.emulation),
+    `runtime: ${JSON.stringify(provenance.runtime ?? browserRequirements)}`,
+    ...(provenance.runtime?.platform === "android"
+      ? []
+      : [
+          "hosts:",
+          ...provenance.hosts.map((host) => `  - ${host}`),
+          "emulation:",
+          ...(provenance.emulation === null
+            ? []
+            : emulationLines(provenance.emulation)),
+        ]),
   ].join("\n");
   return `---\n${stamped}\n---\n${content.slice(matched.length)}`;
 };
@@ -849,6 +873,15 @@ export const validateFlowSkillPackage = (
       )
     );
   } else {
+    for (const message of frontmatter.runtime.diagnostics) {
+      report(
+        diagnostic("flow_skill_invalid_runtime", message, [
+          SKILL_FILE,
+          "frontmatter",
+          "runtime",
+        ])
+      );
+    }
     if (frontmatter.name !== flowSkillName) {
       report(
         diagnostic(

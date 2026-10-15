@@ -200,6 +200,12 @@ export const makeInMemoryAgentBrowser = (input: {
         return ref;
       });
     const tab: AgentBrowserTab = {
+      activateCoordinates: (x, y) =>
+        tab
+          .inspect(x, y)
+          .pipe(
+            Effect.flatMap(({ ref }) => tab.perform({ ref, type: "click" }))
+          ),
       beginObservation: () =>
         Effect.sync(() => {
           const before = atoms.get(state);
