@@ -1,3 +1,4 @@
+import { isAndroidSupportedApi } from "@contingency/protocol";
 import { Effect } from "effect";
 
 import { androidCapabilities } from "./android-runtime-contract.ts";
@@ -17,12 +18,14 @@ export const validateAndroidStartup = (input: AndroidRuntimeStartInput) =>
       (input.device.kind === "physical"
         ? !input.device.model
         : !input.device.avd) ||
-      !input.device.fingerprint ||
-      input.device.api !== 36
+      !input.device.fingerprint
     ) {
       return yield* Effect.fail(
         platformRuntimeError("device_selection_required")
       );
+    }
+    if (!isAndroidSupportedApi(input.device.api)) {
+      return yield* Effect.fail(platformRuntimeError("api_unsupported"));
     }
     if (
       input.requiredCapabilities.some(

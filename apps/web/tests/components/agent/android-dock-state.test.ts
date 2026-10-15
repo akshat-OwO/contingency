@@ -12,7 +12,6 @@ const pending = {
   completedAt: null,
   controller: "user",
   error: null,
-  experimental: true,
   field: null,
   flowSkillName: FlowSkillName.make("android-checkout"),
   id: AgentSessionId.make("agent-android"),

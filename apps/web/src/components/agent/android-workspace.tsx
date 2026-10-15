@@ -662,7 +662,7 @@ const AndroidSessionView = ({
 
 /**
  * The Android Workspace on the browser Workspace's own dock, state names,
- * Skills drawer, and Run Summary, marked Experimental. The device shows only
+ * Skills drawer, and Run Summary. The device shows only
  * what the device shows: a click on it is resolved by the server against a
  * fresh observation and sent as a semantic action, or refused beside the
  * device with nothing sent.

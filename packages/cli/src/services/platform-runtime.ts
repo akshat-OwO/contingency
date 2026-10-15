@@ -77,6 +77,8 @@ export interface PlatformRuntimeError {
     | "capture_incomplete"
     | "secure_window"
     | "device_selection_required"
+    | "api_unsupported"
+    | "permission_decisions_unsupported"
     | "user_profile_unsupported"
     | "device_mismatch"
     | "device_disconnected"

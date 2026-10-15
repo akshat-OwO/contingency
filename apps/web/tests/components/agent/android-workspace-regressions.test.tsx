@@ -22,7 +22,6 @@ const completed: AndroidWorkspaceSnapshot = {
   completedAt: "2026-10-15T00:00:00.000Z",
   controller: "user",
   error: null,
-  experimental: true,
   field: null,
   flowSkillName: FlowSkillName.make("finished-checkout"),
   id: AgentSessionId.make("agent-completed"),

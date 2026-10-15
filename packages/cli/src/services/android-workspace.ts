@@ -160,18 +160,20 @@ const satisfiesOutcomes = (
   requirements.outcomes.every(
     (condition) => visible(before, condition) && visible(after, condition)
   );
-const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
+/**
+ * The Target App's semantic screen. Other windows, such as the status bar,
+ * change on their own; ownership checks, not this comparison, cover them.
+ */
+const semanticSignature = (
+  nodes: AndroidObservation["nodes"],
+  targetApp: string
+) =>
   JSON.stringify(
-    nodes.map(
-      ({ role, name, editable, covered, password, packageName, bounds }) => ({
-        bounds,
-        covered,
-        editable,
-        name,
-        packageName,
-        password,
-        role,
-      })
+    nodes.flatMap(
+      ({ role, name, editable, covered, password, packageName, bounds }) =>
+        packageName === targetApp
+          ? [{ bounds, covered, editable, name, packageName, password, role }]
+          : []
     )
   );
 
@@ -537,8 +539,14 @@ export const makeAndroidWorkspaceLayer = (options: {
           field:
             current.field?.password !== true &&
             current.observation !== null &&
-            semanticSignature(current.observation.nodes) ===
-              semanticSignature(observation.nodes)
+            semanticSignature(
+              current.observation.nodes,
+              current.summary.selection.environment.appId
+            ) ===
+              semanticSignature(
+                observation.nodes,
+                current.summary.selection.environment.appId
+              )
               ? current.field
               : null,
           observation,
@@ -647,7 +655,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             ({ inputs } = skill);
             if (!supportsWorkspaceRequirements(taught, skill.inputs)) {
               return yield* denied(
-                "This experimental Android journey requires declared preparation and outcomes and supports named private inputs only."
+                "This Android journey requires declared preparation and outcomes and supports named private inputs only."
               );
             }
             if (command.kind === "run") {
@@ -705,6 +713,22 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
             const { selection } = command;
+            // The Support Matrix binds one device at a time; another live session keeps its binding.
+            const bound = [...sessions.values()].find((session) =>
+              ["pending", "running", "paused"].includes(
+                state(session).summary.phase
+              )
+            );
+            if (bound !== undefined) {
+              const { id: boundId, selection: boundSelection } =
+                state(bound).summary;
+              const { serial } = boundSelection.device;
+              return yield* denied(
+                serial === selection.device.serial
+                  ? `Android session ${boundId} is already bound to ${serial}. Close it before starting another session.`
+                  : `Android binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+              );
+            }
             const { taught, recordingId, inputs } =
               yield* selectRequirements(command);
             const id = AgentSessionId.make(
@@ -768,7 +792,6 @@ export const makeAndroidWorkspaceLayer = (options: {
                   ? "user"
                   : "agent",
               error: null,
-              experimental: true,
               flowSkillName: command.flowSkillName,
               id,
               kind: command.kind,
@@ -959,6 +982,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
+          const { appId } = summary.selection.environment;
           const matches =
             selectedTarget === undefined
               ? []
@@ -972,10 +996,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                       (node.editable &&
                         JSON.stringify(node.bounds) ===
                           JSON.stringify(selectedTarget.bounds) &&
-                        semanticSignature(before.nodes) ===
-                          semanticSignature(selectedObservation.nodes))) &&
+                        semanticSignature(before.nodes, appId) ===
+                          semanticSignature(
+                            selectedObservation.nodes,
+                            appId
+                          ))) &&
                     !node.covered &&
-                    node.packageName === summary.selection.environment.appId
+                    node.packageName === appId
                 );
           if (action._tag !== "back" && matches.length !== 1) {
             return yield* denied(
@@ -985,8 +1012,8 @@ export const makeAndroidWorkspaceLayer = (options: {
           const [target] = matches;
           if (
             action._tag === "back" &&
-            semanticSignature(before.nodes) !==
-              semanticSignature(selectedObservation.nodes)
+            semanticSignature(before.nodes, appId) !==
+              semanticSignature(selectedObservation.nodes, appId)
           ) {
             return yield* denied(
               "The screen changed before Back. Inspect the fresh screen and choose Back again."

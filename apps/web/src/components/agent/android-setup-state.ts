@@ -1,20 +1,22 @@
+import {
+  androidSupportedApi,
+  isAndroidSupportedApi,
+} from "@contingency/protocol";
 import type {
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
 } from "@contingency/protocol";
 
-/** The one Android release the experimental runtime supports. */
-const SUPPORTED_API = 36;
-export const SUPPORTED_RELEASE = "16";
-
 /** A device the runtime can open a session on, as a selection. */
 export const selectable = (
   device: AndroidDiscoveredDevice
 ): AndroidWorkspaceSelection["device"] | null => {
+  const { api, fingerprint } = device;
   if (
     device.state !== "device" ||
-    device.api !== SUPPORTED_API ||
-    device.fingerprint === null
+    !isAndroidSupportedApi(api) ||
+    fingerprint === null ||
+    device.release === null
   ) {
     return null;
   }
@@ -22,8 +24,8 @@ export const selectable = (
     return device.model === null
       ? null
       : {
-          api: SUPPORTED_API,
-          fingerprint: device.fingerprint,
+          api,
+          fingerprint,
           host: "local",
           kind: "physical",
           model: device.model,
@@ -33,13 +35,17 @@ export const selectable = (
   return device.avd === null
     ? null
     : {
-        api: SUPPORTED_API,
+        api,
         avd: device.avd,
-        fingerprint: device.fingerprint,
+        fingerprint,
         host: "local",
         serial: device.serial,
       };
 };
+
+/** The release a selectable device reports; Preparation rechecks it. */
+export const deviceRelease = (device: AndroidDiscoveredDevice | undefined) =>
+  device?.release ?? "";
 
 /** Why a reported device cannot be picked, or nothing when it can. */
 export const unavailableReason = (device: AndroidDiscoveredDevice) => {
@@ -49,8 +55,8 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
   if (device.state !== "device") {
     return device.state === "offline" ? "Offline" : "Unavailable";
   }
-  if (device.api !== SUPPORTED_API) {
-    return `API ${device.api ?? "unknown"}; needs API ${SUPPORTED_API}`;
+  if (!isAndroidSupportedApi(device.api)) {
+    return `API ${device.api ?? "unknown"}; needs API ${androidSupportedApi.minimum}–${androidSupportedApi.maximum}`;
   }
   return selectable(device) === null ? "Identity unreadable" : null;
 };

@@ -421,6 +421,149 @@ const dryRun = (recordingId: TeachingRecordingId) =>
     );
   });
 
+it.effect(
+  "binds one device at a time and refuses a second session until the first closes",
+  () =>
+    fixture(({ calls }) =>
+      Effect.gen(function* oneBoundDevice() {
+        const workspace = yield* AndroidWorkspace;
+        const start = (id: string, serial: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowSkillName,
+              kind: "teaching",
+              operationId: op(id),
+              recordingId: null,
+              selection: {
+                ...selection,
+                device: { ...selection.device, serial },
+              },
+            },
+            "user"
+          );
+        const first = yield* start("start-first", "emulator-5554");
+        const before = calls.length;
+        const other = yield* Effect.flip(start("start-other", "emulator-5556"));
+        expect(other.message).toContain(
+          "Multiple bound devices are unsupported"
+        );
+        const same = yield* Effect.flip(start("start-same", "emulator-5554"));
+        expect(same.message).toContain(`${first.id} is already bound`);
+        expect(calls.length).toBe(before);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-first"),
+            sessionId: first.id,
+          },
+          "user"
+        );
+        const next = yield* start("start-next", "emulator-5554");
+        expect(next.phase).toBe("pending");
+      })
+    )
+);
+
+/** A status bar clock beside one Target App element. */
+const statusBarScreen = (clockWidth: number): AndroidObservation["nodes"] => [
+  {
+    bounds: { height: 43, width: clockWidth, x: 84, y: 41 },
+    covered: false,
+    editable: false,
+    hittable: false,
+    name: "Other window",
+    packageName: "com.android.systemui",
+    password: false,
+    role: "text",
+    target: "@e1",
+  },
+  {
+    bounds: { height: 91, width: 1032, x: 24, y: 120 },
+    covered: false,
+    editable: false,
+    hittable: false,
+    name: "Account details",
+    packageName: "dev.fixture",
+    password: false,
+    role: "text",
+    target: "@e2",
+  },
+];
+
+it.effect(
+  "sends Back when only another window, such as the status bar, changed",
+  () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* backPastStatusBar() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowSkillName,
+            kind: "teaching",
+            operationId: op("start-back"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        setNodes(statusBarScreen(92));
+        const seen = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        // The clock widens between the user's view and the fresh pre-dispatch capture.
+        setNodes(statusBarScreen(120));
+        yield* workspace.execute(
+          {
+            _tag: "input",
+            action: { _tag: "back" },
+            observationId: seen.observation?.id ?? "",
+            operationId: op("back"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(calls).toContain("back");
+        // A change inside the Target App still refuses Back without input.
+        const changed = statusBarScreen(120).map((node) =>
+          node.packageName === "dev.fixture"
+            ? { ...node, name: "Signed in privately" }
+            : node
+        );
+        const before = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        setNodes(changed);
+        const backs = calls.filter((call) => call === "back").length;
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: "back" },
+              observationId: before.observation?.id ?? "",
+              operationId: op("back-changed"),
+              sessionId: started.id,
+            },
+            "user"
+          )
+        );
+        expect(refused.message).toContain("The screen changed before Back");
+        expect(calls.filter((call) => call === "back").length).toBe(backs);
+      })
+    )
+);
+
 it.effect("cancelling a mirror capture leaves Teaching intact", () =>
   fixture(({ holdNextCapture }) =>
     Effect.gen(function* cancelMirror() {

@@ -10,6 +10,7 @@ import {
   AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
+  isAndroidSupportedApi,
 } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 import { yazl } from "playwright-core/lib/utilsBundle";
@@ -22,12 +23,22 @@ export interface AndroidDiscoveryError {
   readonly code: string;
   readonly message: string;
 }
-const failure = (code = "android_discovery_failed"): AndroidDiscoveryError => ({
+const messages = {
+  android_api_unsupported:
+    "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
+  android_device_unauthorized:
+    "Explicitly select and authorize the same connected Android device before listing apps.",
+} as const;
+const failure = (
+  code:
+    | keyof typeof messages
+    | "android_discovery_failed" = "android_discovery_failed"
+): AndroidDiscoveryError => ({
   code,
   message:
-    code === "android_device_unauthorized"
-      ? "Explicitly select and authorize the same connected Android device before listing apps."
-      : "Android discovery failed. Check ADB connectivity and Android SDK build-tools.",
+    code === "android_discovery_failed"
+      ? "Android discovery failed. Check ADB connectivity and Android SDK build-tools."
+      : messages[code],
 });
 const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const componentPattern =
@@ -164,6 +175,9 @@ export const makeAndroidDiscovery = (io = discoveryHost) => ({
       if (!serialPattern.test(device.serial)) {
         return yield* Effect.fail(failure("android_device_unauthorized"));
       }
+      if (!isAndroidSupportedApi(device.api)) {
+        return yield* Effect.fail(failure("android_api_unsupported"));
+      }
       const adb = (args: readonly string[]) =>
         io.adb(["-s", device.serial, ...args]);
       yield* requireAndroidDeviceIdentity(device, (args) =>
@@ -285,6 +299,8 @@ export const makeAndroidDiscovery = (io = discoveryHost) => ({
             : serial.startsWith("emulator-");
         const fingerprint =
           state === "device" ? yield* read("ro.build.fingerprint") : null;
+        const release =
+          state === "device" ? yield* read("ro.build.version.release") : null;
         const avd =
           state === "device" && emulator
             ? ((yield* io.adb(["-s", serial, "emu", "avd", "name"])).split(
@@ -298,6 +314,7 @@ export const makeAndroidDiscovery = (io = discoveryHost) => ({
             fingerprint,
             kind: emulator ? "emulator" : "physical",
             model,
+            release: release || null,
             serial,
             state,
           }).pipe(Effect.mapError(() => failure()))

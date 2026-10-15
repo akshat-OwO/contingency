@@ -61,7 +61,7 @@ const DeviceFrame = ({
 );
 
 /**
- * Back is the one key the experimental runtime sends. Home and Recents leave
+ * Back is the one key the Android runtime sends. Home and Recents leave
  * the Target App, so the toolbar offers nothing it would refuse.
  */
 const DeviceToolbar = ({

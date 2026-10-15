@@ -43,7 +43,8 @@ export const androidPrivateTextRelease = {
 export type AndroidDeviceSelection = {
   readonly host: "local";
   readonly serial: string;
-  readonly api: 36;
+  /** Within the Support Matrix range; startup refuses any other level. */
+  readonly api: number;
   readonly fingerprint: string;
 } & (
   | { readonly kind?: "emulator"; readonly avd: string }
@@ -138,7 +139,6 @@ export interface AndroidRuntimeState {
 /** Android has no browser session, URL, tab, or Emulation. */
 export interface AndroidPlatformRuntime extends PlatformRuntimeService {
   readonly platform: "android";
-  readonly experimental: true;
   readonly device: AndroidDeviceSelection;
   readonly backendSessionId: string;
   readonly observe: () => Effect.Effect<

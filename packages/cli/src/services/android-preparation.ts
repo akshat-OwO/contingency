@@ -167,26 +167,25 @@ export const prepareAndroidAppData = (
     }
     for (const { permission, decision } of input.environment.permissions ??
       []) {
-      yield* mutate([
-        "shell",
-        "pm",
-        decision,
-        "--user",
-        "0",
-        input.targetApp,
-        permission,
-      ]);
-      yield* mutate([
-        "shell",
-        "pm",
-        "set-permission-flags",
-        "--user",
-        "0",
-        input.targetApp,
-        permission,
-        "user-set",
-        "user-fixed",
-      ]);
+      for (const args of [
+        ["shell", "pm", decision, "--user", "0", input.targetApp, permission],
+        [
+          "shell",
+          "pm",
+          "set-permission-flags",
+          "--user",
+          "0",
+          input.targetApp,
+          permission,
+          "user-set",
+          "user-fixed",
+        ],
+      ]) {
+        // pm prints nothing on success; an unknown command or permission prints a reason.
+        if ((yield* mutate(args)) !== "") {
+          return yield* Effect.fail(platformRuntimeError("preparation_failed"));
+        }
+      }
     }
     yield* requireAndroidPermissionState(input, run, "preparation_failed");
   });

@@ -269,7 +269,6 @@ const teaching: AndroidWorkspaceSnapshot = {
   completedAt: null,
   controller: "user",
   error: null,
-  experimental: true,
   field: null,
   flowSkillName: FlowSkillName.make("checkout"),
   id: AgentSessionId.make("agent-android-teaching"),

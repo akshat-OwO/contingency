@@ -154,7 +154,7 @@ const receipt = {
     kind: physical ? "physical" : "emulator",
     model: physical ? selection.device.model : selection.device.avd,
   },
-  entryPoint: "Workspace Android experimental",
+  entryPoint: "Workspace Android",
   feature: "android-stream",
 };
 let sessionId;

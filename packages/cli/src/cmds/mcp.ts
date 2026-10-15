@@ -44,13 +44,13 @@ import {
 } from "../services/http-server.ts";
 import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
 import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
+import { McpAndroidWorkspaceLayer } from "../services/mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
 import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import {
   makeMcpInstructions,
-  makeMcpAndroidLayer,
   makeMcpHttpLayer,
   makeMcpPursuitLayer,
 } from "../services/mcp-http.ts";
@@ -161,9 +161,6 @@ export const mcpCommand = Command.make(
   },
   Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
     const config = yield* Config.all({
-      android: Config.Boolean("ANDROID_EXPERIMENTAL").pipe(
-        Config.withDefault(false)
-      ),
       // Claude Code channels are opt-in and stdio-only (ADR 0055).
       channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
       // Opt-in sandboxed code orchestration (ADR 0045).
@@ -185,7 +182,7 @@ export const mcpCommand = Command.make(
         new Error("The MCP server must bind to 127.0.0.1.")
       );
     }
-    const { android, channel, codeMode, host, port, videoFastForward } = config;
+    const { channel, codeMode, host, port, videoFastForward } = config;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
     const systemOne = Option.getOrUndefined(yield* systemOneConfig);
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
@@ -310,7 +307,7 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 mcpTools,
-                makeMcpAndroidLayer(android),
+                McpAndroidWorkspaceLayer,
                 makeMcpStartLayer(demoSite),
                 codeMode ? McpCodeModeLayer : Layer.empty,
                 makeMcpPursuitLayer(systemOne)
@@ -356,7 +353,6 @@ export const mcpCommand = Command.make(
             catalogBrowser,
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, {
-              android,
               codeMode,
               demoSite,
               systemOne,

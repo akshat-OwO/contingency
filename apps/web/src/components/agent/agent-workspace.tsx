@@ -2391,7 +2391,7 @@ export const AgentWorkspace = (
         className="bg-background absolute top-4 right-4 rounded-md border px-3 py-2 text-sm shadow-sm"
         onClick={() => setAndroid(true)}
       >
-        Android experimental
+        Android
       </button>
     </>
   );

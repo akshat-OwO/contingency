@@ -341,11 +341,7 @@ try {
     .digest("hex");
   await adb("install", apk);
   await run("nub", [controlPath, "mcp", "start"], {
-    env: {
-      ...process.env,
-      CONTINGENCY_MCP_ANDROID_EXPERIMENTAL: "true",
-      NODE_OPTIONS: `--import=${hook}`,
-    },
+    env: { ...process.env, NODE_OPTIONS: `--import=${hook}` },
   });
   mcpOwned = true;
   instance = JSON.parse(
