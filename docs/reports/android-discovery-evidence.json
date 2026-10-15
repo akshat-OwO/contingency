@@ -238,5 +238,46 @@
       ],
       "width": 1080
     }
+  },
+  "labelFallback": {
+    "appCount": 23,
+    "command": "android.devices.list; android.apps.list; android.apps.list with mismatched identity",
+    "deviceKind": "emulator",
+    "devices": [
+      {
+        "api": 36,
+        "kind": "physical",
+        "state": "device"
+      },
+      {
+        "api": 36,
+        "kind": "emulator",
+        "state": "device"
+      }
+    ],
+    "entryPoint": "Workspace RPC /ws",
+    "feature": "android-discovery",
+    "expectedApp": {
+      "label": "Discovery activity",
+      "launchActivity": "dev.contingency.discoverylabel/android.app.Activity",
+      "package": "dev.contingency.discoverylabel",
+      "versionCode": "1",
+      "versionName": "1.0"
+    },
+    "refusalTag": "BrowserRpcError",
+    "sample": {
+      "label": "Settings",
+      "launchActivity": "com.android.settings/.Settings",
+      "package": "com.android.settings",
+      "versionCode": "36",
+      "versionName": "16"
+    },
+    "temporaryArchivesRemoved": true,
+    "unauthorizedRefused": true,
+    "unchanged": {
+      "foreground": "92ab1942ca4a9054a53861f7c753e35ab64c2c0bb8012754b6bf3a3b5858033f",
+      "forwards": "41a721f782a1a32e5eb23b9eca0f092fcbbec9f412ab64203c59fb498b2470ed",
+      "packages": "a03f038528b8a0a124a67abaa44b2474279b63c6e790ac3d7164eb2f63eca985"
+    }
   }
 }

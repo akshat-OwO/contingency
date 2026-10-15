@@ -95,6 +95,15 @@ const program = Effect.scoped(
           app.package && app.label && app.versionCode && app.launchActivity
       )
     );
+    const expectedPackage = process.env.CONTINGENCY_ANDROID_EXPECTED_APP;
+    const expectedApp = apps.find((app) => app.package === expectedPackage);
+    if (expectedPackage) {
+      assert.ok(expectedApp);
+      assert.equal(
+        expectedApp.label,
+        process.env.CONTINGENCY_ANDROID_EXPECTED_APP_LABEL
+      );
+    }
     const refusal = yield* Effect.flip(
       client("android.apps.list", {
         device: { ...device, fingerprint: "deliberately-mismatched" },
@@ -122,6 +131,7 @@ const program = Effect.scoped(
         state: runningState,
       })),
       entryPoint: "Workspace RPC /ws",
+      expectedApp: expectedApp ?? null,
       feature: "android-discovery",
       refusalTag: refusal._tag,
       sample:

@@ -36,6 +36,24 @@ const apkPathPattern = /^package:(?<apk>\/[A-Za-z0-9_./=+~@-]+\.apk)$/u;
 const packagePattern =
   /^package: name='(?<package>[^']+)' versionCode='(?<versionCode>[^']+)' versionName='(?<versionName>[^']*)'/mu;
 const labelPattern = /^application-label:'(?<label>.*)'$/mu;
+const applicationLabelPattern = /^application: label='(?<label>.*)' icon='/mu;
+const launcherLabelPattern =
+  /^launchable-activity: name='(?<activity>[^']+)'\s+label='(?<label>.*)' icon='/gmu;
+const appLabel = (metadata: string, packageName: string, component: string) => {
+  const activity = component.slice(packageName.length + 1);
+  const className = activity.startsWith(".")
+    ? `${packageName}${activity}`
+    : activity;
+  const launcherLabel = [...metadata.matchAll(launcherLabelPattern)].find(
+    (match) => match.groups?.activity === className
+  )?.groups?.label;
+  return (
+    labelPattern.exec(metadata)?.groups?.label ||
+    applicationLabelPattern.exec(metadata)?.groups?.label ||
+    launcherLabel ||
+    packageName
+  );
+};
 const execute = promisify(execFile);
 const host = (file: string, args: readonly string[]) =>
   Effect.tryPromise({
@@ -210,11 +228,11 @@ export const makeAndroidDiscovery = (io = discoveryHost) => ({
           }))
         );
         const match = packagePattern.exec(metadata)?.groups;
-        const label = labelPattern.exec(metadata)?.groups?.label;
-        if (match?.package !== packageName || label === undefined) {
+        const label = appLabel(metadata, packageName, component);
+        if (match?.package !== packageName) {
           return yield* Effect.fail({
             code: "android_discovery_failed",
-            message: `APK metadata for ${packageName} is missing its package, version or application label.`,
+            message: `APK metadata for ${packageName} is missing its package or version.`,
           });
         }
         apps.push(

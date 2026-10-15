@@ -244,3 +244,44 @@ it.effect(
       }
     })
 );
+
+it.effect(
+  "keeps unlabeled applications and other apps in the same inventory",
+  () =>
+    Effect.gen(function* labelFallbacks() {
+      for (const launcherLabel of ["Activity label", ""]) {
+        const discovery = makeAndroidDiscovery({
+          adb: (args) =>
+            Effect.sync(() => {
+              const command = args.slice(2).join(" ");
+              if (command.includes("query-activities")) {
+                return "dev.activity/.Home\ndev.normal/.Home";
+              }
+              if (command.startsWith("shell pm path")) {
+                return `package:/data/app/${args.at(-1)}/base.apk`;
+              }
+              return properties.get(command) ?? "";
+            }),
+          readApk: (_serial, apk) =>
+            Effect.succeed(
+              apk.includes("dev.activity")
+                ? `package: name='dev.activity' versionCode='1' versionName='1.0'\napplication: label='' icon=''\nlaunchable-activity: name='dev.activity.Home'  label='${launcherLabel}' icon=''`
+                : "package: name='dev.normal' versionCode='2' versionName='2.0'\napplication-label:'Normal app'"
+            ),
+        });
+        const apps = yield* discovery.apps(device);
+        expect(
+          apps.map(({ package: packageName, label }) => ({
+            label,
+            packageName,
+          }))
+        ).toEqual([
+          {
+            label: launcherLabel || "dev.activity",
+            packageName: "dev.activity",
+          },
+          { label: "Normal app", packageName: "dev.normal" },
+        ]);
+      }
+    })
+);
