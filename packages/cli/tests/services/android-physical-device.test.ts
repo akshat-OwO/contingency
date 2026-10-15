@@ -129,6 +129,17 @@ it.effect(
     }).pipe(Effect.scoped)
 );
 
+/** pm clear reports Success; pm grant, revoke, and set-permission-flags print nothing. */
+const preparationReply = (command: string) => {
+  if (command === "shell am get-current-user") {
+    return "0";
+  }
+  if (command.includes("dumpsys")) {
+    return "User 0: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_FIXED ]";
+  }
+  return command.includes("pm clear") ? "Success" : "";
+};
+
 it.effect(
   "clears only the authorized app and establishes the declared denial before launch",
   () =>
@@ -139,12 +150,7 @@ it.effect(
         Effect.sync(() => {
           const command = args.join(" ");
           calls.push(command);
-          if (command === "shell am get-current-user") {
-            return "0";
-          }
-          return command.includes("dumpsys")
-            ? "User 0: installed=true\n android.permission.POST_NOTIFICATIONS: granted=false, flags=[ USER_SET|USER_FIXED ]"
-            : "Success";
+          return preparationReply(command);
         });
       yield* prepareAndroidAppData(
         {
@@ -176,6 +182,25 @@ it.effect(
         )
       );
       expect(failed.code).toBe("device_disconnected");
+      // Android 11 has no set-permission-flags; its usage text must not pass as success.
+      const unflagged = yield* Effect.flip(
+        prepareAndroidAppData(
+          {
+            ...input,
+            clearDataGrant: {
+              serial: phone.serial,
+              targetApp: input.targetApp,
+            },
+          },
+          (args) =>
+            Effect.sync(() =>
+              args.includes("set-permission-flags")
+                ? "Unknown command: set-permission-flags"
+                : preparationReply(args.join(" "))
+            )
+        )
+      );
+      expect(unflagged.code).toBe("preparation_failed");
     }).pipe(Effect.scoped)
 );
 

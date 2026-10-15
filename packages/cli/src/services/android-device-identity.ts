@@ -4,7 +4,7 @@ import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
-/** This experimental runtime supports only the owner profile. Unknown users fail closed. */
+/** The Android runtime supports only the owner profile. Unknown users fail closed. */
 export const requireAndroidOwnerUser = (
   adb: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
 ) =>

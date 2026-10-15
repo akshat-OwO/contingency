@@ -213,7 +213,7 @@ try {
       const paused = await command({ _tag: "read", sessionId: session.id });
       assert.equal(paused.phase, "paused");
       await control("browser", "goto", "--url", instance.mcpUrl);
-      await click("Android experimental");
+      await click("Android");
       await wait("combobox", "Android Agent Session");
       await snapshot("empty-existing-sessions");
       await control(
@@ -243,7 +243,7 @@ try {
     await click("Close session");
     await wait("button", "New session");
     await control("browser", "goto", "--url", instance.mcpUrl);
-    await click("Android experimental");
+    await click("Android");
     await wait("combobox", "Android Agent Session");
     await control(
       "browser",

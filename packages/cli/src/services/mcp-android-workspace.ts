@@ -16,7 +16,7 @@ export const AndroidWorkspaceTools = withStrictParameters(
     Tool.make("agent_android_workspace", {
       dependencies: [AndroidWorkspace],
       description:
-        "Experimental local API 36 Android; require user-authorized device and fixture. Share /?android=<sessionId>. Workspace owns prepare, consent, recording, Takeover and verification. Input uses observationId. Private input needs privateInput+pinned helper: variable-request, Workspace supply, input variable. agentSetup:true starts setup; setup-handoff expires its Variables. Learn via Recording claim/Timeline/Flow Skill save; fresh dry-run, verified later Run. Complete with latest observation. Gaps/Takeover cannot pass. No cross-app/system dialogs. Cancellation cannot undo input.",
+        "Local Android API 30-36, one bound device; require user authorization for the device and app. Share /?android=<sessionId>. Workspace owns prepare, consent, recording, Takeover and verification. Input uses observationId. Private input needs privateInput+pinned helper: variable-request, Workspace supply, input variable. agentSetup:true starts setup; setup-handoff expires its Variables. Learn via Recording claim/Timeline/Flow Skill save; fresh dry-run, verified later Run. Complete with latest observation. Gaps/Takeover cannot pass. No cross-app/system dialogs. Cancellation cannot undo input.",
       failure: AndroidWorkspaceFailure,
       parameters: Schema.Struct({
         command: Schema.Union(

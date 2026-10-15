@@ -152,7 +152,7 @@ export const openAndroidSheet = async (
       "--value",
       value
     );
-  await click("Android experimental");
+  await click("Android");
   await click("Open Android session");
   await fill("Flow skill name", flowSkillName);
   await click(selection.device.serial, true);

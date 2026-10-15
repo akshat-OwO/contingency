@@ -15,9 +15,6 @@ import { McpTeachingRecordingLayer } from "./mcp-teaching-recording.ts";
 import { makeSystemOneLayer } from "./system-one.ts";
 import type { SystemOneConfig } from "./system-one.ts";
 
-export const makeMcpAndroidLayer = (enabled: boolean | undefined) =>
-  enabled === true ? McpAndroidWorkspaceLayer : Layer.empty;
-
 /**
  * `agent_browser_pursue`, only when the machine names a System One endpoint.
  * Without one the catalog is unchanged ([ADR 0057](../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
@@ -66,7 +63,6 @@ export const MCP_INSTRUCTIONS = makeMcpInstructions();
 export const makeMcpHttpLayer = <R = never>(
   allowedOrigins: ReadonlySet<string>,
   options: {
-    readonly android?: boolean | undefined;
     readonly codeMode?: boolean | undefined;
     readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
     readonly systemOne?: SystemOneConfig | undefined;
@@ -88,7 +84,7 @@ export const makeMcpHttpLayer = <R = never>(
       version: "0.0.1",
     }),
     McpAgentSessionLayer,
-    makeMcpAndroidLayer(options.android),
+    McpAndroidWorkspaceLayer,
     McpAgentCatalogLayer,
     McpAgentRunLayer,
     McpTeachingRecordingLayer,

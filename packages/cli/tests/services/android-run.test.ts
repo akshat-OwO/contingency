@@ -446,6 +446,31 @@ it.effect(
     }).pipe(Effect.scoped)
 );
 
+it.effect(
+  "refuses permission decisions below API 31 before any device command",
+  () =>
+    Effect.gen(function* permissionApi() {
+      const { driver, input, calls } = yield* fixture();
+      const result = yield* Effect.flip(
+        createAndroidRun(
+          {
+            ...input,
+            device: { ...input.device, api: 30 },
+            environment: {
+              ...input.environment,
+              permissions: [
+                { decision: "grant", permission: "android.permission.CAMERA" },
+              ],
+            },
+          },
+          driver
+        )
+      );
+      expect(result.code).toBe("permission_decisions_unsupported");
+      expect(calls).toEqual([]);
+    }).pipe(Effect.scoped)
+);
+
 it.effect("refuses a physical Run that only restarts an activity", () =>
   Effect.gen(function* physicalFreshness() {
     const { driver, input, calls } = yield* fixture();

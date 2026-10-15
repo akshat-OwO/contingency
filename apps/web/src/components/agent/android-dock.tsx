@@ -44,26 +44,13 @@ import {
   androidSessionLabel,
 } from "./android-dock-state";
 
-/**
- * Marks Android as experimental without a banner: one badge beside the state
- * badge, and its title says what to expect.
- */
-export const ExperimentalBadge = () => (
-  <Badge
-    title="Android is experimental. Expect fewer features than the browser Workspace."
-    variant="outline"
-  >
-    Experimental
-  </Badge>
-);
-
 const BADGE_VARIANT = {
   default: "secondary",
   failed: "destructive",
   recording: "default",
 } as const;
 
-/** The state badge the browser dock shows, then the Experimental badge. */
+/** The state badge the browser dock shows. */
 export const AndroidStateBadges = ({
   session,
 }: {
@@ -84,7 +71,6 @@ export const AndroidStateBadges = ({
         ) : null}
         {presentation.badge}
       </Badge>
-      <ExperimentalBadge />
     </>
   );
 };

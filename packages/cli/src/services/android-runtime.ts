@@ -230,7 +230,6 @@ export const adaptAndroidRuntime = (input: {
       device: input.startup.device,
       dispatch: mutate,
       enterPrivate,
-      experimental: true,
       invalidate: () => lock.withPermits(1)(invalidate),
       observe: () =>
         lock.withPermits(1)(

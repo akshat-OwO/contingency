@@ -26,7 +26,6 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
       readonly codeMode?: boolean;
-      readonly android?: boolean;
       readonly demo?: boolean;
       readonly systemOne?: SystemOneConfig;
     } = {}
@@ -37,7 +36,6 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
     const context = yield* Layer.build(
       HttpRouter.serve(
         makeMcpHttpLayer(allowedOrigins, {
-          android: options.android,
           codeMode: options.codeMode,
           demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
           systemOne: options.systemOne,

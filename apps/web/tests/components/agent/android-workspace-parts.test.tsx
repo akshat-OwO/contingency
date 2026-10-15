@@ -29,13 +29,14 @@ test("reports a click as fractions of the displayed frame", () => {
   );
 });
 
-test("offers only identified API 36 devices", () => {
+test("offers only identified devices in the API 30 to 36 Support Matrix", () => {
   const emulator = {
     api: 36,
     avd: "Pixel_9",
     fingerprint: "google/sdk_gphone",
     kind: "emulator",
     model: "sdk_gphone64_arm64",
+    release: "16",
     serial: "emulator-5554",
     state: "device",
   } as const;
@@ -57,10 +58,20 @@ test("offers only identified API 36 devices", () => {
   expect(unavailableReason({ ...phone, state: "unauthorized" })).toBe(
     "Allow USB debugging on the device"
   );
-  expect(unavailableReason({ ...emulator, api: 35 })).toBe(
-    "API 35; needs API 36"
+  expect(selectable({ ...emulator, api: 30, release: "11" })).toMatchObject({
+    api: 30,
+  });
+  expect(unavailableReason({ ...emulator, api: 33 })).toBeNull();
+  expect(unavailableReason({ ...emulator, api: 29 })).toBe(
+    "API 29; needs API 30–36"
+  );
+  expect(unavailableReason({ ...emulator, api: 37 })).toBe(
+    "API 37; needs API 30–36"
   );
   expect(selectable({ ...emulator, fingerprint: null })).toBeNull();
+  expect(unavailableReason({ ...emulator, release: null })).toBe(
+    "Identity unreadable"
+  );
 });
 
 test("the device shows a refusal beside the stream and draws nothing over it", () => {

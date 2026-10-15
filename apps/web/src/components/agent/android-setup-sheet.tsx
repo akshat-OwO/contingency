@@ -37,8 +37,8 @@ import { listAndroidApps, listAndroidDevices } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import {
-  SUPPORTED_RELEASE,
   parseAndroidPermissionDecisions,
+  deviceRelease,
   selectable,
   unavailableReason,
 } from "./android-setup-state";
@@ -513,6 +513,7 @@ export const AndroidSetupSheet = ({
       ? devices.value.find((entry) => entry.serial === form.device)
       : undefined;
   const device = discovered === undefined ? null : selectable(discovered);
+  const release = deviceRelease(discovered);
   const loadedApps = useRead(
     device === null ? null : listAndroidApps(device),
     device === null ? "none" : `${device.serial}-${refresh}`
@@ -538,15 +539,7 @@ export const AndroidSetupSheet = ({
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            New Android session
-            <Badge
-              title="Android is experimental. Expect fewer features than the browser Workspace."
-              variant="outline"
-            >
-              Experimental
-            </Badge>
-          </SheetTitle>
+          <SheetTitle>New Android session</SheetTitle>
           <SheetDescription>
             Pick what to teach on. Nothing on the device changes until you
             prepare the session.
@@ -563,7 +556,7 @@ export const AndroidSetupSheet = ({
             onOpen(name, {
               device,
               environment: {
-                androidVersion: SUPPORTED_RELEASE,
+                androidVersion: release,
                 appBuild: app.versionCode,
                 appId: app.package,
                 permissions,

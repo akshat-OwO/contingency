@@ -269,7 +269,7 @@ export const startDryRun = (input: DryRunStartInput) =>
     ) {
       return yield* Effect.fail(
         invalid(
-          "Android Dry Runs require the experimental Android Workspace entry point and explicit device preparation."
+          "Android Dry Runs require the Android Workspace entry point and explicit device preparation."
         )
       );
     }

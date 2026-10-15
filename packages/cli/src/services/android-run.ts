@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { androidPermissionDecisionApi } from "@contingency/protocol";
 import { Effect, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
@@ -46,6 +47,14 @@ const validPermissions = (input: AndroidRunInput) => {
 export const validateAndroidRun = (input: AndroidRunInput) =>
   Effect.gen(function* validateRun() {
     yield* validateAndroidStartup(input);
+    if (
+      (input.environment.permissions ?? []).length > 0 &&
+      input.device.api < androidPermissionDecisionApi
+    ) {
+      return yield* Effect.fail(
+        platformRuntimeError("permission_decisions_unsupported")
+      );
+    }
     const required = new Set(input.requiredCapabilities);
     if (
       input.taught.platform !== "android" ||

@@ -17,6 +17,7 @@ const properties = new Map(
     "get-state": "device",
     "shell am get-current-user": "0",
     "shell getprop ro.build.fingerprint": "build",
+    "shell getprop ro.build.version.release": "16",
     "shell getprop ro.build.version.sdk": "36",
     "shell getprop ro.kernel.qemu": "1",
     "shell getprop ro.product.model": "Pixel 9",
@@ -47,6 +48,7 @@ it.effect(
           fingerprint: "build",
           kind: "emulator",
           model: "Pixel 9",
+          release: "16",
           serial: device.serial,
           state: "device",
         },
@@ -56,11 +58,12 @@ it.effect(
           fingerprint: null,
           kind: "physical",
           model: null,
+          release: null,
           serial: "phone",
           state: "unauthorized",
         },
       ]);
-      expect(calls.length).toBe(6);
+      expect(calls.length).toBe(7);
     })
 );
 
@@ -142,6 +145,22 @@ it.effect(
           calls.some((command) => command.includes("query-activities"))
         ).toBe(false);
       }
+    })
+);
+
+it.effect(
+  "refuses an API level outside the Support Matrix before touching the device",
+  () =>
+    Effect.gen(function* refuseApi() {
+      const discovery = makeAndroidDiscovery({
+        adb: () => Effect.die("An unsupported API level must not reach ADB"),
+        readApk: () => Effect.die("An unsupported API level cannot read APKs"),
+      });
+      const refused = yield* Effect.flip(
+        discovery.apps({ ...device, api: 29 })
+      );
+      expect(refused.code).toBe("android_api_unsupported");
+      expect(refused.message).toContain("below 30 are unsupported");
     })
 );
 

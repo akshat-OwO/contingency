@@ -163,6 +163,13 @@ it.effect(
           factory.start({ ...input, device: { ...input.device, serial: "" } })
         )).code
       ).toBe("device_selection_required");
+      for (const api of [29, 37]) {
+        expect(
+          (yield* Effect.flip(
+            factory.start({ ...input, device: { ...input.device, api } })
+          )).code
+        ).toBe("api_unsupported");
+      }
     })
 );
 

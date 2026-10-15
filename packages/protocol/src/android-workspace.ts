@@ -18,11 +18,24 @@ const text = Schema.String.check(
   Schema.isMaxLength(4096)
 );
 
+/** The API levels in the Android Support Matrix. Selection refuses every other level. */
+export const androidSupportedApi = { maximum: 36, minimum: 30 } as const;
+export const isAndroidSupportedApi = (api: number | null): api is number =>
+  api !== null &&
+  Number.isInteger(api) &&
+  api >= androidSupportedApi.minimum &&
+  api <= androidSupportedApi.maximum;
+/** Permission flags that keep a denied choice from prompting again need API 31. */
+export const androidPermissionDecisionApi = 31;
+
+// Any positive level decodes, so the runtime refuses it with a typed reason.
+const apiLevel = Schema.Int.check(Schema.isGreaterThan(0));
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSelection = Schema.Struct({
   device: Schema.Union([
     Schema.Struct({
-      api: Schema.Literal(36),
+      api: apiLevel,
       avd: text,
       fingerprint: text,
       host: Schema.Literal("local"),
@@ -30,7 +43,7 @@ export const AndroidWorkspaceSelection = Schema.Struct({
       serial: text,
     }),
     Schema.Struct({
-      api: Schema.Literal(36),
+      api: apiLevel,
       fingerprint: text,
       host: Schema.Literal("local"),
       kind: Schema.Literal("physical"),
@@ -69,11 +82,12 @@ export type AndroidElementBounds = typeof AndroidElementBounds.Type;
 
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidDiscoveredDevice = Schema.Struct({
-  api: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
+  api: Schema.NullOr(apiLevel),
   avd: Schema.NullOr(text),
   fingerprint: Schema.NullOr(text),
   kind: Schema.Literals(["emulator", "physical"]),
   model: Schema.NullOr(text),
+  release: Schema.NullOr(text),
   serial: text,
   state: Schema.Literals(["device", "offline", "unauthorized", "unavailable"]),
 });
@@ -161,7 +175,6 @@ export const AndroidWorkspaceSummary = Schema.Struct({
   completedAt: Schema.NullOr(text),
   controller: Schema.Literals(["agent", "user"]),
   error: Schema.NullOr(text),
-  experimental: Schema.Literal(true),
   flowSkillName: FlowSkillName,
   id: AgentSessionId,
   kind: Schema.Literals(["teaching", "dry-run", "run"]),

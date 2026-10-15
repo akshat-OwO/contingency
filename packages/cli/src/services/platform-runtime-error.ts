@@ -1,8 +1,10 @@
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const messages = {
+  api_unsupported:
+    "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
   capability_missing:
-    "The experimental Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable; private input needs the private text helper.",
+    "The Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable; private input needs the private text helper.",
   capture_incomplete:
     "Android capture is incomplete or obscured. Execution is paused.",
   cleanup_failed:
@@ -14,7 +16,7 @@ const messages = {
   device_mismatch:
     "The selected Android device identity changed. Execution is paused.",
   device_selection_required:
-    "Explicitly select a local API 36 device by serial and identity.",
+    "Explicitly select a local Android device by serial and identity.",
   environment_changed:
     "The selected Android app build or permission state changed. Start a new Run and review its environment.",
   execution_canceled:
@@ -31,6 +33,8 @@ const messages = {
     "Take a fresh Android observation before acting. Observations are consumed once.",
   ownership_unknown:
     "Android window ownership is unknown or outside the selected target app. Execution is paused.",
+  permission_decisions_unsupported:
+    "Android permission decisions need API 31 or later, which can keep a denied choice from prompting again. Remove the permission declarations or select an API 31 through 36 device.",
   permission_stale: "This decision is not pending for this Run.",
   preparation_failed:
     "The declared Android setup is unsupported or failed. Input is blocked.",
