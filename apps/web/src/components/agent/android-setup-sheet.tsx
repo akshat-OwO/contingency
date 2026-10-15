@@ -60,6 +60,8 @@ interface SetupForm {
   readonly app: string | null;
   readonly device: string | null;
   readonly flowSkillName: string;
+  readonly privateInput: boolean;
+  readonly privateHelperConsent: AndroidWorkspaceSelection["helperConsent"];
   readonly helperConsent: AndroidWorkspaceSelection["helperConsent"];
   readonly notificationPermission: "unchanged" | "grant" | "revoke";
   readonly permissions: string;
@@ -76,6 +78,8 @@ const INITIAL_FORM: SetupForm = {
   notificationPermission: "unchanged",
   outcome: { name: "", role: "text" },
   permissions: "",
+  privateHelperConsent: "none",
+  privateInput: false,
   query: "",
   start: { name: "", role: "text" },
 };
@@ -424,6 +428,57 @@ const AndroidPermissionFields = ({
   </section>
 );
 
+const AndroidPrivateInputFields = ({
+  form,
+  setForm,
+}: {
+  readonly form: SetupForm;
+  readonly setForm: (change: (current: SetupForm) => SetupForm) => void;
+}) => (
+  <>
+    <label className="flex items-center gap-2 pl-7 text-xs">
+      <input
+        type="checkbox"
+        checked={form.privateInput}
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            privateInput: event.currentTarget.checked,
+          }))
+        }
+      />
+      Enable private Variables
+    </label>
+    {form.privateInput ? (
+      <label className="grid gap-1.5 pl-7 text-xs">
+        Private text helper
+        <NativeSelect
+          value={form.privateHelperConsent}
+          onChange={(event) => {
+            const value = Schema.decodeUnknownSync(
+              Schema.Literals(["none", "install", "replace"])
+            )(event.currentTarget.value);
+            setForm((current) => ({
+              ...current,
+              privateHelperConsent: value,
+            }));
+          }}
+        >
+          <NativeSelectOption value="none">
+            Use the installed helper only
+          </NativeSelectOption>
+          <NativeSelectOption value="install">
+            Install it if missing
+          </NativeSelectOption>
+          <NativeSelectOption value="replace">
+            Replace an incompatible one
+          </NativeSelectOption>
+        </NativeSelect>
+      </label>
+    ) : null}
+  </>
+);
+
 /**
  * Where a Teaching session on Android begins: a device the host reports, an
  * app installed on it, and what proves the app is on its starting screen.
@@ -516,6 +571,8 @@ export const AndroidSetupSheet = ({
               },
               helperConsent: form.helperConsent,
               outcomes: [outcome],
+              privateHelperConsent: form.privateHelperConsent,
+              privateInput: form.privateInput,
               setup: {
                 activity: app.launchActivity,
                 conditions: [start],
@@ -615,6 +672,7 @@ export const AndroidSetupSheet = ({
               }
               invalid={permissions === undefined}
             />
+            <AndroidPrivateInputFields form={form} setForm={setForm} />
             <label className="grid gap-1.5 pl-7 text-xs">
               <span className="text-muted-foreground">
                 Contingency's pinned helper

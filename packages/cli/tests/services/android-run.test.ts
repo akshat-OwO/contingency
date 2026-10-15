@@ -262,7 +262,7 @@ it.effect(
           ...input,
           requiredCapabilities: [
             ...input.requiredCapabilities,
-            "private-input" as const,
+            "coordinate-actions" as const,
           ],
         },
         { ...input, setup: { ...input.setup, activity: "dev.outside/.Home" } },

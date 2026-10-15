@@ -48,6 +48,10 @@ export const AndroidWorkspaceSelection = Schema.Struct({
   }),
   helperConsent: Schema.Literals(["none", "install", "replace"]),
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
+  privateHelperConsent: Schema.optionalKey(
+    Schema.Literals(["none", "install", "replace"])
+  ),
+  privateInput: Schema.optionalKey(Schema.Boolean),
   reversibleActions: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
   setup: AndroidPreparation,
 });
@@ -187,12 +191,24 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
     Schema.Struct({
       name: Schema.String,
       observationId: text,
+      password: Schema.optionalKey(Schema.Boolean),
       role: Schema.String,
       target: text,
     })
   ),
   observation: Schema.NullOr(AndroidWorkspaceObservation),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  variables: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        name: text,
+        purpose: Schema.String,
+        requestId: text,
+        setup: Schema.Boolean,
+        status: Schema.Literals(["requested", "supplied", "refused"]),
+      })
+    )
+  ),
 });
 export type AndroidWorkspaceSnapshot = typeof AndroidWorkspaceSnapshot.Type;
 
@@ -202,12 +218,34 @@ const mutation = { ...session, operationId: OperationId };
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceCommand = Schema.Union([
   Schema.TaggedStruct("start", {
+    agentSetup: Schema.optionalKey(Schema.Boolean),
     flowSkillName: FlowSkillName,
     kind: Schema.Literals(["teaching", "dry-run", "run"]),
     operationId: OperationId,
     recordingId: Schema.NullOr(TeachingRecordingId),
     selection: AndroidWorkspaceSelection,
   }),
+  Schema.TaggedStruct("variable-request", {
+    ...mutation,
+    name: Schema.String.check(
+      Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+      Schema.isMaxLength(128)
+    ),
+    purpose: text,
+    replace: Schema.Boolean,
+  }),
+  // Workspace-only. Never exposed in the MCP tool's parameter schema.
+  Schema.TaggedStruct("variable-supply", {
+    ...mutation,
+    name: Schema.String.check(
+      Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+      Schema.isMaxLength(128)
+    ),
+    requestId: text,
+    value: Schema.NullOr(text),
+  }),
+  Schema.TaggedStruct("setup-handoff", mutation),
+  Schema.TaggedStruct("field-dismiss", mutation),
   Schema.TaggedStruct("observe", { ...session, image: Schema.Boolean }),
   Schema.TaggedStruct("read", session),
   Schema.TaggedStruct("prepare", mutation),
@@ -236,6 +274,13 @@ export const AndroidWorkspaceCommand = Schema.Union([
       Schema.TaggedStruct("fill", {
         target: text,
         text: Schema.String.check(Schema.isMaxLength(4096)),
+      }),
+      Schema.TaggedStruct("variable", {
+        name: Schema.String.check(
+          Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+          Schema.isMaxLength(128)
+        ),
+        target: text,
       }),
       Schema.TaggedStruct("back", {}),
     ]),

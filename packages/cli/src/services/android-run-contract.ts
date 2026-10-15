@@ -100,6 +100,7 @@ export interface AndroidRun {
   readonly observe: AndroidPlatformRuntime["observe"];
   readonly dispatch: AndroidPlatformRuntime["dispatch"];
   readonly back: AndroidPlatformRuntime["back"];
+  readonly enterPrivate: AndroidPlatformRuntime["enterPrivate"];
   readonly recover: AndroidPlatformRuntime["recover"];
   readonly close: AndroidPlatformRuntime["close"];
 }

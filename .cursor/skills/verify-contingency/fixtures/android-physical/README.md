@@ -26,3 +26,9 @@ Each proof launch force-stops only the fixture package and starts a fresh activi
 `StreamActivity` adds public screen changes and a `FLAG_SECURE` toggle for the [Android live stream recipe](../../features/workspace.md#android-live-stream). It requests no permissions and does not change the private-input activities.
 
 Build with `--permission-launcher` to write `artifacts/android-physical/build-permissions/fixture.apk` with `MainActivity` as its launcher. Use this variant to prove setup permission decisions against the activity that requests notifications at launch. The default build still launches `StreamActivity`.
+
+## Private login journey
+
+Build with `--login-launcher` to launch `LoginActivity` under its Material theme. The APK is written to `artifacts/android-physical/build-login/fixture.apk`. It has a stock Material password field, **Sign in privately**, and the outcome **Signed in privately**. The password stays masked and is never logged, persisted, or reflected in outcome text. Any nonempty password completes this disposable fixture's login.
+
+The default window has no `FLAG_SECURE`. **Show secure login window**, or the fixture-only launch extra `--ez secure true`, enables it for refusal proof. Restart the fixture without that extra to return to the ordinary login screen. Follow [Android private login](../../features/workspace.md#android-private-login) for device consent, Workspace Teaching, Variable supply, learning, verification, privacy checks, and cleanup.

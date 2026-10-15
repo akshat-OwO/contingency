@@ -25,12 +25,19 @@ const tools = path.join(sdk, "build-tools/36.0.0");
 const owned = await mkdtemp(
   path.join(tmpdir(), "contingency-physical-fixture-")
 );
+const loginLauncher = process.argv.includes("--login-launcher");
 const permissionLauncher = process.argv.includes("--permission-launcher");
+let outputName = "build";
+if (permissionLauncher) {
+  outputName = "build-permissions";
+}
+if (loginLauncher) {
+  outputName = "build-login";
+}
 const output = path.resolve(
   source,
-  permissionLauncher
-    ? "../../artifacts/android-physical/build-permissions"
-    : "../../artifacts/android-physical/build"
+  "../../artifacts/android-physical",
+  outputName
 );
 try {
   await Promise.all(
@@ -47,15 +54,25 @@ try {
     path.join(source, "AndroidManifest.xml"),
     "utf-8"
   );
-  await writeFile(
-    manifest,
-    permissionLauncher
-      ? originalManifest
-          .replaceAll(".StreamActivity", ".LauncherPlaceholder")
-          .replaceAll(".MainActivity", ".StreamActivity")
-          .replaceAll(".LauncherPlaceholder", ".MainActivity")
-      : originalManifest
-  );
+  let manifestContents = originalManifest;
+  if (permissionLauncher) {
+    manifestContents = originalManifest
+      .replaceAll(".StreamActivity", ".LauncherPlaceholder")
+      .replaceAll(".MainActivity", ".StreamActivity")
+      .replaceAll(".LauncherPlaceholder", ".MainActivity");
+  }
+  if (loginLauncher) {
+    manifestContents = originalManifest
+      .replace(
+        '    <activity android:name=".LoginActivity" android:exported="true" android:theme="@style/Theme.MaterialComponents.Light.NoActionBar" />\n',
+        ""
+      )
+      .replace(
+        '<activity android:name=".StreamActivity" android:exported="true">',
+        '<activity android:name=".LoginActivity" android:exported="true" android:theme="@style/Theme.MaterialComponents.Light.NoActionBar">'
+      );
+  }
+  await writeFile(manifest, manifestContents);
   await execute(
     path.resolve(
       source,
