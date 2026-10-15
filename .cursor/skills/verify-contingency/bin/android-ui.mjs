@@ -181,6 +181,20 @@ export const openAndroidSheet = async (
     "Contingency's pinned helper",
     process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
   );
+  if (selection.privateInput) {
+    await control(
+      "browser",
+      "click",
+      "--role",
+      "checkbox",
+      "--name",
+      "Enable private Variables"
+    );
+    await select(
+      "Private text helper",
+      selection.privateHelperConsent ?? "none"
+    );
+  }
   const permissions = selection.environment.permissions ?? [];
   const notification = permissions.find(
     (entry) => entry.permission === "android.permission.POST_NOTIFICATIONS"

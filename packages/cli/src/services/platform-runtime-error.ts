@@ -25,6 +25,8 @@ const messages = {
     "An Android helper or device session is already owned. No existing session was adopted.",
   installation_denied:
     "Authorize installation or replacement of this exact helper release on the selected device.",
+  installation_failed:
+    "The authorized Android helper installation did not finish successfully. No private input was sent.",
   observation_stale:
     "Take a fresh Android observation before acting. Observations are consumed once.",
   ownership_unknown:
@@ -41,6 +43,8 @@ const messages = {
     "The Android backend failed. Execution is paused; dispatched input may have an uncertain outcome.",
   runtime_paused:
     "Android execution is paused. Explicitly recover the same selected device before continuing.",
+  secure_window:
+    "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
   starting_condition_failed:
     "The fresh Android observation did not satisfy the declared starting conditions.",
   target_changed:

@@ -23,6 +23,7 @@ import {
   FileSystem,
   Layer,
   Result,
+  Redacted,
   Schema,
   Scope,
   Semaphore,
@@ -30,11 +31,15 @@ import {
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
-import { androidHelperRelease } from "./android-runtime-contract.ts";
+import {
+  androidPrivateTextRelease,
+  androidHelperRelease,
+} from "./android-runtime-contract.ts";
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import { acquireAndroidStream } from "./android-stream.ts";
 import type { AndroidDeviceStream } from "./android-stream.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
@@ -87,13 +92,74 @@ const visible = (
   );
 const supportsWorkspaceRequirements = (
   requirements: PlatformRequirements,
-  inputCount: number
+  inputs: readonly { readonly name: string }[]
 ) =>
   requirements.platform === "android" &&
   requirements.preparation !== undefined &&
   (requirements.outcomes?.length ?? 0) > 0 &&
-  !requirements.capabilities.includes("private-input") &&
-  inputCount === 0;
+  (inputs.length === 0 ||
+    requirements.capabilities.includes("private-input")) &&
+  inputs.length <= 64 &&
+  inputs.every(({ name }) =>
+    /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
+  ) &&
+  new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
+const privateTextGrant = (selection: AndroidWorkspaceSummary["selection"]) => {
+  const operation = selection.privateHelperConsent;
+  if (operation === undefined || operation === "none") {
+    return;
+  }
+  return {
+    operation,
+    serial: selection.device.serial,
+    sha256: androidPrivateTextRelease.sha256,
+  };
+};
+const actionDescription = (
+  action: Extract<
+    AndroidWorkspaceCommand,
+    { readonly _tag: "input" }
+  >["action"],
+  target: AndroidObservation["nodes"][number] | undefined
+) => {
+  // All action variants are handled.
+  // oxlint-disable-next-line eslint/default-case
+  switch (action._tag) {
+    case "variable": {
+      return {
+        description: `Enter {{${action.name}}} in ${target?.role} Private field`,
+        detail: `{{${action.name}}}`,
+      };
+    }
+    case "back": {
+      return { description: "Go back", detail: null };
+    }
+    case "fill": {
+      return {
+        description: `Enter public fixture text in ${target?.role} ${target?.name}`,
+        detail: action.text,
+      };
+    }
+    case "activate": {
+      return {
+        description: `Activate ${target?.role} ${target?.name}`,
+        detail: null,
+      };
+    }
+  }
+};
+const satisfiesOutcomes = (
+  requirements: PlatformRequirements,
+  before: AndroidObservation | null,
+  after: AndroidObservation | null
+) =>
+  before !== null &&
+  after !== null &&
+  requirements.platform === "android" &&
+  !!requirements.outcomes?.length &&
+  requirements.outcomes.every(
+    (condition) => visible(before, condition) && visible(after, condition)
+  );
 const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
   JSON.stringify(
     nodes.map(
@@ -160,7 +226,16 @@ interface SessionState {
   readonly artifacts: readonly TeachingRecordingArtifact[];
   readonly bytes: number;
 }
+interface PrivateVariable {
+  readonly name: string;
+  readonly purpose: string;
+  readonly setup: boolean;
+  readonly requestId: string;
+  readonly status: "requested" | "supplied" | "refused";
+  readonly value?: Redacted.Redacted<string>;
+}
 interface Session {
+  readonly variables: Atom.Writable<readonly PrivateVariable[]>;
   readonly stream: AndroidDeviceStream;
   readonly state: Atom.Writable<SessionState>;
   readonly run: AndroidRun;
@@ -212,6 +287,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
+      const receiptSalt = randomUUID();
       const startLock = Semaphore.makeUnsafe(1);
       const starts = new Map<
         string,
@@ -227,6 +303,14 @@ export const makeAndroidWorkspaceLayer = (options: {
           )
         );
       const state = (session: Session) => registry.get(session.state);
+      const clearVariables = (session: Session) => {
+        for (const variable of registry.get(session.variables)) {
+          if (variable.value !== undefined) {
+            Redacted.wipeUnsafe(variable.value);
+          }
+        }
+        registry.set(session.variables, []);
+      };
       const update = (
         session: Session,
         change: (current: SessionState) => SessionState
@@ -291,10 +375,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                     ...observationSize(captured),
                     id: captured.id,
                     image: image ? captured.screenshot.image : null,
-                    nodes: captured.nodes.filter((node) => !node.password),
+                    nodes: captured.nodes,
                   },
             preparation: session.run.state(),
             revision: current.revision,
+            variables: registry
+              .get(session.variables)
+              .map(({ value: _value, ...variable }) => variable),
           } satisfies AndroidWorkspaceSnapshot;
         });
       const emit = (session: Session, event: EventPayload) =>
@@ -448,6 +535,7 @@ export const makeAndroidWorkspaceLayer = (options: {
         update(session, (current) => ({
           ...current,
           field:
+            current.field?.password !== true &&
             current.observation !== null &&
             semanticSignature(current.observation.nodes) ===
               semanticSignature(observation.nodes)
@@ -474,6 +562,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       };
       const close = (session: Session) =>
         Effect.gen(function* closeWorkspace() {
+          clearVariables(session);
           yield* finishRecording(
             session,
             OperationId.make(`android-close-${randomUUID()}`),
@@ -522,13 +611,16 @@ export const makeAndroidWorkspaceLayer = (options: {
         Effect.gen(function* selectAndroidRequirements() {
           const { selection } = command;
           let taught: PlatformRequirements = {
-            capabilities: ["semantic-actions", "screenshots"],
+            capabilities: selection.privateInput
+              ? ["semantic-actions", "screenshots", "private-input"]
+              : ["semantic-actions", "screenshots"],
             environment: selection.environment,
             outcomes: selection.outcomes,
             platform: "android",
             preparation: selection.setup,
             reversibleActions: [],
           };
+          let inputs: readonly { readonly name: string }[] = [];
           let { recordingId } = command;
           if (command.kind === "teaching") {
             recordingId = TeachingRecordingId.make(`recording-${randomUUID()}`);
@@ -552,9 +644,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             taught = skill.runtime.requirements;
-            if (!supportsWorkspaceRequirements(taught, skill.inputs.length)) {
+            ({ inputs } = skill);
+            if (!supportsWorkspaceRequirements(taught, skill.inputs)) {
               return yield* denied(
-                "This experimental Android journey requires declared preparation and outcomes and supports no Variable inputs."
+                "This experimental Android journey requires declared preparation and outcomes and supports named private inputs only."
               );
             }
             if (command.kind === "run") {
@@ -590,7 +683,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
           }
-          return { recordingId, taught };
+          return { inputs, recordingId, taught };
         });
       const start = (
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
@@ -612,7 +705,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
             const { selection } = command;
-            const { taught, recordingId } = yield* selectRequirements(command);
+            const { taught, recordingId, inputs } =
+              yield* selectRequirements(command);
             const id = AgentSessionId.make(
               `agent-android-${hash(command.operationId).slice(0, 32)}`
             );
@@ -632,11 +726,16 @@ export const makeAndroidWorkspaceLayer = (options: {
               taught,
               teaching: command.kind === "teaching",
             };
+            const grant = privateTextGrant(selection);
+            const authorizedStartup =
+              grant === undefined
+                ? startup
+                : { ...startup, privateTextGrant: grant };
             const create =
               selection.helperConsent === "none"
-                ? factory.android.createRun(startup)
+                ? factory.android.createRun(authorizedStartup)
                 : factory.android.createRun({
-                    ...startup,
+                    ...authorizedStartup,
                     installationGrant: {
                       operation: selection.helperConsent,
                       serial: selection.device.serial,
@@ -664,7 +763,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               assessment: null,
               captureGaps: [],
               completedAt: null,
-              controller: command.kind === "teaching" ? "user" : "agent",
+              controller:
+                command.kind === "teaching" && !command.agentSetup
+                  ? "user"
+                  : "agent",
               error: null,
               experimental: true,
               flowSkillName: command.flowSkillName,
@@ -697,8 +799,22 @@ export const makeAndroidWorkspaceLayer = (options: {
               }).pipe(Atom.keepAlive),
               stream: yield* acquireAndroidStream(id, selection.device, scope),
               summaryFile: path.join(root, ".android-workspace", `${id}.json`),
+              variables: Atom.make<readonly PrivateVariable[]>(
+                inputs.map(({ name }) => ({
+                  name: name.toUpperCase(),
+                  purpose: `Private input for ${command.flowSkillName}`,
+                  requestId: randomUUID(),
+                  setup: false,
+                  status: "requested" as const,
+                }))
+              ).pipe(Atom.keepAlive),
             };
             registry.get(session.state);
+            registry.get(session.variables);
+            yield* Scope.addFinalizer(
+              scope,
+              Effect.sync(() => clearVariables(session))
+            );
             sessions.set(id, session);
             starts.set(command.operationId, { fingerprint, id });
             const initialized = yield* Effect.result(
@@ -716,7 +832,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                 }
                 if (recordingId !== null && command.kind === "dry-run") {
                   yield* store.startDryRun({
-                    inputs: [],
+                    inputs: inputs.map(({ name }) => ({
+                      changed: false,
+                      name,
+                      value: null,
+                    })),
                     operationId: command.operationId,
                     recordingId,
                     sessionId: id,
@@ -746,7 +866,8 @@ export const makeAndroidWorkspaceLayer = (options: {
             source !== "user" ||
             summary.kind !== "teaching" ||
             summary.recordingId === null ||
-            summary.phase !== "running"
+            summary.phase !== "running" ||
+            summary.controller !== "user"
           ) {
             return yield* denied(
               "Teaching Start and Stop require user-held, prepared Workspace."
@@ -801,6 +922,18 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
           }
           const { action } = command;
+          if (action._tag === "variable") {
+            const bound =
+              source === "agent"
+                ? current.observation?.id === command.observationId
+                : current.field?.observationId === command.observationId &&
+                  current.field.target === action.target;
+            if (!bound) {
+              return yield* denied(
+                "This private field observation is stale. Observe or pick the field again; no input was sent."
+              );
+            }
+          }
           const selectedTarget =
             action._tag === "back"
               ? undefined
@@ -810,17 +943,20 @@ export const makeAndroidWorkspaceLayer = (options: {
           if (
             action._tag !== "back" &&
             (!selectedTarget ||
-              selectedTarget.password ||
+              selectedTarget.password !== (action._tag === "variable") ||
               selectedTarget.covered)
           ) {
             return yield* denied(
-              "Select an uncovered non-private semantic target."
+              "Select an uncovered semantic target. Password fields require a Variable."
             );
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
-          const before = fresh ?? (yield* session.run.observe());
-          if (fresh === undefined) {
+          const before =
+            action._tag === "variable" && current.observation !== null
+              ? current.observation
+              : (fresh ?? (yield* session.run.observe()));
+          if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
           const matches =
@@ -831,7 +967,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                     node.role === selectedTarget.role &&
                     node.name === selectedTarget.name &&
                     node.editable === selectedTarget.editable &&
-                    !node.password &&
+                    node.password === (action._tag === "variable") &&
+                    (action._tag !== "variable" ||
+                      (node.editable &&
+                        JSON.stringify(node.bounds) ===
+                          JSON.stringify(selectedTarget.bounds) &&
+                        semanticSignature(before.nodes) ===
+                          semanticSignature(selectedObservation.nodes))) &&
                     !node.covered &&
                     node.packageName === summary.selection.environment.appId
                 );
@@ -852,7 +994,21 @@ export const makeAndroidWorkspaceLayer = (options: {
           }
           if (action._tag === "fill" && /[^\u0020-\u007E]/u.test(action.text)) {
             return yield* denied(
-              "Only public ASCII fixture text is supported. Private Variables are unavailable."
+              "Use public ASCII text here, or select a Variable for a password field."
+            );
+          }
+          const variable =
+            action._tag === "variable"
+              ? registry
+                  .get(session.variables)
+                  .find((entry) => entry.name === action.name)
+              : undefined;
+          if (
+            action._tag === "variable" &&
+            (!variable || variable.status !== "supplied" || !variable.value)
+          ) {
+            return yield* denied(
+              "Request this Variable and have the user supply it in Workspace first."
             );
           }
           const actionId = `android-action-${randomUUID()}`;
@@ -861,20 +1017,30 @@ export const makeAndroidWorkspaceLayer = (options: {
             field: null,
             observation: null,
           }));
-          const forwarded =
-            action._tag === "back"
-              ? session.run.back(before.id)
-              : session.run.dispatch(
-                  before.id,
-                  action._tag === "fill"
-                    ? {
-                        target: target?.target ?? "",
-                        text: action.text,
-                        type: "fill",
-                      }
-                    : { target: target?.target ?? "", type: "activate" }
-                );
-          yield* forwarded;
+          if (action._tag === "variable") {
+            yield* session.run.enterPrivate(before.id, {
+              target: target?.target ?? "",
+              value: Effect.suspend(() =>
+                variable?.value === undefined
+                  ? Effect.fail(platformRuntimeError("target_unsupported"))
+                  : Effect.succeed(variable.value)
+              ),
+              variable: `{{${action.name}}}`,
+            });
+          } else if (action._tag === "back") {
+            yield* session.run.back(before.id);
+          } else {
+            yield* session.run.dispatch(
+              before.id,
+              action._tag === "fill"
+                ? {
+                    target: target?.target ?? "",
+                    text: action.text,
+                    type: "fill",
+                  }
+                : { target: target?.target ?? "", type: "activate" }
+            );
+          }
           const after = yield* session.run.observe();
           acceptObservation(session, after);
           if (current.recording) {
@@ -909,11 +1075,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               after: observationSummary(after),
               appeared: difference(after, before),
               before: observationSummary(before),
-              description:
-                action._tag === "back"
-                  ? "Go back"
-                  : `${action._tag === "fill" ? "Enter public fixture text in" : "Activate"} ${target?.role} ${target?.name}`,
-              detail: action._tag === "fill" ? action.text : null,
+              ...actionDescription(action, target),
               disappeared: difference(before, after),
               id: actionId,
               kind: action._tag,
@@ -928,7 +1090,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                       name: target.name,
                       role: target.role,
                       value: null,
-                      valueWithheld: null,
+                      valueWithheld: action._tag === "variable" ? true : null,
                     },
             });
             yield* keyframe(session, after, actionId);
@@ -936,7 +1098,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             yield* io(
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
-                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source })}\n`,
+                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, variable: action._tag === "variable" ? `{{${action.name}}}` : undefined })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );
@@ -996,7 +1158,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               "That element belongs to another app. No input was sent."
             );
           }
-          if (target.password) {
+          if (
+            target.password &&
+            !summary.requirements.capabilities.includes("private-input")
+          ) {
             return yield* denied(
               "Private fields need a Variable. No input was sent."
             );
@@ -1011,6 +1176,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             priorTarget.role !== target.role ||
             priorTarget.name !== target.name ||
             priorTarget.editable !== target.editable ||
+            priorTarget.password !== target.password ||
             priorTarget.packageName !== target.packageName
           ) {
             return yield* denied(
@@ -1023,6 +1189,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               field: {
                 name: target.name,
                 observationId: observed.id,
+                password: target.password,
                 role: target.role,
                 target: target.target,
               },
@@ -1063,27 +1230,28 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
           }
           const { observation } = current;
+          const secure = summary.captureGaps.includes("secure_window");
           if (
-            !observation ||
-            command.assessment.observationId !== observation.id
+            !secure &&
+            (!observation ||
+              command.assessment.observationId !== observation.id)
           ) {
             return yield* denied(
               "Assess with the latest retained observation."
             );
           }
-          yield* keyframe(session, observation, null);
-          const validatedOutcome = yield* session.run.observe();
-          acceptObservation(session, validatedOutcome);
-          yield* keyframe(session, validatedOutcome, null);
+          const validatedOutcome = secure ? null : yield* session.run.observe();
+          if (observation !== null && validatedOutcome !== null) {
+            yield* keyframe(session, observation, null);
+            acceptObservation(session, validatedOutcome);
+            yield* keyframe(session, validatedOutcome, null);
+          }
           const { requirements } = summary;
-          const supportedOutcome =
-            requirements.platform === "android" &&
-            !!requirements.outcomes?.length &&
-            requirements.outcomes.every(
-              (condition) =>
-                visible(observation, condition) &&
-                visible(validatedOutcome, condition)
-            );
+          const supportedOutcome = satisfiesOutcomes(
+            requirements,
+            observation,
+            validatedOutcome
+          );
           const passing =
             command.assessment.outcome === "working" &&
             supportedOutcome &&
@@ -1092,7 +1260,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           const assessment = {
             ...command.assessment,
             outcome:
-              command.assessment.outcome === "working" && !passing
+              secure || (command.assessment.outcome === "working" && !passing)
                 ? ("inconclusive" as const)
                 : command.assessment.outcome,
           };
@@ -1105,6 +1273,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               phase: "completed",
             },
           }));
+          clearVariables(session);
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
           yield* persist(session);
@@ -1174,7 +1343,108 @@ export const makeAndroidWorkspaceLayer = (options: {
               "This Android session has ended. Open a new prepared session."
             );
           }
-          if (command._tag === "decide") {
+          if (command._tag === "variable-request") {
+            const setup =
+              summary.kind === "teaching" &&
+              summary.controller === "agent" &&
+              current.sequence === 0;
+            if (
+              !summary.requirements.capabilities.includes("private-input") ||
+              (summary.kind === "teaching" &&
+                !setup &&
+                !(source === "user" && current.recording)) ||
+              (setup && source !== "agent")
+            ) {
+              return yield* denied(
+                "Request private Variables during agent-held setup, user-led recording, or a Run with private input enabled."
+              );
+            }
+            const variables = registry.get(session.variables);
+            const existing = variables.find(
+              (entry) => entry.name === command.name
+            );
+            if (
+              (summary.kind !== "teaching" && !existing) ||
+              (variables.length >= 64 && !existing)
+            ) {
+              return yield* denied(
+                "Select a declared Flow Skill input; Teaching supports at most 64 Variables."
+              );
+            }
+            if (!existing || command.replace) {
+              if (existing?.value) {
+                Redacted.wipeUnsafe(existing.value);
+              }
+              registry.set(session.variables, [
+                ...variables.filter((entry) => entry.name !== command.name),
+                {
+                  name: command.name,
+                  purpose: command.purpose,
+                  requestId: command.operationId,
+                  setup,
+                  status: "requested",
+                },
+              ]);
+            }
+          } else if (command._tag === "variable-supply") {
+            const variables = registry.get(session.variables);
+            const existing = variables.find(
+              (entry) =>
+                entry.name === command.name &&
+                entry.requestId === command.requestId
+            );
+            if (
+              source !== "user" ||
+              !existing ||
+              existing.status !== "requested"
+            ) {
+              return yield* denied(
+                "Only Workspace can answer the current private Variable request."
+              );
+            }
+            registry.set(
+              session.variables,
+              variables.map((entry): PrivateVariable => {
+                if (entry !== existing) {
+                  return entry;
+                }
+                if (command.value === null) {
+                  return { ...entry, status: "refused" };
+                }
+                return {
+                  ...entry,
+                  status: "supplied",
+                  value: Redacted.make(command.value),
+                };
+              })
+            );
+          } else if (command._tag === "field-dismiss") {
+            if (source !== "user" || summary.controller !== "user") {
+              return yield* denied(
+                "Only the user can dismiss a selected field."
+              );
+            }
+            update(session, (value) => ({ ...value, field: null }));
+          } else if (command._tag === "setup-handoff") {
+            if (
+              source !== "agent" ||
+              summary.kind !== "teaching" ||
+              summary.controller !== "agent" ||
+              current.sequence !== 0
+            ) {
+              return yield* denied(
+                "Only the setup agent can hand Teaching to the user, once and before recording."
+              );
+            }
+            clearVariables(session);
+            update(session, (value) => ({
+              ...value,
+              field: null,
+              observation: null,
+              observations: [],
+              summary: { ...value.summary, controller: "user" },
+            }));
+          } else if (command._tag === "decide") {
             if (source !== "user") {
               return yield* denied(
                 "Run Environment Permission requires an explicit Workspace choice."
@@ -1206,6 +1476,11 @@ export const makeAndroidWorkspaceLayer = (options: {
               return yield* denied(
                 "Prepare or explicitly recover this selected device first."
               );
+            }
+            // Keep the exact private field observation alive while the user supplies
+            // its Variable. The helper rechecks that binding before resolving a value.
+            if (source === "user" && current.field?.password === true) {
+              return yield* snapshot(session, command.image);
             }
             if (source === "agent" || summary.controller === "user") {
               acceptObservation(
@@ -1336,7 +1611,9 @@ export const makeAndroidWorkspaceLayer = (options: {
               Effect.gen(function* serializedCommand() {
                 const operationId =
                   "operationId" in command ? command.operationId : null;
-                const fingerprint = JSON.stringify([source, command]);
+                const fingerprint = hash(
+                  `${receiptSalt}${JSON.stringify([source, command])}`
+                );
                 const receipt =
                   operationId === null
                     ? undefined

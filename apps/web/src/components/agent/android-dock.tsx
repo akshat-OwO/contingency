@@ -18,12 +18,17 @@ import {
 import { useState } from "react";
 
 import {
+  VariableField,
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import {
   Select,
   SelectContent,
@@ -33,11 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 import {
   androidDockPresentation,
@@ -160,36 +160,54 @@ export const AndroidRequests = ({
 
 type PickedField = NonNullable<AndroidWorkspaceSnapshot["field"]>;
 
-/**
- * The field the person clicked, in the dock: what they type goes into it as
- * public text. The Variable picker is where a private value will come from;
- * it stays unavailable until private login lands.
- */
+/** Entry stays in the dock; password fields accept Variable references only. */
 export const AndroidFieldEntry = ({
   disabled,
   field,
   onDismiss,
   onSubmit,
+  variables,
+  onRequest,
+  onVariable,
 }: {
   readonly disabled: boolean;
   readonly field: PickedField;
   readonly onDismiss: () => void;
   readonly onSubmit: (text: string) => void;
+  readonly variables: NonNullable<AndroidWorkspaceSnapshot["variables"]>;
+  readonly onRequest: (name: string) => void;
+  readonly onVariable: (name: string) => void;
 }) => {
-  const [draftAtom] = useState(() => Atom.make(""));
+  const [draftAtom] = useState(() =>
+    Atom.make({ name: "PASSWORD", text: "", variable: "" })
+  );
   const [draft, setDraft] = useAtom(draftAtom);
   const label = field.name || field.role;
+  const privateField = field.password === true;
   return (
     <form
       aria-label={`Type into ${label}`}
       className="bg-muted/50 space-y-1.5 border-b px-3 py-2.5"
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(draft);
-        setDraft("");
+        if (privateField) {
+          if (draft.variable) {
+            onVariable(draft.variable);
+          }
+        } else {
+          onSubmit(draft.text);
+        }
+        setDraft((current) => ({ ...current, text: "" }));
       }}
     >
       <RequestHeader
+        title={`Type into ${label}`}
+        icon={
+          <TextCursorInputIcon
+            aria-hidden="true"
+            className={requestIconClassName}
+          />
+        }
         action={
           <Button
             aria-label="Stop typing"
@@ -201,56 +219,182 @@ export const AndroidFieldEntry = ({
             <XIcon />
           </Button>
         }
-        icon={
-          <TextCursorInputIcon
-            aria-hidden="true"
-            className={requestIconClassName}
-          />
-        }
-        title={`Type into ${label}`}
       />
-      <div className="flex items-center gap-1.5">
-        <Input
-          aria-label={`Text for ${label}`}
-          autoFocus
-          className="h-8 flex-1"
-          maxLength={4096}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              onDismiss();
-            }
-          }}
-          placeholder="Public text"
-          value={draft}
-        />
-        <Tooltip>
-          <TooltipTrigger
-            render={(props) => (
-              <span {...props} className="inline-flex">
-                <Button
-                  aria-label="Variable"
-                  disabled
-                  size="sm"
-                  type="button"
-                  variant="outline"
+      {privateField ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <NativeSelect
+              aria-label="Variable"
+              value={draft.variable}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  variable: event.currentTarget.value,
+                }))
+              }
+            >
+              <NativeSelectOption value="">
+                Choose a Variable
+              </NativeSelectOption>
+              {variables.map((variable) => (
+                <NativeSelectOption
+                  disabled={variable.status !== "supplied"}
+                  key={variable.name}
+                  value={variable.name}
                 >
-                  <KeyRoundIcon />
-                  Variable
-                </Button>
-              </span>
-            )}
+                  {variable.name} · {variable.status}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Button
+              disabled={disabled || !draft.variable}
+              size="sm"
+              type="submit"
+            >
+              <KeyRoundIcon />
+              Enter Variable
+            </Button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Input
+              aria-label="Variable name"
+              maxLength={128}
+              value={draft.name}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  name: event.currentTarget.value.toUpperCase(),
+                }))
+              }
+            />
+            <Button
+              disabled={disabled || !/^[A-Z][A-Z0-9_]*$/u.test(draft.name)}
+              onClick={() => onRequest(draft.name)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Request Variable
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <Input
+            aria-label={`Text for ${label}`}
+            autoFocus
+            className="h-8 flex-1"
+            maxLength={4096}
+            placeholder="Public text"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                onDismiss();
+              }
+            }}
+            value={draft.text}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                text: event.currentTarget.value,
+              }))
+            }
           />
-          <TooltipContent>
-            Private Variables arrive with Android private login.
-          </TooltipContent>
-        </Tooltip>
-        <Button disabled={disabled} size="sm" type="submit">
-          <CornerDownLeftIcon />
-          Type
-        </Button>
-      </div>
+          <Button disabled={disabled} size="sm" type="submit">
+            <CornerDownLeftIcon />
+            Type
+          </Button>
+        </div>
+      )}
     </form>
+  );
+};
+
+const AndroidVariableAnswer = ({
+  variable,
+  pending,
+  onSupply,
+}: {
+  readonly variable: NonNullable<AndroidWorkspaceSnapshot["variables"]>[number];
+  readonly pending: boolean;
+  readonly onSupply: (
+    name: string,
+    requestId: string,
+    value: string | null
+  ) => void;
+}) => {
+  const [valueAtom] = useState(() => Atom.make(""));
+  const [value, setValue] = useAtom(valueAtom);
+  return (
+    <VariableField
+      error={undefined}
+      id={variable.requestId}
+      label={variable.name}
+      purpose={variable.purpose}
+      pending={pending}
+      value={value}
+      onValueChange={setValue}
+      supplyLabel={`Supply ${variable.name}`}
+      refuseLabel={`Refuse ${variable.name}`}
+      onSubmit={() => {
+        onSupply(variable.name, variable.requestId, value);
+        setValue("");
+      }}
+      onRefuse={() => {
+        onSupply(variable.name, variable.requestId, null);
+        setValue("");
+      }}
+    />
+  );
+};
+
+export const AndroidVariables = ({
+  session,
+  pending,
+  onSupply,
+}: {
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly pending: boolean;
+  readonly onSupply: (
+    name: string,
+    requestId: string,
+    value: string | null
+  ) => void;
+}) => {
+  const variables = session.variables ?? [];
+  if (variables.length === 0) {
+    return null;
+  }
+  let title =
+    session.kind === "dry-run" ? "Dry Run secrets" : "Private Variables";
+  if (variables.some((variable) => variable.setup)) {
+    title = "Setup Variables";
+  }
+  return (
+    <section
+      aria-label={title}
+      className="bg-muted/50 space-y-2 border-b px-3 py-2.5"
+    >
+      <RequestHeader
+        title={title}
+        icon={
+          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
+        }
+      />
+      {variables.map((variable) =>
+        variable.status === "requested" ? (
+          <AndroidVariableAnswer
+            key={variable.requestId}
+            variable={variable}
+            pending={pending}
+            onSupply={onSupply}
+          />
+        ) : (
+          <p className="text-muted-foreground text-xs" key={variable.requestId}>
+            {variable.name} · {variable.status}
+          </p>
+        )
+      )}
+    </section>
   );
 };
 

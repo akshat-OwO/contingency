@@ -73,6 +73,7 @@ test("the device shows a refusal beside the stream and draws nothing over it", (
       paused={false}
       pending={false}
       refusal="Nothing to activate there. No input was sent."
+      secure={false}
       sessionId={AgentSessionId.make("agent-android")}
       unavailable="Prepare the device."
     />
@@ -88,6 +89,7 @@ test("the device shows a refusal beside the stream and draws nothing over it", (
 
 test("types public text into the picked field from the dock", async () => {
   const onSubmit = vi.fn();
+  const onDismiss = vi.fn();
   render(
     <AndroidFieldEntry
       disabled={false}
@@ -97,15 +99,88 @@ test("types public text into the picked field from the dock", async () => {
         role: "text-field",
         target: "@e3",
       }}
-      onDismiss={vi.fn()}
+      onDismiss={onDismiss}
+      onRequest={vi.fn()}
+      onVariable={vi.fn()}
+      variables={[]}
       onSubmit={onSubmit}
     />
   );
   expect(screen.getByRole("form", { name: "Type into Shopper name" }));
-  expect(screen.getByRole("button", { name: "Variable" })).toBeDisabled();
+  expect(screen.queryByRole("combobox", { name: "Variable" })).toBeNull();
   await userEvent.type(
     screen.getByRole("textbox", { name: "Text for Shopper name" }),
     "Fixture Shopper{Enter}"
   );
   expect(onSubmit).toHaveBeenCalledWith("Fixture Shopper");
+  await userEvent.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledOnce();
+});
+
+test("a password field enters a supplied Variable by reference and has no public text entry", async () => {
+  const onVariable = vi.fn();
+  const onSubmit = vi.fn();
+  const onRequest = vi.fn();
+  render(
+    <AndroidFieldEntry
+      disabled={false}
+      field={{
+        name: "Private field",
+        observationId: "observed",
+        password: true,
+        role: "text-field",
+        target: "@password",
+      }}
+      onDismiss={vi.fn()}
+      onRequest={onRequest}
+      onSubmit={onSubmit}
+      onVariable={onVariable}
+      variables={[
+        {
+          name: "PASSWORD",
+          purpose: "Sign in",
+          requestId: "request",
+          setup: false,
+          status: "supplied",
+        },
+      ]}
+    />
+  );
+  expect(
+    screen.queryByRole("textbox", { name: "Text for Private field" })
+  ).toBeNull();
+  await userEvent.selectOptions(
+    screen.getByRole("combobox", { name: "Variable" }),
+    "PASSWORD"
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Enter Variable" }));
+  expect(onVariable).toHaveBeenCalledWith("PASSWORD");
+  expect(onSubmit).not.toHaveBeenCalled();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Request Variable" })
+  );
+  expect(onRequest).toHaveBeenCalledWith("PASSWORD");
+});
+
+test("a secure pause names the hidden window instead of a disconnected device", () => {
+  render(
+    <AndroidDevice
+      canAct={false}
+      live
+      onBack={vi.fn()}
+      onPick={vi.fn()}
+      paused
+      pending={false}
+      refusal={null}
+      secure
+      sessionId={AgentSessionId.make("agent-android")}
+      unavailable=""
+    />
+  );
+  expect(screen.getByText("Secure window, not visible")).toBeVisible();
+  expect(screen.getByText(/outcome is inconclusive/u)).toBeVisible();
+  expect(screen.queryByText("Device disconnected")).toBeNull();
+  expect(
+    screen.queryByRole("img", { name: "Selected device live display" })
+  ).toBeNull();
 });

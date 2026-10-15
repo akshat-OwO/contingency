@@ -20,6 +20,7 @@ import {
   FileSystem,
   Layer,
   Result,
+  Redacted,
   Schema,
 } from "effect";
 import type { Scope } from "effect";
@@ -86,6 +87,8 @@ const fixture = (
   test: (input: {
     readonly root: string;
     readonly calls: string[];
+    readonly resolved: Redacted.Redacted<string>[];
+    readonly secure: () => void;
     readonly disconnect: () => void;
     readonly reconnect: () => void;
     readonly setNodes: (nodes: AndroidObservation["nodes"]) => void;
@@ -113,10 +116,13 @@ const fixture = (
         prefix: "android-workspace-test-",
       });
       const calls: string[] = [];
+      const resolved: Redacted.Redacted<string>[] = [];
+      let secure = false;
       let connected = true;
       let generation = 0;
       let held: CaptureGate | undefined;
       let customNodes: AndroidObservation["nodes"] | undefined;
+      let boundNodes: AndroidObservation["nodes"] | undefined;
       const backend: AndroidRuntimeBackend = {
         activate: () =>
           Effect.sync(() => {
@@ -138,6 +144,7 @@ const fixture = (
           }).pipe(
             Effect.map((): AndroidObservation => {
               generation += 1;
+              boundNodes = customNodes;
               return {
                 backendSessionId: "fixture-session",
                 capture: {
@@ -188,24 +195,41 @@ const fixture = (
             })
           ),
         close: () => Effect.void,
-        enterPrivate: () =>
-          Effect.fail(platformRuntimeError("capability_missing")),
+        enterPrivate: (_target, value) =>
+          Effect.suspend(() => {
+            if (JSON.stringify(boundNodes) !== JSON.stringify(customNodes)) {
+              return Effect.fail(platformRuntimeError("target_changed"));
+            }
+            return value.pipe(
+              Effect.tap((secret) =>
+                Effect.sync(() => {
+                  resolved.push(secret);
+                  calls.push("private");
+                })
+              ),
+              Effect.asVoid
+            );
+          }),
         fill: () =>
           Effect.sync(() => {
             calls.push("fill");
           }),
         recover: () => Effect.void,
         sessionId: "fixture-session",
-        validate: () =>
-          connected
+        validate: () => {
+          if (secure) {
+            return Effect.fail(platformRuntimeError("secure_window"));
+          }
+          return connected
             ? Effect.void
-            : Effect.fail(platformRuntimeError("device_disconnected")),
+            : Effect.fail(platformRuntimeError("device_disconnected"));
+        },
       };
       const factory = Layer.succeed(
         PlatformRuntimeFactory,
         PlatformRuntimeFactory.of({
           android: {
-            capabilities: ["semantic-actions", "screenshots"],
+            capabilities: ["semantic-actions", "screenshots", "private-input"],
             createRun: (input) =>
               createAndroidRun(input, {
                 preflight: () => Effect.void,
@@ -266,8 +290,12 @@ const fixture = (
         reconnect: () => {
           connected = true;
         },
+        resolved,
         restart,
         root,
+        secure: () => {
+          secure = true;
+        },
         setNodes: (nodes) => {
           customNodes = nodes;
         },
@@ -944,6 +972,7 @@ it.effect(
         expect(picked.field).toEqual({
           name: "Name",
           observationId: picked.observation?.id,
+          password: false,
           role: "textbox",
           target: "@field",
         });
@@ -1206,6 +1235,18 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
   expect(
     Schema.is(parameters)({
       command: {
+        _tag: "variable-supply",
+        name: "PASSWORD",
+        operationId: command.operationId,
+        requestId: "request",
+        sessionId: command.sessionId,
+        value: "private",
+      },
+    })
+  ).toBe(false);
+  expect(
+    Schema.is(parameters)({
+      command: {
         _tag: "input",
         action: { _tag: "activate", target: "@button" },
         observationId: command.observationId,
@@ -1227,3 +1268,590 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
     })
   ).toBe(true);
 });
+
+const required = <A>(value: A | null | undefined): A => {
+  if (value === undefined || value === null) {
+    throw new Error("Expected fixture value");
+  }
+  return value;
+};
+const privateNodes: AndroidObservation["nodes"] = [
+  {
+    bounds: { height: 1, width: 1, x: 0, y: 0 },
+    covered: false,
+    editable: false,
+    hittable: false,
+    name: "Home",
+    packageName: "dev.fixture",
+    password: false,
+    role: "text",
+    target: "@home",
+  },
+  {
+    bounds: { height: 1, width: 1, x: 0, y: 0 },
+    covered: false,
+    editable: true,
+    hittable: true,
+    name: "Private field",
+    packageName: "dev.fixture",
+    password: true,
+    role: "textbox",
+    target: "@password",
+  },
+];
+const privateSelection = { ...selection, privateInput: true };
+const privateSkill = `---\nname: android-edit\ndescription: Log in with a private password. Use when testing private login.\ninputs:\n  - password\n---\n\n# Log in\n\n1. Enter {{password}} in the password field. Done when: Home is visible.\n`;
+const requestPrivate = (
+  workspace: AndroidWorkspaceService,
+  sessionId: AgentSessionId,
+  name: string,
+  source: "agent" | "user",
+  suffix: string,
+  replace = false
+) =>
+  workspace.execute(
+    {
+      _tag: "variable-request",
+      name,
+      operationId: op(`request-${suffix}`),
+      purpose: "Log in privately",
+      replace,
+      sessionId,
+    },
+    source
+  );
+const supplyPrivate = (
+  workspace: AndroidWorkspaceService,
+  sessionId: AgentSessionId,
+  variable: { readonly name: string; readonly requestId: string },
+  value: string | null,
+  suffix: string
+) =>
+  workspace.execute(
+    {
+      _tag: "variable-supply",
+      ...variable,
+      operationId: op(`supply-${suffix}`),
+      sessionId,
+      value,
+    },
+    "user"
+  );
+const enterPrivate = (
+  workspace: AndroidWorkspaceService,
+  sessionId: AgentSessionId,
+  name: string,
+  source: "agent" | "user",
+  suffix: string
+) =>
+  Effect.gen(function* enter() {
+    const observed = yield* workspace.execute(
+      { _tag: "observe", image: false, sessionId },
+      source
+    );
+    return yield* workspace.execute(
+      {
+        _tag: "input",
+        action: { _tag: "variable", name, target: "@password" },
+        observationId: observed.observation?.id ?? "",
+        operationId: op(`enter-${suffix}`),
+        sessionId,
+      },
+      source
+    );
+  });
+
+it.effect(
+  "teaches private references, learns, verifies a fresh Dry Run, and requires fresh supply in later Runs",
+  () =>
+    fixture(({ calls, resolved, root, setNodes }) =>
+      Effect.gen(function* privateJourney() {
+        setNodes(privateNodes);
+        const workspace = yield* AndroidWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const learning = yield* TeachingRecordingLearning;
+        const fs = yield* FileSystem.FileSystem;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowSkillName,
+            kind: "teaching",
+            operationId: op("private-start"),
+            recordingId: null,
+            selection: privateSelection,
+          },
+          "user"
+        );
+        const sessionId = started.id;
+        yield* workspace.execute(
+          { _tag: "prepare", operationId: op("private-prepare"), sessionId },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("private-record"),
+            sessionId,
+            start: true,
+          },
+          "user"
+        );
+        const requested = yield* requestPrivate(
+          workspace,
+          sessionId,
+          "PASSWORD",
+          "user",
+          "teaching"
+        );
+        const variable = requested.variables?.[0];
+        if (!variable || !started.recordingId) {
+          return yield* Effect.die("Private recording missing");
+        }
+        const sentinel = "private-workspace-sentinel";
+        const supplied = yield* supplyPrivate(
+          workspace,
+          sessionId,
+          variable,
+          sentinel,
+          "teaching"
+        );
+        expect(JSON.stringify(supplied)).not.toContain(sentinel);
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId },
+          "user"
+        );
+        const picked = yield* workspace.execute(
+          {
+            _tag: "pick",
+            frame: { height: 1, width: 1 },
+            observationId: required(observed.observation).id,
+            operationId: op("private-pick"),
+            point: { x: 0.5, y: 0.5 },
+            sessionId,
+          },
+          "user"
+        );
+        const mirrored = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId },
+          "user"
+        );
+        expect(mirrored.observation?.id).toBe(picked.observation?.id);
+        expect(mirrored.field).toEqual(picked.field);
+        const privateCommand = {
+          _tag: "input",
+          action: { _tag: "variable", name: "PASSWORD", target: "@password" },
+          observationId: required(picked.field).observationId,
+          operationId: op("enter-teaching"),
+          sessionId,
+        } as const;
+        yield* workspace.execute(privateCommand, "user");
+        expect(calls).toEqual(["private"]);
+        expect(Redacted.value(required(resolved[0]))).toBe(sentinel);
+        yield* workspace.execute(privateCommand, "user");
+        expect(calls).toEqual(["private"]);
+        const stale = yield* workspace
+          .execute(
+            { ...privateCommand, operationId: op("stale-private-repeat") },
+            "user"
+          )
+          .pipe(Effect.result);
+        expect(stale._tag).toBe("Failure");
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("private-stop"),
+            sessionId,
+            start: false,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          { _tag: "close", operationId: op("private-close"), sessionId },
+          "user"
+        );
+        expect(() => Redacted.value(required(resolved[0]))).toThrow();
+        const { recordingId } = started;
+        yield* store.startLearning({
+          operationId: op("private-claim"),
+          recordingId,
+        });
+        const timeline = yield* learning.timeline({
+          claimOperationId: op("private-claim"),
+          cursor: 0,
+          recordingId,
+        });
+        expect(JSON.stringify(timeline)).toContain("{{PASSWORD}}");
+        expect(JSON.stringify(timeline)).not.toContain(sentinel);
+        const events = yield* fs.readFileString(
+          path.join(store.directory(recordingId), "events.jsonl")
+        );
+        expect(events).not.toContain(sentinel);
+        expect(events).toContain('"valueWithheld":true');
+        const saved = yield* learning.save({
+          claimOperationId: op("private-claim"),
+          files: [{ content: privateSkill, path: "SKILL.md" }],
+          operationId: op("private-save"),
+          recordingId,
+        });
+        expect(JSON.stringify(saved)).not.toContain(sentinel);
+        for (const kind of ["dry-run", "run"] as const) {
+          const run = yield* workspace.execute(
+            {
+              _tag: "start",
+              flowSkillName,
+              kind,
+              operationId: op(`private-${kind}`),
+              recordingId: kind === "dry-run" ? recordingId : null,
+              selection: privateSelection,
+            },
+            "agent"
+          );
+          expect(run.variables?.[0]?.status).toBe("requested");
+          yield* workspace.execute(
+            {
+              _tag: "prepare",
+              operationId: op(`prepare-${kind}`),
+              sessionId: run.id,
+            },
+            "user"
+          );
+          const missing = yield* enterPrivate(
+            workspace,
+            run.id,
+            "PASSWORD",
+            "agent",
+            `missing-${kind}`
+          ).pipe(Effect.result);
+          expect(missing._tag).toBe("Failure");
+          yield* supplyPrivate(
+            workspace,
+            run.id,
+            required(required(run.variables)[0]),
+            sentinel,
+            kind
+          );
+          const filled = yield* enterPrivate(
+            workspace,
+            run.id,
+            "PASSWORD",
+            "agent",
+            kind
+          );
+          const finished = yield* workspace.execute(
+            {
+              _tag: "complete",
+              assessment: {
+                explanation: "Home is visible after private login",
+                observationId: required(filled.observation).id,
+                outcome: "working",
+              },
+              operationId: op(`complete-${kind}`),
+              sessionId: run.id,
+            },
+            "agent"
+          );
+          expect(finished.assessment?.outcome).toBe("working");
+          expect(finished.variables).toEqual([]);
+          if (kind === "dry-run") {
+            yield* workspace.execute(
+              {
+                _tag: "flow-decision",
+                decision: "verify",
+                operationId: op("verify-private"),
+                sessionId: run.id,
+              },
+              "user"
+            );
+            expect(yield* fs.exists(store.directory(recordingId))).toBe(false);
+          }
+          const summary = yield* fs.readFileString(
+            path.join(root, ".android-workspace", `${run.id}.json`)
+          );
+          expect(summary).not.toContain(sentinel);
+        }
+        expect(calls).toEqual(["private", "private", "private"]);
+      })
+    )
+);
+
+it.effect(
+  "Setup Variables replace, refuse stale supplies, replay once, and expire at handoff without entering Teaching",
+  () =>
+    fixture(({ calls, resolved, setNodes }) =>
+      Effect.gen(function* setupVariables() {
+        setNodes(privateNodes);
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            agentSetup: true,
+            flowSkillName,
+            kind: "teaching",
+            operationId: op("setup-start"),
+            recordingId: null,
+            selection: privateSelection,
+          },
+          "agent"
+        );
+        const sessionId = started.id;
+        yield* workspace.execute(
+          { _tag: "prepare", operationId: op("setup-prepare"), sessionId },
+          "user"
+        );
+        const requested = yield* requestPrivate(
+          workspace,
+          sessionId,
+          "SETUP_PASSWORD",
+          "agent",
+          "setup"
+        );
+        const original = required(required(requested.variables)[0]);
+        yield* supplyPrivate(
+          workspace,
+          sessionId,
+          original,
+          "first-setup-sentinel",
+          "first"
+        );
+        yield* enterPrivate(
+          workspace,
+          sessionId,
+          "SETUP_PASSWORD",
+          "agent",
+          "setup"
+        );
+        const replacement = yield* requestPrivate(
+          workspace,
+          sessionId,
+          "SETUP_PASSWORD",
+          "agent",
+          "replacement",
+          true
+        );
+        expect(() => Redacted.value(required(resolved[0]))).toThrow();
+        expect(
+          (yield* supplyPrivate(
+            workspace,
+            sessionId,
+            original,
+            "stale",
+            "stale"
+          ).pipe(Effect.result))._tag
+        ).toBe("Failure");
+        yield* supplyPrivate(
+          workspace,
+          sessionId,
+          required(required(replacement.variables)[0]),
+          null,
+          "refuse"
+        );
+        expect(
+          (yield* enterPrivate(
+            workspace,
+            sessionId,
+            "SETUP_PASSWORD",
+            "agent",
+            "refused"
+          ).pipe(Effect.result))._tag
+        ).toBe("Failure");
+        const next = yield* requestPrivate(
+          workspace,
+          sessionId,
+          "SETUP_PASSWORD",
+          "agent",
+          "again",
+          true
+        );
+        yield* supplyPrivate(
+          workspace,
+          sessionId,
+          required(required(next.variables)[0]),
+          "second-setup-sentinel",
+          "second"
+        );
+        const handed = yield* workspace.execute(
+          { _tag: "setup-handoff", operationId: op("handoff"), sessionId },
+          "agent"
+        );
+        expect(handed.variables).toEqual([]);
+        expect(handed.controller).toBe("user");
+        expect(
+          (yield* enterPrivate(
+            workspace,
+            sessionId,
+            "SETUP_PASSWORD",
+            "agent",
+            "expired"
+          ).pipe(Effect.result))._tag
+        ).toBe("Failure");
+        expect(calls).toEqual(["private"]);
+        const store = yield* TeachingRecordingStore;
+        const fs = yield* FileSystem.FileSystem;
+        expect(
+          yield* fs.exists(
+            path.join(
+              store.directory(required(started.recordingId)),
+              "events.jsonl"
+            )
+          )
+        ).toBe(false);
+      })
+    )
+);
+
+it.effect(
+  "private input refuses wrong, stale, and moved fields without resolving a value",
+  () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* privateRefusals() {
+        setNodes(privateNodes);
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            agentSetup: true,
+            flowSkillName,
+            kind: "teaching",
+            operationId: op("refusal-start"),
+            recordingId: null,
+            selection: privateSelection,
+          },
+          "agent"
+        );
+        const sessionId = started.id;
+        yield* workspace.execute(
+          { _tag: "prepare", operationId: op("refusal-prepare"), sessionId },
+          "user"
+        );
+        const request = yield* requestPrivate(
+          workspace,
+          sessionId,
+          "PASSWORD",
+          "agent",
+          "refusal"
+        );
+        yield* supplyPrivate(
+          workspace,
+          sessionId,
+          required(required(request.variables)[0]),
+          "refusal-sentinel",
+          "refusal"
+        );
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId },
+          "agent"
+        );
+        for (const [target, observationId] of [
+          ["@home", required(observed.observation).id],
+          ["@password", "stale-observation"],
+        ]) {
+          const refused = yield* workspace
+            .execute(
+              {
+                _tag: "input",
+                action: {
+                  _tag: "variable",
+                  name: "PASSWORD",
+                  target: required(target),
+                },
+                observationId: required(observationId),
+                operationId: op(`refuse-${target}-${observationId}`),
+                sessionId,
+              },
+              "agent"
+            )
+            .pipe(Effect.result);
+          expect(refused._tag).toBe("Failure");
+        }
+        const newer = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId },
+          "agent"
+        );
+        expect(
+          (yield* workspace
+            .execute(
+              {
+                _tag: "input",
+                action: {
+                  _tag: "variable",
+                  name: "PASSWORD",
+                  target: "@password",
+                },
+                observationId: required(observed.observation).id,
+                operationId: op("superseded-private"),
+                sessionId,
+              },
+              "agent"
+            )
+            .pipe(Effect.result))._tag
+        ).toBe("Failure");
+        setNodes(
+          privateNodes.map((node) =>
+            node.password
+              ? { ...node, bounds: { height: 1, width: 1, x: 1, y: 1 } }
+              : node
+          )
+        );
+        expect(
+          (yield* workspace
+            .execute(
+              {
+                _tag: "input",
+                action: {
+                  _tag: "variable",
+                  name: "PASSWORD",
+                  target: "@password",
+                },
+                observationId: required(newer.observation).id,
+                operationId: op("moved-private"),
+                sessionId,
+              },
+              "agent"
+            )
+            .pipe(Effect.result))._tag
+        ).toBe("Failure");
+        expect(calls).toEqual([]);
+      })
+    )
+);
+
+it.effect(
+  "a secure window pauses a Run and forces its assessment to inconclusive",
+  () =>
+    fixture(({ secure }) =>
+      Effect.gen(function* secureWindow() {
+        const recordingId = yield* taught;
+        const session = yield* dryRun(recordingId);
+        const workspace = yield* AndroidWorkspace;
+        secure();
+        const refused = yield* workspace
+          .execute(
+            { _tag: "observe", image: false, sessionId: session.id },
+            "agent"
+          )
+          .pipe(Effect.result);
+        expect(refused._tag).toBe("Failure");
+        const paused = yield* workspace.execute(
+          { _tag: "read", sessionId: session.id },
+          "agent"
+        );
+        expect(paused.phase).toBe("paused");
+        expect(paused.error).toContain("Secure window, not visible");
+        const finished = yield* workspace.execute(
+          {
+            _tag: "complete",
+            assessment: {
+              explanation: "Secure window hides the outcome",
+              observationId: required(session.observation).id,
+              outcome: "working",
+            },
+            operationId: op("secure-complete"),
+            sessionId: session.id,
+          },
+          "agent"
+        );
+        expect(finished.assessment?.outcome).toBe("inconclusive");
+        expect(finished.captureState?._tag).toBe("dry-run-failed");
+      })
+    )
+);

@@ -16,12 +16,15 @@ export const AndroidWorkspaceTools = withStrictParameters(
     Tool.make("agent_android_workspace", {
       dependencies: [AndroidWorkspace],
       description:
-        "Opt-in experimental Android lifecycle. Start only with the user's explicitly selected prepared local API 36 emulator and public fixture declarations. Share /?android=<sessionId> as the Workspace link. Teaching is user-led. Workspace owns preparation, decisions, capture Start/Stop, verification, and Takeover. Observe returns semantic nodes without pixels; input uses that observationId and activations recorded during Teaching. Teaching setup needs no allowed-taps declaration. Stock screenshots and semantic snapshots are separate captures with experimental host checks. No private Variables, coordinates, arbitrary keys, cross-app or system-dialog permission, automatic replay, or web parity. Learning uses the existing Teaching Recording claim, Timeline, and Flow Skill save tools. Start a fresh dry-run for that saved Android skill; complete names the latest observation and outcome. Takeover and capture gaps prevent passing. Later runs require Android verification. Read retrieves durable summaries after reopening. Cancellation cannot undo dispatched input.",
+        "Experimental local API 36 Android; require user-authorized device and fixture. Share /?android=<sessionId>. Workspace owns prepare, consent, recording, Takeover and verification. Input uses observationId. Private input needs privateInput+pinned helper: variable-request, Workspace supply, input variable. agentSetup:true starts setup; setup-handoff expires its Variables. Learn via Recording claim/Timeline/Flow Skill save; fresh dry-run, verified later Run. Complete with latest observation. Gaps/Takeover cannot pass. No cross-app/system dialogs. Cancellation cannot undo input.",
       failure: AndroidWorkspaceFailure,
       parameters: Schema.Struct({
         command: Schema.Union(
           AndroidWorkspaceCommand.members.filter(
-            (member) => member.fields._tag.schema.literal !== "pick"
+            (member) =>
+              !["pick", "field-dismiss", "variable-supply"].includes(
+                member.fields._tag.schema.literal
+              )
           )
         ),
       }),
@@ -31,7 +34,7 @@ export const AndroidWorkspaceTools = withStrictParameters(
       Tool.make("agent_android_sessions_list", {
         dependencies: [AndroidWorkspace],
         description:
-          "Read retained experimental Android sessions and Run Summaries in this Catalog Root. Does not select or provision a device.",
+          "List retained Android sessions and Run Summaries. No device changes.",
         failure: AndroidWorkspaceFailure,
         parameters: Tool.EmptyParams,
         success: Schema.Unknown,

@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { workspaceChromeAtom } from "./agent-workspace-state";
 import { AndroidDevice } from "./android-device";
 import {
+  AndroidVariables,
   AndroidFieldEntry,
   AndroidInstructionEntry,
   AndroidRequests,
@@ -258,7 +259,8 @@ const useAndroidSessionSync = (
           Effect.sync(() =>
             setState((current) => ({
               ...current,
-              failure: Cause.pretty(failureCause),
+              failure:
+                snapshot.phase === "paused" ? null : Cause.pretty(failureCause),
               session: snapshot,
             }))
           )
@@ -434,17 +436,55 @@ const AndroidDockRequests = ({
       pending={pending}
       session={session}
     />
+    <AndroidVariables
+      session={session}
+      pending={pending}
+      onSupply={(name, requestId, value) =>
+        mutate({
+          _tag: "variable-supply",
+          name,
+          operationId: operationId(),
+          requestId,
+          sessionId: session.id,
+          value,
+        })
+      }
+    />
     {field === null ? null : (
       <AndroidFieldEntry
         disabled={pending}
         field={field}
+        variables={session.variables ?? []}
+        onRequest={(name) =>
+          mutate({
+            _tag: "variable-request",
+            name,
+            operationId: operationId(),
+            purpose: `Private input for ${field.name || field.role}`,
+            replace: (session.variables ?? []).some(
+              (variable) => variable.name === name
+            ),
+            sessionId: session.id,
+          })
+        }
+        onVariable={(name) =>
+          input(
+            { _tag: "variable", name, target: field.target },
+            field.observationId
+          )
+        }
         key={fieldKey(field)}
-        onDismiss={() =>
+        onDismiss={() => {
           setState((current) => ({
             ...current,
             dismissedField: fieldKey(field),
-          }))
-        }
+          }));
+          mutate({
+            _tag: "field-dismiss",
+            operationId: operationId(),
+            sessionId: session.id,
+          });
+        }}
         onSubmit={(text) =>
           input(
             { _tag: "fill", target: field.target, text },
@@ -563,6 +603,10 @@ const AndroidSessionView = ({
             setState((current) => ({ ...current, dismissedField: null }));
           }}
           paused={session.phase === "paused"}
+          secure={
+            session.phase === "paused" &&
+            session.captureGaps.at(-1) === "secure_window"
+          }
           pending={pick.pending}
           refusal={pick.error ?? null}
           sessionId={session.id}

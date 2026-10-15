@@ -1,7 +1,12 @@
 import type { AgentSessionId } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { ChevronLeftIcon, CircleSlashIcon, UnplugIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  CircleSlashIcon,
+  ShieldAlertIcon,
+  UnplugIcon,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -124,6 +129,7 @@ export const AndroidDevice = ({
   pending,
   refusal,
   sessionId,
+  secure,
   unavailable,
 }: {
   readonly canAct: boolean;
@@ -138,11 +144,13 @@ export const AndroidDevice = ({
   readonly pending: boolean;
   readonly refusal: string | null;
   readonly sessionId: AgentSessionId;
+  readonly secure: boolean;
   /** What the glass says while there is no stream. */
   readonly unavailable: string;
 }) => {
   const [frameAtom] = useState(() => Atom.make(DEFAULT_FRAME));
   const [frame, setFrame] = useAtom(frameAtom);
+  const displayUnavailable = secure ? "" : unavailable;
   return (
     <div className="flex h-full min-h-0 items-center justify-center gap-5">
       <div className="flex w-56 shrink-0 justify-end">
@@ -153,7 +161,7 @@ export const AndroidDevice = ({
         className={cn("h-full min-h-0", pending && "cursor-progress")}
       >
         <DeviceFrame frame={frame}>
-          {live ? (
+          {live && !secure ? (
             <AndroidLiveStream
               dimmed={paused}
               onFrame={setFrame}
@@ -162,16 +170,26 @@ export const AndroidDevice = ({
             />
           ) : (
             <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-neutral-400">
-              {unavailable}
+              {displayUnavailable}
             </div>
           )}
           {paused ? (
             <div className="absolute inset-0 grid place-items-center p-6 text-center">
-              <div className="bg-background/95 space-y-1 rounded-2xl border p-4 shadow-lg">
-                <UnplugIcon className="mx-auto size-6 text-amber-600" />
-                <p className="text-sm font-medium">Device disconnected</p>
+              <div className="bg-background space-y-1 rounded-2xl border p-4 shadow-lg">
+                {secure ? (
+                  <ShieldAlertIcon className="mx-auto size-6 text-amber-600" />
+                ) : (
+                  <UnplugIcon className="mx-auto size-6 text-amber-600" />
+                )}
+                <p className="text-sm font-medium">
+                  {secure
+                    ? "Secure window, not visible"
+                    : "Device disconnected"}
+                </p>
                 <p className="text-muted-foreground text-xs">
-                  Recover the same device from the dock.
+                  {secure
+                    ? "This window cannot provide outcome evidence. The outcome is inconclusive."
+                    : "Recover the same device from the dock."}
                 </p>
               </div>
             </div>

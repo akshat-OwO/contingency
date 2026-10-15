@@ -42,6 +42,7 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
+import { androidWindowVisibility } from "./android-stream-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -119,15 +120,22 @@ export const resolvePrivateTextRelease = (moduleDirectory: string): string =>
       );
 
 /** All ADB operations bind the exact selected serial. */
-const adb = (serial: string, args: readonly string[]) =>
-  io(async (signal) => {
-    const { stdout } = await execute("adb", ["-s", serial, ...args], {
-      maxBuffer: 8 * 1024 * 1024,
-      signal,
-      timeout: 30_000,
-    });
-    return stdout.trim();
-  }, "device_disconnected");
+const adb = (serial: string, args: readonly string[]) => {
+  const installing = args[0] === "install";
+  return io(
+    async (signal) => {
+      const { stdout } = await execute("adb", ["-s", serial, ...args], {
+        maxBuffer: 8 * 1024 * 1024,
+        signal,
+        // Package verification on a physical device can outlast a normal command.
+        // Wait for the installation process to exit, with a separate hang guard.
+        timeout: installing ? 120_000 : 30_000,
+      });
+      return stdout.trim();
+    },
+    installing ? "installation_failed" : "device_disconnected"
+  );
+};
 
 const decode = <A>(schema: Schema.Codec<A>, value: string) =>
   Effect.try({
@@ -195,6 +203,9 @@ const requireOwnership = (input: AndroidRuntimeStartInput) =>
       return yield* Effect.fail(
         platformRuntimeError("user_profile_unsupported")
       );
+    }
+    if (androidWindowVisibility(windows) === "secure") {
+      return yield* Effect.fail(platformRuntimeError("secure_window"));
     }
     return focus.window;
   });
