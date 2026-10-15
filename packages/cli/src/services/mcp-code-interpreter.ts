@@ -165,13 +165,38 @@ const omitRequestServices = Context.omit(
   CurrentLogLevel
 );
 
-/** Why a handler refused, in the words an MCP client would read. */
-const refusalOf = (cause: Cause.Cause<unknown>): string => {
+/** What McpServer answers for a failure it does not disclose. */
+const INTERNAL_FAILURE =
+  "Tool execution failed due to an internal server error.";
+
+/**
+ * Why a handler refused, in the words an MCP client would read: a parameter
+ * or declared failure keeps its message, and anything else is logged and
+ * replaced, exactly as McpServer does for a native call.
+ */
+const refusalOf = (tool: Tool.Any, cause: Cause.Cause<unknown>) => {
   const failure = Cause.findErrorOption(cause);
-  if (Option.isSome(failure) && AiError.isAiError(failure.value)) {
-    return failure.value.reason.message.slice(0, 2000);
+  if (Option.isNone(failure) || Cause.hasDies(cause)) {
+    return Effect.logError(cause).pipe(Effect.as(INTERNAL_FAILURE));
   }
-  return Cause.pretty(cause).slice(0, 500);
+  const error = failure.value;
+  if (AiError.isAiError(error)) {
+    return Effect.succeed(error.reason.message);
+  }
+  if (!Schema.is(tool.failureSchema)(error)) {
+    return Effect.logError(cause).pipe(Effect.as(INTERNAL_FAILURE));
+  }
+  if (error instanceof Error && error.message !== "") {
+    return Effect.succeed(error.message);
+  }
+  // SAFETY: a declared failure encodes without services, as McpServer assumes.
+  const encoding = Schema.encodeUnknownEffect(tool.failureSchema)(
+    error
+  ) as Effect.Effect<unknown, Schema.SchemaError>;
+  return encoding.pipe(
+    Effect.map((encoded) => JSON.stringify(encoded)),
+    Effect.orElseSucceed(() => INTERNAL_FAILURE)
+  );
 };
 
 /** Adds one toolkit's tools to the catalog's operations. */
@@ -213,10 +238,12 @@ export const collectOperations = <Tools extends Record<string, Tool.Any>>(
               return { ok: true, value: encoded };
             }),
             Effect.catchCause((cause) =>
-              Effect.succeed<DispatchOutcome>({
-                message: refusalOf(cause),
-                ok: false,
-              })
+              refusalOf(tool, cause).pipe(
+                Effect.map((message): DispatchOutcome => ({
+                  message,
+                  ok: false,
+                }))
+              )
             ),
             // SAFETY: these handlers need only the services their layer was
             // built with, merged under the calling request's own services.

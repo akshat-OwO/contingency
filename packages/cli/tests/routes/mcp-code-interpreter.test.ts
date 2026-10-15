@@ -268,6 +268,39 @@ it.live(
 );
 
 it.live(
+  "words a refusal exactly as the native tool does",
+  () =>
+    live(
+      Effect.gen(function* sameRefusal() {
+        const command = { _tag: "read", sessionId: "agent-android-missing" };
+        const native = yield* connectMcp(yield* servingMcpHttp());
+        const nativeAnswer = Schema.decodeUnknownSync(Execution)(
+          yield* native.request("tools/call", {
+            arguments: { command },
+            name: "agent_android_workspace",
+          })
+        ).result;
+        expect(nativeAnswer.isError).toBe(true);
+        const answer = yield* execute(`
+          try {
+            await tools.agent_android_workspace({ command: ${JSON.stringify(command)} });
+            return "accepted";
+          } catch (error) {
+            return error.message;
+          }
+        `);
+        const [refusal] = nativeAnswer.content;
+        expect(answer.structuredContent?.value).toBe(refusal?.text);
+        expect(answer.structuredContent?.receipts[0]?.message).toBe(
+          refusal?.text
+        );
+        expect(refusal?.text).not.toContain("    at ");
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
   "refuses an unknown operation before it reaches the server",
   () =>
     live(
