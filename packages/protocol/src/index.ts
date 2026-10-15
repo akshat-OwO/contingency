@@ -9,6 +9,7 @@ import {
   AgentNavigateAction,
 } from "./agent-browser.ts";
 import { AgentPendingDecisionResolve } from "./agent-decision.ts";
+import { AgentSessionId } from "./agent-identifiers.ts";
 import { AgentRunOpen, AgentRunSummary, AgentRunViewer } from "./agent-run.ts";
 import {
   AgentSessionClose,
@@ -986,6 +987,11 @@ export class ContingencyRpcs extends RpcGroup.make(
     error: BrowserRpcError,
     payload: Schema.Struct({}),
     success: Schema.Array(AndroidWorkspaceSummary),
+  }),
+  Rpc.make("android.stream.access", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ sessionId: AgentSessionId }),
+    success: Schema.Struct({ path: Schema.String, token: Schema.String }),
   }),
   AgentSessionsGetRpc,
   AgentSessionStartRpc,

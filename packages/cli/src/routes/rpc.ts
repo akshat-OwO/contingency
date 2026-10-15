@@ -188,6 +188,22 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by Agent Session lifecycle rather than sorted.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "android.stream.access": ({ sessionId }) =>
+        Effect.gen(function* androidStreamAccess() {
+          const service = yield* Effect.serviceOption(AndroidWorkspace);
+          const stream = Option.isSome(service)
+            ? yield* service.value.stream(sessionId)
+            : null;
+          if (!stream) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_session_unavailable",
+                "Prepare the selected Android session before viewing its stream."
+              )
+            );
+          }
+          return stream.access;
+        }),
       "android.devices.list": () =>
         androidDiscovery
           .devices()
