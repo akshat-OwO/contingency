@@ -9,6 +9,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import {
+  androidComment,
+  androidIdle,
+  androidPick,
+  openAndroidSheet,
+} from "./android-ui.mjs";
+
 const root = path.resolve(import.meta.dirname, "../../../..");
 const require = createRequire(path.join(root, "packages/cli/package.json"));
 const { Effect } = await import(pathToFileURL(require.resolve("effect")).href);
@@ -108,7 +115,7 @@ const snapshot = async (name) => {
     path.join(artifacts, `${name}.png`)
   );
 };
-const selection = {
+let selection = {
   device: {
     api: 36,
     avd: process.env.CONTINGENCY_ANDROID_AVD,
@@ -118,16 +125,15 @@ const selection = {
   },
   environment: {
     androidVersion: "16",
-    appBuild: "36",
-    appId: "com.android.settings",
-    startingState: "Fresh About emulated device activity",
+    appBuild: "1",
+    appId: "dev.contingency.checkout",
+    startingState: "group Fixture Shop sign in is visible",
   },
   helperConsent: "none",
-  outcomes: [{ name: "Device name", role: "text" }],
-  reversibleActions: [{ name: "Device name", role: "text" }],
+  outcomes: [{ name: "Catalog", role: "group" }],
   setup: {
-    activity: "com.android.settings/.Settings$MyDeviceInfoActivity",
-    conditions: [{ name: "Device name", role: "text" }],
+    activity: "dev.contingency.checkout/.MainActivity",
+    conditions: [{ name: "Fixture Shop sign in", role: "group" }],
     kind: "restart-activity",
   },
 };
@@ -135,7 +141,11 @@ assert.ok(
   Object.values(selection.device).every((value) => value !== undefined),
   "Supply the explicitly authorized device declarations."
 );
-const flowSkillName = `android-device-name-${process.pid}`;
+const prepareName =
+  selection.device.kind === "physical"
+    ? "Prepare selected device"
+    : "Prepare selected emulator";
+const flowSkillName = `android-public-field-${process.pid}`;
 const publicText = "Public fixture 470";
 let recordingId;
 const receipt = {
@@ -163,23 +173,22 @@ const openView = async (sessionId) => {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Take control");
 };
 const journey = async (sessionId) => {
   let current = await observe(sessionId);
-  const target = current.observation.nodes.find(
-    (node) =>
-      node.role === "text" && node.name === "Device name" && !node.covered
-  );
-  assert.ok(target, "No visible Device name target.");
-  await input(current, { _tag: "activate", target: target.target });
-  current = await observe(sessionId);
   const field = current.observation.nodes.find(
-    (node) => node.editable && !node.password && !node.covered
+    (node) =>
+      node.role === "text-field" &&
+      node.name === "Shopper name" &&
+      !node.covered
   );
-  assert.ok(field, "No supported public field.");
+  assert.ok(
+    field,
+    "Install the working checkout fixture before this Workspace proof."
+  );
   await input(current, {
     _tag: "fill",
     target: field.target,
@@ -190,129 +199,76 @@ const journey = async (sessionId) => {
     current.observation.nodes.some((node) => node.name.includes(publicText)),
     "Public text has no semantic readback."
   );
-  for (
-    let count = 0;
-    count < 3 &&
-    current.observation.nodes.some((node) => node.editable && !node.covered);
-    count += 1
-  ) {
-    await input(current, { _tag: "back" });
-    current = await observe(sessionId);
-  }
+  const signIn = current.observation.nodes.find(
+    (node) => node.role === "button" && node.name === "Sign in" && !node.covered
+  );
+  assert.ok(signIn, "No visible fixture Sign in button.");
+  await input(current, { _tag: "activate", target: signIn.target });
+  current = await observe(sessionId);
   assert.ok(
-    !current.observation.nodes.some((node) => node.editable && !node.covered),
-    "Public editor did not close."
+    current.observation.nodes.some(
+      (node) =>
+        node.name === "Catalog" && node.role === "group" && !node.covered
+    )
   );
   return current;
 };
 
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await wait("Android experimental");
-  await click("Android experimental");
-  const fields = {
-    "Flow Skill name": flowSkillName,
-    "Required outcome name": "Device name",
-    "Required outcome role": "text",
-    "Reversible actions": "text: Device name",
-    "Selected AVD or device model": selection.device.avd,
-    "Selected build fingerprint": selection.device.fingerprint,
-    "Selected device serial": selection.device.serial,
-    "Starting activity": selection.setup.activity,
-    "Starting condition name": "Device name",
-    "Starting condition role": "text",
-    "Starting state description": selection.environment.startingState,
-    "Target App package": selection.environment.appId,
-    "Target App versionCode": "36",
-  };
-  for (const [name, value] of Object.entries(fields)) {
-    await control(
-      "browser",
-      "fill",
-      "--role",
-      "textbox",
-      "--name",
-      name,
-      "--value",
-      value
-    );
-  }
-  // A cold-booted emulator may lack the pinned helper; the operator opts in.
-  await control(
-    "browser",
-    "select",
-    "--role",
-    "combobox",
-    "--name",
-    "Helper authorization",
-    "--value",
-    process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
-  );
-  await click("Open experimental Android session");
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await openAndroidSheet(control, selection, flowSkillName, snapshot);
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
   await snapshot("teaching-started");
-  await click("Activate text Device name");
-  // The accessible name includes the current field value, so use its stable prefix.
-  await control(
-    "browser",
-    "wait",
-    "--role",
-    "button",
-    "--name",
-    "Enter public text in",
-    "--timeout-ms",
-    "60000",
-    "--partial"
-  );
-  await control(
-    "browser",
-    "fill",
-    "--role",
-    "textbox",
-    "--name",
-    "Public fixture text",
-    "--value",
-    publicText
-  );
-  await click("Enter public text in", true);
   const listedSessions = await tool("agent_android_sessions_list", {});
   const taughtSession = listedSessions.find(
     (session) =>
       session.flowSkillName === flowSkillName && session.kind === "teaching"
   );
   assert.ok(taughtSession);
+  assert.deepEqual(taughtSession.selection.device, selection.device);
+  ({ selection } = taughtSession);
   ({ recordingId } = taughtSession);
-  let current = await observe(taughtSession.id);
-  assert.ok(
-    current.observation.nodes.some((node) => node.name.includes(publicText)),
-    "Workspace fill has no readback."
+  await control(
+    "browser",
+    "goto",
+    "--url",
+    `${instance.mcpUrl}?android=${taughtSession.id}`
   );
-  for (
-    let count = 0;
-    count < 3 &&
-    current.observation.nodes.some((node) => node.editable && !node.covered);
-    count += 1
-  ) {
-    await click("Android Back");
-    current = await observe(taughtSession.id);
-  }
+  await androidPick(control, taughtSession.id, "text-field", "Shopper name");
   await control(
     "browser",
     "fill",
     "--role",
     "textbox",
     "--name",
-    "Instruction",
+    "Text for Shopper name",
     "--value",
-    "Cancel the public edit. The Device name row remains visible; do not save device changes."
+    publicText
   );
-  await click("Add Instruction");
+  await click("Type");
+  await androidIdle(control);
+  let current = await observe(taughtSession.id);
+  assert.ok(
+    current.observation.nodes.some((node) => node.name.includes(publicText)),
+    "Workspace fill has no readback."
+  );
+  await androidPick(control, taughtSession.id, "button", "Sign in");
+  await androidComment(
+    control,
+    "Use only this public fixture name. Catalog proves sign-in worked."
+  );
   await click("Stop recording");
-  await control("browser", "wait", "--text", "Teaching: ready.", "--partial");
+  await control(
+    "browser",
+    "wait",
+    "--text",
+    "Ask an agent to learn this recording.",
+    "--partial"
+  );
   current = await read(taughtSession.id);
   assert.equal(current.captureState._tag, "ready");
   await snapshot("teaching-stopped");
@@ -322,7 +278,7 @@ try {
     "browser",
     "wait",
     "--text",
-    `${flowSkillName} · teaching · closed · user control`
+    "This session released its emulator."
   );
   await tool("agent_teaching_recording_claim", {
     action: "take",
@@ -339,7 +295,7 @@ try {
   const actions = timeline.entries.filter((entry) => entry._tag === "action");
   assert.equal(actions.filter((entry) => entry.kind === "activate").length, 1);
   assert.equal(actions.filter((entry) => entry.kind === "fill").length, 1);
-  assert.ok(actions.length >= 3 && actions.length <= 5);
+  assert.equal(actions.length, 2);
   assert.ok(JSON.stringify(timeline).includes(publicText));
   await writeFile(
     path.join(artifacts, "timeline.json"),
@@ -349,7 +305,7 @@ try {
     claimOperationId: "android-workspace-claim",
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Rehearse a public Android Settings edit without saving it. Use when checking experimental Android input.\ninputs:\n---\n\n# Rehearse a device name edit\n\n1. Activate the text named Device name. Done when: the public editor is visible.\n2. Enter ${publicText} in the editable public field. Done when: ${publicText} is visible.\n3. Go back to cancel the edit. Done when: no editor is open and Device name is visible.\n`,
+        content: `---\nname: ${flowSkillName}\ndescription: Enter a public fixture name and sign in to the disposable Android checkout app. Use when checking experimental Workspace input.\ninputs:\n---\n\n# Enter public fixture text\n\n1. Enter ${publicText} in Shopper name. Done when: ${publicText} is visible.\n2. Activate Sign in. Done when: Catalog is visible.\n`,
         path: "SKILL.md",
       },
     ],
@@ -397,7 +353,7 @@ try {
   const incomplete = await command({
     _tag: "complete",
     assessment: {
-      explanation: "Device name is visible after Takeover.",
+      explanation: "The starting screen is visible after Takeover.",
       observationId: current.observation.id,
       outcome: "working",
     },
@@ -422,7 +378,7 @@ try {
     _tag: "complete",
     assessment: {
       explanation:
-        "Public text was independently observed; the editor is closed and Device name remains visible.",
+        "Public text was independently observed and Catalog is visible.",
       observationId: current.observation.id,
       outcome: "working",
     },
@@ -439,6 +395,7 @@ try {
   await wait("Verify flow");
   await snapshot("dry-run-passed");
   await click("Verify flow");
+  await control("browser", "wait", "--text", "Recording deleted");
   const verified = await read(dry.id);
   assert.equal(verified.cleanup._tag, "purged");
   assert.equal(verified.observation, null);
@@ -484,7 +441,7 @@ try {
     _tag: "complete",
     assessment: {
       explanation:
-        "The later Run independently observed public input and return to Device name.",
+        "The later Run independently observed public input and Catalog.",
       observationId: current.observation.id,
       outcome: "working",
     },
@@ -498,13 +455,7 @@ try {
     "--url",
     `${instance.mcpUrl}?android=${later.id}`
   );
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Agent Assessment: working",
-    "--partial"
-  );
+  await wait("Run Summary", "complementary");
   await snapshot("later-run-summary");
   receipt.coverage.laterRun = {
     assessment: completed.assessment,
@@ -525,6 +476,32 @@ try {
   receipt.blockers.push(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
+  try {
+    const owned = await tool("agent_android_sessions_list", {});
+    for (const session of owned.filter(
+      (entry) =>
+        entry.flowSkillName === flowSkillName &&
+        ["pending", "running", "paused"].includes(entry.phase)
+    )) {
+      await control(
+        "browser",
+        "goto",
+        "--url",
+        `${instance.mcpUrl}?android=${session.id}`
+      );
+      await click("Close session");
+      await wait("New session");
+      const closedSession = await command({
+        _tag: "read",
+        sessionId: session.id,
+      });
+      assert.equal(closedSession.phase, "closed");
+    }
+  } catch (error) {
+    receipt.blockers.push(`Owned session cleanup failed: ${String(error)}`);
+    process.exitCode = 1;
+  }
+
   await writeFile(
     path.join(artifacts, "journal.json"),
     JSON.stringify(journal, null, 2),

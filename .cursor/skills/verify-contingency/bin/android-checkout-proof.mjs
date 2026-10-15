@@ -11,6 +11,13 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import {
+  androidComment,
+  androidIdle,
+  androidPick,
+  openAndroidSheet,
+} from "./android-ui.mjs";
+
 const root = path.resolve(import.meta.dirname, "../../../..");
 const require = createRequire(path.join(root, "packages/cli/package.json"));
 const { Effect } = await import(pathToFileURL(require.resolve("effect")).href);
@@ -28,13 +35,22 @@ assert.ok(instance.mcpUrl, "Start this instance's MCP broker first.");
 assert.equal(
   process.env.CONTINGENCY_ANDROID_FIXTURE_INSTALL,
   "authorized",
-  "The operator must authorize installing the fixture builds on the selected emulator."
+  "The operator must authorize installing the fixture builds on the explicitly selected device."
 );
 const skillRoot = path.join(root, ".cursor/skills/verify-contingency");
-const artifacts = path.join(skillRoot, "artifacts/android-checkout");
+const physical = process.env.CONTINGENCY_ANDROID_MODEL !== undefined;
+const artifacts = path.join(
+  skillRoot,
+  physical
+    ? "artifacts/android-checkout-physical"
+    : "artifacts/android-checkout"
+);
 await mkdir(artifacts, { mode: 0o700, recursive: true });
 const builds = JSON.parse(
-  await readFile(path.join(artifacts, "builds/builds.json"), "utf-8")
+  await readFile(
+    path.join(skillRoot, "artifacts/android-checkout/builds/builds.json"),
+    "utf-8"
+  )
 );
 const build = (variant) => {
   const found = builds.builds.find((entry) => entry.variant === variant);
@@ -174,7 +190,9 @@ const shopper = "Fixture Shopper";
 const selection = (variant) => ({
   device: {
     api: 36,
-    avd: process.env.CONTINGENCY_ANDROID_AVD,
+    ...(physical
+      ? { kind: "physical", model: process.env.CONTINGENCY_ANDROID_MODEL }
+      : { avd: process.env.CONTINGENCY_ANDROID_AVD }),
     fingerprint: process.env.CONTINGENCY_ANDROID_FINGERPRINT,
     host: "local",
     serial,
@@ -183,15 +201,15 @@ const selection = (variant) => ({
     androidVersion: "16",
     appBuild: build(variant).appBuild,
     appId,
-    startingState: "Fresh Fixture Shop sign in",
+    // The setup sheet derives this from the starting element.
+    startingState: `${startingCondition.role} ${startingCondition.name} is visible`,
   },
   helperConsent: "none",
   outcomes: [outcome],
-  reversibleActions,
   setup: {
     activity: `${appId}/.MainActivity`,
     conditions: [startingCondition],
-    kind: "restart-activity",
+    kind: physical ? "clear-app-data" : "restart-activity",
   },
 });
 assert.ok(
@@ -200,6 +218,14 @@ assert.ok(
   ),
   "Supply the explicitly authorized device declarations."
 );
+const prepareName =
+  selection("working").device.kind === "physical"
+    ? "Prepare selected device"
+    : "Prepare selected emulator";
+const recoverName =
+  selection("working").device.kind === "physical"
+    ? "Recover same device"
+    : "Recover same emulator";
 const flowSkillName = `android-checkout-${process.pid}`;
 const receipt = {
   blockers: [],
@@ -270,14 +296,12 @@ const installVariant = async (variant) => {
   const installed = /versionCode=(?<code>\d+) /u.exec(
     await adb("shell", "dumpsys", "package", appId)
   )?.groups?.code;
-  // A release build cannot downgrade in place; remove only this fixture first.
-  if (
-    installed !== undefined &&
-    Number(installed) > Number(build(variant).appBuild)
-  ) {
+  // A release build cannot downgrade in place, and a nearly full device
+  // cannot stage a second copy to replace one. Remove only this fixture first.
+  if (installed !== undefined) {
     await adb("uninstall", appId);
   }
-  await adb("install", "-r", apk);
+  await adb("install", apk);
   const dump = await adb("shell", "dumpsys", "package", appId);
   assert.ok(
     dump.includes(`versionCode=${build(variant).appBuild} `),
@@ -291,12 +315,34 @@ const openView = async (sessionId) => {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  await waitText("Preparation:");
+  await wait("Workspace dock", "region");
+};
+const allowFixtureClear = async (sessionId) => {
+  if (!physical) {
+    return;
+  }
+  const current = await read(sessionId);
+  if (
+    !current.preparation.pending.some(
+      (pending) => pending.kind === "clear-app-data"
+    )
+  ) {
+    return;
+  }
+  await wait("Clear Target App data", "region");
+  await snapshot(`fixture-clear-${sessionId}`);
+  await control(
+    "browser",
+    "android-allow-request",
+    "--name",
+    "Clear Target App data"
+  );
 };
 const prepare = async (sessionId) => {
   await openView(sessionId);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await allowFixtureClear(sessionId);
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Take control");
   const prepared = await observe(sessionId);
   // Preparation restarts the activity; a carried-over cart or sign-in is not fresh.
@@ -358,15 +404,94 @@ const startSession = (kind, variant, recordingId = null) =>
   });
 const allowPermission = async (sessionId) => {
   await openView(sessionId);
-  await wait("Run Environment Permission", "group");
+  await wait("Run Environment Permission", "region");
   await snapshot(`permission-${sessionId}`);
-  await click("Allow");
+  await control(
+    "browser",
+    "android-allow-request",
+    "--name",
+    "Run Environment Permission"
+  );
+  await allowFixtureClear(sessionId);
 };
 
+const adbText = async (...args) => {
+  const output = await adb(...args);
+  return output.trim();
+};
+const deviceState = async () => {
+  const packages = await adbText("shell", "pm", "list", "packages");
+  const enabledIme = await adbText(
+    "shell",
+    "settings",
+    "get",
+    "secure",
+    "enabled_input_methods"
+  );
+  const ime = await adbText(
+    "shell",
+    "settings",
+    "get",
+    "secure",
+    "default_input_method"
+  );
+  const forwards = await adbText("forward", "--list");
+  return {
+    enabledIme,
+    forwards: forwards
+      .split("\n")
+      .filter((line) => line.split(/\s+/u)[0] === serial)
+      .toSorted(),
+    ime,
+    packages: createHash("sha256")
+      .update(packages.split("\n").toSorted().join("\n"))
+      .digest("hex"),
+  };
+};
+let originalState;
 let installedHere = false;
 const sessions = [];
+let restartedEmulator;
 try {
+  assert.equal(
+    await adbText("shell", "getprop", "ro.build.fingerprint"),
+    process.env.CONTINGENCY_ANDROID_FINGERPRINT,
+    "Selected device fingerprint changed."
+  );
+  assert.equal(await adbText("shell", "getprop", "ro.build.version.sdk"), "36");
+  if (physical) {
+    assert.equal(
+      process.env.CONTINGENCY_ANDROID_AVD,
+      undefined,
+      "Physical selection must use model, serial, and fingerprint only."
+    );
+    assert.equal(
+      await adbText("shell", "getprop", "ro.product.model"),
+      process.env.CONTINGENCY_ANDROID_MODEL
+    );
+    assert.equal(
+      await adbText("shell", "am", "get-current-user"),
+      "0",
+      "Physical proof requires owner user 0."
+    );
+    assert.equal(
+      process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none",
+      "none",
+      "Install helpers separately with explicit consent before taking the physical baseline."
+    );
+    assert.notEqual(
+      process.env.CONTINGENCY_ANDROID_DISCONNECT,
+      "owned-emulator"
+    );
+    originalState = await deviceState();
+  }
   const before = await adb("shell", "pm", "list", "packages", appId);
+  if (physical) {
+    assert.ok(
+      !before.includes(`package:${appId}`),
+      "Never replace an existing fixture on the physical phone."
+    );
+  }
   if (before.includes(`package:${appId}`)) {
     const signatures = await adb("shell", "dumpsys", "package", appId);
     assert.ok(
@@ -380,71 +505,189 @@ try {
 
   // Teaching through mirrored Workspace.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await wait("Android experimental");
-  await click("Android experimental");
-  const working = selection("working");
-  const fields = {
-    "Flow Skill name": flowSkillName,
-    "Required outcome name": outcome.name,
-    "Required outcome role": outcome.role,
-    "Reversible actions": reversibleActions
-      .map((action) => `${action.role}: ${action.name}`)
-      .join("\n"),
-    "Selected AVD or device model": working.device.avd,
-    "Selected build fingerprint": working.device.fingerprint,
-    "Selected device serial": serial,
-    "Starting activity": working.setup.activity,
-    "Starting condition name": startingCondition.name,
-    "Starting condition role": startingCondition.role,
-    "Starting state description": working.environment.startingState,
-    "Target App package": appId,
-    "Target App versionCode": working.environment.appBuild,
-  };
-  for (const [name, value] of Object.entries(fields)) {
-    await fill(name, value);
-  }
-  await snapshot("teaching-selection");
-  await click("Open experimental Android session");
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
-  await wait("Start recording");
+  await openAndroidSheet(
+    control,
+    selection("working"),
+    flowSkillName,
+    snapshot
+  );
   const listed = await tool("agent_android_sessions_list", {});
   const taughtSession = listed.find(
     (session) =>
       session.flowSkillName === flowSkillName && session.kind === "teaching"
   );
   assert.ok(taughtSession);
+  assert.deepEqual(
+    taughtSession.selection.device,
+    selection("working").device,
+    "Discovered device differs from explicit selection."
+  );
+  assert.equal(
+    taughtSession.selection.reversibleActions,
+    undefined,
+    "UI must omit reversibleActions."
+  );
+  receipt.coverage.setupSheet = {
+    discoveredApp: true,
+    discoveredDevice: true,
+    reversibleActionsOmitted: true,
+  };
+  assert.equal(taughtSession.selection.environment.appId, appId);
+  assert.equal(
+    taughtSession.selection.environment.appBuild,
+    build("working").appBuild
+  );
   sessions.push(taughtSession.id);
   const { recordingId } = taughtSession;
+  await control(
+    "browser",
+    "goto",
+    "--url",
+    `${instance.mcpUrl}?android=${taughtSession.id}`
+  );
+  await allowFixtureClear(taughtSession.id);
+  await wait(prepareName);
+  await click(prepareName);
+  await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
   await snapshot("teaching-started");
-  await fill("Public fixture text", shopper);
-  await click("Enter public text in text-field Shopper name", true);
-  await wait("Activate button Sign in");
-  await click("Activate button Sign in");
-  await wait("Activate button Add Anvil to cart");
-  await fill("Instruction", "Sign in with the public fixture shopper name.");
-  await click("Add Instruction");
-  await click("Activate button Add Anvil to cart");
+  // Read the append-only capture to prove refusals add no action, then compare the
+  // complete claimed Timeline below. Never retain frame pixels from this file.
+  const actionCount = async () => {
+    const events = await readFile(
+      path.join(
+        instance.stateDir,
+        "catalog/.recordings",
+        recordingId,
+        "events.jsonl"
+      ),
+      "utf-8"
+    );
+    return events
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((entry) => entry._tag === "action").length;
+  };
+  const noOverlays = JSON.parse(
+    await control("browser", "android-no-overlays")
+  );
+  assert.equal(noOverlays.noOverlays, true);
+  receipt.coverage.noOverlays = noOverlays;
+  await snapshot("no-overlays");
+  const beforeRefusals = await actionCount();
+  // The sign-in fixture leaves the lower half blank, before the IME is opened.
+  const empty = JSON.parse(
+    await control(
+      "browser",
+      "android-pick",
+      "--session-id",
+      taughtSession.id,
+      "--fx",
+      "0.5",
+      "--fy",
+      "0.75"
+    )
+  );
+  await waitText("Nothing to activate there. No input was sent.");
+  assert.equal(await actionCount(), beforeRefusals);
+  receipt.coverage.pickRefusesEmpty = {
+    ...empty,
+    actionsAfter: await actionCount(),
+    actionsBefore: beforeRefusals,
+    noInput: true,
+  };
+  await snapshot("pick-refuses-empty");
+  await androidPick(control, taughtSession.id, "text-field", "Shopper name");
+  await wait("Type into Shopper name", "form");
+  await snapshot("field-picked");
+  await fill("Text for Shopper name", shopper);
+  await click("Type");
+  await androidIdle(control);
+  const typed = await observe(taughtSession.id);
+  assert.ok(
+    nodes(typed).some((node) => node.name.includes(shopper)),
+    "Fresh observation does not contain typed shopper name."
+  );
+  receipt.coverage.fieldTyping = {
+    form: "Type into Shopper name",
+    observationId: typed.observation.id,
+    value: shopper,
+  };
+  await snapshot("field-typed");
+  // Typing leaves the soft keyboard open. Its keys are hittable elements of
+  // another app, named "Other window" in the observation; aim at one.
+  const keyboard = typed.observation;
+  const foreign = nodes(typed)
+    .filter(
+      (node) =>
+        node.name === "Other window" &&
+        node.bounds !== undefined &&
+        node.bounds.width > 0 &&
+        node.bounds.height > 0 &&
+        node.bounds.y > keyboard.height / 2
+    )
+    .toSorted(
+      (left, right) =>
+        left.bounds.width * left.bounds.height -
+        right.bounds.width * right.bounds.height
+    )
+    .find((node) => node.role === "text" || node.role === "button");
+  assert.ok(foreign, "The soft keyboard is not open after typing.");
+  const beforeOutside = await actionCount();
+  const outsidePick = JSON.parse(
+    await control(
+      "browser",
+      "android-pick",
+      "--session-id",
+      taughtSession.id,
+      "--fx",
+      String((foreign.bounds.x + foreign.bounds.width / 2) / keyboard.width),
+      "--fy",
+      String((foreign.bounds.y + foreign.bounds.height / 2) / keyboard.height)
+    )
+  );
+  await waitText("That element belongs to another app. No input was sent.");
+  assert.equal(await actionCount(), beforeOutside);
+  receipt.coverage.pickRefusesOutsideApp = {
+    ...outsidePick,
+    actionsAfter: await actionCount(),
+    actionsBefore: beforeOutside,
+    noInput: true,
+  };
+  await snapshot("pick-refuses-outside-app");
+  await androidPick(control, taughtSession.id, "button", "Sign in");
+  await untilShown(taughtSession.id, reversibleActions[1]);
+  await snapshot("pick-activates");
+  await androidComment(
+    control,
+    "Sign in with the public fixture shopper name."
+  );
+  await androidPick(control, taughtSession.id, "button", "Add Anvil to cart");
   await untilShown(taughtSession.id, { name: "Cart: 1 item", role: "text" });
-  await click("Activate button Open cart");
-  await wait("Activate button Place mock order");
-  await click("Activate button Place mock order");
+  await androidPick(control, taughtSession.id, "button", "Open cart");
+  await untilShown(taughtSession.id, reversibleActions[3]);
+  await androidPick(control, taughtSession.id, "button", "Place mock order");
   await untilShown(taughtSession.id, outcome);
-  await fill(
-    "Instruction",
+  await androidComment(
+    control,
     "Checkout is done when Order confirmed is visible. The mock order takes no payment."
   );
-  await click("Add Instruction");
   await snapshot("teaching-checkout");
   await click("Stop recording");
-  await waitText("Teaching: ready.");
+  await waitText("Ask an agent to learn this recording.");
   const stopped = await read(taughtSession.id);
   assert.equal(stopped.captureState._tag, "ready");
+  assert.deepEqual(
+    stopped.requirements.reversibleActions,
+    reversibleActions,
+    "Teaching must derive allowed activations from the captured journey."
+  );
   await snapshot("teaching-stopped");
   await click("Close session");
-  await waitText(`${flowSkillName} · teaching · closed · user control`);
+  await wait("New session");
 
   await tool("agent_teaching_recording_claim", {
     action: "take",
@@ -477,6 +720,29 @@ try {
       "Activate button Place mock order",
     ]
   );
+  const forbidden = new Set(["point", "bounds", "frame", "x", "y"]);
+  const assertSemantic = (value) => {
+    if (value === null || Object(value) !== value) {
+      return;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      assert.ok(
+        !forbidden.has(key),
+        `Timeline action contains coordinate key ${key}.`
+      );
+      assertSemantic(child);
+    }
+  };
+  for (const action of actions) {
+    assertSemantic(action);
+  }
+  receipt.coverage.pickActivates = {
+    coordinateKeysAbsent: true,
+    descriptions: actions
+      .filter((entry) => entry.kind === "activate")
+      .map((entry) => entry.description),
+    semantic: true,
+  };
   const instructions = timeline.entries.filter(
     (entry) => entry._tag === "instruction"
   );
@@ -578,7 +844,15 @@ try {
   await wait("Verify flow");
   await snapshot("dry-run-passed");
   await click("Verify flow");
-  await waitText("Cleanup completed.");
+  // The badge, not the Run Summary sentence that starts the same way.
+  await control(
+    "browser",
+    "wait",
+    "--text",
+    "Recording deleted",
+    "--timeout-ms",
+    "90000"
+  );
   const verified = await read(dry.id);
   assert.equal(verified.captureState._tag, "verified");
   assert.equal(verified.cleanup._tag, "purged");
@@ -616,9 +890,22 @@ try {
     ["appBuild"]
   );
   await openView(refusedRun.id);
-  await wait("Run Environment Permission", "group");
-  await click("Refuse");
-  await waitText("Preparation: refused");
+  await wait("Run Environment Permission", "region");
+  await control(
+    "browser",
+    "android-refuse-request",
+    "--name",
+    "Run Environment Permission"
+  );
+  // The badge alone; the status sentence also mentions the refusal.
+  await control(
+    "browser",
+    "wait",
+    "--text",
+    "Refused",
+    "--timeout-ms",
+    "90000"
+  );
   const refusedRead = await read(refusedRun.id);
   assert.equal(refusedRead.phase, "refused");
   const refusedInput = await refusal("agent_android_workspace", {
@@ -628,8 +915,8 @@ try {
   const changed = await startSession("run", "changed");
   sessions.push(changed.id);
   await allowPermission(changed.id);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Take control");
   current = await observe(changed.id);
   assert.ok(shows(current, startingCondition));
@@ -648,7 +935,7 @@ try {
     changedComplete.preparation.evidence.some((entry) => entry.type === "grant")
   );
   await openView(changed.id);
-  await waitText("Agent Assessment: working");
+  await wait("Run Summary", "complementary");
   await snapshot("changed-run-summary");
   const unchangedSkill = await readFile(skillFile, "utf-8");
   assert.ok(unchangedSkill.includes('"appBuild":"1"'), "Taught build changed.");
@@ -669,8 +956,8 @@ try {
   const claimed = await startSession("run", "broken");
   sessions.push(claimed.id);
   await allowPermission(claimed.id);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Take control");
   current = await journey(claimed.id);
   assert.ok(!shows(current, outcome));
@@ -684,8 +971,8 @@ try {
   const failed = await startSession("run", "broken");
   sessions.push(failed.id);
   await allowPermission(failed.id);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
+  await wait(prepareName);
+  await click(prepareName);
   await wait("Take control");
   current = await journey(failed.id);
   const notWorking = await complete(
@@ -695,72 +982,82 @@ try {
   );
   assert.equal(notWorking.assessment.outcome, "not-working");
   await openView(failed.id);
-  await waitText("Agent Assessment: not-working");
+  await wait("Run Summary", "complementary");
   await snapshot("broken-run-summary");
   receipt.coverage.brokenBuild = {
     dispatchOnlyClaim: { assessment: downgraded.assessment, id: claimed.id },
     notWorking: { assessment: notWorking.assessment, id: failed.id },
   };
 
-  // Unexpected app: another app takes the foreground mid-Run.
-  const paused = await startSession("run", "broken");
-  sessions.push(paused.id);
-  await allowPermission(paused.id);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
-  await wait("Take control");
-  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  const outside = await refusal("agent_android_workspace", {
-    command: { _tag: "observe", image: false, sessionId: paused.id },
-  });
-  const pausedRead = await read(paused.id);
-  assert.equal(pausedRead.phase, "paused");
-  await openView(paused.id);
-  await wait("Recover same device");
-  await snapshot("unexpected-app-paused");
-  await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-  await click("Recover same device");
-  await wait("Take control");
-  const recovered = await observe(paused.id);
-  assert.notEqual(recovered.observation.id, pausedRead.observation?.id);
-  assert.equal(recovered.phase, "running");
-  await click("Close session");
-  receipt.coverage.unexpectedApp = {
-    captureGaps: pausedRead.captureGaps,
-    pause: outside.split("\n").find(Boolean),
-    recoveredObservation: recovered.observation.id,
-  };
+  if (physical) {
+    receipt.coverage.unexpectedApp = {
+      skipped: "Physical proof never opens Settings or leaves the fixture.",
+    };
+    receipt.coverage.captureLoss = {
+      skipped: "Physical proof preserves the daily phone foreground boundary.",
+    };
+  } else {
+    // Unexpected app: another app takes the foreground mid-Run.
+    const paused = await startSession("run", "broken");
+    sessions.push(paused.id);
+    await allowPermission(paused.id);
+    await wait(prepareName);
+    await click(prepareName);
+    await wait("Take control");
+    await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
+    const outside = await refusal("agent_android_workspace", {
+      command: { _tag: "observe", image: false, sessionId: paused.id },
+    });
+    const pausedRead = await read(paused.id);
+    assert.equal(pausedRead.phase, "paused");
+    await openView(paused.id);
+    await wait(recoverName);
+    await snapshot("unexpected-app-paused");
+    await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+    await click(recoverName);
+    await wait("Take control");
+    const recovered = await observe(paused.id);
+    assert.notEqual(recovered.observation.id, pausedRead.observation?.id);
+    assert.equal(recovered.phase, "running");
+    await click("Close session");
+    receipt.coverage.unexpectedApp = {
+      captureGaps: pausedRead.captureGaps,
+      pause: outside.split("\n").find(Boolean),
+      recoveredObservation: recovered.observation.id,
+    };
 
-  // Capture loss ends Teaching as incomplete; it cannot be learned.
-  await installVariant("working");
-  const lost = await startSession("teaching", "working");
-  sessions.push(lost.id);
-  await openView(lost.id);
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
-  await wait("Start recording");
-  await click("Start recording");
-  await wait("Stop recording");
-  // The Workspace mirror detects the foreign app on its next capture, before any input.
-  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  await wait("Recover same device");
-  const lostRead = await read(lost.id);
-  assert.equal(lostRead.captureState._tag, "failed");
-  await snapshot("capture-loss");
-  await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-  await click("Close session");
-  const learnRefused = await refusal("agent_teaching_recording_claim", {
-    action: "take",
-    claimOperationId: null,
-    error: null,
-    operationId: "android-checkout-lost-claim",
-    recordingId: lost.recordingId,
-  });
-  receipt.coverage.captureLoss = {
-    captureGaps: lostRead.captureGaps,
-    claimRefused: learnRefused.split("\n").find(Boolean),
-    lifecycle: lostRead.captureState,
-  };
+    // Capture loss ends Teaching as incomplete; it cannot be learned.
+    await installVariant("working");
+    const lost = await startSession("teaching", "working");
+    sessions.push(lost.id);
+    await openView(lost.id);
+    await allowFixtureClear(lost.id);
+    await wait(prepareName);
+    await click(prepareName);
+    await wait("Start recording");
+    await click("Start recording");
+    await wait("Stop recording");
+    // The Workspace mirror detects the foreign app on its next capture, before any input.
+    await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
+    await wait(recoverName);
+    const lostRead = await read(lost.id);
+    assert.equal(lostRead.captureState._tag, "failed");
+    await snapshot("capture-loss");
+    await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+    await click("Close session");
+    const learnRefused = await refusal("agent_teaching_recording_claim", {
+      action: "take",
+      claimOperationId: null,
+      error: null,
+      operationId: "android-checkout-lost-claim",
+      recordingId: lost.recordingId,
+    });
+    receipt.coverage.captureLoss = {
+      captureGaps: lostRead.captureGaps,
+      claimRefused: learnRefused.split("\n").find(Boolean),
+      lifecycle: lostRead.captureState,
+    };
+  }
 
   // A restarted server owns no device; it rereads retained Summaries.
   await control("mcp", "stop");
@@ -788,7 +1085,10 @@ try {
   receipt.coverage.restart = reread;
 
   // Disconnect: only an emulator this operator started for the proof may be killed.
-  if (process.env.CONTINGENCY_ANDROID_DISCONNECT === "owned-emulator") {
+  if (
+    !physical &&
+    process.env.CONTINGENCY_ANDROID_DISCONNECT === "owned-emulator"
+  ) {
     const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
     assert.ok(sdk, "Export ANDROID_HOME to restart the owned emulator.");
     const disconnected = await startSession("run", "working");
@@ -806,7 +1106,7 @@ try {
     const lostDevice = await refusal("agent_android_workspace", {
       command: { _tag: "observe", image: false, sessionId: disconnected.id },
     });
-    await wait("Recover same device");
+    await wait(recoverName);
     const pausedByDisconnect = await read(disconnected.id);
     assert.equal(pausedByDisconnect.phase, "paused");
     await snapshot("disconnect-paused");
@@ -817,8 +1117,8 @@ try {
         sessionId: disconnected.id,
       },
     });
-    await click("Recover same device");
-    await waitText("Recover same device");
+    await click(recoverName);
+    await wait(recoverName);
     const stillPaused = await read(disconnected.id);
     assert.equal(stillPaused.phase, "paused");
     const consolePort = /^emulator-(?<port>\d+)$/u.exec(serial)?.groups?.port;
@@ -842,6 +1142,17 @@ try {
       ],
       { detached: true, stdio: "ignore" }
     );
+    restartedEmulator = emulator;
+    receipt.resources = [
+      {
+        consolePort,
+        owner: "android-checkout-proof",
+        pid: emulator.pid,
+        serial,
+        startedAt: new Date().toISOString(),
+        stop: `adb -s ${serial} emu kill`,
+      },
+    ];
     let emulatorExit = null;
     emulator.once("exit", (code, signal) => {
       emulatorExit = signal ?? `code ${code}`;
@@ -870,7 +1181,7 @@ try {
     // A cold boot restores the quickboot snapshot, which may predate the fixture.
     await installVariant("working");
     await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-    await click("Recover same device");
+    await click(recoverName);
     await wait("Take control");
     const reconnected = await observe(disconnected.id);
     assert.equal(reconnected.phase, "running");
@@ -883,6 +1194,10 @@ try {
       recoveredObservation: reconnected.observation.id,
       sameSerial: serial,
       workspaceRecoveryWhileAbsent: stillPaused.error,
+    };
+  } else if (physical) {
+    receipt.coverage.disconnect = {
+      skipped: "Physical disconnect is a separate manually authorized proof.",
     };
   } else {
     receipt.blockers.push(
@@ -900,16 +1215,22 @@ try {
   );
 } finally {
   // Owned cleanup: sessions this proof opened, then the fixture it installed.
-  // Sessions already completed, or owned by the restarted server, refuse close.
   const closeRefusals = [];
   for (const id of sessions) {
-    await command({
-      _tag: "close",
-      operationId: operation(),
-      sessionId: id,
-    }).catch(() => {
-      closeRefusals.push(id);
-    });
+    try {
+      const current = await read(id);
+      if (["pending", "running", "paused"].includes(current.phase)) {
+        await openView(id);
+        await click("Close session");
+        await wait("New session");
+        const closedSession = await read(id);
+        assert.equal(closedSession.phase, "closed");
+      }
+    } catch (error) {
+      closeRefusals.push({ error: String(error), id });
+      receipt.blockers.push(`Session cleanup failed: ${id}`);
+      process.exitCode = 1;
+    }
   }
   let uninstallFailure = null;
   if (installedHere) {
@@ -921,9 +1242,7 @@ try {
     "shell",
     "pidof com.callstack.agentdevice.snapshothelper || true"
   ).catch(() => "unknown");
-  const forwards = await run("adb", ["forward", "--list"]).catch(
-    () => "unknown"
-  );
+  const forwards = await adb("forward", "--list").catch(() => "unknown");
   receipt.cleanup = {
     closeRefusals,
     fixtureUninstalled: installedHere && uninstallFailure === null,
@@ -933,6 +1252,58 @@ try {
       .filter((line) => line.startsWith(serial)),
     uninstallFailure,
   };
+  if (
+    restartedEmulator &&
+    restartedEmulator.exitCode === null &&
+    restartedEmulator.signalCode === null
+  ) {
+    try {
+      // The emulator runs detached and unreferenced, so its exit event cannot
+      // keep this process alive; poll its pid instead, for a bounded time.
+      await adb("emu", "kill");
+      const { pid } = restartedEmulator;
+      const alive = () => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      for (let waited = 0; alive() && waited < 30_000; waited += 500) {
+        await sleep(500);
+      }
+      assert.ok(!alive(), `Owned emulator ${pid} did not exit.`);
+      receipt.cleanup.restartedEmulatorStopped = true;
+    } catch (error) {
+      receipt.blockers.push(`Owned emulator cleanup failed: ${String(error)}`);
+      process.exitCode = 1;
+    }
+  }
+  if (physical && originalState) {
+    try {
+      const restored = await deviceState();
+      receipt.coverage.deviceStateRestored =
+        restored.packages === originalState.packages &&
+        restored.ime === originalState.ime &&
+        restored.enabledIme === originalState.enabledIme;
+      receipt.coverage.forwardsRestored =
+        JSON.stringify(restored.forwards) ===
+        JSON.stringify(originalState.forwards);
+      assert.ok(
+        receipt.coverage.deviceStateRestored &&
+          receipt.coverage.forwardsRestored,
+        "Physical package, IME, or forward baseline changed; inspect owned cleanup. No settings will be changed to hide drift."
+      );
+    } catch (error) {
+      receipt.blockers.push(String(error));
+      process.exitCode = 1;
+    }
+  }
+  if (uninstallFailure) {
+    receipt.blockers.push(`Fixture uninstall failed: ${uninstallFailure}`);
+    process.exitCode = 1;
+  }
   await writeFile(
     path.join(artifacts, "journal.json"),
     JSON.stringify(journal, null, 2),

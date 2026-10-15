@@ -42,6 +42,7 @@ const captured = (id: string): AndroidObservation => ({
     {
       covered: false,
       editable: false,
+      hittable: true,
       name: "Open",
       packageName: "dev.fixture",
       password: false,
@@ -51,6 +52,7 @@ const captured = (id: string): AndroidObservation => ({
     {
       covered: false,
       editable: true,
+      hittable: true,
       name: "Public input",
       packageName: "dev.fixture",
       password: false,
@@ -60,6 +62,7 @@ const captured = (id: string): AndroidObservation => ({
     {
       covered: false,
       editable: true,
+      hittable: true,
       name: "Private field",
       packageName: "dev.fixture",
       password: true,
@@ -69,6 +72,7 @@ const captured = (id: string): AndroidObservation => ({
     {
       covered: true,
       editable: false,
+      hittable: true,
       name: "Covered",
       packageName: "dev.fixture",
       password: false,
@@ -470,6 +474,7 @@ it.effect(
                   {
                     covered: false,
                     editable: true,
+                    hittable: true,
                     name: "System window",
                     packageName: "dev.unrelated",
                     password: false,

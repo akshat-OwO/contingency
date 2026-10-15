@@ -35,7 +35,7 @@ import {
 } from "./fixtures";
 import { ExperimentalBadge } from "./parts";
 
-type Condition = AndroidWorkspaceSelection["reversibleActions"][number];
+type Condition = AndroidWorkspaceSelection["outcomes"][number];
 type Mark = "start" | "allow";
 
 interface SetupForm {

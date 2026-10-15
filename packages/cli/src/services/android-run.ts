@@ -285,10 +285,11 @@ export const createAndroidRun = (
                 );
                 if (
                   node === undefined ||
-                  !startup.reversibleActions?.some(
-                    (allowed) =>
-                      allowed.role === node.role && allowed.name === node.name
-                  )
+                  (!startup.teaching &&
+                    !startup.reversibleActions?.some(
+                      (allowed) =>
+                        allowed.role === node.role && allowed.name === node.name
+                    ))
                 ) {
                   yield* active.invalidate();
                   return yield* Effect.fail(
