@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.
+
 - [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, exact private readback on a stock Material password widget, native/filtered uncertainty, targeting refusals, privacy, and cleanup on a selected daily-use phone using a disposable app.
 - [Android preparation](./workspace.md#android-preparation) proves the internal experimental Android factory lifecycle, with explicit device selection and sanitized receipts.
 - [Android private text](./workspace.md#android-private-text) proves a private fill through the Contingency helper beside agent-device on an emulator: sentinel absence, refusals, kept agent-device session, and cleanup.

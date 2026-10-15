@@ -24,6 +24,9 @@ import {
   AgentSetupVariableAnswer,
 } from "./agent-session.ts";
 import {
+  AndroidDiscoveredApp,
+  AndroidDiscoveredDevice,
+  AndroidWorkspaceSelection,
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
@@ -964,6 +967,16 @@ const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
   success: CatalogFlowSkillResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
+  Rpc.make("android.devices.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(AndroidDiscoveredDevice),
+  }),
+  Rpc.make("android.apps.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ device: AndroidWorkspaceSelection.fields.device }),
+    success: Schema.Array(AndroidDiscoveredApp),
+  }),
   Rpc.make("android.workspace.command", {
     error: BrowserRpcError,
     payload: AndroidWorkspaceCommand,

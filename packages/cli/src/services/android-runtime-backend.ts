@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { AndroidElementBounds } from "@contingency/protocol";
 import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
 import type {
   AgentDeviceIdentifiers,
@@ -633,6 +634,17 @@ export const acquireAndroidBackend = (
               );
             }
             const { generation, windowCount } = yield* requireCapture(snapshot);
+            for (const node of snapshot.nodes) {
+              if (node.rect !== undefined) {
+                yield* Schema.decodeUnknownEffect(AndroidElementBounds)(
+                  node.rect
+                ).pipe(
+                  Effect.mapError(() =>
+                    platformRuntimeError("capture_incomplete")
+                  )
+                );
+              }
+            }
             const target = (node: SnapshotNode) =>
               `@${node.ref.replace(/^@/u, "")}~s${generation}`;
             const id = randomUUID();
@@ -661,17 +673,23 @@ export const acquireAndroidBackend = (
               device: input.device,
               generation,
               id,
-              nodes: snapshot.nodes.map((node) => ({
-                covered:
-                  node.interactionBlocked === "covered" ||
-                  node.enabled === false,
-                editable: node.editable === true,
-                name: publicNodeName(node, input.targetApp),
-                packageName: node.bundleId ?? null,
-                password: node.password === true,
-                role: node.kind ?? node.role ?? node.type ?? "unknown",
-                target: target(node),
-              })),
+              nodes: snapshot.nodes.map((node) => {
+                const observed: AndroidObservation["nodes"][number] = {
+                  covered:
+                    node.interactionBlocked === "covered" ||
+                    node.enabled === false,
+                  editable: node.editable === true,
+                  name: publicNodeName(node, input.targetApp),
+                  packageName: node.bundleId ?? null,
+                  password: node.password === true,
+                  role: node.kind ?? node.role ?? node.type ?? "unknown",
+                  target: target(node),
+                };
+                if (node.rect === undefined) {
+                  return observed;
+                }
+                return { ...observed, bounds: node.rect };
+              }),
               ownership: {
                 focusedPackage: input.targetApp,
                 kind: "experimental-host-check",

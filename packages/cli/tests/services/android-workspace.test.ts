@@ -152,6 +152,7 @@ const fixture = (
                     target: "@e1",
                   },
                   {
+                    bounds: { height: 1, width: 1, x: 0, y: 0 },
                     covered: false,
                     editable: false,
                     name: "Edit",
@@ -293,6 +294,9 @@ const taught = Effect.gen(function* recordAndLearn() {
     { _tag: "observe", image: false, sessionId: started.id },
     "agent"
   );
+  expect(
+    observed.observation?.nodes.find((node) => node.name === "Edit")?.bounds
+  ).toEqual({ height: 1, width: 1, x: 0, y: 0 });
   yield* workspace.execute(
     {
       _tag: "input",
