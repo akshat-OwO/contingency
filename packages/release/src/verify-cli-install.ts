@@ -96,124 +96,155 @@ const InterpreterCeilingResponse = Schema.Struct({
   }),
 });
 
-export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
-  function* handshake(
-    spec: {
-      readonly command: string;
-      readonly args: readonly string[];
-      readonly env: Readonly<Record<string, string>>;
-    },
-    directory: string
-  ) {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const child = yield* spawner.spawn(
-      ChildProcess.make(spec.command, spec.args, {
-        cwd: directory,
-        env: {
-          ...process.env,
-          ...spec.env,
-          CONTINGENCY_CATALOG_ROOT: path.join(directory, "catalog"),
-          CONTINGENCY_MCP_CODE_INTERPRETER: "true",
-          CONTINGENCY_MCP_CODE_MODE: "true",
-          CONTINGENCY_MCP_PORT: "0",
-          NODE_OPTIONS: "",
-        },
-        stderr: "inherit",
-      })
-    );
-    const request = JSON.stringify({
-      id: 1,
-      jsonrpc: "2.0",
-      method: "initialize",
-      params: {
-        capabilities: {},
-        clientInfo: { name: "release-install-check", version: "1.0.0" },
-        protocolVersion: "2025-11-25",
+const InterfaceTools = Schema.Struct({
+  id: Schema.Literal(2),
+  result: Schema.Struct({
+    tools: Schema.Tuple([
+      Schema.Struct({ name: Schema.Literal("agent_code_execute") }),
+    ]),
+  }),
+});
+
+interface PackedMcpSpec {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/** Starts one packed stdio server and initializes it. */
+const openPackedMcp = Effect.fn("openPackedMcp")(function* open(
+  spec: PackedMcpSpec,
+  directory: string,
+  env: Readonly<Record<string, string>>
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const child = yield* spawner.spawn(
+    ChildProcess.make(spec.command, spec.args, {
+      cwd: directory,
+      env: {
+        ...process.env,
+        ...spec.env,
+        CONTINGENCY_CATALOG_ROOT: path.join(directory, "catalog"),
+        CONTINGENCY_MCP_PORT: "0",
+        NODE_OPTIONS: "",
+        ...env,
       },
-    });
-    const input = yield* Queue.unbounded<Uint8Array>();
-    const output = yield* Queue.unbounded<string>();
-    yield* Stream.fromQueue(input).pipe(
-      Stream.run(child.stdin),
-      Effect.forkScoped
+      stderr: "inherit",
+    })
+  );
+  const input = yield* Queue.unbounded<Uint8Array>();
+  const output = yield* Queue.unbounded<string>();
+  yield* Stream.fromQueue(input).pipe(
+    Stream.run(child.stdin),
+    Effect.forkScoped
+  );
+  yield* child.stdout.pipe(
+    Stream.decodeText,
+    Stream.splitLines,
+    Stream.filter((line) => line.trim() !== ""),
+    Stream.runForEach((line) => Queue.offer(output, line)),
+    Effect.forkScoped
+  );
+  const send = (...messages: readonly object[]) =>
+    Queue.offer(
+      input,
+      new TextEncoder().encode(
+        `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`
+      )
     );
-    yield* child.stdout.pipe(
-      Stream.decodeText,
-      Stream.splitLines,
-      Stream.filter((line) => line.trim() !== ""),
-      Stream.runForEach((line) => Queue.offer(output, line)),
-      Effect.forkScoped
-    );
-    yield* Queue.offer(input, new TextEncoder().encode(`${request}\n`));
-    const response = yield* Queue.take(output);
-    yield* Effect.try({
-      catch: (cause) => new Error("Packed MCP initialize failed", { cause }),
-      try: () =>
-        Schema.decodeUnknownSync(InitializeResponse)(JSON.parse(response)),
+  const take = Queue.take(output);
+  yield* send({
+    id: 1,
+    jsonrpc: "2.0",
+    method: "initialize",
+    params: {
+      capabilities: {},
+      clientInfo: { name: "release-install-check", version: "1.0.0" },
+      protocolVersion: "2025-11-25",
+    },
+  });
+  const response = yield* take;
+  yield* Effect.try({
+    catch: (cause) => new Error("Packed MCP initialize failed", { cause }),
+    try: () =>
+      Schema.decodeUnknownSync(InitializeResponse)(JSON.parse(response)),
+  });
+  yield* send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  return { send, take };
+});
+
+const expectResponse = <S extends Schema.Decoder<unknown>>(
+  schema: S,
+  failure: string,
+  response: string
+) =>
+  Effect.try({
+    catch: (cause) => new Error(`${failure}: ${response}`, { cause }),
+    try: () => Schema.decodeUnknownSync(schema)(JSON.parse(response)),
+  });
+
+export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
+  function* handshake(spec: PackedMcpSpec, directory: string) {
+    const native = yield* openPackedMcp(spec, directory, {
+      CONTINGENCY_MCP_CODE_MODE: "true",
     });
-    const code = [
-      { jsonrpc: "2.0", method: "notifications/initialized" },
-      {
-        id: 2,
+    yield* native.send({
+      id: 2,
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { arguments: { code: "return 42;" }, name: "agent_code_run" },
+    });
+    yield* expectResponse(
+      CodeResponse,
+      "Packed QuickJS execution failed",
+      yield* native.take
+    );
+
+    // The experimental single-tool interface (ADR 0059) in its own process.
+    const single = yield* openPackedMcp(spec, directory, {
+      CONTINGENCY_MCP_INTERFACE: "single-tool",
+    });
+    yield* single.send({
+      id: 2,
+      jsonrpc: "2.0",
+      method: "tools/list",
+      params: {},
+    });
+    yield* expectResponse(
+      InterfaceTools,
+      "Packed single-tool catalog failed",
+      yield* single.take
+    );
+    const interpret = (id: number, program: string) =>
+      single.send({
+        id,
         jsonrpc: "2.0",
         method: "tools/call",
-        params: { arguments: { code: "return 42;" }, name: "agent_code_run" },
-      },
-    ]
-      .map((message) => JSON.stringify(message))
-      .join("\n");
-    yield* Queue.offer(input, new TextEncoder().encode(`${code}\n`));
-    const result = yield* Queue.take(output);
-    yield* Effect.try({
-      catch: (cause) =>
-        new Error(`Packed QuickJS execution failed: ${result}`, { cause }),
-      try: () => Schema.decodeUnknownSync(CodeResponse)(JSON.parse(result)),
-    });
-    const interpret = (id: number, program: string) =>
-      Queue.offer(
-        input,
-        new TextEncoder().encode(
-          `${JSON.stringify({
-            id,
-            jsonrpc: "2.0",
-            method: "tools/call",
-            params: {
-              arguments: { code: program },
-              name: "agent_code_execute",
-            },
-          })}\n`
-        )
-      );
+        params: {
+          arguments: { code: program },
+          name: "agent_code_execute",
+        },
+      });
     yield* interpret(
       3,
       'const listed = await tools.agent_sessions_get({ view: "compact" }); return listed.sessions.length'
     );
-    const interpreted = yield* Queue.take(output);
-    yield* Effect.try({
-      catch: (cause) =>
-        new Error(`Packed interpreter execution failed: ${interpreted}`, {
-          cause,
-        }),
-      try: () =>
-        Schema.decodeUnknownSync(InterpreterResponse)(JSON.parse(interpreted)),
-    });
+    yield* expectResponse(
+      InterpreterResponse,
+      "Packed interpreter execution failed",
+      yield* single.take
+    );
     yield* interpret(
       4,
       "const kept = []; for (let i = 0; i < 40; i++) { kept.push(new Array(1000000).fill(i)) } return kept.length"
     );
-    const ceiling = yield* Queue.take(output);
-    yield* Effect.try({
-      catch: (cause) =>
-        new Error(`Packed interpreter ignored its heap ceiling: ${ceiling}`, {
-          cause,
-        }),
-      try: () =>
-        Schema.decodeUnknownSync(InterpreterCeilingResponse)(
-          JSON.parse(ceiling)
-        ),
-    });
+    yield* expectResponse(
+      InterpreterCeilingResponse,
+      "Packed interpreter ignored its heap ceiling",
+      yield* single.take
+    );
     yield* Console.log(
-      "Packed MCP stdio initialize, QuickJS execution, and interpreter process passed."
+      "Packed MCP stdio initialize, QuickJS execution, and single-tool interpreter passed."
     );
   },
   Effect.scoped,
