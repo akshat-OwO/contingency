@@ -4,7 +4,10 @@ import {
   AndroidWorkspacePreparation,
   AndroidWorkspaceSummary,
 } from "@contingency/protocol";
-import type { AgentSessionSnapshot } from "@contingency/protocol";
+import type {
+  AgentSessionSnapshot,
+  AndroidWorkspaceSummary as AndroidSummary,
+} from "@contingency/protocol";
 import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect";
 import type { Types } from "effect";
 import { AiError, McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
@@ -257,6 +260,7 @@ const decodeAndroidResult = Schema.decodeUnknownOption(
   Schema.Struct({
     controller: AndroidWorkspaceSummary.fields.controller,
     id: AgentSessionId,
+    phase: AndroidWorkspaceSummary.fields.phase,
     preparation: Schema.Struct({
       pending: AndroidWorkspacePreparation.fields.pending,
     }),
@@ -272,8 +276,14 @@ const encodePendingDecisions = Schema.encodeUnknownOption(
 );
 
 /** What in a browser session waits on the user, keyed by identity. */
+/** The parts of a browser session that say it waits on the user. */
+export type SessionWaits = Pick<
+  AgentSessionSnapshot,
+  "controller" | "dryRun" | "pendingDecisions" | "setupVariables" | "takeover"
+>;
+
 const awaitingUser = (
-  snapshot: AgentSessionSnapshot
+  snapshot: SessionWaits
 ): Map<string, InterventionReasonName> => {
   const waits = new Map<string, InterventionReasonName>();
   for (const decision of snapshot.pendingDecisions) {
@@ -284,6 +294,13 @@ const awaitingUser = (
       waits.set(`variable:${variable.requestId}`, "variable_requested");
     }
   }
+  // A tested skill's secret the user must supply again, such as after a
+  // replacement; it opens no Pending Decision of its own.
+  for (const variable of snapshot.dryRun?.variables ?? []) {
+    if (variable.secret && !variable.supplied) {
+      waits.set(`dry-run-variable:${variable.name}`, "variable_requested");
+    }
+  }
   if (snapshot.takeover !== null) {
     waits.set(`takeover:${snapshot.takeover.requestedAt}`, "takeover");
   }
@@ -291,6 +308,89 @@ const awaitingUser = (
     waits.set("controller", "user_control");
   }
   return waits;
+};
+
+/** What a browser operation newly left waiting on the user. */
+export const newBrowserWaits = (
+  before: Option.Option<SessionWaits>,
+  after: SessionWaits
+): Set<InterventionReasonName> => {
+  const earlier = Option.match(before, {
+    onNone: () => new Map<string, InterventionReasonName>(),
+    onSome: awaitingUser,
+  });
+  const reasons = new Set<InterventionReasonName>();
+  for (const [key, reason] of awaitingUser(after)) {
+    if (!earlier.has(key)) {
+      reasons.add(reason);
+    }
+  }
+  return reasons;
+};
+
+/**
+ * Whether an Android command left its session waiting on the user. A
+ * Variable request, preparation consent, or the user holding control all
+ * end the program; Android has no Confirmation.
+ */
+export const androidIntervention = (
+  input: Schema.Json,
+  value: Schema.Json,
+  before: Option.Option<
+    Pick<AndroidSummary, "controller" | "phase" | "preparation">
+  >
+): InterventionValue | undefined => {
+  const result = decodeAndroidResult(value);
+  if (Option.isNone(result)) {
+    return undefined;
+  }
+  const { controller, id, phase, preparation, variables } = result.value;
+  const command = decodeAndroidCommand(input);
+  const reasons = new Set<InterventionReasonName>();
+  const earlier = new Set(
+    Option.match(before, {
+      onNone: () => [],
+      onSome: (summary) => summary.preparation.pending.map((step) => step.id),
+    })
+  );
+  if (preparation.pending.some((step) => !earlier.has(step.id))) {
+    reasons.add("device_preparation");
+  }
+  const wasUser = Option.exists(
+    before,
+    (summary) => summary.controller === "user"
+  );
+  if (controller === "user" && !wasUser) {
+    reasons.add("user_control");
+  }
+  // Only the user prepares a device, even when it needs no consent.
+  const wasPending = Option.exists(
+    before,
+    (summary) => summary.phase === "pending"
+  );
+  if (phase === "pending" && !wasPending) {
+    reasons.add("device_preparation");
+  }
+  // A start requests every declared private input; a variable-request
+  // requests the one it names.
+  const sent = Option.getOrUndefined(command)?.command;
+  const requested = (variables ?? []).filter(
+    (variable) =>
+      variable.status === "requested" &&
+      (sent?._tag === "start" ||
+        (sent?._tag === "variable-request" && sent.name === variable.name))
+  );
+  if (requested.length > 0) {
+    reasons.add("variable_requested");
+  }
+  return reasons.size === 0
+    ? undefined
+    : {
+        operation: "agent_android_workspace",
+        pending: preparation.pending,
+        reasons: [...reasons],
+        sessionId: id,
+      };
 };
 
 export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
@@ -304,61 +404,6 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
 
     const readSession = (sessionId: AgentSessionId) =>
       sessions.get(sessionId).pipe(Effect.option);
-
-    /**
-     * Whether an Android command left its session waiting on the user. A
-     * Variable request, preparation consent, or the user holding control all
-     * end the program; Android has no Confirmation.
-     */
-    const androidIntervention = (
-      input: Schema.Json,
-      value: Schema.Json,
-      before: Option.Option<typeof AndroidWorkspaceSummary.Type>
-    ): InterventionValue | undefined => {
-      const result = decodeAndroidResult(value);
-      if (Option.isNone(result)) {
-        return undefined;
-      }
-      const { controller, id, preparation, variables } = result.value;
-      const command = decodeAndroidCommand(input);
-      const reasons = new Set<InterventionReasonName>();
-      const earlier = new Set(
-        Option.match(before, {
-          onNone: () => [],
-          onSome: (summary) =>
-            summary.preparation.pending.map((step) => step.id),
-        })
-      );
-      if (preparation.pending.some((step) => !earlier.has(step.id))) {
-        reasons.add("device_preparation");
-      }
-      const wasUser = Option.exists(
-        before,
-        (summary) => summary.controller === "user"
-      );
-      if (controller === "user" && !wasUser) {
-        reasons.add("user_control");
-      }
-      if (
-        Option.isSome(command) &&
-        command.value.command._tag === "variable-request" &&
-        (variables ?? []).some(
-          (variable) =>
-            variable.name === command.value.command.name &&
-            variable.status === "requested"
-        )
-      ) {
-        reasons.add("variable_requested");
-      }
-      return reasons.size === 0
-        ? undefined
-        : {
-            operation: "agent_android_workspace",
-            pending: preparation.pending,
-            reasons: [...reasons],
-            sessionId: id,
-          };
-    };
 
     /**
      * Dispatches one operation and decides whether it opened a user
@@ -427,16 +472,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
         if (Option.isNone(after)) {
           return outcome;
         }
-        const earlier = Option.match(before, {
-          onNone: () => new Map<string, InterventionReasonName>(),
-          onSome: awaitingUser,
-        });
-        const reasons = new Set<InterventionReasonName>();
-        for (const [key, reason] of awaitingUser(after.value)) {
-          if (!earlier.has(key)) {
-            reasons.add(reason);
-          }
-        }
+        const reasons = newBrowserWaits(before, after.value);
         const stop = decodeActionStop(outcome.value);
         if (
           Option.isSome(stop) &&
