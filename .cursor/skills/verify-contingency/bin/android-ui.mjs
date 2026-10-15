@@ -181,6 +181,23 @@ export const openAndroidSheet = async (
     "Contingency's pinned helper",
     process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
   );
+  const permissions = selection.environment.permissions ?? [];
+  const notification = permissions.find(
+    (entry) => entry.permission === "android.permission.POST_NOTIFICATIONS"
+  );
+  await select(
+    "Notification permission",
+    notification?.decision ?? "unchanged"
+  );
+  await fill(
+    "Additional permission decisions",
+    permissions
+      .filter(
+        (entry) => entry.permission !== "android.permission.POST_NOTIFICATIONS"
+      )
+      .map((entry) => `${entry.decision} ${entry.permission}`)
+      .join("\n")
+  );
   await snapshot("setup-sheet");
   await click("Open session");
   await control(

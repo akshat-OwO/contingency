@@ -32,11 +32,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { listAndroidApps, listAndroidDevices } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import {
   SUPPORTED_RELEASE,
+  parseAndroidPermissionDecisions,
   selectable,
   unavailableReason,
 } from "./android-setup-state";
@@ -59,6 +61,8 @@ interface SetupForm {
   readonly device: string | null;
   readonly flowSkillName: string;
   readonly helperConsent: AndroidWorkspaceSelection["helperConsent"];
+  readonly notificationPermission: "unchanged" | "grant" | "revoke";
+  readonly permissions: string;
   readonly outcome: Condition;
   readonly query: string;
   readonly start: Condition;
@@ -69,7 +73,9 @@ const INITIAL_FORM: SetupForm = {
   device: null,
   flowSkillName: "new-flow",
   helperConsent: "none",
+  notificationPermission: "unchanged",
   outcome: { name: "", role: "text" },
+  permissions: "",
   query: "",
   start: { name: "", role: "text" },
 };
@@ -349,6 +355,75 @@ const AppStep = ({
   );
 };
 
+type PermissionForm = Pick<SetupForm, "notificationPermission" | "permissions">;
+
+const permissionDecisions = (form: PermissionForm) =>
+  parseAndroidPermissionDecisions(
+    `${form.notificationPermission === "unchanged" ? "" : `${form.notificationPermission} android.permission.POST_NOTIFICATIONS`}\n${form.permissions}`
+  );
+
+const AndroidPermissionFields = ({
+  value,
+  onChange,
+  invalid,
+}: {
+  readonly value: PermissionForm;
+  readonly onChange: (value: PermissionForm) => void;
+  readonly invalid: boolean;
+}) => (
+  <section aria-label="App permissions" className="space-y-3 pl-7">
+    <p className="text-muted-foreground text-xs">
+      Set permissions before launch. These choices apply to the Target App after
+      its data is cleared, so permission dialogs do not block the starting
+      screen.
+    </p>
+    <label className="grid gap-1.5 text-xs">
+      Notification permission
+      <NativeSelect
+        onChange={(event) => {
+          const choice = Schema.decodeUnknownSync(
+            Schema.Literals(["unchanged", "grant", "revoke"])
+          )(event.currentTarget.value);
+          onChange({ ...value, notificationPermission: choice });
+        }}
+        value={value.notificationPermission}
+      >
+        <NativeSelectOption value="unchanged">
+          App does not request notifications
+        </NativeSelectOption>
+        <NativeSelectOption value="grant">
+          Grant before start
+        </NativeSelectOption>
+        <NativeSelectOption value="revoke">
+          Deny before start
+        </NativeSelectOption>
+      </NativeSelect>
+    </label>
+    <label className="grid gap-1.5 text-xs">
+      Additional permission decisions
+      <Textarea
+        aria-label="Additional permission decisions"
+        aria-describedby="android-permissions-hint"
+        aria-invalid={invalid}
+        onChange={(event) =>
+          onChange({ ...value, permissions: event.currentTarget.value })
+        }
+        value={value.permissions}
+      />
+      <span id="android-permissions-hint" className="text-muted-foreground">
+        One grant or revoke per line, such as revoke android.permission.CAMERA.
+        Declare each permission once.
+      </span>
+    </label>
+    {invalid ? (
+      <p role="alert" className="text-destructive text-xs">
+        Declare each permission once as grant or revoke followed by
+        android.permission.NAME.
+      </p>
+    ) : null}
+  </section>
+);
+
 /**
  * Where a Teaching session on Android begins: a device the host reports, an
  * app installed on it, and what proves the app is on its starting screen.
@@ -396,12 +471,14 @@ export const AndroidSetupSheet = ({
   const validName = Schema.is(FlowSkillName)(name);
   const start = { name: form.start.name.trim(), role: form.start.role };
   const outcome = { name: form.outcome.name.trim(), role: form.outcome.role };
+  const permissions = permissionDecisions(form);
   const ready =
     device !== null &&
     app !== undefined &&
     start.name !== "" &&
     outcome.name !== "" &&
-    validName;
+    validName &&
+    permissions !== undefined;
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
@@ -434,6 +511,7 @@ export const AndroidSetupSheet = ({
                 androidVersion: SUPPORTED_RELEASE,
                 appBuild: app.versionCode,
                 appId: app.package,
+                permissions,
                 startingState: `${start.role} ${start.name} is visible`,
               },
               helperConsent: form.helperConsent,
@@ -530,6 +608,13 @@ export const AndroidSetupSheet = ({
                 </div>
               </div>
             </Step>
+            <AndroidPermissionFields
+              value={form}
+              onChange={(value) =>
+                setForm((current) => ({ ...current, ...value }))
+              }
+              invalid={permissions === undefined}
+            />
             <label className="grid gap-1.5 pl-7 text-xs">
               <span className="text-muted-foreground">
                 Contingency's pinned helper

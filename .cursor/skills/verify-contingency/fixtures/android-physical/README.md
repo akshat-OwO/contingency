@@ -24,3 +24,5 @@ Each proof launch force-stops only the fixture package and starts a fresh activi
 # Stream display fixture
 
 `StreamActivity` adds public screen changes and a `FLAG_SECURE` toggle for the [Android live stream recipe](../../features/workspace.md#android-live-stream). It requests no permissions and does not change the private-input activities.
+
+Build with `--permission-launcher` to write `artifacts/android-physical/build-permissions/fixture.apk` with `MainActivity` as its launcher. Use this variant to prove setup permission decisions against the activity that requests notifications at launch. The default build still launches `StreamActivity`.

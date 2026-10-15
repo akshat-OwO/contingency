@@ -960,6 +960,14 @@ export const makeAndroidWorkspaceLayer = (options: {
               "Only the user controlling a running session can pick. No input was sent."
             );
           }
+          const previous = current.observations.find(
+            (observation) => observation.id === command.observationId
+          );
+          if (previous === undefined) {
+            return yield* denied(
+              "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+            );
+          }
           const observed = yield* session.run.observe();
           acceptObservation(session, observed);
           const { width, height } = observationSize(observed);
@@ -993,26 +1001,21 @@ export const makeAndroidWorkspaceLayer = (options: {
               "Private fields need a Variable. No input was sent."
             );
           }
-          const previous = current.observations.find(
-            (observation) => observation.id === command.observationId
+          const priorTarget = hitTest(
+            previous.nodes,
+            command.point.x * previous.width,
+            command.point.y * previous.height
           );
-          if (previous !== undefined) {
-            const priorTarget = hitTest(
-              previous.nodes,
-              command.point.x * previous.width,
-              command.point.y * previous.height
+          if (
+            priorTarget === undefined ||
+            priorTarget.role !== target.role ||
+            priorTarget.name !== target.name ||
+            priorTarget.editable !== target.editable ||
+            priorTarget.packageName !== target.packageName
+          ) {
+            return yield* denied(
+              "The element moved or changed. No input was sent."
             );
-            if (
-              priorTarget === undefined ||
-              priorTarget.role !== target.role ||
-              priorTarget.name !== target.name ||
-              priorTarget.editable !== target.editable ||
-              priorTarget.packageName !== target.packageName
-            ) {
-              return yield* denied(
-                "The element moved or changed. No input was sent."
-              );
-            }
           }
           if (target.editable) {
             update(session, (value) => ({

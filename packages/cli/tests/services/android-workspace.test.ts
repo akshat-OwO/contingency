@@ -1022,6 +1022,43 @@ it.effect("refuses a moved control instead of activating its replacement", () =>
     })
   )
 );
+for (const origin of ["unknown", "evicted"] as const) {
+  it.effect(`refuses a pick from an ${origin} observation without input`, () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* stalePick() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        setNodes([pickNode({ name: "Replacement" })]);
+        for (let index = 0; index < 10; index += 1) {
+          yield* workspace.execute(
+            { _tag: "observe", image: false, sessionId: prepared.id },
+            "user"
+          );
+        }
+        const result = yield* Effect.result(
+          workspace.execute(
+            {
+              _tag: "pick",
+              frame: { height: 1, width: 1 },
+              observationId:
+                origin === "unknown"
+                  ? "none"
+                  : (prepared.observation?.id ?? ""),
+              operationId: op(`stale-pick-${origin}`),
+              point: { x: 0.5, y: 0.5 },
+              sessionId: prepared.id,
+            },
+            "user"
+          )
+        );
+        expect(calls).toEqual([]);
+        expect(Result.isFailure(result) && result.failure.message).toBe(
+          "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+        );
+      })
+    )
+  );
+}
 it.effect(
   "Dry Run gates activation using the buttons actually recorded during Teaching",
   () =>

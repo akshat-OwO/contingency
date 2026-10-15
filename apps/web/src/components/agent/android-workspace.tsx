@@ -5,7 +5,12 @@ import type {
   AndroidWorkspaceSummary,
   FlowSkillName,
 } from "@contingency/protocol";
-import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/reactivity";
 import {
@@ -30,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
+import { workspaceChromeAtom } from "./agent-workspace-state";
 import { AndroidDevice } from "./android-device";
 import {
   AndroidFieldEntry,
@@ -151,12 +157,16 @@ const glassText = (session: AndroidWorkspaceSnapshot) => {
   return "This session released the device.";
 };
 
-const EmptyState = ({
+export const AndroidEmptyState = ({
   onBrowser,
   onOpen,
+  onSelect,
+  sessions,
 }: {
   readonly onBrowser: () => void;
   readonly onOpen: () => void;
+  readonly onSelect: (sessionId: string) => void;
+  readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
   <main className="relative flex h-full min-h-0 flex-col">
     <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
@@ -168,6 +178,15 @@ const EmptyState = ({
           Open a session to pick a device and an app, then start recording when
           the journey begins.
         </p>
+        {sessions.length === 0 ? null : (
+          <div className="flex justify-center">
+            <AndroidSessionSelect
+              onSelect={onSelect}
+              selectedSessionId={undefined}
+              sessions={sessions}
+            />
+          </div>
+        )}
         <div className="flex justify-center gap-2">
           <Button onClick={onOpen}>
             <SmartphoneIcon />
@@ -611,7 +630,13 @@ export const AndroidWorkspace = ({
   readonly requestedSessionId?: string | undefined;
   readonly onBrowser: () => void;
 }) => {
+  const setChrome = useAtomSet(workspaceChromeAtom);
+  useEffect(() => {
+    setChrome(true);
+    return () => setChrome(false);
+  }, [setChrome]);
   const [state, setState] = useAtom(workspaceAtom);
+  const sessions = useAtomValue(androidSessionsAtom);
   const refresh = useAtomRefresh(androidSessionsAtom);
   const gesture = useWorkspaceGesture(sessionStartGestureAtom);
   useAndroidSessionSync(requestedSessionId, state.session, setState);
@@ -648,7 +673,16 @@ export const AndroidWorkspace = ({
           skillsSession={undefined}
           summary={undefined}
         >
-          <EmptyState onBrowser={onBrowser} onOpen={() => setupOpen(true)} />
+          <AndroidEmptyState
+            onBrowser={onBrowser}
+            onOpen={() => setupOpen(true)}
+            onSelect={(value) => {
+              if (Schema.is(AgentSessionId)(value)) {
+                mutate({ _tag: "read", sessionId: value });
+              }
+            }}
+            sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
+          />
           {notices}
         </WorkspaceLayout>
       ) : (

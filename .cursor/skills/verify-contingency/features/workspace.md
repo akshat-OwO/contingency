@@ -588,6 +588,16 @@ The helper observes through MCP, maps the semantic node center to canvas fractio
 
 Private login, necessary system dialogs, multiple simultaneous devices, and full dispatch guarantees remain outside this checkout proof.
 
+## Android setup and session recovery regressions
+
+The empty Android Workspace has an **Android Agent Session** picker when sessions exist. After reloading the root URL and opening **Android experimental**, select a paused session to recover or close it, or a closed session to reopen its Summary.
+
+The setup sheet's **Notification permission** offers **Grant before start** and **Deny before start**. **Additional permission decisions** accepts one `grant android.permission.NAME` or `revoke android.permission.NAME` per line. Duplicate or invalid declarations disable **Open session** and show an error. Preparation applies those choices after any authorized Target App data clearing and before launch.
+
+For an emulator-only regression proof, build current source and the permission-requesting fixture with `JAVA_HOME=<jdk-17> nub .cursor/skills/verify-contingency/fixtures/android-physical/build.mjs --permission-launcher`. Launch an isolated instance, run doctor, and start MCP with Android enabled. Require an explicitly selected Pixel_9 API 36 emulator, its pinned helper, and no preexisting `dev.contingency.physicalfixture`. Export `CONTINGENCY_ANDROID_SERIAL=emulator-<port>` and run `nub .cursor/skills/verify-contingency/bin/android-review-proof.mjs`.
+
+The proof installs only the disposable fixture, clears it before each permission case, submits grant and denial through the real setup sheet, checks the permission state and starting-screen observation, and clicks a semantic control. It pauses the grant session by opening Settings on the emulator, reloads the root UI, reopens that paused session through the empty-state picker, recovers it, closes it, and reopens its Summary. It uninstalls its fixture afterward. Require no blockers in `artifacts/android-review/receipt.json`, coverage `grant`, `revoke`, `reopenPaused`, and `reopenClosed`, and `cleanup.fixtureUninstalled`. Screenshots, ARIA snapshots, and a journal sit beside the receipt. This proof does not select or modify a physical phone. Stop the isolated instance and the owned emulator afterward.
+
 ## Gotchas
 
 - New task Runs use `agent_run_assess`, `agent_run_finding`, and explicit `agent_run_complete`. `agent_run_step_assess` no longer exists; coverage, active steps, and assessment-triggered termination belong only to historical reports.

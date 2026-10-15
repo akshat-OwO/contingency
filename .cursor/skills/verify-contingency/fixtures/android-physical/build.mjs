@@ -25,7 +25,13 @@ const tools = path.join(sdk, "build-tools/36.0.0");
 const owned = await mkdtemp(
   path.join(tmpdir(), "contingency-physical-fixture-")
 );
-const output = path.resolve(source, "../../artifacts/android-physical/build");
+const permissionLauncher = process.argv.includes("--permission-launcher");
+const output = path.resolve(
+  source,
+  permissionLauncher
+    ? "../../artifacts/android-physical/build-permissions"
+    : "../../artifacts/android-physical/build"
+);
 try {
   await Promise.all(
     ["build.gradle", "settings.gradle"].map((name) =>
@@ -35,6 +41,20 @@ try {
   await writeFile(
     path.join(owned, "gradle.properties"),
     "android.useAndroidX=true\norg.gradle.jvmargs=-Xmx1g\n"
+  );
+  const manifest = path.join(owned, "AndroidManifest.xml");
+  const originalManifest = await readFile(
+    path.join(source, "AndroidManifest.xml"),
+    "utf-8"
+  );
+  await writeFile(
+    manifest,
+    permissionLauncher
+      ? originalManifest
+          .replaceAll(".StreamActivity", ".LauncherPlaceholder")
+          .replaceAll(".MainActivity", ".StreamActivity")
+          .replaceAll(".LauncherPlaceholder", ".MainActivity")
+      : originalManifest
   );
   await execute(
     path.resolve(
@@ -47,6 +67,7 @@ try {
       "--project-dir",
       owned,
       `-PfixtureSource=${source}`,
+      `-PfixtureManifest=${manifest}`,
       "assembleRelease",
     ],
     { env: { ...process.env, JAVA_HOME: java }, maxBuffer: 8 * 1024 * 1024 }

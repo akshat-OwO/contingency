@@ -54,3 +54,32 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
   }
   return selectable(device) === null ? "Identity unreadable" : null;
 };
+
+const permissionLine =
+  /^(?<decision>grant|revoke)\s+(?<permission>android\.permission\.[A-Z_]+)$/u;
+export const parseAndroidPermissionDecisions = (
+  text: string
+):
+  | NonNullable<AndroidWorkspaceSelection["environment"]["permissions"]>
+  | undefined => {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const entries = lines.flatMap((line) => {
+    const groups = permissionLine.exec(line)?.groups;
+    const permission = groups?.permission;
+    const decision = groups?.decision;
+    return permission && (decision === "grant" || decision === "revoke")
+      ? [
+          { decision, permission } satisfies NonNullable<
+            AndroidWorkspaceSelection["environment"]["permissions"]
+          >[number],
+        ]
+      : [];
+  });
+  return entries.length === lines.length &&
+    new Set(entries.map((entry) => entry.permission)).size === entries.length
+    ? entries
+    : undefined;
+};
