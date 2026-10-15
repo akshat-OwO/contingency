@@ -26,8 +26,8 @@ import type {
 } from "./code-interpreter-protocol.ts";
 
 /**
- * Runs one program in a fresh OpenCode interpreter process, a feasibility
- * prototype for ADR 0059 (#459).
+ * Runs one program in a fresh OpenCode interpreter process, the experimental
+ * single-tool interface of ADR 0059 (#460).
  *
  * The server owns everything with authority: it decides which operations
  * exist, validates every request, dispatches it, and keeps the receipt. The
@@ -73,10 +73,11 @@ export type DispatchOutcome =
       readonly ok: true;
       readonly value: Schema.Json;
       /**
-       * A Pending Decision this operation opened. The program ends here: no
-       * later request is dispatched, and the decision goes back to the agent.
+       * The user intervention this operation opened, such as a Pending
+       * Decision or Takeover. The program ends here: no later request is
+       * dispatched, and the intervention goes back to the agent.
        */
-      readonly pendingDecision?: Schema.Json | undefined;
+      readonly intervention?: Schema.Json | undefined;
     }
   | { readonly ok: false; readonly message: string };
 
@@ -91,8 +92,13 @@ export interface InterpreterReceipt {
   readonly operation: string;
   /** The operation id the program supplied, when the operation takes one. */
   readonly operationId: string | null;
-  /** `rejected` was never dispatched; `failed` was, and was refused. */
-  readonly outcome: "succeeded" | "failed" | "rejected";
+  /**
+   * `rejected` was never dispatched; `failed` was, and was refused.
+   * `uncertain` was dispatched when the program was stopped, so its effect
+   * may or may not have happened: inspect the session, or repeat the same
+   * operation id to read the recorded outcome rather than act again.
+   */
+  readonly outcome: "succeeded" | "failed" | "rejected" | "uncertain";
   readonly message?: string;
 }
 
@@ -112,7 +118,7 @@ export interface InterpreterEnding {
   readonly diagnostic?: { readonly kind: string; readonly message: string };
   readonly logs?: readonly string[];
   readonly truncated?: boolean;
-  readonly pendingDecision?: Schema.Json;
+  readonly intervention?: Schema.Json;
 }
 
 export interface InterpreterProcessReport {
@@ -177,13 +183,20 @@ const decodeWatchdog = Schema.decodeUnknownEffect(
   strictDecode
 );
 const decodeOperationId = Schema.decodeUnknownOption(
-  Schema.Struct({ operationId: Schema.String })
+  Schema.Union([
+    Schema.Struct({ operationId: Schema.String }),
+    // Android Workspace commands carry theirs inside the command.
+    Schema.Struct({ command: Schema.Struct({ operationId: Schema.String }) }),
+  ])
 );
 
 const operationIdOf = (input: Schema.Json): string | null =>
   Option.match(decodeOperationId(input), {
     onNone: () => null,
-    onSome: ({ operationId }) => operationId,
+    onSome: (carrier) =>
+      "operationId" in carrier
+        ? carrier.operationId
+        : carrier.command.operationId,
   });
 
 const HEAP_EXHAUSTED = /heap out of memory|Reached heap limit/u;
@@ -454,6 +467,15 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
 
         const known = new Set(options.operations.map(({ name }) => name));
         let sequence = 0;
+        // The operation being dispatched now. A deadline that stops the
+        // program here cannot know whether its effect happened.
+        let inFlight:
+          | {
+              readonly operation: string;
+              readonly operationId: string | null;
+              readonly sequence: number;
+            }
+          | undefined;
 
         const startup = Effect.gen(function* awaitReady() {
           const first = yield* next;
@@ -531,19 +553,21 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
               });
               continue;
             }
+            inFlight = { operation: message.operation, operationId, sequence };
             const outcome = yield* options.dispatch(
               message.operation,
               message.input
             );
+            inFlight = undefined;
             receipts.push(
               receiptFor(sequence, message.operation, operationId, outcome)
             );
-            if (outcome.ok && outcome.pendingDecision !== undefined) {
+            if (outcome.ok && outcome.intervention !== undefined) {
               // The program ends before it can request anything else. The
               // process is killed next; the cancel only saves it the wait.
               yield* write({ reason: "intervention", type: "cancel" });
               return {
-                pendingDecision: outcome.pendingDecision,
+                intervention: outcome.intervention,
                 status: "intervention",
                 value: outcome.value,
               } satisfies InterpreterEnding;
@@ -576,6 +600,15 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
                 )
               )
             );
+        if (inFlight !== undefined) {
+          receipts.push({
+            ...inFlight,
+            message:
+              "The program was stopped while this operation was dispatched; its effect may have happened. Inspect the session, or repeat the same operationId to read its recorded outcome.",
+            outcome: "uncertain",
+          });
+          inFlight = undefined;
+        }
         // A finished program exits by itself; anything else is killed now
         // rather than at scope close, so the reported exit is final.
         if (

@@ -249,21 +249,54 @@ it.live(
             Effect.sync(() => {
               dispatched.push(JSON.stringify(input));
               return {
+                intervention: { id: "boundary-1" },
                 ok: true as const,
-                pendingDecision: { id: "boundary-1" },
                 value: { paused: true },
               };
             }),
           timeoutMs: 5000,
         });
         expect(outcome.status).toBe("intervention");
-        expect(outcome.pendingDecision).toEqual({ id: "boundary-1" });
+        expect(outcome.intervention).toEqual({ id: "boundary-1" });
         expect(dispatched).toEqual(['{"operationId":"first"}']);
         expect(outcome.receipts).toEqual([
           {
             operation: "act",
             operationId: "first",
             outcome: "succeeded",
+            sequence: 1,
+          },
+        ]);
+        expect(isAlive(outcome.process.pid)).toBe(false);
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
+  "keeps an uncertain receipt for a dispatch the deadline interrupted",
+  () =>
+    guarded(
+      Effect.gen(function* interrupted() {
+        const dispatched = yield* Deferred.make<"dispatched">();
+        const outcome = yield* run({
+          code: "return await tools.act({ command: { operationId: 'android-1' } })",
+          // The operation never answers, so only the server deadline ends it.
+          dispatch: () =>
+            Deferred.succeed(dispatched, "dispatched").pipe(
+              Effect.andThen(Effect.never)
+            ),
+          limits: { graceMs: 100 },
+          timeoutMs: 1000,
+        });
+        expect(yield* Deferred.isDone(dispatched)).toBe(true);
+        expect(outcome.status).toBe("deadline_exceeded");
+        expect(outcome.receipts).toEqual([
+          {
+            message: expect.stringContaining("may have happened"),
+            operation: "act",
+            operationId: "android-1",
+            outcome: "uncertain",
             sequence: 1,
           },
         ]);

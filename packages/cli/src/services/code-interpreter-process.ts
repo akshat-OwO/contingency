@@ -190,8 +190,9 @@ const main = Effect.gen(function* interpreterProcess() {
             Effect.flatMap((json) => request(operation.name, json))
           ),
         // SAFETY: the server renders this from the operation's own schema.
-        // CodeMode only uses it to print a signature.
-        input: operation.inputSchema as Tool.JsonSchema,
+        // CodeMode only uses it to print a signature, and a program that
+        // never searches is sent none.
+        input: (operation.inputSchema ?? {}) as Tool.JsonSchema,
         output: {},
       }),
     ])

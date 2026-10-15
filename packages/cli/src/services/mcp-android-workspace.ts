@@ -43,21 +43,19 @@ export const AndroidWorkspaceTools = withStrictParameters(
   )
 );
 
+export const AndroidWorkspaceToolHandlersLive = AndroidWorkspaceTools.toLayer({
+  agent_android_sessions_list: () =>
+    Effect.gen(function* listAndroidSessions() {
+      const service = yield* AndroidWorkspace;
+      return yield* service.list();
+    }).pipe(Effect.mapError((cause) => new AndroidWorkspaceFailure(cause))),
+  agent_android_workspace: ({ command }) =>
+    Effect.gen(function* driveAndroidWorkspace() {
+      const service = yield* AndroidWorkspace;
+      return yield* service.execute(command, "agent");
+    }).pipe(Effect.mapError((cause) => new AndroidWorkspaceFailure(cause))),
+});
+
 export const McpAndroidWorkspaceLayer = McpServer.toolkit(
   AndroidWorkspaceTools
-).pipe(
-  Layer.provide(
-    AndroidWorkspaceTools.toLayer({
-      agent_android_sessions_list: () =>
-        Effect.gen(function* listAndroidSessions() {
-          const service = yield* AndroidWorkspace;
-          return yield* service.list();
-        }).pipe(Effect.mapError((cause) => new AndroidWorkspaceFailure(cause))),
-      agent_android_workspace: ({ command }) =>
-        Effect.gen(function* driveAndroidWorkspace() {
-          const service = yield* AndroidWorkspace;
-          return yield* service.execute(command, "agent");
-        }).pipe(Effect.mapError((cause) => new AndroidWorkspaceFailure(cause))),
-    })
-  )
-);
+).pipe(Layer.provide(AndroidWorkspaceToolHandlersLive));

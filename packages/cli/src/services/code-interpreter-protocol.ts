@@ -18,11 +18,15 @@ export const strictDecode = {
 
 const { Json } = Schema;
 
-/** One operation the server lets a program request, with its signature. */
+/**
+ * One operation the server lets a program request. Its description and
+ * signature are sent only to a program that searches them, so an execution
+ * that only calls operations does not pay for every schema (#459).
+ */
 export const InterpreterOperation = Schema.Struct({
   description: Schema.String,
   /** A render-only JSON Schema; the server validates the input again. */
-  inputSchema: Json,
+  inputSchema: Schema.optionalKey(Json),
   name: Schema.String.check(Schema.isMinLength(1)),
 });
 

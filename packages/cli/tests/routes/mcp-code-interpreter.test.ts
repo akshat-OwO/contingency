@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
 import type { JsonValue } from "../helpers/mcp-http.ts";
@@ -8,10 +8,32 @@ import type { JsonValue } from "../helpers/mcp-http.ts";
 // One hang guard per test, sized for a hung process rather than the work.
 const HANG_GUARD_MS = 60_000;
 
+const SYSTEM_ONE = {
+  apiKey: Option.none(),
+  first: false,
+  model: "system-one-test",
+  url: "http://127.0.0.1:9/v1/systemone",
+};
+
 const ToolNames = Schema.Struct({
   result: Schema.Struct({
     tools: Schema.Array(Schema.Struct({ name: Schema.String })),
   }),
+});
+
+const Listed = Schema.Struct({
+  result: Schema.Struct({
+    prompts: Schema.optional(
+      Schema.Array(Schema.Struct({ name: Schema.String }))
+    ),
+    resources: Schema.optional(
+      Schema.Array(Schema.Struct({ uri: Schema.String }))
+    ),
+  }),
+});
+
+const Initialized = Schema.Struct({
+  result: Schema.Struct({ instructions: Schema.String }),
 });
 
 const Execution = Schema.Struct({
@@ -23,6 +45,7 @@ const Execution = Schema.Struct({
         diagnostic: Schema.optional(
           Schema.Struct({ kind: Schema.String, message: Schema.String })
         ),
+        process: Schema.Struct({ bytesToInterpreter: Schema.Number }),
         receipts: Schema.Array(
           Schema.Struct({
             message: Schema.optional(Schema.String),
@@ -37,10 +60,20 @@ const Execution = Schema.Struct({
   }),
 });
 
+type Options = Parameters<typeof servingMcpHttp>[0];
+
+const singleTool = (options: Options = {}) =>
+  Effect.gen(function* connectSingleTool() {
+    const origin = yield* servingMcpHttp({
+      ...options,
+      interface: "single-tool",
+    });
+    return yield* connectMcp(origin);
+  });
+
 const call = (code: string, extra: Record<string, JsonValue> = {}) =>
   Effect.gen(function* executeProgram() {
-    const origin = yield* servingMcpHttp({ codeInterpreter: true });
-    const { request } = yield* connectMcp(origin);
+    const { request } = yield* singleTool();
     return yield* request("tools/call", {
       arguments: { code, ...extra },
       name: "agent_code_execute",
@@ -63,13 +96,41 @@ const live = <A, E, R>(self: Effect.Effect<A, E, R>) =>
     Effect.provide(NodeServices.layer)
   );
 
+const SEARCH_ALL =
+  'return search({ query: "", limit: 100 }).items.map((item) => item.path.replace("tools.", ""))';
+
+/** What a native server registers, and what the same config offers inside programs. */
+const coverage = (options: Options) =>
+  Effect.gen(function* compareCatalogs() {
+    const native = yield* connectMcp(yield* servingMcpHttp(options));
+    const { tools } = Schema.decodeUnknownSync(ToolNames)(
+      yield* native.request("tools/list", {})
+    ).result;
+    const { request } = yield* singleTool(options);
+    const listed = Schema.decodeUnknownSync(ToolNames)(
+      yield* request("tools/list", {})
+    ).result.tools.map(({ name }) => name);
+    const searched = Schema.decodeUnknownSync(Execution)(
+      yield* request("tools/call", {
+        arguments: { code: SEARCH_ALL },
+        name: "agent_code_execute",
+      })
+    ).result.structuredContent;
+    return {
+      listed,
+      native: tools.map(({ name }) => name).toSorted(),
+      offered: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
+        searched?.value
+      ).toSorted(),
+    };
+  });
+
 it.live(
-  "leaves the interpreter prototype out of the default catalog",
+  "leaves the single-tool interface out of the default catalog",
   () =>
     live(
       Effect.gen(function* defaultCatalog() {
-        const origin = yield* servingMcpHttp();
-        const { request } = yield* connectMcp(origin);
+        const { request } = yield* connectMcp(yield* servingMcpHttp());
         const { tools } = Schema.decodeUnknownSync(ToolNames)(
           yield* request("tools/list", {})
         ).result;
@@ -82,21 +143,63 @@ it.live(
 );
 
 it.live(
-  "returns operation signatures from a search-only execution",
+  "offers every native capability through one tool, keeping resources and prompts",
   () =>
     live(
-      Effect.gen(function* search() {
-        const answer = yield* execute(
-          'return search({ query: "" }).items.map((item) => item.path)'
+      Effect.gen(function* everyCapability() {
+        const base = yield* coverage({});
+        expect(base.listed).toEqual(["agent_code_execute"]);
+        expect(base.offered).toEqual(base.native);
+        expect(base.offered).toEqual(
+          expect.arrayContaining([
+            "agent_android_sessions_list",
+            "agent_android_workspace",
+          ])
         );
-        expect(answer.structuredContent?.status).toBe("completed");
-        expect(answer.structuredContent?.value).toEqual([
-          "tools.agent_browser_act",
-          "tools.agent_browser_snapshot",
-          "tools.agent_session_get",
-          "tools.agent_sessions_get",
-        ]);
-        expect(answer.structuredContent?.receipts).toEqual([]);
+        // Conditional capabilities follow their prerequisites.
+        const demo = yield* coverage({ demo: true });
+        expect(demo.offered).toEqual(demo.native);
+        expect(demo.offered).toContain("agent_example_run_start");
+        const pursuit = yield* coverage({ systemOne: SYSTEM_ONE });
+        expect(pursuit.offered).toEqual(pursuit.native);
+        expect(pursuit.offered).toContain("agent_browser_pursue");
+
+        const native = yield* connectMcp(yield* servingMcpHttp({ demo: true }));
+        const single = yield* singleTool({ demo: true });
+        for (const method of ["resources/list", "prompts/list"]) {
+          expect(
+            Schema.decodeUnknownSync(Listed)(yield* single.request(method, {}))
+          ).toEqual(
+            Schema.decodeUnknownSync(Listed)(yield* native.request(method, {}))
+          );
+        }
+        const { instructions } = Schema.decodeUnknownSync(Initialized)(
+          single.initialized
+        ).result;
+        expect(instructions).toContain("agent_code_execute");
+        expect(instructions).toContain("search(");
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
+  "sends signatures only to a program that searches them",
+  () =>
+    live(
+      Effect.gen(function* signaturesOnDemand() {
+        const signature = yield* execute(
+          'return search({ query: "agent_session_get" }).items[0].signature'
+        );
+        expect(signature.structuredContent?.value).toEqual(
+          expect.stringContaining("sessionId")
+        );
+        const plain = yield* execute("return 1");
+        expect(
+          plain.structuredContent?.process.bytesToInterpreter
+        ).toBeLessThan(
+          (signature.structuredContent?.process.bytesToInterpreter ?? 0) / 4
+        );
       })
     ),
   HANG_GUARD_MS
@@ -121,22 +224,44 @@ it.live(
 );
 
 it.live(
-  "validates operation parameters strictly in the server, not the interpreter",
+  "rejects excess, invalid, and Workspace-only parameters in the server",
   () =>
     live(
       Effect.gen(function* strict() {
         const answer = yield* execute(`
-          try {
-            await tools.agent_sessions_get({ view: "compact", widen: true });
-            return "accepted";
-          } catch (error) {
-            return "refused";
-          }
+          const refused = async (attempt) => {
+            try {
+              await attempt();
+              return "accepted";
+            } catch (error) {
+              return "refused";
+            }
+          };
+          return [
+            await refused(() => tools.agent_sessions_get({ view: "compact", widen: true })),
+            await refused(() => tools.agent_session_get({ sessionId: 7 })),
+            await refused(() => tools.agent_android_workspace({ command: { _tag: "observe" } })),
+            await refused(() => tools.agent_android_workspace({
+              command: { _tag: "variable-supply", name: "PIN", operationId: "supply-1", requestId: "r", sessionId: "s", value: "1234" },
+            })),
+          ];
         `);
-        expect(answer.structuredContent?.value).toBe("refused");
-        const [receipt] = answer.structuredContent?.receipts ?? [];
-        expect(receipt?.outcome).toBe("failed");
-        expect(receipt?.message).toContain("widen");
+        expect(answer.structuredContent?.value).toEqual([
+          "refused",
+          "refused",
+          "refused",
+          "refused",
+        ]);
+        const receipts = answer.structuredContent?.receipts ?? [];
+        expect(receipts.map(({ outcome }) => outcome)).toEqual([
+          "failed",
+          "failed",
+          "failed",
+          "failed",
+        ]);
+        expect(receipts[0]?.message).toContain("widen");
+        // A refusal never echoes what it refused.
+        expect(JSON.stringify(answer)).not.toContain("1234");
       })
     ),
   HANG_GUARD_MS
@@ -148,7 +273,7 @@ it.live(
     live(
       Effect.gen(function* unknown() {
         const answer = yield* execute(
-          'return await tools.agent_session_close({ sessionId: "x" })'
+          'return await tools.agent_code_run({ code: "return 1" })'
         );
         expect(answer.structuredContent?.status).toBe("program_failed");
         expect(answer.structuredContent?.diagnostic?.kind).toBe("UnknownTool");
