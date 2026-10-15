@@ -7,6 +7,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { androidStreamAccess } from "@/lib/rpc";
+import { cn } from "@/lib/utils";
+
+import { framePoint } from "./android-stream-point";
+import type {
+  AndroidStreamFrame,
+  AndroidStreamPoint,
+} from "./android-stream-point";
 
 const packet = Schema.decodeUnknownSync(
   Schema.fromJsonString(AndroidStreamPacket)
@@ -15,15 +22,29 @@ type StreamState = "connecting" | "live" | "secure" | "lost" | "unsupported";
 const labels: Record<StreamState, string> = {
   connecting: "Connecting to selected device…",
   live: "Live device display",
-  lost: "Device stream lost. Semantic controls remain available.",
+  lost: "Device stream lost.",
   secure: "Secure window, not visible",
   unsupported: "This browser cannot decode the live device stream.",
 };
 
-/** The live display has no input listeners and is never used as Teaching evidence. */
+/**
+ * The live display fills its parent edge to edge and draws nothing over the
+ * device's own pixels. A click is reported as where it landed on the frame;
+ * the server resolves it to a semantic element, so the stream itself never
+ * sends input and is never used as Teaching evidence.
+ */
 export const AndroidLiveStream = ({
+  dimmed = false,
+  onFrame,
+  onPick,
   sessionId,
 }: {
+  readonly dimmed?: boolean;
+  /** Reports the decoded frame size whenever it changes. */
+  readonly onFrame?: (frame: AndroidStreamFrame) => void;
+  readonly onPick?:
+    | ((point: AndroidStreamPoint, frame: AndroidStreamFrame) => void)
+    | undefined;
   readonly sessionId: AgentSessionId;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -31,6 +52,11 @@ export const AndroidLiveStream = ({
   const [retryAtom] = useState(() => Atom.make(0));
   const [state, setState] = useAtom(stateAtom);
   const [retry, setRetry] = useAtom(retryAtom);
+  // The decoder outlives renders; it reads the latest callback, not the first.
+  const reportFrame = useRef(onFrame);
+  useEffect(() => {
+    reportFrame.current = onFrame;
+  }, [onFrame]);
   useEffect(() => {
     const surface = canvas.current;
     if (!surface || typeof VideoDecoder === "undefined") {
@@ -58,8 +84,17 @@ export const AndroidLiveStream = ({
                     frame.close();
                     return;
                   }
-                  surface.width = frame.displayWidth;
-                  surface.height = frame.displayHeight;
+                  if (
+                    surface.width !== frame.displayWidth ||
+                    surface.height !== frame.displayHeight
+                  ) {
+                    surface.width = frame.displayWidth;
+                    surface.height = frame.displayHeight;
+                    reportFrame.current?.({
+                      height: frame.displayHeight,
+                      width: frame.displayWidth,
+                    });
+                  }
                   context.drawImage(frame, 0, 0);
                   frame.close();
                   setState("live");
@@ -163,27 +198,51 @@ export const AndroidLiveStream = ({
       Effect.runFork(Fiber.interrupt(fiber));
     };
   }, [sessionId, retry, setState]);
+  const live = state === "live";
   return (
-    <div className="grid gap-2">
-      <p role="status" className="text-muted-foreground text-sm">
-        {labels[state]}
-      </p>
-      <div className="grid min-h-64 place-items-center rounded-xl border bg-black p-2">
-        <canvas
-          ref={canvas}
-          aria-label="Selected device live display"
-          role="img"
-          className={`max-h-[65vh] max-w-full object-contain ${state === "live" ? "" : "invisible"}`}
-        />
+    <div className="absolute inset-0 bg-neutral-950">
+      <canvas
+        aria-label="Selected device live display"
+        className={cn(
+          "size-full",
+          live ? "" : "invisible",
+          live && onPick !== undefined ? "cursor-pointer" : "cursor-default",
+          dimmed && "opacity-40 grayscale"
+        )}
+        onClick={(event) => {
+          const surface = canvas.current;
+          if (!live || onPick === undefined || surface === null) {
+            return;
+          }
+          const point = framePoint(event, surface.getBoundingClientRect());
+          if (point !== null) {
+            onPick(point, { height: surface.height, width: surface.width });
+          }
+        }}
+        ref={canvas}
+        role="img"
+      />
+      <div
+        className={cn(
+          "absolute inset-0 grid place-items-center p-8 text-center",
+          live && "hidden"
+        )}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-neutral-400" role="status">
+            {labels[state]}
+          </p>
+          {state === "lost" ? (
+            <Button
+              onClick={() => setRetry((value) => value + 1)}
+              size="sm"
+              variant="secondary"
+            >
+              Reconnect device stream
+            </Button>
+          ) : null}
+        </div>
       </div>
-      {state === "lost" ? (
-        <Button
-          variant="outline"
-          onClick={() => setRetry((value) => value + 1)}
-        >
-          Reconnect device stream
-        </Button>
-      ) : null}
     </div>
   );
 };

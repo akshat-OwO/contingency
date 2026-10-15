@@ -270,6 +270,7 @@ const teaching: AndroidWorkspaceSnapshot = {
   controller: "user",
   error: null,
   experimental: true,
+  field: null,
   flowSkillName: FlowSkillName.make("checkout"),
   id: AgentSessionId.make("agent-android-teaching"),
   kind: "teaching",
@@ -503,7 +504,7 @@ export const applyCommand = (
         outcomes: selection.outcomes,
         platform: "android",
         preparation: selection.setup,
-        reversibleActions: selection.reversibleActions,
+        reversibleActions: selection.reversibleActions ?? [],
       },
       selection,
     };

@@ -1,6 +1,11 @@
 import path from "node:path";
 
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import {
+  AgentSessionId,
+  AndroidWorkspaceCommand,
+  FlowSkillName,
+  OperationId,
+} from "@contingency/protocol";
 import type {
   AndroidWorkspaceSelection,
   TeachingRecordingId,
@@ -15,6 +20,7 @@ import {
   FileSystem,
   Layer,
   Result,
+  Schema,
 } from "effect";
 import type { Scope } from "effect";
 
@@ -30,6 +36,7 @@ import {
 } from "../../src/services/android-workspace.ts";
 import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { AndroidWorkspaceTools } from "../../src/services/mcp-android-workspace.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -59,7 +66,6 @@ const selection: AndroidWorkspaceSelection = {
   },
   helperConsent: "none",
   outcomes: [{ name: "Home", role: "text" }],
-  reversibleActions: [{ name: "Edit", role: "button" }],
   setup: {
     activity: "dev.fixture/.Home",
     conditions: [{ name: "Home", role: "text" }],
@@ -82,6 +88,7 @@ const fixture = (
     readonly calls: string[];
     readonly disconnect: () => void;
     readonly reconnect: () => void;
+    readonly setNodes: (nodes: AndroidObservation["nodes"]) => void;
     /** Holds the next capture after it starts until the test releases it. */
     readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
     /** A fresh workspace over the same root, as after a process restart. */
@@ -109,6 +116,7 @@ const fixture = (
       let connected = true;
       let generation = 0;
       let held: CaptureGate | undefined;
+      let customNodes: AndroidObservation["nodes"] | undefined;
       const backend: AndroidRuntimeBackend = {
         activate: () =>
           Effect.sync(() => {
@@ -141,10 +149,11 @@ const fixture = (
                 device: selection.device,
                 generation,
                 id: `observation-${generation}`,
-                nodes: [
+                nodes: customNodes ?? [
                   {
                     covered: false,
                     editable: false,
+                    hittable: true,
                     name: "Home",
                     packageName: "dev.fixture",
                     password: false,
@@ -155,6 +164,7 @@ const fixture = (
                     bounds: { height: 1, width: 1, x: 0, y: 0 },
                     covered: false,
                     editable: false,
+                    hittable: true,
                     name: "Edit",
                     packageName: "dev.fixture",
                     password: false,
@@ -180,7 +190,10 @@ const fixture = (
         close: () => Effect.void,
         enterPrivate: () =>
           Effect.fail(platformRuntimeError("capability_missing")),
-        fill: () => Effect.void,
+        fill: () =>
+          Effect.sync(() => {
+            calls.push("fill");
+          }),
         recover: () => Effect.void,
         sessionId: "fixture-session",
         validate: () =>
@@ -255,6 +268,9 @@ const fixture = (
         },
         restart,
         root,
+        setNodes: (nodes) => {
+          customNodes = nodes;
+        },
       }).pipe(Effect.provide(Layer.mergeAll(workspace, store, learning)));
     })
   ).pipe(Effect.provide(NodeServices.layer));
@@ -687,3 +703,527 @@ it.effect(
       })
     )
 );
+
+const preparePick = Effect.gen(function* preparePickSession() {
+  const workspace = yield* AndroidWorkspace;
+  const started = yield* workspace.execute(
+    {
+      _tag: "start",
+      flowSkillName,
+      kind: "teaching",
+      operationId: op("pick-start"),
+      recordingId: null,
+      selection,
+    },
+    "user"
+  );
+  return yield* workspace.execute(
+    { _tag: "prepare", operationId: op("pick-prepare"), sessionId: started.id },
+    "user"
+  );
+});
+const pickNode = (
+  overrides: Partial<AndroidObservation["nodes"][number]> = {}
+): AndroidObservation["nodes"][number] => ({
+  bounds: { height: 1, width: 1, x: 0, y: 0 },
+  covered: false,
+  editable: false,
+  hittable: true,
+  name: "Edit",
+  packageName: "dev.fixture",
+  password: false,
+  role: "button",
+  target: "@picked",
+  ...overrides,
+});
+it.effect("picks a button once and records only its semantic action", () =>
+  fixture(({ calls }) =>
+    Effect.gen(function* pickButton() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* preparePick;
+      yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("pick-record"),
+          sessionId: prepared.id,
+          start: true,
+        },
+        "user"
+      );
+      const command = {
+        _tag: "pick",
+        frame: { height: 1, width: 1 },
+        observationId: prepared.observation?.id ?? "",
+        operationId: op("pick-button"),
+        point: { x: 0.4, y: 0.6 },
+        sessionId: prepared.id,
+      } as const;
+      yield* workspace.execute(command, "user");
+      yield* workspace.execute(command, "user");
+      expect(calls).toEqual(["activate"]);
+      const stopped = yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("pick-stop"),
+          sessionId: prepared.id,
+          start: false,
+        },
+        "user"
+      );
+      const store = yield* TeachingRecordingStore;
+      const fs = yield* FileSystem.FileSystem;
+      if (stopped.recordingId === null) {
+        return yield* Effect.die("Recording missing.");
+      }
+      const manifest = yield* store.read(stopped.recordingId);
+      expect(
+        manifest.runtime?.platform === "android" &&
+          manifest.runtime.reversibleActions
+      ).toEqual([{ name: "Edit", role: "button" }]);
+      const events = yield* fs.readFileString(
+        path.join(store.directory(stopped.recordingId), "events.jsonl")
+      );
+      expect(events).toContain("Activate button Edit");
+      expect(events).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
+      expect(
+        yield* fs.exists(
+          path.join(store.directory(stopped.recordingId), "actions.jsonl")
+        )
+      ).toBe(false);
+    })
+  )
+);
+for (const [name, nodes, message] of [
+  ["empty", [], "Nothing to activate there. No input was sent."],
+  [
+    "non-hittable container and text",
+    [
+      pickNode({ hittable: false, name: "", role: "group" }),
+      pickNode({
+        bounds: { height: 0.5, width: 0.5, x: 0.25, y: 0.25 },
+        hittable: false,
+        name: "Checkout",
+        role: "text",
+        target: "@text",
+      }),
+    ],
+    "Nothing to activate there. No input was sent.",
+  ],
+  [
+    "unnamed hittable scroll container",
+    [pickNode({ name: "", role: "scroll-area" })],
+    "Nothing to activate there. No input was sent.",
+  ],
+  [
+    "outside",
+    [
+      pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
+      pickNode({ packageName: "other.app" }),
+    ],
+    "That element belongs to another app. No input was sent.",
+  ],
+  [
+    "private",
+    [
+      pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
+      pickNode({ editable: true, password: true }),
+    ],
+    "Private fields need a Variable. No input was sent.",
+  ],
+  [
+    "covered",
+    [pickNode({ covered: true })],
+    "Nothing to activate there. No input was sent.",
+  ],
+] as const) {
+  it.effect(`refuses ${name} picks without dispatch`, () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* refusedPick() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        setNodes(nodes);
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        const result = yield* Effect.result(
+          workspace.execute(
+            {
+              _tag: "pick",
+              frame: { height: 1, width: 1 },
+              observationId: observed.observation?.id ?? "",
+              operationId: op("refused-pick"),
+              point: { x: 0.5, y: 0.5 },
+              sessionId: prepared.id,
+            },
+            "user"
+          )
+        );
+        expect(Result.isFailure(result) && result.failure.message).toBe(
+          message
+        );
+        expect(calls).toEqual([]);
+      })
+    )
+  );
+}
+it.effect("activates a hittable button inside a non-hittable container", () =>
+  fixture(({ calls, setNodes }) =>
+    Effect.gen(function* nestedButtonPick() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* preparePick;
+      setNodes([
+        pickNode({
+          bounds: { height: 2, width: 2, x: 0, y: 0 },
+          hittable: false,
+          name: "",
+          role: "group",
+          target: "@container",
+        }),
+        pickNode(),
+        pickNode({
+          bounds: { height: 0.5, width: 0.5, x: 0.25, y: 0.25 },
+          hittable: false,
+          name: "Label",
+          role: "text",
+          target: "@label",
+        }),
+      ]);
+      const observed = yield* workspace.execute(
+        { _tag: "observe", image: false, sessionId: prepared.id },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "pick",
+          frame: { height: 1, width: 1 },
+          observationId: observed.observation?.id ?? "",
+          operationId: op("nested-button-pick"),
+          point: { x: 0.5, y: 0.5 },
+          sessionId: prepared.id,
+        },
+        "user"
+      );
+      expect(calls).toEqual(["activate"]);
+    })
+  )
+);
+it.effect(
+  "picks the smallest field without input, then fills its retained observation",
+  () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* pickField() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        setNodes([
+          pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
+          pickNode({
+            editable: true,
+            hittable: false,
+            name: "Name",
+            role: "textbox",
+            target: "@field",
+          }),
+        ]);
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        const picked = yield* workspace.execute(
+          {
+            _tag: "pick",
+            frame: { height: 1, width: 1 },
+            observationId: observed.observation?.id ?? "",
+            operationId: op("field-pick"),
+            point: { x: 0.5, y: 0.5 },
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        expect(calls).toEqual([]);
+        expect(picked.field).toEqual({
+          name: "Name",
+          observationId: picked.observation?.id,
+          role: "textbox",
+          target: "@field",
+        });
+        for (let index = 0; index < 10; index += 1) {
+          yield* workspace.execute(
+            { _tag: "observe", image: false, sessionId: prepared.id },
+            "user"
+          );
+        }
+        const filled = yield* workspace.execute(
+          {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: picked.field?.target ?? "",
+              text: "public",
+            },
+            observationId: picked.field?.observationId ?? "",
+            operationId: op("field-fill"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        expect(calls).toEqual(["fill"]);
+        expect(filled.field).toBeNull();
+      })
+    )
+);
+it.effect("refuses mismatched stream geometry without input", () =>
+  fixture(({ calls }) =>
+    Effect.gen(function* mismatchedFrame() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* preparePick;
+      const result = yield* Effect.result(
+        workspace.execute(
+          {
+            _tag: "pick",
+            frame: { height: 200, width: 100 },
+            observationId: prepared.observation?.id ?? "",
+            operationId: op("wrong-frame"),
+            point: { x: 0.5, y: 0.5 },
+            sessionId: prepared.id,
+          },
+          "user"
+        )
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      expect(calls).toEqual([]);
+    })
+  )
+);
+
+it.effect("refuses a moved control instead of activating its replacement", () =>
+  fixture(({ calls, setNodes }) =>
+    Effect.gen(function* movedPick() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* preparePick;
+      setNodes([pickNode({ name: "Replacement" })]);
+      const result = yield* Effect.result(
+        workspace.execute(
+          {
+            _tag: "pick",
+            frame: { height: 1, width: 1 },
+            observationId: prepared.observation?.id ?? "",
+            operationId: op("moved-pick"),
+            point: { x: 0.5, y: 0.5 },
+            sessionId: prepared.id,
+          },
+          "user"
+        )
+      );
+      expect(Result.isFailure(result) && result.failure.message).toBe(
+        "The element moved or changed. No input was sent."
+      );
+      expect(calls).toEqual([]);
+    })
+  )
+);
+for (const origin of ["unknown", "evicted"] as const) {
+  it.effect(`refuses a pick from an ${origin} observation without input`, () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* stalePick() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        setNodes([pickNode({ name: "Replacement" })]);
+        for (let index = 0; index < 10; index += 1) {
+          yield* workspace.execute(
+            { _tag: "observe", image: false, sessionId: prepared.id },
+            "user"
+          );
+        }
+        const result = yield* Effect.result(
+          workspace.execute(
+            {
+              _tag: "pick",
+              frame: { height: 1, width: 1 },
+              observationId:
+                origin === "unknown"
+                  ? "none"
+                  : (prepared.observation?.id ?? ""),
+              operationId: op(`stale-pick-${origin}`),
+              point: { x: 0.5, y: 0.5 },
+              sessionId: prepared.id,
+            },
+            "user"
+          )
+        );
+        expect(calls).toEqual([]);
+        expect(Result.isFailure(result) && result.failure.message).toBe(
+          "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+        );
+      })
+    )
+  );
+}
+it.effect(
+  "Dry Run gates activation using the buttons actually recorded during Teaching",
+  () =>
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* taughtGate() {
+        const workspace = yield* AndroidWorkspace;
+        const recordingId = yield* taught;
+        const prepared = yield* dryRun(recordingId);
+        expect(
+          prepared.requirements.platform === "android" &&
+            prepared.requirements.reversibleActions
+        ).toEqual([{ name: "Edit", role: "button" }]);
+        const activated = yield* workspace.execute(
+          {
+            _tag: "input",
+            action: { _tag: "activate", target: "@e2" },
+            observationId: prepared.observation?.id ?? "",
+            operationId: op("dry-recorded"),
+            sessionId: prepared.id,
+          },
+          "agent"
+        );
+        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* TeachingRecordingStore;
+        const actions = yield* fs.readFileString(
+          path.join(
+            store.directory(recordingId),
+            "android-runs",
+            prepared.id,
+            "actions.jsonl"
+          )
+        );
+        expect(actions).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
+
+        setNodes([pickNode({ name: "Untaught" })]);
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: activated.id },
+          "agent"
+        );
+        const result = yield* Effect.result(
+          workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: "activate", target: "@picked" },
+              observationId: observed.observation?.id ?? "",
+              operationId: op("dry-untaught"),
+              sessionId: prepared.id,
+            },
+            "agent"
+          )
+        );
+        expect(Result.isFailure(result) && result.failure.code).toBe(
+          "target_unsupported"
+        );
+        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
+      })
+    )
+);
+it.effect(
+  "clears a picked field when its screen changes or the session closes",
+  () =>
+    fixture(({ setNodes }) =>
+      Effect.gen(function* clearPickedField() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        setNodes([pickNode({ editable: true, name: "Name", role: "textbox" })]);
+        const observed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        const command = {
+          _tag: "pick",
+          frame: { height: 1, width: 1 },
+          observationId: observed.observation?.id ?? "",
+          operationId: op("clear-field-pick"),
+          point: { x: 0.5, y: 0.5 },
+          sessionId: prepared.id,
+        } as const;
+        expect((yield* workspace.execute(command, "user")).field?.name).toBe(
+          "Name"
+        );
+        setNodes([
+          pickNode({ editable: true, name: "Other field", role: "textbox" }),
+        ]);
+        const changed = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        expect(changed.field).toBeNull();
+        const selected = yield* workspace.execute(
+          {
+            ...command,
+            observationId: changed.observation?.id ?? "",
+            operationId: op("select-other-field"),
+          },
+          "user"
+        );
+        expect(selected.field?.name).toBe("Other field");
+        const closed = yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-picked-field"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        expect(closed.field).toBeNull();
+      })
+    )
+);
+
+it("validates stream points and dimensions and keeps MCP input semantic", () => {
+  const command = {
+    _tag: "pick",
+    frame: { height: 200, width: 100 },
+    observationId: "observed",
+    operationId: op("validate-pick"),
+    point: { x: 0, y: 1 },
+    sessionId: AgentSessionId.make("agent-android-schema"),
+  } as const;
+  expect(Schema.is(AndroidWorkspaceCommand)(command)).toBe(true);
+  for (const point of [
+    { x: -0.1, y: 0 },
+    { x: 0, y: 1.1 },
+    { x: Number.NaN, y: 0 },
+    { x: Infinity, y: 0 },
+  ]) {
+    expect(Schema.is(AndroidWorkspaceCommand)({ ...command, point })).toBe(
+      false
+    );
+  }
+  for (const frame of [
+    { height: 0, width: 1 },
+    { height: 1, width: -1 },
+    { height: 1, width: 1.5 },
+  ]) {
+    expect(Schema.is(AndroidWorkspaceCommand)({ ...command, frame })).toBe(
+      false
+    );
+  }
+  const parameters =
+    AndroidWorkspaceTools.tools.agent_android_workspace.parametersSchema;
+  expect(Schema.is(parameters)({ command })).toBe(false);
+  expect(
+    Schema.is(parameters)({
+      command: {
+        _tag: "input",
+        action: { _tag: "activate", target: "@button" },
+        observationId: command.observationId,
+        operationId: command.operationId,
+        sessionId: command.sessionId,
+      },
+    })
+  ).toBe(true);
+  expect(
+    Schema.is(parameters)({
+      command: {
+        _tag: "start",
+        flowSkillName,
+        kind: "teaching",
+        operationId: command.operationId,
+        recordingId: null,
+        selection,
+      },
+    })
+  ).toBe(true);
+});

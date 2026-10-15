@@ -44,6 +44,11 @@ Commands:
   browser mouse --x <px> --y <px> [--click]
   browser canvas-click --x <site-px> --y <site-px>
   browser canvas-type --text <text> [--enter]
+  browser android-pick --session-id <id> --role <role> --name <name> | --fx <fraction> --fy <fraction>
+  browser android-idle
+  browser android-no-overlays
+  browser android-allow-request --name <request-region>
+  browser android-refuse-request --name <request-region>
   browser android-stream-check --session-id <id> [--previous-frame <hash>]
   browser input-check --session-id <id>
   browser scroll-check --session-id <id> [--record] [--path <directory>] [--events <n>] [--delta <px>]
@@ -273,6 +278,72 @@ const loadEcommercePages = () => {
 
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
+    case "android-allow-request":
+    case "android-refuse-request": {
+      await page
+        .getByRole("region", { exact: true, name: flags.name })
+        .getByRole("button", {
+          exact: true,
+          name: action === "android-allow-request" ? "Allow" : "Refuse",
+        })
+        .click();
+      return `${action} ${flags.name}`;
+    }
+    case "android-no-overlays": {
+      const main = page.getByRole("main");
+      const canvas = main.getByRole("img", {
+        exact: true,
+        name: "Selected device live display",
+      });
+      await canvas.waitFor();
+      const extra = await main.getByRole("button").evaluateAll((buttons) =>
+        buttons
+          .filter((button) =>
+            !button.closest('[aria-label="Workspace dock"]') &&
+            button.getAttribute("aria-label") !== "Android Back"
+          )
+          .map((button) => button.getAttribute("aria-label") || button.textContent)
+      );
+      if (extra.length > 0) {
+        throw new Error(`Unexpected device overlay buttons: ${JSON.stringify(extra)}`);
+      }
+      const children = await canvas.evaluate((element) =>
+        element.parentElement.querySelectorAll("button, input, svg, [role=button]").length
+      );
+      if (children !== 0) {
+        throw new Error("Device glass contains element overlays.");
+      }
+      return JSON.stringify({ main: await main.ariaSnapshot(), noOverlays: true });
+    }
+    case "android-idle": {
+      const { waitAndroidIdle } = await import("./android-ui.mjs");
+      await waitAndroidIdle(page);
+      return "Android dock ready";
+    }
+    case "android-pick": {
+      const { pickAndroid } = await import("./android-ui.mjs");
+      const { brokerUrl } = flags;
+      if (typeof brokerUrl !== "string") {
+        throw new Error("Start the owned MCP broker first.");
+      }
+      const call = async (command) => {
+        const response = await fetch(`${brokerUrl}call`, {
+          body: JSON.stringify({ params: { command }, tool: "agent_android_workspace" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        });
+        const result = await response.json();
+        const answer = (result.content ?? [])
+          .filter((entry) => entry.type === "text")
+          .map((entry) => entry.text)
+          .join("\n");
+        if (!response.ok || result.isError) {
+          throw new Error(answer || JSON.stringify(result));
+        }
+        return JSON.parse(answer);
+      };
+      return JSON.stringify(await pickAndroid(page, flags, call));
+    }
     case "android-stream-check": {
       const { checkAndroidStream } = await import("./android-stream-check.mjs");
       return JSON.stringify(await checkAndroidStream(page, flags));
@@ -1478,7 +1549,14 @@ const cmdBrowser = async (action, flags) => {
       "browser input-check needs --session-id and a running verification MCP server."
     );
   }
-  const output = await callDriver(instance, { action, flags });
+  // The detached driver has no CONTINGENCY_VERIFY_DIR of its own, so the
+  // client hands it the broker it needs rather than letting it read the
+  // instance file (a failed read exits the driver).
+  const output = await callDriver(instance, {
+    action,
+    flags:
+      action === "android-pick" ? { ...flags, brokerUrl: instance.brokerUrl } : flags,
+  });
   if (action === "input-check") {
     const sessionId = flags["session-id"];
     const deadline = Date.now() + 5_000;

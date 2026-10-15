@@ -100,6 +100,8 @@ export interface TeachingRecordingDryRunReport extends TeachingRecordingMutation
 }
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
+  /** Runtime requirements finalized from the completed Teaching evidence. */
+  readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly artifacts: readonly TeachingRecordingArtifact[];
   /** Capture ended, but the retained artifacts may still be recovered. */
   readonly failure?: string | undefined;
@@ -851,12 +853,17 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   error: input.failure,
                   failedAt: readyAt,
                 };
-          const ready = yield* validateArtifactPaths({
+          const finalized = {
             ...current,
             artifacts: input.artifacts,
             eventOrigin: origin,
             lifecycle,
-          });
+          };
+          const ready = yield* validateArtifactPaths(
+            input.runtime === undefined
+              ? finalized
+              : { ...finalized, runtime: input.runtime }
+          );
           return yield* persist(
             withReceipt(
               ready,

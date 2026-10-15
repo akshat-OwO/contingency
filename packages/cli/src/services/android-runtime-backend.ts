@@ -679,6 +679,7 @@ export const acquireAndroidBackend = (
                     node.interactionBlocked === "covered" ||
                     node.enabled === false,
                   editable: node.editable === true,
+                  hittable: node.hittable === true,
                   name: publicNodeName(node, input.targetApp),
                   packageName: node.bundleId ?? null,
                   password: node.password === true,

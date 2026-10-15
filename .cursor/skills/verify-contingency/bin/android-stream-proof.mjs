@@ -9,6 +9,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import {
+  androidComment,
+  androidIdle,
+  androidPick,
+  openAndroidSheet,
+} from "./android-ui.mjs";
+
 const root = path.resolve(import.meta.dirname, "../../../..");
 const require = createRequire(path.join(root, "packages/cli/package.json"));
 const { Effect } = await import(pathToFileURL(require.resolve("effect")).href);
@@ -120,15 +127,10 @@ const selection = {
     androidVersion: "16",
     appBuild: "1",
     appId: "dev.contingency.physicalfixture",
-    startingState: "Fresh stream fixture activity",
+    startingState: "text Stream fixture ready is visible",
   },
   helperConsent: "none",
   outcomes: [{ name: "Stream fixture ready", role: "text" }],
-  reversibleActions: [
-    { name: "Change screen", role: "button" },
-    { name: "Show secure window", role: "button" },
-    { name: "Hide secure window", role: "button" },
-  ],
   setup: {
     activity: "dev.contingency.physicalfixture/.StreamActivity",
     conditions: [{ name: "Stream fixture ready", role: "text" }],
@@ -139,6 +141,10 @@ assert.ok(
   Object.values(selection.device).every((value) => value !== undefined),
   "Supply the explicitly authorized device declarations."
 );
+const prepareName =
+  selection.device.kind === "physical"
+    ? "Prepare selected device"
+    : "Prepare selected emulator";
 const flowSkillName = `android-stream-${process.pid}`;
 const receipt = {
   blockers: [],
@@ -217,93 +223,46 @@ await execute("adb", [
 ]);
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await wait("Android experimental");
-  await click("Android experimental");
-  if (physical) {
-    await control(
-      "browser",
-      "select",
-      "--role",
-      "combobox",
-      "--name",
-      "Device kind",
-      "--value",
-      "physical"
-    );
-    await control(
-      "browser",
-      "select",
-      "--role",
-      "combobox",
-      "--name",
-      "Notification permission",
-      "--value",
-      "revoke"
-    );
-  }
-  const fields = {
-    "Flow Skill name": flowSkillName,
-    "Required outcome name": "Stream fixture ready",
-    "Required outcome role": "text",
-    "Reversible actions":
-      "button: Change screen\nbutton: Show secure window\nbutton: Hide secure window",
-    "Selected AVD or device model": physical
-      ? selection.device.model
-      : selection.device.avd,
-    "Selected build fingerprint": selection.device.fingerprint,
-    "Selected device serial": selection.device.serial,
-    "Starting activity": selection.setup.activity,
-    "Starting condition name": "Stream fixture ready",
-    "Starting condition role": "text",
-    "Starting state description": selection.environment.startingState,
-    "Target App package": selection.environment.appId,
-    "Target App versionCode": "1",
-  };
-  for (const [name, value] of Object.entries(fields)) {
-    await control(
-      "browser",
-      "fill",
-      "--role",
-      "textbox",
-      "--name",
-      name,
-      "--value",
-      value
-    );
-  }
-  // A cold-booted emulator may lack the pinned helper; the operator opts in.
-  await control(
-    "browser",
-    "select",
-    "--role",
-    "combobox",
-    "--name",
-    "Helper authorization",
-    "--value",
-    process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
-  );
-  await click("Open experimental Android session");
-  if (physical) {
-    await control(
-      "browser",
-      "wait",
-      "--role",
-      "group",
-      "--name",
-      "Clear Target App data"
-    );
-    await snapshot("fixture-data-consent");
-    await click("Allow");
-  }
-  await wait("Prepare selected device");
-  await click("Prepare selected device");
-  await wait("Start recording");
-
+  await openAndroidSheet(control, selection, flowSkillName, snapshot);
   const sessions = await tool("agent_android_sessions_list", {});
   sessionId = sessions.find(
     (session) => session.flowSkillName === flowSkillName
   )?.id;
   assert.ok(sessionId);
+  const selected = await command({ _tag: "read", sessionId });
+  assert.deepEqual(selected.selection.device, selection.device);
+  assert.equal(
+    selected.selection.setup.activity,
+    selection.setup.activity,
+    "The fixture launcher must open StreamActivity; exported activities without a launcher are not selectable."
+  );
+  await control(
+    "browser",
+    "goto",
+    "--url",
+    `${instance.mcpUrl}?android=${sessionId}`
+  );
+  if (physical) {
+    await control(
+      "browser",
+      "wait",
+      "--role",
+      "region",
+      "--name",
+      "Clear Target App data"
+    );
+    await snapshot("fixture-data-consent");
+    await control(
+      "browser",
+      "android-allow-request",
+      "--name",
+      "Clear Target App data"
+    );
+  }
+  await wait(prepareName);
+  await click(prepareName);
+  await wait("Start recording");
+
   const check = async (previous) =>
     JSON.parse(
       await control(
@@ -317,7 +276,7 @@ try {
   const first = await check();
   receipt.coverage.live = first;
   await snapshot("live");
-  await click("Activate button Change screen");
+  await androidPick(control, sessionId, "button", "Change screen");
   await control(
     "browser",
     "wait",
@@ -330,26 +289,12 @@ try {
   assert.notEqual(second.frame, first.frame);
   receipt.coverage.changedFrame = true;
   await snapshot("changed-frame");
-  await click("Activate button Show secure window");
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Secure window, not visible",
-    "--timeout-ms",
-    "60000"
+  await click("Start recording");
+  await wait("Stop recording");
+  await androidComment(
+    control,
+    "Record public stream changes; secure content must remain hidden."
   );
-  await snapshot("secure-window");
-  await click("Activate button Hide secure window");
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Live device display",
-    "--timeout-ms",
-    "60000"
-  );
-  receipt.coverage.secureWindow = true;
   const { stdout: processes } = await execute("ps", [
     "-axo",
     "pid=,ppid=,command=",
@@ -383,16 +328,19 @@ try {
     "browser",
     "wait",
     "--text",
-    "Device stream lost. Semantic controls remain available.",
+    "Device stream lost.",
     "--timeout-ms",
     "60000"
   );
   await snapshot("stream-lost");
-  await click("Activate button Change screen");
   const stillRunning = await command({ _tag: "read", sessionId });
   assert.equal(stillRunning.phase, "running");
   assert.deepEqual(stillRunning.captureGaps, []);
-  receipt.coverage.lossLeavesSemanticInput = true;
+  receipt.coverage.lossPreservesSession = {
+    captureGaps: [],
+    inputUnavailableUntilReconnect: true,
+    running: true,
+  };
   await click("Reconnect device stream");
   await control(
     "browser",
@@ -404,7 +352,27 @@ try {
   );
   await snapshot("reconnected");
   receipt.coverage.reconnect = true;
+  await androidPick(control, sessionId, "button", "Change screen");
+  await snapshot("recorded-change");
+  await androidPick(control, sessionId, "button", "Show secure window");
+  await control(
+    "browser",
+    "wait",
+    "--text",
+    "Secure window, not visible",
+    "--timeout-ms",
+    "60000"
+  );
+  await snapshot("secure-window");
+  receipt.coverage.secureWindow = {
+    hidden: true,
+    recovery: "Close session; no hidden canvas input",
+  };
+  await click("Stop recording");
+  await wait("Close session");
+  await androidIdle(control);
   await click("Close session");
+  await wait("New session");
   const closed = await command({ _tag: "read", sessionId });
   assert.equal(closed.phase, "closed");
   assert.equal(
@@ -417,18 +385,32 @@ try {
   receipt.blockers.push(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  if (sessionId) {
-    const final = await command({ _tag: "read", sessionId });
-    if (final.phase !== "closed") {
+  try {
+    const owned = await tool("agent_android_sessions_list", {});
+    for (const session of owned.filter(
+      (entry) =>
+        entry.flowSkillName === flowSkillName &&
+        ["pending", "running", "paused"].includes(entry.phase)
+    )) {
       await control(
         "browser",
         "goto",
         "--url",
-        `${instance.mcpUrl}?android=${sessionId}`
+        `${instance.mcpUrl}?android=${session.id}`
       );
       await click("Close session");
+      await wait("New session");
+      const closedSession = await command({
+        _tag: "read",
+        sessionId: session.id,
+      });
+      assert.equal(closedSession.phase, "closed");
     }
+  } catch (error) {
+    receipt.blockers.push(`Owned session cleanup failed: ${String(error)}`);
+    process.exitCode = 1;
   }
+
   await execute("adb", [
     "-s",
     selection.device.serial,

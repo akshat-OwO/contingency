@@ -78,6 +78,7 @@ const fixture = () =>
               {
                 covered: false,
                 editable: false,
+                hittable: true,
                 name: starting ? "Edit" : "Wrong screen",
                 packageName: "dev.fixture",
                 password: false,

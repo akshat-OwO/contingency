@@ -48,7 +48,7 @@ export const AndroidWorkspaceSelection = Schema.Struct({
   }),
   helperConsent: Schema.Literals(["none", "install", "replace"]),
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
-  reversibleActions: Schema.Array(AndroidStartingCondition),
+  reversibleActions: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
   setup: AndroidPreparation,
 });
 export type AndroidWorkspaceSelection = typeof AndroidWorkspaceSelection.Type;
@@ -183,6 +183,14 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
   ...AndroidWorkspaceSummary.fields,
   captureState: Schema.NullOr(TeachingCaptureState),
   cleanup: Schema.NullOr(TeachingRecordingCleanupState),
+  field: Schema.NullOr(
+    Schema.Struct({
+      name: Schema.String,
+      observationId: text,
+      role: Schema.String,
+      target: text,
+    })
+  ),
   observation: Schema.NullOr(AndroidWorkspaceObservation),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
@@ -208,6 +216,18 @@ export const AndroidWorkspaceCommand = Schema.Union([
     ...mutation,
     allow: Schema.Boolean,
     decisionId: text,
+  }),
+  Schema.TaggedStruct("pick", {
+    ...mutation,
+    frame: Schema.Struct({
+      height: Schema.Int.check(Schema.isGreaterThan(0)),
+      width: Schema.Int.check(Schema.isGreaterThan(0)),
+    }),
+    observationId: text,
+    point: Schema.Struct({
+      x: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: 0 })),
+      y: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: 0 })),
+    }),
   }),
   Schema.TaggedStruct("input", {
     ...mutation,

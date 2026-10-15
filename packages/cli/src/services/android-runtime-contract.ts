@@ -121,6 +121,7 @@ export interface AndroidObservation extends PlatformObservation {
     readonly name: string;
     readonly packageName: string | null;
     readonly editable: boolean;
+    readonly hittable: boolean;
     readonly password: boolean;
     readonly covered: boolean;
     readonly bounds?: AndroidElementBounds;

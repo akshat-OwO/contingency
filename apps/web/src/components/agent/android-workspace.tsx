@@ -1,46 +1,83 @@
-import {
-  AgentSessionId,
-  FlowSkillName,
-  OperationId,
-} from "@contingency/protocol";
+import { AgentSessionId, OperationId } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
-  AndroidWorkspaceSelection,
   AndroidWorkspaceSnapshot,
+  AndroidWorkspaceSummary,
+  FlowSkillName,
 } from "@contingency/protocol";
-import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/reactivity";
-import { useEffect } from "react";
-import type { FormEvent } from "react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
-
-import { AndroidLiveStream } from "./android-live-stream";
 import {
-  parseAndroidPermissionDecisions,
-  parseReversibleActions,
-} from "./android-workspace-state";
+  CircleIcon,
+  MessageSquareTextIcon,
+  MonitorIcon,
+  SmartphoneIcon,
+  SquareIcon,
+} from "lucide-react";
+import { useEffect } from "react";
+
+import {
+  DockNotices,
+  DockShell,
+  DockSpacer,
+  DockStatus,
+  DockWordmark,
+} from "@/components/agent/workspace-dock";
+import { SkillsDockButton } from "@/components/catalog/skills-dock-button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
+import { cn } from "@/lib/utils";
+
+import { workspaceChromeAtom } from "./agent-workspace-state";
+import { AndroidDevice } from "./android-device";
+import {
+  AndroidFieldEntry,
+  AndroidInstructionEntry,
+  AndroidRequests,
+  AndroidSessionSelect,
+  AndroidStateBadges,
+} from "./android-dock";
+import {
+  androidDockPresentation,
+  androidSkillsSessionView,
+  isLiveAndroidSession,
+} from "./android-dock-state";
+import type { AndroidDockGesture } from "./android-dock-state";
+import { AndroidRunSummary } from "./android-run-summary";
+import { AndroidSetupSheet } from "./android-setup-sheet";
+import { WorkspaceLayout } from "./android-workspace-layout";
 import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
 } from "./workspace-gesture";
+import type { GestureRun } from "./workspace-gesture";
 
 interface WorkspaceState {
   readonly session: AndroidWorkspaceSnapshot | null;
-  readonly text: string;
-  readonly instruction: string;
   readonly failure: string | null;
+  /** The picked field the person closed, until another one is picked. */
+  readonly dismissedField: string | null;
+  readonly instructing: boolean;
+  readonly setupOpen: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
+  dismissedField: null,
   failure: null,
-  instruction: "",
+  instructing: false,
   session: null,
-  text: "Public fixture text",
+  setupOpen: false,
 });
+/** A click on the stream, kept apart so a refusal never reads as a failed gesture. */
+const pickGestureAtom = Atom.keepAlive(
+  Atom.fn((request: { readonly run: GestureRun }) => request.run)
+);
 const applySnapshot = (
   current: WorkspaceState,
   session: AndroidWorkspaceSnapshot
@@ -58,576 +95,126 @@ const message = (cause: unknown) =>
     Option.map((value) => value.message),
     Option.getOrElse(() => "Android Workspace is unavailable.")
   );
-const selected = (form: HTMLFormElement, name: string) =>
-  String(new FormData(form).get(name) ?? "").trim();
-const condition = (form: HTMLFormElement, prefix: string) => ({
-  name: selected(form, `${prefix}Name`),
-  role: selected(form, `${prefix}Role`),
-});
-const selection = (
-  form: HTMLFormElement,
-  actions: AndroidWorkspaceSelection["reversibleActions"],
-  permissions: NonNullable<
-    AndroidWorkspaceSelection["environment"]["permissions"]
-  >
-): AndroidWorkspaceSelection => ({
-  device:
-    selected(form, "deviceKind") === "physical"
-      ? {
-          api: 36,
-          fingerprint: selected(form, "fingerprint"),
-          host: "local",
-          kind: "physical",
-          model: selected(form, "deviceName"),
-          serial: selected(form, "serial"),
-        }
-      : {
-          api: 36,
-          avd: selected(form, "deviceName"),
-          fingerprint: selected(form, "fingerprint"),
-          host: "local",
-          serial: selected(form, "serial"),
-        },
-  environment: {
-    androidVersion: selected(form, "androidVersion"),
-    appBuild: selected(form, "appBuild"),
-    appId: selected(form, "appId"),
-    permissions,
-    startingState: selected(form, "startingState"),
-  },
-  helperConsent: Schema.decodeUnknownOption(
-    Schema.Literals(["none", "install", "replace"])
-  )(selected(form, "helperConsent")).pipe(
-    Option.getOrElse(() => "none" as const)
-  ),
-  outcomes: [condition(form, "outcome")],
-  reversibleActions: actions,
-  setup: {
-    activity: selected(form, "activity"),
-    conditions: [condition(form, "starting")],
-    kind:
-      selected(form, "deviceKind") === "physical"
-        ? "clear-app-data"
-        : "restart-activity",
-  },
-});
-const Field = ({
-  name,
-  label,
-  defaultValue,
-}: {
-  readonly name: string;
-  readonly label: string;
-  readonly defaultValue?: string;
-}) => (
-  <label className="grid gap-1 text-sm">
-    {label}
-    <Input name={name} defaultValue={defaultValue} required />
-  </label>
-);
-const Limits = () => (
-  <p className="text-muted-foreground text-sm">
-    Experimental local API 36 Android device. Semantic actions and public
-    fixture text only. No private Variables, coordinates, arbitrary keys,
-    cross-app input, or system-dialog permissions. Ownership and dispatch use
-    experimental host checks. Screenshots and semantic snapshots are separate
-    captures. Direct device touches are outside Teaching capture.
-  </p>
-);
+/**
+ * The picker always lists the selected session: the session list is a
+ * separate query and can lag a session that was just opened.
+ */
+const withSelected = (
+  sessions: readonly AndroidWorkspaceSummary[],
+  session: AndroidWorkspaceSnapshot
+): readonly AndroidWorkspaceSummary[] =>
+  sessions.some((entry) => entry.id === session.id)
+    ? sessions
+    : [session, ...sessions];
+const fieldKey = (field: NonNullable<AndroidWorkspaceSnapshot["field"]>) =>
+  `${field.observationId}:${field.target}`;
 
-interface AndroidViewProps {
-  readonly session: AndroidWorkspaceSnapshot;
-  readonly state: WorkspaceState;
-  readonly setState: (
-    update: (current: WorkspaceState) => WorkspaceState
-  ) => void;
-  readonly mutate: (command: AndroidWorkspaceCommand) => boolean;
-  readonly input: (
-    action: Extract<
-      AndroidWorkspaceCommand,
-      { readonly _tag: "input" }
-    >["action"]
-  ) => void;
-  readonly pending: boolean;
-  readonly available: boolean;
-  readonly lifecycle: string | undefined;
-  readonly observation: AndroidWorkspaceSnapshot["observation"] | undefined;
-}
-const AndroidStatus = ({
-  session,
-  setState,
-  mutate,
-  pending,
-  available,
-  lifecycle,
-}: AndroidViewProps) => (
-  <>
-    {" "}
-    <section
-      aria-label="Android session status"
-      className="grid gap-2 rounded-xl border p-4"
-    >
-      <p>
-        {session.flowSkillName} · {session.kind} · {session.phase} ·{" "}
-        {session.controller} control
-      </p>
-      <p>
-        Bound device {session.selection.device.serial} ·{" "}
-        {session.selection.device.kind === "physical"
-          ? session.selection.device.model
-          : session.selection.device.avd}{" "}
-        · Target App {session.selection.environment.appId}
-      </p>
-      <p>
-        Helper consent: {session.selection.helperConsent}. Preparation:{" "}
-        {session.preparation.phase}. Teaching: {lifecycle ?? "not recording"}.
-      </p>
-      {session.recordingId ? (
-        <p>Teaching Recording: {session.recordingId}</p>
-      ) : null}
-      {session.preparation.differences.map((difference) => (
-        <p key={difference.field}>
-          {difference.field}: taught {difference.taught}, selected{" "}
-          {difference.selected}
-        </p>
-      ))}
-      {session.preparation.pending.map((decision) => (
-        <div
-          key={decision.id}
-          role="group"
-          aria-label={
-            decision.kind === "clear-app-data"
-              ? "Clear Target App data"
-              : "Run Environment Permission"
-          }
-        >
-          <p>
-            {decision.kind === "clear-app-data"
-              ? `Contingency may clear owner user 0 data for ${decision.targetApp} on ${decision.serial}`
-              : `${decision.kind} for ${decision.targetApp}`}
-          </p>
-          <Button
-            disabled={pending}
-            onClick={() =>
-              mutate({
-                _tag: "decide",
-                allow: true,
-                decisionId: decision.id,
-                operationId: operationId(),
-                sessionId: session.id,
-              })
-            }
-          >
-            Allow
-          </Button>
-          <Button
-            disabled={pending}
-            onClick={() =>
-              mutate({
-                _tag: "decide",
-                allow: false,
-                decisionId: decision.id,
-                operationId: operationId(),
-                sessionId: session.id,
-              })
-            }
-          >
-            Refuse
-          </Button>
-        </div>
-      ))}
-      <div className="flex flex-wrap gap-2">
-        {session.phase === "pending" ? (
-          <Button
-            disabled={pending || session.preparation.pending.length > 0}
-            onClick={() =>
-              mutate({
-                _tag: "prepare",
-                operationId: operationId(),
-                sessionId: session.id,
-              })
-            }
-          >
-            Prepare selected device
-          </Button>
-        ) : null}
-        {session.phase === "paused" ? (
-          <Button
-            disabled={pending}
-            onClick={() =>
-              mutate({
-                _tag: "recover",
-                operationId: operationId(),
-                sessionId: session.id,
-              })
-            }
-          >
-            Recover same device
-          </Button>
-        ) : null}
-        {session.kind === "teaching" &&
-        (lifecycle === "setup" || lifecycle === "recording") ? (
-          <Button
-            disabled={!available}
-            onClick={() =>
-              mutate({
-                _tag: "record",
-                operationId: operationId(),
-                sessionId: session.id,
-                start: lifecycle === "setup",
-              })
-            }
-          >
-            {lifecycle === "recording" ? "Stop recording" : "Start recording"}
-          </Button>
-        ) : null}
-        {session.kind !== "teaching" && session.phase === "running" ? (
-          <Button
-            disabled={pending}
-            onClick={() =>
-              mutate({
-                _tag: "control",
-                controller: session.controller === "user" ? "agent" : "user",
-                operationId: operationId(),
-                sessionId: session.id,
-              })
-            }
-          >
-            {session.controller === "user" ? "Return control" : "Take control"}
-          </Button>
-        ) : null}
-        <Button
-          variant="outline"
-          disabled={pending}
-          onClick={() =>
-            mutate({
-              _tag: "close",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-        >
-          Close session
-        </Button>
-        <Button
-          variant="outline"
-          disabled={pending}
-          onClick={() => setState((current) => ({ ...current, session: null }))}
-        >
-          New Android session
-        </Button>
-      </div>
-    </section>
-  </>
-);
-const AndroidMirror = ({
-  session,
-  state,
-  setState,
-  mutate,
-  input,
-  pending,
-  available,
-  lifecycle,
-  observation,
-}: AndroidViewProps) => (
-  <>
-    {" "}
-    <section
-      className="grid gap-4 md:grid-cols-2"
-      aria-label="Mirrored Android Workspace"
-    >
-      {session.phase === "running" || session.phase === "paused" ? (
-        <AndroidLiveStream sessionId={session.id} />
-      ) : (
-        <p>Prepare the selected device to view its screen.</p>
-      )}
-      <div className="grid content-start gap-3">
-        <label>
-          Public fixture text
-          <Input
-            aria-label="Public fixture text"
-            value={state.text}
-            onChange={(event) =>
-              setState((current) => ({
-                ...current,
-                text: event.target.value,
-              }))
-            }
-          />
-        </label>
-        <Button
-          disabled={!available || !observation}
-          onClick={() => input({ _tag: "back" })}
-        >
-          Android Back
-        </Button>
-        <div
-          role="group"
-          aria-label="Semantic Android controls"
-          className="grid max-h-[50vh] gap-2 overflow-auto"
-        >
-          {observation?.nodes.flatMap((node) =>
-            node.password ||
-            node.covered ||
-            (!node.editable &&
-              !(
-                session.requirements.platform === "android" &&
-                session.requirements.reversibleActions?.some(
-                  (allowed) =>
-                    allowed.role === node.role && allowed.name === node.name
-                )
-              ))
-              ? []
-              : [
-                  <Button
-                    key={node.target}
-                    variant="outline"
-                    disabled={!available}
-                    onClick={() =>
-                      input(
-                        node.editable
-                          ? {
-                              _tag: "fill",
-                              target: node.target,
-                              text: state.text,
-                            }
-                          : { _tag: "activate", target: node.target }
-                      )
-                    }
-                  >
-                    {node.editable ? "Enter public text in" : "Activate"}{" "}
-                    {node.role} {node.name}
-                  </Button>,
-                ]
-          )}
-        </div>
-        {lifecycle === "recording" ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              mutate({
-                _tag: "instruction",
-                operationId: operationId(),
-                sessionId: session.id,
-                text: state.instruction,
-              });
-            }}
-          >
-            <label>
-              Instruction
-              <Input
-                value={state.instruction}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    instruction: event.target.value,
-                  }))
-                }
-                required
-              />
-            </label>
-            <Button disabled={pending} type="submit">
-              Add Instruction
-            </Button>
-          </form>
-        ) : null}
-      </div>
-    </section>
-  </>
-);
-const AndroidResults = ({
-  session,
-  mutate,
-  pending,
-  lifecycle,
-}: AndroidViewProps) => (
-  <>
-    {" "}
-    {lifecycle === "dry-run-passed" ? (
-      <div className="flex gap-2">
-        <Button
-          disabled={pending}
-          onClick={() =>
-            mutate({
-              _tag: "flow-decision",
-              decision: "verify",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-        >
-          Verify flow
-        </Button>
-        <Button
-          disabled={pending}
-          onClick={() =>
-            mutate({
-              _tag: "flow-decision",
-              decision: "reject",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-        >
-          Reject flow
-        </Button>
-      </div>
-    ) : null}
-    {session.cleanup?._tag === "purge-pending" ? (
-      <section aria-label="Cleanup">
-        <p>{session.cleanup.failure}</p>
-        <p>Retained files: {session.cleanup.retainedFiles.join(", ")}</p>
-        <Button
-          onClick={() =>
-            mutate({
-              _tag: "flow-decision",
-              decision: "retry-cleanup",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-        >
-          Retry Cleanup
-        </Button>
-      </section>
-    ) : null}
-    {session.cleanup?._tag === "purged" ? (
-      <p>Cleanup completed. Verified Flow Skill retained.</p>
-    ) : null}
-    <section aria-label="Android Run Summary">
-      <h2 className="font-semibold">Run Summary</h2>
-      <p>Agent Assessment: {session.assessment?.outcome ?? "not submitted"}</p>
-      <p>{session.assessment?.explanation}</p>
-      <p>
-        Takeover:{" "}
-        {session.takeoverOccurred ? "occurred; Dry Run cannot pass" : "none"}
-      </p>
-      <p>Capture gaps: {session.captureGaps.join(", ") || "none"}</p>
-      <p>{session.error}</p>
-      <ul>
-        {session.preparation.evidence.map((entry) => (
-          <li
-            key={`${entry.type}-${entry.observationId ?? entry.decisionId ?? entry.code ?? "status"}`}
-          >
-            {entry.type} {entry.code} {entry.observationId} {entry.decisionId}
-          </li>
-        ))}
-      </ul>
-    </section>
-  </>
-);
+/** The command a dock gesture names. */
+const gestureCommand = (
+  gesture: AndroidDockGesture,
+  session: AndroidWorkspaceSnapshot
+): AndroidWorkspaceCommand => {
+  const fields = { operationId: operationId(), sessionId: session.id };
+  switch (gesture) {
+    case "prepare":
+    case "recover": {
+      return { _tag: gesture, ...fields };
+    }
+    case "start-recording":
+    case "stop-recording": {
+      return {
+        _tag: "record",
+        ...fields,
+        start: gesture === "start-recording",
+      };
+    }
+    case "take-control":
+    case "return-control": {
+      return {
+        _tag: "control",
+        ...fields,
+        controller: gesture === "take-control" ? "user" : "agent",
+      };
+    }
+    default: {
+      return {
+        _tag: "flow-decision",
+        ...fields,
+        decision: gesture === "verify-flow" ? "verify" : "retry-cleanup",
+      };
+    }
+  }
+};
 
-const AndroidSelectionForm = ({
-  pending,
-  start,
-}: {
-  readonly pending: boolean;
-  readonly start: (event: FormEvent<HTMLFormElement>) => void;
-}) => (
-  <form
-    onSubmit={start}
-    className="grid max-w-2xl gap-3 sm:grid-cols-2"
-    aria-label="Select Android device and Target App"
-  >
-    <Field name="flowSkillName" label="Flow Skill name" />
-    <label className="grid gap-1 text-sm">
-      Device kind
-      <select name="deviceKind" aria-label="Device kind">
-        <option value="emulator">Emulator</option>
-        <option value="physical">Physical device</option>
-      </select>
-    </label>
-    <Field name="serial" label="Selected device serial" />
-    <Field name="deviceName" label="Selected AVD or device model" />
-    <label className="grid gap-1 text-sm">
-      Notification permission
-      <select
-        name="notificationPermission"
-        aria-label="Notification permission"
-      >
-        <option value="unchanged">App does not request notifications</option>
-        <option value="grant">Grant before start</option>
-        <option value="revoke">Deny before start</option>
-      </select>
-    </label>
-    <label className="grid gap-1 text-sm sm:col-span-2">
-      Additional permission decisions
-      <Textarea
-        name="permissions"
-        aria-describedby="android-permissions-hint"
-        rows={3}
-      />
-      <span id="android-permissions-hint" className="text-muted-foreground">
-        One grant or revoke per line, such as revoke android.permission.CAMERA.
-        Notification permission is selected above.
-      </span>
-    </label>
-    <Field name="fingerprint" label="Selected build fingerprint" />
-    <Field name="androidVersion" label="Android release" defaultValue="16" />
-    <Field name="appId" label="Target App package" />
-    <Field name="appBuild" label="Target App versionCode" />
-    <Field name="activity" label="Starting activity" />
-    <Field name="startingState" label="Starting state description" />
-    <Field name="startingRole" label="Starting condition role" />
-    <Field name="startingName" label="Starting condition name" />
-    <div className="grid gap-1 text-sm sm:col-span-2">
-      <label className="grid gap-1">
-        Reversible actions
-        <Textarea
-          name="actions"
-          aria-describedby="android-reversible-actions-hint"
-          rows={4}
-        />
-      </label>
-      <span
-        id="android-reversible-actions-hint"
-        className="text-muted-foreground"
-      >
-        One role: name per line, such as button: Sign in. Only these controls
-        can be activated.
-      </span>
-    </div>
-    <Field name="outcomeRole" label="Required outcome role" />
-    <Field name="outcomeName" label="Required outcome name" />
-    <label>
-      Helper authorization
-      <select name="helperConsent" aria-label="Helper authorization">
-        <option value="none">Use compatible installed helper only</option>
-        <option value="install">Authorize pinned helper installation</option>
-        <option value="replace">Authorize pinned helper replacement</option>
-      </select>
-    </label>
-    <Button disabled={pending} type="submit">
-      Open experimental Android session
-    </Button>
-  </form>
-);
+/** What the device glass says while it has no stream to show. */
+const glassText = (session: AndroidWorkspaceSnapshot) => {
+  if (session.phase === "pending") {
+    return "Prepare the device from the dock to show its screen here.";
+  }
+  if (session.phase === "refused") {
+    return "This session never used the device.";
+  }
+  return "This session released the device.";
+};
 
-export const AndroidWorkspace = ({
-  requestedSessionId,
+export const AndroidEmptyState = ({
   onBrowser,
+  onOpen,
+  onSelect,
+  sessions,
 }: {
-  readonly requestedSessionId?: string | undefined;
   readonly onBrowser: () => void;
-}) => {
-  const [state, setState] = useAtom(workspaceAtom);
-  const sessions = useAtomValue(androidSessionsAtom);
-  const refresh = useAtomRefresh(androidSessionsAtom);
-  const gesture = useWorkspaceGesture(sessionStartGestureAtom);
-  const dispatch = (command: AndroidWorkspaceCommand) =>
-    gesture.dispatch(
-      runAndroidWorkspaceCommand(command).pipe(
-        Effect.tap((session) =>
-          Effect.sync(() => {
-            setState((current) => applySnapshot(current, session));
-            refresh();
-          })
-        ),
-        Effect.mapError(message),
-        Effect.asVoid
-      )
-    );
+  readonly onOpen: () => void;
+  readonly onSelect: (sessionId: string) => void;
+  readonly sessions: readonly AndroidWorkspaceSummary[];
+}) => (
+  <main className="relative flex h-full min-h-0 flex-col">
+    <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
+      <section className="max-w-md space-y-4 text-center">
+        <h1 className="text-xl font-semibold tracking-tight">
+          No Android session
+        </h1>
+        <p className="text-muted-foreground text-sm text-pretty">
+          Open a session to pick a device and an app, then start recording when
+          the journey begins.
+        </p>
+        {sessions.length === 0 ? null : (
+          <div className="flex justify-center">
+            <AndroidSessionSelect
+              onSelect={onSelect}
+              selectedSessionId={undefined}
+              sessions={sessions}
+            />
+          </div>
+        )}
+        <div className="flex justify-center gap-2">
+          <Button onClick={onOpen}>
+            <SmartphoneIcon />
+            Open Android session
+          </Button>
+          <Button onClick={onBrowser} variant="outline">
+            <MonitorIcon />
+            Browser Workspace
+          </Button>
+        </div>
+      </section>
+    </div>
+  </main>
+);
+
+type SetState = (update: (current: WorkspaceState) => WorkspaceState) => void;
+type Mutate = (command: AndroidWorkspaceCommand) => boolean;
+
+/**
+ * Reads a `?android=` session once, then keeps the selected session's
+ * retained observation current so the server can tell a stale pick from a
+ * fresh one. The stream, not this, is what the person sees.
+ */
+const useAndroidSessionSync = (
+  requestedSessionId: string | undefined,
+  session: AndroidWorkspaceSnapshot | null,
+  setState: SetState
+) => {
   useEffect(() => {
     if (
       requestedSessionId === undefined ||
@@ -640,9 +227,9 @@ export const AndroidWorkspace = ({
         _tag: "read",
         sessionId: requestedSessionId,
       }).pipe(
-        Effect.tap((session) =>
+        Effect.tap((snapshot) =>
           Effect.sync(() =>
-            setState((current) => applySnapshot(current, session))
+            setState((current) => applySnapshot(current, snapshot))
           )
         ),
         Effect.catchCause((failureCause) =>
@@ -659,20 +246,20 @@ export const AndroidWorkspace = ({
       Effect.runFork(Fiber.interrupt(fiber));
     };
   }, [requestedSessionId, setState]);
-  const id = state.session?.id;
-  const running = state.session?.phase === "running";
+  const id = session?.id;
+  const running = session?.phase === "running";
   useEffect(() => {
     if (id === undefined || !running) {
       return;
     }
     const reportMirrorFailure = (failureCause: Cause.Cause<unknown>) =>
       runAndroidWorkspaceCommand({ _tag: "read", sessionId: id }).pipe(
-        Effect.tap((session) =>
+        Effect.tap((snapshot) =>
           Effect.sync(() =>
             setState((current) => ({
               ...current,
               failure: Cause.pretty(failureCause),
-              session,
+              session: snapshot,
             }))
           )
         ),
@@ -680,8 +267,8 @@ export const AndroidWorkspace = ({
       );
     const fiber = Effect.runFork(
       Effect.forever(
-        Effect.gen(function* mirrorSelectedDevice() {
-          const session = yield* runAndroidWorkspaceCommand({
+        Effect.gen(function* observeSelectedDevice() {
+          const snapshot = yield* runAndroidWorkspaceCommand({
             _tag: "observe",
             image: false,
             sessionId: id,
@@ -689,7 +276,7 @@ export const AndroidWorkspace = ({
           yield* Effect.sync(() =>
             setState((current) =>
               current.session?.id === id
-                ? applySnapshot(current, session)
+                ? applySnapshot(current, snapshot)
                 : current
             )
           );
@@ -701,151 +288,434 @@ export const AndroidWorkspace = ({
       Effect.runFork(Fiber.interrupt(fiber));
     };
   }, [id, running, setState]);
-  const { session } = state;
-  const mutate = (command: AndroidWorkspaceCommand) => dispatch(command);
-  const start = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const name = selected(form, "flowSkillName");
-    if (!Schema.is(FlowSkillName)(name)) {
-      setState((current) => ({
-        ...current,
-        failure: "Choose a valid Flow Skill name.",
-      }));
-      return;
-    }
-    const actions = parseReversibleActions(selected(form, "actions"));
-    if (actions === undefined) {
-      setState((current) => ({
-        ...current,
-        failure: "Write each reversible action as role: name on its own line.",
-      }));
-      return;
-    }
-    const notification = selected(form, "notificationPermission");
-    const declared = selected(form, "permissions");
-    const notificationLine =
-      notification === "unchanged"
-        ? ""
-        : `${notification} android.permission.POST_NOTIFICATIONS`;
-    const permissions = parseAndroidPermissionDecisions(
-      `${notificationLine}\n${declared}`
-    );
-    if (permissions === undefined) {
-      setState((current) => ({
-        ...current,
-        failure:
-          "Declare each permission once as grant or revoke followed by android.permission.NAME.",
-      }));
-      return;
-    }
-    mutate({
-      _tag: "start",
-      flowSkillName: name,
-      kind: "teaching",
-      operationId: operationId(),
-      recordingId: null,
-      selection: selection(form, actions, permissions),
-    });
-  };
-  const input = (
-    action: Extract<
-      AndroidWorkspaceCommand,
-      { readonly _tag: "input" }
-    >["action"]
-  ) => {
-    if (session?.observation) {
-      mutate({
-        _tag: "input",
-        action,
-        observationId: session.observation.id,
-        operationId: operationId(),
-        sessionId: session.id,
-      });
-    }
-  };
-  const available =
-    session?.controller === "user" &&
-    session.phase === "running" &&
-    !gesture.pending;
-  const observation = session?.observation;
-  const lifecycle = session?.captureState?._tag;
+};
+
+/** The dock's controls row: navigation first, then the state's own actions. */
+const AndroidDockControls = ({
+  instructing,
+  mutate,
+  onBrowser,
+  onInstruct,
+  onNewSession,
+  pending,
+  session,
+  sessions,
+}: {
+  readonly instructing: boolean;
+  readonly mutate: Mutate;
+  readonly onBrowser: () => void;
+  readonly onInstruct: () => void;
+  readonly onNewSession: () => void;
+  readonly pending: boolean;
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly sessions: readonly AndroidWorkspaceSummary[];
+}) => {
+  const presentation = androidDockPresentation(session);
+  const primary = presentation.action;
+  const stops = primary?.gesture === "stop-recording";
   return (
-    <main className="mx-auto grid h-full max-w-7xl gap-4 overflow-auto p-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">
-          Contingency · Android experimental
-        </h1>
-        <Button variant="outline" onClick={onBrowser}>
-          Browser Workspace
+    <>
+      <DockWordmark />
+      <AndroidSessionSelect
+        onSelect={(value) => {
+          if (Schema.is(AgentSessionId)(value)) {
+            mutate({ _tag: "read", sessionId: value });
+          }
+        }}
+        selectedSessionId={session.id}
+        sessions={sessions}
+      />
+      <SkillsDockButton />
+      <Button
+        aria-label="Browser Workspace"
+        onClick={onBrowser}
+        size="icon-sm"
+        title="Browser Workspace"
+        variant="ghost"
+      >
+        <MonitorIcon />
+      </Button>
+      <DockSpacer />
+      {presentation.showsComment ? (
+        <Button
+          aria-pressed={instructing}
+          onClick={onInstruct}
+          size="sm"
+          variant="ghost"
+        >
+          <MessageSquareTextIcon />
+          Comment
         </Button>
-      </header>
-      <Limits />
-      {gesture.error || state.failure ? (
-        <p role="alert">{gesture.error ?? state.failure}</p>
       ) : null}
-      {AsyncResult.isSuccess(sessions) && sessions.value.length > 0 ? (
-        <label>
-          Android Agent Session
-          <select
-            aria-label="Android Agent Session"
-            value={session?.id ?? ""}
-            onChange={(event) => {
-              const { value } = event.currentTarget;
+      {presentation.rejectable ? (
+        <Button
+          disabled={pending}
+          onClick={() =>
+            mutate({
+              _tag: "flow-decision",
+              decision: "reject",
+              operationId: operationId(),
+              sessionId: session.id,
+            })
+          }
+          size="sm"
+          variant="outline"
+        >
+          Reject flow
+        </Button>
+      ) : null}
+      {isLiveAndroidSession(session) ? (
+        <Button
+          disabled={pending}
+          onClick={() =>
+            mutate({
+              _tag: "close",
+              operationId: operationId(),
+              sessionId: session.id,
+            })
+          }
+          size="sm"
+          variant="outline"
+        >
+          Close session
+        </Button>
+      ) : (
+        <Button onClick={onNewSession} size="sm" variant="outline">
+          New session
+        </Button>
+      )}
+      {primary === null ? null : (
+        <Button
+          aria-label={primary.accessibleName}
+          disabled={pending}
+          onClick={() => mutate(gestureCommand(primary.gesture, session))}
+          variant={stops ? "destructive" : "default"}
+        >
+          {primary.gesture === "start-recording" ? (
+            <CircleIcon className="fill-current" />
+          ) : null}
+          {stops ? <SquareIcon className="fill-current" /> : null}
+          {primary.label}
+        </Button>
+      )}
+    </>
+  );
+};
+
+/** The dock's request tier: what preparation waits on, then what is typed. */
+const AndroidDockRequests = ({
+  field,
+  input,
+  mutate,
+  pending,
+  session,
+  setState,
+  state,
+}: {
+  readonly field: NonNullable<AndroidWorkspaceSnapshot["field"]> | null;
+  readonly input: (action: InputAction, observationId: string) => void;
+  readonly mutate: Mutate;
+  readonly pending: boolean;
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly setState: SetState;
+  readonly state: WorkspaceState;
+}) => (
+  <>
+    <AndroidRequests
+      onDecide={(decisionId, allow) =>
+        mutate({
+          _tag: "decide",
+          allow,
+          decisionId,
+          operationId: operationId(),
+          sessionId: session.id,
+        })
+      }
+      pending={pending}
+      session={session}
+    />
+    {field === null ? null : (
+      <AndroidFieldEntry
+        disabled={pending}
+        field={field}
+        key={fieldKey(field)}
+        onDismiss={() =>
+          setState((current) => ({
+            ...current,
+            dismissedField: fieldKey(field),
+          }))
+        }
+        onSubmit={(text) =>
+          input(
+            { _tag: "fill", target: field.target, text },
+            field.observationId
+          )
+        }
+      />
+    )}
+    {session.captureState?._tag === "recording" && state.instructing ? (
+      <AndroidInstructionEntry
+        onDismiss={() =>
+          setState((current) => ({ ...current, instructing: false }))
+        }
+        onSubmit={(text) => {
+          mutate({
+            _tag: "instruction",
+            operationId: operationId(),
+            sessionId: session.id,
+            text,
+          });
+          setState((current) => ({ ...current, instructing: false }));
+        }}
+        pending={pending}
+      />
+    ) : null}
+  </>
+);
+
+type InputAction = Extract<
+  AndroidWorkspaceCommand,
+  { readonly _tag: "input" }
+>["action"];
+
+/** One selected session: the device on the stage and the dock over it. */
+const AndroidSessionView = ({
+  mutate,
+  notices,
+  onBrowser,
+  pending,
+  run,
+  session,
+  setState,
+  state,
+}: {
+  readonly mutate: Mutate;
+  readonly notices: React.ReactNode;
+  readonly onBrowser: () => void;
+  readonly pending: boolean;
+  readonly run: (command: AndroidWorkspaceCommand) => GestureRun;
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly setState: SetState;
+  readonly state: WorkspaceState;
+}) => {
+  const sessions = useAtomValue(androidSessionsAtom);
+  const pick = useWorkspaceGesture(pickGestureAtom);
+  const canAct =
+    session.controller === "user" && session.phase === "running" && !pending;
+  const field =
+    canAct &&
+    session.field !== null &&
+    fieldKey(session.field) !== state.dismissedField
+      ? session.field
+      : null;
+  const input = (action: InputAction, observationId: string) =>
+    mutate({
+      _tag: "input",
+      action,
+      observationId,
+      operationId: operationId(),
+      sessionId: session.id,
+    });
+  return (
+    <WorkspaceLayout
+      sessionId={session.id}
+      skillsSession={androidSkillsSessionView(session)}
+      summary={
+        isLiveAndroidSession(session)
+          ? null
+          : {
+              label: "Run Summary",
+              summary: <AndroidRunSummary session={session} />,
+            }
+      }
+    >
+      <main
+        className={cn(
+          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6 transition-[padding]",
+          // The dock's request tier grows over the stage; the device makes room.
+          field !== null ||
+            session.preparation.pending.length > 0 ||
+            (state.instructing && session.captureState?._tag === "recording")
+            ? "pb-56"
+            : "pb-36"
+        )}
+      >
+        {notices}
+        <AndroidDevice
+          canAct={canAct}
+          live={session.phase === "running" || session.phase === "paused"}
+          onBack={() => {
+            if (session.observation !== null) {
+              input({ _tag: "back" }, session.observation.id);
+            }
+          }}
+          onPick={(point, frame) => {
+            pick.dispatch(
+              run({
+                _tag: "pick",
+                frame,
+                observationId: session.observation?.id ?? "none",
+                operationId: operationId(),
+                point,
+                sessionId: session.id,
+              })
+            );
+            setState((current) => ({ ...current, dismissedField: null }));
+          }}
+          paused={session.phase === "paused"}
+          pending={pick.pending}
+          refusal={pick.error ?? null}
+          sessionId={session.id}
+          unavailable={glassText(session)}
+        />
+        <DockShell
+          requests={
+            <AndroidDockRequests
+              field={field}
+              input={input}
+              mutate={mutate}
+              pending={pending}
+              session={session}
+              setState={setState}
+              state={state}
+            />
+          }
+          status={
+            <DockStatus badges={<AndroidStateBadges session={session} />}>
+              {androidDockPresentation(session).nextStep}
+            </DockStatus>
+          }
+        >
+          <AndroidDockControls
+            instructing={state.instructing}
+            mutate={mutate}
+            onBrowser={onBrowser}
+            onInstruct={() =>
+              setState((current) => ({
+                ...current,
+                instructing: !current.instructing,
+              }))
+            }
+            onNewSession={() =>
+              setState((current) => ({
+                ...current,
+                session: null,
+                setupOpen: true,
+              }))
+            }
+            pending={pending}
+            session={session}
+            sessions={withSelected(
+              AsyncResult.isSuccess(sessions) ? sessions.value : [],
+              session
+            )}
+          />
+        </DockShell>
+      </main>
+    </WorkspaceLayout>
+  );
+};
+
+/**
+ * The Android Workspace on the browser Workspace's own dock, state names,
+ * Skills drawer, and Run Summary, marked Experimental. The device shows only
+ * what the device shows: a click on it is resolved by the server against a
+ * fresh observation and sent as a semantic action, or refused beside the
+ * device with nothing sent.
+ */
+export const AndroidWorkspace = ({
+  requestedSessionId,
+  onBrowser,
+}: {
+  readonly requestedSessionId?: string | undefined;
+  readonly onBrowser: () => void;
+}) => {
+  const setChrome = useAtomSet(workspaceChromeAtom);
+  useEffect(() => {
+    setChrome(true);
+    return () => setChrome(false);
+  }, [setChrome]);
+  const [state, setState] = useAtom(workspaceAtom);
+  const sessions = useAtomValue(androidSessionsAtom);
+  const refresh = useAtomRefresh(androidSessionsAtom);
+  const gesture = useWorkspaceGesture(sessionStartGestureAtom);
+  useAndroidSessionSync(requestedSessionId, state.session, setState);
+  const run = (command: AndroidWorkspaceCommand): GestureRun =>
+    runAndroidWorkspaceCommand(command).pipe(
+      Effect.tap((session) =>
+        Effect.sync(() => {
+          setState((current) => applySnapshot(current, session));
+          refresh();
+        })
+      ),
+      Effect.mapError(message),
+      Effect.asVoid
+    );
+  const mutate = (command: AndroidWorkspaceCommand) =>
+    gesture.dispatch(run(command));
+  const setupOpen = (open: boolean) =>
+    setState((current) => ({ ...current, setupOpen: open }));
+  const failure = gesture.error ?? state.failure;
+  const notices =
+    failure === null ? null : (
+      <DockNotices>
+        <Alert variant="destructive">
+          <AlertTitle>The Android session did not answer</AlertTitle>
+          <AlertDescription>{failure}</AlertDescription>
+        </Alert>
+      </DockNotices>
+    );
+  return (
+    <div className="relative flex h-svh min-h-0 flex-col">
+      {state.session === null ? (
+        <WorkspaceLayout
+          sessionId={undefined}
+          skillsSession={undefined}
+          summary={undefined}
+        >
+          <AndroidEmptyState
+            onBrowser={onBrowser}
+            onOpen={() => setupOpen(true)}
+            onSelect={(value) => {
               if (Schema.is(AgentSessionId)(value)) {
                 mutate({ _tag: "read", sessionId: value });
               }
             }}
-          >
-            <option value="">Select explicitly</option>
-            {sessions.value.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.flowSkillName} · {entry.kind} · {entry.phase} ·{" "}
-                {entry.selection.device.serial}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      {session === null ? (
-        <AndroidSelectionForm pending={gesture.pending} start={start} />
+            sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
+          />
+          {notices}
+        </WorkspaceLayout>
       ) : (
-        <>
-          <AndroidStatus
-            session={session}
-            state={state}
-            setState={setState}
-            mutate={mutate}
-            input={input}
-            pending={gesture.pending}
-            available={available}
-            lifecycle={lifecycle}
-            observation={observation}
-          />
-          <AndroidMirror
-            session={session}
-            state={state}
-            setState={setState}
-            mutate={mutate}
-            input={input}
-            pending={gesture.pending}
-            available={available}
-            lifecycle={lifecycle}
-            observation={observation}
-          />
-          <AndroidResults
-            session={session}
-            state={state}
-            setState={setState}
-            mutate={mutate}
-            input={input}
-            pending={gesture.pending}
-            available={available}
-            lifecycle={lifecycle}
-            observation={observation}
-          />
-        </>
+        <AndroidSessionView
+          mutate={mutate}
+          notices={notices}
+          onBrowser={onBrowser}
+          pending={gesture.pending}
+          run={run}
+          session={state.session}
+          setState={setState}
+          state={state}
+        />
       )}
-    </main>
+      <AndroidSetupSheet
+        onOpen={(flowSkillName: FlowSkillName, selection) => {
+          if (
+            mutate({
+              _tag: "start",
+              flowSkillName,
+              kind: "teaching",
+              operationId: operationId(),
+              recordingId: null,
+              selection,
+            })
+          ) {
+            setupOpen(false);
+          }
+        }}
+        onOpenChange={setupOpen}
+        open={state.setupOpen}
+        pending={gesture.pending}
+      />
+    </div>
   );
 };

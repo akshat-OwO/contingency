@@ -96,19 +96,62 @@ const supportsWorkspaceRequirements = (
   inputCount === 0;
 const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
   JSON.stringify(
-    nodes.map(({ role, name, editable, covered, password, packageName }) => ({
-      covered,
-      editable,
-      name,
-      packageName,
-      password,
-      role,
-    }))
+    nodes.map(
+      ({ role, name, editable, covered, password, packageName, bounds }) => ({
+        bounds,
+        covered,
+        editable,
+        name,
+        packageName,
+        password,
+        role,
+      })
+    )
   );
+
+const observationSize = (observation: AndroidObservation) => {
+  const pixels = Buffer.from(observation.screenshot.image, "base64");
+  return { height: pixels.readUInt32BE(20), width: pixels.readUInt32BE(16) };
+};
+const hitTest = (nodes: AndroidObservation["nodes"], x: number, y: number) => {
+  let hit: AndroidObservation["nodes"][number] | undefined;
+  let area = Infinity;
+  for (const node of nodes) {
+    const { bounds } = node;
+    // An unnamed hittable node, such as a scroll container, has no semantic
+    // identity to teach or replay, so a click there activates nothing.
+    if (
+      !(node.editable || (node.hittable && node.name.trim() !== "")) ||
+      bounds === undefined ||
+      bounds.width <= 0 ||
+      bounds.height <= 0
+    ) {
+      continue;
+    }
+    if (
+      x < bounds.x ||
+      y < bounds.y ||
+      x > bounds.x + bounds.width ||
+      y > bounds.y + bounds.height
+    ) {
+      continue;
+    }
+    const size = bounds.width * bounds.height;
+    if (size < area) {
+      hit = node;
+      area = size;
+    }
+  }
+  return hit;
+};
 
 interface SessionState {
   /** Bounded semantic selections only; historical frames never retain screenshot pixels. */
-  readonly observations: readonly Pick<AndroidObservation, "id" | "nodes">[];
+  readonly observations: readonly (Pick<AndroidObservation, "id" | "nodes"> & {
+    readonly width: number;
+    readonly height: number;
+  })[];
+  readonly field: AndroidWorkspaceSnapshot["field"];
   readonly revision: number;
   readonly summary: AndroidWorkspaceSummary;
   readonly observation: AndroidObservation | null;
@@ -188,10 +231,17 @@ export const makeAndroidWorkspaceLayer = (options: {
         session: Session,
         change: (current: SessionState) => SessionState
       ) =>
-        registry.update(session.state, (current) => ({
-          ...change(current),
-          revision: current.revision + 1,
-        }));
+        registry.update(session.state, (current) => {
+          const next = change(current);
+          return {
+            ...next,
+            field:
+              next.summary.phase === "running" && next.observation !== null
+                ? next.field
+                : null,
+            revision: current.revision + 1,
+          };
+        });
       const persist = (session: Session) =>
         Effect.gen(function* persistSummary() {
           const summary = {
@@ -232,22 +282,16 @@ export const makeAndroidWorkspaceLayer = (options: {
           return {
             ...current.summary,
             ...recording,
+            field: current.field,
             observation:
               captured === null
                 ? null
                 : {
                     capturedAt: captured.screenshot.capturedAt,
-                    height: Buffer.from(
-                      captured.screenshot.image,
-                      "base64"
-                    ).readUInt32BE(20),
+                    ...observationSize(captured),
                     id: captured.id,
                     image: image ? captured.screenshot.image : null,
                     nodes: captured.nodes.filter((node) => !node.password),
-                    width: Buffer.from(
-                      captured.screenshot.image,
-                      "base64"
-                    ).readUInt32BE(16),
                   },
             preparation: session.run.state(),
             revision: current.revision,
@@ -374,6 +418,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 : undefined),
             operationId,
             recordingId: current.summary.recordingId,
+            runtime: current.summary.requirements,
           });
         });
       const pause = (session: Session, cause: AndroidWorkspaceError) =>
@@ -402,10 +447,27 @@ export const makeAndroidWorkspaceLayer = (options: {
       ) => {
         update(session, (current) => ({
           ...current,
+          field:
+            current.observation !== null &&
+            semanticSignature(current.observation.nodes) ===
+              semanticSignature(observation.nodes)
+              ? current.field
+              : null,
           observation,
           observations: [
-            ...current.observations.slice(-7),
-            { id: observation.id, nodes: observation.nodes },
+            ...current.observations.filter(
+              (retained) => retained.id === current.field?.observationId
+            ),
+            ...current.observations
+              .filter(
+                (retained) => retained.id !== current.field?.observationId
+              )
+              .slice(-7),
+            {
+              id: observation.id,
+              nodes: observation.nodes,
+              ...observationSize(observation),
+            },
           ],
           summary: { ...current.summary, error: null, phase: "running" },
         }));
@@ -465,7 +527,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             outcomes: selection.outcomes,
             platform: "android",
             preparation: selection.setup,
-            reversibleActions: selection.reversibleActions,
+            reversibleActions: [],
           };
           let { recordingId } = command;
           if (command.kind === "teaching") {
@@ -568,6 +630,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               setup: selection.setup,
               targetApp: selection.environment.appId,
               taught,
+              teaching: command.kind === "teaching",
             };
             const create =
               selection.helperConsent === "none"
@@ -624,6 +687,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               state: Atom.make<SessionState>({
                 artifacts: [],
                 bytes: 0,
+                field: null,
                 observation: null,
                 observations: [],
                 recording: false,
@@ -716,7 +780,8 @@ export const makeAndroidWorkspaceLayer = (options: {
       const inputWorkspace = (
         session: Session,
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "input" }>,
-        source: "agent" | "user"
+        source: "agent" | "user",
+        fresh?: AndroidObservation
       ) =>
         // oxlint-disable-next-line eslint/complexity
         Effect.gen(function* inputWorkspaceCommand() {
@@ -754,8 +819,10 @@ export const makeAndroidWorkspaceLayer = (options: {
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
-          const before = yield* session.run.observe();
-          acceptObservation(session, before);
+          const before = fresh ?? (yield* session.run.observe());
+          if (fresh === undefined) {
+            acceptObservation(session, before);
+          }
           const matches =
             selectedTarget === undefined
               ? []
@@ -789,7 +856,11 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
           }
           const actionId = `android-action-${randomUUID()}`;
-          update(session, (value) => ({ ...value, observation: null }));
+          update(session, (value) => ({
+            ...value,
+            field: null,
+            observation: null,
+          }));
           const forwarded =
             action._tag === "back"
               ? session.run.back(before.id)
@@ -807,6 +878,31 @@ export const makeAndroidWorkspaceLayer = (options: {
           const after = yield* session.run.observe();
           acceptObservation(session, after);
           if (current.recording) {
+            if (
+              action._tag === "activate" &&
+              target !== undefined &&
+              summary.requirements.platform === "android"
+            ) {
+              const activated = summary.requirements.reversibleActions ?? [];
+              if (
+                !activated.some(
+                  (node) =>
+                    node.role === target.role && node.name === target.name
+                )
+              ) {
+                const requirements = {
+                  ...summary.requirements,
+                  reversibleActions: [
+                    ...activated,
+                    { name: target.name, role: target.role },
+                  ],
+                };
+                update(session, (value) => ({
+                  ...value,
+                  summary: { ...value.summary, requirements },
+                }));
+              }
+            }
             yield* keyframe(session, before, actionId);
             yield* emit(session, {
               _tag: "action",
@@ -846,6 +942,105 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
             yield* keyframe(session, after, actionId);
           }
+        });
+      const pickWorkspace = (
+        session: Session,
+        command: Extract<AndroidWorkspaceCommand, { readonly _tag: "pick" }>,
+        source: "agent" | "user"
+      ) =>
+        Effect.gen(function* pickWorkspaceCommand() {
+          const current = state(session);
+          const { summary } = current;
+          if (
+            source !== "user" ||
+            summary.controller !== source ||
+            summary.phase !== "running"
+          ) {
+            return yield* denied(
+              "Only the user controlling a running session can pick. No input was sent."
+            );
+          }
+          const previous = current.observations.find(
+            (observation) => observation.id === command.observationId
+          );
+          if (previous === undefined) {
+            return yield* denied(
+              "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+            );
+          }
+          const observed = yield* session.run.observe();
+          acceptObservation(session, observed);
+          const { width, height } = observationSize(observed);
+          const ratio = width / height;
+          const frameRatio = command.frame.width / command.frame.height;
+          if (
+            Math.sign(width - height) !==
+              Math.sign(command.frame.width - command.frame.height) ||
+            Math.abs(frameRatio / ratio - 1) > 0.02
+          ) {
+            return yield* denied(
+              "The stream size or orientation changed. No input was sent."
+            );
+          }
+          const x = command.point.x * width;
+          const y = command.point.y * height;
+          // Resolve containing candidates first, so a private or foreign child cannot fall through to an eligible parent.
+          const target = hitTest(observed.nodes, x, y);
+          if (target === undefined || target.covered) {
+            return yield* denied(
+              "Nothing to activate there. No input was sent."
+            );
+          }
+          if (target.packageName !== summary.selection.environment.appId) {
+            return yield* denied(
+              "That element belongs to another app. No input was sent."
+            );
+          }
+          if (target.password) {
+            return yield* denied(
+              "Private fields need a Variable. No input was sent."
+            );
+          }
+          const priorTarget = hitTest(
+            previous.nodes,
+            command.point.x * previous.width,
+            command.point.y * previous.height
+          );
+          if (
+            priorTarget === undefined ||
+            priorTarget.role !== target.role ||
+            priorTarget.name !== target.name ||
+            priorTarget.editable !== target.editable ||
+            priorTarget.packageName !== target.packageName
+          ) {
+            return yield* denied(
+              "The element moved or changed. No input was sent."
+            );
+          }
+          if (target.editable) {
+            update(session, (value) => ({
+              ...value,
+              field: {
+                name: target.name,
+                observationId: observed.id,
+                role: target.role,
+                target: target.target,
+              },
+            }));
+            return;
+          }
+          yield* inputWorkspace(
+            session,
+            {
+              _tag: "input",
+              action: { _tag: "activate", target: target.target },
+              observationId: observed.id,
+              operationId: command.operationId,
+              sessionId: command.sessionId,
+            },
+            source,
+            observed
+          );
         });
       const completeWorkspace = (
         session: Session,
@@ -1053,6 +1248,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               target: null,
               text: command.text,
             });
+          } else if (command._tag === "pick") {
+            yield* pickWorkspace(session, command, source);
           } else if (command._tag === "input") {
             yield* inputWorkspace(session, command, source);
           } else if (command._tag === "complete") {
@@ -1092,6 +1289,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               summary.completedAt === null
                 ? "This process can read the retained Summary but does not own its device. Open the owning Workspace to drive it."
                 : summary.error,
+            field: null,
             observation: null,
             phase:
               summary.phase === "running" ||
