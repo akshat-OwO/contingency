@@ -490,6 +490,18 @@ For model wakeup, use a disposable Claude Code session with this stdio server, `
 
 Stop the disposable Claude process and run `cleanup`. Require artifacts to survive cleanup.
 
+### Android discovery and element bounds
+
+Preconditions: Build current source, launch an isolated Workspace with `control-contingency launch`, and require `doctor` to pass. Obtain explicit device selection. A physical phone requires separate authorization for discovery and for capture. Discovery needs ADB and Android SDK build-tools with `aapt2`, located through `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or the macOS SDK default.
+
+- **Declare selection:** Export `CONTINGENCY_ANDROID_SERIAL` for the authorized device, `CONTINGENCY_ANDROID_RPC_URL=ws://127.0.0.1:<isolated-port>/ws`, and `CONTINGENCY_ANDROID_EVIDENCE_DIRECTORY` under `artifacts/android-discovery/<device-kind>/`. On the Nothing Phone, also export `CONTINGENCY_ANDROID_MODEL=A059`.
+- **Discover:** Run `nub packages/cli/scripts/verify-android-discovery.ts`. Require both connected devices with their API levels, nonempty launchable apps with labels, versions and activities, and refusal of a mismatched device fingerprint. The runner compares package, foreground-window and forwarding hashes before and after. `discovery-receipt.json` records the RPC entry point and sanitized results. Deterministic service tests separately cover ADB `unauthorized` and `offline` states. For a supplied label-regression fixture, export `CONTINGENCY_ANDROID_EXPECTED_APP` and `CONTINGENCY_ANDROID_EXPECTED_APP_LABEL` to assert the returned label in the same RPC drive.
+- **Capture bounds:** Export `CONTINGENCY_ANDROID_TARGET_APP` to the app already in the foreground. Run `nub packages/cli/scripts/verify-android-bounds.ts`. It opens only a capture session, validates rectangles through the Workspace codec, and closes its owned runtime. The pinned helper must already exist on a phone. For an owned emulator only, `CONTINGENCY_ANDROID_HELPER_GRANT=install` authorizes installing that helper when absent. Require a nonempty `boundedCount`, the observation ID and display size in `bounds-receipt.json`.
+- **Inspect alignment:** Set `CONTINGENCY_ANDROID_INSPECTION_IMAGE` to a private temporary PNG path before capture. Compare the receipt's sample rectangles with the screenshot at its original dimensions. Remove the PNG after inspection. Raw device screenshots stay outside retained evidence.
+- **Cleanup:** Remove only a helper this proof installed, stop only its owned emulator, and run `control-contingency cleanup`. Require owned ports and processes to exit and sanitized receipts to survive.
+
+Discovery changes no device state. App discovery takes the explicit device identity returned by device discovery, with `host: local`, and refuses identity drift before and after reading apps. Bounds capture is a separate operation with its own helper lifecycle. Neither proof authorizes input or coordinate dispatch.
+
 ### Android preparation
 
 Preconditions: Build current source. Obtain explicit selection and authorization for the prepared Pixel_9 API 36 emulator. Start only that AVD. Read its serial, AVD, and fingerprint back through ADB. The pinned 0.21.25 helper must already be installed through the consent-bound runtime path. Do not adopt another session or helper process.

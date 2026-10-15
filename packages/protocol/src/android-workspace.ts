@@ -53,6 +53,38 @@ export const AndroidWorkspaceSelection = Schema.Struct({
 });
 export type AndroidWorkspaceSelection = typeof AndroidWorkspaceSelection.Type;
 
+/** Device-pixel rectangle in the containing observation's display coordinate space. */
+// oxlint-disable-next-line eslint/no-redeclare
+export const AndroidElementBounds = Schema.Struct({
+  height: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  width: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
+export type AndroidElementBounds = typeof AndroidElementBounds.Type;
+
+// oxlint-disable-next-line eslint/no-redeclare
+export const AndroidDiscoveredDevice = Schema.Struct({
+  api: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
+  avd: Schema.NullOr(text),
+  fingerprint: Schema.NullOr(text),
+  kind: Schema.Literals(["emulator", "physical"]),
+  model: Schema.NullOr(text),
+  serial: text,
+  state: Schema.Literals(["device", "offline", "unauthorized", "unavailable"]),
+});
+export type AndroidDiscoveredDevice = typeof AndroidDiscoveredDevice.Type;
+
+// oxlint-disable-next-line eslint/no-redeclare
+export const AndroidDiscoveredApp = Schema.Struct({
+  label: Schema.String,
+  launchActivity: text,
+  package: text,
+  versionCode: text,
+  versionName: Schema.String,
+});
+export type AndroidDiscoveredApp = typeof AndroidDiscoveredApp.Type;
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceObservation = Schema.Struct({
   capturedAt: text,
@@ -61,6 +93,7 @@ export const AndroidWorkspaceObservation = Schema.Struct({
   image: Schema.NullOr(Schema.String),
   nodes: Schema.Array(
     Schema.Struct({
+      bounds: Schema.optionalKey(AndroidElementBounds),
       covered: Schema.Boolean,
       editable: Schema.Boolean,
       name: Schema.String,

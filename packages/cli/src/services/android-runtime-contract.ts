@@ -1,4 +1,7 @@
-import type { PlatformCapability } from "@contingency/protocol";
+import type {
+  AndroidElementBounds,
+  PlatformCapability,
+} from "@contingency/protocol";
 import type { Effect, Redacted, Scope } from "effect";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
@@ -120,6 +123,7 @@ export interface AndroidObservation extends PlatformObservation {
     readonly editable: boolean;
     readonly password: boolean;
     readonly covered: boolean;
+    readonly bounds?: AndroidElementBounds;
   }[];
 }
 

@@ -22,6 +22,7 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { androidDiscovery } from "../services/android-discovery.ts";
 import { AndroidWorkspace } from "../services/android-workspace.ts";
 import { CatalogBrowser } from "../services/catalog-browser.ts";
 import type {
@@ -187,6 +188,22 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by Agent Session lifecycle rather than sorted.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "android.devices.list": () =>
+        androidDiscovery
+          .devices()
+          .pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
+      "android.apps.list": ({ device }) =>
+        androidDiscovery
+          .apps(device)
+          .pipe(
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
       "android.workspace.command": (command) =>
         Effect.serviceOption(AndroidWorkspace).pipe(
           Effect.flatMap((service) =>
