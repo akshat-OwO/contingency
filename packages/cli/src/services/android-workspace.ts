@@ -32,6 +32,8 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import { androidHelperRelease } from "./android-runtime-contract.ts";
 import type { AndroidObservation } from "./android-runtime-contract.ts";
+import { acquireAndroidStream } from "./android-stream.ts";
+import type { AndroidDeviceStream } from "./android-stream.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
@@ -116,6 +118,7 @@ interface SessionState {
   readonly bytes: number;
 }
 interface Session {
+  readonly stream: AndroidDeviceStream;
   readonly state: Atom.Writable<SessionState>;
   readonly run: AndroidRun;
   readonly scope: Scope.Closeable;
@@ -137,6 +140,9 @@ type EventPayload<E = TeachingEvent> = E extends TeachingEvent
   ? Omit<E, "seq" | "at">
   : never;
 export interface AndroidWorkspaceService {
+  readonly stream: (
+    sessionId: AgentSessionId
+  ) => Effect.Effect<AndroidDeviceStream | null>;
   readonly execute: (
     command: AndroidWorkspaceCommand,
     source: "agent" | "user"
@@ -625,6 +631,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 sequence: 0,
                 summary,
               }).pipe(Atom.keepAlive),
+              stream: yield* acquireAndroidStream(id, selection.device, scope),
               summaryFile: path.join(root, ".android-workspace", `${id}.json`),
             };
             registry.get(session.state);
@@ -1209,6 +1216,17 @@ export const makeAndroidWorkspaceLayer = (options: {
               ),
               (file) => readPersisted(AgentSessionId.make(file.slice(0, -5)))
             );
+          }),
+        stream: (sessionId) =>
+          Effect.sync(() => {
+            const session = sessions.get(sessionId);
+            if (
+              !session ||
+              !["running", "paused"].includes(state(session).summary.phase)
+            ) {
+              return null;
+            }
+            return session.stream;
           }),
       });
     })

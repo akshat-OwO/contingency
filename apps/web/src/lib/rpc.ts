@@ -73,6 +73,13 @@ export const runAndroidWorkspaceCommand = (command: AndroidWorkspaceCommand) =>
       return yield* client("android.workspace.command", command);
     })
   ).pipe(Effect.provide(RpcProtocolLive));
+export const androidStreamAccess = (sessionId: AgentSessionId) =>
+  Effect.scoped(
+    Effect.gen(function* streamAccess() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.stream.access", { sessionId });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
 );

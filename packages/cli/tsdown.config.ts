@@ -9,11 +9,11 @@ export default defineConfig({
     // These packages load files relative to their original module paths.
     // vendor-runtime copies their complete installed trees into dist.
     alwaysBundle: (id) =>
-      !/^(?:playwright-core|lighthouse|puppeteer-core|agent-device)(?:\/|$)/u.test(
+      !/^(?:playwright-core|lighthouse|puppeteer-core|agent-device|expo-device-hub)(?:\/|$)/u.test(
         id
       ),
     neverBundle: [
-      /^(?:playwright-core|lighthouse|puppeteer-core|agent-device)(?:\/|$)/u,
+      /^(?:playwright-core|lighthouse|puppeteer-core|agent-device|expo-device-hub)(?:\/|$)/u,
     ],
     onlyBundle: false,
     onlyImport: [
@@ -21,9 +21,10 @@ export default defineConfig({
       "lighthouse",
       "puppeteer-core",
       "agent-device",
+      "expo-device-hub",
     ],
   },
-  entry: "src/index.ts",
+  entry: ["src/index.ts", "src/android-stream-worker.ts"],
   env: {
     NODE_ENV: "production",
   },

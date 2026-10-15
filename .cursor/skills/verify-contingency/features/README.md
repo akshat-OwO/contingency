@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Android live stream](./workspace.md#android-live-stream) proves decoded Workspace frames, secure-window notices, authenticated view-only routing, hard-kill recovery, independent semantic input, and stream cleanup on an explicitly selected device.
+
 - [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.
 
 - [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, exact private readback on a stock Material password widget, native/filtered uncertainty, targeting refusals, privacy, and cleanup on a selected daily-use phone using a disposable app.

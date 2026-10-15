@@ -247,3 +247,18 @@ export const AndroidWorkspaceCommand = Schema.Union([
   }),
 ]);
 export type AndroidWorkspaceCommand = typeof AndroidWorkspaceCommand.Type;
+
+// oxlint-disable-next-line eslint/no-redeclare
+export const AndroidStreamPacket = Schema.Union([
+  Schema.TaggedStruct("frame", {
+    data: Schema.String.check(Schema.isMaxLength(3 * 1024 * 1024)),
+    height: Schema.Int.check(Schema.isGreaterThan(0)),
+    key: Schema.Boolean,
+    timestamp: Schema.Finite,
+    width: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
+  Schema.TaggedStruct("state", {
+    state: Schema.Literals(["connecting", "secure", "lost"]),
+  }),
+]);
+export type AndroidStreamPacket = typeof AndroidStreamPacket.Type;

@@ -20,3 +20,7 @@ Native password accessibility text is masked. The private-text helper must repor
 Read the Android physical-device recipe in `features/workspace.md` before running the proof. Device selection, installations, fixture data clearing, and fixture permission changes require explicit authorization on a physical device. The proof does not wipe the phone or change its input method.
 
 Each proof launch force-stops only the fixture package and starts a fresh activity window with a disposable `focus-token`. `FixtureActivity` logs that token only when its window has focus; the runner awaits that event and checks the focused window before proceeding. Tokens carry no private input. Ordered field removal and focus events keep refusal checks tied to completed mutations rather than launch acknowledgements or elapsed time. Every scoped logcat watcher is stopped and awaited before the next operation.
+
+# Stream display fixture
+
+`StreamActivity` adds public screen changes and a `FLAG_SECURE` toggle for the [Android live stream recipe](../../features/workspace.md#android-live-stream). It requests no permissions and does not change the private-input activities.

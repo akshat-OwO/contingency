@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
 
+import { AndroidLiveStream } from "./android-live-stream";
 import {
   parseAndroidPermissionDecisions,
   parseReversibleActions,
@@ -336,21 +337,11 @@ const AndroidMirror = ({
       className="grid gap-4 md:grid-cols-2"
       aria-label="Mirrored Android Workspace"
     >
-      <div className="grid place-items-center rounded-xl border bg-black/90 p-2">
-        {observation?.image ? (
-          <img
-            src={`data:image/png;base64,${observation.image}`}
-            width={observation.width}
-            height={observation.height}
-            className="max-h-[65vh] max-w-full object-contain"
-            alt="Selected device mirrored screen"
-          />
-        ) : (
-          <p className="text-white">
-            Prepare the selected device to view its screen.
-          </p>
-        )}
-      </div>
+      {session.phase === "running" || session.phase === "paused" ? (
+        <AndroidLiveStream sessionId={session.id} />
+      ) : (
+        <p>Prepare the selected device to view its screen.</p>
+      )}
       <div className="grid content-start gap-3">
         <label>
           Public fixture text
@@ -692,7 +683,7 @@ export const AndroidWorkspace = ({
         Effect.gen(function* mirrorSelectedDevice() {
           const session = yield* runAndroidWorkspaceCommand({
             _tag: "observe",
-            image: true,
+            image: false,
             sessionId: id,
           });
           yield* Effect.sync(() =>
