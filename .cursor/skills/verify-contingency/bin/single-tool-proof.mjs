@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Single-tool interface proof (ADR 0059, #460) against a control-contingency
-// instance whose MCP was started with CONTINGENCY_MCP_INTERFACE=single-tool.
+// instance whose MCP serves the single-tool interface, the default.
 // Every agent step is one `agent_code_execute` program; Workspace choices are
 // real clicks in the instance's Workspace.
 import assert from "node:assert/strict";

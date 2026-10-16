@@ -41,7 +41,9 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
   }
   const allowedOrigins = new Set(["http://127.0.0.1:7783"]);
   const context = yield* Layer.build(
-    HttpRouter.serve(makeMcpHttpLayer(allowedOrigins)).pipe(
+    HttpRouter.serve(
+      makeMcpHttpLayer(allowedOrigins, { interface: "native" })
+    ).pipe(
       Layer.provide(
         Layer.mergeAll(
           makeAgentSessionLayer({

@@ -64,6 +64,9 @@ const READ_ONLY_TOOLS = new Set([
   "open_run",
 ]);
 
+// Route tests serve native unless they choose; compare like with like.
+const NATIVE_INSTRUCTIONS = makeMcpInstructions(false, undefined, "native");
+
 it.live("lists the bounded Android tools without an opt-in", () =>
   Effect.gen(function* androidTools() {
     const origin = yield* servingMcpHttp();
@@ -151,10 +154,19 @@ it.live("lists agent_browser_pursue only when System One is configured", () =>
 );
 
 it("tells the agent to try a Pursuit first only under the experimental flag", () => {
-  expect(makeMcpInstructions(false, systemOne)).toBe(MCP_INSTRUCTIONS);
-  const first = makeMcpInstructions(false, { ...systemOne, first: true });
+  expect(makeMcpInstructions(false, systemOne, "native")).toBe(
+    NATIVE_INSTRUCTIONS
+  );
+  const first = makeMcpInstructions(
+    false,
+    { ...systemOne, first: true },
+    "native"
+  );
   expect(first).toContain("Try agent_browser_pursue for each Flow Skill step");
   expect(first.length).toBeLessThan(800);
+  const program = makeMcpInstructions(false, { ...systemOne, first: true });
+  expect(program).toContain("Try tools.agent_browser_pursue for each");
+  expect(makeMcpInstructions(false, systemOne)).not.toContain("pursue");
 });
 
 it.live("annotates read-only tools so hosts may run them concurrently", () =>
@@ -178,9 +190,8 @@ it.live("annotates read-only tools so hosts may run them concurrently", () =>
 );
 
 it("builds distinct channel instructions within the server budget", () => {
-  const channel = makeMcpInstructions(true);
-  expect(makeMcpInstructions(false)).toBe(MCP_INSTRUCTIONS);
-  expect(channel).not.toBe(MCP_INSTRUCTIONS);
+  const channel = makeMcpInstructions(true, undefined, "native");
+  expect(channel).not.toBe(NATIVE_INSTRUCTIONS);
   expect(channel).toContain(
     "meta.sessionId and meta.eventCursor as afterCursor"
   );
@@ -193,8 +204,14 @@ it.live("sends the context-saving habits as server instructions", () =>
     const origin = yield* servingMcpHttp();
     const { initialized } = yield* connectMcp(origin);
     const decoded = Schema.decodeUnknownSync(Initialized)(initialized);
-    expect(decoded.result.instructions).toBe(MCP_INSTRUCTIONS);
-    expect(MCP_INSTRUCTIONS.length).toBeLessThan(800);
+    expect(decoded.result.instructions).toBe(NATIVE_INSTRUCTIONS);
+    expect(NATIVE_INSTRUCTIONS.length).toBeLessThan(800);
+    expect(MCP_INSTRUCTIONS).toBe(
+      makeMcpInstructions(false, undefined, "single-tool")
+    );
+    // The single tool carries the habits its one schema cannot, and the #461
+    // evaluation measured this text; its catalog is a tenth of native's.
+    expect(MCP_INSTRUCTIONS.length).toBeLessThan(1100);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

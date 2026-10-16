@@ -23,7 +23,7 @@ const instance = JSON.parse(
 const proofId = `parity-${Date.now()}`;
 const artifacts = path.resolve(
   import.meta.dirname,
-  `../artifacts/interface-parity/${proofId}-${phase}-${instance.mcpInterface ?? "native"}`
+  `../artifacts/interface-parity/${proofId}-${phase}-${instance.mcpInterface ?? "single-tool"}`
 );
 await mkdir(artifacts, { recursive: true });
 const resources = new Resources(artifacts);
@@ -327,7 +327,7 @@ try {
     })
   );
   await save("result.json", {
-    interface: instance.mcpInterface ?? "native",
+    interface: instance.mcpInterface ?? "single-tool",
     phase,
     result,
     status: "passed",

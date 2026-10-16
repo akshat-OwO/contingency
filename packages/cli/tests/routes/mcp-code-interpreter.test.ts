@@ -141,17 +141,25 @@ const coverage = (options: Options) =>
   });
 
 it.live(
-  "leaves the single-tool interface out of the default catalog",
+  "serves the single tool by default and the native catalog only when chosen",
   () =>
     live(
       Effect.gen(function* defaultCatalog() {
-        const { request } = yield* connectMcp(yield* servingMcpHttp());
-        const { tools } = Schema.decodeUnknownSync(ToolNames)(
-          yield* request("tools/list", {})
-        ).result;
-        expect(tools.map((tool) => tool.name)).not.toContain(
-          "agent_code_execute"
-        );
+        const names = Effect.fn("names")(function* names(
+          mcpInterface: "default" | "native"
+        ) {
+          const { request } = yield* connectMcp(
+            yield* servingMcpHttp({ interface: mcpInterface })
+          );
+          const { tools } = Schema.decodeUnknownSync(ToolNames)(
+            yield* request("tools/list", {})
+          ).result;
+          return tools.map((tool) => tool.name);
+        });
+        expect(yield* names("default")).toEqual(["agent_code_execute"]);
+        const native = yield* names("native");
+        expect(native).not.toContain("agent_code_execute");
+        expect(native).toContain("agent_session_start");
       })
     ),
   HANG_GUARD_MS

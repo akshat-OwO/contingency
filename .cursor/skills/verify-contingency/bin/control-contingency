@@ -1422,7 +1422,8 @@ const INPUT_CHECK_TEXT = "Rapid_typing@123";
 
 /**
  * Send one native tool call through the broker. Under the single-tool
- * interface (`CONTINGENCY_MCP_INTERFACE=single-tool` on `mcp start`), the call
+ * interface, the default unless `CONTINGENCY_MCP_INTERFACE=native` was set on
+ * `mcp start`, the call
  * becomes one `agent_code_execute` program that awaits that operation alone,
  * and its answer is translated back into the native result: the operation's
  * value, its refusal, or the value the interrupted operation returned with an
@@ -1984,7 +1985,8 @@ const cmdMcpStart = async () => {
   writeInstance(directory, {
     ...instance,
     brokerUrl,
-    mcpInterface: process.env.CONTINGENCY_MCP_INTERFACE ?? "native",
+    // Mirrors the CLI default (ADR 0059, #461).
+    mcpInterface: process.env.CONTINGENCY_MCP_INTERFACE ?? "single-tool",
     mcpPid: child.pid,
     mcpPort: port,
     mcpUrl,

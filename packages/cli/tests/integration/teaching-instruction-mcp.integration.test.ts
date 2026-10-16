@@ -26,7 +26,9 @@ it.live(
       const fixtures = yield* fixtureServer;
       const context = yield* Layer.build(
         HttpRouter.serve(
-          makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]))
+          makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {
+            interface: "native",
+          })
         ).pipe(
           Layer.provideMerge(
             Layer.mergeAll(agentProcessLayer(root), makeDemoSiteLayer())
