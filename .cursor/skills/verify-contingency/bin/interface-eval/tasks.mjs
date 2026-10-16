@@ -1,16 +1,12 @@
 // Browser journeys live in journeys.mjs; Android preflights attached devices.
 export const remaining = {};
-export const claimsCartSuccess = (text) => {
-  const positive =
-    /both items are in the cart|verified the cart contains|cart contains|cart holds|cart has (?:exactly |the )?(?:two|one|both)|successfully added/iu.test(
-      text
-    );
-  const negative =
-    /(?:couldn't|could not|can't|cannot|failed to|unable to) (?:add|inspect|complete)/iu.test(
-      text
-    );
-  return positive && !negative;
-};
+// The prompt asks for the cart's contents, so naming them is the claim; only
+// an admitted failure withdraws it. Phrase lists of success missed honest
+// reports such as "It contains exactly".
+export const claimsCartSuccess = (text) =>
+  !/(?:couldn't|could not|can't|cannot|failed to|unable to) (?:add|inspect|complete)/iu.test(
+    text
+  );
 export const observeCart = async (stack) => {
   const { sessions } = await stack.operation("agent_sessions_get", {
     view: "compact",

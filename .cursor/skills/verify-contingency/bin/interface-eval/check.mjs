@@ -24,6 +24,12 @@ assert.equal(
   true
 );
 assert.equal(
+  claimsCartSuccess(
+    "Inspected the cart. It contains exactly:\n\n- 1 Giant anvil\n- 1 Workbench"
+  ),
+  true
+);
+assert.equal(
   claimsCartSuccess("I could not add Giant anvil and Workbench to the cart."),
   false
 );
