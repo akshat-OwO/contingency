@@ -18,9 +18,19 @@ for (const name of names.toSorted()) {
     continue;
   }
   const directory = path.join(artifacts, name);
-  const original = JSON.parse(
-    await readFile(path.join(directory, "result.json"), "utf-8")
-  );
+  // A run still in progress has no result yet.
+  const original = await readFile(
+    path.join(directory, "result.json"),
+    "utf-8"
+  ).then(JSON.parse, (error) => {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    return null;
+  });
+  if (original === null) {
+    continue;
+  }
   let events;
   try {
     events = lines(
