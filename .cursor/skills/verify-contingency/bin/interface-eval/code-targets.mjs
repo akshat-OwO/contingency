@@ -12,7 +12,11 @@ const codemode = await realpath(
 const { parse } = await import(
   pathToFileURL(createRequire(codemode).resolve("acorn")).href
 );
-const fresh = Symbol("fresh Snapshot data");
+// Each Snapshot result is its own object, so a write through any alias or
+// derived value can invalidate exactly the Snapshot it came from.
+const freshMark = Symbol("fresh Snapshot data");
+const freshValue = () => ({ [freshMark]: true });
+const isFresh = (value) => value?.[freshMark] === true;
 const unknown = Symbol("unresolved program data");
 const property = (node) =>
   node.computed ? node.property.value : node.property.name;
@@ -50,8 +54,8 @@ const resolve = (node, bindings) => {
   }
   if (node.type === "MemberExpression") {
     const parent = resolve(node.object, bindings);
-    if (parent === fresh) {
-      return fresh;
+    if (isFresh(parent)) {
+      return parent;
     }
     return parent?.[property(node)] ?? unknown;
   }
@@ -64,21 +68,21 @@ const resolve = (node, bindings) => {
         "agent_variable_enter",
       ].includes(toolName(node.callee))
     ) {
-      return fresh;
+      return freshValue();
     }
-    if (
-      node.callee.type === "MemberExpression" &&
-      resolve(node.callee.object, bindings) === fresh
-    ) {
-      return fresh;
+    if (node.callee.type === "MemberExpression") {
+      const owner = resolve(node.callee.object, bindings);
+      if (isFresh(owner)) {
+        return owner;
+      }
     }
   }
   return unknown;
 };
 const refOf = (action) =>
-  action === fresh || action === unknown ? action : action?.ref;
+  isFresh(action) || action === unknown ? action : action?.ref;
 const targets = (name, params) => {
-  if (params === fresh) {
+  if (isFresh(params)) {
     return { fresh: true, refs: [], unresolved: false };
   }
   if (params === unknown) {
@@ -97,7 +101,7 @@ const targets = (name, params) => {
     return { fresh: false, refs: [], unresolved: false };
   }
   return {
-    fresh: values.includes(fresh),
+    fresh: values.some(isFresh),
     refs: values.filter((value) => Predicate.isString(value)),
     unresolved: values.includes(unknown),
   };
@@ -145,12 +149,25 @@ const contains = (value, target) =>
 export const codeTargets = (source) => {
   const calls = [];
   const bindings = new Map();
+  const declared = new Set();
+  // Set once any write escapes tracking; later bindings cannot be trusted.
+  let opaque = false;
   // A write the visitor does not model makes the written value, and every
   // binding that shares it, unresolved. That includes Snapshot data: a fresh
   // node can be given a stale ref. Reads such as find() are not writes.
+  // When a write's target cannot be traced to a binding, as with a callback
+  // parameter, a destructuring pattern, or a redeclared name, any value may
+  // have changed.
+  const invalidateAll = () => {
+    for (const key of bindings.keys()) {
+      bindings.set(key, unknown);
+    }
+    opaque = true;
+  };
   const invalidate = (node) => {
     const name = rootName(node);
-    if (name === null) {
+    if (name === null || !bindings.has(name)) {
+      invalidateAll();
       return;
     }
     const old = bindings.get(name);
@@ -192,7 +209,7 @@ export const codeTargets = (source) => {
     }
   };
   const bind = (name, node, branched) =>
-    bindings.set(name, branched ? unknown : resolve(node, bindings));
+    bindings.set(name, branched || opaque ? unknown : resolve(node, bindings));
   // `branched` is true under any construct that may skip, repeat, or reorder
   // a call relative to its source position.
   const visit = (node, branched = false) => {
@@ -202,9 +219,15 @@ export const codeTargets = (source) => {
     const inner = branched || branching.has(node.type);
     if (node.type === "VariableDeclarator") {
       visit(node.init, inner);
-      if (node.id.type === "Identifier") {
-        bind(node.id.name, node.init, inner);
+      if (node.id.type !== "Identifier") {
+        return;
       }
+      if (declared.has(node.id.name)) {
+        // Block scopes share one map here, so a second declaration is opaque.
+        invalidateAll();
+      }
+      declared.add(node.id.name);
+      bind(node.id.name, node.init, inner);
       return;
     }
     if (node.type === "AssignmentExpression") {

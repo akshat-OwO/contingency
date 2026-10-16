@@ -419,6 +419,26 @@ for (const [code, label] of [
     'await tools.agent_session_get({}); const s = await tools.agent_browser_snapshot({}); s.nodes[0].ref = "e1"; return tools.agent_browser_act({action:{type:"click",ref:s.nodes[0].ref}});',
     "A write into fresh Snapshot data",
   ],
+  [
+    'await tools.agent_session_get({}); const s = await tools.agent_browser_snapshot({}); const alias = s; alias.nodes[0].ref = "e1"; return tools.agent_browser_act({action:{type:"click",ref:s.nodes[0].ref}});',
+    "A Snapshot write through an alias",
+  ],
+  [
+    'await tools.agent_session_get({}); const s = await tools.agent_browser_snapshot({}); const node = s.nodes[0]; node.ref = "e1"; return tools.agent_browser_act({action:{type:"click",ref:s.nodes[0].ref}});',
+    "A Snapshot write through a derived node",
+  ],
+  [
+    'await tools.agent_session_get({}); const s = await tools.agent_browser_snapshot({}); s.nodes.forEach((n) => { n.ref = "e1"; }); return tools.agent_browser_act({action:{type:"click",ref:s.nodes[0].ref}});',
+    "A write through a callback parameter",
+  ],
+  [
+    'await tools.agent_session_get({}); let ref = "e99"; ({ ref } = { ref: "e1" }); return tools.agent_browser_act({action:{type:"click",ref}});',
+    "A destructuring assignment",
+  ],
+  [
+    'await tools.agent_session_get({}); const ref = "e1"; { const ref = "e99"; } return tools.agent_browser_act({action:{type:"click",ref}});',
+    "A redeclared name",
+  ],
 ]) {
   const choices = referenceProgram(code, [readReceipt, actReceipt(2)]);
   assert.equal(
