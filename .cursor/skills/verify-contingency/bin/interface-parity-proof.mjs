@@ -137,7 +137,11 @@ const boundary = async () => {
     sessionId: session.id,
     view: "full",
   });
-  assert.equal(after.timeline.length, 1);
+  assert.equal(after.timeline.filter((entry) => entry.dispatched).length, 1);
+  assert.equal(
+    after.timeline.filter((entry) => entry.id === resumed[0].entry.id).length,
+    1
+  );
   assert.equal(cart(await snapshot(session.id)), "1 item in cart");
   assert.equal(after.decisionHistory.at(-1).source, "workspace");
   await save("resumed.json", { after, resumed });
@@ -313,7 +317,10 @@ const android = async () => {
 try {
   await save("memory.json", memory());
   const result = await Effect.runPromise(
-    Effect.tryPromise({ android, boundary, cancellation }[phase])
+    Effect.tryPromise({
+      try: { android, boundary, cancellation }[phase],
+      catch: (error) => error,
+    })
   );
   await save("result.json", {
     interface: instance.mcpInterface ?? "native",
