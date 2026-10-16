@@ -144,26 +144,68 @@ runtime: ${JSON.stringify(requirements)}
       selection: device.selection,
     },
   });
-  await ui.open(`http://127.0.0.1:${options.mcp.port}/?android=${session.id}`);
-  assert.deepEqual(session.preparation.differences, []);
-  assert.deepEqual(session.preparation.pending, []);
-  await ui.click(
-    device.selection.device.avd
-      ? "Prepare selected emulator"
-      : "Prepare selected device"
-  );
-  await ui.command("wait", { name: "Take control", role: "button" });
-  const observed = await options.mcp.operation("agent_android_workspace", {
-    command: { _tag: "observe", image: false, sessionId: session.id },
-  });
-  assert.ok(
-    observed.observation.nodes.some(
-      (node) => node.name === "Fixture Shop sign in"
-    ),
-    "Android seed must start at a clean sign-in screen"
-  );
-  await ui.capture("android-prepared");
-  return { androidSessionId: session.id };
+  const viewUrl = `http://127.0.0.1:${options.mcp.port}/?android=${session.id}`;
+  const read = () =>
+    options.mcp.operation("agent_android_workspace", {
+      command: { _tag: "read", sessionId: session.id },
+    });
+  const close = async () => {
+    try {
+      const current = await read();
+      if (current.phase !== "closed") {
+        await ui.open(viewUrl);
+        await ui.click("Close session");
+        await ui.command("wait", { text: "Closed" });
+      }
+      const closed = await read();
+      assert.equal(closed.phase, "closed");
+      json(path.join(options.directory, "android-cleanup.json"), {
+        phase: closed.phase,
+        sessionId: session.id,
+        status: "passed",
+      });
+    } catch (error) {
+      json(path.join(options.directory, "android-cleanup.json"), {
+        error: String(error),
+        sessionId: session.id,
+        status: "failed",
+      });
+      throw error;
+    }
+  };
+  try {
+    await ui.open(viewUrl);
+    assert.deepEqual(session.preparation.differences, []);
+    assert.deepEqual(session.preparation.pending, []);
+    await ui.click(
+      device.selection.device.avd
+        ? "Prepare selected emulator"
+        : "Prepare selected device"
+    );
+    await ui.command("wait", { name: "Take control", role: "button" });
+    const observed = await options.mcp.operation("agent_android_workspace", {
+      command: { _tag: "observe", image: false, sessionId: session.id },
+    });
+    assert.ok(
+      observed.observation.nodes.some(
+        (node) => node.name === "Fixture Shop sign in"
+      ),
+      "Android seed must start at a clean sign-in screen"
+    );
+    await ui.capture("android-prepared");
+    return { androidSessionId: session.id, close };
+  } catch (error) {
+    try {
+      await close();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        "Android seed cleanup failed",
+        { cause: cleanupError }
+      );
+    }
+    throw error;
+  }
 };
 export const checkAndroid = async (device, finalText, resources) => {
   const child = resources.start("adb", [

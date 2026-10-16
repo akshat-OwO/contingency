@@ -128,6 +128,7 @@ await Effect.runPromise(
     let result;
     let journey;
     let driver;
+    let androidContext;
     const start = performance.now();
     try {
       site = await fixture(resources);
@@ -146,12 +147,12 @@ await Effect.runPromise(
           url: site.url,
         });
       }
-      const androidContext = android
+      androidContext = android
         ? await prepareAndroid(
             { directory, mcp, resources, temporary },
             android
           )
-        : {};
+        : null;
       const prompts = JSON.parse(
         await readFile(
           new URL("interface-eval/prompts.json", import.meta.url),
@@ -285,8 +286,12 @@ await Effect.runPromise(
     } finally {
       let cleaned = false;
       try {
-        await resources.cleanup();
-        cleaned = true;
+        try {
+          await androidContext?.close();
+        } finally {
+          await resources.cleanup();
+          cleaned = true;
+        }
       } finally {
         if (mcp) {
           for (const name of ["proxy.jsonl", "server.stderr"]) {
