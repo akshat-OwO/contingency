@@ -1,0 +1,4 @@
+{
+  "cart": "Use Contingency to add exactly one Giant anvil and exactly one Workbench to the cart at {{url}}. Inspect the cart and report its contents. Keep the session open for review. Use only Contingency tools.",
+  "calibration": "Reply with exactly one word: ready"
+}
