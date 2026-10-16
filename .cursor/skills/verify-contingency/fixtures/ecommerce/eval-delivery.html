@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delivery fixture</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 32px;
+      }
+      label,
+      input,
+      button {
+        position: absolute;
+        left: 32px;
+      }
+      label[for="city"] {
+        top: 56px;
+      }
+      #city {
+        top: 80px;
+        height: 32px;
+      }
+      label[for="area"] {
+        top: 120px;
+      }
+      #area {
+        top: 144px;
+        height: 32px;
+      }
+      button {
+        top: 208px;
+        height: 32px;
+      }
+      #result {
+        position: absolute;
+        top: 256px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Delivery</h1>
+    <label for="city">City</label><input id="city" />
+    <label for="area">Area</label><input id="area" />
+    <button type="button" id="confirm">Confirm delivery</button>
+    <p id="result" role="status">No delivery chosen</p>
+    <script>
+      document.getElementById("confirm").addEventListener("click", () => {
+        const city = document.getElementById("city").value.trim();
+        const area = document.getElementById("area").value.trim();
+        document.getElementById("result").textContent =
+          city && area
+            ? `Delivering to ${area}, ${city}`
+            : "Enter city and area";
+      });
+    </script>
+  </body>
+</html>

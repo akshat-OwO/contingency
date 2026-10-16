@@ -35,8 +35,9 @@ import {
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /**
- * The experimental single-tool interface (ADR 0059, #460). Opted into with
- * `CONTINGENCY_MCP_INTERFACE=single-tool`, it replaces every native tool with
+ * The single-tool interface (ADR 0059, #460), the default since the #461
+ * evaluation; `CONTINGENCY_MCP_INTERFACE=native` restores the native tools. It
+ * replaces every native tool with
  * `agent_code_execute`, which runs one program in a fresh OpenCode
  * interpreter process. Each native tool becomes an operation the program
  * calls as `tools.<name>(input)`, dispatched through the same strict handler

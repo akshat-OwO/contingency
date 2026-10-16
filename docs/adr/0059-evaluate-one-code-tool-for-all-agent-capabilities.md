@@ -42,3 +42,7 @@ The design direction is settled, but runtime feasibility and adoption remain unp
 OpenCode's interpreter creates fresh execution state in the host process and applies output limits after computing the result. Its public limits cover time, tool calls, and retained output, but expose no heap budget. These source findings do not establish runtime compatibility or prove that the adoption criteria pass. See upstream [execution state and output bounding](https://github.com/anomalyco/opencode/blob/dev/packages/codemode/src/interpreter/execute.ts) and [execution limits](https://github.com/anomalyco/opencode/blob/dev/packages/codemode/src/codemode.ts).
 
 This decision accepts the design and evaluation scope. Changing the default interface requires passing the adoption criteria.
+
+## Outcome
+
+The [#461 evaluation](../../.cursor/skills/verify-contingency/reports/interface-evaluation-2026-10-16.md) passed both criteria. Every scripted journey and recovery proof passed on both interfaces with no behavioral difference. Both evaluated models made fewer incorrect operation choices with the single tool (Haiku 7 against 19, Sol 3 against 16) at no lower task completion. Context usage fell 38% for a client that sends the full catalog and rose 33% for one that loads tools on demand. The single tool is therefore the default, and `CONTINGENCY_MCP_INTERFACE=native` keeps the native catalog for clients it suits better.

@@ -111,7 +111,7 @@ const Cart = ({ cart, onPlace }) => (
   </View>
 );
 
-const Result = ({ cart }) =>
+const Result = ({ cart, shopper }) =>
   variant === "broken" ? (
     <View style={styles.section}>
       <Text accessibilityRole="header" style={styles.title}>
@@ -124,6 +124,7 @@ const Result = ({ cart }) =>
       <Text accessibilityRole="header" style={styles.title}>
         Order confirmed
       </Text>
+      <Text>Shopper: {shopper}</Text>
       <Text>Mock order for {cart.join(", ")}. No payment was taken.</Text>
     </View>
   );
@@ -145,7 +146,7 @@ export const Shop = () => {
   } else if (shopper !== null && screen === "cart") {
     content = <Cart cart={cart} onPlace={() => setScreen("result")} />;
   } else if (shopper !== null) {
-    content = <Result cart={cart} />;
+    content = <Result cart={cart} shopper={shopper} />;
   }
   return (
     <SafeAreaView style={styles.screen}>

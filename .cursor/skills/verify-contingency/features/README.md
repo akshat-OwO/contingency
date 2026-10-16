@@ -78,3 +78,5 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Required scans](./workspace.md#required-scans) proves scan buttons, taught timespan boundaries, durable scan references, real Lighthouse and axe reports, interruption, required coverage, scoped retries, and report downloads.
 
 The Workspace recipe includes Session Event waits and opt-in Claude Code channel delivery, cursor replay, and idle-agent wakeup.
+
+- [Interface evaluation model tasks](./workspace.md#interface-evaluation-model-tasks) seeds checkout, Teaching, Dry Run, and Takeover journeys, drives the requested Workspace user actions, and checks the final state with private-value audits.

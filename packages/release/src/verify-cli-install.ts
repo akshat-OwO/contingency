@@ -185,8 +185,10 @@ const expectResponse = <S extends Schema.Decoder<unknown>>(
 
 export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
   function* handshake(spec: PackedMcpSpec, directory: string) {
+    // The read-only QuickJS tool exists only in the native catalog.
     const native = yield* openPackedMcp(spec, directory, {
       CONTINGENCY_MCP_CODE_MODE: "true",
+      CONTINGENCY_MCP_INTERFACE: "native",
     });
     yield* native.send({
       id: 2,
@@ -200,10 +202,9 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
       yield* native.take
     );
 
-    // The experimental single-tool interface (ADR 0059) in its own process.
-    const single = yield* openPackedMcp(spec, directory, {
-      CONTINGENCY_MCP_INTERFACE: "single-tool",
-    });
+    // The default interface is the single tool (ADR 0059, #461). Leave the
+    // variable unset so the packed default itself is checked.
+    const single = yield* openPackedMcp(spec, directory, {});
     yield* single.send({
       id: 2,
       jsonrpc: "2.0",
@@ -212,7 +213,7 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
     });
     yield* expectResponse(
       InterfaceTools,
-      "Packed single-tool catalog failed",
+      "Packed default catalog is not the single tool",
       yield* single.take
     );
     const interpret = (id: number, program: string) =>

@@ -44,6 +44,7 @@ import {
 } from "../services/http-server.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import {
+  DEFAULT_MCP_INTERFACE,
   MCP_INTERFACES,
   makeMcpCatalogLayer,
   makeMcpInstructions,
@@ -151,10 +152,10 @@ export const mcpCommand = Command.make(
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
-      // The experimental single-tool interface (ADR 0059) replaces the
-      // native catalog only when explicitly chosen.
+      // One code tool by default (ADR 0059, #461); "native" registers each
+      // tool directly.
       interface: Config.Literals(MCP_INTERFACES, "INTERFACE").pipe(
-        Config.withDefault("native" as const)
+        Config.withDefault(DEFAULT_MCP_INTERFACE)
       ),
       port: Config.Number("PORT").pipe(
         Config.withDefault(process.stdin.isTTY ? 7777 : 0)

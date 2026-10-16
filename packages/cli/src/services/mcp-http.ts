@@ -57,12 +57,18 @@ export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
     : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
 /**
- * Which tools a server registers. `native` is the default catalog;
- * `single-tool` is the experiment of ADR 0059, which registers only
- * `agent_code_execute` and offers every native tool inside programs.
+ * Which tools a server registers. `single-tool` registers only
+ * `agent_code_execute` and offers every native tool inside programs (ADR
+ * 0059); `native` registers each tool directly.
  */
 export const MCP_INTERFACES = ["native", "single-tool"] as const;
 export type McpInterface = (typeof MCP_INTERFACES)[number];
+/**
+ * The #461 evaluation adopted the single tool: no correctness regression and
+ * fewer incorrect operation choices for both evaluated models. Native stays
+ * available for clients that load tools on demand.
+ */
+export const DEFAULT_MCP_INTERFACE: McpInterface = "single-tool";
 
 export interface McpCatalogOptions<R> {
   readonly codeMode?: boolean | undefined;
@@ -78,7 +84,7 @@ export interface McpCatalogOptions<R> {
 export const makeMcpCatalogLayer = <R = never>(
   options: McpCatalogOptions<R> = {}
 ) => {
-  if (options.interface !== "single-tool") {
+  if ((options.interface ?? DEFAULT_MCP_INTERFACE) === "native") {
     return Layer.mergeAll(
       McpAgentSessionLayer,
       McpAndroidWorkspaceLayer,
@@ -130,7 +136,10 @@ export const MCP_HTTP_PATH = "/mcp";
  * The same habits for the single-tool interface, where each tool named above
  * is an operation a program awaits rather than a tool the host calls.
  */
-const makeSingleToolInstructions = (channel: boolean) =>
+const makeSingleToolInstructions = (
+  channel: boolean,
+  systemOne?: SystemOneConfig
+) =>
   [
     "Contingency drives a local browser and Android device for Teaching, Runs, and Dry Runs through one tool, agent_code_execute.",
     'Each program runs fresh; Agent Sessions and Runs persist. Search signatures first in their own program, e.g. return search({ query: "session" }), then call operations as await tools.<name>(input).',
@@ -138,6 +147,10 @@ const makeSingleToolInstructions = (channel: boolean) =>
     'Pass view:"compact" to operations that answer with a session; page older attempts and decisions with tools.agent_session_history_get.',
     "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
     "When a program ends with an intervention, present it and wait for the user; never repeat its attempt in a new program, resume only the exact boundary.",
+    // Experimental (ADR 0057): only the instructions change, never the Run.
+    ...(systemOne?.first === true
+      ? ["Try tools.agent_browser_pursue for each Flow Skill step first."]
+      : []),
     channel
       ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
       : "After asking the user to act in the Workspace, call tools.agent_session_get with afterCursor and waitMs instead of asking them to report back.",
@@ -152,10 +165,10 @@ const makeSingleToolInstructions = (channel: boolean) =>
 export const makeMcpInstructions = (
   channel = false,
   systemOne?: SystemOneConfig,
-  mcpInterface: McpInterface = "native"
+  mcpInterface: McpInterface = DEFAULT_MCP_INTERFACE
 ) =>
   mcpInterface === "single-tool"
-    ? makeSingleToolInstructions(channel)
+    ? makeSingleToolInstructions(channel, systemOne)
     : [
         "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
         "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",

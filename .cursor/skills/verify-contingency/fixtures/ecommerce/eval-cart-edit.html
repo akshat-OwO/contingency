@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>User cart edit</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 32px;
+      }
+      button {
+        position: absolute;
+        left: 32px;
+        top: 80px;
+        height: 32px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>User cart edit</h1>
+    <button type="button" id="replace">Replace with Safety goggles</button>
+    <script>
+      document.getElementById("replace").addEventListener("click", () => {
+        sessionStorage.setItem(
+          "contingency-shop-cart",
+          JSON.stringify(["SAFE-003"])
+        );
+        location.assign("/shop.html");
+      });
+    </script>
+  </body>
+</html>

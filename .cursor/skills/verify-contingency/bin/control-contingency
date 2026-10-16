@@ -57,7 +57,7 @@ Commands:
   browser fill --role <role> --name <name> --value <value> [--partial]
   browser select --role <role> --name <name> --value <option-value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
-  browser wait --role <role> --name <name> [--has-text <substring>] [--timeout-ms <n>] [--partial]
+  browser wait --role <role> --name <name> [--state visible|hidden] [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp channels
@@ -410,18 +410,31 @@ const runPageAction = async (page, appUrl, action, flags) => {
       if (dimensions.width === 0 || dimensions.height === 0) {
         throw new Error("The live browser canvas has no frame yet.");
       }
+      const completedBefore = await page.evaluate(() => globalThis.__canvasCompletedInputs.length);
       await page.mouse.click(
         box.x + (x * box.width) / dimensions.width,
         box.y + (y * box.height) / dimensions.height
+      );
+      await page.waitForFunction(({ before }) =>
+        globalThis.__canvasCompletedInputs.slice(before).some((input) => input.eventType === "mouseReleased"),
+        { before: completedBefore }
       );
       return `clicked site point ${x},${y}`;
     }
     case "canvas-type": {
       // Keys reach the nested Page while the canvas holds focus.
       const text = String(flags.text ?? "");
+      const completedBefore = await page.evaluate(() => globalThis.__canvasCompletedInputs.length);
       await page.keyboard.type(text);
       if (flags.enter === true || flags.enter === "true") {
         await page.keyboard.press("Enter");
+      }
+      const lastKey = flags.enter === true || flags.enter === "true" ? "Enter" : text.at(-1);
+      if (lastKey !== undefined) {
+        await page.waitForFunction(({ before, key }) =>
+          globalThis.__canvasCompletedInputs.slice(before).some((input) => input.eventType === "keyUp" && input.key === key),
+          { before: completedBefore, key: lastKey }
+        );
       }
       return `typed ${text.length} characters`;
     }
@@ -680,17 +693,22 @@ const runPageAction = async (page, appUrl, action, flags) => {
       return "";
     }
     case "press": {
+      const completedBefore = await page.evaluate(() => globalThis.__workspaceCompletedCommands.length);
       if (typeof flags.key !== "string") {
         throw new Error("browser press needs --key.");
       }
       if (typeof flags.role === "string" && typeof flags.name === "string") {
         await locator(page, flags).press(flags.key);
+        if (flags.name === "Browser address" && flags.key === "Enter") {
+          await page.waitForFunction((before) => globalThis.__workspaceCompletedCommands.slice(before).includes("agent.browser.navigate"), completedBefore);
+        }
       } else {
         await page.keyboard.press(flags.key);
       }
       return "";
     }
     case "wait": {
+      const state = flags.state === "hidden" ? "hidden" : "visible";
       const timeout =
         typeof flags["timeout-ms"] === "string"
           ? Number(flags["timeout-ms"])
@@ -698,7 +716,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
       if (typeof flags.text === "string") {
         await page
           .getByText(flags.text, { exact: !partialMatch(flags) })
-          .waitFor({ state: "visible", timeout });
+          .waitFor({ state, timeout });
         return "";
       }
       let target;
@@ -712,7 +730,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
       } else {
         target = locator(page, flags);
       }
-      await target.waitFor({ state: "visible", timeout });
+      await target.waitFor({ state, timeout });
       return "";
     }
     case "skills-layout-check": {
@@ -1107,7 +1125,27 @@ const cmdDriverServe = async (url, userDataDir) => {
   await context.addInitScript(() => {
     const NativeWebSocket = globalThis.WebSocket;
     globalThis.__scrollFrames = [];
+    globalThis.__canvasCompletedInputs = [];
+    globalThis.__workspaceCompletedCommands = [];
+    const workspacePending = new Map();
+    const canvasPending = new Map();
     globalThis.WebSocket = class extends NativeWebSocket {
+      send(data) {
+        if (typeof data === "string") {
+          for (const line of data.trim().split("\n")) {
+            try {
+              const parsed = JSON.parse(line);
+              for (const request of Array.isArray(parsed) ? parsed : [parsed]) {
+                if (request._tag === "Request") workspacePending.set(String(request.id), request.tag);
+                if (request.tag === "agent.browser.input.send") {
+                  canvasPending.set(String(request.id), request.payload.inputs);
+                }
+              }
+            } catch { /* Binary stream traffic is not an RPC request. */ }
+          }
+        }
+        return super.send(data);
+      }
       constructor(url, protocols) {
         super(url, protocols);
         this.addEventListener("message", (event) => {
@@ -1119,6 +1157,23 @@ const cmdDriverServe = async (url, userDataDir) => {
             message = JSON.parse(event.data);
           } catch {
             return;
+          }
+          for (const line of event.data.trim().split("\n")) {
+            try {
+              const parsed = JSON.parse(line);
+              for (const reply of Array.isArray(parsed) ? parsed : [parsed]) {
+                if (reply._tag === "Exit" && workspacePending.has(String(reply.requestId))) {
+                  if (reply.exit._tag === "Success") globalThis.__workspaceCompletedCommands.push(workspacePending.get(String(reply.requestId)));
+                  workspacePending.delete(String(reply.requestId));
+                }
+                if (reply._tag === "Exit" && canvasPending.has(String(reply.requestId))) {
+                  if (reply.exit._tag === "Success") {
+                    globalThis.__canvasCompletedInputs.push(...canvasPending.get(String(reply.requestId)));
+                  }
+                  canvasPending.delete(String(reply.requestId));
+                }
+              }
+            } catch { /* Stream frames may not be line-delimited RPC. */ }
           }
           const visit = (value) => {
             if (value === null || typeof value !== "object") {
@@ -1367,7 +1422,8 @@ const INPUT_CHECK_TEXT = "Rapid_typing@123";
 
 /**
  * Send one native tool call through the broker. Under the single-tool
- * interface (`CONTINGENCY_MCP_INTERFACE=single-tool` on `mcp start`), the call
+ * interface, the default unless `CONTINGENCY_MCP_INTERFACE=native` was set on
+ * `mcp start`, the call
  * becomes one `agent_code_execute` program that awaits that operation alone,
  * and its answer is translated back into the native result: the operation's
  * value, its refusal, or the value the interrupted operation returned with an
@@ -1929,7 +1985,8 @@ const cmdMcpStart = async () => {
   writeInstance(directory, {
     ...instance,
     brokerUrl,
-    mcpInterface: process.env.CONTINGENCY_MCP_INTERFACE ?? "native",
+    // Mirrors the CLI default (ADR 0059, #461).
+    mcpInterface: process.env.CONTINGENCY_MCP_INTERFACE ?? "single-tool",
     mcpPid: child.pid,
     mcpPort: port,
     mcpUrl,

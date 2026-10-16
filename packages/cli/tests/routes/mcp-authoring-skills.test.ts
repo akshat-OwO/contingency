@@ -60,7 +60,9 @@ const serving = Effect.fn("servingAuthoringSkills")(
     const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
     const baseUrl = "http://127.0.0.1:7791";
     const context = yield* Layer.build(
-      HttpRouter.serve(makeMcpHttpLayer(new Set([baseUrl]))).pipe(
+      HttpRouter.serve(
+        makeMcpHttpLayer(new Set([baseUrl]), { interface: "native" })
+      ).pipe(
         Layer.provide(
           Layer.mergeAll(
             makeAgentSessionLayer({ allowedActivity: "any", baseUrl }),
