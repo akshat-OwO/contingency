@@ -27,6 +27,11 @@ import type {
   DispatchOutcome,
   InterpreterDispatch,
 } from "./code-interpreter.ts";
+import {
+  EXECUTION_VALUE_LIMITS,
+  ExecutionValues,
+  ExecutionValuesLive,
+} from "./execution-values.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /**
@@ -121,14 +126,24 @@ const CodeExecuteResult = Schema.Struct({
     "deadline_exceeded",
     "memory_limit",
     "crashed",
+    "output_limit",
     "protocol_violation",
   ]),
   truncated: Schema.optionalKey(Schema.Boolean),
   value: Schema.optionalKey(Schema.Json),
+  /** Where a value too large to return inline is kept, instead of `value`. */
+  valueResource: Schema.optionalKey(
+    Schema.Struct({
+      bytes: Schema.Int,
+      expiresAt: Schema.String,
+      preview: Schema.String,
+      uri: Schema.String,
+    })
+  ),
 });
 
 const CodeExecuteTool = Tool.make("agent_code_execute", {
-  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read signatures, then call operations in a separate program. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns it with receipts; the user acts in the Workspace, then a new program resumes only that exact attempt. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxOutputBytes} bytes of result.`,
+  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read signatures, then call operations in a separate program. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns it with receipts; the user acts in the Workspace, then a new program resumes only that exact attempt. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. A value over ${INTERPRETER_LIMITS.maxOutputBytes} bytes comes back as valueResource with a preview: read its uri with resources/read within ${EXECUTION_VALUE_LIMITS.ttlMs / 60_000} minutes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxResultBytes} bytes of value.`,
   failure: CodeExecuteFailure,
   parameters: Schema.Struct({
     code: Schema.String.check(
@@ -420,6 +435,60 @@ export const androidIntervention = (
       };
 };
 
+/** How much of a kept value the answer previews. */
+const VALUE_PREVIEW_BYTES = 512;
+
+/** The first `bytes` of `text`, never splitting a character. */
+const utf8Prefix = (text: string, bytes: number) => {
+  const prefix = Buffer.from(text).subarray(0, bytes).toString("utf-8");
+  return prefix.endsWith("\uFFFD") ? prefix.slice(0, -1) : prefix;
+};
+
+/** The log lines that fit `budget` bytes, then a note of what was left out. */
+const inlineLogs = (logs: readonly string[], budget: number) => {
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of logs) {
+    used += Buffer.byteLength(line) + 1;
+    if (used > budget) {
+      kept.push(
+        `[logs truncated: showing ${kept.length} of ${logs.length} lines]`
+      );
+      return { kept, truncated: true };
+    }
+    kept.push(line);
+  }
+  return { kept, truncated: false };
+};
+
+/** Serves each kept value at the uri its answer named. */
+export const ExecutionValueResourceLayer =
+  McpServer.resource`contingency://executions/${McpSchema.param("executionId", Schema.String)}/value`(
+    {
+      content: (uri, executionId) =>
+        ExecutionValues.use((values) => values.read(executionId)).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () =>
+                Effect.fail(
+                  new Error(
+                    "This execution value expired or was never kept. Run the program again, returning only the fields you need."
+                  )
+                ),
+              onSome: (text) =>
+                Effect.succeed({
+                  contents: [{ mimeType: "application/json", text, uri }],
+                }),
+            })
+          )
+        ),
+      description:
+        "A program value too large to return inline from agent_code_execute.",
+      mimeType: "application/json",
+      name: "Execution value",
+    }
+  );
+
 export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
   Effect.gen(function* makeHandlers() {
     const catalog = yield* InterpreterOperations;
@@ -428,6 +497,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
     // require it either until an Android tool is called.
     const android = yield* Effect.serviceOption(AndroidWorkspace);
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const values = yield* ExecutionValues;
 
     const readSession = (sessionId: AgentSessionId) =>
       sessions.get(sessionId).pipe(Effect.option);
@@ -547,16 +617,44 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
           operations,
           timeoutMs: params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs,
         }).pipe(
-          Effect.map(({ intervention, ...outcome }) => {
-            const result: Types.Mutable<typeof CodeExecuteResult.Type> = {
-              ...outcome,
-            };
-            const decoded = decodeIntervention(intervention);
-            if (Option.isSome(decoded)) {
-              result.intervention = decoded.value;
-            }
-            return result;
-          }),
+          Effect.flatMap(({ intervention, ...outcome }) =>
+            Effect.gen(function* answer() {
+              const result: Types.Mutable<typeof CodeExecuteResult.Type> = {
+                ...outcome,
+              };
+              const decoded = decodeIntervention(intervention);
+              if (Option.isSome(decoded)) {
+                result.intervention = decoded.value;
+              }
+              let inlineBytes = 0;
+              if (result.value !== undefined) {
+                const text = JSON.stringify(result.value);
+                const bytes = Buffer.byteLength(text);
+                if (bytes > INTERPRETER_LIMITS.maxOutputBytes) {
+                  const link = yield* values.keep(text);
+                  result.valueResource = {
+                    ...link,
+                    bytes,
+                    preview: utf8Prefix(text, VALUE_PREVIEW_BYTES),
+                  };
+                  delete result.value;
+                } else {
+                  inlineBytes = bytes;
+                }
+              }
+              if (result.logs !== undefined) {
+                const logs = inlineLogs(
+                  result.logs,
+                  INTERPRETER_LIMITS.maxOutputBytes - inlineBytes
+                );
+                if (logs.truncated) {
+                  result.truncated = true;
+                }
+                result.logs = logs.kept;
+              }
+              return result;
+            })
+          ),
           Effect.mapError(
             (failure) =>
               new CodeExecuteFailure({
@@ -581,9 +679,13 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
 export const makeMcpCodeInterpreterLayer = <E, R>(
   sources: Layer.Layer<never, E, R | InterpreterOperationMap>
 ) =>
-  Layer.merge(
+  Layer.mergeAll(
     McpServer.toolkit(CodeInterpreterTools).pipe(
       Layer.provide(CodeInterpreterToolHandlersLive)
     ),
+    ExecutionValueResourceLayer,
     sources
-  ).pipe(Layer.provide(Layer.sync(InterpreterOperations, () => new Map())));
+  ).pipe(
+    Layer.provide(ExecutionValuesLive),
+    Layer.provide(Layer.sync(InterpreterOperations, () => new Map()))
+  );

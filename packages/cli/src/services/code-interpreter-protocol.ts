@@ -31,6 +31,7 @@ export const InterpreterOperation = Schema.Struct({
 });
 
 export const InterpreterProgramLimits = Schema.Struct({
+  /** The largest value the interpreter sends; a larger one is only sized. */
   maxOutputBytes: Schema.Int.check(Schema.isGreaterThan(0)),
   maxToolCalls: Schema.Int.check(Schema.isGreaterThan(0)),
   /** The interpreter's own cooperative deadline, inside the server's. */
@@ -101,6 +102,8 @@ export const DoneMessage = Schema.Struct({
   logs: Schema.optionalKey(Schema.Array(Schema.String)),
   memory: MemoryUsage,
   ok: Schema.Boolean,
+  /** The value's size when it exceeded `maxOutputBytes` and was withheld. */
+  overflowBytes: Schema.optionalKey(Schema.Int),
   truncated: Schema.optionalKey(Schema.Boolean),
   type: Schema.Literal("done"),
   value: Schema.optionalKey(Json),

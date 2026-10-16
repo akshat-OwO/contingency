@@ -55,7 +55,22 @@ const Execution = Schema.Struct({
         ),
         status: Schema.String,
         value: Schema.optional(Schema.Unknown),
+        valueResource: Schema.optional(
+          Schema.Struct({
+            bytes: Schema.Number,
+            preview: Schema.String,
+            uri: Schema.String,
+          })
+        ),
       })
+    ),
+  }),
+});
+
+const ResourceRead = Schema.Struct({
+  result: Schema.Struct({
+    contents: Schema.Array(
+      Schema.Struct({ mimeType: Schema.String, text: Schema.String })
     ),
   }),
 });
@@ -295,6 +310,76 @@ it.live(
           refusal?.text
         );
         expect(refusal?.text).not.toContain("    at ");
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
+  "keeps a value too large to return inline behind a resource link",
+  () =>
+    live(
+      Effect.gen(function* largeValue() {
+        const { request } = yield* singleTool();
+        const answer = Schema.decodeUnknownSync(Execution)(
+          yield* request("tools/call", {
+            arguments: {
+              code: `const listed = await tools.agent_sessions_get({ view: "compact" });
+                return { rows: Array.from({ length: 3000 }, (_, index) => "row-" + index), sessions: listed.sessions.length };`,
+            },
+            name: "agent_code_execute",
+          })
+        ).result.structuredContent;
+        const expected = {
+          rows: Array.from({ length: 3000 }, (_, index) => `row-${index}`),
+          sessions: 0,
+        };
+        expect(answer?.status).toBe("completed");
+        expect(answer?.value).toBeUndefined();
+        expect(answer?.receipts.map(({ outcome }) => outcome)).toEqual([
+          "succeeded",
+        ]);
+        const link = answer?.valueResource;
+        expect(link?.bytes).toBe(Buffer.byteLength(JSON.stringify(expected)));
+        expect(JSON.stringify(expected).startsWith(link?.preview ?? "-")).toBe(
+          true
+        );
+        const read = Schema.decodeUnknownSync(ResourceRead)(
+          yield* request("resources/read", { uri: link?.uri ?? "" })
+        ).result;
+        expect(read.contents.map(({ mimeType }) => mimeType)).toEqual([
+          "application/json",
+        ]);
+        expect(JSON.parse(read.contents[0]?.text ?? "null")).toEqual(expected);
+
+        const missing = Schema.decodeUnknownSync(Refusal)(
+          yield* request("resources/read", {
+            uri: "contingency://executions/exec-missing/value",
+          })
+        );
+        expect(missing.error.message).toContain("expired or was never kept");
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
+  "ends a program whose value passes the result limit, keeping its receipts",
+  () =>
+    live(
+      Effect.gen(function* overLimit() {
+        const answer = yield* execute(
+          'await tools.agent_sessions_get({ view: "compact" }); return "x".repeat(1100000)'
+        );
+        expect(answer.structuredContent?.status).toBe("output_limit");
+        expect(answer.structuredContent?.diagnostic?.kind).toBe(
+          "OutputLimitExceeded"
+        );
+        expect(answer.structuredContent?.value).toBeUndefined();
+        expect(answer.structuredContent?.valueResource).toBeUndefined();
+        expect(answer.structuredContent?.receipts).toEqual([
+          { operation: "agent_sessions_get", outcome: "succeeded" },
+        ]);
       })
     ),
   HANG_GUARD_MS

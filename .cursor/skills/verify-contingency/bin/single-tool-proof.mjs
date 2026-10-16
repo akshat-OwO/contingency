@@ -350,6 +350,39 @@ const browserProof = Effect.gen(function* singleToolProof() {
   assert.equal(reread.value.cart, "3 items in cart");
   yield* capture("confirmation-allowed");
 
+  // A whole result over the inline limit is kept behind a resource link.
+  const whole = yield* program(
+    "whole-result",
+    `const session = await tools.agent_session_start({
+      clientName: "single-tool-proof",
+      clientVersion: "1",
+      operationId: ${JSON.stringify(operation("large-cart"))},
+      url: ${JSON.stringify(new URL("snapshot-cart.html", shop).href)},
+      view: "compact",
+      viewport: { deviceScaleFactor: 1, height: 720, width: 1024 },
+    });
+    const page = await tools.agent_browser_snapshot({ sessionId: session.id, format: "structured" });
+    await tools.agent_session_close({ operationId: ${JSON.stringify(operation("large-cart-close"))}, sessionId: session.id });
+    return page;`
+  );
+  assert.equal(whole.status, "completed");
+  assert.equal(whole.value, undefined);
+  assert.ok(
+    whole.valueResource.bytes > 16_384,
+    `${whole.valueResource.bytes} bytes`
+  );
+  const kept = yield* command(
+    "mcp",
+    "resource",
+    "--uri",
+    whole.valueResource.uri
+  );
+  assert.equal(Buffer.byteLength(kept), whole.valueResource.bytes);
+  assert.ok(kept.startsWith(whole.valueResource.preview));
+  const wholeValue = JSON.parse(kept);
+  assert.equal(wholeValue.nodes.length, wholeValue.coverage.returned);
+  yield* save("whole-result-resource.json", wholeValue);
+
   const finished = yield* program(
     "complete",
     `await tools.agent_run_assess({ evidence: [{ id: ${JSON.stringify(first.value.id)}, kind: "attempt" }], explanation: "Three anvils were added; the task asked for one.", operationId: ${JSON.stringify(operation("assess"))}, outcome: "not-working", sessionId: ${id} });
@@ -361,6 +394,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     proofId,
     sessionEventWaitMs: waited.value.elapsedMs,
     status: "passed",
+    wholeResultBytes: whole.valueResource.bytes,
   };
   yield* save("result.json", result);
   return result;
