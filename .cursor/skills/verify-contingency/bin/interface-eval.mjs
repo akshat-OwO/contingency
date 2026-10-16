@@ -17,6 +17,7 @@ import path from "node:path";
 import {
   androidPrerequisite,
   checkAndroid,
+  prepareAndroid,
 } from "./interface-eval/android.mjs";
 import { classify } from "./interface-eval/classify.mjs";
 import { drive } from "./interface-eval/drivers.mjs";
