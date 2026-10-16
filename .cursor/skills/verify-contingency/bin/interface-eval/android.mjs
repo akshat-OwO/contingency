@@ -58,7 +58,7 @@ export const androidPrerequisite = () => {
     serial,
   };
   if (emulator) {
-    [device.avd] = adb("emu", "avd", "name").split("\n");
+    device.avd = adb("emu", "avd", "name").split("\n")[0].trim();
   } else {
     device.kind = "physical";
     device.model = adb("shell", "getprop", "ro.product.model");
