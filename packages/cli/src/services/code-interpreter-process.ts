@@ -103,9 +103,10 @@ const main = Effect.gen(function* interpreterProcess() {
     Schema.fromJsonString(WatchdogOptions),
     strictDecode
   )(watchdogArgument);
+  // No heap ceiling: the watchdog runs only this fixed code, and one tight
+  // enough to matter can end it at startup, leaving a blocked program unwatched.
   new Worker(WATCHDOG, {
     eval: true,
-    resourceLimits: { maxOldGenerationSizeMb: 8, maxYoungGenerationSizeMb: 2 },
     workerData: { ...watchdog, parentPid: process.ppid },
   }).unref();
 
