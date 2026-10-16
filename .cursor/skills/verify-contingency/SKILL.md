@@ -123,6 +123,8 @@ For the combined task, authority, input, Dry Run, and restart proof, follow [the
 
 Run `mcp channels` to read the broker's bounded channel-frame capture and the server's initialized capabilities. Set `CONTINGENCY_MCP_CHANNEL=true` on `mcp start` to opt in. Follow the Claude Code channels recipe in `features/workspace.md` for frame readback and idle-agent proof.
 
+Run `mcp call --tool <name> --params <json> --call-id <id>` in the background to name a call, then `mcp cancel --call-id <id>` to cancel it with MCP `notifications/cancelled`, as a client does when its user stops a request. The cancelled call prints `{"cancelled":true,...}`; the server sends it no answer.
+
 Run `mcp tools --name <name>` to inspect one tool's raw `tools/list` entry from that same MCP process. Omit `--name` to read the full list.
 
 `mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so Flow Skills saved with `agent_flow_skill_save` and their Teaching Recordings land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
@@ -175,3 +177,11 @@ nub .cursor/skills/verify-contingency/bin/task-proof.mjs
 ```
 
 `launch` refuses if that verify dir already has a live pid. Two verification instances may run side by side because each picks its own port and catalog root. They must not share 7777, 5173, or the user's real catalog.
+
+## Interface evaluation
+
+Run one isolated model probe with `nub .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native`, selecting `cart`, `checkout`, `refuse`, `learn`, `dry-run`, `takeover`, `android`, or `calibration`, `haiku` or `sol`, and `native` or `single-tool`. The runner owns its production MCP server, fixture, driver, Catalog Root, and cleanup. It refuses low memory or swap use. Do not combine it with `launch` or another model stack.
+
+Run `nub .cursor/skills/verify-contingency/bin/interface-overhead.mjs` separately, with no model stack. This benchmark owns two production processes, uses matched fixture sessions, and alternates 20 pairs of reads and actions. Raw results remain under `artifacts/interface-eval/`. Use `nub .cursor/skills/verify-contingency/bin/interface-eval/check.mjs` for metric checks and `nub .cursor/skills/verify-contingency/bin/interface-eval/summarize.mjs` to reprocess logs without launching models. The five browser journeys seed disposable state and drive their scripted user through the Workspace command dispatcher. Read [the model-task recipe](features/workspace.md#interface-evaluation-model-tasks) for seeds, evidence, and Android prerequisites.
+
+Follow the [evaluation plan](reports/interface-evaluation-plan.md) before authorizing model runs. Read the [round 3 report](reports/interface-evaluation-round-3.md) for driver isolation evidence and the round 4 report for later driver corrections and smoke evidence. A passing task result does not establish valid evaluation context.

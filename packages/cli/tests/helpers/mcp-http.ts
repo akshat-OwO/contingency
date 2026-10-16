@@ -13,6 +13,7 @@ import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
+import type { McpInterface } from "../../src/services/mcp-http.ts";
 import type { SystemOneConfig } from "../../src/services/system-one.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
@@ -21,12 +22,15 @@ const BASE_URL = "http://127.0.0.1:7783";
 /**
  * Serves the production MCP HTTP layer on an ephemeral loopback port, with
  * the demo store only when `demo` is true, as `contingency mcp --demo` does.
+ * Route tests exercise the native tools unless they choose an interface;
+ * `"default"` serves whatever `contingency mcp` serves without configuration.
  */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
       readonly codeMode?: boolean;
       readonly demo?: boolean;
+      readonly interface?: McpInterface | "default";
       readonly systemOne?: SystemOneConfig;
     } = {}
   ) {
@@ -38,6 +42,10 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
         makeMcpHttpLayer(allowedOrigins, {
           codeMode: options.codeMode,
           demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
+          interface:
+            options.interface === "default"
+              ? undefined
+              : (options.interface ?? "native"),
           systemOne: options.systemOne,
         })
       ).pipe(

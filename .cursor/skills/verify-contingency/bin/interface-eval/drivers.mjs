@@ -1,0 +1,383 @@
+/* oxlint-disable no-await-in-loop -- Read each driver log in order to preserve cumulative token event ordering. */
+import { once } from "node:events";
+import { appendFileSync } from "node:fs";
+import { mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+
+import { auditIsolation } from "./isolation.mjs";
+import { json, lines, memory } from "./runtime.mjs";
+
+const proxy = path.join(import.meta.dirname, "proxy.mjs");
+const driverEnv = () => {
+  const allowed = [
+    "HOME",
+    "PATH",
+    "TMPDIR",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "SSL_CERT_FILE",
+    "NODE_EXTRA_CA_CERTS",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+  ];
+  return Object.fromEntries(
+    allowed
+      .filter((key) => process.env[key] !== undefined)
+      .map((key) => [key, process.env[key]])
+  );
+};
+export const claudeUsage = (events) => {
+  // Streaming can emit several assistant messages for one provider request.
+  // Keep the latest usage for each request/message id rather than summing chunks.
+  const requests = new Map();
+  for (const event of events) {
+    if (event.type === "assistant" && event.message?.usage) {
+      requests.set(event.request_id ?? event.message.id, event.message.usage);
+    }
+  }
+  const values = [...requests.values()];
+  if (!values.length) {
+    return { missing: true, source: "Claude assistant usage" };
+  }
+  const rows = values.map((value) => ({
+    cacheWrite: value.cache_creation_input_tokens ?? 0,
+    cached: value.cache_read_input_tokens ?? 0,
+    input: value.input_tokens ?? 0,
+    output: value.output_tokens ?? 0,
+  }));
+  return {
+    cached: rows.reduce((sum, row) => sum + row.cached, 0),
+    catalog: rows[0].input + rows[0].cached + rows[0].cacheWrite,
+    input: rows.reduce(
+      (sum, row) => sum + row.input + row.cached + row.cacheWrite,
+      0
+    ),
+    output:
+      events.findLast((event) => event.type === "result")?.usage
+        ?.output_tokens ?? null,
+    outputSource: "Claude result.usage.output_tokens, including thinking",
+    peak: Math.max(
+      ...rows.map((row) => row.input + row.cached + row.cacheWrite)
+    ),
+    requests: rows,
+    source:
+      "Claude assistant message.usage deduplicated by requestId/message.id",
+  };
+};
+const files = async (directory) => {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const result = [];
+    for (const entry of entries) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        result.push(...(await files(file)));
+      } else if (entry.name.endsWith(".jsonl")) {
+        result.push(file);
+      }
+    }
+    return result;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+};
+export const codexUsage = async (directory, outputDirectory) => {
+  const logs = await files(directory);
+  const rows = [];
+  const evidence = [];
+  for (const file of logs) {
+    let previous;
+    for (const event of lines(await readFile(file, "utf-8"))) {
+      if (event.type !== "event_msg" || event.payload?.type !== "token_count") {
+        continue;
+      }
+      const { info } = event.payload;
+      if (!info?.last_token_usage || !info.total_token_usage) {
+        continue;
+      }
+      // Rate-limit events repeat the prior usage; the cumulative tuple identifies
+      // newly accounted requests, including requests with identical last usage.
+      const key = JSON.stringify(info.total_token_usage);
+      if (key === previous) {
+        continue;
+      }
+      previous = key;
+      const value = info.last_token_usage;
+      rows.push({
+        cached: value.cached_input_tokens ?? 0,
+        input: value.input_tokens,
+        output: value.output_tokens,
+        reasoning: value.reasoning_output_tokens ?? 0,
+      });
+      evidence.push(event);
+    }
+  }
+  json(path.join(outputDirectory, "token-count-events.json"), evidence);
+  if (!rows.length) {
+    return {
+      missing: true,
+      source: "isolated CODEX_HOME/sessions token_count",
+    };
+  }
+  // Codex input_tokens already includes cached_input_tokens, and output_tokens
+  // includes reasoning_output_tokens. Do not count either subset twice.
+  return {
+    cached: rows.reduce((sum, row) => sum + row.cached, 0),
+    catalog: rows[0].input,
+    input: rows.reduce((sum, row) => sum + row.input, 0),
+    output: rows.reduce((sum, row) => sum + row.output, 0),
+    peak: Math.max(...rows.map((row) => row.input)),
+    reasoning: rows.reduce((sum, row) => sum + row.reasoning, 0),
+    requests: rows,
+    source: "isolated CODEX_HOME/sessions token_count info.last_token_usage",
+  };
+};
+// Free supplementary drivers served by OpenCode (plan amendment 0b245def).
+export const opencodeModels = {
+  deepseek: "opencode/deepseek-v4.1-flash-free",
+  glm: "opencode/glm-5.3-flash-free",
+};
+const executables = { haiku: "claude", sol: "codex" };
+export const driverExecutable = (model) => executables[model] ?? "opencode";
+const requestInput = (row) => row.input + row.cached + row.cacheWrite;
+export const opencodeUsage = (events) => {
+  // Each step_finish is one provider request. OpenCode reports cache reads and
+  // writes beside input, not inside it.
+  const rows = events
+    .filter((event) => event.type === "step_finish" && event.part?.tokens)
+    .map(({ part: { tokens } }) => ({
+      cacheWrite: tokens.cache?.write ?? 0,
+      cached: tokens.cache?.read ?? 0,
+      input: tokens.input ?? 0,
+      output: tokens.output ?? 0,
+      reasoning: tokens.reasoning ?? 0,
+    }));
+  if (!rows.length) {
+    return { missing: true, source: "OpenCode step_finish tokens" };
+  }
+  return {
+    cached: rows.reduce((sum, row) => sum + row.cached, 0),
+    catalog: requestInput(rows[0]),
+    input: rows.reduce((sum, row) => sum + requestInput(row), 0),
+    output: rows.reduce((sum, row) => sum + row.output + row.reasoning, 0),
+    peak: Math.max(...rows.map(requestInput)),
+    reasoning: rows.reduce((sum, row) => sum + row.reasoning, 0),
+    requests: rows,
+    source: "OpenCode step_finish part.tokens, one per provider request",
+  };
+};
+export const driverUsage = (model, events, directory) => {
+  if (model === "haiku") {
+    return claudeUsage(events);
+  }
+  if (model === "sol") {
+    return codexUsage(path.join(directory, "codex-home/sessions"), directory);
+  }
+  return opencodeUsage(events);
+};
+const finalTextOf = (model, events) => {
+  if (model === "haiku") {
+    return events.findLast((event) => event.type === "result")?.result ?? "";
+  }
+  if (model === "sol") {
+    return events
+      .filter(
+        (event) =>
+          event.type === "item.completed" &&
+          event.item?.type === "agent_message"
+      )
+      .map((event) => event.item.text)
+      .join("\n");
+  }
+  return events
+    .filter((event) => event.type === "text" && event.part?.text)
+    .map((event) => event.part.text)
+    .join("\n");
+};
+const authOf = (model) => {
+  if (model === "haiku") {
+    return "existing Claude OAuth with restricted mode and memory disabled";
+  }
+  if (model === "sol") {
+    return `symlink to ${process.env.INTERFACE_EVAL_CODEX_AUTH ?? "~/.codex-secondary/auth.json"}`;
+  }
+  return "OpenCode free model through the user's data directory";
+};
+export const drive = async ({
+  model,
+  directory,
+  endpoint,
+  prompt,
+  resources,
+  temporary,
+  scrub = String,
+}) => {
+  const cwd = path.join(temporary, "empty-cwd");
+  await mkdir(cwd);
+  const env = driverEnv();
+  let args;
+  let executable;
+  if (model === "haiku") {
+    const config = path.join(directory, "mcp.json");
+    await writeFile(
+      config,
+      JSON.stringify({
+        mcpServers: {
+          contingency: { args: [proxy, endpoint], command: process.execPath },
+        },
+      })
+    );
+    env.CLAUDE_CODE_DISABLE_CLAUDE_MDS = "1";
+    env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
+    env.ENABLE_TOOL_SEARCH = "false";
+    executable = "claude";
+    args = [
+      "-p",
+      "--model",
+      "claude-haiku-5-5",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--restricted",
+      "--disable-slash-commands",
+      "--strict-mcp-config",
+      "--mcp-config",
+      config,
+      "--tools",
+      "",
+      "--allowedTools",
+      "mcp__contingency__*",
+      "--setting-sources",
+      "",
+      "--no-session-persistence",
+      "--debug-file",
+      path.join(directory, "claude.debug.log"),
+      prompt,
+    ];
+  } else if (model in opencodeModels) {
+    // Only the config home is private: OpenCode resolves its free models
+    // through the user's data directory, which holds no instructions.
+    const config = path.join(directory, "opencode-config");
+    await mkdir(path.join(config, "opencode"), { recursive: true });
+    json(path.join(config, "opencode/opencode.json"), {
+      $schema: "https://opencode.ai/config.json",
+      instructions: [],
+      mcp: {
+        contingency: {
+          command: [process.execPath, proxy, endpoint],
+          enabled: true,
+          type: "local",
+        },
+      },
+      // The free tier refuses requests that drop OpenCode's built-in tools, and
+      // "deny" drops them. "ask" keeps them advertised, and without --auto a
+      // headless run auto-rejects every ask.
+      permission: {
+        "*": "ask",
+        "contingency_*": "allow",
+        external_directory: "deny",
+      },
+    });
+    env.XDG_CONFIG_HOME = config;
+    env.XDG_STATE_HOME = path.join(directory, "opencode-state");
+    env.OPENCODE_DISABLE_PROJECT_CONFIG = "1";
+    // OpenCode otherwise loads Claude Code instructions and skills from HOME.
+    env.OPENCODE_DISABLE_CLAUDE_CODE = "1";
+    env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1";
+    executable = "opencode";
+    args = [
+      "run",
+      "--standalone",
+      "--format",
+      "json",
+      "-m",
+      opencodeModels[model],
+      prompt,
+    ];
+  } else {
+    const home = path.join(directory, "codex-home");
+    await mkdir(home);
+    // Authentication is a symlink only. Never read or copy its contents.
+    await symlink(
+      process.env.INTERFACE_EVAL_CODEX_AUTH ??
+        path.join(homedir(), ".codex-secondary/auth.json"),
+      path.join(home, "auth.json")
+    );
+    const config = `[skills]\ninclude_instructions = false\n\n[mcp_servers.contingency]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([proxy, endpoint])}\nstartup_timeout_sec = 120\ntool_timeout_sec = 120\ndefault_tools_approval_mode = "approve"\n`;
+    await writeFile(path.join(home, "config.toml"), config);
+    env.CODEX_HOME = home;
+    executable = "codex";
+    args = [
+      "exec",
+      "--json",
+      "-m",
+      "gpt-6.1-sol",
+      "-c",
+      'model_reasoning_effort="medium"',
+      "--sandbox",
+      "read-only",
+      "--skip-git-repo-check",
+      "--ignore-rules",
+      "--enable",
+      "skip_host_skill_discovery",
+      "-c",
+      "project_doc_max_bytes=0",
+      prompt,
+    ];
+  }
+  json(path.join(directory, "driver.json"), {
+    args,
+    auth: authOf(model),
+    cwd,
+    environmentKeys: Object.keys(env),
+    executable,
+    prompt,
+  });
+  const child = resources.start(executable, args, { cwd, env });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (data) => {
+    stdout += scrub(data);
+    appendFileSync(path.join(directory, "driver.jsonl"), scrub(data));
+  });
+  child.stderr.on("data", (data) => {
+    stderr += scrub(data);
+    appendFileSync(path.join(directory, "driver.stderr"), scrub(data));
+  });
+  child.stdin.end();
+  const memorySamples = [];
+  const memoryGuard = setInterval(() => {
+    try {
+      memorySamples.push(memory());
+    } catch (error) {
+      memorySamples.push({ error: String(error) });
+      child.kill("SIGTERM");
+    }
+    json(path.join(directory, "memory-samples.json"), memorySamples);
+  }, 15_000);
+  const timer = setTimeout(() => child.kill("SIGTERM"), 10 * 60_000);
+  let exit;
+  try {
+    exit = await once(child, "close");
+  } finally {
+    clearTimeout(timer);
+    clearInterval(memoryGuard);
+  }
+  const events = lines(stdout);
+  const finalText = finalTextOf(model, events);
+  const usage = await driverUsage(model, events, directory);
+  const init = events.find(
+    (event) => event.type === "system" && event.subtype === "init"
+  );
+  const isolation = await auditIsolation(model, directory);
+  json(path.join(directory, "isolation.json"), isolation);
+  return { exit, finalText, init, isolation, stderr, usage };
+};

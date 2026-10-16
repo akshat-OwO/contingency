@@ -24,7 +24,12 @@ export default defineConfig({
       "expo-device-hub",
     ],
   },
-  entry: ["src/index.ts", "src/android-stream-worker.ts"],
+  entry: {
+    "android-stream-worker": "src/android-stream-worker.ts",
+    // The OpenCode interpreter runs in its own process (ADR 0059).
+    "code-interpreter-process": "src/services/code-interpreter-process.ts",
+    index: "src/index.ts",
+  },
   env: {
     NODE_ENV: "production",
   },

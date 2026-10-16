@@ -11,17 +11,17 @@ catalogs:
       version: 7.0.2
   effect:
     '@effect/atom-react':
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.0.1
+      version: 4.0.1
     '@effect/platform-node':
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.0.1
+      version: 4.0.1
     '@effect/vitest':
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.0.1
+      version: 4.0.1
     effect:
-      specifier: 4.0.0
-      version: 4.0.0
+      specifier: 4.0.1
+      version: 4.0.1
     vitest:
       specifier: ^5.0.3
       version: 5.0.3
@@ -66,7 +66,7 @@ importers:
         version: link:../../packages/protocol
       '@effect/atom-react':
         specifier: catalog:effect
-        version: 4.0.0(effect@4.0.0)(react@19.2.8)(scheduler@0.27.0)
+        version: 4.0.1(effect@4.0.1)(react@19.2.8)(scheduler@0.27.0)
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
@@ -96,7 +96,7 @@ importers:
         version: 4.4.0
       effect:
         specifier: catalog:effect
-        version: 4.0.0
+        version: 4.0.1
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.8)
@@ -198,20 +198,23 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       '@effect/platform-node':
-        specifier: 4.0.0
-        version: 4.0.0(effect@4.0.0)(redis@6.2.1)
+        specifier: 4.0.1
+        version: 4.0.1(effect@4.0.1)(redis@6.2.1)
       '@effect/platform-node-shared':
-        specifier: 4.0.0
-        version: 4.0.0(effect@4.0.0)
+        specifier: 4.0.1
+        version: 4.0.1(effect@4.0.1)
       '@effect/vitest':
         specifier: catalog:effect
-        version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
+        version: 4.0.1(effect@4.0.1)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
       '@jitl/quickjs-singlefile-mjs-release-asyncify':
         specifier: 0.32.0
         version: 0.32.0
       '@nubjs/types':
         specifier: catalog:types
         version: 0.7.3(@types/node@26.2.0)
+      '@opencode/codemode':
+        specifier: 2.0.27
+        version: 2.0.27
       '@types/node':
         specifier: catalog:types
         version: 26.2.0
@@ -222,8 +225,8 @@ importers:
         specifier: ^4.13.0
         version: 4.13.0
       effect:
-        specifier: 4.0.0
-        version: 4.0.0
+        specifier: 4.0.1
+        version: 4.0.1
       expo-device-hub:
         specifier: 0.15.3
         version: 0.15.3
@@ -271,7 +274,7 @@ importers:
     dependencies:
       effect:
         specifier: catalog:effect
-        version: 4.0.0
+        version: 4.0.1
     devDependencies:
       '@nubjs/types':
         specifier: catalog:types
@@ -284,14 +287,14 @@ importers:
     dependencies:
       '@effect/platform-node':
         specifier: catalog:effect
-        version: 4.0.0(effect@4.0.0)(redis@6.2.1)
+        version: 4.0.1(effect@4.0.1)(redis@6.2.1)
       effect:
         specifier: catalog:effect
-        version: 4.0.0
+        version: 4.0.1
     devDependencies:
       '@effect/vitest':
         specifier: catalog:effect
-        version: 4.0.0(effect@4.0.0)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
+        version: 4.0.1(effect@4.0.1)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
       '@nubjs/types':
         specifier: catalog:types
         version: 0.7.3(@types/node@26.2.0)
@@ -593,30 +596,30 @@ packages:
   '@dotenvx/primitives@0.8.0':
     resolution: {integrity: sha512-VYJy0uhFm9zTJ1TxBaW/pA8bjbOM/OttaNMwZ1RHG4JKyRG7DhSdiqD1ipQoAyoD22olUtxbP78W9xY3Wd11bg==}
 
-  '@effect/atom-react@4.0.0':
-    resolution: {integrity: sha512-VPP2oOjj56iwOpL5aIGbu7Qhb4+1sFNdU16aI5of3JqToqWWX9eJPBfeiPyQ1eTYof1hnNX1auyRiTORSfLT6g==}
+  '@effect/atom-react@4.0.1':
+    resolution: {integrity: sha512-V/vcbFCVY2AV7PvjhmOP37Cr4NofrtxBBGW6M1ckBIBxmpi3sMwdPTxj2obPNE4Ho3gkeEQzRC9zEIQ4BDNdQg==}
     peerDependencies:
-      effect: ^4.0.0
+      effect: ^4.0.1
       react: '>=19.0.0 <20.0.0'
       scheduler: '>=0.25.0 <0.28.0'
 
-  '@effect/platform-node-shared@4.0.0':
-    resolution: {integrity: sha512-VBXHJU9UXVZPdQGGDRjGXpo+TpOzRwZuMrdKAtIxi1qwcRftmacZ1zTgIrzBa0Z2RA2KVkoOecQUsTlt/nJZhw==}
+  '@effect/platform-node-shared@4.0.1':
+    resolution: {integrity: sha512-VanaejudEhKJ4mpmqnEzdncVUhN6sGSO9ZDND54mRxAlZxj+4dYAWjDTYAy9o4tJo9aALeP2U8cVcOFzEdSeLg==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0
+      effect: ^4.0.1
 
-  '@effect/platform-node@4.0.0':
-    resolution: {integrity: sha512-/L+4MUbl8FejPKLHLROYSOebvHnfixkP8KiblSD/DE5uH5xENZBHaux4nH6XMnRP+lr8ajpEJFS8sUrmmxFJeQ==}
+  '@effect/platform-node@4.0.1':
+    resolution: {integrity: sha512-FT0Fu5LO0/XP9zBpj0HqrtJNLluK4StNKqf6TSulUsjp8FPBsDVXGJiDuyoN5J2yVMT7tgvhxSwaDcObWVRIaQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0
+      effect: ^4.0.1
       redis: '>=5.0.0 <7.0.0'
 
-  '@effect/vitest@4.0.0':
-    resolution: {integrity: sha512-kGElCPFGtP+CgMCwV/HjJWqtE3zYo6I1+8MSA54l+EI24lPU9p2Efa+TBp1jfkg9j711KKzEqgSAy3VzTsb76Q==}
+  '@effect/vitest@4.0.1':
+    resolution: {integrity: sha512-DbY9kf/018zBxRIX7rJwBnPVPzSarnUpcshm0vfYPFiDkSa7AFrXTh2BlDNUbrdrmqcIOBhVZ7GkEtxf8WiQrg==}
     peerDependencies:
-      effect: ^4.0.0
+      effect: ^4.0.1
       vitest: '>=5.0.0 <6.0.0'
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -877,6 +880,9 @@ packages:
     resolution: {integrity: sha512-wUtoM6G1lY8J3YTimFm0SJmGHkjjTIvxVVBwv6VrfTVrcdq6bUZbaZnq026HmItQYHBjSb/tkRSLK05qqud0JA==}
     peerDependencies:
       '@types/node': '>=25'
+
+  '@opencode/codemode@2.0.27':
+    resolution: {integrity: sha512-Z+L/AQxVIx0umuqVjmNLYpfR64NNzw7eJ2dlpfdb3/jOsOD60lhPq+u6NxN5HRQig2IKJZ17x6LxA1EsHNHVOA==}
 
   '@opentelemetry/api-logs@0.220.0':
     resolution: {integrity: sha512-CmVa4ImJ+ynfrPMNaAXHET6Bhb44SwzmfyVJFq9ni2jgXJR/l7C6gfVFddNmHP+ZOkP9cf4f9DBe68qVLTHc9w==}
@@ -2304,6 +2310,11 @@ packages:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
 
+  acorn@8.15.0:
+    resolution: {integrity: sha512-NZyJarBfL7nWwIq+FDL6Zp/yHEhePMNnnJ0y3qfieCrmNvYct8uvtiV41UvlSe6apAfk0fY1FbWx+NwfmpvtTg==}
+    engines: {node: '>=0.4.0'}
+    hasBin: true
+
   acorn@8.18.0:
     resolution: {integrity: sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ==}
     engines: {node: '>=0.4.0'}
@@ -2802,8 +2813,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.0.0:
-    resolution: {integrity: sha512-ooc1TG5t+FfzgYnFz2ff6BBKyZ7EwBRVXC7c4RhQUAD6/TZ2gTXXMeb4WX7a19ozQo4J73/QW+S00YAIresoMQ==}
+  effect@4.0.1:
+    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
 
   electron-to-chromium@1.5.402:
     resolution: {integrity: sha512-/oOpMaPT6Yg+6/1XQhyIPlzgj7Ye9zf+nNM2Uh6OcE2G2oNptWazFa+qB2Pdqqbsc9KnIDzgAntoYN0dbwOXwA==}
@@ -5280,34 +5291,34 @@ snapshots:
 
   '@dotenvx/primitives@0.8.0': {}
 
-  '@effect/atom-react@4.0.0(effect@4.0.0)(react@19.2.8)(scheduler@0.27.0)':
+  '@effect/atom-react@4.0.1(effect@4.0.1)(react@19.2.8)(scheduler@0.27.0)':
     dependencies:
-      effect: 4.0.0
+      effect: 4.0.1
       react: 19.2.8
       scheduler: 0.27.0
 
-  '@effect/platform-node-shared@4.0.0(effect@4.0.0)':
+  '@effect/platform-node-shared@4.0.1(effect@4.0.1)':
     dependencies:
       '@types/ws': 8.18.1
-      effect: 4.0.0
+      effect: 4.0.1
       ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.0(effect@4.0.0)(redis@6.2.1)':
+  '@effect/platform-node@4.0.1(effect@4.0.1)(redis@6.2.1)':
     dependencies:
-      '@effect/platform-node-shared': 4.0.0(effect@4.0.0)
-      effect: 4.0.0
+      '@effect/platform-node-shared': 4.0.1(effect@4.0.1)
+      effect: 4.0.1
       redis: 6.2.1
       undici: 8.11.2
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/vitest@4.0.0(effect@4.0.0)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))':
+  '@effect/vitest@4.0.1(effect@4.0.1)(vitest@5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))':
     dependencies:
-      effect: 4.0.0
+      effect: 4.0.1
       vitest: 5.0.3(@types/node@26.2.0)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -5505,6 +5516,11 @@ snapshots:
   '@nubjs/types@0.7.3(@types/node@26.2.0)':
     dependencies:
       '@types/node': 26.2.0
+
+  '@opencode/codemode@2.0.27':
+    dependencies:
+      acorn: 8.15.0
+      effect: 4.0.1
 
   '@opentelemetry/api-logs@0.220.0':
     dependencies:
@@ -6470,6 +6486,8 @@ snapshots:
       mime-types: 3.0.2
       negotiator: 1.0.0
 
+  acorn@8.15.0: {}
+
   acorn@8.18.0: {}
 
   agent-device@0.21.25: {}
@@ -6891,7 +6909,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.0.0: {}
+  effect@4.0.1: {}
 
   electron-to-chromium@1.5.402: {}
 

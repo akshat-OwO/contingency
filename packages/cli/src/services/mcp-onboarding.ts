@@ -136,11 +136,12 @@ export const McpWorkPromptLayer = McpServer.resource({
   uri: WORK_PROMPT_URI,
 });
 
-/** The demo store's onboarding surface, served only by a demo server. */
-export const McpOnboardingLayer = Layer.mergeAll(
-  McpServer.toolkit(OnboardingTools).pipe(
-    Layer.provide(OnboardingToolHandlersLive)
-  ),
+/**
+ * The demo store's onboarding prompt and examples, served only by a demo
+ * server. The single-tool interface serves these without the Example tool,
+ * whose operation it offers inside programs instead (ADR 0059).
+ */
+export const McpOnboardingResourcesLayer = Layer.mergeAll(
   McpServer.resource({
     audience: ["assistant"],
     content: readPrompt(starterPromptPath),
@@ -164,17 +165,29 @@ export const McpOnboardingLayer = Layer.mergeAll(
   })
 );
 
+/** The demo store's onboarding surface, served only by a demo server. */
+export const McpOnboardingLayer = Layer.merge(
+  McpServer.toolkit(OnboardingTools).pipe(
+    Layer.provide(OnboardingToolHandlersLive)
+  ),
+  McpOnboardingResourcesLayer
+);
+
 /**
  * The `start` surface for one server. A demo store, when supplied, adds the
  * onboarding prompt, examples, and Example tool; without one the server
  * neither binds the store nor offers its tools.
  */
 export const makeMcpStartLayer = <R = never>(
-  demoSite: Layer.Layer<DemoSiteService, never, R> | undefined
+  demoSite: Layer.Layer<DemoSiteService, never, R> | undefined,
+  options: { readonly exampleTool?: boolean } = {}
 ) =>
   demoSite === undefined
     ? McpWorkPromptLayer
     : Layer.mergeAll(
         McpWorkPromptLayer,
-        McpOnboardingLayer.pipe(Layer.provide(demoSite))
+        (options.exampleTool === false
+          ? McpOnboardingResourcesLayer
+          : McpOnboardingLayer
+        ).pipe(Layer.provide(demoSite))
       );

@@ -42,20 +42,14 @@ import {
   makeHttpServerLayer,
   makeNodeServerLayer,
 } from "../services/http-server.ts";
-import { McpAgentRunLayer } from "../services/mcp-agent-run.ts";
-import { McpAgentSessionLayer } from "../services/mcp-agent-session.ts";
-import { McpAndroidWorkspaceLayer } from "../services/mcp-android-workspace.ts";
-import { McpAuthoringSkillsLayer } from "../services/mcp-authoring-skills.ts";
-import { McpAgentCatalogLayer } from "../services/mcp-catalog.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
-import { McpCodeModeLayer } from "../services/mcp-code-mode.ts";
 import {
+  DEFAULT_MCP_INTERFACE,
+  MCP_INTERFACES,
+  makeMcpCatalogLayer,
   makeMcpInstructions,
   makeMcpHttpLayer,
-  makeMcpPursuitLayer,
 } from "../services/mcp-http.ts";
-import { makeMcpStartLayer } from "../services/mcp-onboarding.ts";
-import { McpTeachingRecordingLayer } from "../services/mcp-teaching-recording.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { systemOneConfig } from "../services/system-one.ts";
 import {
@@ -63,14 +57,6 @@ import {
   TEACHING_RECORDINGS_DIRECTORY,
 } from "../services/teaching-recording-store.ts";
 import { resolveAllowedOrigins } from "../services/web-url.ts";
-
-const mcpTools = Layer.mergeAll(
-  McpAgentSessionLayer,
-  McpAgentCatalogLayer,
-  McpAgentRunLayer,
-  McpTeachingRecordingLayer,
-  McpAuthoringSkillsLayer
-);
 
 const ListenError = Schema.Struct({ code: Schema.String });
 type McpHttpFailure =
@@ -166,6 +152,11 @@ export const mcpCommand = Command.make(
       // Opt-in sandboxed code orchestration (ADR 0045).
       codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
       host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
+      // One code tool by default (ADR 0059, #461); "native" registers each
+      // tool directly.
+      interface: Config.Literals(MCP_INTERFACES, "INTERFACE").pipe(
+        Config.withDefault(DEFAULT_MCP_INTERFACE)
+      ),
       port: Config.Number("PORT").pipe(
         Config.withDefault(process.stdin.isTTY ? 7777 : 0)
       ),
@@ -183,6 +174,7 @@ export const mcpCommand = Command.make(
       );
     }
     const { channel, codeMode, host, port, videoFastForward } = config;
+    const mcpInterface = config.interface;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
     const systemOne = Option.getOrUndefined(yield* systemOneConfig);
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
@@ -301,16 +293,21 @@ export const mcpCommand = Command.make(
           : Layer.build(
               Layer.mergeAll(
                 McpServer.layerStdio({
-                  instructions: makeMcpInstructions(channel, systemOne),
+                  instructions: makeMcpInstructions(
+                    channel,
+                    systemOne,
+                    mcpInterface
+                  ),
                   name: "Contingency",
                   protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                   version: "0.0.1",
                 }),
-                mcpTools,
-                McpAndroidWorkspaceLayer,
-                makeMcpStartLayer(demoSite),
-                codeMode ? McpCodeModeLayer : Layer.empty,
-                makeMcpPursuitLayer(systemOne)
+                makeMcpCatalogLayer({
+                  codeMode,
+                  demoSite,
+                  interface: mcpInterface,
+                  systemOne,
+                })
               ).pipe(
                 Layer.provide(
                   channel
@@ -355,6 +352,7 @@ export const mcpCommand = Command.make(
             mcp: makeMcpHttpLayer(allowedOrigins, {
               codeMode,
               demoSite,
+              interface: mcpInterface,
               systemOne,
             }).pipe(Layer.provide(shared)),
             port: address.port,
