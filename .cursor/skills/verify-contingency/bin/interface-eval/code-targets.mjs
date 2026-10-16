@@ -146,16 +146,14 @@ export const codeTargets = (source) => {
   const calls = [];
   const bindings = new Map();
   // A write the visitor does not model makes the written value, and every
-  // binding that shares it, unresolved. Fresh Snapshot data stays fresh.
+  // binding that shares it, unresolved. That includes Snapshot data: a fresh
+  // node can be given a stale ref. Reads such as find() are not writes.
   const invalidate = (node) => {
     const name = rootName(node);
     if (name === null) {
       return;
     }
     const old = bindings.get(name);
-    if (old === fresh) {
-      return;
-    }
     bindings.set(name, unknown);
     if (!Predicate.isObject(old)) {
       return;

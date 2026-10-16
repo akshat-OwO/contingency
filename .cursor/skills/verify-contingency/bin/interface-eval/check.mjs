@@ -415,6 +415,10 @@ for (const [code, label] of [
     'await tools.agent_session_get({}); const action = {type:"click",ref:"e99"}; Object.assign(action, {ref:"e1"}); return tools.agent_browser_act({action});',
     "Object.assign",
   ],
+  [
+    'await tools.agent_session_get({}); const s = await tools.agent_browser_snapshot({}); s.nodes[0].ref = "e1"; return tools.agent_browser_act({action:{type:"click",ref:s.nodes[0].ref}});',
+    "A write into fresh Snapshot data",
+  ],
 ]) {
   const choices = referenceProgram(code, [readReceipt, actReceipt(2)]);
   assert.equal(
