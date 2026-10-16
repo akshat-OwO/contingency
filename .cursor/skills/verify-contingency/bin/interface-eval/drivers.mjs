@@ -196,7 +196,8 @@ export const drive = async ({
     await mkdir(home);
     // Authentication is a symlink only. Never read or copy its contents.
     await symlink(
-      path.join(homedir(), ".codex/auth.json"),
+      process.env.INTERFACE_EVAL_CODEX_AUTH ??
+        path.join(homedir(), ".codex-secondary/auth.json"),
       path.join(home, "auth.json")
     );
     const config = `[skills]\ninclude_instructions = false\n\n[mcp_servers.contingency]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([proxy, endpoint])}\nstartup_timeout_sec = 120\ntool_timeout_sec = 120\ndefault_tools_approval_mode = "approve"\n`;
@@ -225,7 +226,7 @@ export const drive = async ({
     args,
     auth:
       model === "sol"
-        ? "symlink to ~/.codex/auth.json"
+        ? `symlink to ${process.env.INTERFACE_EVAL_CODEX_AUTH ?? "~/.codex-secondary/auth.json"}`
         : "existing Claude OAuth with restricted mode and memory disabled",
     cwd,
     environmentKeys: Object.keys(env),
