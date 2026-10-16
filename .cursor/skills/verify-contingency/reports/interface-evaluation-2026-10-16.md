@@ -22,6 +22,8 @@ The plan, with every amendment and its reason, is [interface-evaluation-plan.md]
   - GLM: 10 of 42 runs. The free tier's rate limit stopped both supplementary models.
 - **Exclusions.** 48 runs were excluded: 22 Codex usage-limit failures, 25 OpenCode free-tier `FreeUsageLimitError` failures, and 1 run marked as a harness defect. Each failure is a provider error in the driver's own event stream. None of them measured model behavior, and each is kept in `artifacts/interface-eval/aggregate.json` with its reason. No failure caused by the model was excluded or replaced.
 
+- **Classifier review.** PR #504's review found that a receipt could be matched to a call in an unexecuted branch, and that runs needing manual review were aggregated as zero errors. Receipts are now matched by position only in straight-line code, and any other match needs review. An unresolved run marks the benefit gate incomplete. Reprocessing all retained evidence with the fixed classifier found 0 unresolved runs and changed no cell.
+
 ## Gate 1: correctness
 
 Each scripted proof ran once per interface on the final harness revision. Evidence is in [round 6](interface-evaluation-round-6.md).

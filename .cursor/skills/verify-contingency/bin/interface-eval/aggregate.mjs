@@ -5,6 +5,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { cell } from "./cells.mjs";
 import { artifacts, json } from "./runtime.mjs";
 
 // Harness revisions the matrix ran on. Earlier runs were smoke.
@@ -21,22 +22,6 @@ const optional = async (file) => {
     return null;
   }
 };
-const median = (values) => {
-  const sorted = values.toSorted((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[middle]
-    : (sorted[middle - 1] + sorted[middle]) / 2;
-};
-const spread = (values) =>
-  values.length
-    ? {
-        max: Math.max(...values),
-        median: median(values),
-        min: Math.min(...values),
-      }
-    : null;
-
 const runs = [];
 const excluded = [];
 const names = await readdir(artifacts);
@@ -77,29 +62,21 @@ for (const run of runs) {
   const key = `${run.model}/${run.task}/${run.iface}`;
   cells.set(key, [...(cells.get(key) ?? []), run]);
 }
-const cell = (list) => {
-  const measured = list.filter((run) => !run.usage?.missing);
-  const rule = (number) =>
-    list.reduce((sum, run) => sum + (run.byRule?.[number] ?? 0), 0);
-  return {
-    completed: list.filter((run) => run.completion).length,
-    incorrect: { 1: rule(1), 2: rule(2), 3: rule(3), 4: rule(4) },
-    input: spread(measured.map((run) => run.usage.input)),
-    output: spread(measured.map((run) => run.usage.output)),
-    payloadBytes: spread(list.map((run) => run.payloadBytes)),
-    peak: spread(measured.map((run) => run.usage.peak)),
-    runIds: list.map((run) => run.runId),
-    runs: list.length,
-    usageMissing: list.length - measured.length,
-    wallMs: spread(list.map((run) => run.wallMs)),
-  };
-};
 const aggregate = Object.fromEntries(
   [...cells]
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([key, list]) => [key, cell(list)])
 );
-json(path.join(artifacts, "aggregate.json"), { aggregate, excluded });
+const unresolved = Object.values(aggregate).flatMap(
+  (value) => value.unresolvedClassifications
+);
+// The benefit gate is complete only once every counted choice is known.
+json(path.join(artifacts, "aggregate.json"), {
+  aggregate,
+  benefitGateComplete: unresolved.length === 0,
+  excluded,
+  unresolved,
+});
 const rows = Object.entries(aggregate).map(([key, value]) => {
   const [model, task, iface] = key.split("/");
   const incorrect = Object.values(value.incorrect).reduce((a, b) => a + b, 0);
@@ -130,3 +107,8 @@ console.log(
 );
 console.log(rows.join("\n"));
 console.log(`excluded ${excluded.length}`);
+console.log(
+  unresolved.length
+    ? `UNRESOLVED classifications, benefit gate incomplete: ${unresolved.join(", ")}`
+    : "unresolved classifications 0"
+);

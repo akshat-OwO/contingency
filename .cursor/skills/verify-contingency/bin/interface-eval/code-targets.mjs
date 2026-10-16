@@ -102,22 +102,42 @@ const targets = (name, params) => {
     unresolved: values.includes(unknown),
   };
 };
+// A call under one of these may run zero or many times, or out of source
+// order, so a receipt cannot be matched to it by position.
+const branching = new Set([
+  "ArrowFunctionExpression",
+  "ConditionalExpression",
+  "DoWhileStatement",
+  "ForInStatement",
+  "ForOfStatement",
+  "ForStatement",
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "IfStatement",
+  "LogicalExpression",
+  "SwitchStatement",
+  "TryStatement",
+  "WhileStatement",
+]);
 export const codeTargets = (source) => {
   const calls = [];
   const bindings = new Map();
-  const visit = (node) => {
+  // `branched` is true under any construct that may skip, repeat, or reorder
+  // a call relative to its source position.
+  const visit = (node, branched = false) => {
     if (!node || !node.type) {
       return;
     }
+    const inner = branched || branching.has(node.type);
     if (node.type === "VariableDeclarator") {
-      visit(node.init);
+      visit(node.init, inner);
       if (node.id.type === "Identifier") {
         bindings.set(node.id.name, resolve(node.init, bindings));
       }
       return;
     }
     if (node.type === "AssignmentExpression") {
-      visit(node.right);
+      visit(node.right, inner);
       if (node.left.type === "Identifier") {
         bindings.set(node.left.name, resolve(node.right, bindings));
       }
@@ -126,10 +146,10 @@ export const codeTargets = (source) => {
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
         for (const item of value) {
-          visit(item);
+          visit(item, inner);
         }
       } else if (value?.type) {
-        visit(value);
+        visit(value, inner);
       }
     }
     const name = node.type === "CallExpression" ? toolName(node.callee) : null;
@@ -138,6 +158,7 @@ export const codeTargets = (source) => {
         ...targets(name, resolve(node.arguments[0], bindings)),
         name,
         start: node.start,
+        straightLine: !inner,
       });
     }
   };

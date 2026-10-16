@@ -68,9 +68,11 @@ const programAnswer = (state, request, body) => {
     }
     const ordinal = used.get(receipt.operation) ?? 0;
     used.set(receipt.operation, ordinal + 1);
-    const call = calls.filter((item) => item.name === receipt.operation)[
-      ordinal
-    ];
+    const candidates = calls.filter((item) => item.name === receipt.operation);
+    // Position matches a receipt to its call only in straight-line code.
+    const call = candidates.every((item) => item.straightLine)
+      ? candidates[ordinal]
+      : undefined;
     const refs = call?.refs ?? [];
     if (
       local.stale.size &&

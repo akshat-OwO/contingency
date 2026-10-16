@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { cell } from "./cells.mjs";
 import { classify, classifyTimeline } from "./classify.mjs";
 import { claudeUsage, codexUsage } from "./drivers.mjs";
 import { privacyCheck } from "./final-checks.mjs";
@@ -360,5 +361,68 @@ assert.equal(
   ).filter((choice) => choice.reviewRequired).length,
   1,
   "Unresolved targets require review instead of a silent zero"
+);
+const readReceipt = {
+  operation: "agent_session_get",
+  outcome: "succeeded",
+  sequence: 1,
+};
+const actReceipt = (sequence) => ({ ...actionReceipt, sequence });
+const deadBranch = referenceProgram(
+  'await tools.agent_session_get({}); if (false) { await tools.agent_browser_act({action:{type:"click",ref:"e99"}}); } return tools.agent_browser_act({action:{type:"click",ref:"e1"}});',
+  [readReceipt, actReceipt(2)]
+);
+assert.equal(
+  deadBranch.filter((choice) => choice.rule === 4).length,
+  0,
+  "An unexecuted call never lends its target to an executed receipt"
+);
+assert.equal(
+  deadBranch.filter((choice) => choice.reviewRequired).length,
+  1,
+  "A receipt behind a branch needs review instead of a confident count"
+);
+assert.equal(
+  referenceProgram(
+    'await tools.agent_session_get({}); for (const ref of ["e2", "e1"]) { await tools.agent_browser_act({action:{type:"click",ref}}); }',
+    [readReceipt, actReceipt(2), actReceipt(3)]
+  ).filter((choice) => choice.reviewRequired).length,
+  2,
+  "A call repeated by a loop needs review for every receipt it made"
+);
+assert.equal(
+  referenceProgram(
+    'await tools.agent_session_get({}); await tools.agent_browser_act({action:{type:"click",ref:"e2"}}); return tools.agent_browser_act({action:{type:"click",ref:"e1"}});',
+    [readReceipt, actReceipt(2), actReceipt(3)]
+  ).filter((choice) => choice.rule === 4).length,
+  1,
+  "Straight-line calls still match their receipts in order"
+);
+const joined = classify(
+  [
+    timedRequest(1, "agent_browser_snapshot", "00"),
+    timedAnswer(1, { nodes: [{ ref: "e1" }], snapshotId: "old" }, "01"),
+    timedRequest(2, "agent_code_execute", "03", {
+      code: 'await tools.agent_session_get({}); const ref = ["e1"].join(""); return tools.agent_browser_act({action:{type:"click",ref}});',
+    }),
+    timedAnswer(2, { receipts: [readReceipt, actReceipt(2)] }, "04"),
+  ],
+  {},
+  [{ at: "02", kind: "return-control" }]
+);
+assert.equal(joined.classificationValid, false);
+const unresolvedCell = cell([
+  {
+    ...joined,
+    completion: true,
+    runId: "joined",
+    usage: { input: 1, output: 1, peak: 1 },
+    wallMs: 1,
+  },
+]);
+assert.deepEqual(
+  unresolvedCell.unresolvedClassifications,
+  ["joined"],
+  "Aggregation reports an unresolved run rather than counting it as zero"
 );
 process.stdout.write("Interface evaluation metric checks passed\n");
