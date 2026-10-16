@@ -94,6 +94,7 @@ export const prepareAndroid = async (options, device) => {
       flowSkillName: "eval-android-checkout",
       kind: "run",
       operationId: "eval-android-start",
+      recordingId: null,
       selection: device.selection,
     },
   });
