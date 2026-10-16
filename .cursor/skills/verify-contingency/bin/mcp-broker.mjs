@@ -115,7 +115,7 @@ const send = async (method, params, callId) => {
     return await reply.promise;
   } finally {
     clearTimeout(timer);
-    if (callId !== undefined) {
+    if (callId !== undefined && named.get(callId) === id) {
       named.delete(callId);
     }
   }
@@ -177,6 +177,11 @@ const callTool = async (request, response) => {
     return;
   }
   const { callId, params = {}, tool } = decoded.value;
+  // A name stays bound to one running call, so it can always be cancelled.
+  if (callId !== undefined && named.has(callId)) {
+    respond(response, 409, { error: `A call named ${callId} is running` });
+    return;
+  }
   const message = await send(
     "tools/call",
     { arguments: params, name: tool },
