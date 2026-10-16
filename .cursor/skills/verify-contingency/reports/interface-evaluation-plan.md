@@ -39,7 +39,7 @@ Each task starts from the same seeded state, with the same prompt, and ends with
 
 | Id | Task | Scripted user | Final-state check |
 | --- | --- | --- | --- |
-| `cart` | Add two named products to the cart and report the total | none | cart contents and the reported total |
+| `cart` | Add two named products to the cart and report what the cart holds | none | cart contents and the reported contents |
 | `checkout` | Check out with a secret Variable | supplies the Variable privately, then allows the purchase Confirmation | order placed once; the secret literal is absent from every model-visible message |
 | `refuse` | Same checkout, but the user refuses the Confirmation | refuses | no order; the model reports the refusal and dispatches nothing after it |
 | `learn` | Learn and save a Flow Skill from a seeded Teaching Recording | none | saved Flow Skill passes the contract and is parameterized |
@@ -62,7 +62,7 @@ Each task starts from the same seeded state, with the same prompt, and ends with
 | Catalog cost | Input tokens of the first request for a one-word prompt, per model and interface | a dedicated calibration run |
 | Payload bytes | Bytes of every MCP request and answer | stdio logging proxy |
 | Latency | Wall time per run, and per MCP call | harness and proxy timestamps |
-| Process communication overhead | The added latency of one operation run as a one-operation program over the same operation called natively, measured on a read (`agent_session_get`) and an action (`agent_browser_act`), 20 paired calls each on one session | a scripted microbenchmark, not the model runs |
+| Process communication overhead | The added latency of one operation run as a one-operation program over the same operation called natively, measured on a read (`agent_session_get`) and an action (`agent_browser_act`), 20 paired calls each. The interface is fixed per process, so two production processes run side by side with matched fresh sessions on the same fixture page, and calls alternate between them | a scripted microbenchmark, not the model runs |
 | Operation calls | Native tool calls; single-tool operations dispatched inside programs, and executions | proxy log |
 
 Payload bytes and token counts are reported side by side and never substituted for each other.
@@ -88,4 +88,5 @@ The maintainer reviews the report before any default changes.
 
 ## Amendments
 
+- 2026-10-16, before any result: the overhead benchmark uses two side-by-side processes, because a process serves one interface. `cart` reports contents rather than a total, because the shop fixture has no prices. Codex reports usage per turn in `codex exec --json`, so its per-request usage and peak context come from the `token_count` events in the run's own Codex session log; if those are absent, Codex peak context is reported as missing.
 - 2026-10-16, before any result: rule 2 is judged from the final state instead of the proxy log, because single-tool receipts omit dispatched arguments. Process communication overhead moved to a paired microbenchmark, because receipts carry no per-operation timings.
