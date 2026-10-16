@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
+import { json } from "./runtime.mjs";
 import { workspace } from "./workspace.mjs";
 
 export const androidPrerequisite = () => {
@@ -87,6 +90,49 @@ export const androidPrerequisite = () => {
   };
 };
 export const prepareAndroid = async (options, device) => {
+  // Same disposable verified-package convention as the browser checkout seed.
+  const requirements = {
+    capabilities: ["semantic-actions", "screenshots"],
+    environment: device.selection.environment,
+    outcomes: device.selection.outcomes,
+    platform: "android",
+    preparation: device.selection.setup,
+    reversibleActions: [
+      { name: "Sign in", role: "button" },
+      { name: "Add Anvil to cart", role: "button" },
+      { name: "Open cart", role: "button" },
+      { name: "Place mock order", role: "button" },
+    ],
+  };
+  const skill = path.join(
+    options.mcp.directory,
+    "catalog/eval-android-checkout"
+  );
+  await mkdir(path.join(skill, "references"), { recursive: true });
+  const content = `---
+name: eval-android-checkout
+description: Submit one mock Anvil order in the disposable Android fixture.
+inputs:
+runtime: ${JSON.stringify(requirements)}
+---
+
+1. Enter the requested public Shopper name and activate Sign in.
+   Done when: Catalog is visible.
+2. Activate Add Anvil to cart, then Open cart.
+   Done when: The cart holds one Anvil.
+3. Activate Place mock order.
+   Done when: Order confirmed and the submitted shopper are visible.
+`;
+  await writeFile(path.join(skill, "SKILL.md"), content);
+  await writeFile(
+    path.join(skill, "references/verification.md"),
+    "- Verified: 2026-10-01T00:00:00.000Z\n- Platform: android\n"
+  );
+  json(path.join(options.directory, "seed.json"), {
+    method: "task-proof disposable verified package",
+    requirements,
+    skill: content,
+  });
   const ui = await workspace(options);
   const session = await options.mcp.operation("agent_android_workspace", {
     command: {
@@ -99,9 +145,8 @@ export const prepareAndroid = async (options, device) => {
     },
   });
   await ui.open(`http://127.0.0.1:${options.mcp.port}/?android=${session.id}`);
-  await ui.command("android-allow-request", {
-    name: "Run Environment Permission",
-  });
+  assert.deepEqual(session.preparation.differences, []);
+  assert.deepEqual(session.preparation.pending, []);
   await ui.click(
     device.selection.device.avd
       ? "Prepare selected emulator"
