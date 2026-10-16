@@ -61,7 +61,8 @@ Commands:
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp channels
-  mcp call --tool <name> [--params <json>]
+  mcp call --tool <name> [--params <json>] [--call-id <id>]
+  mcp cancel --call-id <id>
   mcp tools [--name <name>]
   mcp resources
   mcp resource --uri <uri>
@@ -1374,10 +1375,10 @@ const INPUT_CHECK_TEXT = "Rapid_typing@123";
  * execution's status and receipts, never its parameters, are appended to
  * `single-tool.jsonl` in the verify directory.
  */
-const brokerTool = async (instance, tool, params) => {
+const brokerTool = async (instance, tool, params, callId) => {
   const send = async (name, args) => {
     const response = await fetch(`${instance.brokerUrl}call`, {
-      body: JSON.stringify({ params: args, tool: name }),
+      body: JSON.stringify({ callId, params: args, tool: name }),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
@@ -1404,6 +1405,9 @@ try {
 }`;
   const started = Date.now();
   const raw = await send("agent_code_execute", { code, timeoutMs: 120_000 });
+  if (raw.cancelled === true) {
+    return raw;
+  }
   const execution = raw.structuredContent ?? {};
   const answer = (text, isError) => ({
     content: [{ text, type: "text" }],
@@ -1959,8 +1963,14 @@ const cmdMcpCall = async (flags) => {
       );
     }
   }
-  const result = await brokerTool(instance, tool, params);
+  const callId = typeof flags["call-id"] === "string" ? flags["call-id"] : undefined;
+  const result = await brokerTool(instance, tool, params, callId);
   const body = JSON.stringify(result);
+  // A cancelled request has no MCP answer; the broker reports the cancel.
+  if (result.cancelled === true) {
+    process.stdout.write(`${body}\n`);
+    return;
+  }
   // A tool refusal is an answer, not a transport failure: it is printed with a
   // non-zero exit so a drive can assert on the reason it names.
   const text = (result.content ?? [])
@@ -1971,6 +1981,30 @@ const cmdMcpCall = async (flags) => {
   if (result.isError === true) {
     process.exit(2);
   }
+};
+
+/**
+ * Cancel a running `mcp call --call-id <id>` with an MCP
+ * `notifications/cancelled`, as a client does when its user stops a request.
+ */
+const cmdMcpCancel = async (flags) => {
+  const instance = readInstance();
+  if (typeof instance.brokerUrl !== "string") {
+    fail("No MCP instance is recorded. Run mcp start first.");
+  }
+  if (typeof flags["call-id"] !== "string") {
+    fail("mcp cancel needs --call-id <id>.");
+  }
+  const response = await fetch(`${instance.brokerUrl}cancel`, {
+    body: JSON.stringify({ callId: flags["call-id"] }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    fail(`mcp cancel failed (${response.status}): ${body}`);
+  }
+  process.stdout.write(`${body}\n`);
 };
 
 /**
@@ -2150,6 +2184,10 @@ const main = async () => {
       await cmdMcpCall(parseArgs(argv.slice(2)).flags);
       return;
     }
+    if (action === "cancel") {
+      await cmdMcpCancel(parseArgs(argv.slice(2)).flags);
+      return;
+    }
     if (action === "channels") {
       await cmdMcpChannels();
       return;
@@ -2170,7 +2208,7 @@ const main = async () => {
       await cmdMcpStop();
       return;
     }
-    fail("mcp needs start, call, tools, resources, resource, or stop.");
+    fail("mcp needs start, call, cancel, tools, resources, resource, or stop.");
   }
   fail(`Unknown command: ${command}`);
 };

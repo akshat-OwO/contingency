@@ -26,8 +26,14 @@ const { Option, Schema } = await import(
 const REQUEST_TIMEOUT_MS = 60_000;
 const ResourceRequest = Schema.Struct({ uri: Schema.optional(Schema.String) });
 const CallRequest = Schema.Struct({
+  /** Names the call so `POST /cancel` can cancel it while it runs. */
+  callId: Schema.optional(Schema.String),
   params: Schema.optional(Schema.Record(Schema.String, Schema.Json)),
   tool: Schema.String,
+});
+const CancelRequest = Schema.Struct({
+  callId: Schema.String,
+  reason: Schema.optional(Schema.String),
 });
 
 const args = process.argv.slice(2);
@@ -50,6 +56,8 @@ const child = spawn(process.execPath, [cli, "mcp"], {
 
 /** Replies the server still owes, by JSON-RPC id. */
 const pending = new Map();
+/** Named calls still running, by call id: their JSON-RPC id. */
+const named = new Map();
 let nextId = 0;
 let buffer = "";
 const channelMessages = [];
@@ -86,9 +94,12 @@ child.stdout.on("data", (chunk) => {
   }
 });
 
-const send = async (method, params) => {
+const send = async (method, params, callId) => {
   nextId += 1;
   const id = nextId;
+  if (callId !== undefined) {
+    named.set(callId, id);
+  }
   const reply = Promise.withResolvers();
   const timer = setTimeout(() => {
     pending.delete(id);
@@ -104,6 +115,9 @@ const send = async (method, params) => {
     return await reply.promise;
   } finally {
     clearTimeout(timer);
+    if (callId !== undefined && named.get(callId) === id) {
+      named.delete(callId);
+    }
   }
 };
 
@@ -127,6 +141,61 @@ const respond = (response, status, payload) => {
     "content-type": "application/json",
   });
   response.end(text);
+};
+
+// MCP cancellation: the server sends no reply for a cancelled request, so
+// the broker answers the waiting call itself.
+const cancelCall = async (request, response) => {
+  const decodedCancel = Schema.decodeUnknownOption(CancelRequest)(
+    JSON.parse(await readBody(request))
+  );
+  if (Option.isNone(decodedCancel)) {
+    respond(response, 400, { error: "cancel needs a callId" });
+    return;
+  }
+  const { callId, reason = "Cancelled by the verification drive." } =
+    decodedCancel.value;
+  const requestId = named.get(callId);
+  if (requestId === undefined) {
+    respond(response, 404, { error: `No running call named ${callId}` });
+    return;
+  }
+  notify("notifications/cancelled", { reason, requestId });
+  const settle = pending.get(requestId);
+  pending.delete(requestId);
+  settle?.({ cancelled: true, requestId });
+  respond(response, 202, { cancelled: true, requestId });
+};
+
+/** Forwards one tools/call, named when the caller may cancel it. */
+const callTool = async (request, response) => {
+  const decoded = Schema.decodeUnknownOption(CallRequest)(
+    JSON.parse(await readBody(request))
+  );
+  if (Option.isNone(decoded)) {
+    respond(response, 400, { error: "call needs a tool name" });
+    return;
+  }
+  const { callId, params = {}, tool } = decoded.value;
+  // A name stays bound to one running call, so it can always be cancelled.
+  if (callId !== undefined && named.has(callId)) {
+    respond(response, 409, { error: `A call named ${callId} is running` });
+    return;
+  }
+  const message = await send(
+    "tools/call",
+    { arguments: params, name: tool },
+    callId
+  );
+  if (message.cancelled === true) {
+    respond(response, 200, { cancelled: true, requestId: message.requestId });
+    return;
+  }
+  if (message.error === undefined) {
+    respond(response, 200, message.result);
+    return;
+  }
+  respond(response, 502, { error: message.error });
 };
 
 const handle = async (request, response) => {
@@ -173,26 +242,18 @@ const handle = async (request, response) => {
     respond(response, 502, { error: message.error });
     return;
   }
+  if (request.method === "POST" && request.url === "/cancel") {
+    await cancelCall(request, response);
+    return;
+  }
   if (request.method !== "POST" || request.url !== "/call") {
     respond(response, 404, {
-      error: "POST /call, POST /resource, GET /tools, or GET /health",
+      error:
+        "POST /call, POST /cancel, POST /resource, GET /tools, or GET /health",
     });
     return;
   }
-  const decoded = Schema.decodeUnknownOption(CallRequest)(
-    JSON.parse(await readBody(request))
-  );
-  if (Option.isNone(decoded)) {
-    respond(response, 400, { error: "call needs a tool name" });
-    return;
-  }
-  const { params = {}, tool } = decoded.value;
-  const message = await send("tools/call", { arguments: params, name: tool });
-  if (message.error === undefined) {
-    respond(response, 200, message.result);
-    return;
-  }
-  respond(response, 502, { error: message.error });
+  await callTool(request, response);
 };
 
 const server = createServer(async (request, response) => {
