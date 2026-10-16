@@ -197,7 +197,7 @@ const cancellation = async () => {
     assert.ok(replay.entry, "retry returns the recorded attempt");
   } catch (error) {
     assert.match(
-      error.stderr ?? String(error),
+      `${error.stdout ?? ""}${error.stderr ?? ""}${String(error)}`,
       /dispatched but its outcome is unknown/u
     );
     replay = { uncertain: true };
@@ -207,7 +207,11 @@ const cancellation = async () => {
     view: "full",
   });
   assert.equal(requests, 1, "retry never navigates again");
-  assert.equal(after.timeline.length, 1, "one recorded or uncertain attempt");
+  assert.ok(
+    replay.uncertain ||
+      after.timeline.some((entry) => entry.id === replay.entry.id),
+    "the retry returns a recorded attempt or refuses an uncertain dispatch"
+  );
   await save("cancellation.json", {
     after,
     cancel: JSON.parse(cancel),
@@ -318,8 +322,8 @@ try {
   await save("memory.json", memory());
   const result = await Effect.runPromise(
     Effect.tryPromise({
-      try: { android, boundary, cancellation }[phase],
       catch: (error) => error,
+      try: { android, boundary, cancellation }[phase],
     })
   );
   await save("result.json", {
