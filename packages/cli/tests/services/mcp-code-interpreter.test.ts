@@ -8,7 +8,6 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Option, Stream } from "effect";
-import type { Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { ExecutionValuesLive } from "../../src/services/execution-values.ts";
@@ -147,10 +146,7 @@ const takenOver: SessionWaits = {
  * One session the user changes from inside operations, standing in for a
  * Workspace action that lands while a program waits or between two calls.
  */
-const userWorkspace = (
-  initial: SessionWaits,
-  duringRead: SessionWaits | undefined
-) => {
+const userWorkspace = (initial: SessionWaits, duringRead?: SessionWaits) => {
   let waits = initial;
   const dispatched: string[] = [];
   const operation = (
@@ -188,12 +184,14 @@ const userWorkspace = (
             )
         ),
         Layer.mock(AgentSession, {
-          get: () =>
+          get: () => {
             // SAFETY: the dispatcher reads only the waits and the view link.
-            Effect.succeed({
+            const session = {
               ...waits,
               viewUrl: "http://127.0.0.1:7783/agent/agent-browser-1",
-            } as unknown as AgentSessionSnapshot),
+            } as AgentSessionSnapshot;
+            return Effect.succeed(session);
+          },
         }),
         ExecutionValuesLive,
         NodeServices.layer
@@ -206,7 +204,7 @@ const userWorkspace = (
       const results = yield* tools
         .handle("agent_code_execute", { code })
         .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
-      return results.at(-1)?.result as Schema.Json;
+      return results.at(-1)?.result;
     }).pipe(Effect.provide(layer), Effect.timeout(HANG_GUARD_MS));
   return { dispatched, execute };
 };
@@ -241,7 +239,7 @@ describe("browser interventions during a program", () => {
     "refuses a close after a Takeover that no read observed",
     () =>
       Effect.gen(function* takeoverBetweenCalls() {
-        const workspace = userWorkspace(idle, undefined);
+        const workspace = userWorkspace(idle);
         const answer = yield* workspace.execute(`
           await tools.agent_session_get(${sessionArgument});
           await tools.agent_sessions_get({});
@@ -272,7 +270,7 @@ describe("browser interventions during a program", () => {
     "lets a new program read a Takeover that was already waiting",
     () =>
       Effect.gen(function* existingTakeover() {
-        const workspace = userWorkspace(takenOver, undefined);
+        const workspace = userWorkspace(takenOver);
         const answer = yield* workspace.execute(`
           await tools.agent_session_get(${sessionArgument});
           return "read";
