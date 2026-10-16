@@ -123,6 +123,8 @@ For the combined task, authority, input, Dry Run, and restart proof, follow [the
 
 Run `mcp channels` to read the broker's bounded channel-frame capture and the server's initialized capabilities. Set `CONTINGENCY_MCP_CHANNEL=true` on `mcp start` to opt in. Follow the Claude Code channels recipe in `features/workspace.md` for frame readback and idle-agent proof.
 
+Run `mcp call --tool <name> --params <json> --call-id <id>` in the background to name a call, then `mcp cancel --call-id <id>` to cancel it with MCP `notifications/cancelled`, as a client does when its user stops a request. The cancelled call prints `{"cancelled":true,...}`; the server sends it no answer.
+
 Run `mcp tools --name <name>` to inspect one tool's raw `tools/list` entry from that same MCP process. Omit `--name` to read the full list.
 
 `mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so Flow Skills saved with `agent_flow_skill_save` and their Teaching Recordings land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.

@@ -383,12 +383,118 @@ const browserProof = Effect.gen(function* singleToolProof() {
   assert.equal(wholeValue.nodes.length, wholeValue.coverage.returned);
   yield* save("whole-result-resource.json", wholeValue);
 
+  // An MCP client cancels a program mid-run. The click it dispatched is kept
+  // and replays by identity; nothing after the cancel runs.
+  const instance = JSON.parse(
+    yield* io(() => readFile(path.join(directory, "instance.json"), "utf-8"))
+  );
+  const serverPid = (yield* io(() =>
+    execute("pgrep", ["-P", String(instance.mcpPid)])
+  )).stdout.trim();
+  const interpreters = () =>
+    io(async () => {
+      try {
+        const { stdout } = await execute("pgrep", [
+          "-P",
+          serverPid,
+          "-f",
+          "code-interpreter-process",
+        ]);
+        return stdout.trim();
+      } catch {
+        return "";
+      }
+    });
+  const cancelCode = `const sessionId = ${id};${ADD_ANVIL}
+    await tools.agent_browser_act({ action: { ref: add.ref, type: "click" }, operationId: ${JSON.stringify(operation("cancel-click"))}, sessionId });
+    const now = await tools.agent_session_get({ sessionId, view: "compact" });
+    await tools.agent_session_get({ afterCursor: now.eventCursor, sessionId, view: "compact", waitMs: 60000 });
+    {${ADD_ANVIL}
+    await tools.agent_browser_act({ action: { ref: add.ref, type: "click" }, operationId: ${JSON.stringify(operation("after-cancel"))}, sessionId });}
+    return "unreachable";`;
+  journal.push({
+    callId: "cancel-1",
+    code: cancelCode,
+    entryPoint: "agent_code_execute",
+  });
+  const cancelling = execute(
+    "nub",
+    [
+      control,
+      "mcp",
+      "call",
+      "--tool",
+      "agent_code_execute",
+      "--params",
+      JSON.stringify({ code: cancelCode, timeoutMs: 90_000 }),
+      "--call-id",
+      "cancel-1",
+    ],
+    { maxBuffer: 8 * 1024 * 1024 }
+  );
+  // The click is visible in the page before the program is cancelled.
+  let clickedCart;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const seen = yield* program(
+      `cancel-watch-${attempt}`,
+      `const page = await tools.agent_browser_snapshot({ sessionId: ${id}, format: "structured" });
+      return page.nodes.find((node) => /items? in cart$/u.test(node.name))?.name;`
+    );
+    clickedCart = seen.value;
+    if (clickedCart === "4 items in cart") {
+      break;
+    }
+    yield* Effect.sleep("300 millis");
+  }
+  assert.equal(clickedCart, "4 items in cart");
+  const runningBefore = yield* interpreters();
+  assert.notEqual(runningBefore, "", "the cancelled program is still running");
+  const cancelSent = JSON.parse(
+    yield* command("mcp", "cancel", "--call-id", "cancel-1")
+  );
+  assert.equal(cancelSent.cancelled, true);
+  const cancelledAnswer = JSON.parse(
+    (yield* io(() => cancelling)).stdout.trim()
+  );
+  assert.equal(cancelledAnswer.cancelled, true);
+  let runningAfter = yield* interpreters();
+  for (let attempt = 0; attempt < 50 && runningAfter !== ""; attempt += 1) {
+    yield* Effect.sleep("100 millis");
+    runningAfter = yield* interpreters();
+  }
+  assert.equal(runningAfter, "", "the cancelled interpreter exited");
+  const afterCancel = yield* program(
+    "cancel-replay",
+    `const sessionId = ${id};${ADD_ANVIL}
+    let replay;
+    try {
+      const again = await tools.agent_browser_act({ action: { ref: add.ref, type: "click" }, operationId: ${JSON.stringify(operation("cancel-click"))}, sessionId });
+      replay = { id: again.entry.id };
+    } catch (error) {
+      replay = { refused: error.message };
+    }
+    const after = await tools.agent_browser_snapshot({ sessionId, format: "structured" });
+    return { cart: after.nodes.find((node) => /items? in cart$/u.test(node.name))?.name, replay };`
+  );
+  assert.equal(afterCancel.value.cart, "4 items in cart");
+  assert.match(
+    afterCancel.value.replay.refused ?? afterCancel.value.replay.id,
+    /dispatched but its outcome is unknown|^action-/u
+  );
+  yield* save("cancel.json", {
+    cancelSent,
+    cancelledAnswer,
+    interpreterPidsBefore: runningBefore,
+    replay: afterCancel.value,
+  });
+
   const finished = yield* program(
     "complete",
     `await tools.agent_run_assess({ evidence: [{ id: ${JSON.stringify(first.value.id)}, kind: "attempt" }], explanation: "Three anvils were added; the task asked for one.", operationId: ${JSON.stringify(operation("assess"))}, outcome: "not-working", sessionId: ${id} });
     return await tools.agent_run_complete({ operationId: ${JSON.stringify(operation("complete"))}, sessionId: ${id} });`
   );
   const result = {
+    cancellation: afterCancel.value.replay,
     concurrentResume: [first.value, second.value],
     finished: finished.status,
     proofId,

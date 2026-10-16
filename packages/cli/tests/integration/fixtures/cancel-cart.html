@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cancellation cart</title>
+  </head>
+  <body>
+    <main>
+      <h1>Cancellation cart</h1>
+      <button type="button" id="add">Add anvil to cart</button>
+      <p id="cart">Cart has 0 items</p>
+    </main>
+    <script>
+      const render = () => {
+        document.getElementById("cart").textContent =
+          `Cart has ${sessionStorage.getItem("cart") ?? "0"} items`;
+      };
+      // Each add tells the fixture server, so a test can wait on the click
+      // itself rather than on the page.
+      document.getElementById("add").addEventListener("click", () => {
+        const count = Number(sessionStorage.getItem("cart") ?? "0") + 1;
+        sessionStorage.setItem("cart", String(count));
+        fetch(`/anvil-added?count=${count}`).catch(() => {});
+        render();
+      });
+      render();
+    </script>
+  </body>
+</html>
