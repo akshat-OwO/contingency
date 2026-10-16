@@ -552,6 +552,32 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
     [["SETUP_PASSWORD", "refused"]]
   );
   yield* capture("android-variable-refused");
+
+  // The whole read, which once came back cut off, is kept behind a link.
+  const wholeRead = yield* program(
+    "android-whole-read",
+    `return ${android(`{ _tag: "read", sessionId: ${id} }`)};`
+  );
+  assert.equal(wholeRead.status, "completed");
+  assert.equal(wholeRead.value, undefined);
+  assert.ok(
+    wholeRead.valueResource.bytes > 16_384,
+    `${wholeRead.valueResource.bytes} bytes`
+  );
+  const keptRead = yield* command(
+    "mcp",
+    "resource",
+    "--uri",
+    wholeRead.valueResource.uri
+  );
+  assert.equal(Buffer.byteLength(keptRead), wholeRead.valueResource.bytes);
+  const session = JSON.parse(keptRead);
+  assert.equal(session.id, sessionId);
+  assert.deepEqual(
+    session.variables.map(({ name, status }) => [name, status]),
+    [["SETUP_PASSWORD", "refused"]]
+  );
+  yield* save("android-whole-read-resource.json", session);
   yield* command(
     "browser",
     "click",
@@ -574,6 +600,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
     sessionId,
     status: "passed",
     variables: reread.value.variables,
+    wholeReadBytes: wholeRead.valueResource.bytes,
   };
   yield* save("result.json", result);
   return result;
