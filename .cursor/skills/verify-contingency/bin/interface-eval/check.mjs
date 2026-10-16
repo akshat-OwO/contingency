@@ -398,6 +398,32 @@ assert.equal(
   1,
   "Straight-line calls still match their receipts in order"
 );
+for (const [code, label] of [
+  [
+    'await tools.agent_session_get({}); let ref = "e1"; if (false) { ref = "e99"; } return tools.agent_browser_act({action:{type:"click",ref}});',
+    "A binding written in a branch",
+  ],
+  [
+    'await tools.agent_session_get({}); const action = {type:"click",ref:"e99"}; action.ref = "e1"; return tools.agent_browser_act({action});',
+    "A property write",
+  ],
+  [
+    'await tools.agent_session_get({}); const action = {type:"click",ref:"e99"}; const alias = action; alias.ref = "e1"; return tools.agent_browser_act({action});',
+    "A property write through an alias",
+  ],
+  [
+    'await tools.agent_session_get({}); const action = {type:"click",ref:"e99"}; Object.assign(action, {ref:"e1"}); return tools.agent_browser_act({action});',
+    "Object.assign",
+  ],
+]) {
+  const choices = referenceProgram(code, [readReceipt, actReceipt(2)]);
+  assert.equal(
+    choices.filter((choice) => choice.reviewRequired).length,
+    1,
+    `${label} makes the target unresolved`
+  );
+  assert.equal(choices.filter((choice) => choice.rule === 4).length, 0);
+}
 const joined = classify(
   [
     timedRequest(1, "agent_browser_snapshot", "00"),

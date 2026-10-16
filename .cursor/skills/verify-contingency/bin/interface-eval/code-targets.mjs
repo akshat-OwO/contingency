@@ -119,9 +119,82 @@ const branching = new Set([
   "TryStatement",
   "WhileStatement",
 ]);
+// Methods that change the object they are called on.
+const mutating = new Set([
+  "copyWithin",
+  "fill",
+  "pop",
+  "push",
+  "reverse",
+  "shift",
+  "sort",
+  "splice",
+  "unshift",
+]);
+const rootName = (node) => {
+  let current = node;
+  while (current?.type === "MemberExpression") {
+    current = current.object;
+  }
+  return current?.type === "Identifier" ? current.name : null;
+};
+const contains = (value, target) =>
+  value === target ||
+  (Predicate.isObject(value) &&
+    Object.values(value).some((item) => contains(item, target)));
 export const codeTargets = (source) => {
   const calls = [];
   const bindings = new Map();
+  // A write the visitor does not model makes the written value, and every
+  // binding that shares it, unresolved. Fresh Snapshot data stays fresh.
+  const invalidate = (node) => {
+    const name = rootName(node);
+    if (name === null) {
+      return;
+    }
+    const old = bindings.get(name);
+    if (old === fresh) {
+      return;
+    }
+    bindings.set(name, unknown);
+    if (!Predicate.isObject(old)) {
+      return;
+    }
+    for (const [key, value] of bindings) {
+      if (contains(value, old)) {
+        bindings.set(key, unknown);
+      }
+    }
+  };
+  // Writes other than plain assignment: updates, deletes, and mutating calls.
+  const invalidateWrites = (node) => {
+    if (
+      node.type === "UpdateExpression" ||
+      (node.type === "UnaryExpression" && node.operator === "delete")
+    ) {
+      invalidate(node.argument);
+    }
+    if (node.type !== "CallExpression" || toolName(node.callee)) {
+      return;
+    }
+    const { callee } = node;
+    if (callee.type !== "MemberExpression") {
+      return;
+    }
+    if (mutating.has(property(callee))) {
+      invalidate(callee.object);
+    }
+    if (
+      callee.object.name === "Object" &&
+      ["assign", "defineProperty", "defineProperties"].includes(
+        property(callee)
+      )
+    ) {
+      invalidate(node.arguments[0]);
+    }
+  };
+  const bind = (name, node, branched) =>
+    bindings.set(name, branched ? unknown : resolve(node, bindings));
   // `branched` is true under any construct that may skip, repeat, or reorder
   // a call relative to its source position.
   const visit = (node, branched = false) => {
@@ -132,17 +205,20 @@ export const codeTargets = (source) => {
     if (node.type === "VariableDeclarator") {
       visit(node.init, inner);
       if (node.id.type === "Identifier") {
-        bindings.set(node.id.name, resolve(node.init, bindings));
+        bind(node.id.name, node.init, inner);
       }
       return;
     }
     if (node.type === "AssignmentExpression") {
       visit(node.right, inner);
-      if (node.left.type === "Identifier") {
-        bindings.set(node.left.name, resolve(node.right, bindings));
+      if (node.left.type === "Identifier" && node.operator === "=") {
+        bind(node.left.name, node.right, inner);
+      } else {
+        invalidate(node.left);
       }
       return;
     }
+    invalidateWrites(node);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
         for (const item of value) {
