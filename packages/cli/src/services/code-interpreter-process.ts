@@ -202,7 +202,12 @@ const main = Effect.gen(function* interpreterProcess() {
   const ending = yield* Effect.raceFirst(
     CodeMode.execute({
       code: execute.code,
-      limits: execute.limits,
+      // The value is bounded below instead, so an oversized one is reported
+      // by size rather than replaced by a truncated string.
+      limits: {
+        maxToolCalls: execute.limits.maxToolCalls,
+        timeoutMs: execute.limits.timeoutMs,
+      },
       tools,
     }).pipe(Effect.map((result) => ({ _tag: "finished" as const, result }))),
     Deferred.await(cancelled).pipe(Effect.as({ _tag: "cancelled" as const }))
@@ -216,16 +221,37 @@ const main = Effect.gen(function* interpreterProcess() {
     ok: finished.ok,
     type: "done",
   };
+  const { maxOutputBytes } = execute.limits;
+  let valueBytes = 0;
   if (finished.ok) {
-    done.value = finished.value;
+    valueBytes = Buffer.byteLength(JSON.stringify(finished.value) ?? "null");
+    if (valueBytes > maxOutputBytes) {
+      done.overflowBytes = valueBytes;
+      valueBytes = 0;
+    } else {
+      done.value = finished.value;
+    }
   } else {
     done.error = { kind: finished.error.kind, message: finished.error.message };
   }
   if (finished.logs !== undefined) {
-    done.logs = finished.logs;
-  }
-  if (finished.truncated !== undefined) {
-    done.truncated = finished.truncated;
+    // Logs share what the value leaves of the budget.
+    const kept: string[] = [];
+    let logBytes = valueBytes;
+    for (const line of finished.logs) {
+      logBytes += Buffer.byteLength(line) + 1;
+      if (logBytes > maxOutputBytes) {
+        break;
+      }
+      kept.push(line);
+    }
+    if (kept.length < finished.logs.length) {
+      kept.push(
+        `[logs truncated: showing ${kept.length} of ${finished.logs.length} lines]`
+      );
+      done.truncated = true;
+    }
+    done.logs = kept;
   }
   yield* send(done);
   return yield* exit(0);

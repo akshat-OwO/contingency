@@ -1370,8 +1370,9 @@ const INPUT_CHECK_TEXT = "Rapid_typing@123";
  * becomes one `agent_code_execute` program that awaits that operation alone,
  * and its answer is translated back into the native result: the operation's
  * value, its refusal, or the value the interrupted operation returned with an
- * intervention. Each execution's status and receipts, never its parameters,
- * are appended to `single-tool.jsonl` in the verify directory.
+ * intervention. A value kept behind `valueResource` is read back first. Each
+ * execution's status and receipts, never its parameters, are appended to
+ * `single-tool.jsonl` in the verify directory.
  */
 const brokerTool = async (instance, tool, params) => {
   const send = async (name, args) => {
@@ -1420,12 +1421,26 @@ try {
       status: execution.status,
       tool,
       truncated: execution.truncated,
+      valueBytes: execution.valueResource?.bytes,
     })}\n`
   );
+  // A value too large to return inline is read from the resource it names.
+  if (execution.valueResource !== undefined) {
+    const response = await fetch(`${instance.brokerUrl}resource`, {
+      body: JSON.stringify({ uri: execution.valueResource.uri }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const body = await response.text();
+    if (!response.ok) {
+      fail(`${execution.valueResource.uri} could not be read: ${body}`);
+    }
+    execution.value = JSON.parse(JSON.parse(body).contents[0].text);
+  }
   if (execution.status === "intervention") {
     return answer(JSON.stringify(execution.value), false);
   }
-  if (execution.status === "completed" && execution.truncated !== true) {
+  if (execution.status === "completed") {
     const { message, ok, value } = execution.value ?? {};
     return ok === true
       ? answer(JSON.stringify(value), false)

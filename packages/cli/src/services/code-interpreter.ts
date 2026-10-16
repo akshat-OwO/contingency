@@ -48,7 +48,10 @@ export const INTERPRETER_LIMITS = {
   heapOldSpaceMiB: 96,
   /** Each young-generation semi-space; three of them join the old space. */
   heapSemiSpaceMiB: 2,
+  /** Bytes of value and logs returned inline; more is kept on the server. */
   maxOutputBytes: 16_384,
+  /** The largest value a program may return at all. */
+  maxResultBytes: 1_048_576,
   /** Long enough for a full Session Event wait (ADR 0055) and more. */
   maxTimeoutMs: 120_000,
   maxToolCalls: 50,
@@ -109,6 +112,7 @@ export type InterpreterStatus =
   | "deadline_exceeded"
   | "memory_limit"
   | "crashed"
+  | "output_limit"
   | "protocol_violation";
 
 /** How a program ended, before the process facts are added. */
@@ -240,7 +244,13 @@ const finishedEnding = (
   const ending: Types.Mutable<InterpreterEnding> = {
     status: done.ok ? "completed" : "program_failed",
   };
-  if (done.ok) {
+  if (done.overflowBytes !== undefined) {
+    ending.status = "output_limit";
+    ending.diagnostic = {
+      kind: "OutputLimitExceeded",
+      message: `The program returned ${done.overflowBytes} bytes, over the ${INTERPRETER_LIMITS.maxResultBytes}-byte limit. Return only the fields you need.`,
+    };
+  } else if (done.ok) {
     ending.value = done.value ?? null;
   }
   if (done.error !== undefined) {
@@ -499,7 +509,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           yield* write({
             code: options.code,
             limits: {
-              maxOutputBytes: INTERPRETER_LIMITS.maxOutputBytes,
+              maxOutputBytes: INTERPRETER_LIMITS.maxResultBytes,
               maxToolCalls: INTERPRETER_LIMITS.maxToolCalls,
               timeoutMs: options.timeoutMs,
             },
@@ -613,7 +623,8 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
         // rather than at scope close, so the reported exit is final.
         if (
           ending.status === "completed" ||
-          ending.status === "program_failed"
+          ending.status === "program_failed" ||
+          ending.status === "output_limit"
         ) {
           yield* Effect.result(child.exitCode).pipe(Effect.timeoutOption(1000));
         }
