@@ -49,15 +49,15 @@ The user's instruction permits a harness-defect rerun of a cell once. Cancellati
 
 All counts below are model processes started in this round. Each cell is zero; none failed or completed because none launched. Prior-round runs remain untouched and are not counted as round-5 runs.
 
-| Task | Haiku native | Haiku single-tool | Sol native | Sol single-tool |
-| --- | ---: | ---: | ---: | ---: |
-| cart | 0 | 0 | 0 | 0 |
-| checkout | 0 | 0 | 0 | 0 |
-| refuse | 0 | 0 | 0 | 0 |
-| learn | 0 | 0 | 0 | 0 |
-| dry-run | 0 | 0 | 0 | 0 |
-| takeover | 0 | 0 | 0 | 0 |
-| android | 0 | 0 | 0 | 0 |
+| Task     | Haiku native | Haiku single-tool | Sol native | Sol single-tool |
+| -------- | -----------: | ----------------: | ---------: | --------------: |
+| cart     |            0 |                 0 |          0 |               0 |
+| checkout |            0 |                 0 |          0 |               0 |
+| refuse   |            0 |                 0 |          0 |               0 |
+| learn    |            0 |                 0 |          0 |               0 |
+| dry-run  |            0 |                 0 |          0 |               0 |
+| takeover |            0 |                 0 |          0 |               0 |
+| android  |            0 |                 0 |          0 |               0 |
 
 For every cell, median and minimum–maximum input, peak, output tokens, and wall time are unavailable. R1–R4 totals are unmeasured, and completion is 0/0, not 0%. There are no new measurements to aggregate. Remaining authorized matrix work is 12 Android runs, 36 Sol browser runs, and the first 12 Haiku browser runs, after correctness and the rerun blocker are resolved. The remaining 24 Haiku browser runs still require the parent's usage check.
 
