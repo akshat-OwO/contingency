@@ -6,7 +6,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { classify } from "./classify.mjs";
-import { claudeUsage, codexUsage } from "./drivers.mjs";
+import { driverUsage } from "./drivers.mjs";
 import { auditIsolation } from "./isolation.mjs";
 import { artifacts, json, lines } from "./runtime.mjs";
 import { claimsCartSuccess } from "./tasks.mjs";
@@ -33,13 +33,7 @@ for (const name of names.toSorted()) {
     }
     throw error;
   }
-  const usage =
-    original.model === "haiku"
-      ? claudeUsage(events)
-      : await codexUsage(
-          path.join(directory, "codex-home/sessions"),
-          directory
-        );
+  const usage = await driverUsage(original.model, events, directory);
   const journal = lines(
     await readFile(path.join(directory, "proxy.jsonl"), "utf-8")
   );

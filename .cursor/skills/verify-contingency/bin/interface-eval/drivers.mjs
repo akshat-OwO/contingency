@@ -140,6 +140,77 @@ export const codexUsage = async (directory, outputDirectory) => {
     source: "isolated CODEX_HOME/sessions token_count info.last_token_usage",
   };
 };
+// Free supplementary drivers served by OpenCode (plan amendment 0b245def).
+export const opencodeModels = {
+  deepseek: "opencode/deepseek-v4.1-flash-free",
+  glm: "opencode/glm-5.3-flash-free",
+};
+const executables = { haiku: "claude", sol: "codex" };
+export const driverExecutable = (model) => executables[model] ?? "opencode";
+const requestInput = (row) => row.input + row.cached + row.cacheWrite;
+export const opencodeUsage = (events) => {
+  // Each step_finish is one provider request. OpenCode reports cache reads and
+  // writes beside input, not inside it.
+  const rows = events
+    .filter((event) => event.type === "step_finish" && event.part?.tokens)
+    .map(({ part: { tokens } }) => ({
+      cacheWrite: tokens.cache?.write ?? 0,
+      cached: tokens.cache?.read ?? 0,
+      input: tokens.input ?? 0,
+      output: tokens.output ?? 0,
+      reasoning: tokens.reasoning ?? 0,
+    }));
+  if (!rows.length) {
+    return { missing: true, source: "OpenCode step_finish tokens" };
+  }
+  return {
+    cached: rows.reduce((sum, row) => sum + row.cached, 0),
+    catalog: requestInput(rows[0]),
+    input: rows.reduce((sum, row) => sum + requestInput(row), 0),
+    output: rows.reduce((sum, row) => sum + row.output + row.reasoning, 0),
+    peak: Math.max(...rows.map(requestInput)),
+    reasoning: rows.reduce((sum, row) => sum + row.reasoning, 0),
+    requests: rows,
+    source: "OpenCode step_finish part.tokens, one per provider request",
+  };
+};
+export const driverUsage = (model, events, directory) => {
+  if (model === "haiku") {
+    return claudeUsage(events);
+  }
+  if (model === "sol") {
+    return codexUsage(path.join(directory, "codex-home/sessions"), directory);
+  }
+  return opencodeUsage(events);
+};
+const finalTextOf = (model, events) => {
+  if (model === "haiku") {
+    return events.findLast((event) => event.type === "result")?.result ?? "";
+  }
+  if (model === "sol") {
+    return events
+      .filter(
+        (event) =>
+          event.type === "item.completed" &&
+          event.item?.type === "agent_message"
+      )
+      .map((event) => event.item.text)
+      .join("\n");
+  }
+  return events
+    .filter((event) => event.type === "text" && event.part?.text)
+    .map((event) => event.part.text)
+    .join("\n");
+};
+const authOf = (model) => {
+  if (model === "haiku") {
+    return "existing Claude OAuth with restricted mode and memory disabled";
+  }
+  if (model === "sol") {
+    return `symlink to ${process.env.INTERFACE_EVAL_CODEX_AUTH ?? "~/.codex-secondary/auth.json"}`;
+  }
+  return "OpenCode free model through the user's data directory";
+};
 export const drive = async ({
   model,
   directory,
@@ -191,6 +262,46 @@ export const drive = async ({
       path.join(directory, "claude.debug.log"),
       prompt,
     ];
+  } else if (model in opencodeModels) {
+    // Only the config home is private: OpenCode resolves its free models
+    // through the user's data directory, which holds no instructions.
+    const config = path.join(directory, "opencode-config");
+    await mkdir(path.join(config, "opencode"), { recursive: true });
+    json(path.join(config, "opencode/opencode.json"), {
+      $schema: "https://opencode.ai/config.json",
+      instructions: [],
+      mcp: {
+        contingency: {
+          command: [process.execPath, proxy, endpoint],
+          enabled: true,
+          type: "local",
+        },
+      },
+      // The free tier refuses requests that drop OpenCode's built-in tools, and
+      // "deny" drops them. "ask" keeps them advertised, and without --auto a
+      // headless run auto-rejects every ask.
+      permission: {
+        "*": "ask",
+        "contingency_*": "allow",
+        external_directory: "deny",
+      },
+    });
+    env.XDG_CONFIG_HOME = config;
+    env.XDG_STATE_HOME = path.join(directory, "opencode-state");
+    env.OPENCODE_DISABLE_PROJECT_CONFIG = "1";
+    // OpenCode otherwise loads Claude Code instructions and skills from HOME.
+    env.OPENCODE_DISABLE_CLAUDE_CODE = "1";
+    env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "1";
+    executable = "opencode";
+    args = [
+      "run",
+      "--standalone",
+      "--format",
+      "json",
+      "-m",
+      opencodeModels[model],
+      prompt,
+    ];
   } else {
     const home = path.join(directory, "codex-home");
     await mkdir(home);
@@ -224,10 +335,7 @@ export const drive = async ({
   }
   json(path.join(directory, "driver.json"), {
     args,
-    auth:
-      model === "sol"
-        ? `symlink to ${process.env.INTERFACE_EVAL_CODEX_AUTH ?? "~/.codex-secondary/auth.json"}`
-        : "existing Claude OAuth with restricted mode and memory disabled",
+    auth: authOf(model),
     cwd,
     environmentKeys: Object.keys(env),
     executable,
@@ -264,24 +372,8 @@ export const drive = async ({
     clearInterval(memoryGuard);
   }
   const events = lines(stdout);
-  const finalText =
-    model === "haiku"
-      ? (events.findLast((event) => event.type === "result")?.result ?? "")
-      : events
-          .filter(
-            (event) =>
-              event.type === "item.completed" &&
-              event.item?.type === "agent_message"
-          )
-          .map((event) => event.item.text)
-          .join("\n");
-  const usage =
-    model === "haiku"
-      ? claudeUsage(events)
-      : await codexUsage(
-          path.join(directory, "codex-home/sessions"),
-          directory
-        );
+  const finalText = finalTextOf(model, events);
+  const usage = await driverUsage(model, events, directory);
   const init = events.find(
     (event) => event.type === "system" && event.subtype === "init"
   );

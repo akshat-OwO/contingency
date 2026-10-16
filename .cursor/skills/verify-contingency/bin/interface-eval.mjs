@@ -21,7 +21,11 @@ import {
   scriptedAndroid,
 } from "./interface-eval/android.mjs";
 import { classify } from "./interface-eval/classify.mjs";
-import { drive } from "./interface-eval/drivers.mjs";
+import {
+  drive,
+  driverExecutable,
+  opencodeModels,
+} from "./interface-eval/drivers.mjs";
 import { browserTasks, prepareJourney } from "./interface-eval/journeys.mjs";
 import {
   artifacts,
@@ -100,11 +104,11 @@ const auditResult = async (journey, result, directory) => {
 const [task, model, iface] = process.argv.slice(2);
 if (
   !["cart", "calibration", "android", ...browserTasks].includes(task) ||
-  !["haiku", "sol"].includes(model) ||
+  !["haiku", "sol", ...Object.keys(opencodeModels)].includes(model) ||
   !["native", "single-tool"].includes(iface)
 ) {
   throw new Error(
-    `Usage: interface-eval.mjs cart|calibration haiku|sol native|single-tool. Remaining tasks: ${JSON.stringify(remaining)}`
+    `Usage: interface-eval.mjs <task> haiku|sol|glm|deepseek native|single-tool. Remaining tasks: ${JSON.stringify(remaining)}`
   );
 }
 const android = task === "android" ? androidPrerequisite() : null;
@@ -177,11 +181,9 @@ await Effect.runPromise(
           cwd: root,
           encoding: "utf-8",
         }).trim(),
-        driverVersion: execFileSync(
-          model === "haiku" ? "claude" : "codex",
-          ["--version"],
-          { encoding: "utf-8" }
-        ).trim(),
+        driverVersion: execFileSync(driverExecutable(model), ["--version"], {
+          encoding: "utf-8",
+        }).trim(),
         iface,
         initialMemory,
         model,

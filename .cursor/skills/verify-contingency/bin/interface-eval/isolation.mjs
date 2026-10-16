@@ -49,6 +49,42 @@ const auditClaude = async (directory, emptyTemporaryCwd) => {
     source: "driver system/init, debug memory marker and launch manifest",
   };
 };
+const auditOpencode = async (directory, emptyTemporaryCwd) => {
+  const config = JSON.parse(
+    await readFile(
+      path.join(directory, "opencode-config/opencode/opencode.json"),
+      "utf-8"
+    )
+  );
+  const events = lines(
+    await readFile(path.join(directory, "driver.jsonl"), "utf-8")
+  );
+  // OpenCode prints no init event, so check the tools the model actually used.
+  const toolsUsed = [
+    ...new Set(
+      events
+        .filter((event) => event.type === "tool_use")
+        .map((event) => event.part?.tool)
+    ),
+  ];
+  const onlyContingencyServer =
+    JSON.stringify(Object.keys(config.mcp)) === '["contingency"]';
+  const onlyContingencyTools = toolsUsed.every((tool) =>
+    String(tool).startsWith("contingency_")
+  );
+  return {
+    // Built-in tools are advertised but denied; a denied attempt is a client
+    // refusal, not context. Only another server or a real cwd invalidates.
+    builtinToolsAdvertised: true,
+    contextValid: emptyTemporaryCwd && onlyContingencyServer,
+    emptyTemporaryCwd,
+    onlyContingencyServer,
+    onlyContingencyTools,
+    source:
+      "private OpenCode config, tool_use events and launch manifest; the system prompt is not exported",
+    toolsUsed,
+  };
+};
 export const auditIsolation = async (model, directory) => {
   const manifest = JSON.parse(
     await readFile(path.join(directory, "driver.json"), "utf-8")
@@ -58,6 +94,9 @@ export const auditIsolation = async (model, directory) => {
     manifest.cwd.endsWith("/empty-cwd");
   if (model === "haiku") {
     return auditClaude(directory, emptyTemporaryCwd);
+  }
+  if (model !== "sol") {
+    return auditOpencode(directory, emptyTemporaryCwd);
   }
   const instructions = [];
   for (const file of await sessionFiles(
