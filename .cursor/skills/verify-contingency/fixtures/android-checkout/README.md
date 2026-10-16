@@ -37,3 +37,5 @@ Pinned versions: Expo SDK 57.0.27, React Native 0.86.3, and React 19.2.3. nub's 
 ## Install and reset
 
 The proof installs the variant it needs on the selected emulator. Because release builds cannot downgrade in place, it uninstalls only `dev.contingency.checkout` before installing a lower versionCode. A Run's preparation force-stops the app and restarts `dev.contingency.checkout/.MainActivity`. That is the whole reset procedure; no device data outside this package is touched. At the end, the proof uninstalls the fixture only when it installed it.
+
+The result screen also displays `Shopper: <submitted name>` for independent interface-evaluation device readback. Rebuild and reinstall the working fixture before using that check.

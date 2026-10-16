@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Pure metric regressions. No model, MCP, or browser is started.
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { classify } from "./classify.mjs";
+import { classify, classifyTimeline } from "./classify.mjs";
 import { claudeUsage, codexUsage } from "./drivers.mjs";
+import { privacyCheck } from "./final-checks.mjs";
 import { logMessage } from "./runtime.mjs";
 import { claimsCartSuccess } from "./tasks.mjs";
 
@@ -170,9 +171,188 @@ try {
   assert.equal(codex.cached, 12);
   assert.equal(codex.peak, 10, "Cached input is already included");
   assert.equal(codex.output, 8, "Reasoning output is already included");
+  await symlink(
+    path.join(directory, "unreadable-auth-target"),
+    path.join(directory, "auth.json")
+  );
+  const privacy = await privacyCheck({
+    directory,
+    scrub: String,
+    state: { literalLeaks: [], secret: "synthetic-privacy-check-sentinel" },
+  });
+  assert.equal(
+    privacy.literalAbsent,
+    true,
+    "Privacy audits skip authentication symlinks without following them"
+  );
   const absent = await codexUsage(path.join(directory, "absent"), directory);
   assert.equal(absent.missing, true);
 } finally {
   await rm(directory, { force: true, recursive: true });
 }
+
+const timedRequest = (id, name, at, args = {}) => ({
+  ...request(name),
+  at,
+  message: { id, method: "tools/call", params: { arguments: args, name } },
+});
+const timedAnswer = (id, body, at) => ({
+  ...answer(body),
+  at,
+  message: { ...answer(body).message, id },
+});
+const boundaryTimeline = [{ at: "02", kind: "refusal" }];
+const refusalChoices = classifyTimeline(
+  [
+    timedRequest(1, "agent_browser_act", "03", {
+      action: { ref: "e1", type: "click" },
+    }),
+    timedRequest(2, "agent_session_get", "04"),
+    timedAnswer(2, { id: "session" }, "05"),
+    timedRequest(3, "agent_browser_act", "06"),
+  ],
+  boundaryTimeline
+);
+assert.equal(refusalChoices.filter((choice) => choice.rule === 3).length, 1);
+const staleChoices = classifyTimeline(
+  [
+    timedRequest(1, "agent_browser_snapshot", "00"),
+    timedAnswer(1, { nodes: [{ ref: "e1" }], snapshotId: "old" }, "01"),
+    timedRequest(2, "agent_session_get", "03"),
+    timedAnswer(2, {}, "04"),
+    timedRequest(3, "agent_browser_act", "05", {
+      action: { ref: "e1", type: "click" },
+    }),
+    timedRequest(4, "agent_browser_snapshot", "06"),
+    timedAnswer(4, { nodes: [{ ref: "e1" }], snapshotId: "fresh" }, "07"),
+    timedRequest(5, "agent_browser_act", "08", {
+      action: { ref: "e1", type: "click" },
+    }),
+  ],
+  [{ at: "02", kind: "return-control" }]
+);
+assert.equal(
+  staleChoices.filter((choice) => choice.rule === 4).length,
+  1,
+  "A fresh Snapshot can renew a reference"
+);
+const program = (readFirst) =>
+  classifyTimeline(
+    [
+      timedRequest(1, "agent_code_execute", "03", {
+        code: `return await tools.agent_browser_act({action:{ref:"e1",type:"click"}});`,
+      }),
+      timedAnswer(
+        1,
+        {
+          receipts: [
+            ...(readFirst
+              ? [{ operation: "agent_session_get", outcome: "succeeded" }]
+              : []),
+            { operation: "agent_browser_act", outcome: "succeeded" },
+            ...(readFirst
+              ? []
+              : [{ operation: "agent_session_get", outcome: "succeeded" }]),
+          ],
+        },
+        "04"
+      ),
+    ],
+    boundaryTimeline
+  );
+assert.equal(program(true).filter((choice) => choice.rule === 3).length, 0);
+assert.equal(
+  program(false).filter((choice) => choice.rule === 3).length,
+  1,
+  "A later read does not excuse an earlier action"
+);
+assert.equal(
+  classifyTimeline(
+    [
+      timedRequest(1, "agent_session_get", "03"),
+      { ...nativeInvalid, at: "04" },
+      timedRequest(2, "agent_browser_act", "05"),
+    ],
+    boundaryTimeline
+  ).filter((choice) => choice.rule === 3).length,
+  1,
+  "A rejected reread does not clear intervention"
+);
+
+const singleStale = classifyTimeline(
+  [
+    timedRequest(1, "agent_browser_snapshot", "00"),
+    timedAnswer(1, { nodes: [{ ref: "e1" }], snapshotId: "old" }, "01"),
+    timedRequest(2, "agent_code_execute", "03", {
+      code: 'await tools.agent_session_get({sessionId:"s"}); return await tools.agent_browser_act({action:{ref:"e1",type:"click"}});',
+    }),
+    timedAnswer(
+      2,
+      {
+        receipts: [
+          { operation: "agent_session_get", outcome: "succeeded", sequence: 1 },
+          { operation: "agent_browser_act", outcome: "succeeded", sequence: 2 },
+        ],
+      },
+      "04"
+    ),
+  ],
+  [{ at: "02", kind: "return-control" }]
+);
+assert.equal(singleStale.filter((choice) => choice.rule === 3).length, 0);
+assert.equal(
+  singleStale.filter((choice) => choice.rule === 4).length,
+  1,
+  "A session read does not renew a stale Snapshot target"
+);
+
+const referenceProgram = (code, receipts) =>
+  classifyTimeline(
+    [
+      timedRequest(1, "agent_browser_snapshot", "00"),
+      timedAnswer(1, { nodes: [{ ref: "e1" }], snapshotId: "old" }, "01"),
+      timedRequest(2, "agent_code_execute", "03", { code }),
+      timedAnswer(2, { receipts }, "04"),
+    ],
+    [
+      { at: "02", kind: "return-control" },
+      { at: "02.1", kind: "stale-notice" },
+    ]
+  );
+const actionReceipt = {
+  operation: "agent_browser_act",
+  outcome: "succeeded",
+  sequence: 1,
+};
+assert.equal(
+  referenceProgram(
+    'const target = "e1"; const action = {type:"click",ref:target}; return tools.agent_browser_act({action});',
+    [actionReceipt]
+  ).filter((choice) => choice.rule === 4).length,
+  1,
+  "Constant aliases and repeated staleness notices retain stale targets"
+);
+assert.equal(
+  referenceProgram(
+    'const s = await tools.agent_browser_snapshot({}); const ref = s.nodes.find(n => n.name === "Cart").ref; return tools.agent_browser_act({action:{type:"click",ref}});',
+    [
+      {
+        operation: "agent_browser_snapshot",
+        outcome: "succeeded",
+        sequence: 1,
+      },
+      actionReceipt,
+    ]
+  ).filter((choice) => choice.rule === 4 || choice.reviewRequired).length,
+  0,
+  "A target derived from a new Snapshot is fresh"
+);
+assert.equal(
+  referenceProgram(
+    "return tools.agent_browser_act({action: unresolvedAction});",
+    [actionReceipt]
+  ).filter((choice) => choice.reviewRequired).length,
+  1,
+  "Unresolved targets require review instead of a silent zero"
+);
 process.stdout.write("Interface evaluation metric checks passed\n");

@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { auditIsolation } from "./isolation.mjs";
-import { json, lines } from "./runtime.mjs";
+import { json, lines, memory } from "./runtime.mjs";
 
 const proxy = path.join(import.meta.dirname, "proxy.mjs");
 const driverEnv = () => {
@@ -147,6 +147,7 @@ export const drive = async ({
   prompt,
   resources,
   temporary,
+  scrub = String,
 }) => {
   const cwd = path.join(temporary, "empty-cwd");
   await mkdir(cwd);
@@ -198,7 +199,7 @@ export const drive = async ({
       path.join(homedir(), ".codex/auth.json"),
       path.join(home, "auth.json")
     );
-    const config = `[mcp_servers.contingency]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([proxy, endpoint])}\nstartup_timeout_sec = 120\ntool_timeout_sec = 120\ndefault_tools_approval_mode = "approve"\n`;
+    const config = `[skills]\ninclude_instructions = false\n\n[mcp_servers.contingency]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([proxy, endpoint])}\nstartup_timeout_sec = 120\ntool_timeout_sec = 120\ndefault_tools_approval_mode = "approve"\n`;
     await writeFile(path.join(home, "config.toml"), config);
     env.CODEX_HOME = home;
     executable = "codex";
@@ -235,20 +236,31 @@ export const drive = async ({
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (data) => {
-    stdout += data;
-    appendFileSync(path.join(directory, "driver.jsonl"), data);
+    stdout += scrub(data);
+    appendFileSync(path.join(directory, "driver.jsonl"), scrub(data));
   });
   child.stderr.on("data", (data) => {
-    stderr += data;
-    appendFileSync(path.join(directory, "driver.stderr"), data);
+    stderr += scrub(data);
+    appendFileSync(path.join(directory, "driver.stderr"), scrub(data));
   });
   child.stdin.end();
+  const memorySamples = [];
+  const memoryGuard = setInterval(() => {
+    try {
+      memorySamples.push(memory());
+    } catch (error) {
+      memorySamples.push({ error: String(error) });
+      child.kill("SIGTERM");
+    }
+    json(path.join(directory, "memory-samples.json"), memorySamples);
+  }, 15_000);
   const timer = setTimeout(() => child.kill("SIGTERM"), 10 * 60_000);
   let exit;
   try {
     exit = await once(child, "close");
   } finally {
     clearTimeout(timer);
+    clearInterval(memoryGuard);
   }
   const events = lines(stdout);
   const finalText =

@@ -355,6 +355,7 @@ export const unpack = (result) => {
   return body;
 };
 export const stack = async ({ directory, iface, resources }) => {
+  const hooks = {};
   await mkdir(directory, { recursive: true });
   const portServer = createServer();
   const portUrl = await listen(portServer);
@@ -388,7 +389,7 @@ export const stack = async ({ directory, iface, resources }) => {
       bytes,
       direction,
       elapsedMs,
-      message: logMessage(message),
+      message: logMessage(hooks.inspect?.(message) ?? message),
       owner,
     };
     journal.push(entry);
@@ -480,7 +481,17 @@ export const stack = async ({ directory, iface, resources }) => {
         body += chunk;
       }
       const original = JSON.parse(body);
+      const userAction = async (hook, ...args) => {
+        try {
+          await hook?.(...args);
+        } catch (error) {
+          hooks.error = String(error);
+          throw error;
+        }
+      };
+      await userAction(hooks.before, original);
       const result = await rpc(original, "model");
+      await userAction(hooks.after, original, result);
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify(result ? { ...result, id: original.id } : null)
@@ -524,7 +535,13 @@ export const stack = async ({ directory, iface, resources }) => {
     const result = await call("agent_code_execute", {
       code: `return await tools.${name}(${JSON.stringify(args)});`,
     });
-    if (result.status !== "completed") {
+    const successfulIntervention =
+      result.status === "intervention" &&
+      result.receipts?.length === 1 &&
+      result.receipts[0].operation === name &&
+      result.receipts[0].outcome === "succeeded" &&
+      (result.value !== undefined || result.valueResource);
+    if (result.status !== "completed" && !successfulIntervention) {
       throw new Error(JSON.stringify(result));
     }
     if (result.valueResource) {
@@ -543,6 +560,7 @@ export const stack = async ({ directory, iface, resources }) => {
   return {
     child,
     directory,
+    hooks,
     journal,
     operation,
     port: Number(port),

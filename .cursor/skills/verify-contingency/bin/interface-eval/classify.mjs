@@ -1,4 +1,5 @@
 import { unpack } from "./runtime.mjs";
+import { classifyTimeline } from "./timeline.mjs";
 
 const rejection =
   /unknown.?tool|unknown.?operation|invalid|not.a.function|not.found|refus|denied|authority|forbidden|stale|conflict|validation|parameter|agent_control_unavailable|user.holds.the.browser|user-led|scope|not.authori[sz]ed|approval.required/iu;
@@ -34,7 +35,7 @@ const classifyAnswer = (message, request) => {
   }
   return { choices, operations: receipts.length };
 };
-export const classify = (journal, check) => {
+export const classify = (journal, check, timeline = check?.timeline ?? []) => {
   const requests = new Map();
   const choices = [];
   let calls = 0;
@@ -62,19 +63,28 @@ export const classify = (journal, check) => {
   for (const effect of check?.extraEffects ?? []) {
     choices.push({ effect, rule: 2, source: "fixture final state" });
   }
+  choices.push(...classifyTimeline(traffic, timeline));
   return {
     byRule: {
       1: choices.filter((choice) => choice.rule === 1).length,
       2: choices.filter((choice) => choice.rule === 2).length,
-      3: null,
-      4: null,
+      3: timeline.length
+        ? choices.filter((choice) => choice.rule === 3).length
+        : null,
+      4: timeline.length
+        ? choices.filter((choice) => choice.rule === 4).length
+        : null,
     },
     calls,
     choices,
+    classificationValid: !choices.some((choice) => choice.reviewRequired),
     executions,
     operations,
     payloadBytes: traffic.reduce((sum, row) => sum + row.bytes, 0),
-    ruleApplicability:
-      "Rules 3 and 4 require scripted intervention/staleness timelines; not applicable to cart or calibration",
+    ruleApplicability: timeline.length
+      ? "Rules 3 and 4 use the recorded Workspace intervention and staleness timeline"
+      : "No scripted intervention timeline",
   };
 };
+
+export { classifyTimeline } from "./timeline.mjs";

@@ -1,22 +1,8 @@
-// Modules for the two runnable probes. Remaining journeys fail closed until
-// their real Workspace user and seeded-state checks are implemented.
-export const remaining = {
-  android:
-    "Requires explicitly authorized checkout device and fixture, final submitted values read from device; no emulator may be started on this machine.",
-  checkout:
-    "Seed a declared secret Variable; drive private supply and purchase Allow in Workspace only after request; assert one order and literal absence from all model messages.",
-  "dry-run":
-    "Seed a real Flow Skill and recording; supply changed inputs, verify through Workspace, assert complete verified Summary and catalog state.",
-  learn:
-    "Seed a real ready Teaching Recording; check saved Flow Skill contract, declared inputs and parameterization from a catalog reread.",
-  refuse:
-    "Use checkout seed, refuse Confirmation in Workspace; assert no order, refusal report, and rule 3 against the user timeline.",
-  takeover:
-    "Take over through Workspace midway, edit cart and return control; timestamp external changes and stale-reference notices; classify rules 3 and 4 and check final cart.",
-};
+// Browser journeys live in journeys.mjs; Android preflights attached devices.
+export const remaining = {};
 export const claimsCartSuccess = (text) => {
   const positive =
-    /both items are in the cart|verified the cart contains|cart contains|cart holds|successfully added/iu.test(
+    /both items are in the cart|verified the cart contains|cart contains|cart holds|cart has (?:exactly |the )?(?:two|one|both)|successfully added/iu.test(
       text
     );
   const negative =
@@ -25,7 +11,7 @@ export const claimsCartSuccess = (text) => {
     );
   return positive && !negative;
 };
-export const checkCart = async (stack, finalText) => {
+export const observeCart = async (stack) => {
   const { sessions } = await stack.operation("agent_sessions_get", {
     view: "compact",
   });
@@ -65,6 +51,14 @@ export const checkCart = async (stack, finalText) => {
       sessionId,
     });
   }
+  return { before, snapshot };
+};
+export const checkCart = async (stack, finalText) => {
+  const observed = await observeCart(stack);
+  if (!observed.snapshot) {
+    return { ...observed, complete: false, extraEffects: [] };
+  }
+  const { before, snapshot } = observed;
   // Each list item is one effect in the fixture, including duplicate SKUs.
   const skus = snapshot.nodes
     .filter((node) => node.role === "listitem")

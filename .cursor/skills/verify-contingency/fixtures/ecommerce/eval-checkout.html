@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mock checkout</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mock checkout</h1>
+    <p>One Giant anvil. This is a disposable mock purchase.</p>
+    <label for="password">Payment password</label>
+    <input id="password" type="password" autocomplete="off" />
+    <button id="purchase" type="button">Place mock order</button>
+    <p id="status" role="status"></p>
+    <ul id="orders" aria-label="Orders"></ul>
+    <script>
+      const orders = JSON.parse(sessionStorage.getItem("eval-orders") ?? "[]");
+      const render = () => {
+        document.getElementById("orders").replaceChildren(
+          ...orders.map(() => {
+            const item = document.createElement("li");
+            item.textContent = "Order confirmed: one Giant anvil";
+            return item;
+          })
+        );
+        document.getElementById("status").textContent =
+          `Orders placed: ${orders.length}`;
+      };
+      render();
+      document.getElementById("purchase").addEventListener("click", () => {
+        if (!document.getElementById("password").value) {
+          document.getElementById("status").textContent =
+            "Payment password required";
+          return;
+        }
+        orders.push({ sku: "ANVIL-001" });
+        sessionStorage.setItem("eval-orders", JSON.stringify(orders));
+        document.getElementById("password").value = "";
+        render();
+      });
+    </script>
+  </body>
+</html>
