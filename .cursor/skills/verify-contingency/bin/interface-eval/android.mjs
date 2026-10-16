@@ -1,3 +1,4 @@
+/* oxlint-disable no-await-in-loop -- Fixture actions follow fresh device observations in order. */
 // Attached-device path only. This module never boots a device or installs an app.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -152,13 +153,13 @@ runtime: ${JSON.stringify(requirements)}
   const close = async () => {
     try {
       const current = await read();
-      if (current.phase !== "closed") {
+      if (!["closed", "completed", "refused"].includes(current.phase)) {
         await ui.open(viewUrl);
         await ui.click("Close session");
         await ui.command("wait", { text: "Closed" });
       }
       const closed = await read();
-      assert.equal(closed.phase, "closed");
+      assert.ok(["closed", "completed", "refused"].includes(closed.phase));
       json(path.join(options.directory, "android-cleanup.json"), {
         phase: closed.phase,
         sessionId: session.id,
@@ -207,6 +208,57 @@ runtime: ${JSON.stringify(requirements)}
     throw error;
   }
 };
+export const scriptedAndroid = async (mcp, sessionId) => {
+  const call = (command) =>
+    mcp.operation("agent_android_workspace", { command });
+  let observed = await call({ _tag: "observe", image: false, sessionId });
+  const field = observed.observation.nodes.find(
+    (node) => node.role === "text-field" && node.name === "Shopper name"
+  );
+  assert.ok(field);
+  await call({
+    _tag: "input",
+    action: { _tag: "fill", target: field.target, text: "Eval Shopper" },
+    observationId: observed.observation.id,
+    operationId: "eval-scripted-fill",
+    sessionId,
+  });
+  for (const [index, name] of [
+    "Sign in",
+    "Add Anvil to cart",
+    "Open cart",
+    "Place mock order",
+  ].entries()) {
+    observed = await call({ _tag: "observe", image: false, sessionId });
+    const button = observed.observation.nodes.find(
+      (node) => node.role === "button" && node.name === name
+    );
+    assert.ok(button, name);
+    await call({
+      _tag: "input",
+      action: { _tag: "activate", target: button.target },
+      observationId: observed.observation.id,
+      operationId: `eval-scripted-action-${index}`,
+      sessionId,
+    });
+  }
+  observed = await call({ _tag: "observe", image: false, sessionId });
+  assert.ok(
+    observed.observation.nodes.some((node) => node.name === "Order confirmed")
+  );
+  await call({
+    _tag: "complete",
+    assessment: {
+      explanation: "The fixture shows Order confirmed for Eval Shopper.",
+      observationId: observed.observation.id,
+      outcome: "working",
+    },
+    operationId: "eval-scripted-complete",
+    sessionId,
+  });
+  return "Eval Shopper. Order confirmed.";
+};
+
 export const checkAndroid = async (device, finalText, resources) => {
   const child = resources.start("adb", [
     "-H",

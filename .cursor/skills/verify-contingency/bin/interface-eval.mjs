@@ -18,6 +18,7 @@ import {
   androidPrerequisite,
   checkAndroid,
   prepareAndroid,
+  scriptedAndroid,
 } from "./interface-eval/android.mjs";
 import { classify } from "./interface-eval/classify.mjs";
 import { drive } from "./interface-eval/drivers.mjs";
@@ -192,14 +193,23 @@ await Effect.runPromise(
         url: site.url,
       });
       if (process.argv.includes("--scripted-check")) {
-        const finalText = await scriptedProbe({
-          context: journey.context,
-          iface,
+        const finalText = android
+          ? await scriptedAndroid(mcp, androidContext.androidSessionId)
+          : await scriptedProbe({
+              context: journey.context,
+              iface,
+              mcp,
+              task,
+              url: site.url,
+            });
+        const check = await checkTask({
+          android,
+          driver: { finalText },
+          journey,
           mcp,
+          resources,
           task,
-          url: site.url,
         });
-        const check = await journey.check(finalText);
         result = {
           check,
           completion: check.complete,
