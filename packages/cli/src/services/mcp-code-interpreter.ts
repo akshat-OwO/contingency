@@ -291,6 +291,14 @@ const ActionStop = Schema.Struct({
   ),
 });
 const decodeActionStop = Schema.decodeUnknownOption(ActionStop);
+/** Whether an action stopped at an Execution Boundary instead of acting. */
+const stoppedAtBoundary = (value: Schema.Json) =>
+  Option.match(decodeActionStop(value), {
+    onNone: () => false,
+    onSome: (stop) =>
+      (stop.intervention ?? null) !== null ||
+      stop.stopped?.reason === "intervention",
+  });
 const AndroidCommand = Schema.Struct({
   command: Schema.Struct({
     _tag: Schema.String,
@@ -503,100 +511,147 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
     const readSession = (sessionId: AgentSessionId) =>
       sessions.get(sessionId).pipe(Effect.option);
 
-    /**
-     * Dispatches one operation and decides whether it opened a user
-     * intervention. A program may never act past one: the Pending Decision,
-     * Takeover, or Variable request goes back to the agent instead.
-     */
-    const dispatch: InterpreterDispatch = (name, input) =>
-      Effect.gen(function* dispatchOperation() {
-        const operation = catalog.get(name);
-        if (operation === undefined) {
-          return {
-            message: `${name} is not an operation this program may request.`,
-            ok: false,
-          } satisfies DispatchOutcome;
-        }
-        if (operation.readOnly) {
-          return yield* operation.run(input);
-        }
-        if (name === "agent_android_workspace") {
-          const sessionId = decodeAndroidCommand(input).pipe(
-            Option.flatMap(({ command }) =>
-              Option.fromNullishOr(command.sessionId)
-            )
-          );
-          const before =
-            Option.isSome(sessionId) && Option.isSome(android)
-              ? yield* android.value.list().pipe(
-                  Effect.map((summaries) =>
-                    Option.fromNullishOr(
-                      summaries.find(({ id }) => id === sessionId.value)
-                    )
-                  ),
-                  Effect.orElseSucceed(() => Option.none())
-                )
-              : Option.none();
-          const outcome = yield* operation.run(input);
-          if (!outcome.ok) {
-            return outcome;
-          }
-          const intervention = androidIntervention(
-            input,
-            outcome.value,
-            before
-          );
-          return intervention === undefined
-            ? outcome
-            : { ...outcome, intervention };
-        }
-        const named = decodeSessionInput(input).pipe(
-          Option.map(({ sessionId }) => sessionId)
+    const browserIntervention = (
+      operation: string,
+      sessionId: AgentSessionId,
+      session: AgentSessionSnapshot,
+      reasons: ReadonlySet<InterventionReasonName>
+    ) => {
+      const pending = encodePendingDecisions(session.pendingDecisions);
+      return {
+        operation,
+        pending: Option.match(pending, {
+          onNone: () => [],
+          onSome: (decisions) => (isJson(decisions) ? decisions : []),
+        }),
+        reasons: [...reasons],
+        sessionId,
+        viewUrl: session.viewUrl,
+      };
+    };
+
+    /** Android commands report their own waits; none is a browser session. */
+    const dispatchAndroid = (
+      operation: InterpreterOperationEntry,
+      input: Schema.Json
+    ) =>
+      Effect.gen(function* dispatchAndroidCommand() {
+        const sessionId = decodeAndroidCommand(input).pipe(
+          Option.flatMap(({ command }) =>
+            Option.fromNullishOr(command.sessionId)
+          )
         );
-        const before = Option.isSome(named)
-          ? yield* readSession(named.value)
-          : Option.none();
+        const before =
+          Option.isSome(sessionId) && Option.isSome(android)
+            ? yield* android.value.list().pipe(
+                Effect.map((summaries) =>
+                  Option.fromNullishOr(
+                    summaries.find(({ id }) => id === sessionId.value)
+                  )
+                ),
+                Effect.orElseSucceed(() => Option.none())
+              )
+            : Option.none();
         const outcome = yield* operation.run(input);
         if (!outcome.ok) {
           return outcome;
         }
-        const sessionId = Option.orElse(named, () =>
-          decodeSessionResult(outcome.value).pipe(Option.map(({ id }) => id))
-        );
-        if (Option.isNone(sessionId)) {
-          return outcome;
-        }
-        const after = yield* readSession(sessionId.value);
-        if (Option.isNone(after)) {
-          return outcome;
-        }
-        const reasons = newBrowserWaits(before, after.value);
-        const stop = decodeActionStop(outcome.value);
-        if (
-          Option.isSome(stop) &&
-          ((stop.value.intervention ?? null) !== null ||
-            stop.value.stopped?.reason === "intervention")
-        ) {
-          reasons.add("boundary");
-        }
-        if (reasons.size === 0) {
-          return outcome;
-        }
-        const pending = encodePendingDecisions(after.value.pendingDecisions);
-        return {
-          ...outcome,
-          intervention: {
-            operation: name,
-            pending: Option.match(pending, {
-              onNone: () => [],
-              onSome: (decisions) => (isJson(decisions) ? decisions : []),
-            }),
-            reasons: [...reasons],
-            sessionId: sessionId.value,
-            viewUrl: after.value.viewUrl,
-          },
-        } satisfies DispatchOutcome;
+        const intervention = androidIntervention(input, outcome.value, before);
+        return intervention === undefined
+          ? outcome
+          : { ...outcome, intervention };
       });
+
+    /**
+     * Dispatches one program's operations and decides whether each met a user
+     * intervention. A program may never act past one: the Pending Decision,
+     * Takeover, or Variable request goes back to the agent instead.
+     */
+    const makeDispatch = (): InterpreterDispatch => {
+      // What this program last saw of each session. A wait it has not seen is
+      // new, even one that began during a read or between two operations; a
+      // wait that predates the program is not, so a program can still read it.
+      const seen = new Map<AgentSessionId, AgentSessionSnapshot>();
+      return (name, input) =>
+        Effect.gen(function* dispatchOperation() {
+          const operation = catalog.get(name);
+          if (operation === undefined) {
+            return {
+              message: `${name} is not an operation this program may request.`,
+              ok: false,
+            } satisfies DispatchOutcome;
+          }
+          if (name === "agent_android_workspace") {
+            return yield* dispatchAndroid(operation, input);
+          }
+          const named = decodeSessionInput(input).pipe(
+            Option.map(({ sessionId }) => sessionId)
+          );
+          if (Option.isNone(named) && operation.readOnly) {
+            return yield* operation.run(input);
+          }
+          const current = Option.isSome(named)
+            ? yield* readSession(named.value)
+            : Option.none();
+          const before = Option.isSome(named)
+            ? Option.orElse(
+                Option.fromNullishOr(seen.get(named.value)),
+                () => current
+              )
+            : Option.none();
+          if (
+            !operation.readOnly &&
+            Option.isSome(named) &&
+            Option.isSome(current)
+          ) {
+            const arrived = newBrowserWaits(before, current.value);
+            if (arrived.size > 0) {
+              seen.set(named.value, current.value);
+              return {
+                intervention: browserIntervention(
+                  name,
+                  named.value,
+                  current.value,
+                  arrived
+                ),
+                message:
+                  "The user intervened before this operation, so it was not dispatched.",
+                ok: false,
+              } satisfies DispatchOutcome;
+            }
+          }
+          const outcome = yield* operation.run(input);
+          if (!outcome.ok) {
+            return outcome;
+          }
+          const sessionId = Option.orElse(named, () =>
+            decodeSessionResult(outcome.value).pipe(Option.map(({ id }) => id))
+          );
+          if (Option.isNone(sessionId)) {
+            return outcome;
+          }
+          const after = yield* readSession(sessionId.value);
+          if (Option.isNone(after)) {
+            return outcome;
+          }
+          seen.set(sessionId.value, after.value);
+          const reasons = newBrowserWaits(before, after.value);
+          if (!operation.readOnly && stoppedAtBoundary(outcome.value)) {
+            reasons.add("boundary");
+          }
+          return reasons.size === 0
+            ? outcome
+            : ({
+                ...outcome,
+                intervention: browserIntervention(
+                  name,
+                  sessionId.value,
+                  after.value,
+                  reasons
+                ),
+              } satisfies DispatchOutcome);
+        });
+    };
 
     return CodeInterpreterTools.of({
       agent_code_execute: (params) => {
@@ -614,7 +669,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
         );
         return runInterpreterProgram({
           code: params.code,
-          dispatch,
+          dispatch: makeDispatch(),
           operations,
           timeoutMs: params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs,
         }).pipe(

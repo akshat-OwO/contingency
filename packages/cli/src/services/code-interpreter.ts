@@ -82,7 +82,15 @@ export type DispatchOutcome =
        */
       readonly intervention?: Schema.Json | undefined;
     }
-  | { readonly ok: false; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly message: string;
+      /**
+       * A user intervention that arrived before this operation, which was
+       * therefore never dispatched. The program ends here, as above.
+       */
+      readonly intervention?: Schema.Json | undefined;
+    };
 
 /** What the server does with one requested operation. */
 export type InterpreterDispatch = (
@@ -279,6 +287,10 @@ const receiptFor = (
   };
   if (!outcome.ok) {
     receipt.message = outcome.message;
+    // Refused for an intervention that came first: never dispatched.
+    if (outcome.intervention !== undefined) {
+      receipt.outcome = "rejected";
+    }
   }
   return receipt;
 };
@@ -572,15 +584,20 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
             receipts.push(
               receiptFor(sequence, message.operation, operationId, outcome)
             );
-            if (outcome.ok && outcome.intervention !== undefined) {
+            if (outcome.intervention !== undefined) {
               // The program ends before it can request anything else. The
               // process is killed next; the cancel only saves it the wait.
               yield* write({ reason: "intervention", type: "cancel" });
-              return {
-                intervention: outcome.intervention,
-                status: "intervention",
-                value: outcome.value,
-              } satisfies InterpreterEnding;
+              return outcome.ok
+                ? ({
+                    intervention: outcome.intervention,
+                    status: "intervention",
+                    value: outcome.value,
+                  } satisfies InterpreterEnding)
+                : ({
+                    intervention: outcome.intervention,
+                    status: "intervention",
+                  } satisfies InterpreterEnding);
             }
             yield* write({
               id: message.id,

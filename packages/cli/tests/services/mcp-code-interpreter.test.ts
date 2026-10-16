@@ -4,14 +4,25 @@ import {
   OperationId,
   TeachingRecordingId,
 } from "@contingency/protocol";
+import type { AgentSessionSnapshot } from "@contingency/protocol";
+import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
-import { Option } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
+import type { Schema } from "effect";
 
+import { AgentSession } from "../../src/services/agent-session.ts";
+import { ExecutionValuesLive } from "../../src/services/execution-values.ts";
 import {
+  CodeInterpreterToolHandlersLive,
+  CodeInterpreterTools,
+  InterpreterOperations,
   androidIntervention,
   newBrowserWaits,
 } from "../../src/services/mcp-code-interpreter.ts";
-import type { SessionWaits } from "../../src/services/mcp-code-interpreter.ts";
+import type {
+  InterpreterOperationEntry,
+  SessionWaits,
+} from "../../src/services/mcp-code-interpreter.ts";
 
 const idle: SessionWaits = {
   controller: "agent",
@@ -115,4 +126,159 @@ describe("Android interventions", () => {
       )
     ).toBeUndefined();
   });
+});
+
+// One hang guard per test, sized for a hung interpreter rather than the work.
+const HANG_GUARD_MS = 60_000;
+
+const browserId = AgentSessionId.make("agent-browser-1");
+
+const takenOver: SessionWaits = {
+  ...idle,
+  controller: "user",
+  takeover: {
+    reason: "I will finish this myself.",
+    requestedAt: "2026-10-16T00:00:00.000Z",
+    requestedBy: "user",
+  },
+};
+
+/**
+ * One session the user changes from inside operations, standing in for a
+ * Workspace action that lands while a program waits or between two calls.
+ */
+const userWorkspace = (
+  initial: SessionWaits,
+  duringRead: SessionWaits | undefined
+) => {
+  let waits = initial;
+  const dispatched: string[] = [];
+  const operation = (
+    name: string,
+    readOnly: boolean,
+    userActs?: SessionWaits
+  ): InterpreterOperationEntry => ({
+    description: name,
+    inputSchema: {},
+    name,
+    readOnly,
+    run: () =>
+      Effect.sync(() => {
+        dispatched.push(name);
+        if (userActs !== undefined) {
+          waits = userActs;
+        }
+        return { ok: true as const, value: { id: browserId } };
+      }),
+  });
+  const layer = CodeInterpreterToolHandlersLive.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.sync(
+          InterpreterOperations,
+          () =>
+            new Map(
+              [
+                // What the user does while the program waits on events.
+                operation("agent_session_get", true, duringRead),
+                // The user takes control between two calls, unobserved.
+                operation("agent_sessions_get", true, takenOver),
+                operation("agent_session_close", false),
+              ].map((entry) => [entry.name, entry])
+            )
+        ),
+        Layer.mock(AgentSession, {
+          get: () =>
+            // SAFETY: the dispatcher reads only the waits and the view link.
+            Effect.succeed({
+              ...waits,
+              viewUrl: "http://127.0.0.1:7783/agent/agent-browser-1",
+            } as unknown as AgentSessionSnapshot),
+        }),
+        ExecutionValuesLive,
+        NodeServices.layer
+      )
+    )
+  );
+  const execute = (code: string) =>
+    Effect.gen(function* executeProgram() {
+      const tools = yield* CodeInterpreterTools;
+      const results = yield* tools
+        .handle("agent_code_execute", { code })
+        .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
+      return results.at(-1)?.result as Schema.Json;
+    }).pipe(Effect.provide(layer), Effect.timeout(HANG_GUARD_MS));
+  return { dispatched, execute };
+};
+
+const sessionArgument = JSON.stringify({ sessionId: browserId });
+
+describe("browser interventions during a program", () => {
+  it.live(
+    "ends at a Takeover that arrives during a read, before a later close",
+    () =>
+      Effect.gen(function* takeoverDuringRead() {
+        const workspace = userWorkspace(idle, takenOver);
+        const answer = yield* workspace.execute(`
+          await tools.agent_session_get(${sessionArgument});
+          await tools.agent_session_close(${sessionArgument});
+          return "unreachable";
+        `);
+        expect(answer).toMatchObject({
+          intervention: {
+            operation: "agent_session_get",
+            reasons: ["takeover", "user_control"],
+          },
+          receipts: [{ operation: "agent_session_get", outcome: "succeeded" }],
+          status: "intervention",
+        });
+        expect(workspace.dispatched).toEqual(["agent_session_get"]);
+      }),
+    HANG_GUARD_MS
+  );
+
+  it.live(
+    "refuses a close after a Takeover that no read observed",
+    () =>
+      Effect.gen(function* takeoverBetweenCalls() {
+        const workspace = userWorkspace(idle, undefined);
+        const answer = yield* workspace.execute(`
+          await tools.agent_session_get(${sessionArgument});
+          await tools.agent_sessions_get({});
+          await tools.agent_session_close(${sessionArgument});
+          return "unreachable";
+        `);
+        expect(answer).toMatchObject({
+          intervention: {
+            operation: "agent_session_close",
+            reasons: ["takeover", "user_control"],
+          },
+          receipts: [
+            { operation: "agent_session_get", outcome: "succeeded" },
+            { operation: "agent_sessions_get", outcome: "succeeded" },
+            { operation: "agent_session_close", outcome: "rejected" },
+          ],
+          status: "intervention",
+        });
+        expect(workspace.dispatched).toEqual([
+          "agent_session_get",
+          "agent_sessions_get",
+        ]);
+      }),
+    HANG_GUARD_MS
+  );
+
+  it.live(
+    "lets a new program read a Takeover that was already waiting",
+    () =>
+      Effect.gen(function* existingTakeover() {
+        const workspace = userWorkspace(takenOver, undefined);
+        const answer = yield* workspace.execute(`
+          await tools.agent_session_get(${sessionArgument});
+          return "read";
+        `);
+        expect(answer).toMatchObject({ status: "completed", value: "read" });
+      }),
+    HANG_GUARD_MS
+  );
 });
