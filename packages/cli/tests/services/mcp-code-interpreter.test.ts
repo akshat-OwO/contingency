@@ -8,6 +8,7 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Option, Stream } from "effect";
+import type { Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { ExecutionValuesLive } from "../../src/services/execution-values.ts";
@@ -152,7 +153,8 @@ const userWorkspace = (initial: SessionWaits, duringRead?: SessionWaits) => {
   const operation = (
     name: string,
     readOnly: boolean,
-    userActs?: SessionWaits
+    userActs?: SessionWaits,
+    value?: Schema.Json
   ): InterpreterOperationEntry => ({
     description: name,
     inputSchema: {},
@@ -164,7 +166,7 @@ const userWorkspace = (initial: SessionWaits, duringRead?: SessionWaits) => {
         if (userActs !== undefined) {
           waits = userActs;
         }
-        return { ok: true as const, value: { id: browserId } };
+        return { ok: true as const, value: value ?? { id: browserId } };
       }),
   });
   const layer = CodeInterpreterToolHandlersLive.pipe(
@@ -180,6 +182,15 @@ const userWorkspace = (initial: SessionWaits, duringRead?: SessionWaits) => {
                 // The user takes control between two calls, unobserved.
                 operation("agent_sessions_get", true, takenOver),
                 operation("agent_session_close", false),
+                // A new Dry Run asks for its secret, nesting its session.
+                operation(
+                  "agent_flow_skill_dry_run_start",
+                  false,
+                  dryRunWithSecret(false),
+                  { session: { id: browserId } }
+                ),
+                operation("agent_browser_snapshot", false),
+                operation("agent_browser_act", false),
               ].map((entry) => [entry.name, entry])
             )
         ),
@@ -261,6 +272,32 @@ describe("browser interventions during a program", () => {
         expect(workspace.dispatched).toEqual([
           "agent_session_get",
           "agent_sessions_get",
+        ]);
+      }),
+    HANG_GUARD_MS
+  );
+
+  it.live(
+    "ends at the secret a new Dry Run asks for, before its first action",
+    () =>
+      Effect.gen(function* dryRunSecret() {
+        const workspace = userWorkspace(idle);
+        const answer = yield* workspace.execute(`
+          const started = await tools.agent_flow_skill_dry_run_start({});
+          const sessionId = started.session.id;
+          await tools.agent_browser_snapshot({ sessionId });
+          return await tools.agent_browser_act({ sessionId });
+        `);
+        expect(answer).toMatchObject({
+          intervention: {
+            operation: "agent_flow_skill_dry_run_start",
+            reasons: ["variable_requested"],
+            sessionId: browserId,
+          },
+          status: "intervention",
+        });
+        expect(workspace.dispatched).toEqual([
+          "agent_flow_skill_dry_run_start",
         ]);
       }),
     HANG_GUARD_MS

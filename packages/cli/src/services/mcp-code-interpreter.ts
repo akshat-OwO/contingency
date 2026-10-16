@@ -281,8 +281,12 @@ export const operationSource = <Tools extends Record<string, Tool.Any>, E, R>(
 const decodeSessionInput = Schema.decodeUnknownOption(
   Schema.Struct({ sessionId: AgentSessionId })
 );
+// A start answers with its session, or nests it as a Dry Run start does.
 const decodeSessionResult = Schema.decodeUnknownOption(
-  Schema.Struct({ id: AgentSessionId })
+  Schema.Union([
+    Schema.Struct({ id: AgentSessionId }),
+    Schema.Struct({ session: Schema.Struct({ id: AgentSessionId }) }),
+  ])
 );
 const ActionStop = Schema.Struct({
   intervention: Schema.optional(Schema.NullOr(Schema.Json)),
@@ -625,7 +629,11 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
             return outcome;
           }
           const sessionId = Option.orElse(named, () =>
-            decodeSessionResult(outcome.value).pipe(Option.map(({ id }) => id))
+            decodeSessionResult(outcome.value).pipe(
+              Option.map((result) =>
+                "session" in result ? result.session.id : result.id
+              )
+            )
           );
           if (Option.isNone(sessionId)) {
             return outcome;
