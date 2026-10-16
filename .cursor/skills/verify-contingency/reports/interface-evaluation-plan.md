@@ -16,8 +16,7 @@ Every run records these values, and the report states them once:
 - **Environment.** This Mac (macOS, 24 GB), the isolated ecommerce fixture, a fresh Catalog Root per run, and the Pixel_9 API 36 emulator for Android.
 - **Models.** Two drivers, so a result is not one model's quirk:
   - `claude-haiku-5-5` through `claude -p`, default effort.
-  - `gpt-6.1-sol` at `medium` reasoning through `codex exec`.
-  Each records its CLI version.
+  - `gpt-6.1-sol` at `medium` reasoning through `codex exec`. Each records its CLI version.
 - **Client context.** Each driver sees only the Contingency MCP server: no other MCP servers, no user or project instructions, no repository checkout as its working directory. The prompt text is identical across interfaces. Unavoidable differences, such as each CLI's own system prompt and built-in tools, are the same within a model and are recorded.
 
 ## Correctness gate: scripted parity
@@ -63,7 +62,7 @@ Each task starts from the same seeded state, with the same prompt, and ends with
 | Catalog cost | Input tokens of the first request for a one-word prompt, per model and interface | a dedicated calibration run |
 | Payload bytes | Bytes of every MCP request and answer | stdio logging proxy |
 | Latency | Wall time per run, and per MCP call | harness and proxy timestamps |
-| Process communication overhead | Single-tool only: execution time minus the summed time of its operations, the cost of the interpreter process and its boundary | proxy timestamps and receipts |
+| Process communication overhead | The added latency of one operation run as a one-operation program over the same operation called natively, measured on a read (`agent_session_get`) and an action (`agent_browser_act`), 20 paired calls each on one session | a scripted microbenchmark, not the model runs |
 | Operation calls | Native tool calls; single-tool operations dispatched inside programs, and executions | proxy log |
 
 Payload bytes and token counts are reported side by side and never substituted for each other.
@@ -73,11 +72,11 @@ Payload bytes and token counts are reported side by side and never substituted f
 A call counts as one incorrect operation choice when any of these holds:
 
 1. The server rejects it: unknown tool or operation, invalid parameters, or a refused authority check the task did not set up.
-2. It is a mutating operation that repeats an already successful effect under a new operation id.
+2. It repeats an already successful effect: the fixture's final state holds more of an effect than the task asked for, such as an extra cart item or a second order. Receipts do not carry dispatched arguments, so this is judged from the resulting state, identically for both interfaces, and counts once per extra effect.
 3. It acts after an intervention ended the program or the user refused, before the model has reread the session.
 4. It targets a reference from a Snapshot the model had been told was stale.
 
-Rules 1 and 2 are classified mechanically from the proxy log and receipts. Rules 3 and 4 are classified from the same log against the task's scripted user timeline. Each classified call is listed in the raw results with its rule.
+Rule 1 is classified mechanically from the proxy log and receipts, rule 2 from the final-state check. Rules 3 and 4 are classified from the same log against the task's scripted user timeline. Each classified call is listed in the raw results with its rule.
 
 ## Decision rule
 
@@ -86,3 +85,7 @@ Rules 1 and 2 are classified mechanically from the proxy log and receipts. Rules
 - **Blocked** when a prerequisite cannot be measured, such as missing token usage or a broken environment. The report names it, and the default does not change.
 
 The maintainer reviews the report before any default changes.
+
+## Amendments
+
+- 2026-10-16, before any result: rule 2 is judged from the final state instead of the proxy log, because single-tool receipts omit dispatched arguments. Process communication overhead moved to a paired microbenchmark, because receipts carry no per-operation timings.
