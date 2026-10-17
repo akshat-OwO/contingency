@@ -285,3 +285,39 @@ export const adoptSessionSnapshot = (
   }
   return polled.updatedAt > held.updatedAt ? polled : held;
 };
+
+/** Follow a rehearsal by recording identity, regardless of session list order. */
+export const relatedWorkspaceSession = (
+  held: AgentSessionSnapshot | undefined,
+  sessions: readonly AgentSessionSnapshot[]
+): AgentSessionSnapshot | undefined => {
+  if (held?.activity === "teaching") {
+    const teaching = sessions.find((session) => session.id === held.id) ?? held;
+    if (
+      teaching.activity === "teaching" &&
+      teaching.captureState._tag === "dry-running"
+    ) {
+      const { dryRunSessionId } = teaching.captureState;
+      return sessions.find((session) => session.id === dryRunSessionId);
+    }
+  }
+  if (held?.activity === "run" && held.dryRun !== null) {
+    const { recordingId } = held.dryRun;
+    const teaching = sessions.find(
+      (session) =>
+        session.activity === "teaching" && session.recordingId === recordingId
+    );
+    if (
+      teaching?.activity === "teaching" &&
+      (!sessions.some(
+        (session) =>
+          session.id === held.id && isLiveAgentSessionPhase(session.phase)
+      ) ||
+        teaching.captureState._tag === "dry-run-passed" ||
+        teaching.captureState._tag === "dry-run-failed")
+    ) {
+      return teaching;
+    }
+  }
+  return undefined;
+};
