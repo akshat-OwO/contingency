@@ -4,20 +4,22 @@ import type {
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 /**
@@ -54,72 +56,108 @@ const SessionOption = ({ label }: { readonly label: string }) => {
   );
 };
 
-/**
- * The session picker inside the dock. Every option is the Flow Skill name and
- * what the session is doing with it; a raw session id is never a label a
- * person can act on (#191). It is the same `Select` the device bar uses, and
- * it opens upward because the dock sits at the bottom of the stage.
- */
+/** Deletion stays in the session picker and never selects the deleted row. */
+export interface SessionDeletion {
+  readonly onDelete: (sessionId: AgentSessionId) => void;
+  readonly pending: boolean;
+  readonly error: string | undefined;
+}
+
+/** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
   className,
+  deletion,
   onSelect,
   selectedSessionId,
   sessions,
 }: {
   readonly className?: string;
+  readonly deletion?: SessionDeletion | undefined;
   readonly onSelect: (sessionId: string) => void;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
-  const labels = new Map<string, string>(
-    sessions.map((session) => [session.id, agentSessionLabel(session)])
-  );
+  const [open, setOpen] = useState(false);
+  const selected = sessions.find(({ id }) => id === selectedSessionId);
   return (
-    <Select
-      onValueChange={(value) => {
-        if (value !== null) {
-          onSelect(value);
-        }
-      }}
-      value={selectedSessionId ?? null}
-    >
-      <SelectTrigger
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
         aria-label="Agent Session"
-        className={cn("max-w-56 min-w-0", className)}
+        role="combobox"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        render={
+          <Button
+            variant="outline"
+            className={cn("max-w-56 min-w-0 shrink", className)}
+          />
+        }
       >
-        <SelectValue placeholder="Agent Session">
-          {(value: string | null) => {
-            const label = value === null ? undefined : labels.get(value);
-            return label === undefined ? null : (
-              <span className="truncate">
-                {label.split(" · ").at(0) ?? label}
-              </span>
-            );
-          }}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent
+        <span className="truncate">
+          {selected === undefined
+            ? "Agent Session"
+            : agentSessionLabel(selected).split(" · ").at(0)}
+        </span>
+        <ChevronDownIcon aria-hidden="true" />
+      </PopoverTrigger>
+      <PopoverContent
+        aria-label="Agent Sessions"
         align="start"
-        alignItemWithTrigger={false}
-        className="w-96 max-w-[calc(100vw-2rem)]"
         side="top"
+        className="w-96 max-w-[calc(100vw-2rem)] gap-1 p-1"
       >
-        <SelectGroup>
-          <SelectLabel>Agent Sessions</SelectLabel>
-          {sessions.map((session) => (
-            <SelectItem
-              aria-label={labels.get(session.id)}
-              className="*:first:min-w-0 *:first:shrink"
-              key={session.id}
-              label={labels.get(session.id)}
-              value={session.id}
-            >
-              <SessionOption label={labels.get(session.id) ?? session.id} />
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+        <PopoverTitle className="text-muted-foreground px-1.5 py-1 text-xs">
+          Agent Sessions
+        </PopoverTitle>
+        <div className="max-h-72 overflow-y-auto">
+          {sessions.map((session) => {
+            const label = agentSessionLabel(session);
+            return (
+              <div key={session.id} className="flex items-center gap-1">
+                <Button
+                  aria-label={label}
+                  aria-pressed={session.id === selectedSessionId}
+                  className="min-w-0 flex-1 justify-start px-1.5 font-normal"
+                  onClick={() => {
+                    onSelect(session.id);
+                    setOpen(false);
+                  }}
+                  variant="ghost"
+                >
+                  <SessionOption label={label} />
+                  {session.id === selectedSessionId ? (
+                    <CheckIcon aria-hidden="true" />
+                  ) : null}
+                </Button>
+                {deletion === undefined ? null : (
+                  <Button
+                    aria-label={`Delete session ${label}`}
+                    title={`Delete session ${label}`}
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={deletion.pending}
+                    onClick={() => deletion.onDelete(session.id)}
+                  >
+                    <Trash2Icon aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {deletion?.error === undefined ? null : (
+          <p role="alert" className="text-destructive px-1.5 py-1 text-xs">
+            {deletion.error}
+          </p>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 };
 

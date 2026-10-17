@@ -28,6 +28,7 @@ import {
   elapsedSpokenLabel,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
+import type { SessionDeletion } from "@/components/agent/workspace-dock";
 import {
   DockSessionSelect,
   DockShell,
@@ -184,6 +185,7 @@ export const TeachingRecordingDock = ({
   onGesture,
   onSecondary,
   onSelectSession,
+  deletion,
   pending,
   phase,
   platform,
@@ -210,6 +212,7 @@ export const TeachingRecordingDock = ({
     action: TeachingSecondaryAction,
     detail?: string
   ) => void;
+  readonly deletion?: SessionDeletion;
   readonly onSelectSession: (sessionId: string) => void;
   readonly pending: boolean;
   /** Whether the session is still live. An ended one offers no setup actions. */
@@ -310,6 +313,7 @@ export const TeachingRecordingDock = ({
     >
       <DockWordmark />
       <DockSessionSelect
+        deletion={deletion}
         onSelect={onSelectSession}
         selectedSessionId={selectedSessionId}
         sessions={sessions}
@@ -326,6 +330,7 @@ export const TeachingRecordingDock = ({
       ) : null}
       {presentation.secondaries.map((secondary) => (
         <Button
+          aria-label={SECONDARY_LABEL[secondary]}
           disabled={pending}
           key={secondary}
           onClick={() =>
@@ -335,7 +340,14 @@ export const TeachingRecordingDock = ({
           type="button"
           variant="outline"
         >
-          {SECONDARY_LABEL[secondary]}
+          {secondary === "reject-flow" ? (
+            <>
+              <span className="@md:hidden">Reject</span>
+              <span className="hidden @md:inline">Reject flow</span>
+            </>
+          ) : (
+            SECONDARY_LABEL[secondary]
+          )}
         </Button>
       ))}
       {action === null ? null : (
@@ -353,7 +365,10 @@ export const TeachingRecordingDock = ({
           {action.gesture === "stop" || action.gesture === "stop-dry-run" ? (
             <SquareIcon aria-hidden="true" className="fill-current" />
           ) : (
-            <CircleIcon aria-hidden="true" className="fill-current" />
+            <CircleIcon
+              aria-hidden="true"
+              className="hidden fill-current @md:block"
+            />
           )}
           {action.label}
         </Button>

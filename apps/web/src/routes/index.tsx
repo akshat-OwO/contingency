@@ -27,7 +27,7 @@ const WorkspaceRouteComponent = () => {
   const selectSession = (sessionId: AgentSessionId) => {
     navigate({ search: { run: undefined, session: sessionId } });
   };
-  const recoverSession = (sessionId: AgentSessionId) => {
+  const recoverSession = (sessionId: AgentSessionId | undefined) => {
     navigate({ replace: true, search: { run: undefined, session: sessionId } });
   };
   return (

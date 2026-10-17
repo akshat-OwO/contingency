@@ -167,6 +167,9 @@ export const agentReturnControlMutation = ContingencyRpcClient.mutation(
 export const agentSessionStartMutation = ContingencyRpcClient.mutation(
   "agent.session.start"
 );
+export const agentSessionCloseMutation = ContingencyRpcClient.mutation(
+  "agent.session.close"
+);
 /** Start and Stop are user gestures, never agent-owned MCP operations. */
 export const agentTeachingRecordingStartMutation =
   ContingencyRpcClient.mutation("agent.teaching.recording.start");

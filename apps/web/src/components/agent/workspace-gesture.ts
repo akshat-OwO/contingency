@@ -47,6 +47,7 @@ export const recordingGestureAtom = sessionGestureFamily();
 export const navigationGestureAtom = sessionGestureFamily();
 /** Saving a Teaching comment as an instruction on the recording. */
 export const commentGestureAtom = sessionGestureFamily();
+export const sessionDeleteGestureAtom = gestureAtom();
 /** Opening a Teaching session from the empty canvas, which has no session yet. */
 export const sessionStartGestureAtom = gestureAtom();
 
