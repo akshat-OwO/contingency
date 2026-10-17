@@ -532,6 +532,7 @@ const AgentBrowserToolbar = ({
   onAddressChange,
   onAddressSubmit,
   onNavigate,
+  onAndroid,
   readOnly,
 }: {
   readonly address: string;
@@ -541,6 +542,7 @@ const AgentBrowserToolbar = ({
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly readOnly: boolean;
+  readonly onAndroid: () => void;
 }) => (
   <>
     <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
@@ -610,6 +612,9 @@ const AgentBrowserToolbar = ({
         The theme control lives on the browser chrome rather than in a second
         header band: a live Workspace has no app header to hold it (#209).
       */}
+      <Button onClick={onAndroid} size="sm" variant="outline">
+        Android
+      </Button>
       <ModeToggle />
     </div>
     {navigationError === undefined ? null : (
@@ -628,6 +633,7 @@ const AgentBrowserToolbar = ({
  * exactly when the agent took over (#209).
  */
 const AgentLiveView = ({
+  onAndroid,
   canvasRef,
   dock,
   input,
@@ -644,6 +650,7 @@ const AgentLiveView = ({
   session,
   state,
 }: {
+  readonly onAndroid: () => void;
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** The floating dock, overlaid on the canvas rather than stacked above it. */
   readonly dock: React.ReactNode;
@@ -685,6 +692,7 @@ const AgentLiveView = ({
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
+        onAndroid={onAndroid}
         address={state.address}
         navigationError={navigation.error}
         navigationPending={navigation.pending}
@@ -2195,10 +2203,12 @@ const WorkspaceLayout = ({
 };
 
 const BrowserWorkspace = ({
+  onAndroid,
   onRecoverSession,
   onSelectSession,
   requestedSessionId,
 }: {
+  readonly onAndroid: () => void;
   readonly onRecoverSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly onSelectSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
@@ -2243,6 +2253,12 @@ const BrowserWorkspace = ({
     return (
       <div className="relative flex h-svh min-h-0 flex-col">
         <WorkspaceLayout session={undefined} summary={undefined}>
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+            <Button onClick={onAndroid} size="sm" variant="outline">
+              Android
+            </Button>
+            <ModeToggle />
+          </div>
           <EmptyState
             error={view.gestures.start.error}
             onOpenSession={view.openSession}
@@ -2268,6 +2284,7 @@ const BrowserWorkspace = ({
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceLayout session={session} summary={finished}>
         <AgentLiveView
+          onAndroid={onAndroid}
           canvasRef={view.canvasRef}
           dock={
             session.activity === "teaching" ? (
@@ -2373,7 +2390,7 @@ const BrowserWorkspace = ({
 };
 
 export const AgentWorkspace = (
-  props: React.ComponentProps<typeof BrowserWorkspace>
+  props: Omit<React.ComponentProps<typeof BrowserWorkspace>, "onAndroid">
 ) => {
   const requestedAndroidSession =
     new URL(globalThis.location.href).searchParams.get("android") ?? undefined;
@@ -2384,15 +2401,6 @@ export const AgentWorkspace = (
       onBrowser={() => setAndroid(false)}
     />
   ) : (
-    <>
-      <BrowserWorkspace {...props} />
-      <button
-        type="button"
-        className="bg-background absolute top-4 right-4 rounded-md border px-3 py-2 text-sm shadow-sm"
-        onClick={() => setAndroid(true)}
-      >
-        Android
-      </button>
-    </>
+    <BrowserWorkspace {...props} onAndroid={() => setAndroid(true)} />
   );
 };

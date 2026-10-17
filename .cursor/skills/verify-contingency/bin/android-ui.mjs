@@ -141,17 +141,10 @@ export const openAndroidSheet = async (
       "--value",
       value
     );
-  const select = (name, value) =>
-    control(
-      "browser",
-      "select",
-      "--role",
-      "combobox",
-      "--name",
-      name,
-      "--value",
-      value
-    );
+  const select = async (name, value) => {
+    await control("browser", "click", "--role", "combobox", "--name", name);
+    await control("browser", "click", "--role", "option", "--name", value);
+  };
   await click("Android");
   await click("Open Android session");
   await fill("Flow skill name", flowSkillName);
@@ -177,10 +170,6 @@ export const openAndroidSheet = async (
   await fill("Starting screen element", selection.setup.conditions[0].name);
   await select("Done when element role", selection.outcomes[0].role);
   await fill("Done when element", selection.outcomes[0].name);
-  await select(
-    "Contingency's pinned helper",
-    process.env.CONTINGENCY_ANDROID_HELPER_CONSENT ?? "none"
-  );
   if (selection.privateInput) {
     await control(
       "browser",
@@ -190,28 +179,29 @@ export const openAndroidSheet = async (
       "--name",
       "Enable private Variables"
     );
+  }
+  const labels = {
+    ACCESS_COARSE_LOCATION: "Approximate location",
+    ACCESS_FINE_LOCATION: "Precise location",
+    BLUETOOTH_CONNECT: "Nearby devices",
+    CAMERA: "Camera",
+    POST_NOTIFICATIONS: "Notifications",
+    READ_CALENDAR: "Calendar",
+    READ_CONTACTS: "Contacts",
+    READ_MEDIA_IMAGES: "Photos",
+    READ_MEDIA_VIDEO: "Videos",
+    RECORD_AUDIO: "Microphone",
+  };
+  for (const entry of selection.environment.permissions ?? []) {
+    const label = labels[entry.permission.replace("android.permission.", "")];
+    if (!label) {
+      throw new Error(`No setup control for ${entry.permission}`);
+    }
     await select(
-      "Private text helper",
-      selection.privateHelperConsent ?? "none"
+      `${label} permission`,
+      entry.decision === "grant" ? "Grant before start" : "Deny before start"
     );
   }
-  const permissions = selection.environment.permissions ?? [];
-  const notification = permissions.find(
-    (entry) => entry.permission === "android.permission.POST_NOTIFICATIONS"
-  );
-  await select(
-    "Notification permission",
-    notification?.decision ?? "unchanged"
-  );
-  await fill(
-    "Additional permission decisions",
-    permissions
-      .filter(
-        (entry) => entry.permission !== "android.permission.POST_NOTIFICATIONS"
-      )
-      .map((entry) => `${entry.decision} ${entry.permission}`)
-      .join("\n")
-  );
   await snapshot("setup-sheet");
   await click("Open session");
   await control(

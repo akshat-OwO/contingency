@@ -161,9 +161,47 @@ const readApk = (serial: string, apk: string) =>
 /** The only device commands here are reads, always bound to the explicit serial. */
 const discoveryHost = {
   adb: (args: readonly string[]) => host("adb", args),
+  avds: () => {
+    const sdk =
+      process.env.ANDROID_HOME ??
+      process.env.ANDROID_SDK_ROOT ??
+      path.join(homedir(), "Library/Android/sdk");
+    return host(path.join(sdk, "emulator", "emulator"), ["-list-avds"]);
+  },
   readApk,
 };
-export const makeAndroidDiscovery = (io = discoveryHost) => ({
+const appendStoppedAvds = (
+  devices: AndroidDiscoveredDevice[],
+  inventory: string
+) => {
+  const running = new Set(devices.map((device) => device.avd));
+  for (const avd of new Set(
+    inventory
+      .split(/\r?\n/u)
+      .map((name) => name.trim())
+      .filter(Boolean)
+  )) {
+    if (!running.has(avd)) {
+      devices.push({
+        api: null,
+        avd,
+        fingerprint: null,
+        kind: "emulator",
+        model: null,
+        release: null,
+        serial: `avd:${avd}`,
+        state: "stopped",
+      });
+    }
+  }
+};
+export const makeAndroidDiscovery = (
+  io: {
+    readonly adb: typeof discoveryHost.adb;
+    readonly readApk: typeof readApk;
+    readonly avds?: typeof discoveryHost.avds;
+  } = discoveryHost
+) => ({
   apps: (selection: AndroidDeviceSelection) =>
     Effect.gen(function* discoverApps() {
       // RPC selection authorizes hardware, never an implicit first/only device.
@@ -320,6 +358,12 @@ export const makeAndroidDiscovery = (io = discoveryHost) => ({
           }).pipe(Effect.mapError(() => failure()))
         );
       }
+      // A missing emulator binary must not hide connected phones.
+      const inventory =
+        io.avds === undefined
+          ? ""
+          : yield* io.avds().pipe(Effect.catch(() => Effect.succeed("")));
+      appendStoppedAvds(devices, inventory);
       return devices;
     }),
 });
