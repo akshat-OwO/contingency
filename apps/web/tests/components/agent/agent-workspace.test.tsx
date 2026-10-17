@@ -26,6 +26,10 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
+  closeCalls: [] satisfies unknown[],
+  closeFailure: undefined satisfies unknown,
+  closeGate: Promise.resolve(true),
+  closeSettled: 0,
   discardCalls: [] satisfies unknown[],
   endedRunSummary: {} satisfies unknown,
   endedRunSummaryCalls: [] satisfies unknown[],
@@ -93,6 +97,23 @@ const rpcOverrides = {
       rpc.returnControlCalls.push(payload);
       return {};
     })
+  ),
+  agentSessionCloseMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.closeCalls.push(payload);
+    }).pipe(
+      Effect.andThen(Effect.promise(() => rpc.closeGate)),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          rpc.closeSettled += 1;
+        })
+      ),
+      Effect.andThen(
+        rpc.closeFailure === undefined
+          ? Effect.succeed({})
+          : Effect.fail(rpc.closeFailure)
+      )
+    )
   ),
   agentSessionStartMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -403,7 +424,10 @@ const sessionPicker = () =>
 /** Opens the session picker and returns its options, in session order. */
 const openSessionPicker = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(sessionPicker());
-  return screen.findAllByRole("option");
+  const dialog = await screen.findByRole("dialog", { name: "Agent Sessions" });
+  return within(dialog)
+    .getAllByRole("button")
+    .filter((button) => button.hasAttribute("aria-pressed"));
 };
 
 const chooseSessionAt = async (
@@ -433,6 +457,10 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.closeCalls = [];
+  rpc.closeFailure = undefined;
+  rpc.closeGate = Promise.resolve(true);
+  rpc.closeSettled = 0;
   rpc.discardCalls = [];
   rpc.endedRunSummaryCalls = [];
   rpc.endedRunSummaryResult = undefined;
@@ -558,7 +586,7 @@ test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", 
   expect(sessionPicker()).toHaveTextContent("add-anvil");
   await openSessionPicker(user);
   expect(
-    screen.getByRole("option", { name: "add-anvil · Dry Run" })
+    screen.getByRole("button", { name: "add-anvil · Dry Run" })
   ).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();
 });
@@ -568,7 +596,7 @@ test("labels an Interactive Run without exposing a raw session id", async () => 
   renderWorkspace(resultFor([runningSession]), session.id);
   await screen.findByRole("region", { name: "Workspace dock" });
   await openSessionPicker(user);
-  const option = await screen.findByRole("option", {
+  const option = await screen.findByRole("button", {
     name: "browse-catalogue · Interactive Run",
   });
   expect(option).toBeVisible();
@@ -1911,4 +1939,247 @@ test("says an ended Run's Summary was not written rather than missing from the c
       "The Run ended, but its Run Summary was not written in time. Open it later with open_run."
     )
   ).toBeVisible();
+});
+
+test("follows a Teaching Dry Run and returns to its owner instead of the first session", async () => {
+  const unrelated = {
+    ...teachingSetup,
+    flowSkillName: "other-flow",
+    id: "agent-unrelated",
+  };
+  const teaching = { ...teachingDrafted, recordingId: "recording-add-anvil" };
+  const rehearsal = { ...dryRunSession, id: "agent-rehearsal" };
+  rpc.sessionsResult = resultFor([unrelated, teaching]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teaching.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  rpc.sessionsResult = resultFor([
+    unrelated,
+    {
+      ...teaching,
+      captureState: {
+        ...teaching.captureState,
+        _tag: "dry-running",
+        dryRunInputs: [],
+        dryRunSessionId: rehearsal.id,
+        dryRunStartedAt: rehearsal.dryRun.startedAt,
+      },
+    },
+    rehearsal,
+  ]);
+  await refreshWorkspace();
+  await waitFor(() => {
+    expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
+    expect(
+      screen.getByRole("region", { name: "Workspace dock" })
+    ).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+  });
+  await refreshWorkspace();
+  expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
+  rpc.sessionsResult = resultFor([unrelated, dryRunPassedSession]);
+  await refreshWorkspace();
+  await waitFor(() => {
+    expect(testRouter.state.location.search).toEqual({ session: teaching.id });
+    expect(screen.getByRole("button", { name: "Verify flow" })).toBeVisible();
+  });
+});
+
+test("does not follow another Teaching session's Dry Run", async () => {
+  const rehearsal = { ...dryRunSession, id: "agent-rehearsal" };
+  renderWorkspace(resultFor([teachingSetup]), teachingSetup.id);
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  rpc.sessionsResult = resultFor([rehearsal, teachingSetup]);
+  await refreshWorkspace();
+  expect(sessionPicker()).toHaveTextContent("browse-catalogue");
+});
+
+test("deletes the selected session through the dock and shows the remaining session", async () => {
+  const other = {
+    ...teachingSetup,
+    flowSkillName: "other-flow",
+    id: "agent-other",
+  };
+  renderWorkspace(resultFor([teachingSetup, other]), teachingSetup.id);
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  expect(rpc.closeCalls[0]).toMatchObject({
+    payload: { sessionId: teachingSetup.id },
+  });
+  rpc.sessionsResult = resultFor([other]);
+  await refreshWorkspace();
+  await waitFor(() => expect(sessionPicker()).toHaveTextContent("other-flow"));
+});
+
+test("clears the route after deleting the last session", async () => {
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teachingSetup.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
+});
+
+test("keeps a session available when deletion fails", async () => {
+  rpc.closeFailure = new Error("Session could not be closed.");
+  renderWorkspace(resultFor([teachingSetup]), teachingSetup.id);
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Session could not be closed."
+  );
+  expect(sessionPicker()).toHaveTextContent("browse-catalogue");
+});
+
+test("preserves a manual choice of Teaching while its Dry Run remains live", async () => {
+  const rehearsal = { ...dryRunSession, id: "agent-rehearsal" };
+  const teaching = {
+    ...teachingDrafted,
+    captureState: {
+      ...teachingDrafted.captureState,
+      _tag: "dry-running",
+      dryRunInputs: [],
+      dryRunSessionId: rehearsal.id,
+      dryRunStartedAt: rehearsal.dryRun.startedAt,
+    },
+    recordingId: "recording-add-anvil",
+  };
+  renderWorkspace(resultFor([teaching, rehearsal]), rehearsal.id);
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  const user = userEvent.setup();
+  await chooseSessionAt(user, 0);
+  await refreshWorkspace();
+  expect(sessionPicker()).toHaveTextContent(teaching.flowSkillName);
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+});
+
+test("deletes another session from its picker row without selecting it", async () => {
+  const other = {
+    ...teachingSetup,
+    flowSkillName: "other-flow",
+    id: "agent-other",
+  };
+  renderWorkspace(resultFor([teachingSetup, other]), teachingSetup.id);
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", { name: "Delete session other-flow" })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  expect(rpc.closeCalls[0]).toMatchObject({ payload: { sessionId: other.id } });
+  expect(sessionPicker()).toHaveTextContent(teachingSetup.flowSkillName);
+  expect(
+    screen.queryByRole("button", { name: "Delete session other-flow" })
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  ).toBeVisible();
+});
+
+test("clears a deleted route when polling removes the last session before close settles", async () => {
+  const gate = Deferred.makeUnsafe<boolean>();
+  rpc.closeGate = Effect.runPromise(Deferred.await(gate));
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teachingSetup.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({
+    session: teachingSetup.id,
+  });
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  await waitFor(() => expect(rpc.closeSettled).toBe(1));
+  await refreshWorkspace();
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
+});
+
+test("preserves a newer route choice when an old close response settles after polling", async () => {
+  const gate = Deferred.makeUnsafe<boolean>();
+  rpc.closeGate = Effect.runPromise(Deferred.await(gate));
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teachingSetup.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  await act(() =>
+    testRouter.navigate({ search: { session: "agent-new-choice" }, to: "/" })
+  );
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  await waitFor(() => expect(rpc.closeSettled).toBe(1));
+  await refreshWorkspace();
+  expect(testRouter.state.location.search).toEqual({
+    session: "agent-new-choice",
+  });
 });

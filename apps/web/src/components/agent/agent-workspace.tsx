@@ -44,6 +44,7 @@ import {
   appendConsoleEntry,
   endedRunSnapshot,
   isInteractiveRunSession,
+  relatedWorkspaceSession,
   workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
@@ -99,6 +100,7 @@ import {
   recordingGestureAtom,
   sessionGesture,
   sessionStartGestureAtom,
+  sessionDeleteGestureAtom,
   useWorkspaceGesture,
 } from "@/components/agent/workspace-gesture";
 import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
@@ -782,7 +784,7 @@ const AgentLiveView = ({
 const useAgentView = (
   requestedSessionId: string | undefined,
   onSelectSession: ((sessionId: AgentSessionId) => void) | undefined,
-  onRecoverSession: ((sessionId: AgentSessionId) => void) | undefined
+  onRecoverSession: ((sessionId?: AgentSessionId) => void) | undefined
 ) => {
   const {
     agentBrowserInputMutation,
@@ -790,6 +792,7 @@ const useAgentView = (
     agentBrowserNavigateMutation,
     agentReturnControlMutation,
     agentSessionStartMutation,
+    agentSessionCloseMutation,
     agentSessionsAtom,
     agentTakeoverMutation,
     agentTeachingFlowRenameMutation,
@@ -862,6 +865,20 @@ const useAgentView = (
   const startSession = useAtomSet(agentSessionStartMutation, {
     mode: "promise",
   });
+  const closeSession = useAtomSet(agentSessionCloseMutation, {
+    mode: "promise",
+  });
+  const deletionGesture = useWorkspaceGesture(sessionDeleteGestureAtom);
+  const selectionContextRef = useRef({ requestedSessionId, selectedSessionId });
+  useEffect(() => {
+    selectionContextRef.current = { requestedSessionId, selectedSessionId };
+  }, [requestedSessionId, selectedSessionId]);
+  // A route request selects once. Polls may then follow its Dry Run, and the
+  // URL sync waits for that resolved selection before replacing the route.
+  const selectionRef = useRef<{
+    requested: string | undefined;
+    selected: AgentSessionId | undefined;
+  } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const frameRenderOwnerRef = useRef<object | null>(null);
@@ -906,6 +923,8 @@ const useAgentView = (
   // dismissed. Neither is a `?session=` id that failed to resolve.
   const endedRunIdsRef = useRef(new Set<string>());
   const dismissedRunIdsRef = useRef(new Set<AgentSessionId>());
+  const deletedSessionIdsRef = useRef(new Set<AgentSessionId>());
+  const followedDryRunIdsRef = useRef(new Set<AgentSessionId>());
   // One inspect read at a time: a pointer moves far more often than the Page
   // can answer a Browser Snapshot, and a queue of them would outline the past.
   const inspectPendingRef = useRef(false);
@@ -954,7 +973,14 @@ const useAgentView = (
       );
       return;
     }
-    const requested = sessions.find(({ id }) => id === requestedSessionId);
+    const availableSessions = sessions.filter(
+      ({ id }) => !deletedSessionIdsRef.current.has(id)
+    );
+    const requestChanged =
+      selectionRef.current?.requested !== requestedSessionId;
+    const requested = availableSessions.find(
+      ({ id }) => id === requestedSessionId
+    );
     /*
       A missing `?session=` id needs a notice only when this process has no
       live session to show. Otherwise the route adopts the selected session.
@@ -964,7 +990,7 @@ const useAgentView = (
     const unresolvedSessionId =
       requestedSessionId !== undefined &&
       requested === undefined &&
-      sessions.length === 0 &&
+      availableSessions.length === 0 &&
       !endedRunIdsRef.current.has(requestedSessionId)
         ? requestedSessionId
         : undefined;
@@ -983,7 +1009,7 @@ const useAgentView = (
         current.selectedSessionId !== held.id ||
         dismissedRunIdsRef.current.has(held.id) ||
         !isInteractiveRunSession(held) ||
-        sessions.some(({ id }) => id === held.id)
+        availableSessions.some(({ id }) => id === held.id)
       ) {
         return null;
       }
@@ -1001,7 +1027,7 @@ const useAgentView = (
           };
     };
 
-    if (sessions.length === 0) {
+    if (availableSessions.length === 0) {
       setState((current) => {
         const kept = keptEndedRun(current);
         if (kept !== null) {
@@ -1028,11 +1054,31 @@ const useAgentView = (
       if (kept !== null) {
         return kept;
       }
-      const existing =
-        current.selectedSessionId === undefined
+      const existing = availableSessions.find(
+        ({ id }) => id === current.selectedSessionId
+      );
+      const related = relatedWorkspaceSession(
+        current.session,
+        availableSessions
+      );
+      const follow =
+        related?.activity === "run" &&
+        followedDryRunIdsRef.current.has(related.id)
           ? undefined
-          : sessions.find(({ id }) => id === current.selectedSessionId);
-      const selected = requested ?? existing ?? sessions[0];
+          : related;
+      const selected =
+        (requestChanged ? requested : undefined) ??
+        follow ??
+        existing ??
+        requested ??
+        availableSessions[0];
+      if (selected !== undefined) {
+        followedDryRunIdsRef.current.add(selected.id);
+      }
+      selectionRef.current = {
+        requested: requestedSessionId,
+        selected: selected?.id,
+      };
       if (selected === undefined) {
         return { ...current, phase: "empty", unresolvedSessionId };
       }
@@ -1070,7 +1116,9 @@ const useAgentView = (
       queryLoading ||
       queryError !== undefined ||
       requestedSessionId === undefined ||
-      sessions.some(({ id }) => id === requestedSessionId) ||
+      requestedSessionId === selectedSessionId ||
+      selectionRef.current?.requested !== requestedSessionId ||
+      selectionRef.current?.selected !== selectedSessionId ||
       !sessions.some(({ id }) => id === selectedSessionId)
     ) {
       return;
@@ -2007,10 +2055,64 @@ const useAgentView = (
     }));
   };
 
-  /**
-   * Leaves an ended Interactive Run's summary for the next live session, or
-   * for the empty Workspace when there is none.
-   */
+  /** Close the selected browser while retaining its recorded evidence. */
+  const deleteSession = (sessionId: AgentSessionId) => {
+    const deleting = pickerSessions.find(({ id }) => id === sessionId);
+    if (deleting === undefined) {
+      return;
+    }
+    deletionGesture.dispatch(
+      Effect.tryPromise({
+        catch: errorMessage,
+        try: () =>
+          closeSession({
+            payload: {
+              operationId: OperationId.make(globalThis.crypto.randomUUID()),
+              sessionId: deleting.id,
+            },
+          }),
+      }).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            deletedSessionIdsRef.current.add(deleting.id);
+            dismissedRunIdsRef.current.add(deleting.id);
+            endedRunIdsRef.current.add(deleting.id);
+            const latest = selectionContextRef.current;
+            // Polling may clear selection while the backend tears down the
+            // browser. The deleted URL still needs clearing, unless the user
+            // has requested a different session since this close began.
+            const ownsSelection =
+              latest.selectedSessionId === deleting.id ||
+              (latest.selectedSessionId === undefined &&
+                latest.requestedSessionId === deleting.id);
+            const ownsRoute =
+              latest.requestedSessionId === requestedSessionId ||
+              latest.requestedSessionId === deleting.id;
+            if (ownsSelection && ownsRoute) {
+              const remaining = sessions.filter(({ id }) => id !== deleting.id);
+              const next =
+                relatedWorkspaceSession(deleting, remaining) ?? remaining.at(0);
+              if (next === undefined) {
+                setState((current) => ({
+                  ...current,
+                  phase: "empty",
+                  selectedSessionId: undefined,
+                  session: undefined,
+                  unresolvedSessionId: undefined,
+                }));
+                onRecoverSession?.();
+              } else {
+                selectSession(next.id);
+              }
+            }
+            refreshSessions();
+          })
+        )
+      )
+    );
+  };
+
+  /** Leave an ended Run for the next live session or the empty Workspace. */
   const dismissEndedRun = () => {
     const ended = state.session;
     if (ended === undefined) {
@@ -2080,6 +2182,11 @@ const useAgentView = (
     changeControl,
     changeRecording,
     clearConsole,
+    deletion: {
+      error: deletionGesture.error,
+      onDelete: deleteSession,
+      pending: deletionGesture.pending,
+    },
     detachElement,
     dismissBotProtectionBlock,
     dismissEndedRun,
@@ -2103,7 +2210,9 @@ const useAgentView = (
     runCommentShortcut,
     runSecondary,
     selectSession,
-    sessions: pickerSessions,
+    sessions: pickerSessions.filter(
+      ({ id }) => !deletedSessionIdsRef.current.has(id)
+    ),
     sessionsResult,
     setAddress,
     setAttachments,
@@ -2198,7 +2307,9 @@ export const AgentWorkspace = ({
   onSelectSession,
   requestedSessionId,
 }: {
-  readonly onRecoverSession?: ((sessionId: AgentSessionId) => void) | undefined;
+  readonly onRecoverSession?:
+    | ((sessionId?: AgentSessionId) => void)
+    | undefined;
   readonly onSelectSession?: ((sessionId: AgentSessionId) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
 }) => {
@@ -2280,6 +2391,7 @@ export const AgentWorkspace = ({
                 onComment={view.openCommentComposer}
                 onGesture={view.changeRecording}
                 onSecondary={view.runSecondary}
+                deletion={view.deletion}
                 onSelectSession={view.selectSession}
                 pending={view.gestures.recording.pending}
                 phase={session.phase}
@@ -2299,6 +2411,7 @@ export const AgentWorkspace = ({
                     ? view.dismissEndedRun
                     : undefined
                 }
+                deletion={view.deletion}
                 onSelectSession={view.selectSession}
                 requests={<DockRequests session={session} />}
                 selectedSessionId={state.selectedSessionId}
