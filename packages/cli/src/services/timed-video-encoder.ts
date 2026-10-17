@@ -133,7 +133,21 @@ const ffmpegArguments = (
   "pipe:0",
   "-an",
   "-vf",
-  `scale=${width}:${height}`,
+  // Keep JPEG's BT.601 matrix: converting between YUV matrices introduces
+  // another rounding step on every encode. Only change full to limited
+  // range, and tag the matrix separately from the source's sRGB primaries
+  // and transfer so browser decoders do not guess from the video size.
+  `scale=${width}:${height}:in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt601`,
+  "-pix_fmt",
+  "yuv420p",
+  "-color_range",
+  "tv",
+  "-colorspace",
+  "smpte170m",
+  "-color_primaries",
+  "bt709",
+  "-color_trc",
+  "iec61966-2-1",
   "-fps_mode",
   "passthrough",
   "-enc_time_base",
