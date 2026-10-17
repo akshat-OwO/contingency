@@ -56,6 +56,8 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Idle Gap**: Any span of an Interactive Run or a Dry Run outside every Action Window and every Takeover, such as agent thinking or a wait on a Pending Decision. The Run's video fast-forwards Idle Gaps and marks each one as fast-forwarded on screen. _Avoid_: pause, dead time, thinking time (as the domain term)
 
+**Browser Modification**: An agent-initiated change to browser state, network behaviour, or page script that a user could not make through ordinary interaction, such as a mocked route, an injected cookie, a mutating script, or a mid-Run change to zoom or text scale. Each one is recorded as Run evidence, persists until removed or the Run ends, and is never allowed in a Dry Run. _Avoid_: override, tampering, intervention
+
 **Browser Snapshot**: A compact accessibility representation of the current Page with short-lived element references for agent actions. References expire after navigation or meaningful page mutation; screenshots remain a separate visual observation. _Avoid_: screenshot, Trace, DOM dump
 
 **System One**: An external decision model the user connects to Contingency. It answers typed questions about a Browser Snapshot (whether an outcome holds, which operation comes next, which element it acts on, which input fills a field) with a probability for each allowed answer. It chooses among listed options and never writes free text, plans, or authorizes an action. See [ADR 0057](./docs/adr/0057-system-one-pursues-delegated-sub-goals.md). _Avoid_: fast loop, Kev, Nev, Jev (as domain terms), sub-agent
@@ -86,7 +88,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Setup Variable**: A private Variable requested by name and purpose during agent-held Teaching setup, supplied by the user in Workspace without a saved Flow Skill. It is reusable until setup handoff, supports explicit replacement, and belongs to setup rather than the Teaching Recording or the learned Flow Skill. _Avoid_: Flow Skill input, captured secret, persisted credential
 
-**Emulation**: The coherent browser device and environment one session runs under, recorded with a Teaching Recording and reproduced by its Dry Run. It covers viewport, browser identity, geolocation, website permission decisions, locale, timezone, and color scheme. Coordinates and permission are independent: a site receives the emulated location only when the session grants it access, and observes denial when the session denies it. _Avoid_: device profile, override, spoofing
+**Emulation**: The coherent browser device and environment one session runs under, recorded with a Teaching Recording and reproduced by its Dry Run. It covers viewport, browser identity, geolocation, website permission decisions, locale, timezone, color scheme, page zoom, and text scale. Page zoom reflows the layout as the browser's own zoom does; text scale changes the default font size, so only relatively sized text grows. Coordinates and permission are independent: a site receives the emulated location only when the session grants it access, and observes denial when the session denies it. _Avoid_: device profile, override, spoofing
 
 **Trace**: The local per-session artifact recording each action's before and after state, DOM snapshot, timing, network, and console. It supports inspection. Unredacted, and therefore sensitive. It never reaches an agent, and a verified Flow Skill leaves none behind. _Avoid_: log, replay (as a synonym for Trace)
 
