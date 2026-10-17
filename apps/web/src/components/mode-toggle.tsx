@@ -1,5 +1,6 @@
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
+import { flushSync } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +12,19 @@ import {
 
 const ModeToggle = () => {
   const { setTheme } = useTheme();
+  // Light and dark cross-fade rather than flash: the view transition captures
+  // the old theme, and the synchronous update applies the new one before the
+  // new frame is captured. next-themes still turns other transitions off for
+  // the switch, so controls don't animate one by one.
+  const changeTheme = (theme: "dark" | "light" | "system") => {
+    if (!("startViewTransition" in document)) {
+      setTheme(theme);
+      return;
+    }
+    document.startViewTransition(() => {
+      flushSync(() => setTheme(theme));
+    });
+  };
 
   return (
     <DropdownMenu>
@@ -29,13 +43,13 @@ const ModeToggle = () => {
         <span className="sr-only">Change color theme</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
+        <DropdownMenuItem onClick={() => changeTheme("light")}>
           Light
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
+        <DropdownMenuItem onClick={() => changeTheme("dark")}>
           Dark
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
+        <DropdownMenuItem onClick={() => changeTheme("system")}>
           System
         </DropdownMenuItem>
       </DropdownMenuContent>

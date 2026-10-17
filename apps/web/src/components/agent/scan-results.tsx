@@ -25,7 +25,7 @@ export const ScanResults = ({
   const coverage = scanCoverage(run);
   return (
     <section aria-label="Required scans" className="space-y-2">
-      <h3 className="font-semibold">Required scans</h3>
+      <h3 className="text-sm leading-5 font-semibold">Required scans</h3>
       <p
         className={
           coverage.complete ? "text-muted-foreground" : "text-destructive"

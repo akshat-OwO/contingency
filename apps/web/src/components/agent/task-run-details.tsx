@@ -60,7 +60,7 @@ const Pursuits = ({
   readonly pursuits: readonly AgentPursuitRecord[];
 }) => (
   <section aria-label="System One Pursuits" className="space-y-2">
-    <h3 className="font-semibold">System One Pursuits</h3>
+    <h3 className="text-sm leading-5 font-semibold">System One Pursuits</h3>
     <ul className="space-y-2">
       {pursuits.map((pursuit) => (
         <li
@@ -112,7 +112,7 @@ export const TaskRunDetails = ({
   return (
     <div className="space-y-4 text-sm">
       <section aria-label="Requested task" className="space-y-2">
-        <h3 className="font-semibold">Requested task</h3>
+        <h3 className="text-sm leading-5 font-semibold">Requested task</h3>
         <p className="wrap-anywhere">{run.requestedTask}</p>
         {provenance.demoSiteName === undefined ? null : (
           <p className="text-muted-foreground text-xs">
@@ -135,7 +135,7 @@ export const TaskRunDetails = ({
         )}
       </section>
       <section aria-label="Referenced skills" className="space-y-2">
-        <h3 className="font-semibold">Referenced skills</h3>
+        <h3 className="text-sm leading-5 font-semibold">Referenced skills</h3>
         {run.referencedSkills.length === 0 ? (
           <p>No Flow Skills referenced.</p>
         ) : (
@@ -157,7 +157,7 @@ export const TaskRunDetails = ({
       <BrowserCheckResults run={run} />
       <ScanResults run={run} />
       <section aria-label="Task assessment" className="space-y-2">
-        <h3 className="font-semibold">Agent Assessment</h3>
+        <h3 className="text-sm leading-5 font-semibold">Agent Assessment</h3>
         {run.assessment === null ? (
           <p>No Agent Assessment submitted.</p>
         ) : (
@@ -178,7 +178,7 @@ export const TaskRunDetails = ({
         <Pursuits pursuits={run.pursuits} />
       )}
       <section aria-label="Findings" className="space-y-2">
-        <h3 className="font-semibold">Findings</h3>
+        <h3 className="text-sm leading-5 font-semibold">Findings</h3>
         {run.findings.length === 0 ? (
           <p>No findings recorded.</p>
         ) : (

@@ -152,7 +152,7 @@ export const DockShell = ({
   <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
     <section
       aria-label="Workspace dock"
-      className="bg-background pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl border shadow-lg"
+      className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg"
     >
       {requests}
       {status}

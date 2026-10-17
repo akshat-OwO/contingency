@@ -56,7 +56,7 @@ export const AndroidPrototypePage = ({
       {chrome ? (
         <nav
           aria-label="Prototype"
-          className="bg-background/95 fixed top-3 left-3 z-50 flex gap-2 rounded-lg border p-2 text-xs shadow-lg backdrop-blur"
+          className="material-float fixed top-3 left-3 z-50 flex gap-2 rounded-lg p-2 text-xs shadow-lg"
         >
           <select
             aria-label="Prototype variant"

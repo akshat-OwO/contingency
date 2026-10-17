@@ -32,7 +32,9 @@ const NotFound = () => (
     <AppNavbar />
     <main className="grid h-[calc(100svh-3.5rem)] place-items-center p-6">
       <div className="space-y-2 text-center">
-        <h1 className="text-2xl font-semibold">Page not found</h1>
+        <h1 className="text-2xl leading-tight font-semibold tracking-tight">
+          Page not found
+        </h1>
         <p className="text-muted-foreground text-sm">
           This route does not exist in Contingency.
         </p>

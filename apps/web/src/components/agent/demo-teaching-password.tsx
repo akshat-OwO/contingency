@@ -34,7 +34,9 @@ export const DemoTeachingPassword = ({
       aria-label="Teaching demo password"
       className="bg-background space-y-2 rounded-lg border p-3 text-sm shadow-lg"
     >
-      <h2 className="font-semibold">Record sign-in with a private password</h2>
+      <h2 className="text-sm leading-5 font-semibold">
+        Record sign-in with a private password
+      </h2>
       <p>
         Click the store's Password field first. Enter a demo password here, then
         continue in the store. Your recording keeps DEMO_PASSWORD in place of

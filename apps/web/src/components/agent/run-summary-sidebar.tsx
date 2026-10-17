@@ -12,19 +12,47 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
+import type { PresenceMotion } from "@/hooks/use-presence";
+import { usePresence } from "@/hooks/use-presence";
+
+/**
+ * A sidebar slides in from the edge it docks to and leaves the same way. On a
+ * narrow screen the group stacks vertically, so the summary docks below the
+ * Workspace and the leading panel above it.
+ */
+const slideFrom = (
+  edge: "bottom" | "left" | "right" | "top"
+): PresenceMotion => {
+  const offset = {
+    bottom: "translateY(100%)",
+    left: "translateX(-100%)",
+    right: "translateX(100%)",
+    top: "translateY(-100%)",
+  }[edge];
+  return {
+    durationMs: 240,
+    hidden: { transform: offset },
+    shown: { transform: "translate(0, 0)" },
+  };
+};
 
 /** The rail a collapsed sidebar keeps, wide enough for its expand button. */
 const COLLAPSED_SIZE = "3rem";
 
 const RunSummarySidebar = ({
+  asideRef,
   children,
   label,
+  leaving,
   mobile,
   minimumSize,
   onClose,
 }: {
+  readonly asideRef: (element: HTMLElement | null) => void;
   readonly children: ReactNode;
   readonly label: string;
+  /** Animating out; it takes no input while it goes. */
+  readonly leaving: boolean;
   readonly mobile: boolean;
   readonly minimumSize: string;
   /** Closes rather than collapses, for content the user opened themselves. */
@@ -58,7 +86,9 @@ const RunSummarySidebar = ({
         */}
         <aside
           aria-label={label}
-          className="bg-background animate-in slide-in-from-right flex h-full min-w-0 flex-col duration-200 motion-reduce:animate-none"
+          className="bg-background flex h-full min-w-0 flex-col"
+          inert={leaving}
+          ref={asideRef}
         >
           {collapsed ? (
             <div className="flex justify-center p-2">
@@ -122,14 +152,18 @@ const RunSummarySidebar = ({
  * and it slides in from the edge it docks to.
  */
 const LeadingSidebar = ({
+  asideRef,
   children,
   label,
+  leaving,
   mobile,
   minimumSize,
   onClose,
 }: {
+  readonly asideRef: (element: HTMLElement | null) => void;
   readonly children: ReactNode;
   readonly label: string;
+  readonly leaving: boolean;
   readonly mobile: boolean;
   readonly minimumSize: string;
   readonly onClose: () => void;
@@ -145,7 +179,9 @@ const LeadingSidebar = ({
     >
       <aside
         aria-label={label}
-        className="bg-background animate-in slide-in-from-left flex h-full min-w-0 flex-col duration-200 motion-reduce:animate-none"
+        className="bg-background flex h-full min-w-0 flex-col"
+        inert={leaving}
+        ref={asideRef}
       >
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
           <p className="truncate text-sm font-semibold">{label}</p>
@@ -200,9 +236,21 @@ export const WorkspaceWithRunSummary = ({
   readonly summary: ReactNode | null;
 }) => {
   const mobile = useIsMobile();
+  // A closed sidebar keeps its panel while it slides out, then the Workspace
+  // takes the width back in one step, as it gave it up on arrival.
+  const leadingPresence = usePresence(
+    leading ?? undefined,
+    slideFrom(mobile ? "top" : "left")
+  );
+  const summaryPresence = usePresence(
+    summary ?? undefined,
+    slideFrom(mobile ? "bottom" : "right")
+  );
+  const shownLeading = leadingPresence.rendered;
+  const shownSummary = summaryPresence.rendered;
   // Skills, Workspace, and Details must fit together even with enlarged
   // text. Three root-relative minima can otherwise force Details closed.
-  const sharingSpace = leading !== null && summary !== null;
+  const sharingSpace = shownLeading !== undefined && shownSummary !== undefined;
   const leadingMinimum = mobile ? "12rem" : "24rem";
   const summaryMinimum = mobile ? "12rem" : "20rem";
   return (
@@ -210,14 +258,16 @@ export const WorkspaceWithRunSummary = ({
       className="min-h-0 flex-1"
       orientation={mobile ? "vertical" : "horizontal"}
     >
-      {leading === null ? null : (
+      {shownLeading === undefined ? null : (
         <LeadingSidebar
-          label={leading.label}
+          asideRef={leadingPresence.ref}
+          label={shownLeading.label}
+          leaving={leadingPresence.leaving}
           mobile={mobile}
           minimumSize={sharingSpace ? "20%" : leadingMinimum}
-          onClose={leading.onClose}
+          onClose={shownLeading.onClose}
         >
-          {leading.content}
+          {shownLeading.content}
         </LeadingSidebar>
       )}
       <ResizablePanel
@@ -228,14 +278,16 @@ export const WorkspaceWithRunSummary = ({
       >
         {children}
       </ResizablePanel>
-      {summary === null ? null : (
+      {shownSummary === undefined ? null : (
         <RunSummarySidebar
+          asideRef={summaryPresence.ref}
           label={label}
+          leaving={summaryPresence.leaving}
           mobile={mobile}
           minimumSize={sharingSpace ? "20%" : summaryMinimum}
           onClose={onCloseSummary}
         >
-          {summary}
+          {shownSummary}
         </RunSummarySidebar>
       )}
     </ResizablePanelGroup>

@@ -127,7 +127,7 @@ export const BrowserDeviceBar = ({
   return (
     <div
       aria-label="Device controls"
-      className="bg-background/90 ring-foreground/10 pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl p-1 text-xs shadow-lg ring-1 backdrop-blur-xl"
+      className="material-float pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl p-1 text-xs shadow-lg"
       role="toolbar"
     >
       <Select

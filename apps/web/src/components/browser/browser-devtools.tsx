@@ -61,6 +61,7 @@ import { HighlightedCode } from "@/components/browser/highlighted-code";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { usePresence } from "@/hooks/use-presence";
 import { cn } from "@/lib/utils";
 
 import { BrowserResponseFields } from "./browser-response-fields";
@@ -544,7 +545,9 @@ const RequestDetailView = ({
   onAttach,
   detail,
   detailLoading,
+  detailRef,
   detailTab,
+  leaving = false,
   onUpdateUiState,
   request,
 }: {
@@ -556,8 +559,14 @@ const RequestDetailView = ({
   readonly detailTab: NetworkDetailTab;
   readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
   readonly request: BrowserNetworkRequest;
+  readonly detailRef?: (element: HTMLElement | null) => void;
+  readonly leaving?: boolean;
 }) => (
-  <div className="animate-in fade-in-0 slide-in-from-right-2 flex size-full min-h-0 flex-col duration-150">
+  <div
+    className="bg-background absolute inset-0 flex min-h-0 flex-col"
+    inert={leaving}
+    ref={detailRef}
+  >
     <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
       <Button
         aria-label="Close request details"
@@ -647,143 +656,160 @@ const DevtoolsNetworkPanel = ({
     return () => globalThis.cancelAnimationFrame(frame);
   }, [networkVirtualizer]);
 
-  if (selectedRequest !== undefined) {
-    return (
-      <RequestDetailView
-        onAttach={onAttach}
-        detail={detail}
-        detailLoading={detailLoading}
-        detailTab={detailTab}
-        onUpdateUiState={onUpdateUiState}
-        request={selectedRequest}
-      />
-    );
-  }
+  // The details push over the list and slide back off it, so the list keeps
+  // its scroll position for the way back.
+  const detailPresence = usePresence(selectedRequest, {
+    durationMs: 220,
+    hidden: { opacity: 0, transform: "translateX(1.5rem)" },
+    shown: { opacity: 1, transform: "translateX(0)" },
+  });
+  // Going back clears only the selection, so the loaded detail stays drawn
+  // while the view slides away.
+  const shownRequest = detailPresence.rendered;
 
   const failed = networkRequests.filter(
     ({ status }) => status !== undefined && status >= 400
   ).length;
 
   return (
-    <div className="flex size-full min-h-0 flex-col">
-      <div className="shrink-0 space-y-2 px-3 py-2">
-        <SearchField
-          label="Filter network requests"
-          onChange={(value) => onUpdateUiState({ networkQuery: value })}
-          placeholder="Filter by URL, method, or type"
-          value={networkQuery}
-        />
-        <div className="overflow-x-auto">
-          <SegmentedControl
-            label="Request type"
-            onChange={(value) => onUpdateUiState({ networkFilter: value })}
-            options={networkFilters}
-            size="xs"
-            value={networkFilter}
-          />
-        </div>
-      </div>
-      <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] gap-2 px-4 py-1 text-xs font-medium">
-        <span>Status</span>
-        <span>Name</span>
-        <span>Type</span>
-        <span className="text-right">Time</span>
-      </div>
+    <div className="relative flex size-full min-h-0 flex-col">
       <div
-        className="min-h-0 flex-1 overflow-auto px-1.5"
-        ref={networkScrollRef}
+        className="flex min-h-0 flex-1 flex-col"
+        inert={shownRequest !== undefined && !detailPresence.leaving}
       >
-        {visibleRequests.length === 0 ? (
-          <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
-            {networkRequests.length === 0
-              ? "Network requests for this tab will appear here."
-              : "No requests match this filter."}
+        <div className="shrink-0 space-y-2 px-3 py-2">
+          <SearchField
+            label="Filter network requests"
+            onChange={(value) => onUpdateUiState({ networkQuery: value })}
+            placeholder="Filter by URL, method, or type"
+            value={networkQuery}
+          />
+          <div className="overflow-x-auto">
+            <SegmentedControl
+              label="Request type"
+              onChange={(value) => onUpdateUiState({ networkFilter: value })}
+              options={networkFilters}
+              size="xs"
+              value={networkFilter}
+            />
           </div>
-        ) : (
-          <div
-            className="relative w-full text-xs"
-            style={{ height: networkVirtualizer.getTotalSize() }}
-          >
-            {networkVirtualizer.getVirtualItems().map((virtualRow) => {
-              const request = visibleRequests[virtualRow.index];
-              if (request === undefined) {
-                return null;
-              }
-              const failedRequest =
-                request.status !== undefined && request.status >= 400;
-              return (
-                <div
-                  className={cn(
-                    "hover:bg-muted/60 absolute top-0 left-0 grid h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left",
-                    onAttach === undefined
-                      ? "grid-cols-[minmax(8rem,1fr)_4.5rem]"
-                      : "grid-cols-[minmax(8rem,1fr)_2rem]"
-                  )}
-                  key={virtualRow.key}
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  draggable={onAttach !== undefined}
-                  onDragStart={(event) =>
-                    dragAttachment(
-                      event,
-                      requestAttachment(request, { purpose: "context" })
-                    )
-                  }
-                  title={request.url}
-                >
-                  <button
-                    className="grid min-w-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem] items-center gap-2 text-left"
-                    onClick={() => onSelectRequest(request)}
-                    type="button"
+        </div>
+        <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] gap-2 px-4 py-1 text-xs font-medium">
+          <span>Status</span>
+          <span>Name</span>
+          <span>Type</span>
+          <span className="text-right">Time</span>
+        </div>
+        <div
+          className="min-h-0 flex-1 overflow-auto px-1.5"
+          ref={networkScrollRef}
+        >
+          {visibleRequests.length === 0 ? (
+            <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
+              {networkRequests.length === 0
+                ? "Network requests for this tab will appear here."
+                : "No requests match this filter."}
+            </div>
+          ) : (
+            <div
+              className="relative w-full text-xs"
+              style={{ height: networkVirtualizer.getTotalSize() }}
+            >
+              {networkVirtualizer.getVirtualItems().map((virtualRow) => {
+                const request = visibleRequests[virtualRow.index];
+                if (request === undefined) {
+                  return null;
+                }
+                const failedRequest =
+                  request.status !== undefined && request.status >= 400;
+                return (
+                  <div
+                    className={cn(
+                      "hover:bg-muted/60 absolute top-0 left-0 grid h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left",
+                      onAttach === undefined
+                        ? "grid-cols-[minmax(8rem,1fr)_4.5rem]"
+                        : "grid-cols-[minmax(8rem,1fr)_2rem]"
+                    )}
+                    key={virtualRow.key}
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    draggable={onAttach !== undefined}
+                    onDragStart={(event) =>
+                      dragAttachment(
+                        event,
+                        requestAttachment(request, { purpose: "context" })
+                      )
+                    }
+                    title={request.url}
                   >
-                    <span>
-                      <StatusPill status={request.status} />
-                    </span>
-                    <span className="truncate">
-                      <span className="text-muted-foreground mr-1.5 font-mono">
-                        {request.method}
-                      </span>
-                      <span className={cn(failedRequest && "text-destructive")}>
-                        {requestName(request.url)}
-                      </span>
-                    </span>
-                    <span className="text-muted-foreground truncate">
-                      {request.resourceType}
-                    </span>
-                  </button>
-                  {onAttach === undefined ? (
-                    <time className="text-muted-foreground tabular-nums">
-                      {formatTime(request.timestamp)}
-                    </time>
-                  ) : (
-                    <Button
-                      aria-label={`Attach ${request.method} ${requestName(request.url)}`}
-                      size="icon-xs"
-                      variant="ghost"
-                      onClick={() =>
-                        onAttach(
-                          requestAttachment(request, { purpose: "context" })
-                        )
-                      }
+                    <button
+                      className="grid min-w-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem] items-center gap-2 text-left"
+                      onClick={() => onSelectRequest(request)}
+                      type="button"
                     >
-                      <PaperclipIcon />
-                    </Button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                      <span>
+                        <StatusPill status={request.status} />
+                      </span>
+                      <span className="truncate">
+                        <span className="text-muted-foreground mr-1.5 font-mono">
+                          {request.method}
+                        </span>
+                        <span
+                          className={cn(failedRequest && "text-destructive")}
+                        >
+                          {requestName(request.url)}
+                        </span>
+                      </span>
+                      <span className="text-muted-foreground truncate">
+                        {request.resourceType}
+                      </span>
+                    </button>
+                    {onAttach === undefined ? (
+                      <time className="text-muted-foreground tabular-nums">
+                        {formatTime(request.timestamp)}
+                      </time>
+                    ) : (
+                      <Button
+                        aria-label={`Attach ${request.method} ${requestName(request.url)}`}
+                        size="icon-xs"
+                        variant="ghost"
+                        onClick={() =>
+                          onAttach(
+                            requestAttachment(request, { purpose: "context" })
+                          )
+                        }
+                      >
+                        <PaperclipIcon />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <footer className="text-muted-foreground flex shrink-0 gap-3 border-t px-3 py-1.5 text-xs tabular-nums">
+          <span>
+            {visibleRequests.length === networkRequests.length
+              ? `${networkRequests.length} requests`
+              : `${visibleRequests.length} of ${networkRequests.length} requests`}
+          </span>
+          {failed === 0 ? null : (
+            <span className="text-destructive">{failed} failed</span>
+          )}
+        </footer>
       </div>
-      <footer className="text-muted-foreground flex shrink-0 gap-3 border-t px-3 py-1.5 text-xs tabular-nums">
-        <span>
-          {visibleRequests.length === networkRequests.length
-            ? `${networkRequests.length} requests`
-            : `${visibleRequests.length} of ${networkRequests.length} requests`}
-        </span>
-        {failed === 0 ? null : (
-          <span className="text-destructive">{failed} failed</span>
-        )}
-      </footer>
+      {shownRequest === undefined ? null : (
+        <RequestDetailView
+          onAttach={onAttach}
+          detail={detail}
+          detailLoading={detailLoading}
+          detailRef={detailPresence.ref}
+          detailTab={detailTab}
+          leaving={detailPresence.leaving}
+          onUpdateUiState={onUpdateUiState}
+          request={shownRequest}
+        />
+      )}
     </div>
   );
 };

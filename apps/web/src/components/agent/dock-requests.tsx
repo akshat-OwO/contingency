@@ -90,7 +90,7 @@ export const DockRequests = ({
   }
   if (staysCollapsed(requests, collapsedKeys)) {
     return (
-      <div className="bg-muted/50 border-b">
+      <div className="bg-muted-surface border-b">
         <CollapsedRequests
           onExpand={() => setCollapsedKeys(new Set<string>())}
           requests={requests}
@@ -117,7 +117,7 @@ export const DockRequests = ({
   const secrets =
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
   return (
-    <div className="bg-muted/50 max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5">
+    <div className="bg-muted-surface max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5">
       <ExecutionBoundary
         key={session.boundary?.id}
         collapse={collapseFor("boundary")}
