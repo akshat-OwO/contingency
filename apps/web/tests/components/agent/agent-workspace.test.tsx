@@ -20,6 +20,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
+import { ModeToggle } from "@/components/mode-toggle";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 import { routeTree } from "@/routeTree.gen";
@@ -484,6 +485,25 @@ test("invites the user to open a session from the empty canvas", async () => {
   });
 });
 
+test("keeps Android beside the existing theme control while sessions load", async () => {
+  render(
+    <div id="workspace-header-actions">
+      <ModeToggle />
+    </div>
+  );
+  renderWorkspace({ _tag: "Initial", waiting: true });
+  const android = await screen.findByRole("button", {
+    exact: true,
+    name: "Android",
+  });
+  await waitFor(() =>
+    expect(android.parentElement?.id).toBe("workspace-header-actions")
+  );
+  expect(
+    screen.getAllByRole("button", { name: "Change color theme" })
+  ).toHaveLength(1);
+});
+
 test("explains when Agent Sessions cannot be loaded", async () => {
   renderWorkspace({
     _tag: "Failure",
@@ -494,6 +514,12 @@ test("explains when Agent Sessions cannot be loaded", async () => {
     await screen.findByText(
       "Agent Sessions are unavailable in this server process."
     )
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { exact: true, name: "Android" })
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("button", { name: "Change color theme" })
   ).toBeVisible();
 });
 
@@ -671,6 +697,12 @@ test("shows the Agent Session stream failure reason", async () => {
 
   expect(
     await screen.findByText("The Agent Session stream disconnected.")
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { exact: true, name: "Android" })
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("button", { name: "Change color theme" })
   ).toBeVisible();
 });
 

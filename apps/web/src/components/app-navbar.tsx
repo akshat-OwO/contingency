@@ -40,7 +40,10 @@ const AppNavbar = () => {
         </Link>
       </nav>
 
-      <div className="justify-self-end">
+      <div
+        id="workspace-header-actions"
+        className="flex items-center gap-1.5 justify-self-end"
+      >
         <ModeToggle />
       </div>
     </header>

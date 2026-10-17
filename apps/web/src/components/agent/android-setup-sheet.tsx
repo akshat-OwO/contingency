@@ -21,9 +21,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -32,12 +35,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
 import { listAndroidApps, listAndroidDevices } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import {
-  parseAndroidPermissionDecisions,
   deviceRelease,
   selectable,
   unavailableReason,
@@ -61,10 +62,7 @@ interface SetupForm {
   readonly device: string | null;
   readonly flowSkillName: string;
   readonly privateInput: boolean;
-  readonly privateHelperConsent: AndroidWorkspaceSelection["helperConsent"];
-  readonly helperConsent: AndroidWorkspaceSelection["helperConsent"];
-  readonly notificationPermission: "unchanged" | "grant" | "revoke";
-  readonly permissions: string;
+  readonly permissions: Readonly<Record<string, "grant" | "revoke">>;
   readonly outcome: Condition;
   readonly query: string;
   readonly start: Condition;
@@ -74,11 +72,8 @@ const INITIAL_FORM: SetupForm = {
   app: null,
   device: null,
   flowSkillName: "new-flow",
-  helperConsent: "none",
-  notificationPermission: "unchanged",
   outcome: { name: "", role: "text" },
-  permissions: "",
-  privateHelperConsent: "none",
+  permissions: {},
   privateInput: false,
   query: "",
   start: { name: "", role: "text" },
@@ -92,18 +87,57 @@ const failure = (cause: unknown) =>
     Option.getOrElse(() => "The host did not answer.")
   );
 
+const Choice = ({
+  label,
+  value,
+  items,
+  onChange,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly items: readonly { readonly value: string; readonly label: string }[];
+  readonly onChange: (value: string) => void;
+}) => (
+  <Select
+    items={items}
+    value={value}
+    onValueChange={(next) => {
+      if (next !== null) {
+        onChange(next);
+      }
+    }}
+  >
+    <SelectTrigger aria-label={label} className="w-full">
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      {items.map((item) => (
+        <SelectItem key={item.value} value={item.value}>
+          {item.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
+
 const Step = ({
   children,
   done,
+  disabled = false,
   index,
   title,
 }: {
   readonly children: React.ReactNode;
   readonly done: boolean;
+  readonly disabled?: boolean;
   readonly index: number;
   readonly title: string;
 }) => (
-  <section aria-label={title} className="space-y-2">
+  <fieldset
+    aria-label={title}
+    disabled={disabled}
+    className={cn("min-w-0 space-y-2", disabled && "opacity-40")}
+  >
     <h3 className="flex items-center gap-2 text-sm font-medium">
       <span
         aria-hidden="true"
@@ -117,7 +151,7 @@ const Step = ({
       {title}
     </h3>
     <div className="pl-7">{children}</div>
-  </section>
+  </fieldset>
 );
 
 const ConditionInput = ({
@@ -132,20 +166,14 @@ const ConditionInput = ({
   readonly value: Condition;
 }) => (
   <div className="flex gap-1.5">
-    <NativeSelect
-      aria-label={`${label} role`}
-      className="w-28 shrink-0"
-      onChange={(event) =>
-        onChange({ ...value, role: event.currentTarget.value })
-      }
-      value={value.role}
-    >
-      {ROLES.map((role) => (
-        <NativeSelectOption key={role} value={role}>
-          {role}
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
+    <div className="w-28 shrink-0">
+      <Choice
+        label={`${label} role`}
+        value={value.role}
+        items={ROLES.map((role) => ({ label: role, value: role }))}
+        onChange={(role) => onChange({ ...value, role })}
+      />
+    </div>
     <Input
       aria-label={label}
       onChange={(event) =>
@@ -218,7 +246,8 @@ const DeviceStep = ({
     ) : null}
     {devices._tag === "loaded" && devices.value.length === 0 ? (
       <p className="text-muted-foreground text-xs">
-        No devices. Start an emulator or connect a phone with USB debugging on.
+        No devices found. Create an emulator in Android Studio or connect a
+        phone with USB debugging on.
       </p>
     ) : null}
     {devices._tag === "loaded" && devices.value.length > 0 ? (
@@ -251,7 +280,7 @@ const DeviceStep = ({
                   ? (device.model ?? device.serial)
                   : (device.avd ?? device.serial)}
               </span>
-              <span className="text-muted-foreground block truncate text-xs">
+              <span className="text-muted-foreground block text-xs">
                 {reason ?? `${device.serial} · API ${device.api}`}
               </span>
             </button>
@@ -359,124 +388,65 @@ const AppStep = ({
   );
 };
 
-type PermissionForm = Pick<SetupForm, "notificationPermission" | "permissions">;
-
-const permissionDecisions = (form: PermissionForm) =>
-  parseAndroidPermissionDecisions(
-    `${form.notificationPermission === "unchanged" ? "" : `${form.notificationPermission} android.permission.POST_NOTIFICATIONS`}\n${form.permissions}`
-  );
-
+const PERMISSIONS = [
+  ["POST_NOTIFICATIONS", "Notifications"],
+  ["CAMERA", "Camera"],
+  ["RECORD_AUDIO", "Microphone"],
+  ["ACCESS_FINE_LOCATION", "Precise location"],
+  ["ACCESS_COARSE_LOCATION", "Approximate location"],
+  ["READ_CONTACTS", "Contacts"],
+  ["READ_CALENDAR", "Calendar"],
+  ["READ_MEDIA_IMAGES", "Photos"],
+  ["READ_MEDIA_VIDEO", "Videos"],
+  ["BLUETOOTH_CONNECT", "Nearby devices"],
+] as const;
+const DECISIONS = [
+  { label: "Ask in app", value: "unchanged" },
+  { label: "Grant before start", value: "grant" },
+  { label: "Deny before start", value: "revoke" },
+];
 const AndroidPermissionFields = ({
   value,
   onChange,
-  invalid,
 }: {
-  readonly value: PermissionForm;
-  readonly onChange: (value: PermissionForm) => void;
-  readonly invalid: boolean;
+  readonly value: SetupForm["permissions"];
+  readonly onChange: (value: SetupForm["permissions"]) => void;
 }) => (
-  <section aria-label="App permissions" className="space-y-3 pl-7">
+  <section aria-label="App permissions" className="space-y-3">
     <p className="text-muted-foreground text-xs">
-      Set permissions before launch. These choices apply to the Target App after
-      its data is cleared, so permission dialogs do not block the starting
-      screen.
+      Choose only permissions the app requests. Leave the others at Ask in app.
     </p>
-    <label className="grid gap-1.5 text-xs">
-      Notification permission
-      <NativeSelect
-        onChange={(event) => {
-          const choice = Schema.decodeUnknownSync(
-            Schema.Literals(["unchanged", "grant", "revoke"])
-          )(event.currentTarget.value);
-          onChange({ ...value, notificationPermission: choice });
-        }}
-        value={value.notificationPermission}
-      >
-        <NativeSelectOption value="unchanged">
-          App does not request notifications
-        </NativeSelectOption>
-        <NativeSelectOption value="grant">
-          Grant before start
-        </NativeSelectOption>
-        <NativeSelectOption value="revoke">
-          Deny before start
-        </NativeSelectOption>
-      </NativeSelect>
-    </label>
-    <label className="grid gap-1.5 text-xs">
-      Additional permission decisions
-      <Textarea
-        aria-label="Additional permission decisions"
-        aria-describedby="android-permissions-hint"
-        aria-invalid={invalid}
-        onChange={(event) =>
-          onChange({ ...value, permissions: event.currentTarget.value })
-        }
-        value={value.permissions}
-      />
-      <span id="android-permissions-hint" className="text-muted-foreground">
-        One grant or revoke per line, such as revoke android.permission.CAMERA.
-        Declare each permission once.
-      </span>
-    </label>
-    {invalid ? (
-      <p role="alert" className="text-destructive text-xs">
-        Declare each permission once as grant or revoke followed by
-        android.permission.NAME.
-      </p>
-    ) : null}
-  </section>
-);
-
-const AndroidPrivateInputFields = ({
-  form,
-  setForm,
-}: {
-  readonly form: SetupForm;
-  readonly setForm: (change: (current: SetupForm) => SetupForm) => void;
-}) => (
-  <>
-    <label className="flex items-center gap-2 pl-7 text-xs">
-      <input
-        type="checkbox"
-        checked={form.privateInput}
-        onChange={(event) =>
-          setForm((current) => ({
-            ...current,
-            privateInput: event.currentTarget.checked,
-          }))
-        }
-      />
-      Enable private Variables
-    </label>
-    {form.privateInput ? (
-      <label className="grid gap-1.5 pl-7 text-xs">
-        Private text helper
-        <NativeSelect
-          value={form.privateHelperConsent}
-          onChange={(event) => {
-            const value = Schema.decodeUnknownSync(
-              Schema.Literals(["none", "install", "replace"])
-            )(event.currentTarget.value);
-            setForm((current) => ({
-              ...current,
-              privateHelperConsent: value,
-            }));
-          }}
+    {PERMISSIONS.map(([name, label]) => {
+      const permission = `android.permission.${name}`;
+      return (
+        <div
+          key={permission}
+          className="grid grid-cols-[1fr_11rem] items-center gap-2 text-xs"
         >
-          <NativeSelectOption value="none">
-            Use the installed helper only
-          </NativeSelectOption>
-          <NativeSelectOption value="install">
-            Install it if missing
-          </NativeSelectOption>
-          <NativeSelectOption value="replace">
-            Replace an incompatible one
-          </NativeSelectOption>
-        </NativeSelect>
-      </label>
-    ) : null}
-  </>
+          <span>{label}</span>
+          <Choice
+            label={`${label} permission`}
+            value={value[permission] ?? "unchanged"}
+            items={DECISIONS}
+            onChange={(decision) => {
+              const next = { ...value };
+              if (decision === "grant" || decision === "revoke") {
+                next[permission] = decision;
+              } else {
+                onChange(
+                  Object.fromEntries(
+                    Object.entries(value).filter(([key]) => key !== permission)
+                  )
+                );
+                return;
+              }
+              onChange(next);
+            }}
+          />
+        </div>
+      );
+    })}
+  </section>
 );
 
 /**
@@ -486,12 +456,27 @@ const AndroidPrivateInputFields = ({
  * journey may press whatever the person presses while recording, so there is
  * no list of allowed taps to declare.
  */
+const selectedApp = (
+  apps: Loaded<AndroidDiscoveredApp> | null,
+  id: string | null
+) =>
+  apps?._tag === "loaded"
+    ? apps.value.find((entry) => entry.package === id)
+    : undefined;
+
+const androidSetupDiscovery = {
+  apps: listAndroidApps,
+  devices: listAndroidDevices,
+};
+
 export const AndroidSetupSheet = ({
+  discovery = androidSetupDiscovery,
   onOpen,
   onOpenChange,
   open,
   pending,
 }: {
+  readonly discovery?: typeof androidSetupDiscovery;
   readonly onOpen: (
     flowSkillName: FlowSkillName,
     selection: AndroidWorkspaceSelection
@@ -505,7 +490,7 @@ export const AndroidSetupSheet = ({
   const [refreshAtom] = useState(() => Atom.make(0));
   const [refresh, setRefresh] = useAtom(refreshAtom);
   const devices = useRead(
-    open ? listAndroidDevices : null,
+    open ? discovery.devices : null,
     `${open}-${refresh}`
   );
   const discovered =
@@ -515,34 +500,30 @@ export const AndroidSetupSheet = ({
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
   const loadedApps = useRead(
-    device === null ? null : listAndroidApps(device),
+    device === null ? null : discovery.apps(device),
     device === null ? "none" : `${device.serial}-${refresh}`
   );
   const apps = device === null ? null : loadedApps;
-  const app =
-    apps?._tag === "loaded"
-      ? apps.value.find((entry) => entry.package === form.app)
-      : undefined;
+  const app = selectedApp(apps, form.app);
   const name = form.flowSkillName.trim();
   const validName = Schema.is(FlowSkillName)(name);
   const start = { name: form.start.name.trim(), role: form.start.role };
   const outcome = { name: form.outcome.name.trim(), role: form.outcome.role };
-  const permissions = permissionDecisions(form);
+  const permissions = Object.entries(form.permissions).map(
+    ([permission, decision]) => ({ decision, permission })
+  );
+  const conditionsReady = start.name !== "" && outcome.name !== "";
+  const privateHelperConsent = form.privateInput ? "auto" : "none";
   const ready =
-    device !== null &&
-    app !== undefined &&
-    start.name !== "" &&
-    outcome.name !== "" &&
-    validName &&
-    permissions !== undefined;
+    device !== null && app !== undefined && conditionsReady && validName;
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>New Android session</SheetTitle>
           <SheetDescription>
-            Pick what to teach on. Nothing on the device changes until you
-            prepare the session.
+            Choose a device and app, then define where recording starts and
+            ends.
           </SheetDescription>
         </SheetHeader>
         <form
@@ -550,7 +531,7 @@ export const AndroidSetupSheet = ({
           id="android-setup"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!ready || !validName) {
+            if (!ready) {
               return;
             }
             onOpen(name, {
@@ -562,9 +543,9 @@ export const AndroidSetupSheet = ({
                 permissions,
                 startingState: `${start.role} ${start.name} is visible`,
               },
-              helperConsent: form.helperConsent,
+              helperConsent: "auto",
               outcomes: [outcome],
-              privateHelperConsent: form.privateHelperConsent,
+              privateHelperConsent,
               privateInput: form.privateInput,
               setup: {
                 activity: app.launchActivity,
@@ -598,6 +579,9 @@ export const AndroidSetupSheet = ({
                     ...current,
                     app: null,
                     device: serial,
+                    outcome: INITIAL_FORM.outcome,
+                    permissions: {},
+                    start: INITIAL_FORM.start,
                   }))
                 }
                 selected={form.device}
@@ -609,21 +593,33 @@ export const AndroidSetupSheet = ({
                 </p>
               ) : null}
             </Step>
-            <Step done={app !== undefined} index={2} title="Target App">
+            <Step
+              disabled={device === null}
+              done={app !== undefined}
+              index={2}
+              title="Target App"
+            >
               <AppStep
                 apps={apps}
                 onQuery={(query) =>
                   setForm((current) => ({ ...current, query }))
                 }
                 onSelect={(appId) =>
-                  setForm((current) => ({ ...current, app: appId }))
+                  setForm((current) => ({
+                    ...current,
+                    app: appId,
+                    outcome: INITIAL_FORM.outcome,
+                    permissions: {},
+                    start: INITIAL_FORM.start,
+                  }))
                 }
                 query={form.query}
                 selected={form.app}
               />
             </Step>
             <Step
-              done={start.name !== "" && outcome.name !== ""}
+              done={conditionsReady}
+              disabled={app === undefined}
               index={3}
               title="Starting screen"
             >
@@ -658,41 +654,37 @@ export const AndroidSetupSheet = ({
                 </div>
               </div>
             </Step>
-            <AndroidPermissionFields
-              value={form}
-              onChange={(value) =>
-                setForm((current) => ({ ...current, ...value }))
-              }
-              invalid={permissions === undefined}
-            />
-            <AndroidPrivateInputFields form={form} setForm={setForm} />
-            <label className="grid gap-1.5 pl-7 text-xs">
-              <span className="text-muted-foreground">
-                Contingency's pinned helper
-              </span>
-              <NativeSelect
-                onChange={(event) => {
-                  const value = Schema.decodeUnknownOption(
-                    Schema.Literals(["none", "install", "replace"])
-                  )(event.currentTarget.value).pipe(
-                    Option.getOrElse(() => "none" as const)
-                  );
-                  setForm((current) => ({ ...current, helperConsent: value }));
-                }}
-                size="sm"
-                value={form.helperConsent}
-              >
-                <NativeSelectOption value="none">
-                  Use the installed helper only
-                </NativeSelectOption>
-                <NativeSelectOption value="install">
-                  Install it if missing
-                </NativeSelectOption>
-                <NativeSelectOption value="replace">
-                  Replace an incompatible one
-                </NativeSelectOption>
-              </NativeSelect>
-            </label>
+            <Step
+              disabled={app === undefined || !conditionsReady}
+              done={false}
+              index={4}
+              title="Permissions and setup"
+            >
+              <AndroidPermissionFields
+                value={form.permissions}
+                onChange={(decisions) =>
+                  setForm((current) => ({ ...current, permissions: decisions }))
+                }
+              />
+              <label className="mt-4 flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={form.privateInput}
+                  onChange={(event) => {
+                    const { checked } = event.currentTarget;
+                    setForm((current) => ({
+                      ...current,
+                      privateInput: checked,
+                    }));
+                  }}
+                />
+                Enable private Variables
+              </label>
+              <p className="text-muted-foreground mt-3 text-xs">
+                Opening a session checks Contingency's helpers on this device
+                and installs or updates them if needed.
+              </p>
+            </Step>
           </div>
         </form>
         <SheetFooter className="flex-row justify-end border-t">
