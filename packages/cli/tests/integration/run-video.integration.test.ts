@@ -41,6 +41,31 @@ const solidFrame = (page: Page, colour: string) =>
     return page.screenshot({ quality: 90, type: "jpeg" });
   });
 
+const Colour = Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite]);
+
+/** Compare with the JPEG the Workspace would decode, not its CSS input. */
+const sourceColour = (page: Page, jpeg: Buffer) =>
+  tryBrowser("Could not decode the source frame", () =>
+    page.evaluate<unknown>(`(async () => {
+      const image = new Image();
+      image.src = "data:image/jpeg;base64,${jpeg.toString("base64")}";
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(40, 40, 10, 10);
+      const sum = [0, 0, 0];
+      for (let index = 0; index < data.length; index += 4) {
+        for (let channel = 0; channel < 3; channel += 1) {
+          sum[channel] += data[index + channel];
+        }
+      }
+      return sum.map(value => value / (data.length / 4));
+    })()`)
+  ).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Colour)));
+
 /** Write real footage: red, then green from 500ms, then blue from 10s. */
 const writeFootage = (directory: string) =>
   Effect.scoped(
@@ -277,8 +302,10 @@ it.live(
             lossy: false,
             output: path.join(directory, FOOTAGE_VIDEO_FILE),
           });
+          const sourceColours: (typeof Colour.Type)[] = [];
           for (const [index, colour] of colours.entries()) {
             const jpeg = yield* solidFrame(page, `rgb(${colour.join(" ")})`);
+            sourceColours.push(yield* sourceColour(page, jpeg));
             yield* encoder.write(jpeg, index * 500);
             if (index === colours.length - 1) {
               yield* encoder.write(jpeg, colours.length * 500);
@@ -318,12 +345,24 @@ it.live(
             path.join(directory, RUN_VIDEO_FILE),
             regions
           );
-          for (const sample of [footage, condensed]) {
-            for (const [index, expected] of colours.entries()) {
+          for (const [stage, sample] of Object.entries({
+            condensed,
+            footage,
+          })) {
+            for (const [index, expected] of sourceColours.entries()) {
               for (const [channel, value] of expected.entries()) {
                 const actual = sample.regions[index]?.mean[channel];
                 expect(actual).toBeDefined();
-                expect(Math.abs((actual ?? -255) - value)).toBeLessThan(8);
+                expect(
+                  Math.abs((actual ?? -255) - value),
+                  JSON.stringify({
+                    css: colours[index],
+                    decoded: sample.regions[index]?.mean,
+                    size,
+                    source: expected,
+                    stage,
+                  })
+                ).toBeLessThan(8);
               }
             }
           }
