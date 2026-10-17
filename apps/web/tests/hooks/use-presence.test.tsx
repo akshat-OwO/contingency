@@ -17,12 +17,21 @@ afterEach(() => {
  */
 class HeldAnimation {
   playbackRate = 1;
+  currentTime: CSSNumberish | null = 0;
+  cancelled = false;
   readonly effect = { updateTiming: vi.fn() };
   finished: Promise<HeldAnimation>;
   private readonly pending: (() => void)[] = [];
 
-  constructor() {
+  readonly keyframes: Keyframe[];
+
+  constructor(keyframes: Keyframe[]) {
+    this.keyframes = keyframes;
     this.finished = this.nextFinish();
+  }
+
+  cancel(): void {
+    this.cancelled = true;
   }
 
   reverse(): void {
@@ -47,8 +56,8 @@ const installAnimations = () => {
   const animations: HeldAnimation[] = [];
   Object.defineProperty(HTMLElement.prototype, "animate", {
     configurable: true,
-    value: () => {
-      const animation = new HeldAnimation();
+    value: (keyframes: Keyframe[]) => {
+      const animation = new HeldAnimation(keyframes);
       animations.push(animation);
       return animation;
     },
@@ -58,12 +67,24 @@ const installAnimations = () => {
 
 const motion = {
   durationMs: 200,
-  hidden: { opacity: 0 },
-  shown: { opacity: 1 },
+  shown: { opacity: 1, transform: "none" },
 };
 
-const Surface = ({ value }: { readonly value: string | undefined }) => {
-  const { leaving, ref, rendered } = usePresence(value, motion);
+const Surface = ({
+  edge = "right",
+  value,
+}: {
+  readonly edge?: "bottom" | "right";
+  readonly value: string | undefined;
+}) => {
+  // A fresh motion object on every render, as callers build them.
+  const { leaving, ref, rendered } = usePresence(value, {
+    ...motion,
+    hidden: {
+      opacity: 0,
+      transform: edge === "right" ? "translateX(100%)" : "translateY(100%)",
+    },
+  });
   return rendered === undefined ? null : (
     <section aria-label="Surface" data-leaving={leaving} ref={ref}>
       {rendered}
@@ -114,4 +135,23 @@ test("leaves at once where the browser cannot animate", () => {
   const { rerender } = render(<Surface value="Stream" />);
   rerender(<Surface value={undefined} />);
   expect(screen.queryByRole("region", { name: "Surface" })).toBeNull();
+});
+
+test("leaves towards the edge its layout docks it to when it closes", () => {
+  const animations = installAnimations();
+  const { rerender } = render(<Surface value="Skills" />);
+  rerender(<Surface value="Skills" />);
+  // An equal motion rebuilt by the caller keeps the running animation.
+  expect(animations).toHaveLength(1);
+
+  // The window narrows and the layout stacks while the surface is open.
+  rerender(<Surface edge="bottom" value="Skills" />);
+  rerender(<Surface edge="bottom" value={undefined} />);
+
+  expect(animations).toHaveLength(2);
+  expect(animations[0]?.cancelled).toBe(true);
+  expect(animations[1]?.keyframes[0]).toMatchObject({
+    transform: "translateY(100%)",
+  });
+  expect(animations[1]?.playbackRate).toBe(-1);
 });

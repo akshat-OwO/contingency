@@ -39,10 +39,14 @@ export interface Presence<A> {
   readonly ref: (element: HTMLElement | null) => void;
 }
 
-/** The animation running on one element, so a new element starts afresh. */
+/**
+ * The animation on one element, so a new element starts afresh, and the
+ * motion it plays, so a changed motion replaces it.
+ */
 interface Motion {
   readonly animation: Animation;
   readonly element: HTMLElement;
+  readonly signature: string;
 }
 
 /**
@@ -72,30 +76,47 @@ export const usePresence = <A>(
   const current = useRef<Motion | null>(null);
   const present = value !== undefined;
 
+  // Callers build a fresh motion object each render; the surface only needs
+  // a new animation when what the motion describes changes.
+  const signature = JSON.stringify([
+    keyframes(motion),
+    motion.durationMs,
+    motion.easing ?? SETTLE_EASING,
+  ]);
+
   useEffect(() => {
     if (element === null) {
       return;
     }
-    const running =
-      current.current?.element === element ? current.current.animation : null;
+    const play = (): Animation =>
+      element.animate(keyframes(motion), {
+        duration: motion.durationMs,
+        easing: motion.easing ?? SETTLE_EASING,
+        fill: "backwards",
+      });
+    let held = current.current?.element === element ? current.current : null;
+    if (held !== null && held.signature !== signature) {
+      // The layout changed under a mounted surface, such as a sidebar that
+      // stacked when the window narrowed. Carry its progress into the new
+      // motion, so it leaves towards the edge it docks to now.
+      const animation = play();
+      animation.currentTime = held.animation.currentTime;
+      held.animation.cancel();
+      held = { animation, element, signature };
+      current.current = held;
+    }
     if (present) {
-      if (running === null) {
+      if (held === null) {
         current.current =
           "animate" in element
-            ? {
-                animation: element.animate(keyframes(motion), {
-                  duration: motion.durationMs,
-                  easing: motion.easing ?? SETTLE_EASING,
-                  fill: "backwards",
-                }),
-                element,
-              }
+            ? { animation: play(), element, signature }
             : null;
-      } else if (running.playbackRate < 0) {
-        running.reverse();
+      } else if (held.animation.playbackRate < 0) {
+        held.animation.reverse();
       }
       return;
     }
+    const running = held?.animation ?? null;
     if (running === null) {
       setRetained(undefined);
       return;
@@ -121,10 +142,10 @@ export const usePresence = <A>(
     return () => {
       interrupted = true;
     };
-    // The motion is read when the surface arrives; a caller's new object for
-    // the same motion must not restart it.
+    // `signature` stands for `motion`, so a caller's new object for the same
+    // motion does not restart it.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [element, present]);
+  }, [element, present, signature]);
 
   return {
     leaving: !present && retained !== undefined,
