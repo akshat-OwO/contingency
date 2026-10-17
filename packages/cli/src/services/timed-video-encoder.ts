@@ -133,17 +133,17 @@ const ffmpegArguments = (
   "pipe:0",
   "-an",
   "-vf",
-  // JPEG uses full-range YUV. Convert to limited-range BT.709 explicitly
-  // and tag it below so browser video decoders use the same interpretation.
-  // Implicit range/matrix conversion shifts colours, and the compositor's
-  // second encode compounds that shift. Keep the source's sRGB transfer.
-  `scale=${width}:${height}:in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709`,
+  // Keep JPEG's BT.601 matrix: converting between YUV matrices introduces
+  // another rounding step on every encode. Only change full to limited
+  // range, and tag the matrix separately from the source's sRGB primaries
+  // and transfer so browser decoders do not guess from the video size.
+  `scale=${width}:${height}:in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt601`,
   "-pix_fmt",
   "yuv420p",
   "-color_range",
   "tv",
   "-colorspace",
-  "bt709",
+  "smpte170m",
   "-color_primaries",
   "bt709",
   "-color_trc",
