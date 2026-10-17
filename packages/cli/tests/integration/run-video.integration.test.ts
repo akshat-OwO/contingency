@@ -245,6 +245,94 @@ it.live(
 );
 
 it.live(
+  "preserves sRGB colours through footage and condensation at SD and HD sizes",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* preserveRecordingColours() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const browser = yield* CreateBrowser;
+        const colours = [
+          [220, 40, 40],
+          [40, 200, 60],
+          [40, 60, 220],
+          [228, 168, 68],
+          [164, 90, 180],
+          [112, 128, 144],
+          [40, 40, 40],
+          [128, 128, 128],
+        ] as const;
+        for (const size of [
+          { height: HEIGHT, width: WIDTH },
+          { height: 800, width: 1280 },
+        ]) {
+          const directory = yield* Effect.acquireRelease(
+            temporaryDirectory,
+            (created) =>
+              fileSystem.remove(created, { recursive: true }).pipe(Effect.orDie)
+          );
+          const page = yield* browser.compositor(size);
+          const encoder = yield* makeTimedVideoEncoder({
+            ...size,
+            label: "colour test footage",
+            lossy: false,
+            output: path.join(directory, FOOTAGE_VIDEO_FILE),
+          });
+          for (const [index, colour] of colours.entries()) {
+            const jpeg = yield* solidFrame(page, `rgb(${colour.join(" ")})`);
+            yield* encoder.write(jpeg, index * 500);
+            if (index === colours.length - 1) {
+              yield* encoder.write(jpeg, colours.length * 500);
+            }
+          }
+          expect(yield* encoder.finish).toBeUndefined();
+          const regions = colours.map((_, index) => ({
+            at: index * 0.5 + 0.1,
+            height: 10,
+            width: 10,
+            x: 40,
+            y: 40,
+          }));
+          const footage = yield* sampleVideo(
+            path.join(directory, FOOTAGE_VIDEO_FILE),
+            regions
+          );
+          yield* fileSystem.writeFileString(
+            path.join(directory, FOOTAGE_MANIFEST_FILE),
+            JSON.stringify({
+              ...manifest,
+              ...size,
+              actions: [{ fromMs: 0, toMs: colours.length * 500 }],
+              durationMs: colours.length * 500,
+              frames: Array.from(
+                { length: colours.length + 1 },
+                (_, index) => index * 500
+              ),
+              pointers: [],
+            })
+          );
+          expect(yield* awaitReady(directory)).toEqual({
+            condensed: true,
+            state: "ready",
+          });
+          const condensed = yield* sampleVideo(
+            path.join(directory, RUN_VIDEO_FILE),
+            regions
+          );
+          for (const sample of [footage, condensed]) {
+            for (const [index, expected] of colours.entries()) {
+              for (const [channel, value] of expected.entries()) {
+                const actual = sample.regions[index]?.mean[channel];
+                expect(actual).toBeDefined();
+                expect(Math.abs((actual ?? -255) - value)).toBeLessThan(8);
+              }
+            }
+          }
+        }
+      })
+    ).pipe(Effect.provide(RendererLive))
+);
+
+it.live(
   "keeps each footage frame at its own stamp when repaints come at a steady rate",
   () =>
     Effect.gen(function* encodeSteadyRepaints() {

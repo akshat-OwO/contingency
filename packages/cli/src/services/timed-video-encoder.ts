@@ -133,7 +133,21 @@ const ffmpegArguments = (
   "pipe:0",
   "-an",
   "-vf",
-  `scale=${width}:${height}`,
+  // JPEG uses full-range YUV. Convert to limited-range BT.709 explicitly
+  // and tag it below so browser video decoders use the same interpretation.
+  // Leaving VP9 full-range without a range tag clips and saturates colours,
+  // and the compositor's second encode compounds that shift.
+  `scale=${width}:${height}:in_range=pc:out_range=tv:in_color_matrix=bt601:out_color_matrix=bt709`,
+  "-pix_fmt",
+  "yuv420p",
+  "-color_range",
+  "tv",
+  "-colorspace",
+  "bt709",
+  "-color_primaries",
+  "bt709",
+  "-color_trc",
+  "iec61966-2-1",
   "-fps_mode",
   "passthrough",
   "-enc_time_base",
