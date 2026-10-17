@@ -54,13 +54,13 @@ export type AndroidDeviceSelection = {
 export interface AndroidInstallationGrant {
   readonly serial: string;
   readonly sha256: typeof androidHelperRelease.sha256;
-  readonly operation: "install" | "replace";
+  readonly operation: "install" | "replace" | "auto";
 }
 
 export interface AndroidPrivateTextGrant {
   readonly serial: string;
   readonly sha256: typeof androidPrivateTextRelease.sha256;
-  readonly operation: "install" | "replace";
+  readonly operation: "install" | "replace" | "auto";
 }
 
 export interface AndroidRuntimeStartInput {

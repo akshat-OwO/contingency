@@ -290,7 +290,8 @@ const installPrivateTextHelper = (input: AndroidRuntimeStartInput) =>
     if (
       grant?.serial !== input.device.serial ||
       grant.sha256 !== manifest.sha256 ||
-      grant.operation !== (installed === null ? "install" : "replace")
+      (grant.operation !== "auto" &&
+        grant.operation !== (installed === null ? "install" : "replace"))
     ) {
       return yield* Effect.fail(platformRuntimeError("installation_denied"));
     }
@@ -418,7 +419,8 @@ export const acquireAndroidBackend = (
         if (
           grant?.serial !== input.device.serial ||
           grant.sha256 !== manifest.sha256 ||
-          grant.operation !== (installed === null ? "install" : "replace")
+          (grant.operation !== "auto" &&
+            grant.operation !== (installed === null ? "install" : "replace"))
         ) {
           return yield* Effect.fail(
             platformRuntimeError("installation_denied")

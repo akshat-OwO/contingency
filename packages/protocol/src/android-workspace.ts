@@ -59,10 +59,10 @@ export const AndroidWorkspaceSelection = Schema.Struct({
       PlatformRequirements.members[1].fields.environment.fields.permissions,
     startingState: text,
   }),
-  helperConsent: Schema.Literals(["none", "install", "replace"]),
+  helperConsent: Schema.Literals(["none", "install", "replace", "auto"]),
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
   privateHelperConsent: Schema.optionalKey(
-    Schema.Literals(["none", "install", "replace"])
+    Schema.Literals(["none", "install", "replace", "auto"])
   ),
   privateInput: Schema.optionalKey(Schema.Boolean),
   reversibleActions: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
@@ -89,7 +89,13 @@ export const AndroidDiscoveredDevice = Schema.Struct({
   model: Schema.NullOr(text),
   release: Schema.NullOr(text),
   serial: text,
-  state: Schema.Literals(["device", "offline", "unauthorized", "unavailable"]),
+  state: Schema.Literals([
+    "device",
+    "offline",
+    "unauthorized",
+    "unavailable",
+    "stopped",
+  ]),
 });
 export type AndroidDiscoveredDevice = typeof AndroidDiscoveredDevice.Type;
 
