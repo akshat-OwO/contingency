@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { AgentCursor } from "@/components/agent/agent-cursor";
 import {
@@ -265,12 +266,41 @@ const DEFAULT_FLOW_SKILL_NAME = "new-flow";
 /** The viewport a Workspace-opened Teaching session starts under. */
 const WORKSPACE_SESSION_VIEWPORT = { height: 800, width: 1280 };
 
-const LoadingState = () => (
+const WorkspacePlatformControls = ({
+  onAndroid,
+}: {
+  readonly onAndroid: () => void;
+}) => {
+  const chrome = useAtomValue(workspaceChromeAtom);
+  const [header, setHeader] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeader(
+      chrome ? null : document.querySelector("#workspace-header-actions")
+    );
+  }, [chrome]);
+  const action = (
+    <Button onClick={onAndroid} size="sm" variant="outline">
+      Android
+    </Button>
+  );
+  if (header !== null) {
+    return createPortal(action, header);
+  }
+  return (
+    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+      {action}
+      <ModeToggle />
+    </div>
+  );
+};
+
+const LoadingState = ({ onAndroid }: { readonly onAndroid: () => void }) => (
   <main
     aria-busy="true"
     aria-live="polite"
-    className="grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6"
+    className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6"
   >
+    <WorkspacePlatformControls onAndroid={onAndroid} />
     <section className="max-w-md space-y-4 text-center">
       <LoaderCircleIcon
         aria-hidden="true"
@@ -375,8 +405,15 @@ const EmptyState = ({
   );
 };
 
-const UnavailableState = ({ message }: { readonly message: string }) => (
-  <main className="grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
+const UnavailableState = ({
+  message,
+  onAndroid,
+}: {
+  readonly message: string;
+  readonly onAndroid: () => void;
+}) => (
+  <main className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
+    <WorkspacePlatformControls onAndroid={onAndroid} />
     <section className="max-w-lg space-y-4 text-center">
       <Alert className="text-left" variant="destructive">
         <CircleAlertIcon aria-hidden="true" />
@@ -2232,16 +2269,20 @@ const BrowserWorkspace = ({
     picking: state.inspect.open,
   });
   if (sessionsResult._tag === "Initial") {
-    return <LoadingState />;
+    return <LoadingState onAndroid={onAndroid} />;
   }
   if (sessionsResult._tag === "Failure") {
     return (
-      <UnavailableState message="Agent Sessions are unavailable in this server process." />
+      <UnavailableState
+        onAndroid={onAndroid}
+        message="Agent Sessions are unavailable in this server process."
+      />
     );
   }
   if (state.phase === "unavailable") {
     return (
       <UnavailableState
+        onAndroid={onAndroid}
         message={
           state.browserStreamError ??
           "The selected Agent Session is no longer available."
@@ -2253,12 +2294,7 @@ const BrowserWorkspace = ({
     return (
       <div className="relative flex h-svh min-h-0 flex-col">
         <WorkspaceLayout session={undefined} summary={undefined}>
-          <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-            <Button onClick={onAndroid} size="sm" variant="outline">
-              Android
-            </Button>
-            <ModeToggle />
-          </div>
+          <WorkspacePlatformControls onAndroid={onAndroid} />
           <EmptyState
             error={view.gestures.start.error}
             onOpenSession={view.openSession}
@@ -2271,7 +2307,7 @@ const BrowserWorkspace = ({
     );
   }
   if (state.session === undefined) {
-    return <LoadingState />;
+    return <LoadingState onAndroid={onAndroid} />;
   }
 
   const { session } = state;
