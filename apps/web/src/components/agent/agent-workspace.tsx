@@ -915,10 +915,10 @@ const useAgentView = (
     mode: "promise",
   });
   const deletionGesture = useWorkspaceGesture(sessionDeleteGestureAtom);
-  const selectedSessionRef = useRef(selectedSessionId);
+  const selectionContextRef = useRef({ requestedSessionId, selectedSessionId });
   useEffect(() => {
-    selectedSessionRef.current = selectedSessionId;
-  }, [selectedSessionId]);
+    selectionContextRef.current = { requestedSessionId, selectedSessionId };
+  }, [requestedSessionId, selectedSessionId]);
   // A route request selects once. Polls may then follow its Dry Run, and the
   // URL sync waits for that resolved selection before replacing the route.
   const selectionRef = useRef<{
@@ -2123,7 +2123,18 @@ const useAgentView = (
             deletedSessionIdsRef.current.add(deleting.id);
             dismissedRunIdsRef.current.add(deleting.id);
             endedRunIdsRef.current.add(deleting.id);
-            if (selectedSessionRef.current === deleting.id) {
+            const latest = selectionContextRef.current;
+            // Polling may clear selection while the backend tears down the
+            // browser. The deleted URL still needs clearing, unless the user
+            // has requested a different session since this close began.
+            const ownsSelection =
+              latest.selectedSessionId === deleting.id ||
+              (latest.selectedSessionId === undefined &&
+                latest.requestedSessionId === deleting.id);
+            const ownsRoute =
+              latest.requestedSessionId === requestedSessionId ||
+              latest.requestedSessionId === deleting.id;
+            if (ownsSelection && ownsRoute) {
               const remaining = sessions.filter(({ id }) => id !== deleting.id);
               const next =
                 relatedWorkspaceSession(deleting, remaining) ?? remaining.at(0);

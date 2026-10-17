@@ -29,6 +29,8 @@ const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
   closeCalls: [] satisfies unknown[],
   closeFailure: undefined satisfies unknown,
+  closeGate: Promise.resolve(true),
+  closeSettled: 0,
   discardCalls: [] satisfies unknown[],
   endedRunSummary: {} satisfies unknown,
   endedRunSummaryCalls: [] satisfies unknown[],
@@ -101,6 +103,12 @@ const rpcOverrides = {
     Effect.sync(() => {
       rpc.closeCalls.push(payload);
     }).pipe(
+      Effect.andThen(Effect.promise(() => rpc.closeGate)),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          rpc.closeSettled += 1;
+        })
+      ),
       Effect.andThen(
         rpc.closeFailure === undefined
           ? Effect.succeed({})
@@ -452,6 +460,8 @@ afterEach(async () => {
   rpc.agentStreamFailureMessage = undefined;
   rpc.closeCalls = [];
   rpc.closeFailure = undefined;
+  rpc.closeGate = Promise.resolve(true);
+  rpc.closeSettled = 0;
   rpc.discardCalls = [];
   rpc.endedRunSummaryCalls = [];
   rpc.endedRunSummaryResult = undefined;
@@ -2133,4 +2143,75 @@ test("deletes another session from its picker row without selecting it", async (
       name: `Delete session ${teachingSetup.flowSkillName}`,
     })
   ).toBeVisible();
+});
+
+test("clears a deleted route when polling removes the last session before close settles", async () => {
+  const gate = Deferred.makeUnsafe<boolean>();
+  rpc.closeGate = Effect.runPromise(Deferred.await(gate));
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teachingSetup.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({
+    session: teachingSetup.id,
+  });
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  await waitFor(() => expect(rpc.closeSettled).toBe(1));
+  await refreshWorkspace();
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
+});
+
+test("preserves a newer route choice when an old close response settles after polling", async () => {
+  const gate = Deferred.makeUnsafe<boolean>();
+  rpc.closeGate = Effect.runPromise(Deferred.await(gate));
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const history = createMemoryHistory({
+    initialEntries: [`/?session=${teachingSetup.id}`],
+  });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
+  render(
+    <TestRegistry>
+      <RouterProvider router={testRouter} />
+    </TestRegistry>
+  );
+  const user = userEvent.setup();
+  await openSessionPicker(user);
+  await user.click(
+    screen.getByRole("button", {
+      name: `Delete session ${teachingSetup.flowSkillName}`,
+    })
+  );
+  await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  expect(await screen.findByText("No browser session")).toBeVisible();
+  await act(() =>
+    testRouter.navigate({ search: { session: "agent-new-choice" }, to: "/" })
+  );
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  await waitFor(() => expect(rpc.closeSettled).toBe(1));
+  await refreshWorkspace();
+  expect(testRouter.state.location.search).toEqual({
+    session: "agent-new-choice",
+  });
 });
