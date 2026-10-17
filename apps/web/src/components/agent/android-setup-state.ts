@@ -49,6 +49,9 @@ export const deviceRelease = (device: AndroidDiscoveredDevice | undefined) =>
 
 /** Why a reported device cannot be picked, or nothing when it can. */
 export const unavailableReason = (device: AndroidDiscoveredDevice) => {
+  if (device.state === "stopped") {
+    return "Stopped. Start in Android Studio, then refresh";
+  }
   if (device.state === "unauthorized") {
     return "Allow USB debugging on the device";
   }

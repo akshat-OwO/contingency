@@ -304,3 +304,41 @@ it.effect(
       }
     })
 );
+
+it.effect("includes stopped AVDs without duplicating a running emulator", () =>
+  Effect.gen(function* inventory() {
+    const discovery = makeAndroidDiscovery({
+      adb: (args) =>
+        Effect.succeed(
+          args[0] === "devices"
+            ? "List of devices attached\nemulator-5554 device\nphone unauthorized\n"
+            : (properties.get(args.slice(2).join(" ")) ?? "")
+        ),
+      avds: () => Effect.succeed("Pixel_9\nPixel_9_API_30\nPixel_9_API_30\n"),
+      readApk: () => Effect.die("Inventory must not read APKs"),
+    });
+    const devices = yield* discovery.devices();
+    expect(devices.map(({ avd, state }) => ({ avd, state }))).toEqual([
+      { avd: "Pixel_9", state: "device" },
+      { avd: null, state: "unauthorized" },
+      { avd: "Pixel_9_API_30", state: "stopped" },
+    ]);
+  })
+);
+
+it.effect(
+  "keeps connected devices visible when the emulator inventory is unavailable",
+  () =>
+    Effect.gen(function* unavailableInventory() {
+      const discovery = makeAndroidDiscovery({
+        adb: () =>
+          Effect.succeed("List of devices attached\nphone unauthorized\n"),
+        avds: () =>
+          Effect.fail({ code: "missing_sdk", message: "No emulator binary" }),
+        readApk: () => Effect.die("Inventory must not read APKs"),
+      });
+      expect(yield* discovery.devices()).toMatchObject([
+        { serial: "phone", state: "unauthorized" },
+      ]);
+    })
+);
