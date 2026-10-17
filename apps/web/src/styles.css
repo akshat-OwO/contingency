@@ -4,6 +4,60 @@
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant reduce-transparency (@media (prefers-reduced-transparency: reduce));
+
+/*
+ * The one material for slim chrome that floats over the live Page: the dock,
+ * the device bar, and the badges on the stage. Content shows through
+ * blurred, so the chrome reads as a layer above the Page rather than a strip
+ * cut out of it. Each surface picks its own shadow, deeper as it grows. Dark
+ * chrome is thicker, because a bright Page behind it would otherwise show
+ * through as a grey block.
+ *
+ * A person who asks for less transparency or more contrast gets a solid
+ * surface, and with more contrast a defined edge.
+ */
+@utility material-float {
+  background-color: color-mix(in oklch, var(--background) 82%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+
+  &:is(.dark *) {
+    background-color: color-mix(in oklch, var(--background) 90%, transparent);
+  }
+
+  /* Both selectors, so the overrides outrank the dark tint above. */
+  @media (prefers-reduced-transparency: reduce) {
+    &,
+    &:is(.dark *) {
+      background-color: var(--background);
+      backdrop-filter: none;
+    }
+  }
+
+  @media (prefers-contrast: more) {
+    &,
+    &:is(.dark *) {
+      background-color: var(--background);
+      border-color: var(--foreground);
+      backdrop-filter: none;
+    }
+  }
+}
+
+/*
+ * A floating panel that holds forms and lists, such as the inspector card. It
+ * shares the chrome's edge but stays solid: text set over a Page showing
+ * through would change legibility with every site.
+ */
+@utility material-panel {
+  background-color: var(--background);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+
+  @media (prefers-contrast: more) {
+    border-color: var(--foreground);
+  }
+}
 
 @layer base {
   * {
@@ -18,6 +72,39 @@
   }
   #root {
     @apply h-full overflow-hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /*
+     * Reduced motion keeps the fades but drops the travel: anything that
+     * slides, zooms, spins in, or blurs in through tw-animate-css or a Base UI
+     * transition only cross-fades.
+     */
+    *,
+    ::before,
+    ::after {
+      --tw-enter-translate-x: 0 !important;
+      --tw-enter-translate-y: 0 !important;
+      --tw-enter-scale: 1 !important;
+      --tw-enter-rotate: 0 !important;
+      --tw-enter-blur: 0 !important;
+      --tw-exit-translate-x: 0 !important;
+      --tw-exit-translate-y: 0 !important;
+      --tw-exit-scale: 1 !important;
+      --tw-exit-rotate: 0 !important;
+      --tw-exit-blur: 0 !important;
+    }
+
+    [data-slot="sheet-content"] {
+      translate: none !important;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    /* Scrims dim without blurring what is behind them. */
+    [data-slot$="-overlay"] {
+      backdrop-filter: none !important;
+    }
   }
 }
 
@@ -67,6 +154,17 @@
   --color-muted-foreground: var(--muted-foreground);
 
   --color-muted: var(--muted);
+
+  /*
+   * `bg-muted/50` made opaque, for tiers inside the floating material: a
+   * second translucent layer over the first would let the Page show through
+   * twice and wash the text out.
+   */
+  --color-muted-surface: color-mix(
+    in oklch,
+    var(--muted) 50%,
+    var(--background)
+  );
 
   --color-secondary-foreground: var(--secondary-foreground);
 

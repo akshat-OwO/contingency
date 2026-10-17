@@ -73,7 +73,7 @@ const DeviceToolbar = ({
 }) => (
   <nav
     aria-label="Device controls"
-    className="bg-background/80 flex shrink-0 flex-col items-center gap-1 rounded-2xl border p-1.5 shadow-sm backdrop-blur"
+    className="material-float flex shrink-0 flex-col items-center gap-1 rounded-2xl p-1.5 shadow-sm"
   >
     <Tooltip>
       <TooltipTrigger

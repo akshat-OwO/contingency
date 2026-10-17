@@ -150,7 +150,10 @@ export const RunSummaryView = ({
   return (
     <div className="space-y-5">
       <section aria-labelledby="agent-run-summary" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-run-summary">
+        <h2
+          className="text-base leading-snug font-semibold tracking-tight"
+          id="agent-run-summary"
+        >
           Run Summary
         </h2>
         <div className="space-y-2 rounded-lg border p-3 text-sm">
@@ -192,7 +195,10 @@ export const RunSummaryView = ({
         </>
       )}
       <section aria-labelledby="agent-run-video" className="space-y-2">
-        <h2 className="text-sm font-semibold" id="agent-run-video">
+        <h2
+          className="text-base leading-snug font-semibold tracking-tight"
+          id="agent-run-video"
+        >
           Run video
         </h2>
         {summary.videoPath === null ? (

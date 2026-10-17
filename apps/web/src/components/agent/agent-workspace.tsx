@@ -394,7 +394,7 @@ const SwitchingState = () => (
   <div
     aria-busy="true"
     aria-live="polite"
-    className="bg-background/80 absolute inset-0 z-10 grid place-items-center p-6 backdrop-blur-[2px]"
+    className="bg-background/80 reduce-transparency:bg-background contrast-more:bg-background reduce-transparency:backdrop-blur-none absolute inset-0 z-10 grid place-items-center p-6 backdrop-blur-[2px] contrast-more:backdrop-blur-none"
   >
     <div className="bg-background flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
       <LoaderCircleIcon
@@ -424,7 +424,7 @@ const StageZoom = ({
       className="pointer-events-none absolute inset-0"
       ref={setContainer}
     >
-      <span className="bg-background/80 text-muted-foreground absolute top-0 right-0 rounded-full border px-2 py-0.5 text-xs tabular-nums shadow-xs backdrop-blur transition-opacity">
+      <span className="material-float text-muted-foreground absolute top-0 right-0 rounded-full px-2 py-0.5 text-xs tabular-nums shadow-xs">
         {Math.round(scale * 100)}%
       </span>
     </div>

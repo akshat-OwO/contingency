@@ -51,6 +51,7 @@ import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
 import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
+import { usePresence } from "@/hooks/use-presence";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 import {
@@ -198,13 +199,34 @@ const useElementSize = <Element extends HTMLElement>() => {
   return { ref, size };
 };
 
+const maxSize = (region: number): number =>
+  Math.max(region * MAX_INSPECTOR_SHARE, MIN_INSPECTOR_SIZE);
+
 const clampSize = (size: number, region: number): number =>
-  Math.round(
-    Math.min(
-      Math.max(size, MIN_INSPECTOR_SIZE),
-      Math.max(region * MAX_INSPECTOR_SHARE, MIN_INSPECTOR_SIZE)
-    )
+  Math.round(Math.min(Math.max(size, MIN_INSPECTOR_SIZE), maxSize(region)));
+
+/**
+ * How far past a bound the inspector follows a drag. The further the pointer
+ * goes, the less the edge follows it, so a bound reads as resistance rather
+ * than a wall the drag stopped against. The edge starts at this share of the
+ * pointer's travel and never strays further than the limit.
+ */
+const RUBBER_BAND = 0.55;
+const RUBBER_BAND_LIMIT = 96;
+
+const rubberBand = (size: number, region: number): number => {
+  const overshoot =
+    size < MIN_INSPECTOR_SIZE
+      ? size - MIN_INSPECTOR_SIZE
+      : Math.max(size - maxSize(region), 0);
+  if (overshoot === 0) {
+    return 0;
+  }
+  return (
+    (overshoot * RUBBER_BAND_LIMIT * RUBBER_BAND) /
+    (RUBBER_BAND_LIMIT + RUBBER_BAND * Math.abs(overshoot))
   );
+};
 
 /**
  * The separator between the stage and the docked inspector. Dragging it, or
@@ -213,11 +235,17 @@ const clampSize = (size: number, region: number): number =>
  */
 const InspectorResizeHandle = ({
   onResize,
+  onStretch,
   region,
   side,
   size,
 }: {
   readonly onResize: (size: number) => void;
+  /**
+   * Pixels a drag pulls the inspector past its bounds, drawn but never kept;
+   * `0` once the drag ends lets the edge settle back.
+   */
+  readonly onStretch: (stretch: number) => void;
   /** The length of the region the stage and inspector share. */
   readonly region: number;
   readonly side: DevtoolsDockSide;
@@ -258,6 +286,7 @@ const InspectorResizeHandle = ({
       onKeyDown={onKeyDown}
       onPointerCancel={() => {
         drag.current = null;
+        onStretch(0);
       }}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -266,13 +295,14 @@ const InspectorResizeHandle = ({
       onPointerMove={(event) => {
         const start = drag.current;
         if (start !== null) {
-          onResize(
-            clampSize(start.size + start.origin - pointer(event), region)
-          );
+          const dragged = start.size + start.origin - pointer(event);
+          onResize(clampSize(dragged, region));
+          onStretch(rubberBand(dragged, region));
         }
       }}
       onPointerUp={() => {
         drag.current = null;
+        onStretch(0);
       }}
       role="separator"
       tabIndex={0}
@@ -333,15 +363,21 @@ const emulationLockedReason = (
     : undefined);
 
 const StageError = ({
+  errorRef,
+  leaving,
   message,
   onDismiss,
 }: {
+  readonly errorRef: (element: HTMLElement | null) => void;
+  readonly leaving: boolean;
   readonly message: string;
   readonly onDismiss: () => void;
 }) => (
   <div className="pointer-events-none absolute inset-x-0 top-12 z-30 flex justify-center px-3">
     <p
-      className="bg-background text-destructive animate-in fade-in-0 slide-in-from-top-1 pointer-events-auto flex max-w-xl items-center gap-2 rounded-lg border px-3 py-1.5 text-xs shadow-md"
+      className="bg-background text-destructive pointer-events-auto flex max-w-xl items-center gap-2 rounded-lg border px-3 py-1.5 text-xs shadow-md"
+      inert={leaving}
+      ref={errorRef}
       role="alert"
     >
       {message}
@@ -447,18 +483,24 @@ const InspectorRail = ({
  */
 const InspectorCardSurface = ({
   card,
+  cardRef,
   children,
+  leaving,
   lockedReason,
   onClose,
 }: {
   readonly card: InspectorCard;
+  readonly cardRef: (element: HTMLElement | null) => void;
   readonly children: ReactNode;
+  readonly leaving: boolean;
   readonly lockedReason: string | undefined;
   readonly onClose: () => void;
 }) => (
   <section
     aria-label={cardTitles[card]}
-    className="bg-background ring-foreground/10 animate-in fade-in-0 zoom-in-[0.98] slide-in-from-right-1 absolute top-2 right-14 z-30 flex max-h-[min(36rem,calc(100%-1rem))] w-88 max-w-[calc(100%-4.5rem)] origin-top-right flex-col overflow-hidden rounded-2xl shadow-[0_24px_64px_-24px_rgb(0_0_0/0.4)] ring-1 duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
+    className="material-panel absolute top-2 right-14 z-30 flex max-h-[min(36rem,calc(100%-1rem))] w-88 max-w-[calc(100%-4.5rem)] origin-top-right flex-col overflow-hidden rounded-2xl shadow-[0_24px_64px_-24px_rgb(0_0_0/0.4)]"
+    inert={leaving}
+    ref={cardRef}
   >
     <header className="flex h-10 shrink-0 items-center border-b pr-1.5 pl-3.5">
       <h2 className="text-sm font-medium">{cardTitles[card]}</h2>
@@ -695,6 +737,9 @@ export const WorkspaceBrowserStage = ({
     inspector,
     body
   );
+  // A drag past a bound stretches the inspector; releasing it springs back.
+  const [stretch, setStretch] = useState({ pixels: 0, settling: false });
+  const drawnSize = Math.max(inspectorSize + stretch.pixels, 0);
 
   const toggleCard = (card: InspectorCard) =>
     setInspector((current) => ({
@@ -730,6 +775,20 @@ export const WorkspaceBrowserStage = ({
   };
 
   const { panel, card } = inspector;
+  // The card grows out of the rail it was opened from and shrinks back into
+  // it; the error drops from the device bar and lifts back under it.
+  const cardPresence = usePresence(card, {
+    durationMs: 220,
+    hidden: { opacity: 0, transform: "translateX(0.25rem) scale(0.96)" },
+    shown: { opacity: 1, transform: "translateX(0) scale(1)" },
+  });
+  const shownCard = cardPresence.rendered;
+  const errorPresence = usePresence(state.error, {
+    durationMs: 180,
+    hidden: { opacity: 0, transform: "translateY(-0.25rem)" },
+    shown: { opacity: 1, transform: "translateY(0)" },
+  });
+  const shownError = errorPresence.rendered;
 
   return (
     <div className="relative flex min-h-0 flex-1" ref={bodyRef}>
@@ -762,9 +821,11 @@ export const WorkspaceBrowserStage = ({
               presetId={state.presetId}
             />
           </div>
-          {state.error === undefined ? null : (
+          {shownError === undefined ? null : (
             <StageError
-              message={state.error}
+              errorRef={errorPresence.ref}
+              leaving={errorPresence.leaving}
+              message={shownError}
               onDismiss={() =>
                 setState((current) => ({ ...current, error: undefined }))
               }
@@ -785,16 +846,32 @@ export const WorkspaceBrowserStage = ({
                     : { ...current, bottomHeight: size }
                 )
               }
+              onStretch={(pixels) =>
+                setStretch((current) =>
+                  pixels === 0
+                    ? { pixels: 0, settling: Math.abs(current.pixels) >= 1 }
+                    : { pixels, settling: false }
+                )
+              }
               region={regionLength}
               side={side}
               size={inspectorSize}
             />
             <div
-              className="animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col duration-150"
+              className={cn(
+                // No `duration-*` here: it would give every property a
+                // transition and the inspector would trail the drag.
+                "animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col",
+                stretch.settling &&
+                  "transition-[width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+              )}
+              onTransitionEnd={(event) => {
+                if (event.target === event.currentTarget) {
+                  setStretch({ pixels: 0, settling: false });
+                }
+              }}
               style={
-                side === "right"
-                  ? { width: inspectorSize }
-                  : { height: inspectorSize }
+                side === "right" ? { width: drawnSize } : { height: drawnSize }
               }
             >
               {state.activeTab === undefined ? (
@@ -844,13 +921,15 @@ export const WorkspaceBrowserStage = ({
         requests={state.networkRequests.length}
       />
 
-      {card === undefined ? null : (
+      {shownCard === undefined ? null : (
         <InspectorCardSurface
-          card={card}
+          card={shownCard}
+          cardRef={cardPresence.ref}
+          leaving={cardPresence.leaving}
           lockedReason={lockedReason}
           onClose={closeCard}
         >
-          {card === "identity" ? (
+          {shownCard === "identity" ? (
             <UserAgentList
               disabled={disabled}
               onValueChange={(userAgentProfile) => {
@@ -867,7 +946,7 @@ export const WorkspaceBrowserStage = ({
               value={state.identity}
             />
           ) : null}
-          {card === "emulation" ? (
+          {shownCard === "emulation" ? (
             <EmulationPanel
               applied={state.emulation}
               currentOrigin={origin}
@@ -875,7 +954,7 @@ export const WorkspaceBrowserStage = ({
               onPatch={patch}
             />
           ) : null}
-          {card === "stream" ? (
+          {shownCard === "stream" ? (
             <BrowserStreamDiagnostics sessionId={sessionId} />
           ) : null}
         </InspectorCardSurface>

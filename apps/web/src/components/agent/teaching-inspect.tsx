@@ -31,6 +31,11 @@ const Pin = ({
   </span>
 );
 
+/**
+ * The box around an element. Moving the pointer to another element glides the
+ * box there rather than redrawing it, so the eye follows which element the
+ * pick moved to; a new hover retargets from wherever the box is drawn.
+ */
 const Outline = ({
   at,
   label,
@@ -39,11 +44,10 @@ const Outline = ({
   readonly label?: string | undefined;
 }) => (
   <span
-    className="pointer-events-none absolute block rounded-sm border-2 border-blue-500 bg-blue-500/20"
+    className="pointer-events-none absolute top-0 left-0 block rounded-sm border-2 border-blue-500 bg-blue-500/20 transition-[transform,width,height] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
     style={{
       height: at.height,
-      left: at.left,
-      top: at.top,
+      transform: `translate(${at.left}px, ${at.top}px)`,
       width: at.width,
     }}
   >
@@ -145,7 +149,7 @@ export const InspectOverlay = ({
       ))}
       {state.open ? (
         <div
-          className="bg-popover text-popover-foreground ring-foreground/10 absolute top-3 left-1/2 z-10 flex -translate-x-1/2 cursor-default items-center gap-2 rounded-full py-1 pr-1 pl-3 text-sm shadow-lg ring-1"
+          className="material-float absolute top-3 left-1/2 z-10 flex -translate-x-1/2 cursor-default items-center gap-2 rounded-full py-1 pr-1 pl-3 text-sm shadow-lg"
           onPointerDown={(event) => event.stopPropagation()}
           onPointerMove={(event) => event.stopPropagation()}
         >

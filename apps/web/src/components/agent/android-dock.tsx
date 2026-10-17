@@ -90,7 +90,7 @@ export const AndroidRequests = ({
   readonly session: AndroidWorkspaceSnapshot;
 }) =>
   session.preparation.pending.length === 0 ? null : (
-    <div className="bg-muted/50 space-y-2 border-b px-3 py-2.5">
+    <div className="bg-muted-surface space-y-2 border-b px-3 py-2.5">
       {session.preparation.pending.map((decision) => {
         const clearing = decision.kind === "clear-app-data";
         const title = clearing
@@ -173,7 +173,7 @@ export const AndroidFieldEntry = ({
   return (
     <form
       aria-label={`Type into ${label}`}
-      className="bg-muted/50 space-y-1.5 border-b px-3 py-2.5"
+      className="bg-muted-surface space-y-1.5 border-b px-3 py-2.5"
       onSubmit={(event) => {
         event.preventDefault();
         if (privateField) {
@@ -358,7 +358,7 @@ export const AndroidVariables = ({
   return (
     <section
       aria-label={title}
-      className="bg-muted/50 space-y-2 border-b px-3 py-2.5"
+      className="bg-muted-surface space-y-2 border-b px-3 py-2.5"
     >
       <RequestHeader
         title={title}

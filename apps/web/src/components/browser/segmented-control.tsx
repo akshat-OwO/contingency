@@ -82,7 +82,7 @@ export const SegmentedControl = <Value extends string>({
           <button
             aria-checked={selected}
             className={cn(
-              "text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-150 outline-none focus-visible:ring-2 disabled:pointer-events-none",
+              "text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-[color,background-color,box-shadow,scale] duration-150 outline-none focus-visible:ring-2 active:scale-[0.97] disabled:pointer-events-none",
               size === "sm" ? "h-6 px-2 text-xs" : "h-5 px-1.5 text-xs",
               selected &&
                 "bg-background text-foreground shadow-xs dark:bg-white/10"

@@ -15,7 +15,7 @@ export const BrowserCheckResults = ({
   const coverage = browserCheckCoverage(run);
   return (
     <section aria-label="Browser Checks" className="space-y-2">
-      <h3 className="font-semibold">Browser Checks</h3>
+      <h3 className="text-sm leading-5 font-semibold">Browser Checks</h3>
       <p>
         {coverage.fulfilled}/{coverage.total} required checks passed
       </p>
