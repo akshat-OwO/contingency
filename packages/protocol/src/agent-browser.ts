@@ -244,6 +244,12 @@ export const AgentExecutionBoundary = Schema.Struct({
       tabId: nonEmptyString,
       type: Schema.Literal("eval"),
     }),
+    Schema.Struct({
+      files: Schema.Array(nonEmptyString),
+      ref: nonEmptyString,
+      tabId: nonEmptyString,
+      type: Schema.Literal("upload"),
+    }),
   ]),
   description: nonEmptyString,
   id: nonEmptyString,

@@ -16,6 +16,8 @@ export const BrowserModification = Schema.Struct({
     "headers",
     "emulation",
     "eval",
+    "clipboard",
+    "upload",
   ]),
   operationId: text,
   pageZoom: Schema.optionalKey(PageZoom),
@@ -45,6 +47,7 @@ export const browserModificationSummary = (
     [count("cookie"), "cookie"],
     [count("storage"), "storage change"],
     [count("eval"), "evaluation"],
+    [count("upload"), "upload"],
   ] as const) {
     if (n > 0) {
       parts.push(`${n} ${singular}${n === 1 ? "" : "s"}`);
@@ -52,6 +55,9 @@ export const browserModificationSummary = (
   }
   if (count("headers") > 0) {
     parts.push("headers");
+  }
+  if (count("clipboard") > 0) {
+    parts.push("clipboard");
   }
   const textScale = active.findLast(
     (mod) => mod.textScale !== undefined

@@ -250,6 +250,7 @@ export const mcpCommand = Command.make(
               get baseUrl() {
                 return boundOrigin.url;
               },
+              catalogRoot: () => selectedCatalogRoot,
               resourceDirectory: ownerMarker,
               traceDirectory: () =>
                 path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),

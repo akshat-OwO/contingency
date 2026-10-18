@@ -92,6 +92,7 @@ export const webCommand = Command.make(
             makeAgentSessionLayer({
               allowedActivity: "teaching",
               baseUrl: browserUrl.origin,
+              catalogRoot: () => selectedCatalogRoot,
               resourceDirectory: ownerMarker,
               traceDirectory: () =>
                 path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),

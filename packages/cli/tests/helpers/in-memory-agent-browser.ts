@@ -307,6 +307,7 @@ export const makeInMemoryAgentBrowser = (input: {
           Effect.map(([a, b]) => a === b),
           Effect.orElseSucceed(() => false)
         ),
+      setFiles: (ref) => resolve(ref).pipe(Effect.asVoid),
       valueDigest: (ref) =>
         resolve(ref).pipe(
           Effect.map((control) =>

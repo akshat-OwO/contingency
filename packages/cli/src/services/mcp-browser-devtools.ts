@@ -26,6 +26,8 @@ export const BrowserDevtoolsTools = withStrictParameters(
   )
 );
 
+const PROFILE_FORMATS = { cpu: "cpuprofile", trace: "trace" } as const;
+
 const harFailure = (code: string, message: string) =>
   new AgentSessionFailure({ code, message: `${message} (${code})` });
 
@@ -37,28 +39,48 @@ export const BrowserDevtoolsToolHandlersLive = BrowserDevtoolsTools.toLayer({
       const value = yield* sessions
         .devtools(sessionId, command, tabId)
         .pipe(Effect.mapError(failure));
-      if (command.action !== "har_stop") {
+      if (command.action !== "har_stop" && command.action !== "profile_stop") {
         return value;
       }
+      // Captures can be large, so the agent gets a local file reference.
       const catalog = yield* FlowSkillCatalog;
       const fs = yield* FileSystem.FileSystem;
       const directory = path.join(catalog.root(), ".devtools");
       const id = createHash("sha256")
         .update(`${sessionId}:${tabId ?? "active"}:${command.operationId}`)
         .digest("hex");
-      const file = path.join(directory, `${id}.har`);
+      const profile =
+        command.action === "profile_stop"
+          ? yield* Schema.decodeUnknownEffect(
+              Schema.Struct({ data: Schema.String })
+            )(value).pipe(
+              Effect.mapError(() =>
+                harFailure(
+                  "agent_devtools_encode_failed",
+                  "The profile result was not readable."
+                )
+              )
+            )
+          : undefined;
+      const format = "kind" in command ? PROFILE_FORMATS[command.kind] : "har";
+      const file = path.join(
+        directory,
+        `${id}.${format === "trace" ? "trace.json" : format}`
+      );
       const writeFailure = () =>
         harFailure(
-          "agent_devtools_har_write_failed",
-          "Could not write the HAR file inside Catalog Root."
+          format === "har"
+            ? "agent_devtools_har_write_failed"
+            : "agent_devtools_profile_write_failed",
+          `Could not write the ${format} file inside Catalog Root.`
         );
       yield* fs
         .makeDirectory(directory, { recursive: true })
         .pipe(Effect.mapError(writeFailure));
       yield* fs
-        .writeFileString(file, JSON.stringify(value))
+        .writeFileString(file, profile?.data ?? JSON.stringify(value))
         .pipe(Effect.mapError(writeFailure));
-      return { format: "har", path: file };
+      return { format, path: file };
     }).pipe(
       Effect.flatMap((value) =>
         Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))(

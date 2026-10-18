@@ -28,7 +28,8 @@ export type ModificationCommand = Extract<
       | "storage_set"
       | "storage_clear"
       | "route_add"
-      | "headers_set";
+      | "headers_set"
+      | "clipboard_write";
   }
 >;
 export const modificationKind = (
@@ -45,6 +46,9 @@ export const modificationKind = (
     }
     case "route_add": {
       return "route";
+    }
+    case "clipboard_write": {
+      return "clipboard";
     }
     default: {
       return "headers";
@@ -124,6 +128,10 @@ export const modificationDescription = (
     }
     case "storage_clear": {
       description = `Clear ${command.kind} storage${command.key === undefined ? "" : ` ${command.key}`}`;
+      break;
+    }
+    case "clipboard_write": {
+      description = `Write clipboard text: ${boundedDevtoolsText(command.text, secrets, 200).text}`;
       break;
     }
     case "headers_set": {
@@ -216,7 +224,8 @@ export const makeBrowserModifications = () =>
     const apply = (
       sessionId: AgentSessionId,
       id: string,
-      command: ModificationCommand,
+      // The clipboard belongs to the browser service; callers layer it directly.
+      command: Exclude<ModificationCommand, { action: "clipboard_write" }>,
       target: BrowserTarget,
       allows?: (url: string) => boolean
     ) =>

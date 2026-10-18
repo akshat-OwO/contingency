@@ -121,6 +121,7 @@ const makeFakeBrowser = (options?: {
     activeTarget: () => Effect.fail(failure),
     capturePage: notUnderTest,
     clearStorage: notUnderTest,
+    clipboard: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {
         return Effect.sync(() => {
@@ -164,6 +165,7 @@ const makeFakeBrowser = (options?: {
     },
     deleteStorage: notUnderTest,
     devtools: notUnderTest,
+    downloads: () => Stream.empty,
     evaluate: () => Effect.die("Unexpected evaluation"),
     getEmulation: notUnderTest,
     getNetworkRequest: notUnderTest,
@@ -183,6 +185,7 @@ const makeFakeBrowser = (options?: {
       return Effect.succeed({ sessionId, url });
     },
     pointAgent: () => Effect.void,
+    profile: notUnderTest,
     sendInput: notUnderTest,
     setEmulation: notUnderTest,
     setStorage: notUnderTest,

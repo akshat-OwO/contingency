@@ -1047,7 +1047,41 @@ export class ContingencyRpcs extends RpcGroup.make(
 ) {}
 
 /** Browser devtools operations available only through agent_code_execute. */
+const devtoolsOperationId = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(128)
+);
 export const BrowserDevtoolsCommand = Schema.Union([
+  Schema.Struct({ action: Schema.Literals(["tabs", "downloads"]) }),
+  Schema.Struct({
+    action: Schema.Literal("tab_open"),
+    operationId: devtoolsOperationId,
+    url: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
+  }),
+  Schema.Struct({
+    action: Schema.Literals(["tab_switch", "tab_close"]),
+    operationId: devtoolsOperationId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("upload"),
+    operationId: devtoolsOperationId,
+    paths: Schema.Array(Schema.String.check(Schema.isMinLength(1))).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(20)
+    ),
+    ref: Schema.String.check(Schema.isMinLength(1)),
+  }),
+  Schema.Struct({ action: Schema.Literal("clipboard_read") }),
+  Schema.Struct({
+    action: Schema.Literal("clipboard_write"),
+    operationId: devtoolsOperationId,
+    text: Schema.String.check(Schema.isMaxLength(65_536)),
+  }),
+  Schema.Struct({
+    action: Schema.Literals(["profile_start", "profile_stop"]),
+    kind: Schema.Literals(["trace", "cpu"]),
+    operationId: devtoolsOperationId,
+  }),
   Schema.Struct({
     action: Schema.Literal("eval"),
     mode: Schema.Literals(["read_only", "mutating"]),

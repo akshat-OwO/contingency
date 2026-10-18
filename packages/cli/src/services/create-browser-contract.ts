@@ -22,10 +22,11 @@ import type {
 } from "@contingency/protocol";
 import type { Effect, Scope, Stream } from "effect";
 import { Context } from "effect";
-import type { BrowserContext, Page } from "playwright-core";
+import type { BrowserContext, Download, Page } from "playwright-core";
 
 import type { TabDevtools } from "./browser-devtools.ts";
 import type { BrowserEvaluationResult } from "./browser-evaluation.ts";
+import type { ProfileKind } from "./browser-page-tools.ts";
 import type { PageCaptureOptions } from "./create-browser-session.ts";
 
 /**
@@ -61,7 +62,30 @@ export type BrowserStorageDeleteInput =
     }
   | { readonly key: string; readonly kind: "local" | "session" };
 
+/** A download a Page started, in any tab or popup of the session. */
+export interface BrowserDownloadEvent {
+  readonly download: Download;
+  readonly startedAt: number;
+  readonly tabId: BrowserTabId;
+}
+
 export interface CreateBrowserService {
+  /** Read the page clipboard, or write it when `text` is given. */
+  readonly clipboard: (
+    sessionId: SessionId,
+    text: string | undefined,
+    tabId?: BrowserTabId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
+  /** Every download of the session, replaying ones that already started. */
+  readonly downloads: (
+    sessionId: SessionId
+  ) => Stream.Stream<BrowserDownloadEvent, BrowserRpcErrorType>;
+  readonly profile: (
+    sessionId: SessionId,
+    kind: ProfileKind,
+    phase: "start" | "stop",
+    tabId?: BrowserTabId
+  ) => Effect.Effect<string, BrowserRpcErrorType>;
   readonly evaluate: (
     sessionId: SessionId,
     script: string,

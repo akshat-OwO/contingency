@@ -135,6 +135,19 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
       pointRef: registry.pointRef,
       privateSelector: registry.privateSelector,
       sameElement: registry.sameElement,
+      setFiles: (ref, paths) =>
+        registry.resolve(ref).pipe(
+          Effect.flatMap((element) =>
+            Effect.tryPromise({
+              catch: () =>
+                makeBrowserRpcError(
+                  "agent_browser_failed",
+                  "Could not choose files. The reference must name a file input; take a new Snapshot."
+                ),
+              try: () => element.setInputFiles([...paths]),
+            })
+          )
+        ),
       valueDigest: registry.valueDigest,
     };
   });

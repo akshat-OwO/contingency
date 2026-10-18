@@ -31,6 +31,7 @@ import {
   touchEmulation,
   userAgentOverride,
 } from "./browser-identity.ts";
+import type { BrowserDownloadEvent } from "./create-browser-contract.ts";
 
 export type BrowserFrame = Extract<
   BrowserStreamEvent,
@@ -99,6 +100,7 @@ export interface CreateSessionState {
 export interface CreateSession {
   readonly performanceEndpoint?: string | undefined;
   readonly context: BrowserContext;
+  readonly downloads: PubSub.PubSub<BrowserDownloadEvent>;
   readonly emulationSessions: WeakMap<Page, Promise<CDPSession>>;
   readonly events: PubSub.PubSub<BrowserStreamEvent>;
   readonly frames: PubSub.PubSub<BrowserFrame>;

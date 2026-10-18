@@ -48,6 +48,13 @@ export const initializePage = (session: CreateSession, page: Page): void => {
       });
     }
   });
+  page.on("download", (download) => {
+    PubSub.publishUnsafe(session.downloads, {
+      download,
+      startedAt: Date.now(),
+      tabId,
+    });
+  });
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame()) {
       return;
