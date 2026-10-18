@@ -225,7 +225,7 @@ it.live(
         expect(download?.path?.startsWith(path.join(root, "agent-runs"))).toBe(
           true
         );
-        expect(download?.path).toMatch(/downloads[/\\]1-report\.csv$/u);
+        expect(download?.path).toMatch(/downloads[/\\]download-1$/u);
         expect(yield* fs.readFileString(download?.path ?? "")).toBe(
           "name,total\nanvil,3\n"
         );
@@ -284,6 +284,161 @@ it.live(
         ).toMatchObject({
           message: expect.stringContaining("Start one first"),
         });
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(BrowserDevtoolsToolHandlersLive),
+        Effect.provide(agentProcessLayer(root))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "replays profiles after persistence failure and scrubs newly supplied private values",
+  () =>
+    Effect.gen(function* profileReceipts() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "profile-replay-",
+      });
+      const fixture = yield* fixtureServer;
+      yield* Effect.gen(function* driveProfiles() {
+        const sessions = yield* AgentSession;
+        const browser = yield* CreateBrowser;
+        yield* Effect.addFinalizer(() => sessions.closeAll());
+        const session = yield* sessions.start({
+          activity: "teaching",
+          openedBy: "agent",
+          operationId: "profile-session",
+          url: fixture.url("browser-tools.html"),
+          viewport: agentViewport,
+        });
+        const [browserId] = yield* browser.list();
+        if (browserId === undefined) {
+          return yield* Effect.die("Missing browser");
+        }
+        const { page } = yield* browser.activeTarget(browserId);
+        const toolkit = yield* BrowserDevtoolsTools;
+        for (const kind of ["cpu", "trace"] as const) {
+          const start = {
+            action: "profile_start",
+            kind,
+            operationId: `${kind}-start`,
+          } as const;
+          const stop = {
+            action: "profile_stop",
+            kind,
+            operationId: `${kind}-stop`,
+          } as const;
+          const call = (command: {
+            readonly action: "profile_start" | "profile_stop";
+            readonly kind: "cpu" | "trace";
+            readonly operationId: string;
+          }) => sessions.devtools(session.id, command);
+          const [started, concurrentRetry] = yield* Effect.all(
+            [call(start), call(start)],
+            { concurrency: "unbounded" }
+          );
+          expect(concurrentRetry).toEqual(started);
+          expect(yield* call(start)).toEqual(started);
+          expect(
+            yield* Effect.flip(
+              call({ ...start, kind: kind === "cpu" ? "trace" : "cpu" })
+            )
+          ).toMatchObject({ code: "agent_session_conflict" });
+          const secret = `private-${kind}-"\\-value`;
+          yield* Effect.tryPromise(() =>
+            page.evaluate((value) => {
+              performance.mark(value, { detail: { [value]: value } });
+              let total = 0;
+              for (let index = 0; index < 1_000_000; index += 1) {
+                total += index;
+              }
+              return total;
+            }, secret)
+          );
+          // A regular file at the directory path forces a real filesystem failure.
+          const directory = path.join(root, ".devtools");
+          yield* fs.writeFileString(directory, "block capture persistence");
+          const persist = toolkit
+            .handle("agent_browser_devtools", {
+              command: stop,
+              sessionId: session.id,
+            })
+            .pipe(Effect.flatMap(Stream.runLast));
+          expect(yield* Effect.flip(persist)).toMatchObject({
+            code: "agent_devtools_profile_write_failed",
+          });
+          const decodeCapture = Schema.decodeUnknownSync(
+            Schema.Struct({ data: Schema.String })
+          );
+          const captured = decodeCapture(yield* call(stop));
+          if (kind === "trace") {
+            expect(captured.data).toContain(
+              JSON.stringify(secret).slice(1, -1)
+            );
+          }
+          // Supplying a secret after stop must also scrub the retained receipt.
+          const requested = yield* sessionTool("agent_variable_request", {
+            name: `SECRET_${kind.toUpperCase()}`,
+            operationId: OperationId.make(`${kind}-request`),
+            purpose: "Verify capture redaction",
+            sessionId: session.id,
+          });
+          const variable = requested.setupVariables?.find(
+            (item) => item.name === `SECRET_${kind.toUpperCase()}`
+          );
+          if (variable === undefined) {
+            return yield* Effect.die("Missing Variable request");
+          }
+          yield* sessions.answerSetupVariable({
+            operationId: OperationId.make(`${kind}-supply`),
+            requestId: variable.requestId,
+            sessionId: session.id,
+            value: secret,
+          });
+          const redacted = decodeCapture(yield* call(stop));
+          expect(redacted.data).not.toContain(
+            JSON.stringify(secret).slice(1, -1)
+          );
+          if (kind === "trace") {
+            expect(redacted.data).toContain("[sensitive input]");
+            const trace = Schema.decodeUnknownSync(
+              Schema.Struct({
+                traceEvents: Schema.Array(
+                  Schema.Struct({ name: Schema.String })
+                ),
+              })
+            )(JSON.parse(redacted.data));
+            expect(
+              trace.traceEvents.some((event) => event.name === "Screenshot")
+            ).toBe(false);
+          }
+          expect(decodeCapture(yield* call(stop))).toEqual(redacted);
+          yield* fs.remove(directory);
+          const reference = yield* persist;
+          if (reference._tag === "None") {
+            return yield* Effect.die("Missing profile file");
+          }
+          const file = Schema.decodeUnknownSync(
+            Schema.Struct({ path: Schema.String })
+          )(reference.value.result);
+          expect(yield* fs.readFileString(file.path)).toBe(redacted.data);
+          // Conflicting stop requests must leave a later capture untouched.
+          const laterStart = { ...start, operationId: `${kind}-later-start` };
+          yield* call(laterStart);
+          expect(
+            yield* Effect.flip(
+              call({ ...stop, kind: kind === "cpu" ? "trace" : "cpu" })
+            )
+          ).toMatchObject({ code: "agent_session_conflict" });
+          const later = decodeCapture(
+            yield* call({ ...stop, operationId: `${kind}-later-stop` })
+          );
+          expect(JSON.parse(later.data)).toHaveProperty(
+            kind === "cpu" ? "nodes" : "traceEvents"
+          );
+          yield* fs.remove(directory, { recursive: true });
+        }
       }).pipe(
         Effect.scoped,
         Effect.provide(BrowserDevtoolsToolHandlersLive),

@@ -153,6 +153,7 @@ import {
   modificationKind,
   modificationRefusal,
 } from "./browser-modifications.ts";
+import { redactProfile } from "./browser-page-tools.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
@@ -6646,21 +6647,31 @@ const makeAgentSession = (
         command.action === "profile_start" ||
         command.action === "profile_stop"
       ) {
-        return observe(sessionId, (record) =>
-          browser
-            .profile(
-              record.browserSessionId,
-              command.kind,
-              command.action === "profile_start" ? "start" : "stop",
-              tabId
-            )
-            .pipe(
-              Effect.map((data) =>
-                command.action === "profile_start"
-                  ? { kind: command.kind, profiling: true }
-                  : { data, kind: command.kind }
+        const requestInput = JSON.stringify({ command, tabId });
+        return ledger.serializeMutation(
+          Effect.gen(function* captureProfile() {
+            const record = yield* requireLiveRecord(sessionId);
+            const data = yield* ledger.profile(
+              command.operationId,
+              sessionId,
+              requestInput,
+              browser.profile(
+                record.browserSessionId,
+                command.kind,
+                command.action === "profile_start" ? "start" : "stop",
+                tabId
               )
-            )
+            );
+            if (command.action === "profile_start") {
+              return { kind: command.kind, profiling: true };
+            }
+            // Secrets may have been supplied after capture or a failed write.
+            const current = yield* requireLiveRecord(sessionId);
+            return {
+              data: yield* redactProfile(data, sessionSensitiveValues(current)),
+              kind: command.kind,
+            };
+          })
         );
       }
       if (

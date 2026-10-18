@@ -39,7 +39,7 @@ export const redactDevtoolsText = (text: string, secrets: readonly string[]) =>
     ])
   );
 
-const redactHar = (
+export const redactDevtoolsJson = (
   value: Schema.Json,
   secrets: readonly string[]
 ): Schema.Json => {
@@ -47,7 +47,7 @@ const redactHar = (
     return redactDevtoolsText(value, secrets);
   }
   if (Array.isArray(value)) {
-    return value.map((item: Schema.Json) => redactHar(item, secrets));
+    return value.map((item: Schema.Json) => redactDevtoolsJson(item, secrets));
   }
   if (
     value === null ||
@@ -59,7 +59,7 @@ const redactHar = (
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       redactDevtoolsText(key, secrets),
-      redactHar(item, secrets),
+      redactDevtoolsJson(item, secrets),
     ])
   );
 };
@@ -438,7 +438,7 @@ export const makeTabDevtools = (
       Effect.gen(function* stopCapture() {
         const current = registry.get(state);
         if (current.stopped?.id === id) {
-          return redactHar(current.stopped.har, secrets);
+          return redactDevtoolsJson(current.stopped.har, secrets);
         }
         if (current.capture === undefined) {
           return yield* Effect.fail(

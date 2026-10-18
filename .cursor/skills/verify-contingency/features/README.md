@@ -87,4 +87,4 @@ Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoo
 - [Browser Modifications](workspace.md#browser-modifications) proves active dock badges, route removal, and persisted Summary activity through the code-only agent tool and Workspace.
 
 - [Browser evaluation](workspace.md#browser-evaluation) proves computed-style reads without a pause, per-attempt Confirmation, blocked requests, and irreversible Summary evidence.
-- [Browser tools](workspace.md#browser-tools) proves popup tabs, download evidence, Catalog Root and confirmed uploads, the page clipboard, and CPU profile files.
+- [Browser tools](workspace.md#browser-tools) proves popup tabs, download evidence, Catalog Root and confirmed uploads, the page clipboard, CPU profile replay, and trace files without screenshots.

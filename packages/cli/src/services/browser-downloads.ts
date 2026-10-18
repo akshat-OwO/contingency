@@ -34,8 +34,8 @@ export const safeDownloadName = (suggested: string): string => {
 };
 
 /**
- * Save one download into `directory` and describe it. Names are numbered in
- * arrival order so two downloads with one name both survive.
+ * Save one download into `directory` and describe it. Disk basenames use only
+ * the arrival index so page-chosen names cannot expose secrets through paths.
  */
 export const saveDownload = (
   event: BrowserDownloadEvent,
@@ -50,7 +50,9 @@ export const saveDownload = (
   Effect.gen(function* saveBrowserDownload() {
     const fs = yield* FileSystem.FileSystem;
     const { download } = event;
-    const name = safeDownloadName(download.suggestedFilename());
+    const name = safeDownloadName(
+      redactDevtoolsText(download.suggestedFilename(), options.secrets)
+    );
     const url = download.url();
     const type =
       options.requests.findLast((request) => request.url === url)?.mimeType ??
@@ -58,9 +60,9 @@ export const saveDownload = (
     const base = {
       at: options.at,
       id: `download-${options.index}`,
-      name: redactDevtoolsText(name, options.secrets),
+      name,
       tabId: event.tabId,
-      type,
+      type: redactDevtoolsText(type, options.secrets),
       url: redactDevtoolsText(url, options.secrets),
     };
     const { directory } = options;
@@ -74,7 +76,7 @@ export const saveDownload = (
         state: "failed",
       } satisfies SavedDownload;
     }
-    const file = path.join(directory, `${options.index}-${name}`);
+    const file = path.join(directory, base.id);
     const saved = yield* fs
       .makeDirectory(directory, { recursive: true })
       .pipe(
@@ -88,7 +90,10 @@ export const saveDownload = (
       );
       return {
         ...base,
-        error: reason ?? "The download did not finish.",
+        error: redactDevtoolsText(
+          reason ?? "The download did not finish.",
+          options.secrets
+        ),
         path: null,
         size: null,
         state: "failed",

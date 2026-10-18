@@ -1,7 +1,14 @@
 // Prove tabs, downloads, uploads, clipboard, and profiling through the code tool.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -104,6 +111,9 @@ await Effect.runPromise(
     const outside = path.join(outsideDir, "outside-receipt.txt");
     yield* io(() => mkdir(catalog, { recursive: true }));
     yield* io(() => mkdir(outsideDir, { recursive: true }));
+    yield* Effect.addFinalizer(() =>
+      io(() => rm(outsideDir, { force: true, recursive: true }))
+    );
     yield* io(() => writeFile(inside, "hello"));
     yield* io(() => writeFile(outside, "outside!"));
     const url = new URL("tools.html", instance.ecommerceUrl).href;
@@ -243,6 +253,39 @@ await Effect.runPromise(
     assert.ok(
       JSON.parse(yield* io(() => readFile(profile.path, "utf-8"))).nodes
     );
+    const replayedProfile = yield* program(
+      "profile-stop-replay",
+      devtools({
+        action: "profile_stop",
+        kind: "cpu",
+        operationId: "tools-proof-cpu-stop",
+      })
+    );
+    assert.deepEqual(replayedProfile, profile);
+    yield* program(
+      "trace-start",
+      devtools({
+        action: "profile_start",
+        kind: "trace",
+        operationId: "tools-proof-trace-start",
+      })
+    );
+    const trace = yield* program(
+      "trace-stop",
+      devtools({
+        action: "profile_stop",
+        kind: "trace",
+        operationId: "tools-proof-trace-stop",
+      })
+    );
+    assert.equal(trace.format, "trace");
+    const traceData = JSON.parse(
+      yield* io(() => readFile(trace.path, "utf-8"))
+    );
+    assert.ok(Array.isArray(traceData.traceEvents));
+    assert.ok(
+      traceData.traceEvents.every((event) => event.name !== "Screenshot")
+    );
     yield* command("browser", "wait", "--text", "2 uploads · clipboard");
     yield* capture("active");
 
@@ -276,6 +319,7 @@ await Effect.runPromise(
       profile: profile.path,
       runId: summary.runId,
       sessionId: run.id,
+      trace: trace.path,
     };
     yield* io(() =>
       writeFile(
@@ -285,6 +329,7 @@ await Effect.runPromise(
     );
     process.stdout.write(`${JSON.stringify(result)}\n`);
   }).pipe(
+    Effect.scoped,
     Effect.ensuring(
       io(() =>
         writeFile(
