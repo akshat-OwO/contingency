@@ -18,7 +18,12 @@ import type {
 } from "@contingency/protocol";
 import type { Semaphore } from "effect";
 import { Effect, Option, PubSub, Ref, Result, Schema } from "effect";
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import type {
+  BrowserContext,
+  CDPSession,
+  Locator,
+  Page,
+} from "playwright-core";
 
 import type { TabDevtools } from "./browser-devtools.ts";
 import {
@@ -305,6 +310,70 @@ const requireEmulationSession = (session: CreateSession, page: Page) =>
     })();
     session.emulationSessions.set(page, created);
     return created;
+  });
+
+export interface PageCaptureOptions {
+  readonly format: "jpeg" | "png";
+  readonly mask?: readonly Locator[];
+  readonly maskColor?: string;
+}
+
+const CAPTURE_MASK_ATTRIBUTE = "data-contingency-capture-mask";
+
+/**
+ * Capture through the CDP session that owns the Page's device metrics.
+ * Playwright's own capture reapplies its tracked viewport, which would drop
+ * page zoom from both the image and the live Page.
+ */
+export const capturePage = (
+  session: CreateSession,
+  page: Page,
+  options: PageCaptureOptions
+) =>
+  Effect.gen(function* captureEmulatedPage() {
+    const cdp = yield* requireEmulationSession(session, page);
+    return yield* tryBrowser("Could not capture a screenshot", async () => {
+      const color = options.maskColor ?? "#000000";
+      try {
+        await Promise.all(
+          (options.mask ?? []).map((locator) =>
+            locator.evaluateAll(
+              (elements, [attribute, fill]) => {
+                for (const element of elements) {
+                  const rect = element.getBoundingClientRect();
+                  const box = element.ownerDocument.createElement("div");
+                  box.setAttribute(attribute, "");
+                  box.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;background:${fill};pointer-events:none;z-index:2147483647`;
+                  element.ownerDocument.documentElement.append(box);
+                }
+              },
+              [CAPTURE_MASK_ATTRIBUTE, color] as const
+            )
+          )
+        );
+        const { data } = await cdp.send("Page.captureScreenshot", {
+          format: options.format,
+        });
+        return Buffer.from(data, "base64");
+      } finally {
+        await page
+          .locator(`[${CAPTURE_MASK_ATTRIBUTE}]`)
+          .evaluateAll((boxes) => {
+            for (const box of boxes) {
+              box.remove();
+            }
+          })
+          .catch(() => null);
+      }
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () =>
+          Effect.fail(
+            browserFailure("Could not capture a screenshot", "timed out")
+          ),
+      })
+    );
   });
 
 /**

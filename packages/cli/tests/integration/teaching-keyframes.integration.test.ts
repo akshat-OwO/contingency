@@ -253,18 +253,17 @@ for (const delayed of [false, true]) {
             if (browserId === undefined) {
               return yield* Effect.die("Teaching did not open a browser.");
             }
-            const page = yield* browser.activePage(browserId);
             // The click's keyframe must show the Page before the delayed render,
             // so the render waits until that screenshot has been taken.
             const photographed = yield* Deferred.make<true>();
-            const screenshot = page.screenshot.bind(page);
+            const capture = browser.capturePage.bind(browser);
             const screenshots = vi
-              .spyOn(page, "screenshot")
-              .mockImplementation(async (...args) => {
-                const image = await screenshot(...args);
-                await Effect.runPromise(Deferred.succeed(photographed, true));
-                return image;
-              });
+              .spyOn(browser, "capturePage")
+              .mockImplementation((...args) =>
+                capture(...args).pipe(
+                  Effect.tap(() => Deferred.succeed(photographed, true))
+                )
+              );
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => screenshots.mockRestore())
             );

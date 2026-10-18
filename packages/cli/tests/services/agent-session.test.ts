@@ -119,6 +119,7 @@ const makeFakeBrowser = (options?: {
       return Effect.fail(failure);
     },
     activeTarget: () => Effect.fail(failure),
+    capturePage: notUnderTest,
     clearStorage: notUnderTest,
     close: (sessionId) => {
       if (blockClose === undefined) {

@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Stream } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-browser.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import {
@@ -106,6 +107,95 @@ it.live(
         columns: 2,
         fixed: "16px",
         relative: "32px",
+        width: 1280,
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(CreateBrowserLive),
+      Effect.provide(NodeServices.layer)
+    )
+);
+
+it.live(
+  "captures agent screenshots at 400% zoom and keeps the page zoomed",
+  () =>
+    Effect.gen(function* zoomedScreenshot() {
+      const fixture = yield* fixtureServer;
+      const browser = yield* CreateBrowser;
+      const id = yield* browser.create(
+        "create-scale-screenshot",
+        scaleViewport,
+        true
+      );
+      yield* Effect.addFinalizer(() => browser.close(id).pipe(Effect.ignore));
+      const { page } = yield* browser.activeTarget(id);
+      yield* Effect.tryPromise(() =>
+        page.goto(fixture.url("emulation-scale.html"))
+      );
+      yield* Effect.tryPromise(() =>
+        page.evaluate(`(() => {
+          const input = document.createElement("input");
+          input.type = "password";
+          input.value = "hunter22";
+          input.style.cssText = "display:block;width:200px;height:40px;background:#fff;border:0";
+          document.body.prepend(input);
+        })()`)
+      );
+      yield* browser.setEmulation(id, { pageZoom: 400 });
+      const read = () =>
+        Effect.tryPromise(() =>
+          page.evaluate<Record<string, number>>(`(() => ({
+              columns: getComputedStyle(document.querySelector("main"))
+                .gridTemplateColumns.split(" ").length,
+              dpr: devicePixelRatio,
+              masks: document.querySelectorAll("[data-contingency-capture-mask]").length,
+              width: innerWidth,
+            }))()`)
+        );
+      const zoomed = { columns: 1, dpr: 4, masks: 0, width: 320 };
+      expect(yield* read()).toEqual(zoomed);
+      const agent = yield* makeChromiumAgentBrowser({
+        browser,
+        now: () => new Date(),
+        scope: yield* Effect.scope,
+        sessionId: id,
+      });
+      const tab = yield* agent.active();
+      const plain = yield* tab.screenshot(false, [], []);
+      const masked = yield* tab.screenshot(true, [], []);
+      expect(yield* read()).toEqual(zoomed);
+      expect(yield* browser.getEmulation(id)).toMatchObject({ pageZoom: 400 });
+      // Decode both captures in the page: device pixels are CSS × zoom, and
+      // the password field is painted black only in the masked capture.
+      const sample = (image: string) =>
+        Effect.tryPromise(() =>
+          page.evaluate<{ height: number; pixel: number[]; width: number }>(
+            `(async () => {
+              const field = document.querySelector("input").getBoundingClientRect();
+              const bitmap = await createImageBitmap(
+                await (await fetch("data:image/png;base64,${image}")).blob()
+              );
+              const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+              const context = canvas.getContext("2d");
+              context.drawImage(bitmap, 0, 0);
+              const x = Math.round((field.left + field.width / 2) * devicePixelRatio);
+              const y = Math.round((field.top + field.height / 2) * devicePixelRatio);
+              return {
+                height: bitmap.height,
+                pixel: [...context.getImageData(x, y, 1, 1).data.slice(0, 3)],
+                width: bitmap.width,
+              };
+            })()`
+          )
+        );
+      expect(yield* sample(plain.image)).toEqual({
+        height: 800,
+        pixel: [255, 255, 255],
+        width: 1280,
+      });
+      expect(yield* sample(masked.image)).toEqual({
+        height: 800,
+        pixel: [0, 0, 0],
         width: 1280,
       });
     }).pipe(

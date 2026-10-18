@@ -87,10 +87,11 @@ export interface TeachingRecorderBrowser {
           "start" | "stop"
         >;
       };
-      readonly page: Pick<BrowserTarget["page"], "screenshot" | "url">;
+      readonly page: Pick<BrowserTarget["page"], "url">;
     },
     BrowserRpcErrorType
   >;
+  readonly capturePage: CreateBrowserService["capturePage"];
 }
 
 export interface TeachingRecorderOptions {
@@ -521,21 +522,19 @@ export const makeTeachingRecorder = (
           // A quick Stop can precede Chromium's first repaint. Photograph the
           // current Page only for empty input, before closing the encoder.
           if ((yield* encoder.bytesWritten) === 0) {
-            yield* options.browser.activeTarget(options.browserSessionId).pipe(
-              Effect.flatMap(({ page }) =>
-                Effect.tryPromise({
-                  catch: (cause) =>
-                    browserFailure(
-                      "Could not capture the Teaching stop frame",
-                      cause
-                    ),
-                  try: () => page.screenshot({ timeout: 10_000, type: "jpeg" }),
-                })
-              ),
-              Effect.flatMap(encoder.write),
-              Effect.tapError((cause) => Ref.set(failure, cause.message)),
-              Effect.ignore
-            );
+            yield* options.browser
+              .capturePage(options.browserSessionId, { format: "jpeg" })
+              .pipe(
+                Effect.mapError((cause) =>
+                  browserFailure(
+                    "Could not capture the Teaching stop frame",
+                    cause
+                  )
+                ),
+                Effect.flatMap(encoder.write),
+                Effect.tapError((cause) => Ref.set(failure, cause.message)),
+                Effect.ignore
+              );
           }
           yield* Scope.close(scope, Exit.void);
           const encoderFailure = yield* encoder.failure;

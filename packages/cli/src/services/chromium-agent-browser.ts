@@ -94,6 +94,12 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
               screenshot: (maskSensitive, privateValues, privateSelectors) =>
                 captureAgentScreenshot(
                   page,
+                  (mask) =>
+                    browser.capturePage(
+                      sessionId,
+                      { format: "png", mask },
+                      page
+                    ),
                   now,
                   maskSensitive,
                   privateValues,

@@ -25,6 +25,7 @@ import { Context } from "effect";
 import type { BrowserContext, Page } from "playwright-core";
 
 import type { TabDevtools } from "./browser-devtools.ts";
+import type { PageCaptureOptions } from "./create-browser-session.ts";
 
 /**
  * The session's active tab, handed over as the three things a caller that
@@ -86,6 +87,15 @@ export interface CreateBrowserService {
   readonly activePage: (
     sessionId: SessionId
   ) => Effect.Effect<Page, BrowserRpcErrorType>;
+  /**
+   * Capture a Page, or the active tab, under its live Emulation, including
+   * page zoom, with the given elements painted over.
+   */
+  readonly capturePage: (
+    sessionId: SessionId,
+    options: PageCaptureOptions,
+    page?: Page
+  ) => Effect.Effect<Buffer, BrowserRpcErrorType>;
   readonly clearStorage: (
     sessionId: SessionId,
     tabId: BrowserTabId,

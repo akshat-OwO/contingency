@@ -62,6 +62,7 @@ import {
   readSessionState,
   reapplyEmulation,
   reapplyViewport,
+  capturePage,
   requirePage,
   tabs,
   toSessionEmulation,
@@ -643,6 +644,12 @@ const makeService = (
           performanceEndpoint: session.performanceEndpoint,
           tabId,
         };
+      }),
+    capturePage: (sessionId, options, page) =>
+      Effect.gen(function* captureSessionPage() {
+        const session = yield* requireSession(sessionId);
+        const target = page ?? (yield* Ref.get(session.state)).activePage;
+        return yield* capturePage(session, target, options);
       }),
     clearStorage: storage.clear,
     close: closeSession,

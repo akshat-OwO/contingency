@@ -90,10 +90,11 @@ for (const scenario of scenarios) {
             stop: () => Promise.resolve(),
           },
         },
-        page: { screenshot, url: () => "about:blank" },
+        page: { url: () => "about:blank" },
       };
       const browser = {
         activeTarget: () => Effect.succeed(target),
+        capturePage: () => Effect.promise(screenshot),
         // Like the real stream, lead with the live status. Signal after the
         // consumer has processed all frames supplied here.
         stream: () =>
@@ -182,12 +183,12 @@ it.effect("starts recording only once its screencast is live", () =>
         },
       },
       page: {
-        screenshot: () => Promise.resolve(Buffer.from(frame)),
         url: () => "about:blank",
       },
     };
     const browser = {
       activeTarget: () => Effect.succeed(target),
+      capturePage: () => Effect.succeed(Buffer.from(frame)),
       // The status arrives only once the test says the screencast started.
       stream: () =>
         Stream.fromEffect(
@@ -251,7 +252,6 @@ it.effect("fails Start when its screencast fails before going live", () =>
         },
       },
       page: {
-        screenshot: () => Promise.reject(new Error("Start never went live.")),
         url: () => "about:blank",
       },
     };
@@ -259,6 +259,13 @@ it.effect("fails Start when its screencast fails before going live", () =>
       makeTeachingRecorder({
         browser: {
           activeTarget: () => Effect.succeed(target),
+          capturePage: () =>
+            Effect.fail(
+              makeBrowserRpcError(
+                "agent_browser_failed",
+                "Start never went live."
+              )
+            ),
           stream: () => Stream.fail(refused),
         },
         browserSessionId: SessionId.make("create-refused-capture"),
