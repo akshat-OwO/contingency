@@ -26,6 +26,7 @@ import {
   Exit,
   FileSystem,
   Layer,
+  Option,
   PubSub,
   Ref,
   Semaphore,
@@ -39,6 +40,7 @@ import type {
   CDPSession,
   LaunchOptions,
   Page,
+  Request,
 } from "playwright-core";
 
 import { evaluateBrowserScript } from "./browser-evaluation.ts";
@@ -406,9 +408,39 @@ const makeService = (
       yield* Ref.update(sessions, (current) =>
         new Map(current).set(decoded, session)
       );
+      // A popup's first request precedes its "page" event. Hold requests from
+      // Pages the session does not know yet, so the new tab's buffer has them.
+      // Playwright cannot name the frame of a popup's first navigation, so
+      // those wait unowned until a new Page opens at their URL.
+      const early = new WeakMap<Page, Request[]>();
+      let unowned: Request[] = [];
+      context.on("request", (request) => {
+        if (request.serviceWorker() !== null) {
+          return;
+        }
+        const owner = Option.liftThrowable(() => request.frame().page())();
+        if (Option.isNone(owner)) {
+          if (request.isNavigationRequest()) {
+            unowned = [...unowned, request].slice(-16);
+          }
+          return;
+        }
+        if (!readSessionState(session).pageIds.has(owner.value)) {
+          early.set(owner.value, [...(early.get(owner.value) ?? []), request]);
+        }
+      });
       context.on("page", (newPage) => {
         if (!readSessionState(session).pageIds.has(newPage)) {
-          initializePage(session, newPage);
+          const navigation = unowned.filter(
+            (request) => request.url() === newPage.url()
+          );
+          const adopted = new Set(navigation);
+          unowned = unowned.filter((request) => !adopted.has(request));
+          initializePage(session, newPage, [
+            ...navigation,
+            ...(early.get(newPage) ?? []),
+          ]);
+          early.delete(newPage);
         }
       });
       initializePage(session, page);
