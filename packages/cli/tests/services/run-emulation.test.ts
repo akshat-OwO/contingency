@@ -88,3 +88,46 @@ it.effect(
       expect(conflict.message).toContain("separate Runs");
     })
 );
+
+it.effect(
+  "validates scale ranges and compares saved percentages with legacy defaults",
+  () =>
+    Effect.gen(function* validateScale() {
+      const base = "emulation:\n  viewport: 1280x800@1";
+      const selected = yield* startingRunEmulation([
+        skill("scaled", `${base}\n  pageZoom: 400\n  textScale: 200`),
+      ]);
+      expect(selected.emulation).toMatchObject({
+        pageZoom: 400,
+        textScale: 200,
+      });
+      expect(
+        (yield* startingRunEmulation([
+          skill("legacy", base),
+          skill("explicit", `${base}\n  pageZoom: 100\n  textScale: 100`),
+        ])).source
+      ).toBe("legacy");
+      for (const declaration of [
+        "pageZoom: 24",
+        "pageZoom: 501",
+        "pageZoom: invalid",
+        "textScale: 49",
+        "textScale: 301",
+        "textScale: NaN",
+      ]) {
+        expect(
+          yield* Effect.flip(
+            skillRunEmulation(skill("invalid", `${base}\n  ${declaration}`))
+          )
+        ).toHaveProperty("code", "flow_skill_invalid");
+      }
+      expect(
+        (yield* Effect.flip(
+          startingRunEmulation([
+            skill("base", base),
+            skill("scaled", `${base}\n  textScale: 200`),
+          ])
+        )).message
+      ).toContain("textScale");
+    })
+);

@@ -199,6 +199,8 @@ export interface CreateBrowserService {
   readonly setEmulation: (
     sessionId: SessionId,
     patch: {
+      readonly pageZoom?: number | undefined;
+      readonly textScale?: number | undefined;
       readonly colorScheme?: "light" | "dark" | null | undefined;
       readonly geolocation?: Geolocation | null | undefined;
       readonly locale?: string | null | undefined;

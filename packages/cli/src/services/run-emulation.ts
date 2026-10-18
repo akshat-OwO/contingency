@@ -55,9 +55,11 @@ export const skillRunEmulation = (skill: SkillEnvironment) =>
             ? undefined
             : definedFields({ ...saved.geolocation }),
         locale: saved.locale,
+        pageZoom: saved.pageZoom ?? 100,
         permissions: saved.permissions.map((decision) =>
           definedFields({ ...decision })
         ),
+        textScale: saved.textScale ?? 100,
         timezoneId: saved.timezone,
         userAgentProfile: saved.userAgentProfile ?? "default",
         viewport: saved.viewport,
@@ -127,10 +129,18 @@ export const emulationDifferences = (
     "timezoneId",
     "userAgentProfile",
   ] as const;
-  const differences: string[] = fields.filter(
-    (field) =>
-      JSON.stringify(current[field] ?? null) !==
-      JSON.stringify(expected[field] ?? null)
+  const differences: string[] = [];
+  for (const field of ["pageZoom", "textScale"] as const) {
+    if ((current[field] ?? 100) !== (expected[field] ?? 100)) {
+      differences.push(field);
+    }
+  }
+  differences.push(
+    ...fields.filter(
+      (field) =>
+        JSON.stringify(current[field] ?? null) !==
+        JSON.stringify(expected[field] ?? null)
+    )
   );
   if (!sameViewport(current.viewport, expected.viewport)) {
     differences.push("viewport");

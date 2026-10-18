@@ -58,6 +58,9 @@ export interface Screencast {
 
 export interface CreateSessionState {
   readonly activePage: Page;
+  /** Percentages, independent of the device's viewport and pixel density. */
+  readonly pageZoom: number;
+  readonly textScale: number;
   /** The colour scheme Pages are fed through `prefers-color-scheme`. */
   readonly colorScheme: "light" | "dark" | undefined;
   /**
@@ -343,11 +346,18 @@ export const applyViewport = (
       })
     );
     const cdp = yield* requireEmulationSession(session, page);
+    // Browser zoom divides CSS layout dimensions while multiplying pixel
+    // density. Screen dimensions stay fixed, and pinch scale stays at one.
+    const zoom = readSessionState(session).pageZoom / 100;
     yield* tryBrowser("Could not set the viewport", () =>
-      cdp.send(
-        "Emulation.setDeviceMetricsOverride",
-        deviceMetricsOverride(identity, viewport)
-      )
+      cdp.send("Emulation.setDeviceMetricsOverride", {
+        ...deviceMetricsOverride(identity, viewport),
+        deviceScaleFactor: viewport.deviceScaleFactor * zoom,
+        height: Math.max(1, Math.round(viewport.height / zoom)),
+        screenHeight: viewport.height,
+        screenWidth: viewport.width,
+        width: Math.max(1, Math.round(viewport.width / zoom)),
+      })
     );
   });
 
@@ -380,9 +390,18 @@ export const applyEnvironment = (
   page: Page
 ): Effect.Effect<void, BrowserRpcErrorType> =>
   Effect.gen(function* applyPageEnvironment() {
-    const { colorScheme, geolocation, locale, timezoneId } =
+    const { colorScheme, geolocation, locale, timezoneId, textScale } =
       readSessionState(session);
     const cdp = yield* requireEmulationSession(session, page);
+    // Change Chromium's default font, preserving author-specified px sizes.
+    yield* tryBrowser("Could not set text scale", () =>
+      cdp.send("Page.setFontSizes", {
+        fontSizes: {
+          fixed: Math.round((13 * textScale) / 100),
+          standard: Math.round((16 * textScale) / 100),
+        },
+      })
+    );
     yield* geolocation === undefined
       ? tryBrowser("Could not clear the location override", () =>
           cdp.send("Emulation.clearGeolocationOverride")
@@ -631,7 +650,9 @@ export const toSessionEmulation = (
   state: CreateSessionState
 ): SessionEmulation => {
   let emulation: SessionEmulation = {
+    pageZoom: state.pageZoom,
     permissions: [...state.permissions],
+    textScale: state.textScale,
     viewport: state.viewport,
   };
   if (state.colorScheme !== undefined) {

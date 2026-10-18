@@ -115,6 +115,13 @@ export const Geolocation = Schema.Struct({
 });
 export type Geolocation = typeof Geolocation.Type;
 
+export const PageZoom = Schema.Finite.check(
+  Schema.isBetween({ maximum: 500, minimum: 25 })
+);
+export const TextScale = Schema.Finite.check(
+  Schema.isBetween({ maximum: 300, minimum: 50 })
+);
+
 /**
  * The device and environment characteristics a Flow declares and every Run
  * reproduces ([ADR 0013](../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
@@ -133,9 +140,11 @@ export const Emulation = Schema.Struct({
   colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
   geolocation: optionalNullable(Geolocation),
   locale: optionalNullable(nonEmptyString),
+  pageZoom: Schema.optionalKey(PageZoom),
   permissions: optionalNullable(
     PermissionDecisions.check(Schema.isMinLength(1))
   ),
+  textScale: Schema.optionalKey(TextScale),
   timezoneId: optionalNullable(nonEmptyString),
   userAgent: optionalNullable(nonEmptyString),
   viewport: optionalNullable(Viewport),
@@ -153,7 +162,9 @@ export const DraftEmulation = Schema.Struct({
   colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
   geolocation: optionalNullable(Geolocation),
   locale: optionalNullable(nonEmptyString),
+  pageZoom: Schema.optionalKey(PageZoom),
   permissions: PermissionDecisions,
+  textScale: Schema.optionalKey(TextScale),
   timezoneId: optionalNullable(nonEmptyString),
   userAgentProfile: UserAgentProfileId,
   viewport: Viewport,

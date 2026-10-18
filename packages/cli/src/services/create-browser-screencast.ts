@@ -123,14 +123,17 @@ const startUnlocked = (session: CreateSession) =>
       if (sequence === undefined) {
         return;
       }
+      const zoom = readSessionState(session).pageZoom / 100;
+      // Frames display at the declared viewport size; Page coordinates stay
+      // in the smaller CSS viewport used for browser-zoom reflow.
       Effect.runSync(
         PubSub.publish<BrowserFrame>(session.frames, {
           data: Buffer.from(frame.data, "base64"),
           metadata: {
-            deviceHeight: Math.trunc(frame.metadata.deviceHeight),
-            deviceWidth: Math.trunc(frame.metadata.deviceWidth),
-            offsetTop: frame.metadata.offsetTop,
-            pageScaleFactor: frame.metadata.pageScaleFactor,
+            deviceHeight: Math.round(frame.metadata.deviceHeight * zoom),
+            deviceWidth: Math.round(frame.metadata.deviceWidth * zoom),
+            offsetTop: frame.metadata.offsetTop * zoom,
+            pageScaleFactor: frame.metadata.pageScaleFactor * zoom,
             scrollOffsetX: frame.metadata.scrollOffsetX,
             scrollOffsetY: frame.metadata.scrollOffsetY,
             timestamp: frame.metadata.timestamp ?? Date.now() / 1000,

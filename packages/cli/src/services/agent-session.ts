@@ -305,6 +305,8 @@ export interface AgentAppliedEmulation {
 }
 
 export interface AgentEmulationPatch {
+  readonly pageZoom?: number | undefined;
+  readonly textScale?: number | undefined;
   readonly colorScheme?: "light" | "dark" | null | undefined;
   readonly geolocation?: Geolocation | null | undefined;
   readonly locale?: string | null | undefined;
@@ -849,7 +851,9 @@ const draftFromApplied = (
   applied: SessionEmulation
 ): DraftEmulation => {
   let draft: DraftEmulation = {
+    pageZoom: applied.pageZoom ?? 100,
     permissions: applied.permissions,
+    textScale: applied.textScale ?? 100,
     userAgentProfile,
     viewport: applied.viewport,
   };
@@ -6512,8 +6516,120 @@ const makeAgentSession = (
             browser.deleteStorage(record.browserSessionId, tabId, input)
           )
         ),
-      devtools: (sessionId, command, tabId) =>
-        observe(sessionId, (record) =>
+      devtools: (sessionId, command, tabId) => {
+        if (command.action === "emulation_get") {
+          return requireLiveRecord(sessionId).pipe(
+            Effect.flatMap((record) =>
+              browser.getEmulation(record.browserSessionId)
+            )
+          );
+        }
+        if (command.action === "emulation_set") {
+          return ledger.serializeMutation(
+            Effect.gen(function* changeAgentEmulation() {
+              if (tabId !== undefined) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_invalid",
+                    "Emulation applies to the whole session; omit tabId."
+                  )
+                );
+              }
+              yield* ledger.session(
+                command.operationId,
+                "emulation",
+                sessionId,
+                JSON.stringify(command),
+                Effect.gen(function* applyAgentEmulation() {
+                  const record = yield* requireLiveRecord(sessionId);
+                  if (
+                    userLedTeaching(record.snapshot) ||
+                    agentIsPaused(record.snapshot)
+                  ) {
+                    return yield* Effect.fail(
+                      takenOver(
+                        "Emulation can only be changed by the browser's controller."
+                      )
+                    );
+                  }
+                  if (
+                    runIsOver(record.snapshot) ||
+                    record.snapshot.dryRun !== null
+                  ) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "A Dry Run reproduces its saved Emulation and cannot change it. Ended Runs cannot change Emulation."
+                      )
+                    );
+                  }
+                  if (
+                    record.snapshot.activity === "teaching" &&
+                    record.snapshot.captureState._tag !== "setup"
+                  ) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "Emulation is fixed from Start to Stop during Teaching."
+                      )
+                    );
+                  }
+                  const applied = yield* browser.setEmulation(
+                    record.browserSessionId,
+                    { pageZoom: command.pageZoom, textScale: command.textScale }
+                  );
+                  const after = draftFromApplied(
+                    record.emulation.userAgentProfile,
+                    applied
+                  );
+                  yield* rememberEmulation(sessionId, after);
+                  const at = now().toISOString();
+                  const snapshot = yield* recordEntry(
+                    sessionId,
+                    {
+                      actor: "agent",
+                      at,
+                      description: `Set page zoom to ${after.pageZoom}% and text scale to ${after.textScale}%`,
+                      dispatched: true,
+                      id: command.operationId,
+                      outcome: "completed",
+                    },
+                    record.snapshot.run !== null &&
+                      isTaskRun(record.snapshot.run)
+                      ? {
+                          run: {
+                            ...record.snapshot.run,
+                            emulationChanges: [
+                              ...(record.snapshot.run.emulationChanges ?? []),
+                              {
+                                actor: "agent",
+                                after,
+                                at,
+                                before: record.emulation,
+                                id: `emulation-${command.operationId}`,
+                                operationId: command.operationId,
+                              },
+                            ],
+                          },
+                        }
+                      : {}
+                  );
+                  yield* ledger.rememberSession(
+                    command.operationId,
+                    "emulation",
+                    sessionId,
+                    JSON.stringify(command),
+                    snapshot
+                  );
+                  return snapshot;
+                })
+              );
+              const record = yield* requireLiveRecord(sessionId);
+              return yield* browser.getEmulation(record.browserSessionId);
+            })
+          );
+        }
+        return observe(sessionId, (record) =>
           Effect.gen(function* observeDevtools() {
             const tools = yield* browser.devtools(
               record.browserSessionId,
@@ -6581,7 +6697,8 @@ const makeAgentSession = (
               }
             }
           })
-        ),
+        );
+      },
       discardTeachingRecording: (sessionId, operationId) =>
         ledger.serializeMutation(
           discardTeachingRecordingUnlocked(
@@ -7594,7 +7711,9 @@ const makeAgentSession = (
                 colorScheme: patch.colorScheme,
                 geolocation: patch.geolocation,
                 locale: patch.locale,
+                pageZoom: patch.pageZoom,
                 permissions: patch.permissions,
+                textScale: patch.textScale,
                 timezoneId: patch.timezoneId,
               }
             );
