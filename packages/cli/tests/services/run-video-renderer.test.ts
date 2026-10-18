@@ -78,6 +78,7 @@ it.live("promotes footage to the Run video when condensing cannot start", () =>
     yield* renderer.settled(directory).pipe(Effect.timeout("30 seconds"));
     expect(yield* renderer.status(directory)).toEqual({
       condensed: false,
+      path: path.resolve(directory, RUN_VIDEO_FILE),
       reason:
         "The footage manifest could not be read: The footage manifest is not valid JSON.",
       state: "ready",
@@ -191,6 +192,7 @@ it.live(
         yield* renderer.settled(directory).pipe(Effect.timeout("10 seconds"));
         expect(yield* renderer.status(directory)).toEqual({
           condensed: false,
+          path: path.resolve(directory, RUN_VIDEO_FILE),
           reason:
             "The footage manifest could not be read: The footage manifest is not valid JSON.",
           state: "ready",
@@ -277,6 +279,7 @@ it.live("settles an already available video without starting a render", () =>
     yield* renderer.settled(directory).pipe(Effect.timeout("30 seconds"));
     expect(yield* renderer.status(directory)).toEqual({
       condensed: true,
+      path: path.resolve(directory, RUN_VIDEO_FILE),
       state: "ready",
     });
     expect(yield* fileSystem.exists(path.join(directory, LOCK_FILE))).toBe(

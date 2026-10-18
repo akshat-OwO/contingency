@@ -48,12 +48,14 @@ const statusOf = (directory: string, videoName: string) =>
       return yield* renderer.status(directory);
     }
     const fileSystem = yield* FileSystem.FileSystem;
+    const video = path.resolve(directory, videoName);
     const present = yield* fileSystem
-      .exists(path.join(directory, videoName))
+      .exists(video)
       .pipe(Effect.orElseSucceed(() => false));
     return present
       ? ({
           condensed: false,
+          path: video,
           reason: "This Run was recorded before Run videos were condensed.",
           state: "ready",
         } satisfies RunVideoStatus)

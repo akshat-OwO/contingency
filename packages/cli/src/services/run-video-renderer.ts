@@ -441,7 +441,8 @@ export const RunVideoRendererLive = Layer.effect(
         if (inFlight.has(path.resolve(directory))) {
           return { state: "preparing" } satisfies RunVideoStatus;
         }
-        if (yield* exists(path.join(directory, RUN_VIDEO_FILE))) {
+        const video = path.resolve(directory, RUN_VIDEO_FILE);
+        if (yield* exists(video)) {
           const fallback = yield* fileSystem
             .readFileString(path.join(directory, FALLBACK_FILE))
             .pipe(
@@ -449,9 +450,14 @@ export const RunVideoRendererLive = Layer.effect(
               Effect.option
             );
           return Option.match(fallback, {
-            onNone: (): RunVideoStatus => ({ condensed: true, state: "ready" }),
+            onNone: (): RunVideoStatus => ({
+              condensed: true,
+              path: video,
+              state: "ready",
+            }),
             onSome: ({ reason }): RunVideoStatus => ({
               condensed: false,
+              path: video,
               reason: reason.trim() || "The video could not be condensed.",
               state: "ready",
             }),

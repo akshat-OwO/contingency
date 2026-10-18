@@ -70,6 +70,7 @@ Commands:
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
   browser skills-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
+  browser video-layout-check --path <directory> [--allow-overflow]
   browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
   browser download --role <role> --name <name> --path <file> [--partial]
@@ -790,6 +791,38 @@ const runPageAction = async (page, appUrl, action, flags) => {
       await page.screenshot({ path: path.join(destination, "view.png") });
       if (!result.ok && flags["allow-overflow"] !== true) {
         throw new Error(`Skills layout failed. Read ${destination}/result.json.`);
+      }
+      return JSON.stringify({ ...result, destination });
+    }
+    case "video-layout-check": {
+      // A Run video player clips anything that overflows its rounded frame,
+      // so every control must sit inside the player and the viewport.
+      if (typeof flags.path !== "string") {
+        throw new Error("video-layout-check needs --path.");
+      }
+      const player = page.getByRole("group", { name: "Run video player", exact: true });
+      await player.waitFor();
+      const result = await player.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const rows = [...element.querySelectorAll("div")].filter((row) => getComputedStyle(row).display === "flex");
+        const overflowing = rows
+          .filter((row) => row.scrollWidth > Math.ceil(row.getBoundingClientRect().width) + 1)
+          .map((row) => ({ scrollWidth: row.scrollWidth, width: row.getBoundingClientRect().width }));
+        const controls = [...element.querySelectorAll('button,[role="slider"]')].map((control) => {
+          const rect = control.getBoundingClientRect();
+          return { name: control.getAttribute("aria-label") ?? control.textContent.trim(), left: rect.left, right: rect.right,
+            fits: rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 && rect.width > 0 };
+        });
+        return { width: bounds.width, viewport: innerWidth, controls, overflowing,
+          ok: controls.length > 0 && controls.every((control) => control.fits) && overflowing.length === 0 };
+      });
+      const destination = resolveEvidencePath(flags.path);
+      mkdirSync(destination, { recursive: true });
+      writeFileSync(path.join(destination, "result.json"), `${JSON.stringify(result, null, 2)}\n`);
+      writeFileSync(path.join(destination, "view.aria.txt"), `${await page.locator("body").ariaSnapshot()}\n`);
+      await player.screenshot({ path: path.join(destination, "player.png") });
+      if (!result.ok && flags["allow-overflow"] !== true) {
+        throw new Error(`Run video layout failed. Read ${destination}/result.json.`);
       }
       return JSON.stringify({ ...result, destination });
     }

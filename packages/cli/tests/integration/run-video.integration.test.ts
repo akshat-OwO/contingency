@@ -230,7 +230,11 @@ it.live(
       yield* writeManifest(directory);
 
       const status = yield* awaitReady(directory);
-      expect(status).toEqual({ condensed: true, state: "ready" });
+      expect(status).toEqual({
+        condensed: true,
+        path: path.resolve(directory, RUN_VIDEO_FILE),
+        state: "ready",
+      });
       // The real-time footage does not outlive the condensed video.
       expect(
         yield* fileSystem.exists(path.join(directory, FOOTAGE_VIDEO_FILE))
@@ -339,6 +343,7 @@ it.live(
           );
           expect(yield* awaitReady(directory)).toEqual({
             condensed: true,
+            path: path.resolve(directory, RUN_VIDEO_FILE),
             state: "ready",
           });
           const condensed = yield* sampleVideo(
