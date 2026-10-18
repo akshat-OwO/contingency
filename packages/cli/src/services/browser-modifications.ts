@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 import type {
   AgentSessionId,
   AgentSessionSnapshot,
@@ -90,6 +92,13 @@ export const cookieWriteAllowed = (
     ? domainScopeCovers(webHost(currentUrl) ?? "", host)
     : allows(`https://${host}/`);
 };
+/** Chromium stores dotted IP and single-label domains as bare hosts. */
+const storedCookieDomain = (domain: string): string => {
+  const lower = domain.toLowerCase();
+  const host = lower.replace(/^\./u, "");
+  return !host.includes(".") || isIP(host) !== 0 ? host : lower;
+};
+
 export const storageWriteAllowed = (
   url: string,
   allows?: (url: string) => boolean
@@ -229,7 +238,7 @@ export const makeBrowserModifications = () =>
             );
           }
           const identity = {
-            domain: cookie.domain.toLowerCase(),
+            domain: storedCookieDomain(cookie.domain),
             name: cookie.name,
             path: cookie.path,
           };

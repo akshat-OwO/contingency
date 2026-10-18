@@ -1,4 +1,5 @@
 import {
+  AgentSessionId,
   BrowserModification,
   FlowSkillName,
   OperationId,
@@ -13,7 +14,9 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeBrowserModifications } from "../../src/services/browser-modifications.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
+import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -701,3 +704,157 @@ it.live(
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live("tracks and removes Emulation during agent-held Teaching setup", () =>
+  Effect.gen(function* teachingEmulationUndo() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "teaching-undo-",
+    });
+    const fixture = yield* fixtureServer;
+    yield* Effect.gen(function* prepareTeaching() {
+      const sessions = yield* AgentSession;
+      const teaching = yield* sessions.start({
+        activity: "teaching",
+        openedBy: "agent",
+        operationId: "teach-scale",
+        url: fixture.url("emulation-scale.html"),
+        viewport: agentViewport,
+      });
+      yield* Effect.addFinalizer(() => sessions.closeAll());
+      const call = (command: BrowserDevtoolsCommand) =>
+        sessions.devtools(teaching.id, command);
+      const before = yield* call({ action: "emulation_get" });
+      yield* call({
+        action: "emulation_set",
+        operationId: "setup-scale",
+        textScale: 200,
+      });
+      expect(
+        decodeModifications(yield* call({ action: "modifications_list" }))
+          .modifications
+      ).toEqual([
+        expect.objectContaining({
+          id: "emulation-setup-scale",
+          kind: "emulation",
+          textScale: 200,
+        }),
+      ]);
+      yield* call({
+        action: "modification_remove",
+        id: "emulation-setup-scale",
+        operationId: "remove-setup-scale",
+      });
+      expect(yield* call({ action: "emulation_get" })).toEqual(before);
+      expect((yield* sessions.get(teaching.id)).browserModifications).toEqual([
+        expect.objectContaining({
+          id: "emulation-setup-scale",
+          removedAt: expect.any(String),
+        }),
+      ]);
+      expect(
+        decodeModifications(yield* call({ action: "modifications_list" }))
+          .modifications
+      ).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+for (const domain of ["localhost", "127.0.0.1", "example.test"]) {
+  for (const oldestFirst of [true, false]) {
+    it.live(
+      `restores ${domain} cookie layers with oldestFirst=${oldestFirst}`,
+      () =>
+        Effect.gen(function* cookieIdentityUndo() {
+          const browser = yield* CreateBrowser;
+          const browserId = yield* browser.create(
+            "create-cookie-identity",
+            agentViewport,
+            true
+          );
+          yield* Effect.addFinalizer(() =>
+            browser.close(browserId).pipe(Effect.ignore)
+          );
+          const target = yield* browser.activeTarget(browserId);
+          const modifications = yield* makeBrowserModifications();
+          const sessionId = AgentSessionId.make("agent-cookie-identity");
+          const cookie = {
+            domain,
+            httpOnly: false,
+            name: "identity",
+            path: "/",
+            secure: false,
+            value: "original",
+          };
+          yield* Effect.tryPromise(() => target.context.addCookies([cookie]));
+          const read = () => Effect.tryPromise(() => target.context.cookies());
+          const value = (storedDomain: string) =>
+            read().pipe(
+              Effect.map(
+                (cookies) =>
+                  cookies.find((entry) => entry.domain === storedDomain)?.value
+              )
+            );
+          const set = (id: string, spelling: string) =>
+            modifications.apply(
+              sessionId,
+              id,
+              {
+                action: "cookie_set",
+                cookie: { ...cookie, domain: spelling, value: id },
+                operationId: id,
+              },
+              target,
+              () => true
+            );
+          yield* set("dotted", `.${domain}`);
+          const dottedDomain =
+            domain === "example.test" ? `.${domain}` : domain;
+          expect(yield* value(dottedDomain)).toBe("dotted");
+          if (domain === "example.test") {
+            expect(yield* value(domain)).toBe("original");
+          }
+          yield* set("bare", domain);
+          yield* modifications.remove(
+            sessionId,
+            oldestFirst ? "dotted" : "bare"
+          );
+          const afterFirstRemoval = oldestFirst ? "bare" : "dotted";
+          expect(yield* value(domain)).toBe(
+            domain === "example.test" && !oldestFirst
+              ? "original"
+              : afterFirstRemoval
+          );
+          yield* modifications.remove(
+            sessionId,
+            oldestFirst ? "bare" : "dotted"
+          );
+          expect(yield* value(domain)).toBe("original");
+          if (domain === "example.test") {
+            expect(yield* value(dottedDomain)).toBeUndefined();
+          }
+          // Clearing through the dotted spelling addresses the same stored identity.
+          yield* modifications.apply(
+            sessionId,
+            "clear",
+            {
+              action: "cookie_clear",
+              domain: `.${domain}`,
+              name: cookie.name,
+              operationId: "clear",
+              path: cookie.path,
+            },
+            target,
+            () => true
+          );
+          expect(yield* value(dottedDomain)).toBeUndefined();
+          yield* modifications.remove(sessionId, "clear");
+          expect(yield* value(domain)).toBe("original");
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(CreateBrowserLive),
+          Effect.provide(NodeServices.layer)
+        )
+    );
+  }
+}

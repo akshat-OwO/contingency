@@ -6832,6 +6832,10 @@ const makeAgentSession = (
                   if (command.textScale !== undefined) {
                     scaleModification.textScale = command.textScale;
                   }
+                  const patch = modificationPatch(record, [
+                    ...modificationRecords(record),
+                    scaleModification,
+                  ]);
                   const snapshot = yield* recordEntry(
                     sessionId,
                     {
@@ -6847,10 +6851,7 @@ const makeAgentSession = (
                       ? {
                           run: {
                             ...record.snapshot.run,
-                            browserModifications: [
-                              ...modificationRecords(record),
-                              scaleModification,
-                            ],
+                            ...patch.run,
                             emulationChanges: [
                               ...(record.snapshot.run.emulationChanges ?? []),
                               {
@@ -6864,7 +6865,7 @@ const makeAgentSession = (
                             ],
                           },
                         }
-                      : {}
+                      : patch
                   );
                   yield* ledger.rememberSession(
                     command.operationId,
