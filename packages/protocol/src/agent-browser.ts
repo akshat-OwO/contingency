@@ -237,7 +237,14 @@ export const AgentActionIntent = Schema.Struct({
 export type AgentActionIntent = typeof AgentActionIntent.Type;
 
 export const AgentExecutionBoundary = Schema.Struct({
-  action: AgentBrowserAction,
+  action: Schema.Union([
+    AgentBrowserAction,
+    Schema.Struct({
+      script: Schema.String,
+      tabId: nonEmptyString,
+      type: Schema.Literal("eval"),
+    }),
+  ]),
   description: nonEmptyString,
   id: nonEmptyString,
   operationId: nonEmptyString,
@@ -300,6 +307,13 @@ export type AgentTimelineEntry = typeof AgentTimelineEntry.Type;
 export const AgentActionResult = Schema.Struct({
   browserCheckResults: browserCheckResultsField,
   entry: AgentTimelineEntry,
+  evaluation: Schema.optionalKey(
+    Schema.Struct({
+      failed: Schema.Boolean,
+      text: Schema.String,
+      truncated: Schema.Boolean,
+    })
+  ),
   intervention: optionalNullable(AgentExecutionBoundary),
   snapshot: AgentBrowserSnapshot,
   url: Schema.String,

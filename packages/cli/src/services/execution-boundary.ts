@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import type {
   AgentActionIntent,
-  AgentBrowserAction,
   AgentExecutionBoundary,
   AgentPendingDecision,
   AgentPendingDecisionResolve,
@@ -20,8 +19,8 @@ import { domainScopeCovers, webHost } from "./domain-scope.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 
 export interface BoundaryAttempt {
-  readonly action: AgentBrowserAction;
-  readonly capturedAction: AgentBrowserAction;
+  readonly action: AgentExecutionBoundary["action"];
+  readonly capturedAction: AgentExecutionBoundary["action"];
   readonly description: string;
   readonly intent: AgentActionIntent;
   readonly operationId: string;
@@ -54,6 +53,7 @@ interface BoundaryState {
 }
 
 export interface ExecutionBoundary {
+  readonly hosts: () => readonly string[];
   readonly allows: (url: string) => boolean;
   readonly pending: () => PendingBoundary | undefined;
   readonly checkAttempt: (
@@ -272,6 +272,7 @@ export const makeExecutionBoundary = (options: {
       disposed = true;
       registry.dispose();
     },
+    hosts: () => [...registry.get(state).hosts],
     invalidateAttempts: () =>
       registry.update(state, (current) => ({
         ...current,

@@ -66,8 +66,8 @@ export const modificationRefusal = (
     if (snapshot.captureState?._tag !== "setup") {
       return "Browser state is fixed from Start to Stop during Teaching. Prepare it in agent-held Teaching setup.";
     }
-    if (kind === "route" || kind === "headers") {
-      return "Teaching setup allows cookie, storage, and Emulation writes only. Use an Interactive Run for routes or headers.";
+    if (kind === "route" || kind === "headers" || kind === "eval") {
+      return "Teaching setup allows cookie, storage, and Emulation writes only. Use an Interactive Run for routes, headers, or mutating evaluation.";
     }
   }
   return undefined;

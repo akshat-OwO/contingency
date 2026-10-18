@@ -1048,6 +1048,18 @@ export class ContingencyRpcs extends RpcGroup.make(
 
 /** Browser devtools operations available only through agent_code_execute. */
 export const BrowserDevtoolsCommand = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("eval"),
+    mode: Schema.Literals(["read_only", "mutating"]),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+    script: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(65_536)
+    ),
+  }),
   Schema.Struct({ action: Schema.Literal("modifications_list") }),
   Schema.Struct({
     action: Schema.Literal("modification_remove"),

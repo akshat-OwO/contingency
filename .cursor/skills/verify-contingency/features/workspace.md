@@ -59,6 +59,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-teaching-flow-skill-dry-run` attempts the complete saved Flow Skill outcome in a fresh browser context with changed inputs. An explicit evidence-backed model report marks whether the attempt was complete; a partial attempt or user Takeover cannot pass. The Workspace shows the latest Dry Run Summary and video beside the verification choice or failure. Verification deletes its evidence with the Teaching Recording. Cleanup resumes after restart.
 - `agent-execution-boundary` pauses refused domains, new objectives, and per-attempt confirmation, offers Allow and Refuse to the right of the requested action in Workspace, resumes the stored attempt over MCP, and preserves priority Takeover.
 - `agent-pending-decisions` relays Execution Boundary and runtime Variable allow, supply, or refuse through MCP; Workspace also resolves boundaries directly and mirrors runtime Variable status.
+- `browser-evaluation` reads computed styles without pausing, confirms each mutating script, blocks eval requests outside Domain Scope, and retains irreversible Browser Modifications.
 - `agent-runtime-variables` creates a Pending Decision only when the agent requests a needed Variable, and accepts private supply or refusal in Workspace or through MCP.
 - `agent-setup-variables` requests session-scoped private inputs during agent-held Teaching setup, accepts Workspace supply or refusal, and ends access at handoff while keeping reflected values masked.
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP without putting their literals in the Teaching Timeline or the saved Flow Skill.
@@ -777,3 +778,21 @@ Cookie writes use `cookie_set` with a cookie domain, name, path, value, and flag
 Teaching setup allows cookie and storage writes, and refuses routes and headers. Dry Runs refuse every write. Cookie and storage writes require a Domain Scope host, or the current page host without a scope. Routes may match any URL but cannot bypass navigation scope. Removing a storage modification after its tab changes origin requires returning that tab to its original origin. Cookie values are masked and mock body evidence is limited to 2 KiB after secret Variable redaction. Takeover storage writes appear as user activity and never join Browser Modifications.
 
 The Chromium integration file `browser-modifications.integration.test.ts` proves network responses, resource filters, headers reaching the server, cookie and both storage writes, named-tab storage, replay, removal, activity persistence across Flow Skills, Teaching and Dry Run authority, Domain Scope refusals, navigation boundary composition, Takeover attribution, secret redaction, and restoration of prior Emulation. Run `cleanup` and confirm all owned processes and ports stopped and evidence survived.
+
+## Browser evaluation
+
+Feature id: `browser-evaluation`. Entry points: `agent_code_execute`, Workspace **Allow** and **Refuse**, and the persisted Run Summary.
+
+After `launch`, `doctor`, `ecommerce start`, and `mcp start`, run:
+
+```sh
+CONTINGENCY_EVAL_EVIDENCE=/tmp/issue506-slice4 nub .cursor/skills/verify-contingency/bin/browser-evaluation-proof.mjs
+```
+
+The proof opens the disposable `eval.html` account. A computed-style read succeeds without a Pending Decision. A script that clicks **Delete account** pauses for Confirmation. The proof captures `pending-decision.png`, clicks Workspace **Allow**, and resumes the stored attempt. Replaying the operation leaves the count at one. A confirmed `fetch` to `localhost`, outside the Run's `127.0.0.1` scope, returns a blocked-request error. The reopened Summary retains both eval attempts as Browser Modifications. Screenshots, ARIA snapshots, code-tool receipts, and the command journal remain in `artifacts/browser-evaluation/`. Screenshots and ARIA snapshots also go to `CONTINGENCY_EVAL_EVIDENCE` when set.
+
+Use `eval` with `mode: read_only` or `mode: mutating`, `script`, and `operationId`. Read-only scripts abort on side effects and tell the agent to request mutating evaluation. Only Interactive Runs allow mutating eval, and every attempt requires fresh Confirmation. Allow permits the stored script on its selected tab once. An identical completed operation replays its result. Evaluation evidence cannot be removed because the script cannot be undone.
+
+Scripts run in an isolated JavaScript realm with the Page's DOM. Page-owned JavaScript globals are separate. Results and errors are scrubbed of secret Variable values and bounded to 64 KiB, with `truncated` reported. Each evaluation has a 15-second deadline and a 10-second Chromium execution timeout. After 256 evaluations in one document, reload before evaluating again. Eval requests use the Domain Scope that applied when the script started. Timers retain that scope after the script returns. Fetch redirects fail rather than follow a potentially unapproved host. The page's own traffic keeps its APIs and scope.
+
+`browser-evaluation.integration.test.ts` proves activity authority, Chromium side-effect detection, Confirmation replay and refusal, all four transports with direct, promise, and timer calls, a callback after return, iframe WebSocket containment, XHR redirects, in-scope fetch, page-owned traffic, bounded redaction, and persisted evidence. Run `cleanup` and confirm all owned processes and ports stopped and evidence survived.

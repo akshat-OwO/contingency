@@ -85,3 +85,5 @@ The Workspace recipe includes Session Event waits and opt-in Claude Code channel
 Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoom-and-text-scale) for Workspace controls, code-only agent writes, and fixture screenshots.
 
 - [Browser Modifications](workspace.md#browser-modifications) proves active dock badges, route removal, and persisted Summary activity through the code-only agent tool and Workspace.
+
+- [Browser evaluation](workspace.md#browser-evaluation) proves computed-style reads without a pause, per-attempt Confirmation, blocked requests, and irreversible Summary evidence.

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Evaluation boundary</title>
+  </head>
+  <body>
+    <button id="delete" type="button">Delete account</button>
+    <script>
+      document.querySelector("#delete").addEventListener("click", () => {
+        document.body.dataset.deleted = String(
+          Number(document.body.dataset.deleted ?? 0) + 1
+        );
+      });
+    </script>
+  </body>
+</html>

@@ -138,6 +138,7 @@ import {
   validateTeachingAttachments,
 } from "./browser-check-requirements.ts";
 import {
+  boundedDevtoolsText,
   filterDevtoolsRequests,
   redactDevtoolsRequest,
   redactDevtoolsText,
@@ -6571,6 +6572,194 @@ const makeAgentSession = (
           )
         ),
       devtools: (sessionId, command, tabId) => {
+        if (command.action === "eval") {
+          let evaluationTabId = tabId;
+          const evaluate = (record: SessionRecord) =>
+            browser.evaluate(
+              record.browserSessionId,
+              command.script,
+              command.mode,
+              record.executionBoundary?.hosts() ?? [
+                new URL(record.snapshot.currentUrl).hostname,
+              ],
+              sessionSensitiveValues(record),
+              evaluationTabId
+            );
+          if (command.mode === "read_only") {
+            return observe(sessionId, evaluate);
+          }
+          const requestInput = createHash("sha256")
+            .update(JSON.stringify({ command, tabId }))
+            .digest("hex");
+          const attempt = ledger.serializeMutation(
+            ledger.action(
+              command.operationId,
+              "eval",
+              sessionId,
+              requestInput,
+              Effect.gen(function* mutateByEvaluation() {
+                const record = yield* requireLiveRecord(sessionId);
+                if (
+                  userLedTeaching(record.snapshot) ||
+                  agentIsPaused(record.snapshot)
+                ) {
+                  return yield* Effect.fail(
+                    takenOver("Mutating evaluation requires agent control.")
+                  );
+                }
+                if (runIsOver(record.snapshot)) {
+                  return yield* Effect.fail(
+                    error("agent_session_conflict", "This Run has ended.")
+                  );
+                }
+                const reason = modificationRefusal(record.snapshot, "eval");
+                if (reason !== undefined) {
+                  return yield* Effect.fail(
+                    error("agent_session_conflict", reason)
+                  );
+                }
+                const boundary = record.executionBoundary;
+                if (boundary === undefined) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "Mutating evaluation requires an Interactive Run with an Execution Boundary."
+                    )
+                  );
+                }
+                const preview = boundedDevtoolsText(
+                  command.script,
+                  sessionSensitiveValues(record),
+                  2048
+                );
+                const excerpt = `${preview.text}${preview.truncated ? " [script excerpt truncated]" : ""}`;
+                const target = yield* browser.activeTarget(
+                  record.browserSessionId,
+                  evaluationTabId
+                );
+                evaluationTabId = target.tabId;
+                const action = {
+                  script: excerpt,
+                  tabId: target.tabId,
+                  type: "eval",
+                } as const;
+                const page = yield* record.agentBrowser.active();
+                const check = yield* boundary.checkAttempt({
+                  ...boundaryAuthority(record.snapshot.run),
+                  action,
+                  capturedAction: action,
+                  description: `Evaluate script: ${excerpt}`,
+                  intent: { irreversible: true },
+                  operationId: command.operationId,
+                });
+                if (check !== undefined) {
+                  yield* publishBoundary(sessionId, record, check);
+                  return yield* boundaryResult(
+                    record,
+                    page,
+                    check.pending.boundary,
+                    page.url()
+                  );
+                }
+                // Spend the attempt before entering Chromium, including on timeout
+                // or cancellation. A repeated id must never dispatch twice.
+                yield* ledger.remember(
+                  command.operationId,
+                  "eval",
+                  sessionId,
+                  requestInput,
+                  {
+                    error: error(
+                      "agent_session_conflict",
+                      "This evaluation was dispatched. Its outcome may be unknown; request fresh Confirmation for another attempt."
+                    ),
+                    kind: "act-failure",
+                  }
+                );
+                const at = now().toISOString();
+                const description = `Evaluated script: ${excerpt}`;
+                yield* recordEntry(
+                  sessionId,
+                  {
+                    actor: "agent",
+                    at,
+                    description: `Dispatch evaluation: ${excerpt}`,
+                    dispatched: true,
+                    id: command.operationId,
+                    outcome: "completed",
+                  },
+                  modificationPatch(record, [
+                    ...modificationRecords(record),
+                    {
+                      actor: "agent",
+                      at,
+                      description,
+                      id: `modification-${command.operationId}`,
+                      kind: "eval",
+                      operationId: command.operationId,
+                    },
+                  ])
+                );
+                const evaluated = yield* Effect.result(evaluate(record));
+                const entry: AgentTimelineEntry = {
+                  actor: "agent",
+                  at: now().toISOString(),
+                  description:
+                    Result.isFailure(evaluated) || evaluated.success.failed
+                      ? "Evaluation failed"
+                      : "Evaluation completed",
+                  dispatched: true,
+                  id: `evaluation-result-${command.operationId}`,
+                  outcome:
+                    Result.isFailure(evaluated) || evaluated.success.failed
+                      ? "failed"
+                      : "completed",
+                };
+                yield* recordEntry(sessionId, entry);
+                if (Result.isFailure(evaluated)) {
+                  yield* ledger.remember(
+                    command.operationId,
+                    "eval",
+                    sessionId,
+                    requestInput,
+                    { error: evaluated.failure, kind: "act-failure" }
+                  );
+                  return yield* Effect.fail(evaluated.failure);
+                }
+                const evaluation = evaluated.success;
+                const result: AgentActionResult = {
+                  entry,
+                  evaluation,
+                  snapshot: yield* snapshotAfter(record, page, page.url()),
+                  url: page.url(),
+                };
+                yield* ledger.remember(
+                  command.operationId,
+                  "eval",
+                  sessionId,
+                  requestInput,
+                  { kind: "act", result }
+                );
+                return result;
+              }).pipe(Effect.uninterruptible)
+            )
+          );
+          return attempt.pipe(
+            Effect.tap((result) =>
+              !result.entry.dispatched &&
+              result.intervention?.operationId === command.operationId
+                ? ledger.bindBoundary(
+                    result.intervention.id,
+                    command.operationId,
+                    "eval",
+                    sessionId,
+                    requestInput,
+                    attempt
+                  )
+                : Effect.void
+            )
+          );
+        }
         if (command.action === "emulation_get") {
           return requireLiveRecord(sessionId).pipe(
             Effect.flatMap((record) =>
@@ -6659,6 +6848,14 @@ const makeAgentSession = (
                 let next: readonly BrowserModification[];
                 let description: string;
                 if (command.action === "modification_remove") {
+                  if (existing?.kind === "eval") {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "An evaluation cannot be undone. Its Browser Modification remains evidence until the Run ends."
+                      )
+                    );
+                  }
                   yield* modifications.remove(sessionId, command.id);
                   description = `Remove Browser Modification ${command.id}`;
                   next = entries.map((entry) =>
