@@ -743,3 +743,19 @@ CONTINGENCY_DEVTOOLS_EVIDENCE=/tmp/issue506-slice1 nub .cursor/skills/verify-con
 The proof opens an Interactive Run on `devtools-observe.html`, clicks **Load failing request** through the agent's normal action operation, finds `/devtools-failure` with status 500 through filtered observation, reads its body and console error, stops HAR capture, and rereads the local file. It then opens the Workspace's **Network** and **Console** panels using their rail buttons and captures ARIA and screenshots. The panels offer read-only inspection. The helper records the command journal and MCP answers under `artifacts/devtools-observe/`. Confirm the Network screenshot shows the failed request and the Console screenshot shows `Fixture request failed: 500`. Screenshots also go to the directory named by `CONTINGENCY_DEVTOOLS_EVIDENCE` when set. Run `cleanup` and confirm evidence survives.
 
 The Chromium integration test `browser-devtools.integration.test.ts` additionally enters a supplied secret Variable into a real form, sends it through a failed response, and checks every observation and HAR file for leakage. It proves per-tab history, oldest-first eviction, uncaught errors, console clearing, body limits, and capture windows.
+
+## Page zoom and text scale
+
+Feature id: `emulation-scale`. Entry points: Workspace Emulation panel and `agent_code_execute`.
+
+Start an isolated build, run `doctor`, then start ecommerce and MCP. The fixture `emulation-scale.html` has a fixed 16px label, a relative 1rem label, and a media-query layout with two columns above 600 CSS pixels.
+
+```sh
+CONTINGENCY_SCALE_EVIDENCE=/tmp/issue506-slice2 nub .cursor/skills/verify-contingency/bin/emulation-scale-proof.mjs
+```
+
+The proof opens agent-prepared Teaching, hands control to the user, and uses **Emulation**, **Text scale**, **Apply text scale**, **Page zoom**, and **Apply page zoom**. At 200% text scale only the relative label grows. At 400% zoom the 1280px viewport reflows into one column. It captures `text-100.png`, `text-200.png`, `zoom-100.png`, and `zoom-400.png`, then reopens the view to read the applied values. It changes both fields through `agent_browser_devtools` in an Interactive Run and reopens the persisted Run Summary's **Emulation** record. The command journal and MCP answers live under `artifacts/emulation-scale/`.
+
+`emulation_get` reads the session-wide values. `emulation_set` accepts `pageZoom` from 25 to 500 and `textScale` from 50 to 300, with a stable `operationId`. Omit `tabId`. Only agent-held Teaching setup and Interactive Runs permit changes. Recording locks Emulation from Start to Stop. Dry Runs restore the stamped percentages and refuse changes. The native interface reports devtools unavailable and adds no tool.
+
+The integration test `emulation-scale.integration.test.ts` checks computed font sizes, CSS viewport width, media-query reflow, unchanged pinch scale, stream projection, navigation and new tabs, Teaching stamp and recording lock, Dry Run restoration and refusal, operation replay, Takeover refusal, and persisted Run evidence. Run `cleanup` and confirm evidence survives.
