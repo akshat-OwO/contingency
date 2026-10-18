@@ -80,3 +80,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 The Workspace recipe includes Session Event waits and opt-in Claude Code channel delivery, cursor replay, and idle-agent wakeup.
 
 - [Interface evaluation model tasks](./workspace.md#interface-evaluation-model-tasks) seeds checkout, Teaching, Dry Run, and Takeover journeys, drives the requested Workspace user actions, and checks the final state with private-value audits.
+- [Devtools observation](./workspace.md#devtools-observation) proves code-tool diagnosis of a fixture request returning 500, request bodies, console errors, redacted HAR files, and the Workspace Network and Console panels.

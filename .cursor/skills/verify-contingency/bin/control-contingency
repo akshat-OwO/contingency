@@ -1862,6 +1862,11 @@ const cmdFixtureServe = async () => {
   const server = createHttpServer((request, response) => {
     const url = request.url ?? "/";
     const { pathname, searchParams } = new URL(url, "http://127.0.0.1");
+    if (pathname === "/devtools-failure") {
+      response.writeHead(500, { "content-type": "text/plain" });
+      response.end("Fixture service unavailable");
+      return;
+    }
     if (pathname.startsWith("/browser-check-scalar/")) {
       const mismatch = searchParams.has("mismatch");
       const values = mismatch
