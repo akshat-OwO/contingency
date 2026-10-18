@@ -42,6 +42,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+import { BrowserModificationBadge } from "./browser-modifications";
+
 const TICK_MS = 1000;
 
 const badgeVariant = (
@@ -291,6 +293,12 @@ export const TeachingRecordingDock = ({
                 ) : null}
                 {presentation.badge}
               </Badge>
+              <BrowserModificationBadge
+                modifications={
+                  sessions.find((session) => session.id === selectedSessionId)
+                    ?.browserModifications ?? []
+                }
+              />
               {captureState._tag === "recording" ? (
                 <RecordingElapsed startedAt={captureState.startedAt} />
               ) : null}

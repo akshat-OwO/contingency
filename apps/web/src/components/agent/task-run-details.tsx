@@ -9,6 +9,7 @@ import type {
 import { Badge } from "@/components/ui/badge";
 
 import { BrowserCheckResults } from "./browser-check-results";
+import { BrowserModifications } from "./browser-modifications";
 import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
 
@@ -171,6 +172,7 @@ export const TaskRunDetails = ({
           ))}
         </ol>
       </section>
+      <BrowserModifications modifications={run.browserModifications ?? []} />
       <BrowserCheckResults run={run} />
       <ScanResults run={run} />
       <section aria-label="Task assessment" className="space-y-2">
