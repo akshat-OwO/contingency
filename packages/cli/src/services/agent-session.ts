@@ -137,6 +137,7 @@ import {
   validateTeachingAttachments,
 } from "./browser-check-requirements.ts";
 import {
+  filterDevtoolsRequests,
   redactDevtoolsRequest,
   redactDevtoolsText,
 } from "./browser-devtools.ts";
@@ -6521,42 +6522,11 @@ const makeAgentSession = (
             const secrets = sessionSensitiveValues(record);
             switch (command.action) {
               case "requests": {
-                const result = tools.requests();
-                return {
-                  dropped: result.dropped,
-                  requests: result.requests.flatMap((raw) => {
-                    const request = redactDevtoolsRequest(raw, secrets);
-                    if (
-                      !(
-                        (command.url === undefined ||
-                          request.url.includes(command.url)) &&
-                        (command.method === undefined ||
-                          request.method.toUpperCase() ===
-                            command.method.toUpperCase()) &&
-                        (command.statusMin === undefined ||
-                          (request.status !== undefined &&
-                            request.status !== null &&
-                            request.status >= command.statusMin)) &&
-                        (command.statusMax === undefined ||
-                          (request.status !== undefined &&
-                            request.status !== null &&
-                            request.status <= command.statusMax)) &&
-                        (command.resourceType === undefined ||
-                          request.resourceType === command.resourceType)
-                      )
-                    ) {
-                      return [];
-                    }
-                    const {
-                      headers: _headers,
-                      responseHeaders: _responseHeaders,
-                      postData: _postData,
-                      responseBody: _responseBody,
-                      ...metadata
-                    } = request;
-                    return [metadata];
-                  }),
-                };
+                return filterDevtoolsRequests(
+                  tools.requests(),
+                  command,
+                  secrets
+                );
               }
               case "request": {
                 return yield* tools.request(command.requestId, secrets);

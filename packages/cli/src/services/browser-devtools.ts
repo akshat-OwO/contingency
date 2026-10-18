@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { BrowserRequestId, makeBrowserRpcError } from "@contingency/protocol";
 import type {
   BrowserConsoleEntry,
+  BrowserDevtoolsCommand,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
   BrowserTabId,
@@ -113,6 +114,67 @@ export const redactDevtoolsRequest = (
     url: redactDevtoolsText(request.url, secrets),
   };
 };
+
+type RequestsCommand = Extract<
+  BrowserDevtoolsCommand,
+  { readonly action: "requests" }
+>;
+
+/** Request metadata: everything except headers and bodies, which `request` returns by id. */
+export type DevtoolsRequestMetadata = Omit<
+  BrowserNetworkRequestDetail,
+  "headers" | "postData" | "responseBody" | "responseHeaders"
+>;
+
+/**
+ * Redacts each request, applies the `requests` filter to the redacted URL,
+ * and projects the survivors to metadata. `dropped` is the tab's retention count.
+ */
+export interface DevtoolsRequestsResult {
+  readonly dropped: number;
+  readonly requests: readonly DevtoolsRequestMetadata[];
+}
+
+export const filterDevtoolsRequests = (
+  listing: {
+    readonly dropped: number;
+    readonly requests: readonly BrowserNetworkRequest[];
+  },
+  command: RequestsCommand,
+  secrets: readonly string[]
+): DevtoolsRequestsResult => ({
+  dropped: listing.dropped,
+  requests: listing.requests.flatMap((raw) => {
+    const request = redactDevtoolsRequest(raw, secrets);
+    if (
+      !(
+        (command.url === undefined || request.url.includes(command.url)) &&
+        (command.method === undefined ||
+          request.method.toUpperCase() === command.method.toUpperCase()) &&
+        (command.statusMin === undefined ||
+          (request.status !== undefined &&
+            request.status !== null &&
+            request.status >= command.statusMin)) &&
+        (command.statusMax === undefined ||
+          (request.status !== undefined &&
+            request.status !== null &&
+            request.status <= command.statusMax)) &&
+        (command.resourceType === undefined ||
+          request.resourceType === command.resourceType)
+      )
+    ) {
+      return [];
+    }
+    const {
+      headers: _headers,
+      responseHeaders: _responseHeaders,
+      postData: _postData,
+      responseBody: _responseBody,
+      ...metadata
+    } = request;
+    return [metadata];
+  }),
+});
 
 interface RecordEntry {
   readonly metadata: BrowserNetworkRequest;
