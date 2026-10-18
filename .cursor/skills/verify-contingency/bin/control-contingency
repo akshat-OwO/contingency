@@ -1892,6 +1892,14 @@ const cmdFixtureServe = async () => {
       response.end(body);
       return;
     }
+    if (pathname === "/tools-report.csv") {
+      response.writeHead(200, {
+        "content-disposition": 'attachment; filename="report.csv"',
+        "content-type": "text/csv",
+      });
+      response.end("name,total\nanvil,3\n");
+      return;
+    }
     if (pathname === "/cart-added" || pathname === "/cart-viewed") {
       response.writeHead(204);
       response.end();

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser tools</title>
+  </head>
+  <body>
+    <main>
+      <h1>Browser tools</h1>
+      <a id="download" href="/tools-report.csv">Download report</a>
+      <label>Receipt <input id="receipt" type="file" multiple /></label>
+      <p id="chosen">No file chosen</p>
+      <button id="popup" type="button">Open popup</button>
+      <button id="outside" type="button">Open outside popup</button>
+      <button id="copy" type="button">Copy code</button>
+    </main>
+    <script>
+      document.querySelector("#receipt").addEventListener("change", (event) => {
+        document.querySelector("#chosen").textContent = [...event.target.files]
+          .map((file) => `${file.name}:${file.size}`)
+          .join(",");
+      });
+      document.querySelector("#popup").addEventListener("click", () => {
+        window.open("/cart.html", "_blank");
+      });
+      document.querySelector("#outside").addEventListener("click", () => {
+        window.open(
+          location.href.replace("127.0.0.1", "localhost") + "?outside-popup",
+          "_blank"
+        );
+      });
+      document.querySelector("#copy").addEventListener("click", () => {
+        navigator.clipboard.writeText("copied-by-page");
+      });
+    </script>
+  </body>
+</html>
