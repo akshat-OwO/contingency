@@ -433,3 +433,35 @@ test("keeps a saved decision when coordinates are changed or cleared", async () 
     })
   ).toBeInTheDocument();
 });
+
+test("reads applied scale and submits bounded percentages", async () => {
+  const onPatch = renderPanel({
+    ...locationPicker,
+    emulation: { ...locationPicker.emulation, pageZoom: 400, textScale: 200 },
+  });
+  expect(screen.getByRole("spinbutton", { name: "Page zoom" })).toHaveValue(
+    400
+  );
+  expect(screen.getByRole("spinbutton", { name: "Text scale" })).toHaveValue(
+    200
+  );
+  const zoom = screen.getByRole("spinbutton", { name: "Page zoom" });
+  await userEvent.clear(zoom);
+  await userEvent.type(zoom, "501");
+  expect(
+    screen.getByRole("button", { name: "Apply page zoom" })
+  ).toBeDisabled();
+  await userEvent.clear(zoom);
+  await userEvent.type(zoom, "100");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apply page zoom" })
+  );
+  expect(onPatch).toHaveBeenCalledWith({ pageZoom: 100 });
+  const text = screen.getByRole("spinbutton", { name: "Text scale" });
+  await userEvent.clear(text);
+  await userEvent.type(text, "300");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apply text scale" })
+  );
+  expect(onPatch).toHaveBeenCalledWith({ textScale: 300 });
+});
