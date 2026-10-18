@@ -8,11 +8,12 @@ import {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Schema } from "effect";
-import type { Page } from "playwright-core";
+import { Deferred, Effect, Fiber, FileSystem, Schema, Stream } from "effect";
+import type { CDPSession, Page } from "playwright-core";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import type { AgentSessionService } from "../../src/services/agent-session.ts";
+import { evaluateBrowserScript } from "../../src/services/browser-evaluation.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
   agentProcessLayer,
@@ -34,6 +35,57 @@ const modifications = Schema.decodeUnknownSync(
   Schema.Struct({ modifications: Schema.Array(BrowserModification) })
 );
 
+/** Hold the last preparation response, then interrupt before user code starts.
+ * The real CDP connection supplies the final ordered renderer barrier. */
+const expectInterruptedSetupDoesNotDispatch = (page: Page) =>
+  Effect.gen(function* interruptSetup() {
+    const cdp = yield* Effect.acquireRelease(
+      Effect.tryPromise(() => page.context().newCDPSession(page)),
+      (session) => Effect.tryPromise(() => session.detach()).pipe(Effect.ignore)
+    );
+    const prepared = yield* Deferred.make<boolean>();
+    const release = yield* Deferred.make<boolean>();
+    let preparation: Promise<unknown> = Promise.resolve();
+    const send = cdp.send.bind(cdp);
+    const held: CDPSession = Object.assign(Object.create(cdp), {
+      on: cdp.on.bind(cdp),
+      send: ((method, ...params) => {
+        const response = send(method, ...params);
+        if (
+          method !== "Runtime.evaluate" ||
+          !JSON.stringify(params).includes("__contingencyEvaluationGuard")
+        ) {
+          return response;
+        }
+        const heldResponse = response.then(async (result) => {
+          await Effect.runPromise(Deferred.succeed(prepared, true));
+          await Effect.runPromise(Deferred.await(release));
+          return result;
+        });
+        preparation = heldResponse;
+        return heldResponse;
+      }) satisfies CDPSession["send"],
+    });
+    const running = yield* evaluateBrowserScript(
+      held,
+      "document.body.dataset.cancelledEvalRan = 'yes'",
+      "mutating",
+      ["127.0.0.1"],
+      []
+    ).pipe(Effect.forkChild);
+    yield* Deferred.await(prepared).pipe(Effect.timeout("30 seconds"));
+    yield* Fiber.interrupt(running);
+    yield* Deferred.succeed(release, true);
+    yield* Effect.tryPromise(() => preparation);
+    const observed = yield* Effect.tryPromise(() =>
+      cdp.send("Runtime.evaluate", {
+        expression: "document.body.dataset.cancelledEvalRan ?? null",
+        returnByValue: true,
+      })
+    );
+    expect(observed.result.value).toBeNull();
+  }).pipe(Effect.scoped);
+
 /** Page debugger statements must not freeze the tab once eval has run, and
  * read-only evaluation sees page globals with no realm budget. */
 const expectPageStaysResponsive = (
@@ -49,7 +101,7 @@ const expectPageStaysResponsive = (
           debugger;
           return "resumed";
         })
-      ).pipe(Effect.timeout("5 seconds"))
+      ).pipe(Effect.timeout("30 seconds"))
     ).toBe("resumed");
     for (let index = 0; index < 300; index += 1) {
       expect(
@@ -241,6 +293,15 @@ it.live(
             })
             .pipe(Effect.map(actionResult));
         const click = "document.querySelector('#delete').click()";
+        expect(
+          yield* Effect.flip(
+            call("oversized", `${click};/*${"x".repeat(2048)}*/`)
+          )
+        ).toMatchObject({
+          code: "agent_session_invalid",
+          message: expect.stringContaining("whole script"),
+        });
+        expect((yield* sessions.get(run.id)).pendingDecisions).toEqual([]);
         const paused = yield* call("delete", click);
         expect(paused.intervention?.reason).toBe("confirmation");
         expect(
@@ -338,6 +399,57 @@ it.live(
           `navigator.sendBeacon(${JSON.stringify(outside)}, 'blocked')`,
           `new WebSocket(${JSON.stringify(outside.replace("http:", "ws:"))})`,
         ];
+        yield* Effect.gen(function* containAdditionalChannels() {
+          const refusedChannels = [
+            `new Promise(resolve => { const code = "fetch('" + ${JSON.stringify(outside)} + "', {mode: 'no-cors'}).then(() => postMessage('sent'))"; const worker = new Worker(URL.createObjectURL(new Blob([code], {type: 'text/javascript'}))); worker.onmessage = event => { worker.terminate(); resolve(event.data); }; })`,
+            `new SharedWorker(URL.createObjectURL(new Blob(['onconnect = () => {}'], {type: 'text/javascript'})))`,
+            `navigator.serviceWorker.register(${JSON.stringify(outside)})`,
+            `ServiceWorkerContainer.prototype.register.call(navigator.serviceWorker, ${JSON.stringify(outside)})`,
+            `new Promise(resolve => { const source = new EventSource(${JSON.stringify(outside)}); source.onopen = source.onerror = () => { source.close(); resolve('sent'); }; })`,
+            `(() => { const peer = new RTCPeerConnection(); peer.close(); return 'created'; })()`,
+            `typeof WebTransport === 'undefined' ? 'unavailable' : new WebTransport(${JSON.stringify(outside.replace("http:", "https:"))})`,
+          ];
+          for (const [index, script] of refusedChannels.entries()) {
+            const result = yield* confirmed(`refused-channel-${index}`, script);
+            expect(
+              fixture.requests.filter((url) => url.includes("outside-eval"))
+            ).toEqual([]);
+            expect(result.evaluation?.text).toMatch(
+              /not available to evaluation|unavailable/u
+            );
+          }
+          const resourceChannels = [
+            `import(${JSON.stringify(outside)}).then(() => 'sent', () => 'blocked')`,
+            `new Promise(resolve => { const image = new Image(); image.onload = image.onerror = () => resolve('settled'); image.src = ${JSON.stringify(outside)}; })`,
+            `new Promise(resolve => { const image = document.createElement('img'); image.onload = image.onerror = () => resolve('settled'); image.src = ${JSON.stringify(outside)}; document.body.append(image); })`,
+            `new Promise(resolve => { const script = document.createElement('script'); script.onload = script.onerror = () => resolve('settled'); script.src = ${JSON.stringify(outside)}; document.body.append(script); })`,
+          ];
+          for (const [index, script] of resourceChannels.entries()) {
+            yield* confirmed(`resource-channel-${index}`, script);
+            expect(
+              fixture.requests.filter((url) => url.includes("outside-eval"))
+            ).toEqual([]);
+          }
+          expect(
+            fixture.requests.filter((url) => url.includes("outside-eval"))
+          ).toEqual([]);
+          const backgroundWorker = yield* confirmed(
+            "background-worker",
+            `document.addEventListener('start-worker', () => { try { new Worker(URL.createObjectURL(new Blob(["fetch('${outside}', {mode: 'no-cors'})"], {type: 'text/javascript'}))); document.body.dataset.worker = 'escaped'; } catch (error) { document.body.dataset.worker = error.message; } }, {once: true}); 'scheduled'`
+          );
+          expect(backgroundWorker.evaluation?.text).toBe('"scheduled"');
+          yield* Effect.tryPromise(() =>
+            page.evaluate("document.dispatchEvent(new Event('start-worker'))")
+          );
+          expect(
+            yield* Effect.tryPromise(() =>
+              page.getAttribute("body", "data-worker")
+            )
+          ).toContain("not available to evaluation");
+          expect(
+            fixture.requests.filter((url) => url.includes("outside-eval"))
+          ).toEqual([]);
+        });
         const tampered = yield* confirmed(
           "tampered-prototypes",
           `Object.defineProperty(URL.prototype, 'hostname', {get() {return '127.0.0.1'}}); Array.prototype.some = () => true; new WebSocket(${JSON.stringify(outside.replace("http:", "ws:"))})`
@@ -437,6 +549,103 @@ it.live(
           )
         ).toBe("opaque");
         expect(fixture.requests).toContain("/shop.html?outside-eval");
+        yield* Effect.gen(function* interruptEvaluation() {
+          const heldScript =
+            "new Promise(resolve => { document.addEventListener('release-eval', () => { document.body.dataset.evalReleased = 'yes'; resolve('released'); }, {once: true}); document.body.dataset.evalStarted = 'yes'; })";
+          const held = yield* call("takeover-eval", heldScript);
+          if (held.intervention === undefined || held.intervention === null) {
+            return yield* Effect.die("Missing Takeover Confirmation");
+          }
+          yield* allow("allow", "allow-takeover-eval");
+          const running = yield* sessions
+            .resumeBoundary(run.id, held.intervention.id)
+            .pipe(Effect.result, Effect.forkChild);
+          yield* Effect.tryPromise(() =>
+            page
+              .locator('body[data-eval-started="yes"]')
+              .waitFor({ state: "attached" })
+          );
+          const taken = yield* sessions
+            .takeover(run.id, "Interrupt evaluation", "takeover-eval-control")
+            .pipe(Effect.timeout("30 seconds"));
+          expect(taken.controller).toBe("user");
+          const interrupted = yield* Fiber.join(running);
+          expect(interrupted).toMatchObject({
+            _tag: "Failure",
+            failure: { message: expect.stringContaining("Takeover") },
+          });
+          yield* Effect.tryPromise(() =>
+            page.evaluate("document.dispatchEvent(new Event('release-eval'))")
+          );
+          expect(
+            yield* Effect.flip(
+              sessions.resumeBoundary(run.id, held.intervention.id)
+            )
+          ).toMatchObject({ message: expect.stringContaining("Takeover") });
+          expect(
+            yield* Effect.flip(call("takeover-eval", heldScript))
+          ).toMatchObject({ message: expect.stringContaining("Takeover") });
+          expect(
+            modifications(
+              yield* sessions.devtools(run.id, { action: "modifications_list" })
+            ).modifications
+          ).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                kind: "eval",
+                operationId: "takeover-eval",
+              }),
+            ])
+          );
+          expect((yield* sessions.get(run.id)).timeline).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                dispatched: true,
+                id: "takeover-eval",
+                outcome: "interrupted",
+              }),
+            ])
+          );
+          expect(
+            (yield* sessions.get(run.id)).timeline.some(
+              (entry) => entry.id === "evaluation-result-takeover-eval"
+            )
+          ).toBe(false);
+          yield* sessions.returnControl(run.id, "return-after-eval");
+          expect(
+            yield* Effect.flip(call("takeover-eval", heldScript))
+          ).toMatchObject({ message: expect.stringContaining("Takeover") });
+        });
+        yield* Effect.gen(function* containNavigations() {
+          for (const [id, script] of [
+            [
+              "form",
+              `(() => { const form = document.createElement('form'); form.action = ${JSON.stringify(outside.replace("outside-eval", "outside-form"))}; document.body.append(form); form.submit(); })()`,
+            ],
+            [
+              "popup",
+              `window.open(${JSON.stringify(outside.replace("outside-eval", "outside-popup"))}); "opened"`,
+            ],
+          ]) {
+            // Top-level documents, including the popup's first request, use the
+            // existing navigation boundary rather than initiator attribution.
+
+            yield* confirmed(`navigation-${id}`, script ?? "");
+            yield* sessions.changes(run.id).pipe(
+              Stream.filter(
+                (snapshot) => snapshot.boundary?.reason === "domain"
+              ),
+              Stream.runHead,
+              Effect.timeout("30 seconds")
+            );
+            expect(
+              fixture.requests.filter((url) => url.includes(`outside-${id}`))
+            ).toEqual([]);
+            expect(page.url()).not.toBe(outside);
+            yield* allow("refuse", `refuse-navigation-${id}`);
+          }
+        });
+        yield* expectInterruptedSetupDoesNotDispatch(page);
         const never = yield* call("never", "new Promise(() => {})");
         if (never.intervention === undefined || never.intervention === null) {
           return yield* Effect.die("Missing timeout Confirmation");

@@ -49,6 +49,22 @@ const networkGuards = (hosts: readonly string[]) => `(() => {
   const lock = (target, key, value) => Object.defineProperty(target, key,
     { value, configurable: false, writable: false });
   lock(globalThis, '__contingencyEvaluationGuard', true);
+  const unavailable = function() {
+    throw new Error('This API is not available to evaluation.');
+  };
+  // These channels can outlive this realm or bypass page request attribution.
+  for (const name of ['Worker', 'SharedWorker', 'EventSource', 'RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
+    const original = globalThis[name];
+    if (original !== undefined) {
+      lock(original.prototype, 'constructor', unavailable);
+      lock(globalThis, name, unavailable);
+    }
+  }
+  if (typeof ServiceWorkerContainer !== 'undefined') {
+    lock(ServiceWorkerContainer.prototype, 'register', unavailable);
+    if (navigator.serviceWorker) lock(navigator.serviceWorker, 'register', unavailable);
+  }
+
   const originalFetch = fetch;
   lock(globalThis, 'fetch', function(input, init) {
     const request = new RequestConstructor(input, { ...init, redirect: 'error' });
@@ -244,7 +260,7 @@ export const evaluateBrowserScript = (
         "agent_browser_failed",
         "Evaluation failed or timed out. A mutating attempt may already have changed the page; inspect it before requesting fresh Confirmation."
       ),
-    try: async (): Promise<BrowserEvaluationResult> => {
+    try: async (signal): Promise<BrowserEvaluationResult> => {
       if (mode === "read_only") {
         // throwOnSideEffect already refuses network APIs, so read-only scripts
         // run in the page's own realm without guards or a realm budget.
@@ -297,6 +313,9 @@ export const evaluateBrowserScript = (
       if (guarded.exceptionDetails !== undefined) {
         throw new Error("Could not install evaluation network guards.");
       }
+      // CDP setup promises keep running after interruption. Never let a late
+      // preparation response dispatch user code after Takeover terminated it.
+      signal.throwIfAborted();
       return evaluationResult(
         await cdp.send("Runtime.evaluate", {
           awaitPromise: true,
