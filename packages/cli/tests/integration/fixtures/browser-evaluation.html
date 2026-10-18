@@ -6,6 +6,7 @@
   <body>
     <button id="delete" type="button">Delete account</button>
     <script>
+      window.evaluationFixture = "page-global";
       document.querySelector("#delete").addEventListener("click", () => {
         document.body.dataset.deleted = String(
           Number(document.body.dataset.deleted ?? 0) + 1

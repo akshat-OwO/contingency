@@ -176,6 +176,8 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
     await cdp.send("Runtime.enable");
     await cdp.send("Network.enable");
     await cdp.send("Debugger.enable");
+    // Async stack ids need the debugger; the page's own breakpoints must not pause.
+    await cdp.send("Debugger.setSkipAllPauses", { skip: true });
     await cdp.send("Debugger.setAsyncCallStackDepth", { maxDepth: 32 });
     await cdp.send("Fetch.enable", {
       patterns: [{ requestStage: "Request", urlPattern: "*" }],
@@ -184,6 +186,47 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
   })();
   networkPolicies.set(cdp, initialized);
   return initialized;
+};
+
+/** The Runtime.evaluate response fields read here; playwright-core does not
+ * export its Protocol namespace. */
+interface EvaluateResponse {
+  readonly result: {
+    readonly value?: unknown;
+    readonly unserializableValue?: string;
+    readonly description?: string;
+  };
+  readonly exceptionDetails?: {
+    readonly text: string;
+    readonly exception?: { readonly description?: string };
+  };
+}
+const evaluationResult = (
+  result: EvaluateResponse,
+  mode: "read_only" | "mutating",
+  secrets: readonly string[]
+): BrowserEvaluationResult => {
+  const exception = result.exceptionDetails;
+  const message = exception?.exception?.description ?? exception?.text;
+  if (mode === "read_only" && message?.includes("side-effect")) {
+    return {
+      failed: true,
+      text: "Read-only evaluation aborted on a side effect. Request mutating evaluation for this script; it requires Confirmation for each attempt in an Interactive Run.",
+      truncated: false,
+    };
+  }
+  const text =
+    message ??
+    (result.result.value === undefined
+      ? (result.result.unserializableValue ??
+        result.result.description ??
+        "undefined")
+      : JSON.stringify(result.result.value));
+  // Bound after scrubbing so a clipped secret can never escape redaction.
+  return {
+    ...boundedDevtoolsText(text, secrets),
+    failed: exception !== undefined,
+  };
 };
 
 /** CDP supplies the side-effect check; no source-code heuristic decides whether
@@ -202,6 +245,23 @@ export const evaluateBrowserScript = (
         "Evaluation failed or timed out. A mutating attempt may already have changed the page; inspect it before requesting fresh Confirmation."
       ),
     try: async (): Promise<BrowserEvaluationResult> => {
+      if (mode === "read_only") {
+        // throwOnSideEffect already refuses network APIs, so read-only scripts
+        // run in the page's own realm without guards or a realm budget.
+        return evaluationResult(
+          await cdp.send("Runtime.evaluate", {
+            awaitPromise: true,
+            disableBreaks: true,
+            expression: script,
+            returnByValue: true,
+            silent: true,
+            throwOnSideEffect: true,
+            timeout: 10_000,
+          }),
+          mode,
+          secrets
+        );
+      }
       const policies = await requireNetworkPolicy(cdp);
       if (policies.size >= 256) {
         throw new Error(
@@ -237,37 +297,19 @@ export const evaluateBrowserScript = (
       if (guarded.exceptionDetails !== undefined) {
         throw new Error("Could not install evaluation network guards.");
       }
-      const result = await cdp.send("Runtime.evaluate", {
-        awaitPromise: true,
-        contextId: executionContextId,
-        disableBreaks: true,
-        expression: `${script}\n//# sourceURL=${source}`,
-        returnByValue: true,
-        silent: true,
-        throwOnSideEffect: mode === "read_only",
-        timeout: 10_000,
-      });
-      const exception = result.exceptionDetails;
-      const message = exception?.exception?.description ?? exception?.text;
-      if (mode === "read_only" && message?.includes("side-effect")) {
-        return {
-          failed: true,
-          text: "Read-only evaluation aborted on a side effect. Request mutating evaluation for this script; it requires Confirmation for each attempt in an Interactive Run.",
-          truncated: false,
-        };
-      }
-      const text =
-        message ??
-        (result.result.value === undefined
-          ? (result.result.unserializableValue ??
-            result.result.description ??
-            "undefined")
-          : JSON.stringify(result.result.value));
-      // Bound after scrubbing so a clipped secret can never escape redaction.
-      return {
-        ...boundedDevtoolsText(text, secrets),
-        failed: exception !== undefined,
-      };
+      return evaluationResult(
+        await cdp.send("Runtime.evaluate", {
+          awaitPromise: true,
+          contextId: executionContextId,
+          disableBreaks: true,
+          expression: `${script}\n//# sourceURL=${source}`,
+          returnByValue: true,
+          silent: true,
+          timeout: 10_000,
+        }),
+        mode,
+        secrets
+      );
     },
   }).pipe(
     Effect.onInterrupt(() =>

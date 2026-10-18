@@ -1,3 +1,4 @@
+import type { AgentSessionId } from "@contingency/protocol";
 import {
   AgentActionResult,
   BrowserModification,
@@ -8,8 +9,10 @@ import {
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
+import type { Page } from "playwright-core";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import type { AgentSessionService } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
   agentProcessLayer,
@@ -30,6 +33,37 @@ const actionResult = Schema.decodeUnknownSync(AgentActionResult);
 const modifications = Schema.decodeUnknownSync(
   Schema.Struct({ modifications: Schema.Array(BrowserModification) })
 );
+
+/** Page debugger statements must not freeze the tab once eval has run, and
+ * read-only evaluation sees page globals with no realm budget. */
+const expectPageStaysResponsive = (
+  sessions: AgentSessionService,
+  sessionId: AgentSessionId,
+  page: Page
+) =>
+  Effect.gen(function* pageStaysResponsive() {
+    expect(
+      yield* Effect.tryPromise(() =>
+        page.evaluate(() => {
+          // oxlint-disable-next-line no-debugger
+          debugger;
+          return "resumed";
+        })
+      ).pipe(Effect.timeout("5 seconds"))
+    ).toBe("resumed");
+    for (let index = 0; index < 300; index += 1) {
+      expect(
+        evaluation(
+          yield* sessions.devtools(sessionId, {
+            action: "eval",
+            mode: "read_only",
+            operationId: `page-global-${index}`,
+            script: "window.evaluationFixture",
+          })
+        )
+      ).toEqual({ failed: false, text: '"page-global"', truncated: false });
+    }
+  });
 
 it.live(
   "evaluates read-only in every activity and scrubs bounded results",
@@ -356,6 +390,7 @@ it.live(
         );
         expect(redirect.evaluation?.text).toBe('"blocked"');
         expect(fixture.requests).not.toContain("/outside-boundary");
+        yield* expectPageStaysResponsive(sessions, run.id, page);
         const inScope = yield* confirmed(
           "in-scope",
           "fetch('/shop.html?in-scope-eval').then(response => response.status)"
