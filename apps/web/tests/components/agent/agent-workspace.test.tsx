@@ -216,7 +216,11 @@ const rpcOverrides = {
   runVideoStatusAtom: () =>
     Atom.make(() => ({
       _tag: "Success",
-      value: { condensed: true, state: "ready" },
+      value: {
+        condensed: true,
+        path: "/runs/dry-run/run.webm",
+        state: "ready",
+      },
       waiting: false,
     })),
 };

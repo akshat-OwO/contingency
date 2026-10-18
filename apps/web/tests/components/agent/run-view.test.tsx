@@ -22,7 +22,11 @@ import { routeTree } from "@/routeTree.gen";
 
 const readyVideo = {
   _tag: "Success",
-  value: { condensed: true, state: "ready" },
+  value: {
+    condensed: true,
+    path: "/runs/agentrun-one/run.webm",
+    state: "ready",
+  },
   waiting: false,
 } as const;
 
@@ -183,6 +187,82 @@ test("embeds the local Run video in the summary of a finished Run", () => {
   expect(screen.queryByText(/Playing in real time/u)).toBeNull();
 });
 
+test("copies the video's path on this machine", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  const writeText = vi.spyOn(navigator.clipboard, "writeText");
+  render(
+    <TestRegistry>
+      <RunSummaryView summary={asSummary} />
+    </TestRegistry>
+  );
+  const player = screen.getByRole("group", { name: "Run video player" });
+  expect(within(player).getByText("/runs/agentrun-one/run.webm")).toBeVisible();
+  await user.click(
+    within(player).getByRole("button", { name: "Copy video path" })
+  );
+  expect(writeText).toHaveBeenCalledWith("/runs/agentrun-one/run.webm");
+  expect(within(player).getByText("Copied")).toBeVisible();
+});
+
+test("keeps every control but the file path in fullscreen", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  // jsdom has no Fullscreen API; stand one in that reports the element.
+  let fullscreenElement: Element | null = null;
+  Object.defineProperty(document, "fullscreenElement", {
+    configurable: true,
+    get: () => fullscreenElement,
+  });
+  const enter = (element: Element | null) => {
+    fullscreenElement = element;
+    document.dispatchEvent(new Event("fullscreenchange"));
+    return Promise.resolve();
+  };
+  // The player is the only element on the page that asks for fullscreen.
+  Element.prototype.requestFullscreen = () =>
+    enter(screen.getByRole("group", { name: "Run video player" }));
+  document.exitFullscreen = () => enter(null);
+  try {
+    render(
+      <TestRegistry>
+        <RunSummaryView summary={asSummary} />
+      </TestRegistry>
+    );
+    const player = screen.getByRole("group", { name: "Run video player" });
+    await user.click(
+      within(player).getByRole("button", { name: "Fullscreen" })
+    );
+    expect(fullscreenElement).toBe(player);
+    expect(
+      within(player).queryByText("/runs/agentrun-one/run.webm")
+    ).toBeNull();
+    expect(
+      within(player).queryByRole("button", { name: "Copy video path" })
+    ).toBeNull();
+    for (const name of [
+      "Back 5 seconds",
+      "Play",
+      "Forward 5 seconds",
+      "Playback speed, 1×",
+      "Exit fullscreen",
+    ]) {
+      expect(within(player).getByRole("button", { name })).toBeVisible();
+    }
+    expect(within(player).getByRole("slider", { name: "Seek" })).toBeVisible();
+    await user.click(
+      within(player).getByRole("button", { name: "Exit fullscreen" })
+    );
+    expect(
+      within(player).getByText("/runs/agentrun-one/run.webm")
+    ).toBeVisible();
+  } finally {
+    Reflect.deleteProperty(document, "fullscreenElement");
+    Reflect.deleteProperty(document, "exitFullscreen");
+    Reflect.deleteProperty(Element.prototype, "requestFullscreen");
+  }
+});
+
 test("says the video is being prepared until it is condensed", () => {
   rpc.videoStatus = {
     _tag: "Success",
@@ -203,6 +283,7 @@ test("plays a video that could not be condensed in real time, with the reason", 
     _tag: "Success",
     value: {
       condensed: false,
+      path: "/runs/agentrun-one/run.webm",
       reason: "The footage could not be decoded.",
       state: "ready",
     },
