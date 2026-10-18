@@ -516,10 +516,13 @@ const withoutStampedKeys = (block: string): string[] => {
 
 const emulationLines = (emulation: FlowSkillEmulation): string[] => {
   const lines: string[] = [];
-  lines.push(
-    `  pageZoom: ${emulation.pageZoom ?? 100}`,
-    `  textScale: ${emulation.textScale ?? 100}`
-  );
+  // 100% is the browser default; omit it so older Flow Skills round-trip.
+  if (emulation.pageZoom !== undefined && emulation.pageZoom !== 100) {
+    lines.push(`  pageZoom: ${emulation.pageZoom}`);
+  }
+  if (emulation.textScale !== undefined && emulation.textScale !== 100) {
+    lines.push(`  textScale: ${emulation.textScale}`);
+  }
   if (emulation.userAgentProfile !== undefined) {
     lines.push(`  userAgentProfile: ${emulation.userAgentProfile}`);
   }
