@@ -60,11 +60,9 @@ test("records a decision on top of the ones the session already has", async () =
   ).toBeInTheDocument();
 
   await userEvent.click(screen.getByLabelText("Permission"));
-  // The Select renders its list in a portal the accessibility tree hides
-  // while the popover holds focus, so the option is queried as hidden.
-  await userEvent.click(
-    screen.getByRole("option", { hidden: true, name: "camera" })
-  );
+  // Wait for the Select's popup to finish opening; until then its options
+  // are hidden and ignore pointer input.
+  await userEvent.click(await screen.findByRole("option", { name: "camera" }));
   await userEvent.click(screen.getByRole("button", { name: "Grant" }));
 
   // A patch replaces the whole list, so a decision carries what the session
