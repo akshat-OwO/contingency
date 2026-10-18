@@ -6543,7 +6543,7 @@ const makeAgentSession = (
                   record.browserSessionId,
                   tabId
                 );
-                const snapshot = yield* browser.getStorage(
+                const snapshot = yield* browser.getTabStorage(
                   record.browserSessionId,
                   target.tabId,
                   command.kind

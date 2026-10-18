@@ -11,6 +11,7 @@ import type {
   StorageKind,
 } from "@contingency/protocol";
 import { Effect } from "effect";
+import type { Page } from "playwright-core";
 
 import type {
   BrowserStorageDeleteInput,
@@ -20,6 +21,7 @@ import {
   activeStoragePage,
   emptyStorageSnapshot,
   normalizeCookie,
+  requirePage,
   tryBrowser,
 } from "./create-browser-session.ts";
 import type { CreateSession } from "./create-browser-session.ts";
@@ -45,13 +47,12 @@ const requireActivePage = (session: CreateSession, tabId: BrowserTabId) => {
 };
 
 export const makeCreateBrowserStorage = (requireSession: RequireSession) => {
-  const get = Effect.fn("CreateBrowser.getStorage")(function* readStorage(
-    sessionId: SessionId,
+  const read = Effect.fn("CreateBrowser.readStorage")(function* readStorage(
+    session: CreateSession,
+    page: Page | undefined,
     tabId: BrowserTabId,
     kind: StorageKind
   ) {
-    const session = yield* requireSession(sessionId);
-    const page = activeStoragePage(session, tabId);
     if (page === undefined) {
       return emptyStorageSnapshot(tabId, kind);
     }
@@ -85,6 +86,28 @@ export const makeCreateBrowserStorage = (requireSession: RequireSession) => {
     );
     return { entries, kind, tabId } as const;
   });
+
+  // Workspace reads remain scoped to the active tab.
+  const get = Effect.fn("CreateBrowser.getStorage")(function* getStorage(
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) {
+    const session = yield* requireSession(sessionId);
+    return yield* read(session, activeStoragePage(session, tabId), tabId, kind);
+  });
+
+  const getTab = Effect.fn("CreateBrowser.getTabStorage")(
+    function* getTabStorage(
+      sessionId: SessionId,
+      tabId: BrowserTabId,
+      kind: StorageKind
+    ) {
+      const session = yield* requireSession(sessionId);
+      const page = yield* requirePage(session, tabId);
+      return yield* read(session, page, tabId, kind);
+    }
+  );
 
   const set = Effect.fn("CreateBrowser.setStorage")(function* writeStorage(
     sessionId: SessionId,
@@ -189,5 +212,5 @@ export const makeCreateBrowserStorage = (requireSession: RequireSession) => {
     }
   );
 
-  return { clear, get, remove, set };
+  return { clear, get, getTab, remove, set };
 };

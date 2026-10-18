@@ -724,6 +724,7 @@ const makeService = (
         );
       }),
     getStorage: storage.get,
+    getTabStorage: storage.getTab,
     getTabs: (sessionId) => requireSession(sessionId).pipe(Effect.map(tabs)),
     list: () => Effect.sync(() => [...Ref.getUnsafe(sessions).keys()]),
     navigate: (sessionId, action) =>

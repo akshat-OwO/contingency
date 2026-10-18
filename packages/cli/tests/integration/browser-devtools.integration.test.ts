@@ -1,5 +1,6 @@
 import {
   BrowserConsoleEntry,
+  BrowserTabId,
   BrowserNetworkRequestDetail,
   OperationId,
   FlowSkillName,
@@ -358,6 +359,92 @@ it.live("observes fresh Dry Run contexts without granting page writes", () =>
           )
         ).toMatchObject({ code: "agent_control_unavailable" });
         yield* sessions.closeAll();
+      }).pipe(Effect.provide(agentProcessLayer(root)))
+    );
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.live("reads background tab storage without changing the active tab", () =>
+  Effect.gen(function* backgroundStorage() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "devtools-tabs-",
+    });
+    const fixture = yield* fixtureServer;
+    yield* Effect.scoped(
+      Effect.gen(function* inspectBackgroundStorage() {
+        const sessions = yield* AgentSession;
+        const browser = yield* CreateBrowser;
+        const session = yield* sessions.start({
+          activity: "teaching",
+          operationId: "background-storage",
+          url: fixture.url("devtools.html"),
+          viewport: agentViewport,
+        });
+        yield* Effect.addFinalizer(() => sessions.closeAll());
+        const [browserSessionId] = yield* browser.list();
+        if (browserSessionId === undefined) {
+          return yield* Effect.die("Missing browser session");
+        }
+        const { page, tabId } = yield* browser.activeTarget(browserSessionId);
+        yield* Effect.tryPromise(() =>
+          page
+            .context()
+            .addCookies([
+              { name: "background", url: page.url(), value: "tab-a" },
+            ])
+        );
+        yield* Effect.tryPromise(() =>
+          page.evaluate(() => {
+            localStorage.setItem("background", "local-a");
+            sessionStorage.setItem("background", "session-a");
+          })
+        );
+        yield* browser.newTab(browserSessionId);
+        const tabB = yield* browser.activeTarget(browserSessionId);
+        expect(tabB.tabId).not.toBe(tabId);
+        for (const kind of ["cookies", "local", "session"] as const) {
+          const snapshot = yield* sessions.devtools(
+            session.id,
+            { action: "storage", kind },
+            tabId
+          );
+          expect(snapshot).toMatchObject(
+            kind === "cookies"
+              ? {
+                  cookies: [{ name: "background", value: "[redacted]" }],
+                  kind,
+                  tabId,
+                }
+              : { entries: { background: `${kind}-a` }, kind, tabId }
+          );
+          expect((yield* browser.activeTarget(browserSessionId)).tabId).toBe(
+            tabB.tabId
+          );
+          expect(yield* sessions.storage(session.id, tabId, kind)).toEqual(
+            kind === "cookies"
+              ? { cookies: [], kind, tabId }
+              : { entries: {}, kind, tabId }
+          );
+          const missing = BrowserTabId.make("missing-tab");
+          expect(
+            yield* Effect.flip(
+              browser.getTabStorage(browserSessionId, missing, kind)
+            )
+          ).toMatchObject({
+            code: "session_not_found",
+            message: `Browser tab ${missing} was not found.`,
+          });
+          expect(
+            yield* Effect.flip(
+              sessions.devtools(
+                session.id,
+                { action: "storage", kind },
+                missing
+              )
+            )
+          ).toMatchObject({ message: `Browser tab ${missing} was not found.` });
+        }
       }).pipe(Effect.provide(agentProcessLayer(root)))
     );
   }).pipe(Effect.provide(NodeServices.layer))

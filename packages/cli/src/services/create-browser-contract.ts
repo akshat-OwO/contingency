@@ -140,6 +140,11 @@ export interface CreateBrowserService {
     tabId: BrowserTabId,
     kind: StorageKind
   ) => Effect.Effect<BrowserStorageSnapshot, BrowserRpcErrorType>;
+  readonly getTabStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<BrowserStorageSnapshot, BrowserRpcErrorType>;
   readonly getTabs: (
     sessionId: SessionId
   ) => Effect.Effect<readonly BrowserTab[], BrowserRpcErrorType>;

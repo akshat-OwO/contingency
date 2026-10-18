@@ -167,6 +167,7 @@ const makeFakeBrowser = (options?: {
     getNetworkRequest: notUnderTest,
     getNetworkRequests: notUnderTest,
     getStorage: notUnderTest,
+    getTabStorage: notUnderTest,
     getTabs: notUnderTest,
     list: notUnderTest,
     navigate: notUnderTest,
