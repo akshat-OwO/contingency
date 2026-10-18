@@ -1048,6 +1048,99 @@ export class ContingencyRpcs extends RpcGroup.make(
 
 /** Browser devtools operations available only through agent_code_execute. */
 export const BrowserDevtoolsCommand = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("modifications_list") }),
+  Schema.Struct({
+    action: Schema.Literal("modification_remove"),
+    id: Schema.String.check(Schema.isMinLength(1)),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("cookie_set"),
+    cookie: BrowserCookieWrite,
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("cookie_clear"),
+    domain: Schema.String.check(Schema.isMinLength(1)),
+    name: Schema.String,
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+    path: Schema.String.check(Schema.isMinLength(1)),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("storage_set"),
+    key: Schema.String,
+    kind: Schema.Literals(["local", "session"]),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+    value: Schema.String,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("storage_clear"),
+    key: Schema.optionalKey(Schema.String),
+    kind: Schema.Literals(["local", "session"]),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("route_add"),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+    pattern: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(2048)
+    ),
+    resourceType: Schema.optionalKey(
+      Schema.Literals([
+        "document",
+        "stylesheet",
+        "image",
+        "media",
+        "font",
+        "script",
+        "texttrack",
+        "xhr",
+        "fetch",
+        "eventsource",
+        "websocket",
+        "manifest",
+        "other",
+      ])
+    ),
+    response: Schema.Union([
+      Schema.Struct({ action: Schema.Literal("block") }),
+      Schema.Struct({
+        action: Schema.Literal("mock"),
+        body: Schema.String.check(Schema.isMaxLength(1_048_576)),
+        contentType: Schema.String.check(Schema.isMaxLength(256)),
+        status: Schema.Int.check(
+          Schema.isBetween({ maximum: 599, minimum: 200 })
+        ),
+      }),
+    ]),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("headers_set"),
+    headers: Schema.Record(Schema.String, Schema.String),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+  }),
   Schema.Struct({ action: Schema.Literal("emulation_get") }),
   Schema.Struct({
     action: Schema.Literal("emulation_set"),
@@ -1089,3 +1182,5 @@ export const BrowserDevtoolsInput = Schema.Struct({
   command: BrowserDevtoolsCommand,
   tabId: Schema.optionalKey(BrowserTabId),
 });
+
+export * from "./browser-modifications.ts";
