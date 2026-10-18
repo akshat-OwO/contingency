@@ -20,6 +20,10 @@ import {
 } from "./mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import {
+  BrowserDevtoolsTools,
+  BrowserDevtoolsToolHandlersLive,
+} from "./mcp-browser-devtools.ts";
+import {
   AgentCatalogToolHandlersLive,
   AgentCatalogTools,
   McpAgentCatalogLayer,
@@ -104,6 +108,7 @@ export const makeMcpCatalogLayer = <R = never>(
     makeMcpCodeInterpreterLayer(
       Layer.mergeAll(
         operationSource(AgentSessionTools, AgentSessionToolHandlersLive),
+        operationSource(BrowserDevtoolsTools, BrowserDevtoolsToolHandlersLive),
         operationSource(
           AndroidWorkspaceTools,
           AndroidWorkspaceToolHandlersLive
@@ -170,8 +175,9 @@ export const makeMcpInstructions = (
   mcpInterface === "single-tool"
     ? makeSingleToolInstructions(channel, systemOne)
     : [
-        "Contingency drives a local browser for Teaching, Runs, and Dry Runs.",
-        "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
+        "Contingency drives a browser for Teaching, Runs, and Dry Runs.",
+        "Native devtools unavailable.",
+        "Share viewUrl as a Workspace link before acting in a new session or requesting user input.",
         'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
         "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
         "Use agent_browser_act_sequence for known steps; it stops where you must look again.",

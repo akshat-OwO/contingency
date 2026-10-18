@@ -3,7 +3,6 @@ import type {
   BrowserAgentPointer,
   BrowserCookie,
   BrowserIdentity,
-  BrowserNetworkRequest,
   BrowserRpcErrorType,
   BrowserStorageSnapshot,
   BrowserStreamEvent,
@@ -19,14 +18,9 @@ import type {
 } from "@contingency/protocol";
 import type { Semaphore } from "effect";
 import { Effect, Option, PubSub, Ref, Result, Schema } from "effect";
-import type {
-  BrowserContext,
-  CDPSession,
-  Page,
-  Request,
-  Response,
-} from "playwright-core";
+import type { BrowserContext, CDPSession, Page } from "playwright-core";
 
+import type { TabDevtools } from "./browser-devtools.ts";
 import {
   deviceMetricsOverride,
   touchEmulation,
@@ -62,11 +56,6 @@ export interface Screencast {
   readonly streamId: BrowserStreamId;
 }
 
-export interface NetworkRecord {
-  readonly request: BrowserNetworkRequest;
-  readonly response?: Response;
-}
-
 export interface CreateSessionState {
   readonly activePage: Page;
   /** The colour scheme Pages are fed through `prefers-color-scheme`. */
@@ -78,7 +67,7 @@ export interface CreateSessionState {
   readonly geolocation: Geolocation | undefined;
   readonly locale: string | undefined;
   readonly lastStreamId: BrowserStreamId | undefined;
-  readonly network: ReadonlyMap<BrowserTabId, Map<string, NetworkRecord>>;
+  readonly devtools: ReadonlyMap<BrowserTabId, TabDevtools>;
   readonly pageIds: ReadonlyMap<Page, BrowserTabId>;
   /**
    * The session's explicit website permission decisions — granted or denied,
@@ -86,7 +75,6 @@ export interface CreateSessionState {
    * 0013](../../../../docs/adr/0013-emulation-belongs-to-the-flow.md)).
    */
   readonly permissions: readonly PermissionDecision[];
-  readonly requestIds: WeakMap<Request, string>;
   readonly screencast: Screencast | undefined;
   readonly sequence: number;
   readonly streamSubscribers: number;

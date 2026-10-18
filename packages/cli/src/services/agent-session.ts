@@ -52,6 +52,7 @@ import type {
   BrowserStreamEvent,
   BrowserFailureReasonType,
   BrowserRpcErrorType,
+  BrowserDevtoolsCommand,
   BrowserNetworkRequest,
   BrowserNetworkRequestDetail,
   BrowserStorageSnapshot,
@@ -135,6 +136,10 @@ import {
   resolveBrowserCheckInputs,
   validateTeachingAttachments,
 } from "./browser-check-requirements.ts";
+import {
+  redactDevtoolsRequest,
+  redactDevtoolsText,
+} from "./browser-devtools.ts";
 import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
 import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
@@ -417,6 +422,11 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     operationId: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly devtools: (
+    sessionId: AgentSessionId,
+    command: BrowserDevtoolsCommand,
+    tabId?: BrowserTabId
+  ) => Effect.Effect<unknown, AgentSessionError>;
   readonly closeAll: () => Effect.Effect<void>;
   readonly get: (
     sessionId: AgentSessionId
@@ -6412,7 +6422,21 @@ const makeAgentSession = (
           read(sessionId).pipe(
             Effect.flatMap((record) =>
               isLive(record.snapshot.phase)
-                ? Effect.succeed(browser.stream(record.browserSessionId))
+                ? Effect.succeed(
+                    browser.stream(record.browserSessionId).pipe(
+                      Stream.map((event) =>
+                        event.type === "console" || event.type === "page_error"
+                          ? {
+                              ...event,
+                              text: redactDevtoolsText(
+                                event.text,
+                                sessionSensitiveValues(record)
+                              ),
+                            }
+                          : event
+                      )
+                    )
+                  )
                 : Effect.fail(
                     error(
                       "agent_session_conflict",
@@ -6486,6 +6510,107 @@ const makeAgentSession = (
           Effect.flatMap((record) =>
             browser.deleteStorage(record.browserSessionId, tabId, input)
           )
+        ),
+      devtools: (sessionId, command, tabId) =>
+        observe(sessionId, (record) =>
+          Effect.gen(function* observeDevtools() {
+            const tools = yield* browser.devtools(
+              record.browserSessionId,
+              tabId
+            );
+            const secrets = sessionSensitiveValues(record);
+            switch (command.action) {
+              case "requests": {
+                const result = tools.requests();
+                return {
+                  dropped: result.dropped,
+                  requests: result.requests.flatMap((raw) => {
+                    const request = redactDevtoolsRequest(raw, secrets);
+                    if (
+                      !(
+                        (command.url === undefined ||
+                          request.url.includes(command.url)) &&
+                        (command.method === undefined ||
+                          request.method.toUpperCase() ===
+                            command.method.toUpperCase()) &&
+                        (command.statusMin === undefined ||
+                          (request.status !== undefined &&
+                            request.status !== null &&
+                            request.status >= command.statusMin)) &&
+                        (command.statusMax === undefined ||
+                          (request.status !== undefined &&
+                            request.status !== null &&
+                            request.status <= command.statusMax)) &&
+                        (command.resourceType === undefined ||
+                          request.resourceType === command.resourceType)
+                      )
+                    ) {
+                      return [];
+                    }
+                    const {
+                      headers: _headers,
+                      responseHeaders: _responseHeaders,
+                      postData: _postData,
+                      responseBody: _responseBody,
+                      ...metadata
+                    } = request;
+                    return [metadata];
+                  }),
+                };
+              }
+              case "request": {
+                return yield* tools.request(command.requestId, secrets);
+              }
+              case "console": {
+                return tools.console(secrets);
+              }
+              case "clear_console": {
+                tools.clearConsole();
+                return { cleared: true };
+              }
+              case "storage": {
+                const target = yield* browser.activeTarget(
+                  record.browserSessionId,
+                  tabId
+                );
+                const snapshot = yield* browser.getStorage(
+                  record.browserSessionId,
+                  target.tabId,
+                  command.kind
+                );
+                return snapshot.kind === "cookies"
+                  ? {
+                      ...snapshot,
+                      cookies: snapshot.cookies.map((cookie) => ({
+                        ...cookie,
+                        name: redactDevtoolsText(cookie.name, secrets),
+                        value: "[redacted]",
+                      })),
+                    }
+                  : {
+                      ...snapshot,
+                      entries: Object.fromEntries(
+                        Object.entries(snapshot.entries).map(([key, value]) => [
+                          redactDevtoolsText(key, secrets),
+                          redactDevtoolsText(value, secrets),
+                        ])
+                      ),
+                    };
+              }
+              case "har_start": {
+                tools.startHar(command.operationId);
+                return { capturing: true };
+              }
+              case "har_stop": {
+                return yield* tools.stopHar(secrets, command.operationId);
+              }
+              default: {
+                return yield* Effect.fail(
+                  error("agent_session_invalid", "Unknown devtools action.")
+                );
+              }
+            }
+          })
         ),
       discardTeachingRecording: (sessionId, operationId) =>
         ledger.serializeMutation(
@@ -6654,13 +6779,30 @@ const makeAgentSession = (
       networkRequest: (sessionId, tabId, requestId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>
-            browser.getNetworkRequest(record.browserSessionId, tabId, requestId)
+            browser
+              .devtools(record.browserSessionId, tabId)
+              .pipe(
+                Effect.flatMap((tools) =>
+                  tools.request(requestId, sessionSensitiveValues(record))
+                )
+              )
           )
         ),
       networkRequests: (sessionId, tabId) =>
         requireLiveRecord(sessionId).pipe(
           Effect.flatMap((record) =>
-            browser.getNetworkRequests(record.browserSessionId, tabId)
+            browser
+              .getNetworkRequests(record.browserSessionId, tabId)
+              .pipe(
+                Effect.map((requests) =>
+                  requests.map((request) =>
+                    redactDevtoolsRequest(
+                      request,
+                      sessionSensitiveValues(record)
+                    )
+                  )
+                )
+              )
           )
         ),
       noteAgentActivity: (sessionId) =>

@@ -356,14 +356,13 @@ const makeService = (
       const state = yield* Ref.make<CreateSessionState>({
         activePage: page,
         colorScheme: environment?.colorScheme,
+        devtools: new Map(),
         geolocation: environment?.geolocation,
         identity: undefined,
         lastStreamId: undefined,
         locale: environment?.locale,
-        network: new Map(),
         pageIds: new Map(),
         permissions: environment?.permissions ?? [],
-        requestIds: new WeakMap(),
         screencast: undefined,
         sequence: 0,
         streamSubscribers: 0,
@@ -677,41 +676,52 @@ const makeService = (
         return readSessionState(session).activePage.url();
       }),
     deleteStorage: storage.remove,
+    devtools: (sessionId, tabId) =>
+      Effect.gen(function* readDevtools() {
+        const session = yield* requireSession(sessionId);
+        const page =
+          tabId === undefined
+            ? readSessionState(session).activePage
+            : yield* requirePage(session, tabId);
+        const id = readSessionState(session).pageIds.get(page);
+        const tools =
+          id === undefined
+            ? undefined
+            : readSessionState(session).devtools.get(id);
+        if (tools === undefined) {
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_browser_failed",
+              "Tab observation is unavailable."
+            )
+          );
+        }
+        return tools;
+      }),
     getEmulation,
     getNetworkRequest: (sessionId, tabId, requestId) =>
       Effect.gen(function* readNetworkRequest() {
         const session = yield* requireSession(sessionId);
         yield* requirePage(session, tabId);
-        const record = readSessionState(session)
-          .network.get(tabId)
-          ?.get(requestId);
-        if (record === undefined) {
+        const tools = readSessionState(session).devtools.get(tabId);
+        if (tools === undefined) {
           return yield* Effect.fail(
             makeBrowserRpcError(
               "agent_browser_failed",
-              `Network request ${requestId} was not found.`
+              "Tab observation is unavailable."
             )
           );
         }
-        const { response } = record;
-        const responseBody =
-          response === undefined
-            ? undefined
-            : yield* tryBrowser("Could not read the response body", () =>
-                response.text()
-              ).pipe(Effect.option);
-        if (responseBody?._tag === "Some") {
-          return { ...record.request, responseBody: responseBody.value };
-        }
-        return record.request;
+        return yield* tools.request(requestId, []);
       }),
     getNetworkRequests: (sessionId, tabId) =>
       Effect.gen(function* readNetworkRequests() {
         const session = yield* requireSession(sessionId);
         yield* requirePage(session, tabId);
-        return [
-          ...(readSessionState(session).network.get(tabId)?.values() ?? []),
-        ].map(({ request }) => request);
+        return (
+          readSessionState(session).devtools.get(tabId)?.requests().requests ??
+          []
+        );
       }),
     getStorage: storage.get,
     getTabs: (sessionId) => requireSession(sessionId).pipe(Effect.map(tabs)),
