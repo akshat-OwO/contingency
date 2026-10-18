@@ -29,7 +29,7 @@ const PausedRequest = Schema.Struct({
   requestId: Schema.String,
 });
 /** A subframe document load is not a place the session can take the user. */
-const isTopLevelDocumentRequest = (request: Request) => {
+export const isTopLevelDocumentRequest = (request: Request) => {
   if (!request.isNavigationRequest() || request.serviceWorker() !== null) {
     return false;
   }
