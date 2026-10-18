@@ -539,68 +539,79 @@ const PlayerControls = ({
   readonly playback: Playback;
   readonly total: number;
 }) => (
-  <div className="mt-3.5 flex items-center gap-1">
-    <DockButton
-      label="Back 5 seconds"
-      onClick={() => playback.seek(playback.currentMs - SKIP_MS)}
-    >
-      <SkipGlyph direction="back" />
-    </DockButton>
-    <button
-      aria-label={playback.playing ? "Pause" : "Play"}
-      className={cn(
-        "mx-0.5 grid size-[34px] shrink-0 place-items-center rounded-full bg-white text-zinc-950 transition-transform active:scale-[0.92]",
-        FOCUS_RING
-      )}
-      onClick={playback.toggle}
-      title={playback.playing ? "Pause (Space)" : "Play (Space)"}
-      type="button"
-    >
-      {playback.playing ? (
-        <PauseIcon aria-hidden="true" className="size-4 fill-current" />
-      ) : (
-        <PlayIcon aria-hidden="true" className="ml-0.5 size-4 fill-current" />
-      )}
-    </button>
-    <DockButton
-      label="Forward 5 seconds"
-      onClick={() => playback.seek(playback.currentMs + SKIP_MS)}
-    >
-      <SkipGlyph direction="forward" />
-    </DockButton>
-    <span className="ml-1.5 shrink-0 font-mono text-xs text-white/70 tabular-nums">
-      {clock(playback.currentMs)} / {clock(playback.durationMs)}
-    </span>
-    {current === undefined ? null : (
-      <span className="ml-2 min-w-0 truncate border-l border-white/15 pl-2.5 text-xs">
-        <ChapterName chapter={current} total={total} />
+  <>
+    <div className="mt-3.5 flex items-center gap-1">
+      <DockButton
+        label="Back 5 seconds"
+        onClick={() => playback.seek(playback.currentMs - SKIP_MS)}
+      >
+        <SkipGlyph direction="back" />
+      </DockButton>
+      <button
+        aria-label={playback.playing ? "Pause" : "Play"}
+        className={cn(
+          "mx-0.5 grid size-[34px] shrink-0 place-items-center rounded-full bg-white text-zinc-950 transition-transform active:scale-[0.92]",
+          FOCUS_RING
+        )}
+        onClick={playback.toggle}
+        title={playback.playing ? "Pause (Space)" : "Play (Space)"}
+        type="button"
+      >
+        {playback.playing ? (
+          <PauseIcon aria-hidden="true" className="size-4 fill-current" />
+        ) : (
+          <PlayIcon aria-hidden="true" className="ml-0.5 size-4 fill-current" />
+        )}
+      </button>
+      <DockButton
+        label="Forward 5 seconds"
+        onClick={() => playback.seek(playback.currentMs + SKIP_MS)}
+      >
+        <SkipGlyph direction="forward" />
+      </DockButton>
+      <span className="ml-1.5 shrink-0 font-mono text-xs text-white/70 tabular-nums">
+        {clock(playback.currentMs)}
+        <span className="hidden @[20rem]:inline">
+          {" / "}
+          {clock(playback.durationMs)}
+        </span>
       </span>
+      {current === undefined ? null : (
+        <span className="ml-2 hidden min-w-0 truncate border-l border-white/15 pl-2.5 text-xs @[20rem]:block">
+          <ChapterName chapter={current} total={total} />
+        </span>
+      )}
+      <span className="flex-1" />
+      <button
+        aria-label={`Playback speed, ${playback.rate}×`}
+        className={cn(
+          "mr-0.5 h-6 shrink-0 rounded-full border border-white/15 px-2 text-[11px] font-semibold text-white/75 transition-colors hover:bg-white/10 hover:text-white",
+          FOCUS_RING
+        )}
+        onClick={playback.cycleRate}
+        title="Playback speed"
+        type="button"
+      >
+        {playback.rate}×
+      </button>
+      <DockButton
+        label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+        onClick={onToggleFullscreen}
+        title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+      >
+        {fullscreen ? (
+          <MinimizeIcon aria-hidden="true" className="size-4" />
+        ) : (
+          <MaximizeIcon aria-hidden="true" className="size-4" />
+        )}
+      </DockButton>
+    </div>
+    {current === undefined ? null : (
+      <p className="mt-2 truncate text-xs @[20rem]:hidden">
+        <ChapterName chapter={current} total={total} />
+      </p>
     )}
-    <span className="flex-1" />
-    <button
-      aria-label={`Playback speed, ${playback.rate}×`}
-      className={cn(
-        "mr-0.5 h-6 shrink-0 rounded-full border border-white/15 px-2 text-[11px] font-semibold text-white/75 transition-colors hover:bg-white/10 hover:text-white",
-        FOCUS_RING
-      )}
-      onClick={playback.cycleRate}
-      title="Playback speed"
-      type="button"
-    >
-      {playback.rate}×
-    </button>
-    <DockButton
-      label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-      onClick={onToggleFullscreen}
-      title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
-    >
-      {fullscreen ? (
-        <MinimizeIcon aria-hidden="true" className="size-4" />
-      ) : (
-        <MaximizeIcon aria-hidden="true" className="size-4" />
-      )}
-    </DockButton>
-  </div>
+  </>
 );
 
 /**
@@ -707,7 +718,7 @@ const RunVideoPlayer = ({
           <track kind="captions" />
         </video>
       </div>
-      <div className="reduce-transparency:bg-zinc-900 reduce-transparency:backdrop-blur-none mt-1.5 rounded-xl border border-white/10 bg-zinc-900/55 px-3 py-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl backdrop-saturate-[1.8]">
+      <div className="reduce-transparency:bg-zinc-900 reduce-transparency:backdrop-blur-none @container mt-1.5 rounded-xl border border-white/10 bg-zinc-900/55 px-3 py-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl backdrop-saturate-[1.8]">
         <Scrubber
           chapters={chapters}
           currentMs={playback.currentMs}
