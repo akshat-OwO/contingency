@@ -206,7 +206,13 @@ export const RunSummaryView = ({
             This Run recorded no video.
           </p>
         ) : (
-          <RunVideo src={videoSrc ?? agentRunVideoPath(summary.runId)} />
+          <RunVideo
+            src={videoSrc ?? agentRunVideoPath(summary.runId)}
+            timeMap={
+              summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
+            }
+            timeline={summary.timeline}
+          />
         )}
         <p className="text-muted-foreground text-xs">
           The video and Trace stay on this machine. Nothing is uploaded without

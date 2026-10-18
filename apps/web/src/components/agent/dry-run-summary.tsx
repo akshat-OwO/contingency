@@ -113,11 +113,13 @@ const SummaryVideo = ({
     ) : (
       <div className="relative">
         <RunVideo
-          className="max-h-[min(24rem,50svh)] bg-black object-contain"
           src={src}
+          timeMap={summary.videoTimeMap}
+          timeline={summary.timeline}
+          videoClassName="max-h-[min(24rem,50svh)]"
         />
         <Verdict
-          className="bg-background/90 pointer-events-none absolute top-2 left-2 rounded-full px-2 py-0.5 text-xs shadow-sm"
+          className="bg-background/90 pointer-events-none absolute top-3 left-3 rounded-full px-2 py-0.5 text-xs shadow-sm"
           verdict={verdict}
         />
       </div>

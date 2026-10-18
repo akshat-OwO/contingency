@@ -504,6 +504,7 @@ it.live(
           const runDirectory = path.join(root, "agent-runs", run.runId);
           expect(yield* awaitRunVideo(runDirectory)).toEqual({
             condensed: true,
+            path: path.resolve(runDirectory, "run.webm"),
             state: "ready",
           });
           const artifacts = yield* files.readDirectory(runDirectory);
