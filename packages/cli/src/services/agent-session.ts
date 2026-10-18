@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type {
+  BrowserModification,
   SessionEvent,
   TeachingBrowserAttachment,
   BrowserCheckResult,
@@ -143,6 +144,12 @@ import {
 } from "./browser-devtools.ts";
 import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
 import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
+import {
+  makeBrowserModifications,
+  modificationDescription,
+  modificationKind,
+  modificationRefusal,
+} from "./browser-modifications.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
@@ -1504,7 +1511,22 @@ const recordingCapture = (
     ? record.capture
     : undefined;
 
+const modificationRecords = (
+  record: SessionRecord
+): readonly BrowserModification[] =>
+  record.snapshot.run !== null && isTaskRun(record.snapshot.run)
+    ? (record.snapshot.run.browserModifications ?? [])
+    : (record.snapshot.browserModifications ?? []);
+const modificationPatch = (
+  record: SessionRecord,
+  entries: readonly BrowserModification[]
+): AgentSessionPatch =>
+  record.snapshot.run !== null && isTaskRun(record.snapshot.run)
+    ? { run: { ...record.snapshot.run, browserModifications: entries } }
+    : { browserModifications: entries };
+
 interface AgentSessionPatch {
+  readonly browserModifications?: readonly BrowserModification[];
   readonly dryRun?: AgentSessionSnapshot["dryRun"];
   readonly boundary?: AgentSessionSnapshot["boundary"];
   readonly currentUrl?: string;
@@ -1679,6 +1701,7 @@ const makeAgentSession = (
       new Map()
     );
     const ledger = makeSessionOperationLedger();
+    const modifications = yield* makeBrowserModifications();
     const sessionEvents = makeSessionEvents((batch) => {
       PubSub.publishUnsafe(eventBatches, batch);
     });
@@ -3170,6 +3193,10 @@ const makeAgentSession = (
               safePatch.boundary === undefined
                 ? snapshot.boundary
                 : safePatch.boundary,
+            browserModifications:
+              safePatch.browserModifications ??
+              snapshot.browserModifications ??
+              [],
             currentUrl: safePatch.currentUrl ?? snapshot.currentUrl,
             decisionHistory:
               safePatch.decisionHistory ?? snapshot.decisionHistory,
@@ -3794,7 +3821,10 @@ const makeAgentSession = (
                         }
                         record.replacedSensitiveValues.clear();
                         record.setupSensitiveValues.clear();
-                      }).pipe(Effect.andThen(ledger.releaseSession(sessionId)))
+                      }).pipe(
+                        Effect.andThen(ledger.releaseSession(sessionId)),
+                        Effect.andThen(modifications.dispose(sessionId))
+                      )
                     );
                     yield* Ref.update(sessions, (current) =>
                       new Map(current).set(sessionId, record)
@@ -6486,7 +6516,19 @@ const makeAgentSession = (
       clearStorage: (sessionId, tabId, kind) =>
         requireUserHeldRecord(sessionId).pipe(
           Effect.flatMap((record) =>
-            browser.clearStorage(record.browserSessionId, tabId, kind)
+            browser.clearStorage(record.browserSessionId, tabId, kind).pipe(
+              Effect.andThen(
+                recordEntry(sessionId, {
+                  actor: "user",
+                  at: now().toISOString(),
+                  description: "Clear browser storage",
+                  dispatched: true,
+                  id: `user-storage-${randomUUID()}`,
+                  outcome: "completed",
+                })
+              ),
+              Effect.asVoid
+            )
           )
         ),
       close: (sessionId, operationId) =>
@@ -6513,7 +6555,19 @@ const makeAgentSession = (
       deleteStorage: (sessionId, tabId, input) =>
         requireUserHeldRecord(sessionId).pipe(
           Effect.flatMap((record) =>
-            browser.deleteStorage(record.browserSessionId, tabId, input)
+            browser.deleteStorage(record.browserSessionId, tabId, input).pipe(
+              Effect.andThen(
+                recordEntry(sessionId, {
+                  actor: "user",
+                  at: now().toISOString(),
+                  description: "Delete browser storage",
+                  dispatched: true,
+                  id: `user-storage-${randomUUID()}`,
+                  outcome: "completed",
+                })
+              ),
+              Effect.asVoid
+            )
           )
         ),
       devtools: (sessionId, command, tabId) => {
@@ -6521,6 +6575,153 @@ const makeAgentSession = (
           return requireLiveRecord(sessionId).pipe(
             Effect.flatMap((record) =>
               browser.getEmulation(record.browserSessionId)
+            )
+          );
+        }
+        if (command.action === "modifications_list") {
+          return observe(sessionId, (record) =>
+            Effect.succeed({
+              modifications: modificationRecords(record).filter(
+                (entry) => entry.removedAt === undefined
+              ),
+            })
+          );
+        }
+        if (
+          command.action === "cookie_set" ||
+          command.action === "cookie_clear" ||
+          command.action === "storage_set" ||
+          command.action === "storage_clear" ||
+          command.action === "route_add" ||
+          command.action === "headers_set" ||
+          command.action === "modification_remove"
+        ) {
+          const requestInput = createHash("sha256")
+            .update(JSON.stringify({ command, tabId }))
+            .digest("hex");
+          return ledger.serializeMutation(
+            ledger.session(
+              command.operationId,
+              "browser-modification",
+              sessionId,
+              requestInput,
+              Effect.gen(function* modifyBrowser() {
+                const record = yield* requireLiveRecord(sessionId);
+                if (
+                  userLedTeaching(record.snapshot) ||
+                  agentIsPaused(record.snapshot)
+                ) {
+                  return yield* Effect.fail(
+                    takenOver(
+                      "Browser Modifications require agent control. Ask the user to return control first."
+                    )
+                  );
+                }
+                if (runIsOver(record.snapshot)) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "This Run has ended. Start an Interactive Run to modify the browser."
+                    )
+                  );
+                }
+                const entries = modificationRecords(record);
+                const existing =
+                  command.action === "modification_remove"
+                    ? entries.find(
+                        (entry) =>
+                          entry.id === command.id &&
+                          entry.removedAt === undefined
+                      )
+                    : undefined;
+                const kind =
+                  command.action === "modification_remove"
+                    ? (existing?.kind ?? "storage")
+                    : modificationKind(command);
+                const reason = modificationRefusal(record.snapshot, kind);
+                if (reason !== undefined) {
+                  return yield* Effect.fail(
+                    error("agent_session_conflict", reason)
+                  );
+                }
+                if (
+                  command.action === "modification_remove" &&
+                  existing === undefined
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "No active Browser Modification has that id. Use modifications_list first."
+                    )
+                  );
+                }
+                const at = now().toISOString();
+                let next: readonly BrowserModification[];
+                let description: string;
+                if (command.action === "modification_remove") {
+                  yield* modifications.remove(sessionId, command.id);
+                  description = `Remove Browser Modification ${command.id}`;
+                  next = entries.map((entry) =>
+                    entry.id === command.id
+                      ? { ...entry, removedAt: at }
+                      : entry
+                  );
+                } else {
+                  const id = `modification-${command.operationId}`;
+                  const target = yield* browser.activeTarget(
+                    record.browserSessionId,
+                    tabId
+                  );
+                  yield* modifications.apply(
+                    sessionId,
+                    id,
+                    command,
+                    target,
+                    record.executionBoundary?.allows
+                  );
+                  description = modificationDescription(
+                    command,
+                    sessionSensitiveValues(record)
+                  );
+                  const modification: BrowserModification = {
+                    actor: "agent",
+                    at,
+                    description,
+                    id,
+                    kind,
+                    operationId: command.operationId,
+                  };
+                  next = [
+                    ...entries,
+                    command.action === "route_add"
+                      ? {
+                          ...modification,
+                          routeAction: command.response.action,
+                        }
+                      : modification,
+                  ];
+                }
+                const snapshot = yield* recordEntry(
+                  sessionId,
+                  {
+                    actor: "agent",
+                    at,
+                    description,
+                    dispatched: true,
+                    id: command.operationId,
+                    outcome: "completed",
+                  },
+                  modificationPatch(record, next)
+                );
+                yield* ledger.rememberSession(
+                  command.operationId,
+                  "browser-modification",
+                  sessionId,
+                  requestInput,
+                  snapshot
+                );
+                return snapshot;
+              }).pipe(Effect.uninterruptible)
             )
           );
         }
@@ -6574,9 +6775,41 @@ const makeAgentSession = (
                       )
                     );
                   }
-                  const applied = yield* browser.setEmulation(
-                    record.browserSessionId,
-                    { pageZoom: command.pageZoom, textScale: command.textScale }
+                  const before = yield* browser.getEmulation(
+                    record.browserSessionId
+                  );
+                  const id = `emulation-${command.operationId}`;
+                  for (const field of ["pageZoom", "textScale"] as const) {
+                    const value = command[field];
+                    if (value === undefined) {
+                      continue;
+                    }
+                    const write = (scale: number) =>
+                      browser
+                        .setEmulation(record.browserSessionId, {
+                          [field]: scale,
+                        })
+                        .pipe(
+                          Effect.flatMap((applied) =>
+                            rememberEmulation(
+                              sessionId,
+                              draftFromApplied(
+                                record.emulation.userAgentProfile,
+                                applied
+                              )
+                            )
+                          )
+                        );
+                    yield* modifications.layer(
+                      sessionId,
+                      id,
+                      `emulation:${field}`,
+                      write(before[field] ?? 100),
+                      write(value)
+                    );
+                  }
+                  const applied = yield* browser.getEmulation(
+                    record.browserSessionId
                   );
                   const after = draftFromApplied(
                     record.emulation.userAgentProfile,
@@ -6584,6 +6817,21 @@ const makeAgentSession = (
                   );
                   yield* rememberEmulation(sessionId, after);
                   const at = now().toISOString();
+                  const modification: BrowserModification = {
+                    actor: "agent",
+                    at,
+                    description: `Set page zoom to ${after.pageZoom}% and text scale to ${after.textScale}%`,
+                    id,
+                    kind: "emulation",
+                    operationId: command.operationId,
+                  };
+                  const scaleModification = { ...modification };
+                  if (command.pageZoom !== undefined) {
+                    scaleModification.pageZoom = command.pageZoom;
+                  }
+                  if (command.textScale !== undefined) {
+                    scaleModification.textScale = command.textScale;
+                  }
                   const snapshot = yield* recordEntry(
                     sessionId,
                     {
@@ -6599,6 +6847,10 @@ const makeAgentSession = (
                       ? {
                           run: {
                             ...record.snapshot.run,
+                            browserModifications: [
+                              ...modificationRecords(record),
+                              scaleModification,
+                            ],
                             emulationChanges: [
                               ...(record.snapshot.run.emulationChanges ?? []),
                               {
@@ -7727,7 +7979,19 @@ const makeAgentSession = (
       setStorage: (sessionId, tabId, input) =>
         requireUserHeldRecord(sessionId).pipe(
           Effect.flatMap((record) =>
-            browser.setStorage(record.browserSessionId, tabId, input)
+            browser.setStorage(record.browserSessionId, tabId, input).pipe(
+              Effect.andThen(
+                recordEntry(sessionId, {
+                  actor: "user",
+                  at: now().toISOString(),
+                  description: "Set browser storage",
+                  dispatched: true,
+                  id: `user-storage-${randomUUID()}`,
+                  outcome: "completed",
+                })
+              ),
+              Effect.asVoid
+            )
           )
         ),
       snapshot: (sessionId, snapshotOptions) =>

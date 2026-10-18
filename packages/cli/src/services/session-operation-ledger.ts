@@ -14,6 +14,7 @@ import type {
 } from "./agent-session-error.ts";
 
 export type AgentOperationKind =
+  | "browser-modification"
   | "emulation"
   | "act"
   | "boundary"
