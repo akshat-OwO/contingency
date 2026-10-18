@@ -17,7 +17,10 @@ const { Effect } = await import(
 const io = (action) => Effect.tryPromise(action);
 const execute = promisify(execFile);
 const control = path.join(import.meta.dirname, "control-contingency");
-const artifacts = path.resolve(import.meta.dirname, "../artifacts/browser-tools");
+const artifacts = path.resolve(
+  import.meta.dirname,
+  "../artifacts/browser-tools"
+);
 const evidence = process.env.CONTINGENCY_TOOLS_EVIDENCE ?? artifacts;
 assert.ok(
   process.env.CONTINGENCY_VERIFY_DIR,
@@ -62,7 +65,12 @@ const capture = (name) =>
       "--path",
       `browser-tools/${name}.aria.txt`
     );
-    yield* command("browser", "screenshot", "--path", `browser-tools/${name}.png`);
+    yield* command(
+      "browser",
+      "screenshot",
+      "--path",
+      `browser-tools/${name}.png`
+    );
     if (evidence !== artifacts) {
       for (const file of [`${name}.png`, `${name}.aria.txt`]) {
         yield* io(() =>
@@ -89,7 +97,10 @@ await Effect.runPromise(
     );
     const catalog = path.join(instance.stateDir, "catalog");
     const inside = path.join(catalog, "tools-receipt.txt");
-    const outsideDir = path.join(os.tmpdir(), `contingency-tools-${process.pid}`);
+    const outsideDir = path.join(
+      os.tmpdir(),
+      `contingency-tools-${process.pid}`
+    );
     const outside = path.join(outsideDir, "outside-receipt.txt");
     yield* io(() => mkdir(catalog, { recursive: true }));
     yield* io(() => mkdir(outsideDir, { recursive: true }));
@@ -101,36 +112,58 @@ await Effect.runPromise(
       `const s = await tools.agent_run_start({inputs:[],referencedSkills:[],requestedTask:"Use tabs, downloads, uploads, clipboard, and profiling",url:${JSON.stringify(url)},operationId:"tools-proof-start",view:"compact"}); return {id:s.id,viewUrl:s.viewUrl};`
     );
     const sid = JSON.stringify(run.id);
-    const devtools = (command, tabId) =>
-      `return tools.agent_browser_devtools({sessionId:${sid},command:${JSON.stringify(command)}${tabId === undefined ? "" : `,tabId:${JSON.stringify(tabId)}`}});`;
+    const devtools = (request, tabId) =>
+      `return tools.agent_browser_devtools({sessionId:${sid},command:${JSON.stringify(request)}${tabId === undefined ? "" : `,tabId:${JSON.stringify(tabId)}`}});`;
     const click = (operationId, role, name) =>
       `const snap = await tools.agent_browser_snapshot({sessionId:${sid},format:"structured"}); const node = snap.nodes.find((n) => n.role === ${JSON.stringify(role)} && n.name.includes(${JSON.stringify(name)})); return tools.agent_browser_act({sessionId:${sid},operationId:${JSON.stringify(operationId)},action:{type:"click",ref:node.ref}});`;
     yield* command("browser", "goto", "--url", run.viewUrl);
-    yield* command("browser", "wait", "--role", "region", "--name", "Workspace dock");
+    yield* command(
+      "browser",
+      "wait",
+      "--role",
+      "region",
+      "--name",
+      "Workspace dock"
+    );
 
     // A popup the page opens appears in the agent's tab list and the Workspace.
-    yield* program("open-popup", click("tools-proof-popup", "button", "Open popup"));
+    yield* program(
+      "open-popup",
+      click("tools-proof-popup", "button", "Open popup")
+    );
     const tabs = yield* program("tabs", devtools({ action: "tabs" }));
     assert.equal(tabs.tabs.length, 2, JSON.stringify(tabs));
     const popup = tabs.tabs.find((tab) => tab.url.includes("cart.html"));
     assert.ok(popup, "The popup is listed.");
     yield* program(
       "switch",
-      devtools({ action: "tab_switch", operationId: "tools-proof-switch" }, popup.tabId)
+      devtools(
+        { action: "tab_switch", operationId: "tools-proof-switch" },
+        popup.tabId
+      )
     );
     yield* capture("tabs");
     const opener = tabs.tabs.find((tab) => tab.tabId !== popup.tabId);
     yield* program(
       "close",
-      devtools({ action: "tab_close", operationId: "tools-proof-close" }, popup.tabId)
+      devtools(
+        { action: "tab_close", operationId: "tools-proof-close" },
+        popup.tabId
+      )
     );
     yield* program(
       "back",
-      devtools({ action: "tab_switch", operationId: "tools-proof-back" }, opener.tabId)
+      devtools(
+        { action: "tab_switch", operationId: "tools-proof-back" },
+        opener.tabId
+      )
     );
 
     // A download is saved into the Run's evidence.
-    yield* program("download", click("tools-proof-download", "link", "Download report"));
+    yield* program(
+      "download",
+      click("tools-proof-download", "link", "Download report")
+    );
     const downloads = yield* program(
       "downloads",
       `for (let attempt = 0; attempt < 20; attempt += 1) { const listed = await tools.agent_browser_devtools({sessionId:${sid},command:{action:"downloads"}}); if (listed.downloads.length > 0) return listed; await tools.agent_session_get({sessionId:${sid},view:"compact",waitMs:500}); } return {downloads:[]};`
@@ -183,20 +216,33 @@ await Effect.runPromise(
         text: "agent clipboard text",
       })
     );
-    const clipboard = yield* program("clipboard-read", devtools({ action: "clipboard_read" }));
+    const clipboard = yield* program(
+      "clipboard-read",
+      devtools({ action: "clipboard_read" })
+    );
     assert.equal(clipboard.text, "agent clipboard text");
 
     // A CPU profile stops into a local file.
     yield* program(
       "profile-start",
-      devtools({ action: "profile_start", kind: "cpu", operationId: "tools-proof-cpu-start" })
+      devtools({
+        action: "profile_start",
+        kind: "cpu",
+        operationId: "tools-proof-cpu-start",
+      })
     );
     const profile = yield* program(
       "profile-stop",
-      devtools({ action: "profile_stop", kind: "cpu", operationId: "tools-proof-cpu-stop" })
+      devtools({
+        action: "profile_stop",
+        kind: "cpu",
+        operationId: "tools-proof-cpu-stop",
+      })
     );
     assert.equal(profile.format, "cpuprofile");
-    assert.ok(JSON.parse(yield* io(() => readFile(profile.path, "utf-8"))).nodes);
+    assert.ok(
+      JSON.parse(yield* io(() => readFile(profile.path, "utf-8"))).nodes
+    );
     yield* command("browser", "wait", "--text", "2 uploads · clipboard");
     yield* capture("active");
 
@@ -208,10 +254,19 @@ await Effect.runPromise(
       "reopen",
       `return tools.open_run({runId:${JSON.stringify(summary.runId)}});`
     );
-    const kinds = reopened.summary.browserModifications.map((item) => item.kind);
-    assert.deepEqual(kinds.sort(), ["clipboard", "upload", "upload"]);
+    const kinds = reopened.summary.browserModifications.map(
+      (item) => item.kind
+    );
+    assert.deepEqual(kinds.toSorted(), ["clipboard", "upload", "upload"]);
     yield* command("browser", "goto", "--url", reopened.viewUrl);
-    yield* command("browser", "wait", "--role", "region", "--name", "Browser Modifications");
+    yield* command(
+      "browser",
+      "wait",
+      "--role",
+      "region",
+      "--name",
+      "Browser Modifications"
+    );
     yield* capture("summary");
     const result = {
       download: report,
@@ -223,7 +278,10 @@ await Effect.runPromise(
       sessionId: run.id,
     };
     yield* io(() =>
-      writeFile(path.join(artifacts, "result.json"), JSON.stringify(result, null, 2))
+      writeFile(
+        path.join(artifacts, "result.json"),
+        JSON.stringify(result, null, 2)
+      )
     );
     process.stdout.write(`${JSON.stringify(result)}\n`);
   }).pipe(
