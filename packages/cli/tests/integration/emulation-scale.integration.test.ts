@@ -167,11 +167,11 @@ it.live(
       expect(yield* browser.getEmulation(id)).toMatchObject({ pageZoom: 400 });
       // Decode both captures in the page: device pixels are CSS × zoom, and
       // the password field is painted black only in the masked capture.
-      const sample = (image: string) =>
+      const sample = (image: string, selector = "input") =>
         Effect.tryPromise(() =>
           page.evaluate<{ height: number; pixel: number[]; width: number }>(
             `(async () => {
-              const field = document.querySelector("input").getBoundingClientRect();
+              const field = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
               const bitmap = await createImageBitmap(
                 await (await fetch("data:image/png;base64,${image}")).blob()
               );
@@ -197,6 +197,30 @@ it.live(
         height: 800,
         pixel: [0, 0, 0],
         width: 1280,
+      });
+      // A modal dialog renders in the top layer above ordinary overlays; its
+      // private field must still be masked.
+      yield* Effect.tryPromise(() =>
+        page.evaluate(`(() => {
+          const dialog = document.createElement("dialog");
+          dialog.style.cssText = "margin:0;padding:0;border:0;position:fixed;left:0;top:60px";
+          const input = document.createElement("input");
+          input.type = "password";
+          input.value = "hunter22";
+          input.style.cssText = "display:block;width:200px;height:40px;background:#fff;border:0";
+          dialog.append(input);
+          document.body.append(dialog);
+          dialog.showModal();
+        })()`)
+      );
+      const dialogPlain = yield* tab.screenshot(false, [], []);
+      const dialogMasked = yield* tab.screenshot(true, [], []);
+      expect(yield* read()).toEqual(zoomed);
+      expect(yield* sample(dialogPlain.image, "dialog input")).toMatchObject({
+        pixel: [255, 255, 255],
+      });
+      expect(yield* sample(dialogMasked.image, "dialog input")).toMatchObject({
+        pixel: [0, 0, 0],
       });
     }).pipe(
       Effect.scoped,

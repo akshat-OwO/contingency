@@ -339,12 +339,28 @@ export const capturePage = (
           (options.mask ?? []).map((locator) =>
             locator.evaluateAll(
               (elements, [attribute, fill]) => {
+                const document = elements[0]?.ownerDocument;
+                if (document === undefined) {
+                  return;
+                }
+                // A manual popover joins the top layer when shown, so masks
+                // opened now paint above modal dialogs and fullscreen content.
+                let layer = document.querySelector(`[${attribute}]`);
+                if (layer === null) {
+                  const created = document.createElement("div");
+                  created.setAttribute(attribute, "");
+                  created.popover = "manual";
+                  created.style.cssText =
+                    "position:fixed;inset:0;margin:0;padding:0;border:0;width:auto;height:auto;max-width:none;max-height:none;overflow:visible;background:transparent;pointer-events:none";
+                  document.documentElement.append(created);
+                  created.showPopover();
+                  layer = created;
+                }
                 for (const element of elements) {
                   const rect = element.getBoundingClientRect();
-                  const box = element.ownerDocument.createElement("div");
-                  box.setAttribute(attribute, "");
-                  box.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;background:${fill};pointer-events:none;z-index:2147483647`;
-                  element.ownerDocument.documentElement.append(box);
+                  const box = document.createElement("div");
+                  box.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;background:${fill}`;
+                  layer.append(box);
                 }
               },
               [CAPTURE_MASK_ATTRIBUTE, color] as const
