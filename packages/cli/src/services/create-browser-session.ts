@@ -294,7 +294,7 @@ export const publishTabs = (session: CreateSession): void => {
   );
 };
 
-const requireEmulationSession = (session: CreateSession, page: Page) =>
+export const requireEmulationSession = (session: CreateSession, page: Page) =>
   tryBrowser("Could not connect browser emulation", () => {
     const existing = session.emulationSessions.get(page);
     if (existing !== undefined) {

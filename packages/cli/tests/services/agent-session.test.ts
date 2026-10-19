@@ -164,6 +164,7 @@ const makeFakeBrowser = (options?: {
     },
     deleteStorage: notUnderTest,
     devtools: notUnderTest,
+    evaluate: () => Effect.die("Unexpected evaluation"),
     getEmulation: notUnderTest,
     getNetworkRequest: notUnderTest,
     getNetworkRequests: notUnderTest,

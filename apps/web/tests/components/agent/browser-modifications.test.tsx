@@ -65,3 +65,26 @@ test("Summary retains redacted descriptions, activity times, and removal times",
   expect(region).toHaveTextContent("2026-10-18T12:00:00.000Z");
   expect(region).toHaveTextContent("Removed 2026-10-18T12:03:00.000Z");
 });
+
+test("dock and Summary retain irreversible evaluation evidence", () => {
+  const evaluated: BrowserModification = {
+    actor: "agent",
+    at: "2026-10-18T12:00:00.000Z",
+    description: "Evaluated script: document.querySelector('#delete').click()",
+    id: "eval",
+    kind: "eval",
+    operationId: "eval",
+  };
+  render(
+    <>
+      <BrowserModificationBadge modifications={[evaluated]} />
+      <BrowserModifications modifications={[evaluated]} />
+    </>
+  );
+  expect(
+    screen.getByLabelText("Active Browser Modifications")
+  ).toHaveTextContent("1 evaluation");
+  expect(
+    screen.getByRole("region", { name: "Browser Modifications" })
+  ).toHaveTextContent(evaluated.description);
+});

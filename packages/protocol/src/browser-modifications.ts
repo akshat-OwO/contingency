@@ -9,7 +9,14 @@ export const BrowserModification = Schema.Struct({
   at: text,
   description: text,
   id: text,
-  kind: Schema.Literals(["cookie", "storage", "route", "headers", "emulation"]),
+  kind: Schema.Literals([
+    "cookie",
+    "storage",
+    "route",
+    "headers",
+    "emulation",
+    "eval",
+  ]),
   operationId: text,
   pageZoom: Schema.optionalKey(PageZoom),
   removedAt: Schema.optionalKey(text),
@@ -37,6 +44,7 @@ export const browserModificationSummary = (
     [count("route", "block"), "blocked route"],
     [count("cookie"), "cookie"],
     [count("storage"), "storage change"],
+    [count("eval"), "evaluation"],
   ] as const) {
     if (n > 0) {
       parts.push(`${n} ${singular}${n === 1 ? "" : "s"}`);

@@ -1,6 +1,14 @@
 import path from "node:path";
 
-import { Console, Effect, FileSystem, Queue, Schema, Stream } from "effect";
+import {
+  Console,
+  Effect,
+  FileSystem,
+  Option,
+  Queue,
+  Schema,
+  Stream,
+} from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const PackEntry = Schema.Struct({
@@ -105,6 +113,19 @@ const InterfaceTools = Schema.Struct({
   }),
 });
 
+/** Servers may notify at any time, e.g. prompts/list_changed after startup.
+ * Notifications carry a method and no id; the checks read only responses. */
+const decodeServerNotification = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      id: Schema.optionalKey(Schema.Never),
+      method: Schema.String,
+    })
+  )
+);
+export const isServerNotification = (line: string): boolean =>
+  Option.isSome(decodeServerNotification(line));
+
 interface PackedMcpSpec {
   readonly command: string;
   readonly args: readonly string[];
@@ -141,7 +162,7 @@ const openPackedMcp = Effect.fn("openPackedMcp")(function* open(
   yield* child.stdout.pipe(
     Stream.decodeText,
     Stream.splitLines,
-    Stream.filter((line) => line.trim() !== ""),
+    Stream.filter((line) => line.trim() !== "" && !isServerNotification(line)),
     Stream.runForEach((line) => Queue.offer(output, line)),
     Effect.forkScoped
   );

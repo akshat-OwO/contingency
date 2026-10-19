@@ -41,6 +41,7 @@ import type {
   Page,
 } from "playwright-core";
 
+import { evaluateBrowserScript } from "./browser-evaluation.ts";
 import { headedUserAgent } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
@@ -64,6 +65,7 @@ import {
   reapplyViewport,
   capturePage,
   requirePage,
+  requireEmulationSession,
   tabs,
   toSessionEmulation,
   tryBrowser,
@@ -713,6 +715,16 @@ const makeService = (
           );
         }
         return tools;
+      }),
+    evaluate: (sessionId, script, mode, hosts, secrets, tabId) =>
+      Effect.gen(function* evaluateScript() {
+        const session = yield* requireSession(sessionId);
+        const page =
+          tabId === undefined
+            ? readSessionState(session).activePage
+            : yield* requirePage(session, tabId);
+        const cdp = yield* requireEmulationSession(session, page);
+        return yield* evaluateBrowserScript(cdp, script, mode, hosts, secrets);
       }),
     getEmulation,
     getNetworkRequest: (sessionId, tabId, requestId) =>

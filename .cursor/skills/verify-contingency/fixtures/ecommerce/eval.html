@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Evaluation confirmation fixture</title>
+    <style>
+      body {
+        font: 18px system-ui;
+        padding: 48px;
+        background: #faf8f4;
+        color: #28231d;
+      }
+      button {
+        font: inherit;
+        padding: 12px 20px;
+        background: #a12626;
+        color: white;
+        border: 0;
+        border-radius: 8px;
+      }
+      output {
+        display: block;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Disposable account</h1>
+    <p>This local fixture counts confirmed delete attempts.</p>
+    <button id="delete-account" type="button">Delete account</button>
+    <output id="attempts" aria-live="polite">Delete attempts: 0</output>
+    <script>
+      let attempts = 0;
+      document
+        .querySelector("#delete-account")
+        .addEventListener("click", () => {
+          attempts += 1;
+          document.querySelector("#attempts").textContent =
+            `Delete attempts: ${attempts}`;
+        });
+    </script>
+  </body>
+</html>

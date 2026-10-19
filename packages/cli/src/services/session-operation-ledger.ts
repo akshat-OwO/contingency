@@ -14,6 +14,7 @@ import type {
 } from "./agent-session-error.ts";
 
 export type AgentOperationKind =
+  | "eval"
   | "browser-modification"
   | "emulation"
   | "act"
@@ -87,7 +88,7 @@ export const makeSessionOperationLedger = () => {
     string,
     {
       readonly operationId: string;
-      readonly kind: "act" | "private-input";
+      readonly kind: "act" | "private-input" | "eval";
       readonly target: string;
       readonly input: string;
     }
@@ -251,7 +252,7 @@ export const makeSessionOperationLedger = () => {
 
   const replayAction = (
     operationId: OperationId | string | undefined,
-    kind: "act" | "private-input",
+    kind: "act" | "private-input" | "eval",
     target: string,
     input: string
   ): Effect.Effect<AgentActionResult, AgentSessionError> | undefined => {
@@ -279,7 +280,7 @@ export const makeSessionOperationLedger = () => {
   const bindBoundary = (
     boundaryId: string,
     operationId: OperationId | string,
-    kind: "act" | "private-input",
+    kind: "act" | "private-input" | "eval",
     target: string,
     input: string,
     continuation: Effect.Effect<AgentActionResult, AgentSessionError>
@@ -438,7 +439,7 @@ export const makeSessionOperationLedger = () => {
     );
   const action = <E, R>(
     id: OperationId | string | undefined,
-    kind: "act" | "private-input",
+    kind: "act" | "private-input" | "eval",
     target: string,
     input: string,
     self: Effect.Effect<AgentActionResult, E, R>

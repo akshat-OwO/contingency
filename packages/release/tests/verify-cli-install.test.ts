@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { describe, expect } from "vitest";
 
 import {
+  isServerNotification,
   parseNpmPackOutput,
   runInstallCheckCommand,
 } from "../src/verify-cli-install.ts";
@@ -94,4 +95,21 @@ describe("install check command", () => {
       }
     }).pipe(Effect.provide(NodeServices.layer))
   );
+});
+
+describe("packed MCP output", () => {
+  it("skips server notifications and keeps responses", () => {
+    expect(
+      isServerNotification(
+        '{"jsonrpc":"2.0","method":"notifications/prompts/list_changed","params":{}}'
+      )
+    ).toBe(true);
+    expect(
+      isServerNotification('{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}')
+    ).toBe(false);
+    expect(
+      isServerNotification('{"jsonrpc":"2.0","id":3,"method":"ping"}')
+    ).toBe(false);
+    expect(isServerNotification("not json")).toBe(false);
+  });
 });

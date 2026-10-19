@@ -17,7 +17,14 @@ import {
 } from "../../src/services/browser-modifications.ts";
 
 it("enforces the activity by modification kind authority matrix", () => {
-  const kinds = ["cookie", "storage", "route", "headers", "emulation"] as const;
+  const kinds = [
+    "cookie",
+    "storage",
+    "route",
+    "headers",
+    "emulation",
+    "eval",
+  ] as const;
   for (const kind of kinds) {
     expect(
       modificationRefusal({ activity: "run", dryRun: null }, kind)
@@ -27,7 +34,7 @@ it("enforces the activity by modification kind authority matrix", () => {
         { activity: "teaching", captureState: { _tag: "setup" }, dryRun: null },
         kind
       ) === undefined
-    ).toBe(kind !== "route" && kind !== "headers");
+    ).toBe(kind !== "route" && kind !== "headers" && kind !== "eval");
     expect(
       modificationRefusal(
         {
@@ -106,13 +113,14 @@ it("summarizes active routes, state and latest Emulation without removed modific
       mod("block", { kind: "route", routeAction: "block" }),
       mod("cookie", {}),
       mod("storage", { kind: "storage" }),
+      mod("evaluation", { kind: "eval" }),
       mod("headers", { kind: "headers" }),
       mod("old", { kind: "emulation", textScale: 100 }),
       mod("new", { kind: "emulation", pageZoom: 150, textScale: 200 }),
       mod("removed", { removedAt: "2026-10-18T00:01:00.000Z" }),
     ])
   ).toBe(
-    "2 mocked routes · 1 blocked route · 1 cookie · 1 storage change · headers · 200% text · 150% zoom"
+    "2 mocked routes · 1 blocked route · 1 cookie · 1 storage change · 1 evaluation · headers · 200% text · 150% zoom"
   );
 });
 

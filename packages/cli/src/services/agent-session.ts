@@ -138,6 +138,7 @@ import {
   validateTeachingAttachments,
 } from "./browser-check-requirements.ts";
 import {
+  boundedDevtoolsText,
   filterDevtoolsRequests,
   redactDevtoolsRequest,
   redactDevtoolsText,
@@ -1341,7 +1342,7 @@ const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
  * browser may already have performed it, and Contingency cannot undo it.
  */
 interface InFlightAction {
-  readonly action: AgentBrowserAction;
+  readonly action: AgentExecutionBoundary["action"];
   readonly description: string;
   readonly operationId: string;
   readonly fiber: Fiber.Fiber<AgentActionResult, AgentSessionError>;
@@ -5735,19 +5736,21 @@ const makeAgentSession = (
               // The Demonstration keeps the attempt too: a compiler that never
               // learns of it could place a Step boundary over an effect nobody
               // can account for.
-              recordingCapture(record)?.recordAction({
-                action: inFlight.action,
-                actor: "agent",
-                at: interruptedAt,
-                description: inFlight.description,
-                detail,
-                id: inFlight.id,
-                outcome: "interrupted",
-                snapshotAfter: null,
-                snapshotBefore: inFlight.snapshotBefore,
-                urlAfter: record.snapshot.currentUrl,
-                urlBefore: inFlight.urlBefore,
-              });
+              if (inFlight.action.type !== "eval") {
+                recordingCapture(record)?.recordAction({
+                  action: inFlight.action,
+                  actor: "agent",
+                  at: interruptedAt,
+                  description: inFlight.description,
+                  detail,
+                  id: inFlight.id,
+                  outcome: "interrupted",
+                  snapshotAfter: null,
+                  snapshotBefore: inFlight.snapshotBefore,
+                  urlAfter: record.snapshot.currentUrl,
+                  urlBefore: inFlight.urlBefore,
+                });
+              }
             }
             const at = now().toISOString();
             const entry: AgentTimelineEntry = {
@@ -6571,6 +6574,268 @@ const makeAgentSession = (
           )
         ),
       devtools: (sessionId, command, tabId) => {
+        if (command.action === "eval") {
+          let evaluationTabId = tabId;
+          const evaluate = (record: SessionRecord) =>
+            browser.evaluate(
+              record.browserSessionId,
+              command.script,
+              command.mode,
+              record.executionBoundary?.hosts() ?? [
+                new URL(record.snapshot.currentUrl).hostname,
+              ],
+              sessionSensitiveValues(record),
+              evaluationTabId
+            );
+          if (command.mode === "read_only") {
+            return observe(sessionId, evaluate);
+          }
+          const requestInput = createHash("sha256")
+            .update(JSON.stringify({ command, tabId }))
+            .digest("hex");
+          const attempt = ledger.action(
+            command.operationId,
+            "eval",
+            sessionId,
+            requestInput,
+            requireLiveRecord(sessionId).pipe(
+              Effect.flatMap((evaluationOwner) =>
+                evaluationOwner.control.lock.withPermit(
+                  ledger
+                    .serializeMutation(
+                      Effect.gen(function* prepareEvaluation() {
+                        const record = yield* requireLiveRecord(sessionId);
+                        if (
+                          userLedTeaching(record.snapshot) ||
+                          agentIsPaused(record.snapshot)
+                        ) {
+                          return yield* Effect.fail(
+                            takenOver(
+                              "Mutating evaluation requires agent control."
+                            )
+                          );
+                        }
+                        if (runIsOver(record.snapshot)) {
+                          return yield* Effect.fail(
+                            error(
+                              "agent_session_conflict",
+                              "This Run has ended."
+                            )
+                          );
+                        }
+                        const reason = modificationRefusal(
+                          record.snapshot,
+                          "eval"
+                        );
+                        if (reason !== undefined) {
+                          return yield* Effect.fail(
+                            error("agent_session_conflict", reason)
+                          );
+                        }
+                        const boundary = record.executionBoundary;
+                        if (boundary === undefined) {
+                          return yield* Effect.fail(
+                            error(
+                              "agent_session_conflict",
+                              "Mutating evaluation requires an Interactive Run with an Execution Boundary."
+                            )
+                          );
+                        }
+                        const preview = boundedDevtoolsText(
+                          command.script,
+                          sessionSensitiveValues(record),
+                          2048
+                        );
+                        // The user confirms the whole script. A truncated excerpt could
+                        // hide what the script does, including DOM-injected page code.
+                        if (preview.truncated) {
+                          return yield* Effect.fail(
+                            error(
+                              "agent_session_invalid",
+                              "Mutating scripts must fit in 2 KiB so Confirmation shows the whole script. Split it into smaller confirmed steps."
+                            )
+                          );
+                        }
+                        const excerpt = preview.text;
+                        const target = yield* browser.activeTarget(
+                          record.browserSessionId,
+                          evaluationTabId
+                        );
+                        evaluationTabId = target.tabId;
+                        const action = {
+                          script: excerpt,
+                          tabId: target.tabId,
+                          type: "eval",
+                        } as const;
+                        const page = yield* record.agentBrowser.active();
+                        const check = yield* boundary.checkAttempt({
+                          ...boundaryAuthority(record.snapshot.run),
+                          action,
+                          capturedAction: action,
+                          description: `Evaluate script: ${excerpt}`,
+                          intent: { irreversible: true },
+                          operationId: command.operationId,
+                        });
+                        if (check !== undefined) {
+                          yield* publishBoundary(sessionId, record, check);
+                          return Effect.succeed<AgentActionResult>(
+                            yield* boundaryResult(
+                              record,
+                              page,
+                              check.pending.boundary,
+                              page.url()
+                            )
+                          );
+                        }
+                        // Spend the attempt before entering Chromium, including on timeout
+                        // or cancellation. A repeated id must never dispatch twice.
+                        yield* ledger.remember(
+                          command.operationId,
+                          "eval",
+                          sessionId,
+                          requestInput,
+                          {
+                            error: error(
+                              "agent_session_conflict",
+                              "This evaluation was dispatched. Its outcome may be unknown; request fresh Confirmation for another attempt."
+                            ),
+                            kind: "act-failure",
+                          }
+                        );
+                        const at = now().toISOString();
+                        const description = `Evaluated script: ${excerpt}`;
+                        yield* recordEntry(
+                          sessionId,
+                          {
+                            actor: "agent",
+                            at,
+                            description: `Dispatch evaluation: ${excerpt}`,
+                            dispatched: true,
+                            id: command.operationId,
+                            outcome: "completed",
+                          },
+                          modificationPatch(record, [
+                            ...modificationRecords(record),
+                            {
+                              actor: "agent",
+                              at,
+                              description,
+                              id: `modification-${command.operationId}`,
+                              kind: "eval",
+                              operationId: command.operationId,
+                            },
+                          ])
+                        );
+                        // Register before releasing the mutation gate. Takeover must
+                        // always find the dispatched evaluation, including at startup.
+                        const fiber = yield* Effect.forkChild(
+                          Effect.gen(function* dispatchEvaluation() {
+                            const evaluation = yield* evaluate(record);
+                            const entry: AgentTimelineEntry = {
+                              actor: "agent",
+                              at: now().toISOString(),
+                              description: evaluation.failed
+                                ? "Evaluation failed"
+                                : "Evaluation completed",
+                              dispatched: true,
+                              id: `evaluation-result-${command.operationId}`,
+                              outcome: evaluation.failed
+                                ? "failed"
+                                : "completed",
+                            };
+                            return {
+                              entry,
+                              evaluation,
+                              snapshot: yield* snapshotAfter(
+                                record,
+                                page,
+                                page.url()
+                              ),
+                              url: page.url(),
+                            } satisfies AgentActionResult;
+                          }).pipe(Effect.interruptible)
+                        );
+                        record.control.inFlight = {
+                          action,
+                          description,
+                          fiber,
+                          id: command.operationId,
+                          operationId: command.operationId,
+                          snapshotBefore: null,
+                          urlBefore: page.url(),
+                        };
+                        return Effect.gen(function* finishEvaluation() {
+                          const exit = yield* Fiber.await(fiber);
+                          if (record.control.inFlight?.fiber === fiber) {
+                            record.control.inFlight = undefined;
+                          }
+                          if (Exit.isFailure(exit)) {
+                            const failure = Cause.hasInterrupts(exit.cause)
+                              ? takenOver(
+                                  "Takeover interrupted this evaluation. It may already have changed the page; request fresh Confirmation for another attempt."
+                                )
+                              : Option.getOrElse(
+                                  Cause.findErrorOption(exit.cause),
+                                  () =>
+                                    makeBrowserRpcError(
+                                      "agent_browser_failed",
+                                      "Evaluation failed. Inspect the page before requesting fresh Confirmation."
+                                    )
+                                );
+                            if (!Cause.hasInterrupts(exit.cause)) {
+                              yield* recordEntry(sessionId, {
+                                actor: "agent",
+                                at: now().toISOString(),
+                                description: "Evaluation failed",
+                                dispatched: true,
+                                id: `evaluation-result-${command.operationId}`,
+                                outcome: "failed",
+                              });
+                            }
+                            yield* ledger.remember(
+                              command.operationId,
+                              "eval",
+                              sessionId,
+                              requestInput,
+                              { error: failure, kind: "act-failure" }
+                            );
+                            return yield* Effect.fail(failure);
+                          }
+                          const result: AgentActionResult = exit.value;
+                          yield* recordEntry(sessionId, result.entry);
+                          yield* ledger.remember(
+                            command.operationId,
+                            "eval",
+                            sessionId,
+                            requestInput,
+                            { kind: "act", result }
+                          );
+                          return result;
+                        });
+                      })
+                    )
+                    .pipe(Effect.flatten)
+                )
+              ),
+              Effect.uninterruptible
+            )
+          );
+          return attempt.pipe(
+            Effect.tap((result) =>
+              !result.entry.dispatched &&
+              result.intervention?.operationId === command.operationId
+                ? ledger.bindBoundary(
+                    result.intervention.id,
+                    command.operationId,
+                    "eval",
+                    sessionId,
+                    requestInput,
+                    attempt
+                  )
+                : Effect.void
+            )
+          );
+        }
         if (command.action === "emulation_get") {
           return requireLiveRecord(sessionId).pipe(
             Effect.flatMap((record) =>
@@ -6659,6 +6924,14 @@ const makeAgentSession = (
                 let next: readonly BrowserModification[];
                 let description: string;
                 if (command.action === "modification_remove") {
+                  if (existing?.kind === "eval") {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "An evaluation cannot be undone. Its Browser Modification remains evidence until the Run ends."
+                      )
+                    );
+                  }
                   yield* modifications.remove(sessionId, command.id);
                   description = `Remove Browser Modification ${command.id}`;
                   next = entries.map((entry) =>

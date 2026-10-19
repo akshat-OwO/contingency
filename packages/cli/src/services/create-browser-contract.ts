@@ -25,6 +25,7 @@ import { Context } from "effect";
 import type { BrowserContext, Page } from "playwright-core";
 
 import type { TabDevtools } from "./browser-devtools.ts";
+import type { BrowserEvaluationResult } from "./browser-evaluation.ts";
 import type { PageCaptureOptions } from "./create-browser-session.ts";
 
 /**
@@ -61,6 +62,14 @@ export type BrowserStorageDeleteInput =
   | { readonly key: string; readonly kind: "local" | "session" };
 
 export interface CreateBrowserService {
+  readonly evaluate: (
+    sessionId: SessionId,
+    script: string,
+    mode: "read_only" | "mutating",
+    hosts: readonly string[],
+    secrets: readonly string[],
+    tabId?: BrowserTabId
+  ) => Effect.Effect<BrowserEvaluationResult, BrowserRpcErrorType>;
   readonly devtools: (
     sessionId: SessionId,
     tabId?: BrowserTabId
