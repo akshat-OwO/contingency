@@ -264,6 +264,20 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
     Effect.callback<Server>((resume) => {
       const created = createServer((request, response) => {
         const url = request.url ?? "/";
+        if (url.startsWith("/devtools-echo")) {
+          const chunks: Buffer[] = [];
+          request.on("data", (chunk: Buffer) => chunks.push(chunk));
+          request.on("end", () => {
+            response.writeHead(500, {
+              "content-type": "text/plain",
+              "set-cookie": "credential=never-show-this; Path=/",
+            });
+            response.end(
+              Buffer.concat(chunks).toString("utf-8") + "x".repeat(70_000)
+            );
+          });
+          return;
+        }
         requests.push(url);
         requestHeaders.push({
           headers: Object.fromEntries(

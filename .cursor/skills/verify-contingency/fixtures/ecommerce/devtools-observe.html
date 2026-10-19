@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Observe a failing request</title>
+  </head>
+  <body>
+    <h1>Observe a failing request</h1>
+    <button id="load">Load failing request</button>
+    <output id="result" aria-live="polite"></output>
+    <script>
+      console.log("Devtools fixture ready");
+      document.getElementById("load").onclick = async () => {
+        const response = await fetch("/devtools-failure");
+        const text = await response.text();
+        console.error(`Fixture request failed: ${response.status} ${text}`);
+        document.getElementById("result").textContent =
+          `Request returned ${response.status}`;
+      };
+    </script>
+  </body>
+</html>

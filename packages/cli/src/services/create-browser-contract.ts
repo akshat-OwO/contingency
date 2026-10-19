@@ -24,6 +24,8 @@ import type { Effect, Scope, Stream } from "effect";
 import { Context } from "effect";
 import type { BrowserContext, Page } from "playwright-core";
 
+import type { TabDevtools } from "./browser-devtools.ts";
+
 /**
  * The session's active tab, handed over as the three things a caller that
  * instruments a browser needs together: the context to trace and watch for new
@@ -58,6 +60,10 @@ export type BrowserStorageDeleteInput =
   | { readonly key: string; readonly kind: "local" | "session" };
 
 export interface CreateBrowserService {
+  readonly devtools: (
+    sessionId: SessionId,
+    tabId?: BrowserTabId
+  ) => Effect.Effect<TabDevtools, BrowserRpcErrorType>;
   /**
    * The session's active tab, or the named one. Teaching traces the context
    * this returns and follows the pages it opens; an Execution Boundary is
@@ -130,6 +136,11 @@ export interface CreateBrowserService {
     tabId: BrowserTabId
   ) => Effect.Effect<readonly BrowserNetworkRequest[], BrowserRpcErrorType>;
   readonly getStorage: (
+    sessionId: SessionId,
+    tabId: BrowserTabId,
+    kind: StorageKind
+  ) => Effect.Effect<BrowserStorageSnapshot, BrowserRpcErrorType>;
+  readonly getTabStorage: (
     sessionId: SessionId,
     tabId: BrowserTabId,
     kind: StorageKind

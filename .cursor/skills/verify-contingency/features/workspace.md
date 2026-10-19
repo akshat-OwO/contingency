@@ -725,3 +725,21 @@ For storage formats, run `nub .cursor/skills/verify-contingency/bin/storage-form
 For Takeover, run `start-takeover` after Cleanup and send/open its Workspace link. Run `takeover` asynchronously and press **Take control** while the checked Submit is waiting. The helper asserts interrupted results and refusal of the spent operation replay. Require interrupted results in `agent_session_get`, the spent operation to refuse replay, the browser to remain open, and working to remain unavailable. Return control before completing an inconclusive result. The real-browser storage-check integration test covers oversized JSON, root null, empty strings, absent values, and formatting-only changes for both storage areas. The real-browser check-engine integration test additionally covers earlier responses, pre-existing cookies, first-response mode, unreadable JSON, and watch interruption; it complements this user-input proof.
 
 After evidence capture, run `control-contingency cleanup`. Evidence must survive and all processes owned by this verification instance must stop.
+
+## Devtools observation
+
+The agent can inspect network metadata, request headers and bounded bodies, console messages and uncaught errors, and current-origin cookies and storage in Interactive Runs, Teaching setup, and Dry Runs. These operations are available only inside `agent_code_execute`, through `tools.agent_browser_devtools`. Native interface instructions report them unavailable. Observation does not write to the Page.
+
+Each tab retains the newest 500 requests and 500 console entries from its creation. Reads include a dropped count. Request filters accept `url`, `method`, inclusive `statusMin` and `statusMax`, and `resourceType`. Read one `requestId` for headers and bodies. Bodies are capped at 64 KiB after redaction and report `bodyTruncated`. A pending or unreadable body reports `bodyUnavailable`; HAR stop does not wait for unfinished responses. `clear_console` clears retained messages. `storage` accepts `cookies`, `local`, or `session`. Credential headers and cookie values are masked, and secret Variable values are scrubbed before text is bounded. Oversized console text is omitted.
+
+`har_start` and `har_stop` take distinct stable `operationId` values. Start begins an explicit capture window with at most 500 requests. Stop writes a redacted HAR under the isolated Catalog Root's `.devtools/` directory and returns a file reference. HAR content reports dropped entries and truncated bodies. No raw HAR bytes enter the conversation.
+
+After `launch`, `doctor`, `ecommerce start`, and `mcp start` in the default single-tool interface, run:
+
+```sh
+CONTINGENCY_DEVTOOLS_EVIDENCE=/tmp/issue506-slice1 nub .cursor/skills/verify-contingency/bin/devtools-proof.mjs
+```
+
+The proof opens an Interactive Run on `devtools-observe.html`, clicks **Load failing request** through the agent's normal action operation, finds `/devtools-failure` with status 500 through filtered observation, reads its body and console error, stops HAR capture, and rereads the local file. It then opens the Workspace's **Network** and **Console** panels using their rail buttons and captures ARIA and screenshots. The panels offer read-only inspection. The helper records the command journal and MCP answers under `artifacts/devtools-observe/`. Confirm the Network screenshot shows the failed request and the Console screenshot shows `Fixture request failed: 500`. Screenshots also go to the directory named by `CONTINGENCY_DEVTOOLS_EVIDENCE` when set. Run `cleanup` and confirm evidence survives.
+
+The Chromium integration test `browser-devtools.integration.test.ts` additionally enters a supplied secret Variable into a real form, sends it through a failed response, and checks every observation and HAR file for leakage. It proves per-tab history, oldest-first eviction, uncaught errors, console clearing, body limits, and capture windows.

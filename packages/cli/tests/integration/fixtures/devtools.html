@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Devtools observation</title>
+  </head>
+  <body>
+    <label for="secret">Private input</label><input id="secret" /><button
+      id="send"
+    >
+      Send observation</button
+    ><output id="done"></output>
+    <script>
+      console.log("loaded before any observation");
+      document.getElementById("send").onclick = async () => {
+        const secret = document.getElementById("secret").value;
+        localStorage.setItem("private", secret);
+        sessionStorage.setItem("private", secret);
+        document.cookie = `private=${secret}; path=/`;
+        console.error(`private console ${secret}`);
+        window.dispatchEvent(
+          new ErrorEvent("error", { message: `private error ${secret}` })
+        );
+        await fetch(`/devtools-echo?secret=${encodeURIComponent(secret)}`, {
+          method: "POST",
+          headers: {
+            Authorization: secret,
+            "Proxy-Authorization": secret,
+            "x-private": secret,
+          },
+          body: secret,
+        });
+        document.getElementById("done").textContent = "Observed";
+        setTimeout(() => {
+          throw new Error(`private uncaught ${secret}`);
+        });
+      };
+    </script>
+  </body>
+</html>

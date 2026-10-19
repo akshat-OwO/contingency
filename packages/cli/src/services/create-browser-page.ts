@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 
-import { BrowserRequestId, BrowserTabId } from "@contingency/protocol";
+import { BrowserTabId } from "@contingency/protocol";
 import { Effect, PubSub, Ref } from "effect";
-import type { ConsoleMessage, Page, Request, Response } from "playwright-core";
+import type { Page, Response } from "playwright-core";
 
 import { botProtectionProvider } from "./bot-protection.ts";
+import { makeTabDevtools } from "./browser-devtools.ts";
 import { restartScreencast } from "./create-browser-screencast.ts";
 import {
   applyEmulationToPage,
   publishTabs,
-  readSessionState,
   reportCallbackFailure,
   trackPageTitle,
   updateSessionState,
@@ -21,52 +21,17 @@ export const initializePage = (session: CreateSession, page: Page): void => {
   const tabId = BrowserTabId.make(randomUUID());
   updateSessionState(session, (state) => ({
     ...state,
-    network: new Map(state.network).set(tabId, new Map()),
+    devtools: new Map(state.devtools).set(
+      tabId,
+      makeTabDevtools(page, tabId, (entry) => {
+        PubSub.publishUnsafe(session.events, entry);
+      })
+    ),
     pageIds: new Map(state.pageIds).set(page, tabId),
     titles: new Map(state.titles).set(page, ""),
   }));
 
   trackPageNetwork(page);
-  page.on("console", (message: ConsoleMessage) => {
-    PubSub.publishUnsafe(session.events, {
-      level: message.type(),
-      tabId,
-      text: message.text(),
-      timestamp: Date.now(),
-      type: "console",
-    });
-  });
-  page.on("pageerror", (error: Error) => {
-    PubSub.publishUnsafe(session.events, {
-      column: null,
-      line: null,
-      tabId,
-      text: error.message,
-      timestamp: Date.now(),
-      type: "page_error",
-    });
-  });
-  page.on("request", (request: Request) => {
-    const requestId = BrowserRequestId.make(randomUUID());
-    Effect.runSync(
-      Ref.update(session.state, (state) => {
-        state.network.get(tabId)?.set(requestId, {
-          request: {
-            headers: request.headers(),
-            method: request.method(),
-            postData: request.postData() ?? undefined,
-            requestId,
-            resourceType: request.resourceType(),
-            tabId,
-            timestamp: Date.now(),
-            url: request.url(),
-          },
-        });
-        state.requestIds.set(request, requestId);
-        return state;
-      })
-    );
-  });
   page.on("response", (response: Response) => {
     const provider = botProtectionProvider(
       response.status(),
@@ -82,31 +47,6 @@ export const initializePage = (session: CreateSession, page: Page): void => {
         url: response.url(),
       });
     }
-    const request = response.request();
-    const state = readSessionState(session);
-    const requestId = state.requestIds.get(request);
-    if (requestId === undefined) {
-      return;
-    }
-    const record = state.network.get(tabId)?.get(requestId);
-    if (record === undefined) {
-      return;
-    }
-    Effect.runSync(
-      Ref.update(session.state, (current) => {
-        current.network.get(tabId)?.set(requestId, {
-          request: {
-            ...record.request,
-            mimeType: response.headers()["content-type"],
-            responseHeaders: response.headers(),
-            status: response.status(),
-          },
-          response,
-        });
-        current.requestIds.delete(request);
-        return current;
-      })
-    );
   });
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame()) {
@@ -124,13 +64,13 @@ export const initializePage = (session: CreateSession, page: Page): void => {
     const replacement = Effect.runSync(
       Ref.modify(session.state, (state) => {
         const pageIds = new Map(state.pageIds);
-        const network = new Map(state.network);
+        const devtools = new Map(state.devtools);
         const titles = new Map(state.titles);
         pageIds.delete(page);
-        network.delete(tabId);
+        devtools.delete(tabId);
         titles.delete(page);
         const [nextPage] = pageIds.keys();
-        const nextState = { ...state, network, pageIds, titles };
+        const nextState = { ...state, devtools, pageIds, titles };
         const updatedState =
           state.activePage === page && nextPage !== undefined
             ? { ...nextState, activePage: nextPage }

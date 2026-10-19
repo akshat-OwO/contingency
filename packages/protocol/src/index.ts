@@ -199,6 +199,7 @@ export const BrowserHeaders = Schema.Record(Schema.String, Schema.String);
 export type BrowserHeaders = typeof BrowserHeaders.Type;
 
 export const BrowserNetworkRequest = Schema.Struct({
+  durationMs: optionalNullable(Schema.Finite),
   headers: BrowserHeaders,
   method: Schema.String,
   mimeType: optionalNullable(Schema.String),
@@ -206,6 +207,7 @@ export const BrowserNetworkRequest = Schema.Struct({
   requestId: BrowserRequestId,
   resourceType: Schema.String,
   responseHeaders: optionalNullable(BrowserHeaders),
+  size: optionalNullable(Schema.Int),
   status: optionalNullable(Schema.Int),
   tabId: BrowserTabId,
   timestamp: Schema.Int,
@@ -215,6 +217,8 @@ export type BrowserNetworkRequest = typeof BrowserNetworkRequest.Type;
 
 export const BrowserNetworkRequestDetail = Schema.Struct({
   ...BrowserNetworkRequest.fields,
+  bodyTruncated: optionalNullable(Schema.Boolean),
+  bodyUnavailable: optionalNullable(Schema.Boolean),
   initiator: optionalNullable(Schema.Unknown),
   responseBody: optionalNullable(Schema.String),
   timing: optionalNullable(Schema.Unknown),
@@ -1032,3 +1036,37 @@ export class ContingencyRpcs extends RpcGroup.make(
   CatalogBrowseGetRpc,
   CatalogFlowSkillGetRpc
 ) {}
+
+/** Read operations available only through agent_code_execute. */
+export const BrowserDevtoolsCommand = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("requests"),
+    method: Schema.optionalKey(Schema.String),
+    resourceType: Schema.optionalKey(Schema.String),
+    statusMax: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ maximum: 599, minimum: 0 }))
+    ),
+    statusMin: Schema.optionalKey(
+      Schema.Int.check(Schema.isBetween({ maximum: 599, minimum: 0 }))
+    ),
+    url: Schema.optionalKey(Schema.String),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("request"),
+    requestId: Schema.String,
+  }),
+  Schema.Struct({ action: Schema.Literals(["console", "clear_console"]) }),
+  Schema.Struct({ action: Schema.Literal("storage"), kind: StorageKind }),
+  Schema.Struct({
+    action: Schema.Literals(["har_start", "har_stop"]),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+  }),
+]);
+export type BrowserDevtoolsCommand = typeof BrowserDevtoolsCommand.Type;
+export const BrowserDevtoolsInput = Schema.Struct({
+  command: BrowserDevtoolsCommand,
+  tabId: Schema.optionalKey(BrowserTabId),
+});
