@@ -60,11 +60,9 @@ test("records a decision on top of the ones the session already has", async () =
   ).toBeInTheDocument();
 
   await userEvent.click(screen.getByLabelText("Permission"));
-  // The Select renders its list in a portal the accessibility tree hides
-  // while the popover holds focus, so the option is queried as hidden.
-  await userEvent.click(
-    screen.getByRole("option", { hidden: true, name: "camera" })
-  );
+  // Wait for the Select's popup to finish opening; until then its options
+  // are hidden and ignore pointer input.
+  await userEvent.click(await screen.findByRole("option", { name: "camera" }));
   await userEvent.click(screen.getByRole("button", { name: "Grant" }));
 
   // A patch replaces the whole list, so a decision carries what the session
@@ -432,4 +430,36 @@ test("keeps a saved decision when coordinates are changed or cleared", async () 
       name: "Remove geolocation (https://shop.example) permission decision",
     })
   ).toBeInTheDocument();
+});
+
+test("reads applied scale and submits bounded percentages", async () => {
+  const onPatch = renderPanel({
+    ...locationPicker,
+    emulation: { ...locationPicker.emulation, pageZoom: 400, textScale: 200 },
+  });
+  expect(screen.getByRole("spinbutton", { name: "Page zoom" })).toHaveValue(
+    400
+  );
+  expect(screen.getByRole("spinbutton", { name: "Text scale" })).toHaveValue(
+    200
+  );
+  const zoom = screen.getByRole("spinbutton", { name: "Page zoom" });
+  await userEvent.clear(zoom);
+  await userEvent.type(zoom, "501");
+  expect(
+    screen.getByRole("button", { name: "Apply page zoom" })
+  ).toBeDisabled();
+  await userEvent.clear(zoom);
+  await userEvent.type(zoom, "100");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apply page zoom" })
+  );
+  expect(onPatch).toHaveBeenCalledWith({ pageZoom: 100 });
+  const text = screen.getByRole("spinbutton", { name: "Text scale" });
+  await userEvent.clear(text);
+  await userEvent.type(text, "300");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Apply text scale" })
+  );
+  expect(onPatch).toHaveBeenCalledWith({ textScale: 300 });
 });

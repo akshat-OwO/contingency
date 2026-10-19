@@ -42,7 +42,12 @@ import {
   CatalogFlowSkillGet,
   CatalogFlowSkillResult,
 } from "./catalog-browser.ts";
-import { Geolocation, PermissionDecisions } from "./emulation.ts";
+import {
+  Geolocation,
+  PageZoom,
+  TextScale,
+  PermissionDecisions,
+} from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { TeachingScan } from "./scans.ts";
 import {
@@ -370,7 +375,9 @@ export const SessionEmulation = Schema.Struct({
   colorScheme: optionalNullable(Schema.Literals(["light", "dark"])),
   geolocation: optionalNullable(Geolocation),
   locale: optionalNullable(nonEmptyProtocolString),
+  pageZoom: Schema.optional(PageZoom),
   permissions: PermissionDecisions,
+  textScale: Schema.optional(TextScale),
   timezoneId: optionalNullable(nonEmptyProtocolString),
   userAgent: optionalNullable(nonEmptyProtocolString),
   viewport: Viewport,
@@ -632,8 +639,10 @@ export const AgentBrowserEmulationSet = Schema.Struct({
   ),
   geolocation: Schema.optional(Schema.NullOr(Geolocation)),
   locale: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
+  pageZoom: Schema.optional(PageZoom),
   permissions: Schema.optional(Schema.NullOr(PermissionDecisions)),
   sessionId: AgentBrowserObserve.fields.sessionId,
+  textScale: Schema.optional(TextScale),
   timezoneId: Schema.optional(Schema.NullOr(nonEmptyProtocolString)),
   userAgentProfile: Schema.optional(UserAgentProfileId),
   viewport: Schema.optional(Viewport),
@@ -1037,8 +1046,18 @@ export class ContingencyRpcs extends RpcGroup.make(
   CatalogFlowSkillGetRpc
 ) {}
 
-/** Read operations available only through agent_code_execute. */
+/** Browser devtools operations available only through agent_code_execute. */
 export const BrowserDevtoolsCommand = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("emulation_get") }),
+  Schema.Struct({
+    action: Schema.Literal("emulation_set"),
+    operationId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128)
+    ),
+    pageZoom: Schema.optional(PageZoom),
+    textScale: Schema.optional(TextScale),
+  }),
   Schema.Struct({
     action: Schema.Literal("requests"),
     method: Schema.optionalKey(Schema.String),

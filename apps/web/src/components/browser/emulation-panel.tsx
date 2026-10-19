@@ -473,6 +473,107 @@ const PermissionControls = ({
   );
 };
 
+const ScaleValueAtom = makeScopedAtom((initial: number) =>
+  Atom.make(String(initial))
+);
+
+const ScaleControlContent = ({
+  field,
+  label,
+  minimum,
+  maximum,
+  disabled,
+  onPatch,
+}: {
+  readonly field: "pageZoom" | "textScale";
+  readonly label: string;
+  readonly minimum: number;
+  readonly maximum: number;
+  readonly disabled: boolean;
+  readonly onPatch: (patch: EmulationPatch) => void;
+}) => {
+  const [value, setValue] = useAtom(ScaleValueAtom.use());
+  const parsed = Number(value);
+  const valid =
+    value.trim() !== "" &&
+    Number.isFinite(parsed) &&
+    parsed >= minimum &&
+    parsed <= maximum;
+  return (
+    <label className="block space-y-1 text-xs">
+      <span>{label} (%)</span>
+      <div className="flex gap-1.5">
+        <Input
+          aria-label={label}
+          type="number"
+          min={minimum}
+          max={maximum}
+          step="any"
+          disabled={disabled}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          aria-invalid={!valid}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={disabled || !valid}
+          onClick={() => onPatch({ [field]: parsed })}
+        >
+          Apply {label.toLowerCase()}
+        </Button>
+      </div>
+    </label>
+  );
+};
+
+const ScaleControls = ({ applied, disabled, onPatch }: EmulationPanelProps) => {
+  const appliedEmulation =
+    applied.status === "known" ? applied.emulation : undefined;
+  return (
+    <>
+      <section className="space-y-1.5">
+        <SectionLabel>Scale</SectionLabel>
+        <p className="text-muted-foreground text-xs">
+          Applied: page zoom {appliedEmulation?.pageZoom ?? 100}%, text scale{" "}
+          {appliedEmulation?.textScale ?? 100}%.
+        </p>
+        <ScaleValueAtom.Provider
+          key={`zoom-${appliedEmulation?.pageZoom}`}
+          value={appliedEmulation?.pageZoom ?? 100}
+        >
+          <ScaleControlContent
+            field="pageZoom"
+            label="Page zoom"
+            minimum={25}
+            maximum={500}
+            disabled={disabled || applied.status !== "known"}
+            onPatch={onPatch}
+          />
+        </ScaleValueAtom.Provider>
+        <ScaleValueAtom.Provider
+          key={`text-${appliedEmulation?.textScale}`}
+          value={appliedEmulation?.textScale ?? 100}
+        >
+          <ScaleControlContent
+            field="textScale"
+            label="Text scale"
+            minimum={50}
+            maximum={300}
+            disabled={disabled || applied.status !== "known"}
+            onPatch={onPatch}
+          />
+        </ScaleValueAtom.Provider>
+        <p className="text-muted-foreground text-xs">
+          Page zoom reflows the layout. Text scale changes the 16px default;
+          fixed px text stays the same size.
+        </p>
+      </section>
+    </>
+  );
+};
+
 const EmulationPanelContent = ({
   applied,
   currentOrigin,
@@ -593,6 +694,11 @@ const EmulationPanelContent = ({
   return (
     <>
       <div className="space-y-5">
+        <ScaleControls
+          applied={applied}
+          disabled={disabled}
+          onPatch={onPatch}
+        />
         <section className="space-y-1.5">
           <SectionLabel>Location</SectionLabel>
           {appliedLocation === undefined ? null : (

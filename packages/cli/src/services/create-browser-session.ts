@@ -18,7 +18,12 @@ import type {
 } from "@contingency/protocol";
 import type { Semaphore } from "effect";
 import { Effect, Option, PubSub, Ref, Result, Schema } from "effect";
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import type {
+  BrowserContext,
+  CDPSession,
+  Locator,
+  Page,
+} from "playwright-core";
 
 import type { TabDevtools } from "./browser-devtools.ts";
 import {
@@ -58,6 +63,9 @@ export interface Screencast {
 
 export interface CreateSessionState {
   readonly activePage: Page;
+  /** Percentages, independent of the device's viewport and pixel density. */
+  readonly pageZoom: number;
+  readonly textScale: number;
   /** The colour scheme Pages are fed through `prefers-color-scheme`. */
   readonly colorScheme: "light" | "dark" | undefined;
   /**
@@ -304,6 +312,86 @@ const requireEmulationSession = (session: CreateSession, page: Page) =>
     return created;
   });
 
+export interface PageCaptureOptions {
+  readonly format: "jpeg" | "png";
+  readonly mask?: readonly Locator[];
+  readonly maskColor?: string;
+}
+
+const CAPTURE_MASK_ATTRIBUTE = "data-contingency-capture-mask";
+
+/**
+ * Capture through the CDP session that owns the Page's device metrics.
+ * Playwright's own capture reapplies its tracked viewport, which would drop
+ * page zoom from both the image and the live Page.
+ */
+export const capturePage = (
+  session: CreateSession,
+  page: Page,
+  options: PageCaptureOptions
+) =>
+  Effect.gen(function* captureEmulatedPage() {
+    const cdp = yield* requireEmulationSession(session, page);
+    return yield* tryBrowser("Could not capture a screenshot", async () => {
+      const color = options.maskColor ?? "#000000";
+      try {
+        await Promise.all(
+          (options.mask ?? []).map((locator) =>
+            locator.evaluateAll(
+              (elements, [attribute, fill]) => {
+                const document = elements[0]?.ownerDocument;
+                if (document === undefined) {
+                  return;
+                }
+                // A manual popover joins the top layer when shown, so masks
+                // opened now paint above modal dialogs and fullscreen content.
+                let layer = document.querySelector(`[${attribute}]`);
+                if (layer === null) {
+                  const created = document.createElement("div");
+                  created.setAttribute(attribute, "");
+                  created.popover = "manual";
+                  created.style.cssText =
+                    "position:fixed;inset:0;margin:0;padding:0;border:0;width:auto;height:auto;max-width:none;max-height:none;overflow:visible;background:transparent;pointer-events:none";
+                  document.documentElement.append(created);
+                  created.showPopover();
+                  layer = created;
+                }
+                for (const element of elements) {
+                  const rect = element.getBoundingClientRect();
+                  const box = document.createElement("div");
+                  box.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;background:${fill}`;
+                  layer.append(box);
+                }
+              },
+              [CAPTURE_MASK_ATTRIBUTE, color] as const
+            )
+          )
+        );
+        const { data } = await cdp.send("Page.captureScreenshot", {
+          format: options.format,
+        });
+        return Buffer.from(data, "base64");
+      } finally {
+        await page
+          .locator(`[${CAPTURE_MASK_ATTRIBUTE}]`)
+          .evaluateAll((boxes) => {
+            for (const box of boxes) {
+              box.remove();
+            }
+          })
+          .catch(() => null);
+      }
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: "10 seconds",
+        orElse: () =>
+          Effect.fail(
+            browserFailure("Could not capture a screenshot", "timed out")
+          ),
+      })
+    );
+  });
+
 /**
  * Install one browser identity on a Page: the legacy string, the client-hint
  * metadata beside it, and touch capability. The device metrics that complete
@@ -343,11 +431,18 @@ export const applyViewport = (
       })
     );
     const cdp = yield* requireEmulationSession(session, page);
+    // Browser zoom divides CSS layout dimensions while multiplying pixel
+    // density. Screen dimensions stay fixed, and pinch scale stays at one.
+    const zoom = readSessionState(session).pageZoom / 100;
     yield* tryBrowser("Could not set the viewport", () =>
-      cdp.send(
-        "Emulation.setDeviceMetricsOverride",
-        deviceMetricsOverride(identity, viewport)
-      )
+      cdp.send("Emulation.setDeviceMetricsOverride", {
+        ...deviceMetricsOverride(identity, viewport),
+        deviceScaleFactor: viewport.deviceScaleFactor * zoom,
+        height: Math.max(1, Math.round(viewport.height / zoom)),
+        screenHeight: viewport.height,
+        screenWidth: viewport.width,
+        width: Math.max(1, Math.round(viewport.width / zoom)),
+      })
     );
   });
 
@@ -380,9 +475,18 @@ export const applyEnvironment = (
   page: Page
 ): Effect.Effect<void, BrowserRpcErrorType> =>
   Effect.gen(function* applyPageEnvironment() {
-    const { colorScheme, geolocation, locale, timezoneId } =
+    const { colorScheme, geolocation, locale, timezoneId, textScale } =
       readSessionState(session);
     const cdp = yield* requireEmulationSession(session, page);
+    // Change Chromium's default font, preserving author-specified px sizes.
+    yield* tryBrowser("Could not set text scale", () =>
+      cdp.send("Page.setFontSizes", {
+        fontSizes: {
+          fixed: Math.round((13 * textScale) / 100),
+          standard: Math.round((16 * textScale) / 100),
+        },
+      })
+    );
     yield* geolocation === undefined
       ? tryBrowser("Could not clear the location override", () =>
           cdp.send("Emulation.clearGeolocationOverride")
@@ -631,7 +735,9 @@ export const toSessionEmulation = (
   state: CreateSessionState
 ): SessionEmulation => {
   let emulation: SessionEmulation = {
+    pageZoom: state.pageZoom,
     permissions: [...state.permissions],
+    textScale: state.textScale,
     viewport: state.viewport,
   };
   if (state.colorScheme !== undefined) {

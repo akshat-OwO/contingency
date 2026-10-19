@@ -313,6 +313,7 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
       colorScheme: "dark",
       geolocation: { accuracy: 50, latitude: 28.4718, longitude: 77.0456 },
       locale: "de-DE",
+      pageZoom: 400,
       permissions: [
         {
           origin: "https://shop.example.com",
@@ -321,6 +322,7 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
         },
         { origin: undefined, permission: "notifications", state: "denied" },
       ],
+      textScale: 200,
       timezone: "Europe/Berlin",
       userAgentProfile: "chrome-iphone",
       viewport: { deviceScaleFactor: 3, height: 844, width: 390 },
@@ -338,6 +340,9 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
   });
   expect(frontmatter?.emulation?.userAgentProfile).toBe("chrome-iphone");
   expect(frontmatter?.emulation?.colorScheme).toBe("dark");
+  expect(frontmatter).toMatchObject({
+    emulation: { pageZoom: 400, textScale: 200 },
+  });
   expect(frontmatter?.emulation?.locale).toBe("de-DE");
   expect(frontmatter?.emulation?.timezone).toBe("Europe/Berlin");
   // A flow that only works from one place says so, rather than reading as

@@ -6,6 +6,8 @@ import type { Geolocation, PermissionDecision } from "@contingency/protocol";
  * own Emulation move the same way.
  */
 export interface EmulationPatch {
+  readonly pageZoom?: number | undefined;
+  readonly textScale?: number | undefined;
   readonly colorScheme?: "light" | "dark" | null;
   readonly geolocation?: Geolocation | null;
   readonly locale?: string | null;

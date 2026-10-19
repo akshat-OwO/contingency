@@ -80,6 +80,8 @@ export interface FlowSkillInput {
  * demonstrated phone stays a phone when the Run reproduces it (ADR 0013).
  */
 export interface FlowSkillEmulation {
+  readonly pageZoom?: number | undefined;
+  readonly textScale?: number | undefined;
   readonly diagnostics?: readonly string[];
   readonly colorScheme: string | undefined;
   /**
@@ -238,7 +240,11 @@ const readEmulationBlock = (
             ? undefined
             : readGeolocationScalar(fields.geolocation),
         locale: fields.locale,
+        pageZoom:
+          fields.pageZoom === undefined ? undefined : Number(fields.pageZoom),
         permissions,
+        textScale:
+          fields.textScale === undefined ? undefined : Number(fields.textScale),
         timezone: fields.timezone,
         userAgentProfile: fields.userAgentProfile,
         viewport:
@@ -321,6 +327,8 @@ const readEmulationKey = (
     ![
       "viewport",
       "userAgentProfile",
+      "pageZoom",
+      "textScale",
       "colorScheme",
       "locale",
       "timezone",
@@ -339,6 +347,18 @@ const readEmulationKey = (
     }
     if (key === "geolocation" && readGeolocationScalar(value) === undefined) {
       diagnostics.push("Invalid geolocation scalar.");
+    }
+    if (
+      (key === "pageZoom" &&
+        (!Number.isFinite(Number(value)) ||
+          Number(value) < 25 ||
+          Number(value) > 500)) ||
+      (key === "textScale" &&
+        (!Number.isFinite(Number(value)) ||
+          Number(value) < 50 ||
+          Number(value) > 300))
+    ) {
+      diagnostics.push(`Invalid ${key} percentage.`);
     }
     emulation[key] = value;
     return false;
@@ -496,6 +516,13 @@ const withoutStampedKeys = (block: string): string[] => {
 
 const emulationLines = (emulation: FlowSkillEmulation): string[] => {
   const lines: string[] = [];
+  // 100% is the browser default; omit it so older Flow Skills round-trip.
+  if (emulation.pageZoom !== undefined && emulation.pageZoom !== 100) {
+    lines.push(`  pageZoom: ${emulation.pageZoom}`);
+  }
+  if (emulation.textScale !== undefined && emulation.textScale !== 100) {
+    lines.push(`  textScale: ${emulation.textScale}`);
+  }
   if (emulation.userAgentProfile !== undefined) {
     lines.push(`  userAgentProfile: ${emulation.userAgentProfile}`);
   }

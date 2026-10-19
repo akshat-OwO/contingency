@@ -81,3 +81,5 @@ The Workspace recipe includes Session Event waits and opt-in Claude Code channel
 
 - [Interface evaluation model tasks](./workspace.md#interface-evaluation-model-tasks) seeds checkout, Teaching, Dry Run, and Takeover journeys, drives the requested Workspace user actions, and checks the final state with private-value audits.
 - [Devtools observation](./workspace.md#devtools-observation) proves code-tool diagnosis of a fixture request returning 500, request bodies, console errors, redacted HAR files, and the Workspace Network and Console panels.
+
+Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoom-and-text-scale) for Workspace controls, code-only agent writes, and fixture screenshots.

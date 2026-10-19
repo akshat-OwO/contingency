@@ -364,6 +364,8 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "agent.browser.emulation.set": (data) =>
         agentUnavailable((service) =>
           service.setEmulation(data.sessionId, {
+            pageZoom: data.pageZoom,
+            textScale: data.textScale,
             colorScheme: data.colorScheme,
             geolocation: data.geolocation,
             locale: data.locale,

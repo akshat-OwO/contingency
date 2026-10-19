@@ -154,6 +154,23 @@ export const TaskRunDetails = ({
           </ul>
         )}
       </section>
+      <section aria-label="Emulation" className="space-y-2">
+        <h3 className="text-sm leading-5 font-semibold">Emulation</h3>
+        <p>
+          Starting page zoom: {run.startingEmulation.pageZoom ?? 100}%. Text
+          scale: {run.startingEmulation.textScale ?? 100}%.
+        </p>
+        <ol aria-label="Emulation changes" className="space-y-1">
+          {(run.emulationChanges ?? []).map((change) => (
+            <li key={change.id}>
+              {change.at} · {change.actor}: page zoom{" "}
+              {change.before.pageZoom ?? 100}% → {change.after.pageZoom ?? 100}
+              %, text scale {change.before.textScale ?? 100}% →{" "}
+              {change.after.textScale ?? 100}%
+            </li>
+          ))}
+        </ol>
+      </section>
       <BrowserCheckResults run={run} />
       <ScanResults run={run} />
       <section aria-label="Task assessment" className="space-y-2">

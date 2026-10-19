@@ -9,23 +9,20 @@ import { AgentSession } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import { AgentSessionFailure, failure } from "./mcp-agent-session.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
-import { readOnly } from "./mcp-tool-annotations.ts";
 
 export const BrowserDevtoolsTools = withStrictParameters(
   Toolkit.make(
-    readOnly(
-      Tool.make("agent_browser_devtools", {
-        dependencies: [AgentSession, FlowSkillCatalog, FileSystem.FileSystem],
-        description:
-          "Observe this browser tab in Interactive Runs, Teaching setup, or Dry Runs. requests filters URL substring, method, inclusive statusMin/statusMax, and resourceType, returning bounded metadata and dropped count. request fetches headers and bounded body by requestId, with bodyTruncated. console includes uncaught errors; clear_console clears retained messages. storage reads current-origin cookies/local/session. Credential headers and cookie values are masked; secret Variables are scrubbed. har_start/har_stop require distinct stable operationId values. Stop returns a redacted HAR file reference inside Catalog Root, never bytes. Capture holds at most 500 entries and 64 KiB per body. No page writes. Available only through agent_code_execute; native and Android do not support it.",
-        failure: AgentSessionFailure,
-        parameters: Schema.Struct({
-          ...BrowserDevtoolsInput.fields,
-          sessionId: AgentSessionId,
-        }),
-        success: Schema.Json,
-      })
-    )
+    Tool.make("agent_browser_devtools", {
+      dependencies: [AgentSession, FlowSkillCatalog, FileSystem.FileSystem],
+      description:
+        "Observe this browser tab in Interactive Runs, Teaching setup, or Dry Runs. requests filters URL substring, method, inclusive statusMin/statusMax, and resourceType, returning bounded metadata and dropped count. request fetches headers and bounded body by requestId, with bodyTruncated. console includes uncaught errors; clear_console clears retained messages. storage reads current-origin cookies/local/session. Credential headers and cookie values are masked; secret Variables are scrubbed. har_start/har_stop require distinct stable operationId values. Stop returns a redacted HAR file reference inside Catalog Root, never bytes. Capture holds at most 500 entries and 64 KiB per body. emulation_get reads session-wide Emulation. emulation_set sets pageZoom (25–500%) and textScale (50–300% of the 16px default) with a stable operationId, only in agent-held Teaching setup or Interactive Runs. It is refused in Dry Runs and during recording. Omit tabId for Emulation. Available only through agent_code_execute; native and Android do not support it.",
+      failure: AgentSessionFailure,
+      parameters: Schema.Struct({
+        ...BrowserDevtoolsInput.fields,
+        sessionId: AgentSessionId,
+      }),
+      success: Schema.Json,
+    })
   )
 );
 

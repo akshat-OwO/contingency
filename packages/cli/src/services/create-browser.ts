@@ -53,6 +53,7 @@ import {
   stopScreencast,
 } from "./create-browser-screencast.ts";
 import {
+  applyEmulationToPage,
   applyPermissions,
   browserFailure,
   emitStatus,
@@ -61,6 +62,7 @@ import {
   readSessionState,
   reapplyEmulation,
   reapplyViewport,
+  capturePage,
   requirePage,
   tabs,
   toSessionEmulation,
@@ -362,10 +364,12 @@ const makeService = (
         lastStreamId: undefined,
         locale: environment?.locale,
         pageIds: new Map(),
+        pageZoom: environment?.pageZoom ?? 100,
         permissions: environment?.permissions ?? [],
         screencast: undefined,
         sequence: 0,
         streamSubscribers: 0,
+        textScale: environment?.textScale ?? 100,
         timezoneId: environment?.timezoneId,
         titles: new Map(),
         viewport,
@@ -480,6 +484,8 @@ const makeService = (
     function* updateSessionEmulation(
       sessionId: SessionId,
       patch: {
+        readonly pageZoom?: number | undefined;
+        readonly textScale?: number | undefined;
         readonly colorScheme?: "light" | "dark" | null | undefined;
         readonly geolocation?: Geolocation | null | undefined;
         readonly locale?: string | null | undefined;
@@ -493,7 +499,9 @@ const makeService = (
         colorScheme: patchedValue(state.colorScheme, patch.colorScheme),
         geolocation: patchedValue(state.geolocation, patch.geolocation),
         locale: patchedValue(state.locale, patch.locale),
+        pageZoom: patch.pageZoom ?? state.pageZoom,
         permissions: patchedPermissions(state.permissions, patch.permissions),
+        textScale: patch.textScale ?? state.textScale,
         timezoneId: patchedValue(state.timezoneId, patch.timezoneId),
       }));
       // Permissions live on the context, the rest on each Page. Both are
@@ -566,7 +574,9 @@ const makeService = (
           geolocation: emulation.geolocation,
           identity,
           locale: emulation.locale,
+          pageZoom: emulation.pageZoom ?? 100,
           permissions: [...emulation.permissions],
+          textScale: emulation.textScale ?? 100,
           timezoneId: emulation.timezoneId,
           viewport: emulation.viewport,
         }));
@@ -634,6 +644,12 @@ const makeService = (
           performanceEndpoint: session.performanceEndpoint,
           tabId,
         };
+      }),
+    capturePage: (sessionId, options, page) =>
+      Effect.gen(function* captureSessionPage() {
+        const session = yield* requireSession(sessionId);
+        const target = page ?? (yield* Ref.get(session.state)).activePage;
+        return yield* capturePage(session, target, options);
       }),
     clearStorage: storage.clear,
     close: closeSession,
@@ -749,6 +765,8 @@ const makeService = (
             const page = yield* tryBrowser("Could not create browser tab", () =>
               session.context.newPage()
             );
+            // A new tab must return with its session's Emulation installed.
+            yield* applyEmulationToPage(session, page);
             yield* releaseInputSession(session);
             yield* Ref.update(session.state, (state) => ({
               ...state,

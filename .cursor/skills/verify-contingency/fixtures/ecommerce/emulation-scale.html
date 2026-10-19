@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Emulation scale fixture</title>
+    <style>
+      body {
+        margin: 12px;
+        background: #f7f4ec;
+        color: #202722;
+        font-family: sans-serif;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 8px 0;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      section {
+        padding: 4px;
+        border: 2px solid #365b47;
+        background: white;
+      }
+      p {
+        margin: 4px 0;
+      }
+      .fixed {
+        font-size: 16px;
+      }
+      .relative {
+        font-size: 1rem;
+      }
+      button {
+        font-size: 1rem;
+        padding: 8px;
+      }
+      @media (max-width: 600px) {
+        main {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Page zoom and text scale</h1>
+    <main aria-label="Reflow layout">
+      <section aria-label="Fixed text">
+        <p class="fixed">Fixed 16px label</p>
+      </section>
+      <section aria-label="Relative text">
+        <p class="relative">Relative 1rem label</p>
+      </section>
+    </main>
+    <p><button onclick="this.textContent = 'Clicked'">Check input</button></p>
+  </body>
+</html>

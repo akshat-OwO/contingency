@@ -98,11 +98,19 @@ export const keyboardModifiers = (
 
 const viewportSizes = new WeakMap<
   HTMLCanvasElement,
-  { readonly width: number; readonly height: number }
+  {
+    readonly width: number;
+    readonly height: number;
+    readonly pageScaleFactor: number;
+  }
 >();
 
 export const canvasViewportSize = (canvas: HTMLCanvasElement) =>
-  viewportSizes.get(canvas) ?? { height: canvas.height, width: canvas.width };
+  viewportSizes.get(canvas) ?? {
+    height: canvas.height,
+    pageScaleFactor: 1,
+    width: canvas.width,
+  };
 
 export const mousePosition = (
   canvas: HTMLCanvasElement,
@@ -111,8 +119,14 @@ export const mousePosition = (
   const bounds = canvas.getBoundingClientRect();
   const viewport = canvasViewportSize(canvas);
   return {
-    x: ((event.clientX - bounds.left) * viewport.width) / bounds.width,
-    y: ((event.clientY - bounds.top) * viewport.height) / bounds.height,
+    x:
+      ((event.clientX - bounds.left) * viewport.width) /
+      bounds.width /
+      viewport.pageScaleFactor,
+    y:
+      ((event.clientY - bounds.top) * viewport.height) /
+      bounds.height /
+      viewport.pageScaleFactor,
   };
 };
 
@@ -257,6 +271,7 @@ export const renderFrame = (
         // canvas without the flash.
         viewportSizes.set(canvas, {
           height: event.metadata.deviceHeight,
+          pageScaleFactor: event.metadata.pageScaleFactor,
           width: event.metadata.deviceWidth,
         });
         const cssWidth = `min(100%, ${event.metadata.deviceWidth}px)`;
@@ -267,11 +282,15 @@ export const renderFrame = (
         if (canvas.style.maxHeight !== cssHeight) {
           canvas.style.maxHeight = cssHeight;
         }
-        if (canvas.width !== bitmap.width) {
-          canvas.width = bitmap.width;
+        // Screencast bitmaps may be smaller than the displayed viewport at
+        // high page zoom. Preserve the display size and any extra bitmap detail.
+        const width = Math.max(bitmap.width, event.metadata.deviceWidth);
+        const height = Math.max(bitmap.height, event.metadata.deviceHeight);
+        if (canvas.width !== width) {
+          canvas.width = width;
         }
-        if (canvas.height !== bitmap.height) {
-          canvas.height = bitmap.height;
+        if (canvas.height !== height) {
+          canvas.height = height;
         }
         // The capture is the whole viewport, scaled to the stream's ceiling, so
         // the frame is drawn whole. Cropping it to the canvas would show the

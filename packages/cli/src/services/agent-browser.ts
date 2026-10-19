@@ -2143,6 +2143,9 @@ export const redactAgentSnapshot = (
 
 export const captureAgentScreenshot = (
   page: Page,
+  capture: (
+    mask: readonly Locator[]
+  ) => Effect.Effect<Buffer, BrowserRpcErrorType>,
   now: () => Date = () => new Date(),
   maskSensitive = false,
   privateValues: readonly string[] = [],
@@ -2150,7 +2153,10 @@ export const captureAgentScreenshot = (
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: async () => {
+    try: async (): Promise<readonly Locator[]> => {
+      if (!maskSensitive) {
+        return [];
+      }
       const controls = page.locator(
         'input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]'
       );
@@ -2191,22 +2197,15 @@ export const captureAgentScreenshot = (
                 }),
               textValues
             );
-      if (!maskSensitive) {
-        return page.screenshot({ timeout: ACTION_TIMEOUT_MS, type: "png" });
-      }
-      return page.screenshot({
-        mask: [
-          page.locator(SENSITIVE_INPUT_SELECTOR),
-          ...privateSelectors.map((selector) => page.locator(selector)),
-          ...privateIndexes.map((index) => controls.nth(index)),
-          ...privateTextIndexes.map((index) => textElements.nth(index)),
-        ],
-        maskColor: "#000000",
-        timeout: ACTION_TIMEOUT_MS,
-        type: "png",
-      });
+      return [
+        page.locator(SENSITIVE_INPUT_SELECTOR),
+        ...privateSelectors.map((selector) => page.locator(selector)),
+        ...privateIndexes.map((index) => controls.nth(index)),
+        ...privateTextIndexes.map((index) => textElements.nth(index)),
+      ];
     },
   }).pipe(
+    Effect.flatMap(capture),
     Effect.map((image) => ({
       capturedAt: now().toISOString(),
       encoding: "base64" as const,

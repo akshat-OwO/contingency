@@ -385,6 +385,15 @@ export const RunEmulationConflict = Schema.Struct({
 });
 export type RunEmulationConflict = typeof RunEmulationConflict.Type;
 
+export const RunEmulationChange = Schema.Struct({
+  actor: Schema.Literals(["agent", "user"]),
+  after: DraftEmulation,
+  at: nonEmptyString,
+  before: DraftEmulation,
+  id: nonEmptyString,
+  operationId: nonEmptyString,
+});
+
 const taskRunFields = {
   assessment: Schema.NullOr(AgentTaskAssessment),
   attribution: AgentRunAttribution,
@@ -395,6 +404,7 @@ const taskRunFields = {
    * evidence in the user's catalog is never mistaken for a real website's.
    */
   demoSite: Schema.optional(DemoSiteId),
+  emulationChanges: Schema.optionalKey(Schema.Array(RunEmulationChange)),
   emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
   emulationSource: Schema.optional(RunEmulationSource),
   findings: Schema.Array(AgentTaskFinding),

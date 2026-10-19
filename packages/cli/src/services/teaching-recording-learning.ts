@@ -616,6 +616,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                                   manifest.emulation.geolocation.longitude,
                               },
                         locale: manifest.emulation.locale ?? undefined,
+                        pageZoom: manifest.emulation.pageZoom ?? 100,
                         permissions: manifest.emulation.permissions.map(
                           (decision) => ({
                             origin: decision.origin ?? undefined,
@@ -623,6 +624,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                             state: decision.state,
                           })
                         ),
+                        textScale: manifest.emulation.textScale ?? 100,
                         timezone: manifest.emulation.timezoneId ?? undefined,
                         userAgentProfile: manifest.emulation.userAgentProfile,
                         viewport: manifest.emulation.viewport,

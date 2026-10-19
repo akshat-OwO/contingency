@@ -81,17 +81,16 @@ it.live.each(["idle", "stop"])(
           if (browserId === undefined) {
             return yield* Effect.die("Teaching did not open a browser.");
           }
-          const page = yield* browser.activePage(browserId);
           // Observe the real screenshot API; the browser and capture still run.
           const photographed = yield* Deferred.make<true>();
-          const screenshot = page.screenshot.bind(page);
+          const capture = browser.capturePage.bind(browser);
           const screenshots = vi
-            .spyOn(page, "screenshot")
-            .mockImplementation(async (...args) => {
-              const image = await screenshot(...args);
-              await Effect.runPromise(Deferred.succeed(photographed, true));
-              return image;
-            });
+            .spyOn(browser, "capturePage")
+            .mockImplementation((...args) =>
+              capture(...args).pipe(
+                Effect.tap(() => Deferred.succeed(photographed, true))
+              )
+            );
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => screenshots.mockRestore())
           );

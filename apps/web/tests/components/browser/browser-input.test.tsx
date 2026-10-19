@@ -1,9 +1,15 @@
+import { BrowserStreamId, FrameSequence } from "@contingency/protocol";
 import type { BrowserInput } from "@contingency/protocol";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+import { Effect } from "effect";
 import { createElement } from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
-import { makeBrowserInputHandlers } from "@/components/browser/browser-input";
+import {
+  makeBrowserInputHandlers,
+  mousePosition,
+  renderFrame,
+} from "@/components/browser/browser-input";
 
 afterEach(cleanup);
 
@@ -63,4 +69,48 @@ test.each([
       windowsVirtualKeyCode: expected,
     },
   ]);
+});
+
+test("maps a zoomed frame's displayed coordinates back to CSS pixels", async () => {
+  const canvas = document.createElement("canvas");
+  vi.stubGlobal(
+    "createImageBitmap",
+    vi.fn().mockResolvedValue({ close: vi.fn(), height: 200, width: 320 })
+  );
+  Object.defineProperty(canvas, "getContext", {
+    value: () => ({ drawImage: vi.fn() }),
+  });
+  vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 640, 400)
+  );
+  try {
+    await Effect.runPromise(
+      renderFrame(canvas, {
+        data: new Uint8Array(),
+        metadata: {
+          deviceHeight: 800,
+          deviceWidth: 1280,
+          offsetTop: 0,
+          pageScaleFactor: 4,
+          scrollOffsetX: 0,
+          scrollOffsetY: 0,
+          timestamp: 0,
+        },
+        receivedAt: 0,
+        seq: FrameSequence.make(1),
+        streamId: BrowserStreamId.make("zoom-test"),
+        type: "frame",
+      })
+    );
+    expect(canvas.style.maxWidth).toBe("min(100%, 1280px)");
+    expect(canvas.width).toBe(1280);
+    expect(canvas.height).toBe(800);
+    expect(mousePosition(canvas, { clientX: 320, clientY: 200 })).toEqual({
+      x: 160,
+      y: 100,
+    });
+  } finally {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  }
 });

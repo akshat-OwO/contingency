@@ -20,6 +20,7 @@ import {
   AgentTaskFinding,
   AgentTaskRunOutcome,
   AgentTaskRunPurpose,
+  RunEmulationChange,
   RunEmulationSource,
   RunEmulationConflict,
 } from "./agent-run.ts";
@@ -54,6 +55,7 @@ const latestOf = <S extends Schema.Top>(item: S) =>
 const CompactTaskRun = Schema.Struct({
   assessment: Schema.NullOr(AgentTaskAssessment),
   demoSite: Schema.optional(DemoSiteId),
+  emulationChanges: Schema.optionalKey(Schema.Array(RunEmulationChange)),
   emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
   emulationSource: Schema.optional(RunEmulationSource),
   /** Bundled Example Flow Skills among the referenced skills (ADR 0050). */
@@ -156,6 +158,7 @@ const compactRun = (
   if ("schemaVersion" in run) {
     const compact: Mutable<typeof CompactTaskRun.Type> = {
       assessment: run.assessment,
+      emulationChanges: run.emulationChanges ?? [],
       emulationConflicts: run.emulationConflicts ?? [],
       findings: latest(run.findings),
       inputs: run.inputs.map(({ flowSkillName, name }) => ({
