@@ -39,7 +39,7 @@ export const redactDevtoolsText = (text: string, secrets: readonly string[]) =>
     ])
   );
 
-const redactHar = (
+export const redactDevtoolsJson = (
   value: Schema.Json,
   secrets: readonly string[]
 ): Schema.Json => {
@@ -47,7 +47,7 @@ const redactHar = (
     return redactDevtoolsText(value, secrets);
   }
   if (Array.isArray(value)) {
-    return value.map((item: Schema.Json) => redactHar(item, secrets));
+    return value.map((item: Schema.Json) => redactDevtoolsJson(item, secrets));
   }
   if (
     value === null ||
@@ -59,7 +59,7 @@ const redactHar = (
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       redactDevtoolsText(key, secrets),
-      redactHar(item, secrets),
+      redactDevtoolsJson(item, secrets),
     ])
   );
 };
@@ -247,7 +247,7 @@ export const makeTabDevtools = (
       type: "page_error",
     })
   );
-  page.on("request", (request) => {
+  const onRequest = (request: Request) => {
     const entry: RecordEntry = {
       metadata: {
         durationMs: undefined,
@@ -276,7 +276,8 @@ export const makeTabDevtools = (
         Number(current.records.length >= DEVTOOLS_LIMITS.requests),
       records: [...current.records, entry].slice(-DEVTOOLS_LIMITS.requests),
     }));
-  });
+  };
+  page.on("request", onRequest);
   const amend = (
     request: Request,
     change: (entry: RecordEntry) => RecordEntry
@@ -290,7 +291,7 @@ export const makeTabDevtools = (
         entry.request === request ? change(entry) : entry
       ),
     }));
-  page.on("response", (response) =>
+  const onResponse = (response: Response) =>
     amend(response.request(), (entry) => ({
       ...entry,
       metadata: {
@@ -300,9 +301,9 @@ export const makeTabDevtools = (
         status: response.status(),
       },
       response,
-    }))
-  );
-  page.on("requestfinished", (request) => {
+    }));
+  page.on("response", onResponse);
+  const onFinished = (request: Request) => {
     // The event marks timing complete. Sizes are asynchronous in Playwright.
     amend(request, (entry) => ({
       ...entry,
@@ -324,7 +325,8 @@ export const makeTabDevtools = (
         Effect.ignore
       )
     );
-  });
+  };
+  page.on("requestfinished", onFinished);
   const detail = (entry: RecordEntry, secrets: readonly string[]) =>
     Effect.gen(function* readBody() {
       const { response } = entry;
@@ -366,7 +368,28 @@ export const makeTabDevtools = (
       );
     });
   page.once("close", () => registry.dispose());
+  /**
+   * Take a request the page issued before this tab existed: a popup's first
+   * document is requested before Playwright reports the popup.
+   */
+  const adopt = (request: Request) => {
+    onRequest(request);
+    Effect.runFork(
+      Effect.tryPromise(() => request.response()).pipe(
+        Effect.tap((response) =>
+          Effect.sync(() => {
+            if (response !== null) {
+              onResponse(response);
+              onFinished(request);
+            }
+          })
+        ),
+        Effect.ignore
+      )
+    );
+  };
   return {
+    adopt,
     clearConsole: () =>
       update((current) => ({ ...current, console: [], consoleDropped: 0 })),
     console: (secrets: readonly string[]) => {
@@ -415,7 +438,7 @@ export const makeTabDevtools = (
       Effect.gen(function* stopCapture() {
         const current = registry.get(state);
         if (current.stopped?.id === id) {
-          return redactHar(current.stopped.har, secrets);
+          return redactDevtoolsJson(current.stopped.har, secrets);
         }
         if (current.capture === undefined) {
           return yield* Effect.fail(

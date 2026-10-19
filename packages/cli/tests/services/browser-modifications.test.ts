@@ -24,6 +24,8 @@ it("enforces the activity by modification kind authority matrix", () => {
     "headers",
     "emulation",
     "eval",
+    "clipboard",
+    "upload",
   ] as const;
   for (const kind of kinds) {
     expect(
@@ -114,13 +116,16 @@ it("summarizes active routes, state and latest Emulation without removed modific
       mod("cookie", {}),
       mod("storage", { kind: "storage" }),
       mod("evaluation", { kind: "eval" }),
+      mod("upload1", { kind: "upload" }),
+      mod("upload2", { kind: "upload" }),
+      mod("clipboard", { kind: "clipboard" }),
       mod("headers", { kind: "headers" }),
       mod("old", { kind: "emulation", textScale: 100 }),
       mod("new", { kind: "emulation", pageZoom: 150, textScale: 200 }),
       mod("removed", { removedAt: "2026-10-18T00:01:00.000Z" }),
     ])
   ).toBe(
-    "2 mocked routes · 1 blocked route · 1 cookie · 1 storage change · 1 evaluation · headers · 200% text · 150% zoom"
+    "2 mocked routes · 1 blocked route · 1 cookie · 1 storage change · 1 evaluation · 2 uploads · headers · clipboard · 200% text · 150% zoom"
   );
 });
 

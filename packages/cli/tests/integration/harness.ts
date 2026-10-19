@@ -303,6 +303,15 @@ export const fixtureServer = Effect.gen(function* serveFixtures() {
           Deferred.doneUnsafe(gate, Effect.succeed(response));
           return;
         }
+        if (pathname === "/download-report") {
+          response
+            .writeHead(OK, {
+              "content-disposition": 'attachment; filename="report.csv"',
+              "content-type": "text/csv",
+            })
+            .end("name,total\nanvil,3\n");
+          return;
+        }
         if (pathname === "/boundary-redirect-chain") {
           response.writeHead(302, { location: "/boundary-redirect" }).end();
           return;

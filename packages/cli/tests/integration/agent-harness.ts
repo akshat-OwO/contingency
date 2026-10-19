@@ -411,6 +411,7 @@ export const agentProcessLayer = (
     ...sessionSeams,
     allowedActivity: "any" as const,
     baseUrl: "http://127.0.0.1:7777",
+    catalogRoot: () => selectedCatalogRoot,
     now: now ?? (() => new Date()),
     traceDirectory: () =>
       path.join(selectedCatalogRoot, TEACHING_RECORDINGS_DIRECTORY),

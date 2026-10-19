@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { BrowserTabId } from "@contingency/protocol";
 import { Effect, PubSub, Ref } from "effect";
-import type { Page, Response } from "playwright-core";
+import type { Page, Request, Response } from "playwright-core";
 
 import { botProtectionProvider } from "./bot-protection.ts";
 import { makeTabDevtools } from "./browser-devtools.ts";
@@ -17,16 +17,21 @@ import {
 import type { CreateSession } from "./create-browser-session.ts";
 import { trackPageNetwork } from "./page-activity.ts";
 
-export const initializePage = (session: CreateSession, page: Page): void => {
+export const initializePage = (
+  session: CreateSession,
+  page: Page,
+  earlyRequests: readonly Request[] = []
+): void => {
   const tabId = BrowserTabId.make(randomUUID());
+  const tools = makeTabDevtools(page, tabId, (entry) => {
+    PubSub.publishUnsafe(session.events, entry);
+  });
+  for (const request of earlyRequests) {
+    tools.adopt(request);
+  }
   updateSessionState(session, (state) => ({
     ...state,
-    devtools: new Map(state.devtools).set(
-      tabId,
-      makeTabDevtools(page, tabId, (entry) => {
-        PubSub.publishUnsafe(session.events, entry);
-      })
-    ),
+    devtools: new Map(state.devtools).set(tabId, tools),
     pageIds: new Map(state.pageIds).set(page, tabId),
     titles: new Map(state.titles).set(page, ""),
   }));
@@ -47,6 +52,13 @@ export const initializePage = (session: CreateSession, page: Page): void => {
         url: response.url(),
       });
     }
+  });
+  page.on("download", (download) => {
+    PubSub.publishUnsafe(session.downloads, {
+      download,
+      startedAt: Date.now(),
+      tabId,
+    });
   });
   page.on("framenavigated", (frame) => {
     if (frame !== page.mainFrame()) {

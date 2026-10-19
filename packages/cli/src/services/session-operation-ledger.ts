@@ -14,7 +14,10 @@ import type {
 } from "./agent-session-error.ts";
 
 export type AgentOperationKind =
+  | "profile"
   | "eval"
+  | "tab"
+  | "upload"
   | "browser-modification"
   | "emulation"
   | "act"
@@ -45,6 +48,7 @@ export type AgentOperationKind =
 
 /** What a replayed operation answers with, discriminated so no cast is needed. */
 type AgentOperationResult =
+  | { readonly kind: "profile"; readonly result: string }
   | { readonly kind: "act"; readonly result: AgentActionResult }
   /**
    * A dispatched action whose outcome Contingency does not know. The browser
@@ -88,7 +92,7 @@ export const makeSessionOperationLedger = () => {
     string,
     {
       readonly operationId: string;
-      readonly kind: "act" | "private-input" | "eval";
+      readonly kind: "act" | "private-input" | "eval" | "upload";
       readonly target: string;
       readonly input: string;
     }
@@ -252,7 +256,7 @@ export const makeSessionOperationLedger = () => {
 
   const replayAction = (
     operationId: OperationId | string | undefined,
-    kind: "act" | "private-input" | "eval",
+    kind: "act" | "private-input" | "eval" | "upload",
     target: string,
     input: string
   ): Effect.Effect<AgentActionResult, AgentSessionError> | undefined => {
@@ -280,7 +284,7 @@ export const makeSessionOperationLedger = () => {
   const bindBoundary = (
     boundaryId: string,
     operationId: OperationId | string,
-    kind: "act" | "private-input" | "eval",
+    kind: "act" | "private-input" | "eval" | "upload",
     target: string,
     input: string,
     continuation: Effect.Effect<AgentActionResult, AgentSessionError>
@@ -437,9 +441,41 @@ export const makeSessionOperationLedger = () => {
         return self;
       })
     );
+  /** Retain captures before a caller attempts file persistence. */
+  const profile = <E, R>(
+    id: OperationId | string,
+    target: string,
+    input: string,
+    self: Effect.Effect<string, E, R>
+  ) =>
+    serialize(
+      id,
+      Effect.suspend<string, E | AgentSessionDomainError, R>(() => {
+        const prior = replay(id, "profile", target, input);
+        if (prior?._tag === "conflict") {
+          return Effect.fail(prior.error);
+        }
+        if (prior?._tag === "replay") {
+          return prior.result.kind === "profile"
+            ? Effect.succeed(prior.result.result)
+            : Effect.fail(
+                error(
+                  "agent_session_conflict",
+                  "This operation id already has a different result."
+                )
+              );
+        }
+        return self.pipe(
+          Effect.tap((result) =>
+            remember(id, "profile", target, input, { kind: "profile", result })
+          ),
+          Effect.uninterruptible
+        );
+      })
+    );
   const action = <E, R>(
     id: OperationId | string | undefined,
-    kind: "act" | "private-input" | "eval",
+    kind: "act" | "private-input" | "eval" | "upload",
     target: string,
     input: string,
     self: Effect.Effect<AgentActionResult, E, R>
@@ -489,6 +525,7 @@ export const makeSessionOperationLedger = () => {
   return {
     action,
     bindBoundary,
+    profile,
     releaseBoundary,
     releaseSession,
     remember,

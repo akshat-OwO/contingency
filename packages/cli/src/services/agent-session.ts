@@ -128,7 +128,7 @@ import {
   redactActionText,
   redactKnownValues,
 } from "./agent-browser.ts";
-import { AgentRunStore } from "./agent-run-store.ts";
+import { AGENT_RUNS_DIRECTORY, AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
@@ -145,15 +145,19 @@ import {
 } from "./browser-devtools.ts";
 import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
 import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
+import { saveDownload } from "./browser-downloads.ts";
+import type { SavedDownload } from "./browser-downloads.ts";
 import {
   makeBrowserModifications,
   modificationDescription,
   modificationKind,
   modificationRefusal,
 } from "./browser-modifications.ts";
+import { redactProfile } from "./browser-page-tools.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
+  BrowserDownloadEvent,
   BrowserStorageDeleteInput,
   BrowserStorageSetInput,
   CreateBrowserService,
@@ -226,6 +230,11 @@ export interface AgentSessionServiceOptions {
   readonly now?: () => Date;
   /** Exact process-owner directory for per-session temporary resources. */
   readonly resourceDirectory?: string;
+  /**
+   * The selected Catalog Root, read on every use. Downloads are saved into its
+   * Run evidence and uploads from inside it need no approval.
+   */
+  readonly catalogRoot?: () => string;
   /** Durable local directory for Teaching Trace archives, resolved at start. */
   readonly traceDirectory?: () => string;
   /** How Run videos fast-forward Idle Gaps; `capped` unless configured. */
@@ -1390,6 +1399,8 @@ interface SessionRecord {
   readonly footage: RunFootage | undefined;
   /** The Browser Snapshot references this session has minted. */
   readonly agentBrowser: AgentBrowser;
+  /** Downloads saved into Run evidence, in arrival order. */
+  readonly downloads: SavedDownload[];
   /** The Run directory this session's Trace and video were written into. */
   readonly artifactDirectory: string | undefined;
   readonly runEvidence: RunEvidence;
@@ -3308,6 +3319,59 @@ const makeAgentSession = (
         }
       });
 
+    /**
+     * A task Run keeps downloads with its own evidence; other activities keep
+     * them per session under the Catalog Root's devtools directory.
+     */
+    const downloadDirectory = (record: SessionRecord): string | undefined => {
+      const root = options.catalogRoot?.();
+      if (root === undefined) {
+        return undefined;
+      }
+      const { run } = record.snapshot;
+      return run !== null && isTaskRun(run)
+        ? path.join(root, AGENT_RUNS_DIRECTORY, run.runId, "downloads")
+        : path.join(root, ".devtools", "downloads", record.snapshot.id);
+    };
+    const saveSessionDownload = (
+      sessionId: AgentSessionId,
+      event: BrowserDownloadEvent
+    ) =>
+      Effect.gen(function* saveAgentDownload() {
+        const record = yield* requireLiveRecord(sessionId);
+        const requests = yield* browser
+          .devtools(record.browserSessionId, event.tabId)
+          .pipe(
+            Effect.map((tools) => tools.requests().requests),
+            Effect.orElseSucceed(() => [])
+          );
+        const index = record.downloads.length + 1;
+        const saved = yield* saveDownload(event, {
+          at: now().toISOString(),
+          directory: downloadDirectory(record),
+          index,
+          requests,
+          secrets: sessionSensitiveValues(record),
+        }).pipe(
+          Effect.provideService(
+            FileSystem.FileSystem,
+            yield* requireScreenshotFileSystem()
+          )
+        );
+        record.downloads.push(saved);
+        yield* recordEntry(sessionId, {
+          actor: "agent",
+          at: saved.at,
+          description:
+            saved.state === "saved"
+              ? `Downloaded ${saved.name} (${saved.size} bytes, ${saved.type})`
+              : `Download of ${saved.name} failed`,
+          dispatched: true,
+          id: `${saved.id}-${sessionId}`,
+          outcome: saved.state === "saved" ? "completed" : "failed",
+        });
+      });
+
     const observe = <A>(
       sessionId: AgentSessionId,
       read_: (
@@ -3781,6 +3845,7 @@ const makeAgentSession = (
                         lock: Semaphore.makeUnsafe(1),
                       },
                       diagnostics: { reader: undefined },
+                      downloads: [],
                       dryRunControl: { hadTakeover: false },
                       emulation,
                       executionBoundary:
@@ -3829,6 +3894,13 @@ const makeAgentSession = (
                     );
                     yield* Ref.update(sessions, (current) =>
                       new Map(current).set(sessionId, record)
+                    );
+                    yield* browser.downloads(acquired).pipe(
+                      Stream.runForEach((event) =>
+                        saveSessionDownload(sessionId, event)
+                      ),
+                      Effect.ignore,
+                      Effect.forkIn(sessionScope)
                     );
                     yield* publish(base);
                     const setup = Effect.gen(function* finishStartingSession() {
@@ -5736,7 +5808,10 @@ const makeAgentSession = (
               // The Demonstration keeps the attempt too: a compiler that never
               // learns of it could place a Step boundary over an effect nobody
               // can account for.
-              if (inFlight.action.type !== "eval") {
+              if (
+                inFlight.action.type !== "eval" &&
+                inFlight.action.type !== "upload"
+              ) {
                 recordingCapture(record)?.recordAction({
                   action: inFlight.action,
                   actor: "agent",
@@ -6363,6 +6438,363 @@ const makeAgentSession = (
         })
       );
 
+    /**
+     * Choose files for a file input. Files inside the Catalog Root are the
+     * user's own evidence store; any other local path leaves the machine only
+     * after the user allows that exact upload in Workspace.
+     */
+    const uploadFiles = (
+      sessionId: AgentSessionId,
+      command: Extract<BrowserDevtoolsCommand, { action: "upload" }>,
+      tabId: BrowserTabId | undefined
+    ) => {
+      const requestInput = createHash("sha256")
+        .update(JSON.stringify({ command, tabId }))
+        .digest("hex");
+      const attempt: Effect.Effect<AgentActionResult, AgentSessionError> =
+        ledger.serializeMutation(
+          ledger.action(
+            command.operationId,
+            "upload",
+            sessionId,
+            requestInput,
+            Effect.gen(function* uploadToPage() {
+              const record = yield* requireLiveRecord(sessionId);
+              if (
+                userLedTeaching(record.snapshot) ||
+                agentIsPaused(record.snapshot)
+              ) {
+                return yield* Effect.fail(
+                  takenOver("Uploads require agent control.")
+                );
+              }
+              if (runIsOver(record.snapshot)) {
+                return yield* Effect.fail(
+                  error("agent_session_conflict", "This Run has ended.")
+                );
+              }
+              const reason = modificationRefusal(record.snapshot, "upload");
+              if (reason !== undefined) {
+                return yield* Effect.fail(
+                  error("agent_session_conflict", reason)
+                );
+              }
+              const files = yield* requireScreenshotFileSystem();
+              const resolved = yield* Effect.all(
+                command.paths.map((file) =>
+                  files
+                    .realPath(path.resolve(file))
+                    .pipe(
+                      Effect.mapError(() =>
+                        error(
+                          "agent_session_invalid",
+                          `Cannot read ${path.basename(file)}. Pass the path of an existing local file.`
+                        )
+                      )
+                    )
+                )
+              );
+              const configuredRoot = options.catalogRoot?.();
+              const root =
+                configuredRoot === undefined
+                  ? undefined
+                  : Option.getOrUndefined(
+                      yield* Effect.option(files.realPath(configuredRoot))
+                    );
+              const inside = (file: string) => {
+                if (root === undefined) {
+                  return false;
+                }
+                const relative = path.relative(root, file);
+                return (
+                  relative !== "" &&
+                  !relative.startsWith("..") &&
+                  !path.isAbsolute(relative)
+                );
+              };
+              const secrets = sessionSensitiveValues(record);
+              const names = resolved.map((file) =>
+                redactDevtoolsText(path.basename(file), secrets)
+              );
+              const target = yield* browser.activeTarget(
+                record.browserSessionId,
+                tabId
+              );
+              const page = yield* record.agentBrowser.active();
+              const description = `Upload ${names.join(", ")}`;
+              if (!resolved.every(inside)) {
+                const boundary = record.executionBoundary;
+                if (boundary === undefined) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "Files outside the Catalog Root need the user's approval, which only an Interactive Run can ask for. Copy them into the Catalog Root first."
+                    )
+                  );
+                }
+                const action = {
+                  files: names,
+                  ref: command.ref,
+                  tabId: target.tabId,
+                  type: "upload",
+                } as const;
+                const check = yield* boundary.checkAttempt({
+                  ...boundaryAuthority(record.snapshot.run),
+                  action,
+                  capturedAction: action,
+                  description: `${description} from outside the Catalog Root`,
+                  intent: { irreversible: true },
+                  operationId: command.operationId,
+                });
+                if (check !== undefined) {
+                  yield* publishBoundary(sessionId, record, check);
+                  return yield* boundaryResult(
+                    record,
+                    page,
+                    check.pending.boundary,
+                    page.url()
+                  );
+                }
+              }
+              yield* record.agentBrowser.setFiles(command.ref, resolved);
+              const at = now().toISOString();
+              const entry: AgentTimelineEntry = {
+                actor: "agent",
+                at,
+                description,
+                dispatched: true,
+                id: command.operationId,
+                outcome: "completed",
+              };
+              yield* recordEntry(
+                sessionId,
+                entry,
+                modificationPatch(record, [
+                  ...modificationRecords(record),
+                  {
+                    actor: "agent",
+                    at,
+                    description,
+                    id: `modification-${command.operationId}`,
+                    kind: "upload",
+                    operationId: command.operationId,
+                  },
+                ])
+              );
+              const result: AgentActionResult = {
+                entry,
+                snapshot: yield* snapshotAfter(record, page, page.url()),
+                url: page.url(),
+              };
+              yield* ledger.remember(
+                command.operationId,
+                "upload",
+                sessionId,
+                requestInput,
+                { kind: "act", result }
+              );
+              return result;
+            }).pipe(Effect.uninterruptible)
+          )
+        );
+      return attempt.pipe(
+        Effect.tap((result) =>
+          !result.entry.dispatched &&
+          result.intervention?.operationId === command.operationId
+            ? ledger.bindBoundary(
+                result.intervention.id,
+                command.operationId,
+                "upload",
+                sessionId,
+                requestInput,
+                attempt
+              )
+            : Effect.void
+        )
+      );
+    };
+
+    /** Tabs, downloads, clipboard, profiling and uploads (ADR 0062 slice 5). */
+    const browserToolCommand = (
+      sessionId: AgentSessionId,
+      command: BrowserDevtoolsCommand,
+      tabId: BrowserTabId | undefined
+    ): Effect.Effect<unknown, AgentSessionError> | undefined => {
+      if (command.action === "tabs") {
+        return observe(sessionId, (record) =>
+          browser
+            .getTabs(record.browserSessionId)
+            .pipe(Effect.map((tabs) => ({ tabs })))
+        );
+      }
+      if (command.action === "downloads") {
+        return observe(sessionId, (record) =>
+          Effect.succeed({ downloads: [...record.downloads] })
+        );
+      }
+      if (command.action === "clipboard_read") {
+        return observe(sessionId, (record) =>
+          browser
+            .clipboard(record.browserSessionId, undefined, tabId)
+            .pipe(
+              Effect.map((text) =>
+                boundedDevtoolsText(text, sessionSensitiveValues(record))
+              )
+            )
+        );
+      }
+      if (
+        command.action === "profile_start" ||
+        command.action === "profile_stop"
+      ) {
+        const requestInput = JSON.stringify({ command, tabId });
+        return ledger.serializeMutation(
+          Effect.gen(function* captureProfile() {
+            const record = yield* requireLiveRecord(sessionId);
+            const data = yield* ledger.profile(
+              command.operationId,
+              sessionId,
+              requestInput,
+              browser.profile(
+                record.browserSessionId,
+                command.kind,
+                command.action === "profile_start" ? "start" : "stop",
+                tabId
+              )
+            );
+            if (command.action === "profile_start") {
+              return { kind: command.kind, profiling: true };
+            }
+            // Secrets may have been supplied after capture or a failed write.
+            const current = yield* requireLiveRecord(sessionId);
+            return {
+              data: yield* redactProfile(data, sessionSensitiveValues(current)),
+              kind: command.kind,
+            };
+          })
+        );
+      }
+      if (
+        command.action === "tab_open" ||
+        command.action === "tab_switch" ||
+        command.action === "tab_close"
+      ) {
+        const requestInput = JSON.stringify({ command, tabId });
+        return ledger.serializeMutation(
+          ledger.session(
+            command.operationId,
+            "tab",
+            sessionId,
+            requestInput,
+            Effect.gen(function* changeTabs() {
+              const record = yield* requireLiveRecord(sessionId);
+              if (
+                userLedTeaching(record.snapshot) ||
+                agentIsPaused(record.snapshot)
+              ) {
+                return yield* Effect.fail(
+                  takenOver(
+                    "Tab changes require agent control. Ask the user to return control first."
+                  )
+                );
+              }
+              if (runIsOver(record.snapshot)) {
+                return yield* Effect.fail(
+                  error("agent_session_conflict", "This Run has ended.")
+                );
+              }
+              const { browserSessionId } = record;
+              let description: string;
+              if (command.action === "tab_open") {
+                const { url } = command;
+                if (
+                  url !== undefined &&
+                  record.executionBoundary !== undefined &&
+                  !record.executionBoundary.allows(url)
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_conflict",
+                      "That URL is outside the Domain Scope. Open the tab without a URL and navigate to request it."
+                    )
+                  );
+                }
+                yield* browser.newTab(browserSessionId);
+                if (url !== undefined) {
+                  const target = yield* browser.activeTarget(browserSessionId);
+                  yield* Effect.tryPromise({
+                    catch: () =>
+                      makeBrowserRpcError(
+                        "agent_browser_failed",
+                        "The new tab could not load that URL. Read the tabs and retry with navigate."
+                      ),
+                    try: () => target.page.goto(url),
+                  });
+                }
+                description =
+                  url === undefined
+                    ? "Open a new tab"
+                    : `Open a new tab at ${sanitizeTeachingUrl(url)}`;
+              } else {
+                if (tabId === undefined) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Pass the tabId to switch to or close. Read it with the tabs action."
+                    )
+                  );
+                }
+                if (command.action === "tab_close") {
+                  const open = yield* browser.getTabs(browserSessionId);
+                  if (open.length <= 1) {
+                    return yield* Effect.fail(
+                      error(
+                        "agent_session_conflict",
+                        "The last tab cannot be closed. Open another tab first."
+                      )
+                    );
+                  }
+                  yield* browser.closeTab(browserSessionId, tabId);
+                  description = "Close a tab";
+                } else {
+                  yield* browser.switchTab(browserSessionId, tabId);
+                  description = "Switch tab";
+                }
+              }
+              const snapshot = yield* recordEntry(
+                sessionId,
+                {
+                  actor: "agent",
+                  at: now().toISOString(),
+                  description,
+                  dispatched: true,
+                  id: command.operationId,
+                  outcome: "completed",
+                },
+                {
+                  currentUrl: sanitizeTeachingUrl(
+                    yield* browser.currentUrl(browserSessionId)
+                  ),
+                }
+              );
+              yield* ledger.rememberSession(
+                command.operationId,
+                "tab",
+                sessionId,
+                requestInput,
+                snapshot
+              );
+              return snapshot;
+            }).pipe(Effect.uninterruptible)
+          )
+        );
+      }
+      if (command.action === "upload") {
+        return uploadFiles(sessionId, command, tabId);
+      }
+      return undefined;
+    };
+
     const service: AgentSessionService = {
       acknowledgeFrame: (sessionId, sequence, streamId) =>
         Effect.gen(function* acknowledgeAgentFrame() {
@@ -6836,6 +7268,10 @@ const makeAgentSession = (
             )
           );
         }
+        const tool = browserToolCommand(sessionId, command, tabId);
+        if (tool !== undefined) {
+          return tool;
+        }
         if (command.action === "emulation_get") {
           return requireLiveRecord(sessionId).pipe(
             Effect.flatMap((record) =>
@@ -6859,6 +7295,7 @@ const makeAgentSession = (
           command.action === "storage_clear" ||
           command.action === "route_add" ||
           command.action === "headers_set" ||
+          command.action === "clipboard_write" ||
           command.action === "modification_remove"
         ) {
           const requestInput = createHash("sha256")
@@ -6924,11 +7361,14 @@ const makeAgentSession = (
                 let next: readonly BrowserModification[];
                 let description: string;
                 if (command.action === "modification_remove") {
-                  if (existing?.kind === "eval") {
+                  if (
+                    existing?.kind === "eval" ||
+                    existing?.kind === "upload"
+                  ) {
                     return yield* Effect.fail(
                       error(
                         "agent_session_conflict",
-                        "An evaluation cannot be undone. Its Browser Modification remains evidence until the Run ends."
+                        `${existing.kind === "eval" ? "An evaluation" : "An upload"} cannot be undone. Its Browser Modification remains evidence until the Run ends.`
                       )
                     );
                   }
@@ -6945,13 +7385,33 @@ const makeAgentSession = (
                     record.browserSessionId,
                     tabId
                   );
-                  yield* modifications.apply(
-                    sessionId,
-                    id,
-                    command,
-                    target,
-                    record.executionBoundary?.allows
-                  );
+                  if (command.action === "clipboard_write") {
+                    // Removal restores the text the clipboard held before.
+                    const prior = yield* browser.clipboard(
+                      record.browserSessionId,
+                      undefined,
+                      target.tabId
+                    );
+                    const write = (text: string) =>
+                      browser
+                        .clipboard(record.browserSessionId, text, target.tabId)
+                        .pipe(Effect.asVoid);
+                    yield* modifications.layer(
+                      sessionId,
+                      id,
+                      "clipboard",
+                      write(prior),
+                      write(command.text)
+                    );
+                  } else {
+                    yield* modifications.apply(
+                      sessionId,
+                      id,
+                      command,
+                      target,
+                      record.executionBoundary?.allows
+                    );
+                  }
                   description = modificationDescription(
                     command,
                     sessionSensitiveValues(record)

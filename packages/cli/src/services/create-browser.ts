@@ -26,6 +26,7 @@ import {
   Exit,
   FileSystem,
   Layer,
+  Option,
   PubSub,
   Ref,
   Semaphore,
@@ -39,13 +40,18 @@ import type {
   CDPSession,
   LaunchOptions,
   Page,
+  Request,
 } from "playwright-core";
 
 import { evaluateBrowserScript } from "./browser-evaluation.ts";
 import { headedUserAgent } from "./browser-identity.ts";
 import { ensureChromiumInstalled } from "./browser-install.ts";
+import { pageClipboard, pageProfile } from "./browser-page-tools.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
-import type { CreateBrowserService } from "./create-browser-contract.ts";
+import type {
+  BrowserDownloadEvent,
+  CreateBrowserService,
+} from "./create-browser-contract.ts";
 import { initializePage } from "./create-browser-page.ts";
 import {
   acknowledgeFrame,
@@ -350,6 +356,10 @@ const makeService = (
         capacity: 8,
         replay: 1,
       });
+      // Replay lets a session that subscribes after a download still save it.
+      const downloads = yield* PubSub.unbounded<BrowserDownloadEvent>({
+        replay: 64,
+      });
       const tabSnapshots = yield* PubSub.sliding<BrowserTabsSnapshot>({
         capacity: 1,
         replay: 1,
@@ -378,6 +388,7 @@ const makeService = (
       });
       const session: CreateSession = {
         context,
+        downloads,
         emulationSessions: new WeakMap(),
         events,
         frames,
@@ -397,9 +408,39 @@ const makeService = (
       yield* Ref.update(sessions, (current) =>
         new Map(current).set(decoded, session)
       );
+      // A popup's first request precedes its "page" event. Hold requests from
+      // Pages the session does not know yet, so the new tab's buffer has them.
+      // Playwright cannot name the frame of a popup's first navigation, so
+      // those wait unowned until a new Page opens at their URL.
+      const early = new WeakMap<Page, Request[]>();
+      let unowned: Request[] = [];
+      context.on("request", (request) => {
+        if (request.serviceWorker() !== null) {
+          return;
+        }
+        const owner = Option.liftThrowable(() => request.frame().page())();
+        if (Option.isNone(owner)) {
+          if (request.isNavigationRequest()) {
+            unowned = [...unowned, request].slice(-16);
+          }
+          return;
+        }
+        if (!readSessionState(session).pageIds.has(owner.value)) {
+          early.set(owner.value, [...(early.get(owner.value) ?? []), request]);
+        }
+      });
       context.on("page", (newPage) => {
         if (!readSessionState(session).pageIds.has(newPage)) {
-          initializePage(session, newPage);
+          const navigation = unowned.filter(
+            (request) => request.url() === newPage.url()
+          );
+          const adopted = new Set(navigation);
+          unowned = unowned.filter((request) => !adopted.has(request));
+          initializePage(session, newPage, [
+            ...navigation,
+            ...(early.get(newPage) ?? []),
+          ]);
+          early.delete(newPage);
         }
       });
       initializePage(session, page);
@@ -654,6 +695,27 @@ const makeService = (
         return yield* capturePage(session, target, options);
       }),
     clearStorage: storage.clear,
+    clipboard: (sessionId, text, tabId) =>
+      Effect.gen(function* usePageClipboard() {
+        const session = yield* requireSession(sessionId);
+        const page =
+          tabId === undefined
+            ? readSessionState(session).activePage
+            : yield* requirePage(session, tabId);
+        const cdp = yield* requireEmulationSession(session, page);
+        const { origin } = new URL(page.url());
+        // Clipboard access is granted only for this call; the session's own
+        // permission decisions are restored whatever the outcome.
+        return yield* tryBrowser("Could not grant clipboard access", () =>
+          session.context.grantPermissions(
+            ["clipboard-read", "clipboard-write"],
+            { origin }
+          )
+        ).pipe(
+          Effect.andThen(pageClipboard(cdp, page, text)),
+          Effect.ensuring(applyPermissions(session).pipe(Effect.ignore))
+        );
+      }),
     close: closeSession,
     closeTab: (sessionId, tabId) =>
       Effect.gen(function* closeBrowserTab() {
@@ -716,6 +778,12 @@ const makeService = (
         }
         return tools;
       }),
+    downloads: (sessionId) =>
+      Stream.unwrap(
+        requireSession(sessionId).pipe(
+          Effect.map((session) => Stream.fromPubSub(session.downloads))
+        )
+      ),
     evaluate: (sessionId, script, mode, hosts, secrets, tabId) =>
       Effect.gen(function* evaluateScript() {
         const session = yield* requireSession(sessionId);
@@ -814,6 +882,16 @@ const makeService = (
         yield* Effect.sleep(
           durationMs + (pointer.action === "click" ? CLICK_LEAD_MS : 0)
         );
+      }),
+    profile: (sessionId, kind, phase, tabId) =>
+      Effect.gen(function* profilePage() {
+        const session = yield* requireSession(sessionId);
+        const page =
+          tabId === undefined
+            ? readSessionState(session).activePage
+            : yield* requirePage(session, tabId);
+        const cdp = yield* requireEmulationSession(session, page);
+        return yield* pageProfile(cdp, kind, phase);
       }),
     sendInput: (sessionId, input) =>
       Effect.gen(function* dispatchBrowserInput() {

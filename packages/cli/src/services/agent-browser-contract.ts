@@ -109,6 +109,11 @@ export interface AgentBrowser {
   readonly isSensitive: (
     ref: string
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
+  /** Choose local files in the referenced file input. */
+  readonly setFiles: (
+    ref: string,
+    paths: readonly string[]
+  ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly privateSelector: (
     ref: string,
     segmentCount?: number
