@@ -759,3 +759,21 @@ The proof opens agent-prepared Teaching, hands control to the user, and uses **E
 `emulation_get` reads the session-wide values. `emulation_set` accepts `pageZoom` from 25 to 500 and `textScale` from 50 to 300, with a stable `operationId`. Omit `tabId`. Only agent-held Teaching setup and Interactive Runs permit changes. Recording locks Emulation from Start to Stop. Dry Runs restore the stamped percentages and refuse changes. The native interface reports devtools unavailable and adds no tool.
 
 The integration test `emulation-scale.integration.test.ts` checks computed font sizes, CSS viewport width, media-query reflow, unchanged pinch scale, stream projection, navigation and new tabs, Teaching stamp and recording lock, Dry Run restoration and refusal, operation replay, Takeover refusal, and persisted Run evidence. Run `cleanup` and confirm evidence survives.
+
+## Browser Modifications
+
+Feature id: `browser-modifications`. Entry points: `agent_code_execute`, the Workspace dock, and the persisted Run Summary.
+
+After `launch`, `doctor`, `ecommerce start`, and `mcp start`, run:
+
+```sh
+CONTINGENCY_MODIFICATIONS_EVIDENCE=/tmp/issue506-slice3 nub .cursor/skills/verify-contingency/bin/browser-modifications-proof.mjs
+```
+
+The proof opens an Interactive Run, adds two mocked routes and 200% text scale through `agent_browser_devtools`, then reads `modifications_list`. The dock's **Active Browser Modifications** badge reads `2 mocked routes · 200% text`. Removing one route changes it to `1 mocked route · 200% text`. Completing the Run and reopening its Summary retains all three changes, their activity times, and the route's removal time in **Browser Modifications**. Capture `before.png`, `active.png`, `removed.png`, and `summary.png`. ARIA snapshots, command receipts, and persisted readback remain under `artifacts/browser-modifications/`; screenshots also go to `CONTINGENCY_MODIFICATIONS_EVIDENCE` when set.
+
+Cookie writes use `cookie_set` with a cookie domain, name, path, value, and flags, or `cookie_clear` with its domain, name, and path. Storage writes use `storage_set` or `storage_clear` with `kind: local|session`; omit `key` on clear to clear the current origin. `route_add` accepts a URL glob, optional `resourceType`, and `response` with `action: block|mock`; mocks carry status, contentType, and body. `headers_set` replaces extra context request headers. Every write needs a stable `operationId`; `modification_remove` also needs the listed modification id.
+
+Teaching setup allows cookie and storage writes, and refuses routes and headers. Dry Runs refuse every write. Cookie and storage writes require a Domain Scope host, or the current page host without a scope. Routes may match any URL but cannot bypass navigation scope. Removing a storage modification after its tab changes origin requires returning that tab to its original origin. Cookie values are masked and mock body evidence is limited to 2 KiB after secret Variable redaction. Takeover storage writes appear as user activity and never join Browser Modifications.
+
+The Chromium integration file `browser-modifications.integration.test.ts` proves network responses, resource filters, headers reaching the server, cookie and both storage writes, named-tab storage, replay, removal, activity persistence across Flow Skills, Teaching and Dry Run authority, Domain Scope refusals, navigation boundary composition, Takeover attribution, secret redaction, and restoration of prior Emulation. Run `cleanup` and confirm all owned processes and ports stopped and evidence survived.

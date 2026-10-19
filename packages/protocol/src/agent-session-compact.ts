@@ -31,6 +31,7 @@ import {
   AgentSetupVariable,
 } from "./agent-session.ts";
 import type { AgentSessionSnapshot } from "./agent-session.ts";
+import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -54,6 +55,7 @@ const latestOf = <S extends Schema.Top>(item: S) =>
 
 const CompactTaskRun = Schema.Struct({
   assessment: Schema.NullOr(AgentTaskAssessment),
+  browserModifications: Schema.optionalKey(Schema.Array(BrowserModification)),
   demoSite: Schema.optional(DemoSiteId),
   emulationChanges: Schema.optionalKey(Schema.Array(RunEmulationChange)),
   emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
@@ -119,6 +121,7 @@ const CompactDryRun = Schema.Struct({
 export const AgentSessionCompact = Schema.Struct({
   activity: AgentSessionActivity,
   boundary: Schema.NullOr(AgentExecutionBoundary),
+  browserModifications: Schema.optionalKey(Schema.Array(BrowserModification)),
   controller: AgentSessionController,
   currentUrl: Schema.String,
   dryRun: Schema.NullOr(CompactDryRun),
@@ -158,6 +161,7 @@ const compactRun = (
   if ("schemaVersion" in run) {
     const compact: Mutable<typeof CompactTaskRun.Type> = {
       assessment: run.assessment,
+      browserModifications: run.browserModifications ?? [],
       emulationChanges: run.emulationChanges ?? [],
       emulationConflicts: run.emulationConflicts ?? [],
       findings: latest(run.findings),
@@ -213,6 +217,7 @@ export const compactAgentSession = (
 ): AgentSessionCompact => ({
   activity: snapshot.activity,
   boundary: snapshot.boundary ?? null,
+  browserModifications: snapshot.browserModifications ?? [],
   controller: snapshot.controller,
   currentUrl: snapshot.currentUrl,
   dryRun:

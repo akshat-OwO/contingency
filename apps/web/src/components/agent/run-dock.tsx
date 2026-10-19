@@ -43,6 +43,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+import { BrowserModificationBadge } from "./browser-modifications";
+
 /** Minutes are the notice's granularity, so a slower tick is never stale. */
 const IDLE_TICK_MS = 15_000;
 
@@ -288,6 +290,9 @@ export const RunDock = ({
                 {presentation.badge}
               </Badge>
               <ProvenanceBadge provenance={provenance} />
+              <BrowserModificationBadge
+                modifications={taskRun?.browserModifications ?? []}
+              />
             </>
           }
         >

@@ -8,6 +8,7 @@ import {
   browserCheckRequirementsField,
   browserCheckResultsField,
 } from "./browser-checks.ts";
+import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -399,6 +400,7 @@ const taskRunFields = {
   attribution: AgentRunAttribution,
   browserCheckResults: browserCheckResultsField,
   browserChecks: browserCheckRequirementsField,
+  browserModifications: Schema.optionalKey(Schema.Array(BrowserModification)),
   /**
    * Present when the Run's Domain Scope is a bundled demo site, so demo
    * evidence in the user's catalog is never mistaken for a real website's.

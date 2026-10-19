@@ -83,3 +83,5 @@ The Workspace recipe includes Session Event waits and opt-in Claude Code channel
 - [Devtools observation](./workspace.md#devtools-observation) proves code-tool diagnosis of a fixture request returning 500, request bodies, console errors, redacted HAR files, and the Workspace Network and Console panels.
 
 Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoom-and-text-scale) for Workspace controls, code-only agent writes, and fixture screenshots.
+
+- [Browser Modifications](workspace.md#browser-modifications) proves active dock badges, route removal, and persisted Summary activity through the code-only agent tool and Workspace.

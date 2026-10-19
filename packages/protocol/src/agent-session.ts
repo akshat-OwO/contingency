@@ -13,6 +13,7 @@ import {
   OperationId,
 } from "./agent-identifiers.ts";
 import { AgentRunState, TaskAgentRunState } from "./agent-run.ts";
+import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { PlatformIdentity } from "./platform.ts";
@@ -91,6 +92,7 @@ export type AgentTakeoverRequest = typeof AgentTakeoverRequest.Type;
 const AgentSessionSnapshotBase = {
   activity: AgentSessionActivity,
   boundary: Schema.optional(Schema.NullOr(AgentExecutionBoundary)),
+  browserModifications: Schema.optionalKey(Schema.Array(BrowserModification)),
   clientName: nonEmptyString,
   clientVersion: nonEmptyString,
   controller: AgentSessionController,
