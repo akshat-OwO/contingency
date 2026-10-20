@@ -61,14 +61,16 @@ const InitializeResponse = Schema.Struct({
     serverInfo: Schema.Struct({ name: Schema.String, version: Schema.String }),
   }),
 });
-const CodeResponse = Schema.Struct({
+/** The packed docs ship beside the bundle and are served as resources. */
+const DocsResponse = Schema.Struct({
   id: Schema.Literal(2),
   result: Schema.Struct({
-    isError: Schema.Literal(false),
-    structuredContent: Schema.Struct({
-      calls: Schema.Literal(0),
-      result: Schema.Literal(42),
-    }),
+    contents: Schema.Tuple([
+      Schema.Struct({
+        mimeType: Schema.Literal("text/markdown"),
+        text: Schema.String.check(Schema.isStartingWith("<!-- Generated")),
+      }),
+    ]),
   }),
 });
 
@@ -206,20 +208,19 @@ const expectResponse = <S extends Schema.Decoder<unknown>>(
 
 export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
   function* handshake(spec: PackedMcpSpec, directory: string) {
-    // The read-only QuickJS tool exists only in the native catalog.
+    // The native catalog serves the packed docs as resources (ADR 0063).
     const native = yield* openPackedMcp(spec, directory, {
-      CONTINGENCY_MCP_CODE_MODE: "true",
       CONTINGENCY_MCP_INTERFACE: "native",
     });
     yield* native.send({
       id: 2,
       jsonrpc: "2.0",
-      method: "tools/call",
-      params: { arguments: { code: "return 42;" }, name: "agent_code_run" },
+      method: "resources/read",
+      params: { uri: "contingency://docs/settings" },
     });
     yield* expectResponse(
-      CodeResponse,
-      "Packed QuickJS execution failed",
+      DocsResponse,
+      "Packed Settings reference is not served",
       yield* native.take
     );
 
@@ -266,7 +267,7 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
       yield* single.take
     );
     yield* Console.log(
-      "Packed MCP stdio initialize, QuickJS execution, and single-tool interpreter passed."
+      "Packed MCP stdio initialize, docs resource, and single-tool interpreter passed."
     );
   },
   Effect.scoped,
@@ -369,6 +370,16 @@ export const verifyCliInstall = Effect.fn("verifyCliInstall")(function* verify(
     [installed, "--version"],
     directory
   );
+  // Editors resolve `$schema` to this file on unpkg (ADR 0063).
+  const schema = path.join(
+    directory,
+    "node_modules/@contingencyhq/cli/config.schema.json"
+  );
+  if (!(yield* fs.exists(schema))) {
+    return yield* Effect.fail(
+      new Error(`Packed CLI is missing ${path.basename(schema)}`)
+    );
+  }
   yield* verifyMcpHandshake(
     {
       args: [

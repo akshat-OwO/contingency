@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Settings live in a strict Catalog Root config

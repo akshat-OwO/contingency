@@ -28,8 +28,10 @@ const RETRIES = 2;
 
 /**
  * The machine's System One endpoint. Setting the URL is the user's consent to
- * send Pursuit requests to it, and nothing about it lives in the Catalog Root
+ * send Pursuit requests to it
  * ([ADR 0057](../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
+ * The URL may come from a Settings file; the API key never does
+ * ([ADR 0063](../../../../docs/adr/0063-settings-live-in-a-strict-catalog-root-config.md)).
  */
 export interface SystemOneConfig {
   readonly apiKey: Option.Option<Redacted.Redacted<string>>;

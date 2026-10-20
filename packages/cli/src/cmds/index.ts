@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { CliError, Command } from "effect/cli";
 
+import { configCommand } from "./config.ts";
 import { mcpCommand } from "./mcp.ts";
 import { registerCommand } from "./register.ts";
 import { startCommand } from "./start.ts";
@@ -22,5 +23,6 @@ export const commands = rootCommand.pipe(
     mcpCommand,
     registerCommand,
     webCommand,
+    configCommand,
   ])
 );

@@ -65,7 +65,7 @@ contingency mcp
 
 This runs one local MCP server and serves the Workspace, the interface where you teach a journey by demonstrating it and then watch an agent re-run it. Point your MCP client at the endpoint the command prints. Add `--demo` to also serve the Ridgeline Hardware demo store and its Examples; it is off by default.
 
-When stdin is not a terminal, Contingency automatically assigns an available Workspace port to each process. This includes MCP clients, Docker without `-t`, systemd, and CI. Headless HTTP callers that require a fixed endpoint must set `CONTINGENCY_MCP_PORT`, for example `CONTINGENCY_MCP_PORT=7777`. A launch with terminal stdin defaults to port 7777. Use the Workspace URL the server returns.
+When stdin is not a terminal, Contingency automatically assigns an available Workspace port to each process. This includes MCP clients, Docker without `-t`, systemd, and CI. Headless HTTP callers that require a fixed endpoint must set the `mcp.port` Setting, for example `CONTINGENCY_MCP_PORT=7777`. A launch with terminal stdin defaults to port 7777. Use the Workspace URL the server returns.
 
 During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow Skill to `.contingency/<flow-name>/SKILL.md`, and proves the skill with a Dry Run in a fresh browser context. You verify the Flow Skill in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
 
@@ -79,6 +79,29 @@ contingency web
 
 This serves the Workspace over the local Catalog Root, so you can teach a journey and inspect a finished Run and its video without starting an MCP client. It owns Teaching only: an agent still needs `contingency mcp` to learn a recording, Dry Run it, or start an Interactive Run. `--no-browser` starts the server without opening a browser window, which is what you want over SSH.
 
+## Settings
+
+A Setting is a choice about how Contingency itself runs, such as which port to serve on. Contingency reads Settings from `config.json` in the Catalog Root and from `~/.contingency/config.json`. A command-line flag or a `CONTINGENCY_*` environment variable overrides both files. Validation is strict: an unknown key or a wrong type stops startup and names the problem.
+
+To create a project file whose `$schema` gives your editor completion and type checking:
+
+```sh
+contingency config init
+```
+
+The [Settings reference](./docs/settings.md) lists every key, its environment variable, and its default.
+
+## Reference
+
+| Topic | What it covers |
+| --- | --- |
+| [Settings](./docs/settings.md) | Every Setting, where Contingency reads it, and precedence |
+| [Capabilities](./docs/capabilities.md) | Platform Runtimes, Teaching, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, the Execution Boundary, and what each one can't do |
+| [Variables](./docs/variables.md) | Declaring Flow Skill inputs, `secret` and `runtime`, and how values are supplied |
+| [Limits](./docs/limits.md) | Fixed limits on sessions, recordings, observation, and programs |
+
+An agent connected over MCP reads the same topics as `contingency://docs/<topic>` resources, or with the `docs_get` operation inside `agent_code_execute`.
+
 ## Artifacts
 
 A Teaching session keeps a local video and Playwright Trace, and a Run keeps its own evidence. These are unredacted and therefore sensitive: Contingency scrubs exact secret values from readable Trace entries where it can, but the scrub is best effort and does not make an artifact safe to share. Nothing leaves your machine without your confirmation — the Teaching Timeline the external agent reads carries bounded actions, Instructions, URL transitions, and keyframe references, never the raw video or Trace.
@@ -91,7 +114,7 @@ Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the v
 
 ## Claude Code channels
 
-To wake an idle Claude Code agent when the user acts in Workspace, set `CONTINGENCY_MCP_CHANNEL=true` in the environment of the registered stdio MCP server. It is off by default and never applies to HTTP connections. Stdio supports the 2025-06-18 and 2025-11-25 protocol revisions.
+To wake an idle Claude Code agent when the user acts in Workspace, turn on the `mcp.channel` Setting: set `CONTINGENCY_MCP_CHANNEL=true` in the environment of the registered stdio MCP server, or `"mcp": { "channel": true }` in `config.json`. It is off by default and never applies to HTTP connections. Stdio supports the 2025-06-18 and 2025-11-25 protocol revisions.
 
 Channels are a [Claude Code research preview](https://code.claude.com/docs/en/channels-reference). They require opt-in for each Claude session and preview allowlisting. For local development with a server registered as `contingency`, start Claude with `claude --dangerously-load-development-channels server:contingency` and accept its development-channel prompt. Organization policy must also allow channels. For an allowlisted channel, use `--channels server:contingency` instead. `contingency start` does not add these Claude flags automatically.
 

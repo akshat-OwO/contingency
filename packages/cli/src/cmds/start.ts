@@ -19,6 +19,7 @@ import {
 } from "../services/agent-launch.ts";
 import type { ReadyHarness } from "../services/agent-launch.ts";
 import { CATALOG_DIRECTORY } from "../services/flow-skill-catalog.ts";
+import { loadSettings } from "../services/settings.ts";
 
 const pickHarness = (ready: readonly ReadyHarness[]) =>
   Prompt.run(
@@ -88,6 +89,12 @@ export const startCommand = Command.make(
   Effect.fnUntraced(function* runStart({ agent, agentArgs, demo }) {
     const directory = path.resolve(process.cwd());
     const catalogRoot = path.join(directory, CATALOG_DIRECTORY);
+    // The session server reads these Settings itself; reading them here too
+    // reports an invalid file before the agent starts, not inside it.
+    const settings = yield* loadSettings({ catalogRoot, env: process.env });
+    for (const warning of settings.warnings) {
+      yield* Console.error(warning);
+    }
     const chosen = yield* chooseHarness({
       pathVariable: process.env.PATH,
       pick: process.stdin.isTTY ? Option.some(pickHarness) : Option.none(),

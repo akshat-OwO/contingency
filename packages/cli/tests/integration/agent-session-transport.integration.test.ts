@@ -248,7 +248,6 @@ const spawnMcpChild = (
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CONTINGENCY_MCP_CHANNEL: String(channel),
-    CONTINGENCY_MCP_HOST: "127.0.0.1",
     // This boundary is proven with direct native tool calls.
     CONTINGENCY_MCP_INTERFACE: "native",
     CONTINGENCY_MCP_PORT: String(port),

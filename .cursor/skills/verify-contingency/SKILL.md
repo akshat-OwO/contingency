@@ -129,6 +129,8 @@ Run `mcp tools --name <name>` to inspect one tool's raw `tools/list` entry from 
 
 `mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so Flow Skills saved with `agent_flow_skill_save` and their Teaching Recordings land in the isolated state rather than the repository's `.contingency`. `cleanup` removes them with the rest of that state.
 
+The server reads Settings from `$CONTINGENCY_VERIFY_DIR/state/catalog/config.json` and from `~/.contingency/config.json`; an environment variable on `mcp start` overrides both. Write the project file before `mcp start` to prove a Setting, such as `{"mcp":{"interface":"native"}}`, then read `mcp tools`. An invalid file makes `mcp start` fail with the file path and JSON pointer. Agents read the shipped docs with `mcp resource --uri contingency://docs/<topic>`.
+
 ## Evidence
 
 Put proof under `.cursor/skills/verify-contingency/artifacts/<feature-id>/`. Relative `--path` values are resolved there.
