@@ -67,8 +67,8 @@ const DocsResponse = Schema.Struct({
   result: Schema.Struct({
     contents: Schema.Tuple([
       Schema.Struct({
-        mimeType: Schema.Literal("text/markdown"),
         text: Schema.String.check(Schema.isStartingWith("<!-- Generated")),
+        uri: Schema.Literal("contingency://docs/settings"),
       }),
     ]),
   }),
