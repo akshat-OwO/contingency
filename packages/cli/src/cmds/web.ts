@@ -20,6 +20,7 @@ import {
 } from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
+import { loadSettings } from "../services/settings.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -30,6 +31,16 @@ import {
   resolveBrowserUrl,
 } from "../services/web-url.ts";
 
+/** The Settings `contingency web` reads. */
+export const webConfig = Config.all({
+  devUrl: Config.String("DEV_URL").pipe(
+    Config.withDefault("http://localhost:5173")
+  ),
+  host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
+  port: Config.Number("PORT").pipe(Config.withDefault(7777)),
+  publicUrl: Config.String("PUBLIC_URL").pipe(Config.option),
+}).pipe(Config.nested("CONTINGENCY_WEB"));
+
 export const webCommand = Command.make(
   "web",
   { noBrowser: Flag.Boolean("no-browser").pipe(Flag.withDefault(false)) },
@@ -37,14 +48,18 @@ export const webCommand = Command.make(
     const isProduction = process.env.NODE_ENV === "production";
     const uiInterface = yield* UiInterface;
 
-    const config = yield* Config.all({
-      devUrl: Config.String("DEV_URL").pipe(
-        Config.withDefault("http://localhost:5173")
-      ),
-      host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
-      port: Config.Number("PORT").pipe(Config.withDefault(7777)),
-      publicUrl: Config.String("PUBLIC_URL").pipe(Config.option),
-    }).pipe(Config.nested("CONTINGENCY_WEB"));
+    // The Workspace process serves one Catalog Root: it holds Teaching
+    // Recordings and persisted Runs, and selecting a different root is an
+    // MCP-process concern. Its Settings follow that root (ADR 0063).
+    const selectedCatalogRoot = defaultCatalogRoot();
+    const settings = yield* loadSettings({
+      catalogRoot: selectedCatalogRoot,
+      env: process.env,
+    });
+    for (const warning of settings.warnings) {
+      yield* Console.error(warning);
+    }
+    const config = yield* webConfig.parse(settings.provider);
     const browserUrl = yield* resolveBrowserUrl({ ...config, isProduction });
 
     return yield* Effect.scoped(
@@ -53,10 +68,6 @@ export const webCommand = Command.make(
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
-        // The Workspace process serves one Catalog Root: it holds Teaching
-        // Recordings and persisted Runs, and selecting a different root is an
-        // MCP-process concern.
-        const selectedCatalogRoot = defaultCatalogRoot();
         const runStore = Layer.succeedContext(
           yield* Layer.build(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })

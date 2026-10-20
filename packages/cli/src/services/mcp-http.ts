@@ -32,7 +32,11 @@ import {
   makeMcpCodeInterpreterLayer,
   operationSource,
 } from "./mcp-code-interpreter.ts";
-import { McpCodeModeLayer } from "./mcp-code-mode.ts";
+import {
+  DocsToolHandlersLive,
+  DocsTools,
+  McpDocsResourcesLayer,
+} from "./mcp-docs.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
@@ -48,6 +52,8 @@ import {
   TeachingRecordingToolHandlersLive,
   TeachingRecordingTools,
 } from "./mcp-teaching-recording.ts";
+import { DEFAULT_MCP_INTERFACE } from "./settings.ts";
+import type { McpInterface } from "./settings.ts";
 import { makeSystemOneLayer } from "./system-one.ts";
 import type { SystemOneConfig } from "./system-one.ts";
 
@@ -60,22 +66,7 @@ export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
     ? Layer.empty
     : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
-/**
- * Which tools a server registers. `single-tool` registers only
- * `agent_code_execute` and offers every native tool inside programs (ADR
- * 0059); `native` registers each tool directly.
- */
-export const MCP_INTERFACES = ["native", "single-tool"] as const;
-export type McpInterface = (typeof MCP_INTERFACES)[number];
-/**
- * The #461 evaluation adopted the single tool: no correctness regression and
- * fewer incorrect operation choices for both evaluated models. Native stays
- * available for clients that load tools on demand.
- */
-export const DEFAULT_MCP_INTERFACE: McpInterface = "single-tool";
-
 export interface McpCatalogOptions<R> {
-  readonly codeMode?: boolean | undefined;
   readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
   readonly interface?: McpInterface | undefined;
   readonly systemOne?: SystemOneConfig | undefined;
@@ -96,17 +87,19 @@ export const makeMcpCatalogLayer = <R = never>(
       McpAgentRunLayer,
       McpTeachingRecordingLayer,
       McpAuthoringSkillsLayer,
+      McpDocsResourcesLayer,
       makeMcpStartLayer(options.demoSite),
-      options.codeMode === true ? McpCodeModeLayer : Layer.empty,
       makeMcpPursuitLayer(options.systemOne)
     );
   }
   const { demoSite, systemOne } = options;
   return Layer.mergeAll(
     McpAuthoringSkillsLayer,
+    McpDocsResourcesLayer,
     makeMcpStartLayer(demoSite, { exampleTool: false }),
     makeMcpCodeInterpreterLayer(
       Layer.mergeAll(
+        operationSource(DocsTools, DocsToolHandlersLive),
         operationSource(AgentSessionTools, AgentSessionToolHandlersLive),
         operationSource(BrowserDevtoolsTools, BrowserDevtoolsToolHandlersLive),
         operationSource(

@@ -44,13 +44,17 @@ import {
 } from "../services/http-server.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import {
-  DEFAULT_MCP_INTERFACE,
-  MCP_INTERFACES,
   makeMcpCatalogLayer,
   makeMcpInstructions,
   makeMcpHttpLayer,
 } from "../services/mcp-http.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
+import {
+  DEFAULT_MCP_INTERFACE,
+  loadSettings,
+  MCP_INTERFACES,
+  VIDEO_FAST_FORWARD_MODES,
+} from "../services/settings.ts";
 import { systemOneConfig } from "../services/system-one.ts";
 import {
   makeTeachingRecordingStoreLayer,
@@ -111,6 +115,27 @@ const untilClientLeaves = (agentOwned: boolean): Effect.Effect<void> =>
       );
 
 /**
+ * The Settings `contingency mcp` reads. Non-terminal stdin defaults to port
+ * 0, which binds an available port; terminal stdin defaults to 7777.
+ */
+export const mcpConfig = (isTerminal: boolean) =>
+  Config.all({
+    // Claude Code channels are opt-in and stdio-only (ADR 0055).
+    channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
+    // One code tool by default (ADR 0059, #461); "native" registers each
+    // tool directly.
+    interface: Config.Literals(MCP_INTERFACES, "INTERFACE").pipe(
+      Config.withDefault(DEFAULT_MCP_INTERFACE)
+    ),
+    port: Config.Number("PORT").pipe(Config.withDefault(isTerminal ? 7777 : 0)),
+    // How Run videos fast-forward Idle Gaps (ADR 0046).
+    videoFastForward: Config.Literals(
+      VIDEO_FAST_FORWARD_MODES,
+      "VIDEO_FAST_FORWARD"
+    ).pipe(Config.withDefault("capped" as const)),
+  }).pipe(Config.nested("CONTINGENCY_MCP"));
+
+/**
  * Start one local MCP process. Its Agent Session layer is passed to both the
  * stdio adapter (Claude, Codex) and the Streamable HTTP `/mcp` route plus
  * Workspace, so all browser handles and shutdown finalizers remain owned by
@@ -146,54 +171,42 @@ export const mcpCommand = Command.make(
     ),
   },
   Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
-    const config = yield* Config.all({
-      // Claude Code channels are opt-in and stdio-only (ADR 0055).
-      channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
-      // Opt-in sandboxed code orchestration (ADR 0045).
-      codeMode: Config.Boolean("CODE_MODE").pipe(Config.withDefault(false)),
-      host: Config.String("HOST").pipe(Config.withDefault("127.0.0.1")),
-      // One code tool by default (ADR 0059, #461); "native" registers each
-      // tool directly.
-      interface: Config.Literals(MCP_INTERFACES, "INTERFACE").pipe(
-        Config.withDefault(DEFAULT_MCP_INTERFACE)
-      ),
-      port: Config.Number("PORT").pipe(
-        Config.withDefault(process.stdin.isTTY ? 7777 : 0)
-      ),
-      // How Run videos fast-forward Idle Gaps (ADR 0046).
-      videoFastForward: Config.Literals(
-        ["capped", "fixed"],
-        "VIDEO_FAST_FORWARD"
-      ).pipe(Config.withDefault("capped" as const)),
-    }).pipe(Config.nested("CONTINGENCY_MCP"));
-    // This command is intentionally local-only. A non-loopback HOST is not
-    // accepted even if an operator accidentally configures one in the shell.
-    if (config.host !== "127.0.0.1") {
-      return yield* Effect.die(
-        new Error("The MCP server must bind to 127.0.0.1.")
-      );
+    const harnesses = yield* AgentHarnesses;
+    const projectDirectory = Option.isSome(agent)
+      ? yield* harnesses[agent.value].currentProjectDirectory({
+          cwd: process.cwd(),
+          env: process.env,
+        })
+      : process.cwd();
+    const catalogDirectory = yield* resolveCatalogDirectory({
+      env: process.env,
+      fallbackDirectory: Option.getOrUndefined(fallbackDirectory),
+      home: defaultHomeDirectory(),
+      projectDirectory,
+    });
+    // Settings follow the Catalog Root this process starts with (ADR 0063).
+    const settings = yield* loadSettings({
+      catalogRoot: catalogDirectory.root,
+      env: process.env,
+    });
+    for (const warning of settings.warnings) {
+      yield* Console.error(warning);
     }
-    const { channel, codeMode, host, port, videoFastForward } = config;
+    const config = yield* mcpConfig(process.stdin.isTTY).parse(
+      settings.provider
+    );
+    // This command is intentionally local-only: it always binds loopback.
+    const host = "127.0.0.1";
+    const { channel, port, videoFastForward } = config;
     const mcpInterface = config.interface;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
-    const systemOne = Option.getOrUndefined(yield* systemOneConfig);
+    const systemOne = Option.getOrUndefined(
+      yield* systemOneConfig.parse(settings.provider)
+    );
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
         const fileSystem = yield* FileSystem.FileSystem;
-        const harnesses = yield* AgentHarnesses;
-        const projectDirectory = Option.isSome(agent)
-          ? yield* harnesses[agent.value].currentProjectDirectory({
-              cwd: process.cwd(),
-              env: process.env,
-            })
-          : process.cwd();
-        const catalogDirectory = yield* resolveCatalogDirectory({
-          env: process.env,
-          fallbackDirectory: Option.getOrUndefined(fallbackDirectory),
-          home: defaultHomeDirectory(),
-          projectDirectory,
-        });
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
@@ -304,7 +317,6 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 makeMcpCatalogLayer({
-                  codeMode,
                   demoSite,
                   interface: mcpInterface,
                   systemOne,
@@ -351,7 +363,6 @@ export const mcpCommand = Command.make(
             catalogBrowser,
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, {
-              codeMode,
               demoSite,
               interface: mcpInterface,
               systemOne,

@@ -173,9 +173,11 @@ it.live(
         const base = yield* coverage({});
         expect(base.listed).toEqual(["agent_code_execute"]);
         expect(base.offered).toEqual(
-          [...base.native, "agent_browser_devtools"].toSorted()
+          [...base.native, "agent_browser_devtools", "docs_get"].toSorted()
         );
         expect(base.native).not.toContain("agent_browser_devtools");
+        // Docs are resources natively; programs also read them as an operation.
+        expect(base.native).not.toContain("docs_get");
         expect(base.offered).toEqual(
           expect.arrayContaining([
             "agent_android_sessions_list",
@@ -185,12 +187,12 @@ it.live(
         // Conditional capabilities follow their prerequisites.
         const demo = yield* coverage({ demo: true });
         expect(demo.offered).toEqual(
-          [...demo.native, "agent_browser_devtools"].toSorted()
+          [...demo.native, "agent_browser_devtools", "docs_get"].toSorted()
         );
         expect(demo.offered).toContain("agent_example_run_start");
         const pursuit = yield* coverage({ systemOne: SYSTEM_ONE });
         expect(pursuit.offered).toEqual(
-          [...pursuit.native, "agent_browser_devtools"].toSorted()
+          [...pursuit.native, "agent_browser_devtools", "docs_get"].toSorted()
         );
         expect(pursuit.offered).toContain("agent_browser_pursue");
 
@@ -406,7 +408,7 @@ it.live(
     live(
       Effect.gen(function* unknown() {
         const answer = yield* execute(
-          'return await tools.agent_code_run({ code: "return 1" })'
+          "return await tools.agent_unknown_operation({})"
         );
         expect(answer.structuredContent?.status).toBe("program_failed");
         expect(answer.structuredContent?.diagnostic?.kind).toBe("UnknownTool");

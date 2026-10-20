@@ -2,7 +2,8 @@
   "name": "@contingencyhq/cli",
   "version": "0.0.1",
   "repository": {
-    "url": "https://github.com/akshat-OwO/contingency"
+    "url": "https://github.com/akshat-OwO/contingency",
+    "directory": "packages/cli"
   },
   "bin": {
     "contingency": "dist/index.js"
@@ -10,6 +11,7 @@
   "files": [
     "dist",
     "skills",
+    "config.schema.json",
     "README.md"
   ],
   "type": "module",
@@ -17,7 +19,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsdown && nub src/packaging/vendor-runtime.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['skills','dist/skills'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['android/private-text-helper/release','dist/android/private-text-helper']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
+    "build": "nub src/packaging/generate-settings.ts && tsdown && nub src/packaging/vendor-runtime.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['skills','dist/skills'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['docs','dist/docs'],['android/private-text-helper/release','dist/android/private-text-helper']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
     "check-types": "tsc --noEmit",
     "dev": "nub watch src/index.ts web --no-browser",
     "prepack": "nub run build",
@@ -29,7 +31,6 @@
     "@effect/platform-node": "4.0.1",
     "@effect/platform-node-shared": "4.0.1",
     "@effect/vitest": "catalog:effect",
-    "@jitl/quickjs-singlefile-mjs-release-asyncify": "0.32.0",
     "@nubjs/types": "catalog:types",
     "@opencode/codemode": "2.0.27",
     "@types/node": "catalog:types",
@@ -42,7 +43,6 @@
     "open": "^11.0.0",
     "playwright-core": "1.64.0",
     "puppeteer-core": "25.12.0",
-    "quickjs-emscripten-core": "0.32.0",
     "smol-toml": "^1.9.0",
     "tsdown": "^0.22.14",
     "typescript": "catalog:",

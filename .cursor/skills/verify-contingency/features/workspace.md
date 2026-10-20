@@ -405,7 +405,7 @@ Read [the 2026-10-01 proof report](../reports/task-proof-2026-10-01.md) for obse
 
 Preconditions: launch, doctor, ecommerce, and MCP, as for the combined task proof.
 
-- **Measure the catalog.** Start MCP with `CONTINGENCY_MCP_INTERFACE=native`, then run `nub "$CONTROL" mcp tools > artifacts/mcp-tools.json`. The native catalog stays under 80,000 bytes, `agent_run_step_assess` is absent, and read-only tools carry `readOnlyHint: true`. Run `agent_code_run` only when MCP started with `CONTINGENCY_MCP_CODE_MODE=true`.
+- **Measure the catalog.** Start MCP with `CONTINGENCY_MCP_INTERFACE=native`, then run `nub "$CONTROL" mcp tools > artifacts/mcp-tools.json`. The native catalog stays under 80,000 bytes, `agent_run_step_assess` is absent, and read-only tools carry `readOnlyHint: true`.
 - **Read a compact session.** Start a task Run with `agent_run_start` and pass `view:"compact"`. The answer has `"view":"compact"`, the Run's lifecycle, and history counts. Compare it with `agent_session_get` without `view`: the compact answer is smaller and carries the same `pendingDecisions`.
 - **Page history.** Call `agent_session_history_get` with `kind:"timeline"` and `limit:2`. Follow `nextBefore` until it is null. The ids, newest first, match the full snapshot's `timeline` reversed.
 - **Act in sequence.** On the shop's checkout form, send `agent_browser_act_sequence` with two fills and a select under distinct operation ids. `stopped` is null, and the one Snapshot shows the filled values. A sequence whose first action submits the form stops with `reason:"navigated"` at index 0 and leaves the second action unperformed.
