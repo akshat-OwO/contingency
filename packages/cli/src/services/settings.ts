@@ -59,7 +59,7 @@ const SystemOneSettings = Schema.Struct({
   url: Schema.optionalKey(
     Schema.String.annotate({
       description:
-        "The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests there. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY).",
+        "The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests, and the API key, there. User file only: a project file that sets it fails validation. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY).",
     })
   ),
 }).annotate({ description: "System One, which pursues delegated sub-goals." });
@@ -185,7 +185,10 @@ const ForbiddenProbe = Schema.fromJsonString(
     catalogRoot: Schema.optionalKey(Schema.Unknown),
     globalCatalogRoot: Schema.optionalKey(Schema.Unknown),
     systemOne: Schema.optionalKey(
-      Schema.Struct({ apiKey: Schema.optionalKey(Schema.Unknown) })
+      Schema.Struct({
+        apiKey: Schema.optionalKey(Schema.Unknown),
+        url: Schema.optionalKey(Schema.Unknown),
+      })
     ),
   })
 );
@@ -221,6 +224,28 @@ export const ENVIRONMENT_ONLY_SETTINGS: readonly {
   },
 ];
 
+/** Which file a decode reads; a project file is shared, a user file is not. */
+export type SettingsScope = "project" | "user";
+
+/**
+ * Settings a project file may not hold. The System One endpoint receives the
+ * machine's API key, so a checked-in file must not choose where that key goes
+ * (ADR 0057 scopes the endpoint to the machine).
+ */
+export const MACHINE_ONLY_SETTINGS: readonly {
+  readonly env: string;
+  readonly key: string;
+  readonly pointer: string;
+  readonly present: (probe: ForbiddenKeys) => boolean;
+}[] = [
+  {
+    env: "CONTINGENCY_SYSTEM_ONE_URL",
+    key: "systemOne.url",
+    pointer: "/systemOne/url",
+    present: (probe) => probe.systemOne?.url !== undefined,
+  },
+];
+
 export const settingsSchemaUrl = (version: string = packageJson.version) =>
   `https://unpkg.com/${packageJson.name}@${version}/${SETTINGS_SCHEMA_FILE}`;
 
@@ -251,12 +276,9 @@ const formatIssues = SchemaIssue.makeFormatterStandardSchemaV1();
  * the offending value, so the message is enough to find and fix it.
  */
 export const decodeSettingsFile = (
-  text: string
+  text: string,
+  scope: SettingsScope
 ): Result.Result<Settings, readonly string[]> => {
-  const decoded = decodeStrict(text);
-  if (Result.isSuccess(decoded)) {
-    return Result.succeed(decoded.success);
-  }
   const failures = new Map<string, string>();
   const probe = decodeForbidden(text);
   for (const setting of ENVIRONMENT_ONLY_SETTINGS) {
@@ -266,6 +288,24 @@ export const decodeSettingsFile = (
         `environment-only; set ${setting.env} instead`
       );
     }
+  }
+  if (scope === "project") {
+    for (const setting of MACHINE_ONLY_SETTINGS) {
+      if (Option.exists(probe, setting.present)) {
+        failures.set(
+          setting.pointer,
+          `not allowed in a project file; set ${setting.env} or ${setting.key} in ~/.contingency/config.json instead`
+        );
+      }
+    }
+  }
+  const decoded = decodeStrict(text);
+  if (Result.isSuccess(decoded)) {
+    return failures.size === 0
+      ? Result.succeed(decoded.success)
+      : Result.fail(
+          [...failures].map(([pointer, message]) => `${pointer}: ${message}`)
+        );
   }
   for (const issue of formatIssues(decoded.failure.issue).issues) {
     // SAFETY: the default formatter's issues carry plain property-key paths
@@ -287,12 +327,20 @@ export const decodeSettingsFile = (
   );
 };
 
-/** One file as a provider answering the `CONTINGENCY_*` paths it stands in for. */
-export const settingsFileProvider = (file: Settings) =>
-  ConfigProvider.mapInput(
-    ConfigProvider.fromUnknown(file),
-    (configPath) => FILE_PATH_BY_ENV.get(configPath.join("_")) ?? UNMAPPED
-  );
+const MACHINE_ONLY_ENV = new Set(MACHINE_ONLY_SETTINGS.map(({ env }) => env));
+
+/**
+ * One file as a provider answering the `CONTINGENCY_*` paths it stands in
+ * for. A project file never answers a machine-only Setting, even when a
+ * caller skipped `decodeSettingsFile`.
+ */
+export const settingsFileProvider = (file: Settings, scope: SettingsScope) =>
+  ConfigProvider.mapInput(ConfigProvider.fromUnknown(file), (configPath) => {
+    const env = configPath.join("_");
+    return scope === "project" && MACHINE_ONLY_ENV.has(env)
+      ? UNMAPPED
+      : (FILE_PATH_BY_ENV.get(env) ?? UNMAPPED);
+  });
 
 export interface SettingsLayers {
   /** Values a command-line flag set for this launch, by variable name. */
@@ -311,9 +359,15 @@ export const makeSettingsProvider = (layers: SettingsLayers) => {
     ConfigProvider.fromEnvRecord({ ...layers.flags }),
     ConfigProvider.fromEnvRecord({ ...layers.env })
   );
-  for (const file of [layers.project, layers.user]) {
+  for (const [file, scope] of [
+    [layers.project, "project"],
+    [layers.user, "user"],
+  ] as const) {
     if (file !== undefined) {
-      provider = ConfigProvider.orElse(provider, settingsFileProvider(file));
+      provider = ConfigProvider.orElse(
+        provider,
+        settingsFileProvider(file, scope)
+      );
     }
   }
   return provider;
@@ -339,7 +393,7 @@ export const schemaVersionWarning = (
     : `Contingency ${packageJson.version} is reading ${file}, whose $schema names version ${version}.`;
 };
 
-const readSettingsFile = (file: string) =>
+const readSettingsFile = (file: string, scope: SettingsScope) =>
   Effect.gen(function* readSettingsFileEffect() {
     const fileSystem = yield* FileSystem.FileSystem;
     const read = yield* fileSystem.readFileString(file).pipe(
@@ -359,7 +413,7 @@ const readSettingsFile = (file: string) =>
       return;
     }
     const text = read.value;
-    const decoded = decodeSettingsFile(text);
+    const decoded = decodeSettingsFile(text, scope);
     if (Result.isFailure(decoded)) {
       return yield* new SettingsError({
         message: [
@@ -389,9 +443,12 @@ export const loadSettings = (input: {
   Effect.gen(function* loadSettingsEffect() {
     const projectFile = projectSettingsPath(input.catalogRoot);
     const userFile = userSettingsPath(input.home);
-    const project = yield* readSettingsFile(projectFile);
-    const user =
-      userFile === projectFile ? undefined : yield* readSettingsFile(userFile);
+    // A Catalog Root of ~/.contingency makes both one file: the user's own.
+    const project =
+      projectFile === userFile
+        ? undefined
+        : yield* readSettingsFile(projectFile, "project");
+    const user = yield* readSettingsFile(userFile, "user");
     const warnings = [
       project === undefined
         ? undefined

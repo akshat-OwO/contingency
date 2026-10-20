@@ -52,7 +52,7 @@
         },
         "url": {
           "type": "string",
-          "description": "The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests there. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY)."
+          "description": "The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests, and the API key, there. User file only: a project file that sets it fails validation. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY)."
         }
       },
       "additionalProperties": false,

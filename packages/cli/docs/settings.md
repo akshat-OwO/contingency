@@ -49,7 +49,7 @@ System One, which pursues delegated sub-goals.
 | Key | Environment variable | Type | Default | Description |
 | --- | --- | --- | --- | --- |
 | `systemOne.first` | `CONTINGENCY_SYSTEM_ONE_FIRST` | boolean | `false` | Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without systemOne.url. |
-| `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` | string | — | The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests there. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY). |
+| `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` | string | — | The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests, and the API key, there. User file only: a project file that sets it fails validation. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY). |
 
 ## `web`
 
@@ -70,5 +70,13 @@ These Settings are read only from the environment. A file that contains one fail
 | `CONTINGENCY_SYSTEM_ONE_API_KEY` | `systemOne.apiKey` |
 | `CONTINGENCY_CATALOG_ROOT` | `catalogRoot` |
 | `CONTINGENCY_GLOBAL_CATALOG_ROOT` | `globalCatalogRoot` |
+
+## User-file-only Settings
+
+These Settings may be set in the environment or in the user file, but not in a project file. A project file is shared and can be committed, and it must not choose where the machine's credentials are sent. A project file that contains one fails validation.
+
+| Setting | Environment variable |
+| --- | --- |
+| `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` |
 
 A Variable value, such as a password a Flow Skill uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).

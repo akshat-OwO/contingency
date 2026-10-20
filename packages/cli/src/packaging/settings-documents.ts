@@ -2,6 +2,7 @@ import { Schema } from "effect";
 
 import {
   ENVIRONMENT_ONLY_SETTINGS,
+  MACHINE_ONLY_SETTINGS,
   SETTING_ENV_BY_KEY,
   SETTINGS_FILE,
   SettingsFile,
@@ -128,6 +129,16 @@ export const renderSettingsReference = (): string => {
     "| --- | --- |",
     ...ENVIRONMENT_ONLY_SETTINGS.map(
       ({ env, key }) => `| \`${env}\` | \`${key}\` |`
+    ),
+    "",
+    "## User-file-only Settings",
+    "",
+    "These Settings may be set in the environment or in the user file, but not in a project file. A project file is shared and can be committed, and it must not choose where the machine's credentials are sent. A project file that contains one fails validation.",
+    "",
+    "| Setting | Environment variable |",
+    "| --- | --- |",
+    ...MACHINE_ONLY_SETTINGS.map(
+      ({ env, key }) => `| \`${key}\` | \`${env}\` |`
     ),
     "",
     "A Variable value, such as a password a Flow Skill uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).",

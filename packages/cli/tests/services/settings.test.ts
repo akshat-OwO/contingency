@@ -15,6 +15,7 @@ import {
   makeSettingsProvider,
   settingsSchemaUrl,
 } from "../../src/services/settings.ts";
+import type { SettingsScope } from "../../src/services/settings.ts";
 import { systemOneConfig } from "../../src/services/system-one.ts";
 
 const port = Config.Number("PORT").pipe(
@@ -119,13 +120,14 @@ describe("every v1 key reaches the Setting it stands in for", () => {
         port: 7790,
         videoFastForward: "fixed",
       },
-      systemOne: { first: true, url: "http://127.0.0.1:9100" },
       web: {
         host: "0.0.0.0",
         port: 7791,
         publicUrl: "https://workspace.example.test",
       },
     },
+    // The endpoint is user-file-only; see "System One endpoint" below.
+    user: { systemOne: { first: true, url: "http://127.0.0.1:9100" } },
   });
 
   it.effect("mcp", () =>
@@ -161,8 +163,8 @@ describe("every v1 key reaches the Setting it stands in for", () => {
 });
 
 /** What a strict decode reports about one file's contents. */
-const failures = (json: Schema.Json) =>
-  Result.match(decodeSettingsFile(JSON.stringify(json)), {
+const failures = (json: Schema.Json, scope: SettingsScope = "user") =>
+  Result.match(decodeSettingsFile(JSON.stringify(json), scope), {
     onFailure: (lines) => lines,
     onSuccess: () => [],
   });
@@ -171,7 +173,10 @@ describe("strict validation", () => {
   it("accepts $schema", () => {
     expect(
       Result.isSuccess(
-        decodeSettingsFile(JSON.stringify({ $schema: settingsSchemaUrl() }))
+        decodeSettingsFile(
+          JSON.stringify({ $schema: settingsSchemaUrl() }),
+          "project"
+        )
       )
     ).toBe(true);
   });
@@ -211,13 +216,86 @@ describe("strict validation", () => {
   });
 
   it("refuses text that is not JSON", () => {
-    expect(Result.isFailure(decodeSettingsFile("{ mcp: { port: 1 } }"))).toBe(
-      true
-    );
+    expect(
+      Result.isFailure(decodeSettingsFile("{ mcp: { port: 1 } }", "user"))
+    ).toBe(true);
   });
 });
 
+describe("System One endpoint", () => {
+  const PROJECT_URL = "http://127.0.0.1:9201";
+  const USER_URL = "http://127.0.0.1:9202";
+  const key = { CONTINGENCY_SYSTEM_ONE_API_KEY: "machine-key" };
+
+  it("a project file that sets it fails validation", () => {
+    expect(
+      failures({ systemOne: { first: true, url: PROJECT_URL } }, "project")
+    ).toEqual([
+      "/systemOne/url: not allowed in a project file; set CONTINGENCY_SYSTEM_ONE_URL or systemOne.url in ~/.contingency/config.json instead",
+    ]);
+    expect(failures({ systemOne: { first: true } }, "project")).toEqual([]);
+  });
+
+  it("the user file may set it", () => {
+    expect(failures({ systemOne: { url: USER_URL } }, "user")).toEqual([]);
+  });
+
+  it.effect("a project URL never receives the environment's key", () =>
+    Effect.gen(function* projectUrlIgnored() {
+      const provider = makeSettingsProvider({
+        env: key,
+        project: { systemOne: { url: PROJECT_URL } },
+      });
+      expect(yield* systemOneConfig.parse(provider)).toEqual(Option.none());
+    })
+  );
+
+  it.effect("a project URL never overrides the user file's", () =>
+    Effect.gen(function* userUrlKept() {
+      const provider = makeSettingsProvider({
+        env: key,
+        project: { systemOne: { url: PROJECT_URL } },
+        user: { systemOne: { url: USER_URL } },
+      });
+      const config = Option.getOrThrow(yield* systemOneConfig.parse(provider));
+      expect(config.url).toBe(`${USER_URL}/v1/systemone`);
+    })
+  );
+});
+
 describe("loading files", () => {
+  it.effect("refuses a project file that names a System One endpoint", () =>
+    withDirectories(({ catalogRoot, home, write }) =>
+      Effect.gen(function* projectEndpoint() {
+        const file = path.join(catalogRoot, "config.json");
+        yield* write(file, { systemOne: { url: "http://127.0.0.1:9203" } });
+        const error = yield* Effect.flip(
+          loadSettings({ catalogRoot, env: {}, home })
+        );
+        expect(error.message).toContain(file);
+        expect(error.message).toContain(
+          "/systemOne/url: not allowed in a project file"
+        );
+      })
+    )
+  );
+
+  it.effect("reads a Catalog Root of ~/.contingency as the user file", () =>
+    withDirectories(({ home, write }) =>
+      Effect.gen(function* homeRoot() {
+        const catalogRoot = path.join(home, ".contingency");
+        yield* write(path.join(catalogRoot, "config.json"), {
+          systemOne: { url: "http://127.0.0.1:9204" },
+        });
+        const loaded = yield* loadSettings({ catalogRoot, env: {}, home });
+        const config = Option.getOrThrow(
+          yield* systemOneConfig.parse(loaded.provider)
+        );
+        expect(config.url).toBe("http://127.0.0.1:9204/v1/systemone");
+      })
+    )
+  );
+
   it.effect("reads the project file from the Catalog Root it is given", () =>
     withDirectories(({ catalogRoot, home, write }) =>
       Effect.gen(function* projectFile() {
