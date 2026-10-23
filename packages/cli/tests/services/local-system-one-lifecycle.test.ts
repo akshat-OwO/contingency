@@ -107,6 +107,7 @@ const fixture = (lock?: LocalSystemOneIO["lock"]) => {
     crash: () => {
       running = false;
     },
+    files,
     io,
     launches: () => launches,
     lifecycle: makeLocalSystemOneLifecycle(io),
@@ -324,6 +325,19 @@ describe("local Pursuit discovery and readiness", () => {
           `${initial.current.modelId}@${initial.current.nevRevision}`
         );
       })
+  );
+  it.effect("ignores an unreadable installation instead of failing", () =>
+    Effect.gen(function* unreadableState() {
+      const test = fixture();
+      test.files.set("/owned/state.json", "{");
+      const config = yield* resolveSystemOne(
+        makeSettingsProvider({ env: {} }),
+        test.local,
+        test.lifecycle
+      );
+      expect(config).toBeUndefined();
+      expect(test.launches()).toBe(0);
+    })
   );
   it.effect("uses the explicit endpoint even when local use is disabled", () =>
     Effect.gen(function* explicitEndpoint() {

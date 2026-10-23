@@ -1,5 +1,6 @@
 import { Clock, Config, Effect, Option } from "effect";
 import type { ConfigProvider } from "effect";
+import { constUndefined } from "effect/Function";
 
 import type { makeLocalSystemOneLifecycle } from "./local-system-one-lifecycle.ts";
 import type { makeLocalSystemOne } from "./local-system-one.ts";
@@ -26,7 +27,14 @@ export const resolveSystemOne = (
     if (!enabled) {
       return;
     }
-    const installed = yield* local.status;
+    // An unreadable installation must not stop MCP from starting.
+    const installed = yield* local.status.pipe(
+      Effect.catch((error) =>
+        Effect.logWarning(`Ignoring Local System One: ${error.message}`).pipe(
+          Effect.map(constUndefined)
+        )
+      )
+    );
     if (installed === undefined) {
       return;
     }
