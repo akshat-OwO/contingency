@@ -5,6 +5,7 @@ import { configCommand } from "./config.ts";
 import { mcpCommand } from "./mcp.ts";
 import { registerCommand } from "./register.ts";
 import { startCommand } from "./start.ts";
+import { systemOneCommand } from "./system-one.ts";
 import { webCommand } from "./web.ts";
 
 const ROOT_COMMAND_NAME = "contingency";
@@ -24,5 +25,6 @@ export const commands = rootCommand.pipe(
     registerCommand,
     webCommand,
     configCommand,
+    systemOneCommand,
   ])
 );
