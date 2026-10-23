@@ -784,7 +784,7 @@ const requireTaskRun = (session: AgentSessionSnapshot) => {
       new AgentSessionFailure({
         code: "agent_session_invalid",
         message:
-          "Pursuits run only in Interactive Runs and Dry Runs, never during Teaching. (agent_session_invalid)",
+          "Pursuits run only in Interactive Runs and Dry Runs, never during Teaching or a Guided Run. (agent_session_invalid)",
       })
     );
   }

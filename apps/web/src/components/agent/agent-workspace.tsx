@@ -2436,6 +2436,7 @@ const BrowserWorkspace = ({
           dock={
             session.activity === "teaching" ? (
               <TeachingRecordingDock
+                origin={session.origin}
                 browserFocused={browserFocused}
                 captureState={session.captureState}
                 cleanup={session.recordingCleanup}

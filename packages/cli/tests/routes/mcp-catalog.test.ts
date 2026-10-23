@@ -48,7 +48,8 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
  * #331 grew it from 140 KB to 216 KB without anyone noticing (ADR 0045).
  */
 // The Android tools (about 7.3 KB) joined every catalog when Android left its opt-in (#489).
-const CATALOG_BUDGET_BYTES = 91_000;
+// Guided Run start adds its strict input schema and lifecycle guidance (#528).
+const CATALOG_BUDGET_BYTES = 95_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
@@ -97,8 +98,9 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(37);
+    expect(tools).toHaveLength(38);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
+    expect(tools.map((tool) => tool.name)).toContain("agent_guided_run_start");
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_variable_request"
     );
@@ -186,7 +188,10 @@ it.live("annotates read-only tools so hosts may run them concurrently", () =>
           readOnly: tool.annotations?.readOnlyHint,
         },
         tool.name
-      ).toEqual({ destructive: !readOnly, readOnly });
+      ).toEqual({
+        destructive: !readOnly && tool.name !== "agent_guided_run_start",
+        readOnly,
+      });
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

@@ -67,6 +67,7 @@ const ioError = (context: string) => (cause: PlatformError) =>
   storeError("teaching_recording_io", `${context}: ${cause.message}`);
 
 export interface TeachingRecordingBegin {
+  readonly origin?: TeachingRecordingManifest["origin"];
   readonly emulation: DraftEmulation | null;
   readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly flowSkillName: FlowSkillName;
@@ -740,6 +741,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             emulation: input.emulation,
             flowSkillName: input.flowSkillName,
             lifecycle: { _tag: "setup", requestedAt: at },
+            origin: input.origin ?? "teaching",
             receipts: [
               {
                 completedAt: at,

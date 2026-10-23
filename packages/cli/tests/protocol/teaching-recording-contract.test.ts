@@ -318,3 +318,51 @@ test("a Flow Skill diagnostic names the file and field it belongs to", () => {
     })
   ).toThrow();
 });
+
+test("old recordings default to Teaching and user actions; Guided Run attribution survives", () => {
+  const manifest = {
+    artifacts: [],
+    cleanup: { _tag: "pending" },
+    createdAt: at,
+    emulation: null,
+    flowSkillName: "guided-cart",
+    lifecycle: { _tag: "ready", readyAt: at, startedAt: at, stoppedAt: at },
+    receipts: [],
+    recordingId: "recording-guided",
+    schemaVersion: 1,
+    sessionId: "agent-guided",
+    updatedAt: at,
+  };
+  expect(decodeManifest(manifest)).toHaveProperty("origin", "teaching");
+  expect(decodeManifest({ ...manifest, origin: "guided-run" })).toHaveProperty(
+    "origin",
+    "guided-run"
+  );
+  const observation = { nodeCount: 0, title: "Shop", url: "https://shop.test" };
+  const action = {
+    _tag: "action",
+    after: observation,
+    appeared: [],
+    at,
+    before: observation,
+    description: "Click Add to cart",
+    detail: null,
+    disappeared: [],
+    id: "add",
+    kind: "click",
+    outcome: "succeeded",
+    seq: 0,
+    target: null,
+  };
+  const timeline = {
+    entries: [action],
+    maxCharacters: TEACHING_TIMELINE_BUDGET_CHARACTERS,
+    nextCursor: null,
+    recordingId: "recording-guided",
+  };
+  expect(decodeTimeline(timeline).entries[0]).toHaveProperty("actor", "user");
+  expect(
+    decodeTimeline({ ...timeline, entries: [{ ...action, actor: "agent" }] })
+      .entries[0]
+  ).toHaveProperty("actor", "agent");
+});

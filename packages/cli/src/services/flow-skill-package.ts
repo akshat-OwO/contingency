@@ -848,6 +848,27 @@ const checkAccessibility = (
   }
 };
 
+const sourceDocumentDiagnostics = (
+  content: string
+): readonly FlowSkillDiagnostic[] => {
+  const source = (FRONTMATTER.exec(content)?.groups?.block ?? "")
+    .split(/\r?\n/u)
+    .some((raw) => {
+      const line = readFrontmatterLine(raw);
+      return !line.indented && line.key === "source";
+    });
+  if (source) {
+    return [
+      diagnostic(
+        "flow_skill_source_forbidden",
+        "A Flow Skill must not link or store its Source Document. Remove source frontmatter.",
+        [SKILL_FILE, "frontmatter", "source"]
+      ),
+    ];
+  }
+  return [];
+};
+
 /**
  * Validates one proposed Flow Skill package against the observable contract.
  * Returns the files unchanged on success so the caller can keep writing the
@@ -889,6 +910,9 @@ export const validateFlowSkillPackage = (
         [SKILL_FILE]
       ),
     ]);
+  }
+  for (const entry of sourceDocumentDiagnostics(skill.content)) {
+    report(entry);
   }
   const frontmatter = readFlowSkillFrontmatter(skill.content);
   if (frontmatter === undefined) {

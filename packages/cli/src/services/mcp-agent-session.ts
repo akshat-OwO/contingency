@@ -18,6 +18,7 @@ import {
   AgentTeachingSetupHandoff,
   AgentSetupVariableRequest,
   FlowSkillName,
+  OperationId,
   SetupVariableName,
   AgentVariableEnter,
   compactAgentSession,
@@ -40,6 +41,7 @@ import {
   snapshotLines,
   textSnapshot,
 } from "./agent-snapshot-text.ts";
+import { webHost } from "./domain-scope.ts";
 import {
   SessionResult,
   SessionStartResult,
@@ -227,6 +229,27 @@ const AgentSessionStartTool = Tool.make("agent_session_start", {
   success: SessionStartResult,
 });
 
+const AgentGuidedRunStartTool = Tool.make("agent_guided_run_start", {
+  dependencies: [AgentSession],
+  description:
+    "Start one browser Guided Run for one named Flow Skill. Only you read the Source Document; Contingency never receives, parses, stores, or links it, and the skill has no source field. For several journeys, propose a split and have the user pick one; start one run per skill. Follow nextAction. Prepare unrecorded setup, call agent_teaching_setup_handoff, then wait with agent_session_get for the user's Workspace Start. After Start, act with existing browser tools. Actions record their actor. Domain Scope is the starting host. Android, Browser Modifications, Pursuits, and Takeover are refused. Stop in Workspace or close to finalize a partial recording; claim, learn, save, and Dry Run as usual.",
+  failure: AgentSessionFailure,
+  parameters: Schema.Struct({
+    emulation: AgentSessionStart.fields.emulation,
+    name: FlowSkillName,
+    operationId: OperationId,
+    platform: optionalNullable(Schema.Literals(["web", "android"])),
+    url: Schema.String.check(Schema.isMinLength(1)),
+    view: sessionViewParameter,
+    viewport: AgentSessionStart.fields.viewport,
+  }),
+  success: SessionStartResult,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, true);
+
 const AgentSessionGetTool = readOnly(
   Tool.make("agent_session_get", {
     dependencies: [AgentSession],
@@ -397,6 +420,7 @@ export const AgentSessionTools = withStrictParameters(
   Toolkit.make(
     AgentSessionsGetTool,
     AgentSessionStartTool,
+    AgentGuidedRunStartTool,
     AgentSessionGetTool,
     AgentSessionHistoryGetTool,
     AgentSessionCloseTool,
@@ -552,6 +576,41 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
                 )
               )
             );
+        }),
+      agent_guided_run_start: (params) =>
+        Effect.gen(function* startGuidedRun() {
+          if (params.platform === "android") {
+            return yield* Effect.fail(
+              new AgentSessionFailure({
+                code: "agent_session_invalid",
+                message:
+                  "Guided Runs do not support platform android. Use web.",
+              })
+            );
+          }
+          const host = webHost(params.url);
+          if (host === undefined) {
+            return yield* Effect.fail(
+              new AgentSessionFailure({
+                code: "agent_session_invalid",
+                message: "A Guided Run requires an http or https starting URL.",
+              })
+            );
+          }
+          const service = yield* AgentSession;
+          return yield* service
+            .start({
+              activity: "teaching",
+              domainScope: { hosts: [host] },
+              emulation: params.emulation,
+              name: params.name,
+              openedBy: "agent",
+              operationId: params.operationId,
+              origin: "guided-run",
+              url: params.url,
+              viewport: params.viewport,
+            })
+            .pipe(Effect.mapError(failure), inStartView(params.view));
         }),
       agent_session_close: (params) =>
         Effect.gen(function* closeAgentSession() {

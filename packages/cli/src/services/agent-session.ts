@@ -242,6 +242,8 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  /** Set only by the MCP Guided Run entry point. */
+  readonly origin?: TeachingRecordingManifest["origin"];
   readonly runtimeRequirements?: SavedPlatformRequirements;
   readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
@@ -782,6 +784,7 @@ const snapshotFromReadyManifest = (
     flowSkillName: manifest.flowSkillName,
     id: manifest.sessionId,
     interruptedAction: null,
+    origin: manifest.origin,
     ownerProcessId: owner,
     pendingDecisions: [],
     phase: "closed",
@@ -897,6 +900,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     domainScope: input.domainScope ?? null,
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
+    origin: input.origin ?? "teaching",
     run: input.run?.runId ?? null,
     runtimeRequirements: input.runtimeRequirements ?? null,
     url: input.url ?? null,
@@ -988,7 +992,12 @@ const agentPreparesTeaching = (snapshot: AgentSessionSnapshot): boolean =>
  * rest of the session.
  */
 const userLedTeaching = (snapshot: AgentSessionSnapshot): boolean =>
-  snapshot.activity === "teaching" && !agentPreparesTeaching(snapshot);
+  snapshot.activity === "teaching" &&
+  !agentPreparesTeaching(snapshot) &&
+  !(
+    snapshot.origin === "guided-run" &&
+    snapshot.captureState._tag === "recording"
+  );
 
 /** Why an agent browser action cannot run during a Demonstration. */
 const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
@@ -2505,6 +2514,7 @@ const makeAgentSession = (
           const finished: AgentSessionSnapshot = {
             ...finalizing,
             captureState,
+            controller: "user",
             teaching: record.capture.progress(),
             updatedAt:
               captureState._tag === "failed"
@@ -2781,6 +2791,7 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 flowSkillName: record.snapshot.flowSkillName,
                 operationId: operation,
+                origin: record.snapshot.origin,
                 recordingId,
                 sessionId,
               })
@@ -2907,6 +2918,8 @@ const makeAgentSession = (
               _tag: "recording",
               startedAt: manifest.lifecycle.startedAt,
             },
+            controller:
+              record.snapshot.origin === "guided-run" ? "agent" : "user",
             recordingId,
             teaching: capture.progress(),
             updatedAt: manifest.lifecycle.startedAt,
@@ -3173,11 +3186,15 @@ const makeAgentSession = (
         if (record !== undefined && entry.dispatched) {
           noteRunEvidence(record, "attempt", entry.id);
         }
-        if (record?.executionBoundary !== undefined) {
+        if (
+          record?.snapshot.activity === "run" &&
+          record.executionBoundary !== undefined
+        ) {
           record.runTimeline.push(entry);
         }
         if (
-          record?.executionBoundary !== undefined &&
+          record?.snapshot.activity === "run" &&
+          record.executionBoundary !== undefined &&
           record.artifactDirectory !== undefined &&
           fileSystem !== undefined
         ) {
@@ -3557,6 +3574,7 @@ const makeAgentSession = (
             operationId: OperationId.make(
               startInput.operationId ?? `start-${startSessionId}`
             ),
+            origin: startInput.origin ?? "teaching",
             recordingId: identity.recordingId,
             sessionId: startSessionId,
           })
@@ -3638,6 +3656,20 @@ const makeAgentSession = (
               );
             }
             const activity = input.activity ?? "run";
+            const recordingOrigin = input.origin ?? "teaching";
+            if (
+              input.origin === "guided-run" &&
+              (runtimeFactory.platform !== "web" ||
+                input.openedBy !== "agent" ||
+                activity !== "teaching")
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  `Guided Runs require an agent-opened web session; platform ${runtimeFactory.platform} is not supported for this request.`
+                )
+              );
+            }
             const declared = input.runtimeRequirements ?? {
               diagnostics: [],
               requirements: browserRequirements,
@@ -3815,6 +3847,7 @@ const makeAgentSession = (
                             controller: input.openedBy ?? "user",
                             dryRun: null,
                             flowSkillName: teachingIdentity.flowSkillName,
+                            origin: recordingOrigin,
                             recordingCleanup: { _tag: "pending" as const },
                             recordingId: teachingIdentity.recordingId,
                             run: null,
@@ -4824,6 +4857,12 @@ const makeAgentSession = (
           boundaryAttempt.intent
         );
         const urlBefore = page.url();
+        const capture = recordingCapture(record);
+        if (capture !== undefined) {
+          capture.recordSnapshot(
+            redactCapturedSnapshot(record, yield* page.snapshot())
+          );
+        }
         const snapshotBefore =
           recordingCapture(record)?.latestSnapshotId() ?? null;
         // The action runs on a child fiber so a user Takeover can interrupt it
@@ -4947,6 +4986,7 @@ const makeAgentSession = (
             urlAfter: result.url,
             urlBefore,
           });
+          yield* captureTeachingKeyframe(record, page, id, result.entry.at);
           yield* recordEntry(sessionId, result.entry, {
             currentUrl: result.url,
           });
@@ -5775,7 +5815,9 @@ const makeAgentSession = (
               return yield* Effect.fail(
                 makeBrowserRpcError(
                   "agent_control_unavailable",
-                  "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
+                  record.snapshot.origin === "guided-run"
+                    ? "Takeover is unavailable during a Guided Run."
+                    : "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
                 )
               );
             }
@@ -7497,15 +7539,13 @@ const makeAgentSession = (
                       )
                     );
                   }
-                  if (
-                    record.snapshot.activity === "teaching" &&
-                    record.snapshot.captureState._tag !== "setup"
-                  ) {
+                  const refusal = modificationRefusal(
+                    record.snapshot,
+                    "emulation"
+                  );
+                  if (refusal !== undefined) {
                     return yield* Effect.fail(
-                      error(
-                        "agent_session_conflict",
-                        "Emulation is fixed from Start to Stop during Teaching."
-                      )
+                      error("agent_session_conflict", refusal)
                     );
                   }
                   const before = yield* browser.getEmulation(
@@ -8223,6 +8263,19 @@ const makeAgentSession = (
                     error(
                       "agent_session_conflict",
                       "This boundary request is no longer pending."
+                    )
+                  );
+                }
+                if (
+                  record.snapshot.activity === "teaching" &&
+                  record.snapshot.origin === "guided-run" &&
+                  pending.boundary.reason === "domain" &&
+                  input.decision === "allow"
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Approving new hosts is unavailable during a Guided Run."
                     )
                   );
                 }

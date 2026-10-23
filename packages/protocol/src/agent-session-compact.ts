@@ -38,6 +38,7 @@ import { optionalNullable } from "./optional-field.ts";
 import { PlatformIdentity } from "./platform.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
+import { TeachingRecordingOrigin } from "./teaching-recording.ts";
 
 const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
@@ -101,6 +102,7 @@ const CompactTeaching = Schema.Struct({
   captureState: Schema.String,
   flowSkillName: FlowSkillName,
   instructionCount: nonNegativeInt,
+  origin: TeachingRecordingOrigin,
   recordingId: TeachingRecordingId,
 });
 
@@ -250,6 +252,7 @@ export const compactAgentSession = (
           captureState: snapshot.captureState._tag,
           flowSkillName: snapshot.flowSkillName,
           instructionCount: snapshot.teaching.instructionCount,
+          origin: snapshot.origin,
           recordingId: snapshot.recordingId,
         }
       : null,

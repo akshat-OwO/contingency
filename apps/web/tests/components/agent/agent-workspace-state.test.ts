@@ -140,3 +140,15 @@ test("labels an Interactive Run without its raw session id", () => {
   expect(agentSessionLabel(run(null))).toBe("Test agent · Interactive Run");
   expect(agentSessionLabel(run(null))).not.toContain("agent-run");
 });
+
+test("labels a Guided Run apart from Teaching and Dry Runs", () => {
+  const guided = {
+    ...teaching("2026-10-23T00:00:00.000Z", {
+      _tag: "setup",
+      requestedAt: "2026-10-23T00:00:00.000Z",
+    }),
+    origin: "guided-run" as const,
+  };
+  expect(agentSessionActivityLabel(guided)).toBe("Guided Run");
+  expect(agentSessionLabel(guided)).toBe("add-anvil · Guided Run");
+});

@@ -29,6 +29,19 @@ What it can't do:
 - Keep the recording. Verifying the learned Flow Skill deletes its video, Trace, events, and keyframes.
 - Hide sensitive data completely. Videos and Traces are unredacted. Contingency scrubs known secret values where it can, but the scrub is best effort.
 
+## Guided Run
+
+The external agent can follow your Source Document in a browser with `agent_guided_run_start`, producing a Teaching Recording for one named Flow Skill. For a document containing several journeys, the agent proposes a split and you pick one before starting. Start one Guided Run per Flow Skill. Only the external agent reads the document. Contingency neither receives, parses, stores, nor links it, and a saved Flow Skill has no `source:` frontmatter.
+
+Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`. You can finish setup in Workspace and press **Start recording**. Setup actions stay outside the evidence. Start returns browser control to the agent, and its existing action tools record actor-marked actions. Workspace labels the session **Guided Run**. Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it. Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
+
+Current limits:
+
+- MCP starts Guided Runs; Workspace cannot start one. Android is refused.
+- Domain Scope is the starting host. Outside navigation pauses under the Execution Boundary; approving another host is unavailable.
+- Browser Modifications and System One Pursuits are refused, including during setup.
+- Questions, Takeover, and converting document checks into requirements are later slices.
+
 ## Dry Run
 
 A Dry Run proves a drafted Flow Skill. The agent attempts the skill's complete outcome in a fresh browser context, under the Emulation it was taught with, with fresh inputs. The agent chooses its own route and reports an evidence-backed Agent Assessment. After a passing Dry Run, you verify or reject the Flow Skill in the Workspace or in the conversation.

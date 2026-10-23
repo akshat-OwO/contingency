@@ -23,6 +23,7 @@ import {
   TeachingProgress,
   TeachingRecordingCleanupState,
   TeachingRecordingId,
+  TeachingRecordingOrigin,
 } from "./teaching-recording.ts";
 import { Viewport } from "./viewport.ts";
 
@@ -156,6 +157,7 @@ export const AgentDryRunState = Schema.Struct({
 export type AgentDryRunState = typeof AgentDryRunState.Type;
 
 export const TeachingSessionSnapshot = Schema.Struct({
+  origin: TeachingRecordingOrigin,
   ...AgentSessionSnapshotBase,
   activity: Schema.Literal("teaching"),
   captureState: TeachingCaptureState,

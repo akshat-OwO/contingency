@@ -295,6 +295,7 @@ export const teachingEventsFor = (
     }
     pending.push({
       _tag: "action",
+      actor: action.actor,
       after: withNavigationCapture(afterObservation, navigating),
       appeared: summaries(before, after),
       at: action.at,

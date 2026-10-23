@@ -97,7 +97,7 @@ export const agentSessionActivityLabel = (
   session: AgentSessionSnapshot
 ): string => {
   if (session.activity === "teaching") {
-    return "Teaching";
+    return session.origin === "guided-run" ? "Guided Run" : "Teaching";
   }
   return session.dryRun ? "Dry Run" : "Interactive Run";
 };
@@ -112,7 +112,9 @@ export const agentSessionActivityLabel = (
  */
 export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.activity === "teaching") {
-    return session.flowSkillName;
+    return session.origin === "guided-run"
+      ? `${session.flowSkillName} · Guided Run`
+      : session.flowSkillName;
   }
   if (session.dryRun) {
     return `${session.dryRun.flowSkillName} · Dry Run`;
