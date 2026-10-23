@@ -27,6 +27,7 @@ import { SystemOne } from "../../src/services/system-one.ts";
 import {
   agentProcessLayer,
   agentViewport,
+  catalogTool,
   findNode,
   makeCall,
   sessionTool,
@@ -144,6 +145,69 @@ it.live(
           controller: "agent",
           origin: "guided-run",
         });
+        const asked = yield* catalogTool("agent_guided_run_question_ask", {
+          operationId: operation("question"),
+          sessionId: started.id,
+          text: "Which delivery option?",
+        });
+        const question = asked.teaching?.instructions.at(-1);
+        expect(question).toMatchObject({
+          actor: "agent",
+          dialogue: { _tag: "question" },
+          text: "Which delivery option?",
+        });
+        if (question === undefined) {
+          return yield* Effect.die("No question");
+        }
+        expect(
+          (yield* catalogTool("agent_guided_run_question_ask", {
+            operationId: operation("question"),
+            sessionId: started.id,
+            text: "Which delivery option?",
+          })).teaching?.instructions
+        ).toHaveLength(1);
+        const cursor = (yield* sessions.sessionEvents(started.id)).eventCursor;
+        const waiter = yield* sessions
+          .waitForEvents(started.id, cursor)
+          .pipe(Effect.forkScoped);
+        const answered = yield* sessions.recordInstruction(
+          started.id,
+          "Use manual delivery",
+          operation("answer"),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          question.id
+        );
+        expect(answered.teaching?.instructions.at(-1)).toMatchObject({
+          actor: "user",
+          dialogue: { _tag: "answer", questionId: question.id },
+        });
+        expect((yield* Fiber.join(waiter)).events).toMatchObject([
+          { kind: "question-answered", name: question.id },
+        ]);
+        expect(
+          yield* sessions.recordInstruction(
+            started.id,
+            "Use manual delivery",
+            operation("answer"),
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            question.id
+          )
+        ).toEqual(answered);
+        const duplicate = yield* Effect.flip(
+          catalogTool("agent_teaching_instruction_record", {
+            operationId: operation("second-answer"),
+            questionId: question.id,
+            sessionId: started.id,
+            text: "Use automatic delivery",
+          })
+        );
+        expect(duplicate.code).toBe("agent_session_conflict");
         const clicked = yield* sessionTool("agent_browser_act", {
           action: {
             ref: findNode(prepared.snapshot.nodes, "button", "Select manually")
@@ -154,6 +218,65 @@ it.live(
           sessionId: started.id,
         });
         expect(clicked.entry.outcome).toBe("completed");
+        const relayQuestion = (yield* catalogTool(
+          "agent_guided_run_question_ask",
+          {
+            operationId: operation("relay-question"),
+            sessionId: started.id,
+            text: "Which city?",
+          }
+        )).teaching?.instructions.at(-1);
+        if (relayQuestion === undefined) {
+          return yield* Effect.die("No relay question");
+        }
+        const relayed = yield* catalogTool(
+          "agent_teaching_instruction_record",
+          {
+            operationId: operation("relay-answer"),
+            questionId: relayQuestion.id,
+            sessionId: started.id,
+            text: "Pune",
+          }
+        );
+        expect(relayed.teaching?.instructions.at(-1)).toMatchObject({
+          actor: "agent",
+          dialogue: { _tag: "answer", questionId: relayQuestion.id },
+          text: "Pune",
+        });
+        const lateUserAnswer = yield* Effect.flip(
+          sessions.recordInstruction(
+            started.id,
+            "Delhi",
+            operation("late-user"),
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            relayQuestion.id
+          )
+        );
+        expect(lateUserAnswer.code).toBe("agent_session_conflict");
+        const unanswered = (yield* catalogTool(
+          "agent_guided_run_question_ask",
+          {
+            operationId: operation("unanswered"),
+            sessionId: started.id,
+            text: "Anything else?",
+          }
+        )).teaching?.instructions.at(-1);
+        const immutable = yield* Effect.flip(
+          sessions.recordInstruction(
+            started.id,
+            "Changed question",
+            operation("replace-question"),
+            undefined,
+            undefined,
+            undefined,
+            question.id
+          )
+        );
+        expect(immutable.code).toBe("agent_session_invalid");
+
         const takeover = yield* Effect.flip(
           sessions.requestTakeover(started.id, "Help", operation("takeover"))
         );
@@ -230,6 +353,45 @@ it.live(
         expect(
           timeline.entries.filter((event) => event._tag === "action")
         ).toHaveLength(1);
+        expect(
+          timeline.entries.filter(
+            (event) => event._tag === "instruction" || event._tag === "action"
+          )
+        ).toMatchObject([
+          {
+            _tag: "instruction",
+            actor: "agent",
+            dialogue: { _tag: "question" },
+            id: question.id,
+            text: "Which delivery option?",
+          },
+          {
+            _tag: "instruction",
+            actor: "user",
+            dialogue: { _tag: "answer", questionId: question.id },
+            text: "Use manual delivery",
+          },
+          { _tag: "action", actor: "agent" },
+          {
+            _tag: "instruction",
+            actor: "agent",
+            dialogue: { _tag: "question" },
+            id: relayQuestion.id,
+          },
+          {
+            _tag: "instruction",
+            actor: "agent",
+            dialogue: { _tag: "answer", questionId: relayQuestion.id },
+            text: "Pune",
+          },
+          {
+            _tag: "instruction",
+            dialogue: { _tag: "question" },
+            id: unanswered?.id,
+            text: "Anything else?",
+          },
+        ]);
+
         expect(timeline.entries.at(-1)).toMatchObject({
           _tag: "stopped",
           reason: "session-closed",

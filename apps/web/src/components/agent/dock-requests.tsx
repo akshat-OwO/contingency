@@ -17,6 +17,7 @@ import { dockRequests, staysCollapsed } from "./dock-requests-state";
 import type { DockRequest } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
 import { ExecutionBoundary } from "./execution-boundary";
+import { GuidedRunQuestions } from "./guided-run-questions";
 import { RuntimeVariables } from "./runtime-variables";
 import { SetupVariables } from "./setup-variables";
 
@@ -118,6 +119,10 @@ export const DockRequests = ({
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
   return (
     <div className="bg-muted-surface max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5">
+      {first?.kind === "guided-run-questions" ? (
+        <div className="flex justify-end">{collapse}</div>
+      ) : null}
+      <GuidedRunQuestions session={session} />
       <ExecutionBoundary
         key={session.boundary?.id}
         collapse={collapseFor("boundary")}

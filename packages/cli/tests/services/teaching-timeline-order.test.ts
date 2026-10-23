@@ -278,3 +278,55 @@ it("redacts known private values from the keyframe URL exposed to learning", () 
   expect(keyframe?.url).not.toContain("private-token");
   expect(keyframe?.url).toContain("tab=details");
 });
+
+it("retains question pairs and unanswered evidence when ordinary Instructions are trimmed", () => {
+  const capture = capturing();
+  const question = capture.recordInstruction(
+    "Which city?",
+    STARTED_AT,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { actor: "agent", dialogue: { _tag: "question" } }
+  );
+  capture.recordAction(keystroke(STARTED_AT, "Pune"));
+  capture.recordInstruction(
+    "Pune",
+    STARTED_AT,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { actor: "user", dialogue: { _tag: "answer", questionId: question.id } }
+  );
+  const open = capture.recordInstruction(
+    "Anything else?",
+    STARTED_AT,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { actor: "agent", dialogue: { _tag: "question" } }
+  );
+  for (let index = 0; index < 110; index += 1) {
+    capture.recordInstruction(`Comment ${index}`, STARTED_AT);
+  }
+  const events = teachingEventsFor(
+    capture.current(),
+    EMULATION,
+    STARTED_AT,
+    capture.stopTime(STARTED_AT),
+    "user"
+  );
+  expect(
+    events.filter(
+      (item) => item._tag === "instruction" && item.dialogue !== undefined
+    )
+  ).toMatchObject([
+    { actor: "agent", dialogue: { _tag: "question" }, id: question.id },
+    { actor: "user", dialogue: { _tag: "answer", questionId: question.id } },
+    { dialogue: { _tag: "question" }, id: open.id },
+  ]);
+  expectOrdered(events);
+});

@@ -111,7 +111,8 @@ export interface DemonstrationCapture {
     target?: string | undefined,
     scan?: TeachingScan,
     attachments?: readonly TeachingBrowserAttachment[],
-    replaceId?: string
+    replaceId?: string,
+    authorship?: Pick<TeachingInstruction, "actor" | "dialogue">
   ) => TeachingInstruction;
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
@@ -417,16 +418,28 @@ export const makeDemonstrationCapture = (
       instructions: [...instructions],
     }),
     recordAction,
-    recordInstruction: (text, at, target, scan, attachments, replaceId) => {
+    recordInstruction: (
+      text,
+      at,
+      target,
+      scan,
+      attachments,
+      replaceId,
+      authorship
+    ) => {
       const baseInstruction = {
+        actor: authorship?.actor ?? "user",
         at: eventTime(at),
-        attachments,
+        attachments: attachments ?? [],
         id: `instruction-${randomUUID()}`,
         target: target === undefined ? null : redact(target),
         text: redact(text),
       };
-      const instruction: TeachingInstruction =
+      let instruction: TeachingInstruction =
         scan === undefined ? baseInstruction : { ...baseInstruction, scan };
+      if (authorship?.dialogue !== undefined) {
+        instruction = { ...instruction, dialogue: authorship.dialogue };
+      }
       const replacing = instructions.findIndex(
         (entry) => entry.id === replaceId
       );
@@ -446,6 +459,7 @@ export const makeDemonstrationCapture = (
       if (instructions.length > INSTRUCTION_LIMIT) {
         const removable = instructions.findIndex(
           (entry) =>
+            entry.dialogue === undefined &&
             entry.scan === undefined &&
             !entry.attachments?.some(
               (attachment) => attachment.requirement !== undefined

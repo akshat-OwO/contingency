@@ -237,6 +237,7 @@ export const SessionEvent = Schema.Struct({
     "teaching-stopped",
     "teaching-discarded",
     "instruction-recorded",
+    "question-answered",
     "scan-requirement-recorded",
     "takeover-started",
     "takeover-returned",

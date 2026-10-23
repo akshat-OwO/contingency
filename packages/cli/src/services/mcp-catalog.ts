@@ -92,16 +92,31 @@ const FlowSkillsListTool = readOnly(
   })
 );
 
+const GuidedRunQuestionAskTool = Tool.make("agent_guided_run_question_ask", {
+  dependencies: [AgentSession],
+  description:
+    "Ask the user a question during Guided Run capture. Workspace keeps it open until answered. Read teaching.instructions for its id; relay the user's answer with agent_teaching_instruction_record and questionId. Wait with agent_session_get afterCursor, not polling. Open questions remain evidence at Stop.",
+  failure: AgentCatalogFailure,
+  parameters: Schema.Struct({
+    operationId: TeachingInstructionRecord.fields.operationId,
+    sessionId: TeachingInstructionRecord.fields.sessionId,
+    text: TeachingInstructionRecord.fields.text,
+    view: sessionViewParameter,
+  }),
+  success: SessionResult,
+});
+
 const TeachingInstructionRecordTool = Tool.make(
   "agent_teaching_instruction_record",
   {
     dependencies: [AgentSession],
     description:
-      "Record what the user told you to do next in a Teaching session, in their words. The instruction joins the recording's event stream in order, so a learning agent reads it beside the actions it explains. Requires an operation id.",
+      "Record what the user told you to do next in a Teaching session, in their words. The instruction joins the recording's event stream in order, so a learning agent reads it beside the actions it explains. Pass questionId to relay the user's answer to a Guided Run question. The first answer closes it; a different second answer conflicts. An answer authored by agent is a relay of the user's words. Requires an operation id.",
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
       attachments: TeachingInstructionRecord.fields.attachments,
       operationId: TeachingInstructionRecord.fields.operationId,
+      questionId: TeachingInstructionRecord.fields.questionId,
       replaceId: TeachingInstructionRecord.fields.replaceId,
       scan: optionalNullable(TeachingScan),
       sessionId: TeachingInstructionRecord.fields.sessionId,
@@ -137,6 +152,7 @@ export const AgentCatalogTools = withStrictParameters(
     AgentCatalogSelectTool,
     FlowSkillsListTool,
     TeachingInstructionRecordTool,
+    GuidedRunQuestionAskTool,
     AgentPendingDecisionResolveTool
   )
 );
@@ -166,6 +182,14 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const catalog = yield* FlowSkillCatalog;
       return yield* catalog.list().pipe(Effect.mapError(failure));
     }),
+  agent_guided_run_question_ask: (params) =>
+    Effect.gen(function* askQuestion() {
+      const session = yield* AgentSession;
+      yield* session.noteAgentActivity(params.sessionId);
+      return yield* session
+        .askQuestion(params.sessionId, params.text, params.operationId)
+        .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
+    }),
   agent_pending_decision_resolve: ({ view, ...params }) =>
     Effect.gen(function* resolvePendingDecision() {
       const session = yield* AgentSession;
@@ -193,7 +217,8 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
           undefined,
           params.scan,
           params.attachments,
-          params.replaceId
+          params.replaceId,
+          params.questionId
         )
         .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
     }),

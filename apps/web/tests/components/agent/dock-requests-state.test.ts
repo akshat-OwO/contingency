@@ -165,3 +165,60 @@ test("drops Dry Run secrets from the dock once every one is supplied", () => {
     )
   ).toEqual([]);
 });
+
+test("a new Guided Run question opens a folded tier and answered pairs remain readable", () => {
+  const question = {
+    actor: "agent",
+    at,
+    dialogue: { _tag: "question" },
+    id: "question-one",
+    target: null,
+    text: "Which item?",
+  };
+  const guided = {
+    activity: "teaching",
+    captureState: { _tag: "recording", startedAt: at },
+    flowSkillName: "cart",
+    origin: "guided-run",
+    recordingId: "recording-cart",
+    teaching: { actionCount: 0, instructionCount: 1, instructions: [question] },
+  };
+  const requests = dockRequests(snapshot(guided));
+  expect(requests).toEqual([
+    {
+      key: "questions:question-one",
+      kind: "guided-run-questions",
+      summary: "1 of 1 needed",
+      title: "Guided Run questions",
+    },
+  ]);
+  const folded = new Set(requests.map(({ key }) => key));
+  const answered = {
+    ...guided,
+    teaching: {
+      actionCount: 0,
+      instructionCount: 2,
+      instructions: [
+        question,
+        {
+          actor: "user",
+          at,
+          dialogue: { _tag: "answer", questionId: "question-one" },
+          id: "answer-one",
+          target: null,
+          text: "Anvil",
+        },
+      ],
+    },
+  };
+  expect(dockRequests(snapshot(answered))[0]?.summary).toBe("All answered");
+  const next = {
+    ...guided,
+    teaching: {
+      actionCount: 0,
+      instructionCount: 2,
+      instructions: [question, { ...question, id: "question-two" }],
+    },
+  };
+  expect(staysCollapsed(dockRequests(snapshot(next)), folded)).toBe(false);
+});

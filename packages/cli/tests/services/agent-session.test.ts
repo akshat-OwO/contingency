@@ -709,6 +709,11 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       service.recordInstruction(run.id, "Open the shop")
     );
     expect(refusedInstruction.code).toBe("agent_session_invalid");
+    expect(
+      (yield* Effect.flip(
+        service.askQuestion(run.id, "Which item?", OperationId.make("ask-run"))
+      )).code
+    ).toBe("agent_session_invalid");
 
     const teaching = yield* service.start({
       ...startInput("start-teaching"),
@@ -723,6 +728,15 @@ it.effect("records a Demonstration only for a Teaching session", () =>
       teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
     });
 
+    expect(
+      (yield* Effect.flip(
+        service.askQuestion(
+          teaching.id,
+          "Which item?",
+          OperationId.make("ask-teaching")
+        )
+      )).code
+    ).toBe("agent_session_conflict");
     const beforeStart = yield* Effect.flip(
       service.recordInstruction(
         teaching.id,
