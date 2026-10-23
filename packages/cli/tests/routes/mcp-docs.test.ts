@@ -118,12 +118,26 @@ it.live(
           title: "Variables",
           uri: "contingency://docs/variables",
         });
-        for (const query of ["settings", "emulation", "limits", "secret"]) {
+        for (const query of [
+          "settings",
+          "emulation",
+          "limits",
+          "secret",
+          "System One",
+          "Nev",
+        ]) {
           const searched = yield* run(
             `return search({ query: ${JSON.stringify(query)} }).items.map((item) => item.path)`
           );
           expect(searched.value, query).toContain("tools.docs_get");
         }
+        const systemOne = yield* run(
+          'return await tools.docs_get({ topic: "system-one" })'
+        );
+        expect(systemOne.status).toBe("completed");
+        expect(JSON.stringify(systemOne.value)).toContain(
+          "contingency system-one setup"
+        );
         const refused = yield* run(
           'return await tools.docs_get({ topic: "secrets" })'
         );
