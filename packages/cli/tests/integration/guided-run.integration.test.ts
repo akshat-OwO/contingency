@@ -1,4 +1,5 @@
 import path from "node:path";
+import { buffer } from "node:stream/consumers";
 
 import {
   FlowSkillName,
@@ -16,6 +17,8 @@ import {
   Schema,
   Stream,
 } from "effect";
+import type { PlatformError } from "effect";
+import { yauzl } from "playwright-core/lib/utilsBundle";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-browser.ts";
@@ -277,10 +280,14 @@ it.live(
         );
         expect(immutable.code).toBe("agent_session_invalid");
 
-        const takeover = yield* Effect.flip(
-          sessions.requestTakeover(started.id, "Help", operation("takeover"))
+        const takeover = yield* sessions.requestTakeover(
+          started.id,
+          "Help",
+          operation("takeover")
         );
-        expect(takeover.code).toBe("agent_control_unavailable");
+        expect(takeover.phase).toBe("takeover");
+        yield* sessions.takeover(started.id, "Demonstrate", operation("take"));
+        yield* sessions.returnControl(started.id, operation("return"));
         const outside = yield* sessionTool("agent_browser_act", {
           action: {
             type: "navigate",
@@ -413,7 +420,7 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-for (const ending of ["close", "interrupt"] as const) {
+for (const ending of ["close", "interrupt", "takeover"] as const) {
   it.live(
     `Guided Run ${ending} records a dispatched action before finalizing`,
     () =>
@@ -452,7 +459,9 @@ for (const ending of ["close", "interrupt"] as const) {
           yield* sessions.changes(started.id).pipe(
             Stream.filter(
               (session) =>
-                session.phase === "closed" || session.phase === "interrupted"
+                session.phase === "closed" ||
+                session.phase === "interrupted" ||
+                session.phase === "takeover"
             ),
             Stream.take(1),
             Stream.runForEach(() => Deferred.succeed(release, true)),
@@ -470,12 +479,26 @@ for (const ending of ["close", "interrupt"] as const) {
           yield* Deferred.await(performed).pipe(Effect.timeout("30 seconds"));
           // The real click happened, but its acknowledgement is held until closure.
           // Close must settle it without waiting for a timer or a test release.
-          yield* ending === "close"
-            ? sessionTool("agent_session_close", {
-                operationId: operation("close"),
-                sessionId: started.id,
-              })
-            : sessions.closeAll();
+          if (ending === "close") {
+            yield* sessionTool("agent_session_close", {
+              operationId: operation("close"),
+              sessionId: started.id,
+            });
+          } else if (ending === "interrupt") {
+            yield* sessions.closeAll();
+          } else {
+            yield* sessions.takeover(started.id, "Help", operation("take"));
+          }
+          if (ending === "takeover") {
+            expect(
+              (yield* sessions.get(started.id)).interruptedAction
+            ).toMatchObject({ dispatched: true, outcome: "interrupted" });
+            yield* sessions.returnControl(started.id, operation("return"));
+            yield* sessionTool("agent_session_close", {
+              operationId: operation("close"),
+              sessionId: started.id,
+            });
+          }
           const claimOperationId = operation("claim");
           yield* teachingRecordingTool("agent_teaching_recording_claim", {
             action: "take",
@@ -509,7 +532,7 @@ for (const ending of ["close", "interrupt"] as const) {
           expect(events).toContain('"outcome":"failed"');
           expect(yield* sessions.get(started.id)).toMatchObject({
             captureState: { _tag: "learning" },
-            phase: ending === "close" ? "closed" : "interrupted",
+            phase: ending === "interrupt" ? "interrupted" : "closed",
             timeline: expect.arrayContaining([
               expect.objectContaining({
                 dispatched: true,
@@ -562,3 +585,254 @@ for (const ending of ["close", "interrupt"] as const) {
       )
   );
 }
+
+it.live(
+  "Guided Run Takeover captures user actions and only Variable references",
+  () =>
+    Effect.gen(function* guidedTakeover() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "guided-takeover-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.gen(function* demonstrate() {
+        const sessions = yield* AgentSession;
+        const started = yield* sessionTool("agent_guided_run_start", {
+          name: FlowSkillName.make("guided-email"),
+          operationId: operation("start"),
+          url: fixtures.url("agent-login.html"),
+          viewport: agentViewport,
+        });
+        expect(
+          (yield* Effect.flip(sessions.takeover(started.id, "Early"))).code
+        ).toBe("agent_control_unavailable");
+        yield* sessions.handOffTeachingSetup(started.id, operation("handoff"));
+        yield* sessions.startTeachingRecording(started.id, operation("record"));
+        yield* sessionTool("agent_browser_act", {
+          action: { action: "reload", type: "history" },
+          operationId: operation("before"),
+          sessionId: started.id,
+        });
+        const asked = yield* sessions.askQuestion(
+          started.id,
+          "Which email?",
+          operation("ask")
+        );
+        const question = asked.teaching?.instructions.at(-1);
+        yield* sessions.requestTakeover(
+          started.id,
+          "Show the email",
+          operation("request")
+        );
+        expect((yield* sessions.get(started.id)).controller).toBe("agent");
+        expect(
+          (yield* Effect.flip(
+            sessionTool("agent_browser_act", {
+              action: { action: "reload", type: "history" },
+              operationId: operation("request-blocked"),
+              sessionId: started.id,
+            })
+          )).code
+        ).toBe("agent_control_unavailable");
+        yield* sessions.takeover(
+          started.id,
+          "Show the email",
+          operation("take")
+        );
+        expect(
+          (yield* Effect.flip(
+            sessionTool("agent_browser_act", {
+              action: { action: "reload", type: "history" },
+              operationId: operation("blocked"),
+              sessionId: started.id,
+            })
+          )).code
+        ).toBe("agent_control_unavailable");
+        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+          yield* sessions.sendInput(started.id, {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            x: 240,
+            y: 150,
+          });
+        }
+        for (const text of "public") {
+          yield* sessions.sendInput(started.id, {
+            eventType: "keyDown",
+            key: text,
+            text,
+            type: "input_keyboard",
+          });
+          yield* sessions.sendInput(started.id, {
+            eventType: "keyUp",
+            key: text,
+            type: "input_keyboard",
+          });
+        }
+        const secret = "takeover-private-530@example.org";
+        yield* sessions.enterUserVariable(
+          started.id,
+          {
+            ref: findNode(
+              (yield* sessions.snapshot(started.id)).nodes,
+              "textbox",
+              "Password"
+            ).ref,
+            value: secret,
+            variable: { name: "EMAIL", runtime: true, secret: true },
+          },
+          operation("private")
+        );
+        const returned = yield* sessions.returnControl(
+          started.id,
+          operation("return")
+        );
+        expect(returned).toMatchObject({
+          controller: "agent",
+          phase: "running",
+          takeover: null,
+        });
+        expect(returned.teaching?.instructions).toEqual([question]);
+        yield* sessionTool("agent_browser_act", {
+          action: { action: "reload", type: "history" },
+          operationId: operation("after"),
+          sessionId: started.id,
+        });
+        yield* sessions.stopTeachingRecording(started.id, operation("stop"));
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("No recording");
+        }
+        const claimOperationId = operation("claim");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId,
+        });
+        const timeline = yield* teachingRecordingTool(
+          "agent_teaching_timeline_get",
+          { claimOperationId, recordingId }
+        );
+        expect(
+          timeline.entries.filter((e) => e._tag === "action")
+        ).toMatchObject([
+          { actor: "agent" },
+          { actor: "user" },
+          { actor: "user" },
+          {
+            actor: "user",
+            description: 'Enter Variable EMAIL in textbox "Password"',
+            kind: "fill",
+          },
+          { actor: "agent" },
+        ]);
+        const directory = path.join(root, ".recordings", recordingId);
+        const inspect = (
+          dir: string
+        ): Effect.Effect<void, PlatformError.PlatformError> =>
+          Effect.gen(function* inspectFiles() {
+            for (const name of yield* fs.readDirectory(dir)) {
+              const file = path.join(dir, name);
+              if ((yield* fs.stat(file)).type === "Directory") {
+                yield* inspect(file);
+              } else {
+                expect(
+                  Buffer.from(yield* fs.readFile(file)).includes(
+                    Buffer.from(secret)
+                  )
+                ).toBe(false);
+              }
+            }
+          });
+        yield* inspect(directory);
+        yield* Effect.promise(async () => {
+          const archive = await yauzl.openPromise(
+            path.join(directory, "trace.zip"),
+            { lazyEntries: true }
+          );
+          for await (const entry of archive.eachEntry()) {
+            const contents = await buffer(
+              await archive.openReadStreamPromise(entry)
+            );
+            expect(contents.includes(Buffer.from(secret)), entry.fileName).toBe(
+              false
+            );
+          }
+        });
+        expect(JSON.stringify(timeline)).not.toContain(secret);
+        expect(JSON.stringify(timeline)).toContain("{{EMAIL}}");
+        yield* teachingRecordingTool("agent_flow_skill_save", {
+          claimOperationId,
+          files: [
+            {
+              content: `---
+name: guided-email
+description: Enter a private password on the sign in page.
+inputs:
+  - EMAIL
+---
+
+# Enter the password
+
+1. Enter {{EMAIL}} in Password. Done when: Password is filled.
+`,
+              path: "SKILL.md",
+            },
+          ],
+          operationId: operation("save"),
+          recordingId,
+        });
+        const dry = yield* teachingRecordingTool(
+          "agent_flow_skill_dry_run_start",
+          {
+            inputs: [{ changed: true, name: "EMAIL", secret: true }],
+            operationId: operation("dry-start"),
+            recordingId,
+            url: fixtures.url("agent-login.html"),
+          }
+        );
+        expect(dry.session.id).not.toBe(started.id);
+        yield* sessions.supplyDryRunVariable(
+          dry.session.id,
+          "EMAIL",
+          "fresh-private@example.org"
+        );
+        const observed = yield* sessions.snapshot(dry.session.id);
+        yield* sessions.enterSuppliedVariable(
+          dry.session.id,
+          "EMAIL",
+          findNode(observed.nodes, "textbox", "Password").ref,
+          operation("dry-enter")
+        );
+        const evidence = yield* sessions.snapshot(dry.session.id);
+        yield* sessions.assessTask(
+          dry.session.id,
+          {
+            evidence: [{ id: evidence.snapshotId, kind: "snapshot" }],
+            explanation: "The private password field is filled.",
+            outcome: "working",
+            outcomeComplete: true,
+          },
+          false,
+          operation("dry-assess")
+        );
+        const completed = yield* sessions.completeRun(dry.session.id);
+        if (completed.schemaVersion !== 3) {
+          return yield* Effect.die("Expected a task Dry Run Summary");
+        }
+        expect(completed.purpose).toMatchObject({
+          takeoverOccurred: false,
+        });
+        const manifest = JSON.parse(
+          yield* fs.readFileString(path.join(directory, "manifest.json"))
+        );
+        expect(manifest.lifecycle._tag).toBe("dry-run-passed");
+      }).pipe(Effect.provide(agentProcessLayer(root)));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+      Effect.timeout("60 seconds")
+    )
+);

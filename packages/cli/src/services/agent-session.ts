@@ -1006,6 +1006,12 @@ const userLedTeaching = (snapshot: AgentSessionSnapshot): boolean =>
     snapshot.captureState._tag === "recording"
   );
 
+/** Takeover belongs only to the captured part of a Guided Run. */
+const guidedRunRecording = (snapshot: AgentSessionSnapshot): boolean =>
+  snapshot.activity === "teaching" &&
+  snapshot.origin === "guided-run" &&
+  snapshot.captureState._tag === "recording";
+
 /** Why an agent browser action cannot run during a Demonstration. */
 const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
   makeBrowserRpcError(
@@ -2859,6 +2865,7 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 fileSystem,
                 limits: options.captureLimits,
+                sensitiveValues: capture.sensitiveValues,
                 startedAt: manifest.lifecycle.startedAt,
               })
             )
@@ -5867,13 +5874,14 @@ const makeAgentSession = (
           requestInput,
           Effect.gen(function* applySessionOperation() {
             const record = yield* requireLiveRecord(sessionId);
-            if (record.snapshot.activity === "teaching") {
+            if (
+              record.snapshot.activity === "teaching" &&
+              !guidedRunRecording(record.snapshot)
+            ) {
               return yield* Effect.fail(
                 makeBrowserRpcError(
                   "agent_control_unavailable",
-                  record.snapshot.origin === "guided-run"
-                    ? "Takeover is unavailable during a Guided Run."
-                    : "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
+                  "Takeover requires a recording Guided Run or a live Run. User-led Teaching has no Takeover."
                 )
               );
             }
@@ -5966,7 +5974,10 @@ const makeAgentSession = (
           requestInput,
           Effect.gen(function* applySessionOperation() {
             const record = yield* requireLiveRecord(sessionId);
-            if (record.snapshot.activity === "teaching") {
+            if (
+              record.snapshot.activity === "teaching" &&
+              !guidedRunRecording(record.snapshot)
+            ) {
               return yield* Effect.fail(
                 makeBrowserRpcError(
                   "agent_control_unavailable",
@@ -5995,23 +6006,25 @@ const makeAgentSession = (
               id: `control-${randomUUID()}`,
               outcome: "completed",
             };
-            const next: AgentSessionSnapshot = {
+            let next: AgentSessionSnapshot = {
               ...record.snapshot,
               controller: "agent",
               interruptedAction: null,
               phase: "running",
-              // The agent was waiting on the user, not idle: its idle time starts
-              // again from the moment it has the browser back.
-              run:
-                record.snapshot.run === null || runEnded(record.snapshot.run)
-                  ? record.snapshot.run
-                  : { ...record.snapshot.run, lastAgentActivityAt: at },
               takeover: null,
               timeline: [...record.snapshot.timeline, entry].slice(
                 -TIMELINE_LIMIT
               ),
               updatedAt: at,
             };
+            // Resume idle accounting only for a live Run, not a recording.
+            if (
+              next.activity === "run" &&
+              next.run !== null &&
+              !runEnded(next.run)
+            ) {
+              next = { ...next, run: { ...next.run, lastAgentActivityAt: at } };
+            }
             yield* save(sessionId, record, next);
             yield* ledger.rememberSession(
               operationId,

@@ -52,6 +52,7 @@ const rpc = vi.hoisted(() => ({
   /* A failing save settles only once the test opens this gate. */
   instructionGate: Promise.resolve(true),
   navigateCalls: [] satisfies unknown[],
+  privateInputCalls: [] satisfies unknown[],
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
   sessionsResult: {
@@ -197,6 +198,12 @@ const rpcOverrides = {
   agentTeachingRecordingStopMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.stopRecordingCalls.push(payload);
+      return {};
+    })
+  ),
+  agentTeachingVariableInputMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.privateInputCalls.push(payload);
       return {};
     })
   ),
@@ -487,6 +494,7 @@ afterEach(async () => {
   rpc.startRecordingCalls = [];
   rpc.stopRecordingCalls = [];
   rpc.takeoverCalls = [];
+  rpc.privateInputCalls = [];
   rpc.takeoverFailure = undefined;
   rpc.takeoverGate = Promise.resolve(true);
   rpc.takeoverSettled = 0;
@@ -2380,4 +2388,42 @@ test("preserves a newer route choice when an old close response settles after po
   expect(testRouter.state.location.search).toEqual({
     session: "agent-new-choice",
   });
+});
+
+test("takes over a Guided Run and enters a private Variable before returning", async () => {
+  const user = userEvent.setup();
+  const guided = {
+    ...teachingRecording,
+    controller: "agent",
+    origin: "guided-run",
+  };
+  renderWorkspace(resultFor([guided]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Take control" }));
+  await waitFor(() => expect(rpc.takeoverCalls).toHaveLength(1));
+  cleanup();
+  renderWorkspace(
+    resultFor([{ ...guided, controller: "user", phase: "takeover" }]),
+    session.id
+  );
+  const variableName = await screen.findByRole("textbox", {
+    name: "Variable name",
+  });
+  await user.type(variableName, "password");
+  await user.type(screen.getByLabelText("Secret value"), "private-fixture");
+  await user.click(screen.getByRole("button", { name: "Enter Variable" }));
+  expect(rpc.privateInputCalls).toHaveLength(0);
+  await user.clear(variableName);
+  await user.type(variableName, "PASSWORD");
+  await user.click(screen.getByRole("button", { name: "Enter Variable" }));
+  await waitFor(() => expect(rpc.privateInputCalls).toHaveLength(1));
+  expect(rpc.privateInputCalls[0]).toMatchObject({
+    payload: {
+      sessionId: session.id,
+      value: "private-fixture",
+      variable: { name: "PASSWORD", runtime: true, secret: true },
+    },
+  });
+  expect(screen.getByLabelText("Secret value")).toHaveValue("");
+  await user.click(screen.getByRole("button", { name: "Return control" }));
+  await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
 });

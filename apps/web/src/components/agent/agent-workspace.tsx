@@ -41,6 +41,7 @@ import { createPortal } from "react-dom";
 import { AgentCursor } from "@/components/agent/agent-cursor";
 import {
   adoptSessionSnapshot,
+  agentControlPresentation,
   agentViewStateAtom,
   appendConsoleEntry,
   endedRunSnapshot,
@@ -56,6 +57,8 @@ import { DockRequests } from "@/components/agent/dock-requests";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { EndedRunSummary } from "@/components/agent/ended-run-summary";
+import { GuidedRunControl } from "@/components/agent/guided-run-control";
+import { GuidedTakeoverVariable } from "@/components/agent/guided-takeover-variable";
 import { RunDock } from "@/components/agent/run-dock";
 import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
@@ -1453,12 +1456,19 @@ const useAgentView = (
 
   /**
    * Taking control is a direct user action from this View, and returning it is
-   * another: the agent can ask, but only the user moves the boundary. Teaching
-   * has no boundary to move — the user holds the browser throughout.
+   * another: the agent can ask, but only the user moves the boundary. User-led Teaching
+   * keeps the browser with the user throughout.
    */
   const changeControl = () => {
     const current = state.session;
-    if (current === undefined || current.activity === "teaching") {
+    if (
+      current === undefined ||
+      (current.activity === "teaching" &&
+        !(
+          current.origin === "guided-run" &&
+          current.captureState._tag === "recording"
+        ))
+    ) {
       return;
     }
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
@@ -2436,6 +2446,15 @@ const BrowserWorkspace = ({
           dock={
             session.activity === "teaching" ? (
               <TeachingRecordingDock
+                control={
+                  <GuidedRunControl
+                    session={session}
+                    onControl={view.changeControl}
+                    pending={view.gestures.control.pending}
+                    error={view.gestures.control.error}
+                  />
+                }
+                controlStatus={`${agentControlPresentation(session).holder}. ${agentControlPresentation(session).reason ?? "Stop recording when finished."}`}
                 origin={session.origin}
                 browserFocused={browserFocused}
                 captureState={session.captureState}
@@ -2451,7 +2470,15 @@ const BrowserWorkspace = ({
                 pending={view.gestures.recording.pending}
                 phase={session.phase}
                 platform={platform}
-                requests={<DockRequests session={session} />}
+                requests={
+                  <>
+                    <DockRequests session={session} />
+                    <GuidedTakeoverVariable
+                      key={session.id}
+                      session={session}
+                    />
+                  </>
+                }
                 selectedSessionId={state.selectedSessionId}
                 sessions={view.sessions}
                 skills={skillsEntry}
