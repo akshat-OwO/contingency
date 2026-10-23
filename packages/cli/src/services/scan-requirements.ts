@@ -1,4 +1,4 @@
-import { ScanRequirement } from "@contingency/protocol";
+import { ScanRequirement, openTeachingTimespan } from "@contingency/protocol";
 import type {
   FlowSkillFile,
   ScanReference,
@@ -156,3 +156,38 @@ export const validateTaughtScans = (
       }
     }
   });
+
+/** Shared placement rules for user-authored and confirmed Guided Run scans. */
+export const validateTeachingScan = Effect.fn("validateTeachingScan")(
+  function* validateTeachingScan(
+    instructions: readonly { readonly scan?: TeachingScan | undefined }[],
+    scan: TeachingScan | undefined,
+    replacing: boolean
+  ) {
+    if (scan === undefined || replacing) {
+      return;
+    }
+    const open = openTeachingTimespan(instructions);
+    if (
+      scan.phase === "start" &&
+      instructions.filter((instruction) => instruction.scan?.phase === "start")
+        .length >= 50
+    ) {
+      return yield* Effect.fail(
+        invalid("A recording supports up to 50 scan requirements.")
+      );
+    }
+    const known = instructions.some(
+      (instruction) => instruction.scan?.id === scan.id
+    );
+    if (
+      scan.phase === "stop"
+        ? scan.mode !== "timespan" || open?.id !== scan.id
+        : open !== undefined || known
+    ) {
+      return yield* Effect.fail(
+        invalid("Scans cannot overlap; a stop must match the open timespan ID.")
+      );
+    }
+  }
+);

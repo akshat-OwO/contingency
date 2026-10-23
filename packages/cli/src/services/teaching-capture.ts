@@ -438,7 +438,17 @@ export const makeDemonstrationCapture = (
       let instruction: TeachingInstruction =
         scan === undefined ? baseInstruction : { ...baseInstruction, scan };
       if (authorship?.dialogue !== undefined) {
-        instruction = { ...instruction, dialogue: authorship.dialogue };
+        let { dialogue } = authorship;
+        if (dialogue._tag === "question" && dialogue.proposal !== undefined) {
+          dialogue = {
+            ...dialogue,
+            proposal: {
+              ...dialogue.proposal,
+              reason: redact(dialogue.proposal.reason),
+            },
+          };
+        }
+        instruction = { ...instruction, dialogue };
       }
       const replacing = instructions.findIndex(
         (entry) => entry.id === replaceId

@@ -9,6 +9,8 @@ import type {
   BrowserCheckResult,
   BrowserCheckIdentity,
   TeachingScan,
+  GuidedRunCheckProposal,
+  GuidedRunCheckDecision,
   AgentSetupVariable,
   AgentSetupVariableRequest,
   AgentSetupVariableAnswer,
@@ -75,7 +77,6 @@ import type {
   AgentRunSummary,
 } from "@contingency/protocol";
 import {
-  openTeachingTimespan,
   AgentProcessId,
   AgentElementRef,
   AgentPendingDecisionId,
@@ -196,6 +197,7 @@ import { makeRunScans } from "./run-scans.ts";
 import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import { beginScanCollection } from "./scan-engine.ts";
+import { validateTeachingScan } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { SessionEventBatch } from "./session-events.ts";
 import { makeSessionEvents, SessionEventOrigin } from "./session-events.ts";
@@ -502,12 +504,14 @@ export interface AgentSessionService {
     scan?: TeachingScan,
     attachments?: readonly TeachingBrowserAttachment[],
     replaceId?: string,
-    questionId?: string
+    questionId?: string,
+    decision?: GuidedRunCheckDecision
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly askQuestion: (
     sessionId: AgentSessionId,
     text: string,
-    operationId: OperationId
+    operationId: OperationId,
+    proposal?: GuidedRunCheckProposal
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
@@ -6145,11 +6149,15 @@ const makeAgentSession = (
       attachments?: readonly TeachingBrowserAttachment[],
       replaceId?: string,
       questionId?: string,
-      asking = false
+      asking = false,
+      proposal?: GuidedRunCheckProposal,
+      decision?: GuidedRunCheckDecision
     ) {
       const requestInput = JSON.stringify({
         asking,
         attachments: attachments ?? [],
+        decision: decision ?? null,
+        proposal: proposal ?? null,
         questionId: questionId ?? null,
         replaceId: replaceId ?? null,
         scan: scan ?? null,
@@ -6184,70 +6192,72 @@ const makeAgentSession = (
           }
           const authorship = yield* teachingInstructionAuthorship({
             asking,
+            decision,
             guided: record.snapshot.origin === "guided-run",
             hasAttachment:
               scan !== undefined ||
               (attachments?.length ?? 0) > 0 ||
               target !== undefined,
+            hasRequirement:
+              scan !== undefined ||
+              (attachments?.some((item) => item.requirement !== undefined) ??
+                false),
             instructions: capture.progress().instructions,
             origin: yield* SessionEventOrigin,
+            proposal,
             questionId,
             replaceId,
             text,
           });
+          const confirmedScan = authorship.scan ?? scan;
+          const confirmedAttachments = authorship.attachments ?? attachments;
+          if (proposal?._tag === "browser") {
+            yield* validateTeachingAttachments(
+              capture.progress().instructions,
+              [
+                {
+                  candidate: proposal.check,
+                  id: proposal.check.id,
+                  label: text,
+                  requirement: proposal.check,
+                },
+              ],
+              undefined,
+              undefined,
+              sessionSensitiveValues(record)
+            ).pipe(
+              Effect.mapError((cause) =>
+                error("agent_session_invalid", cause.message)
+              )
+            );
+          }
           const at = now().toISOString();
           const replacing = yield* validateTeachingAttachments(
             capture.progress().instructions,
-            attachments,
+            confirmedAttachments,
             replaceId,
-            scan,
+            confirmedScan,
             sessionSensitiveValues(record)
           ).pipe(
             Effect.mapError((cause) =>
               error("agent_session_invalid", cause.message)
             )
           );
-          if (scan !== undefined && replacing === undefined) {
-            const open = openTeachingTimespan(capture.progress().instructions);
-            if (
-              scan.phase === "start" &&
-              capture
-                .progress()
-                .instructions.filter(
-                  (instruction) => instruction.scan?.phase === "start"
-                ).length >= 50
-            ) {
-              return yield* Effect.fail(
-                error(
-                  "agent_session_invalid",
-                  "A recording supports up to 50 scan requirements."
-                )
-              );
-            }
-            const known = capture
-              .progress()
-              .instructions.some(
-                (instruction) => instruction.scan?.id === scan.id
-              );
-            if (
-              scan.phase === "stop"
-                ? scan.mode !== "timespan" || open?.id !== scan.id
-                : open !== undefined || known
-            ) {
-              return yield* Effect.fail(
-                error(
-                  "agent_session_invalid",
-                  "Scans cannot overlap; a stop must match the open timespan ID."
-                )
-              );
-            }
-          }
+          yield* validateTeachingScan(
+            capture.progress().instructions,
+            confirmedScan,
+            replacing !== undefined
+          ).pipe(
+            Effect.mapError((cause) =>
+              error("agent_session_invalid", cause.message)
+            )
+          );
           const instruction: TeachingInstruction = capture.recordInstruction(
             text,
             at,
             target,
-            scan,
-            attachments,
+            confirmedScan,
+            confirmedAttachments,
             replaceId,
             authorship
           );
@@ -6973,7 +6983,7 @@ const makeAgentSession = (
           })
         ),
       answerSetupVariable: setupVariableMutation,
-      askQuestion: (sessionId, text, operationId) =>
+      askQuestion: (sessionId, text, operationId, proposal) =>
         ledger.serializeMutation(
           afterUserInput(
             sessionId,
@@ -6986,7 +6996,8 @@ const makeAgentSession = (
               undefined,
               undefined,
               undefined,
-              true
+              true,
+              proposal
             )
           )
         ),
@@ -8084,7 +8095,8 @@ const makeAgentSession = (
         scan,
         attachments,
         replaceId,
-        questionId
+        questionId,
+        decision
       ) =>
         ledger.serializeMutation(
           afterUserInput(
@@ -8097,7 +8109,10 @@ const makeAgentSession = (
               scan,
               attachments,
               replaceId,
-              questionId
+              questionId,
+              false,
+              undefined,
+              decision
             )
           )
         ),

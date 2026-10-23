@@ -1,4 +1,8 @@
-import type { TeachingInstruction } from "@contingency/protocol";
+import type {
+  GuidedRunCheckProposal,
+  GuidedRunCheckDecision,
+  TeachingInstruction,
+} from "@contingency/protocol";
 import { Effect } from "effect";
 
 import { agentSessionError } from "./agent-session-error.ts";
@@ -23,14 +27,77 @@ const requireOpenQuestion = (
       );
 };
 
+const validateChoicePlacement = Effect.fn("validateChoicePlacement")(
+  function* validateChoicePlacement(input: {
+    readonly asking: boolean;
+    readonly proposal?: GuidedRunCheckProposal | undefined;
+    readonly decision?: GuidedRunCheckDecision | undefined;
+    readonly questionId: string | undefined;
+  }) {
+    if (
+      (input.proposal !== undefined && !input.asking) ||
+      (input.decision !== undefined &&
+        (input.asking || input.questionId === undefined))
+    ) {
+      return yield* Effect.fail(
+        agentSessionError(
+          "agent_session_invalid",
+          "Propose a check in a question and confirm or reject it with its questionId."
+        )
+      );
+    }
+  }
+);
+
+const confirmedEvidence = Effect.fn("confirmedEvidence")(
+  function* confirmedEvidence(
+    instructions: readonly TeachingInstruction[],
+    questionId: string,
+    decision: GuidedRunCheckDecision | undefined,
+    text: string
+  ) {
+    const question = instructions.find((item) => item.id === questionId);
+    const proposal =
+      question?.dialogue?._tag === "question"
+        ? question.dialogue.proposal
+        : undefined;
+    if ((proposal === undefined) !== (decision === undefined)) {
+      return yield* Effect.fail(
+        agentSessionError(
+          "agent_session_invalid",
+          "A check proposal requires an explicit confirm or reject decision; ordinary questions take a text answer."
+        )
+      );
+    }
+    const confirmed = decision === "confirm" ? proposal : undefined;
+    return {
+      attachments:
+        confirmed?._tag === "browser"
+          ? [
+              {
+                candidate: confirmed.check,
+                id: confirmed.check.id,
+                label: question?.text ?? text,
+                requirement: confirmed.check,
+              },
+            ]
+          : undefined,
+      scan: confirmed?._tag === "scan" ? confirmed.scan : undefined,
+    };
+  }
+);
+
 /** Validated inside the session mutation lock, before appending either half. */
 export const teachingInstructionAuthorship = Effect.fn(
   "teachingInstructionAuthorship"
 )(function* teachingInstructionAuthorship(input: {
   readonly asking: boolean;
+  readonly proposal?: GuidedRunCheckProposal | undefined;
+  readonly decision?: GuidedRunCheckDecision | undefined;
   readonly questionId: string | undefined;
   readonly replaceId: string | undefined;
   readonly hasAttachment: boolean;
+  readonly hasRequirement?: boolean;
   readonly instructions: readonly TeachingInstruction[];
   readonly guided: boolean;
   readonly origin: "agent" | "workspace";
@@ -47,6 +114,15 @@ export const teachingInstructionAuthorship = Effect.fn(
       agentSessionError(
         "agent_session_invalid",
         "Question and answer evidence cannot be replaced."
+      )
+    );
+  }
+  yield* validateChoicePlacement(input);
+  if (input.guided && input.hasRequirement) {
+    return yield* Effect.fail(
+      agentSessionError(
+        "agent_session_invalid",
+        "Guided Run checks require a proposal and explicit confirmation."
       )
     );
   }
@@ -95,19 +171,33 @@ export const teachingInstructionAuthorship = Effect.fn(
     return {
       actor: "agent" as const,
       description: "The agent asked a question",
-      dialogue: { _tag: "question" as const },
+      dialogue:
+        input.proposal === undefined
+          ? { _tag: "question" as const }
+          : { _tag: "question" as const, proposal: input.proposal },
     };
   }
   if (questionId === undefined) {
     return yield* Effect.die("An answer needs a question id");
   }
   yield* requireOpenQuestion(instructions, questionId);
+  const evidence = yield* confirmedEvidence(
+    instructions,
+    questionId,
+    input.decision,
+    input.text
+  );
   return {
     actor: input.origin === "agent" ? ("agent" as const) : ("user" as const),
+    attachments: evidence.attachments,
     description:
       input.origin === "agent"
         ? "The agent relayed the user's answer"
         : "The user answered a question",
-    dialogue: { _tag: "answer" as const, questionId },
+    dialogue:
+      input.decision === undefined
+        ? { _tag: "answer" as const, questionId }
+        : { _tag: "answer" as const, decision: input.decision, questionId },
+    scan: evidence.scan,
   };
 });

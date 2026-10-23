@@ -12,7 +12,7 @@ import {
   OperationId,
 } from "./agent-identifiers.ts";
 import { AgentRunSummary } from "./agent-run.ts";
-import { browserAttachmentsField } from "./browser-checks.ts";
+import { BrowserCheck, browserAttachmentsField } from "./browser-checks.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -391,14 +391,31 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
   url: Schema.String,
 });
 
+/** Proposed intent lives only in dialogue until an explicit confirmation. */
+export const GuidedRunCheckProposal = Schema.Union([
+  Schema.TaggedStruct("scan", { reason: nonEmptyString, scan: TeachingScan }),
+  Schema.TaggedStruct("browser", {
+    check: BrowserCheck,
+    reason: nonEmptyString,
+  }),
+]);
+export type GuidedRunCheckProposal = typeof GuidedRunCheckProposal.Type;
+export const GuidedRunCheckDecision = Schema.Literals(["confirm", "reject"]);
+export type GuidedRunCheckDecision = typeof GuidedRunCheckDecision.Type;
+
 /** Linked Instructions keep an unanswered question as evidence after Stop. */
 const instructionAuthorship = {
   /** Absent in older recordings, whose Instructions were all user-authored. */
   actor: Schema.optionalKey(AgentSessionController),
   dialogue: Schema.optionalKey(
     Schema.Union([
-      Schema.TaggedStruct("question", {}),
-      Schema.TaggedStruct("answer", { questionId: nonEmptyString }),
+      Schema.TaggedStruct("question", {
+        proposal: Schema.optionalKey(GuidedRunCheckProposal),
+      }),
+      Schema.TaggedStruct("answer", {
+        decision: Schema.optionalKey(GuidedRunCheckDecision),
+        questionId: nonEmptyString,
+      }),
     ])
   ),
 };
@@ -715,6 +732,7 @@ export type UrlTransition = typeof UrlTransition.Type;
 
 export const TeachingInstructionRecord = Schema.Struct({
   attachments: browserAttachmentsField,
+  decision: Schema.optionalKey(GuidedRunCheckDecision),
   operationId: OperationId,
   questionId: optionalNullable(nonEmptyString),
   replaceId: optionalNullable(Schema.String),
