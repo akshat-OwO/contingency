@@ -5,13 +5,60 @@ import type {
   TeachingInstruction,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
-import { useState } from "react";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { failureMessage } from "@/lib/failure-message";
+import { retainedFamily } from "@/lib/retained-state";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+
+interface AnswerDraft {
+  readonly error: string;
+  readonly operationId: OperationId | null;
+  readonly pending: boolean;
+  readonly text: string;
+}
+
+const emptyAnswer: AnswerDraft = {
+  error: "",
+  operationId: null,
+  pending: false,
+  text: "",
+};
+const questionAnswerState = retainedFamily(emptyAnswer);
+const answerKey = (sessionId: AgentSessionId, questionId: string) =>
+  JSON.stringify([sessionId, questionId]);
+
+const AnsweredQuestion = ({
+  question,
+  answer,
+  sessionId,
+}: {
+  readonly question: TeachingInstruction;
+  readonly answer: TeachingInstruction;
+  readonly sessionId: AgentSessionId;
+}) => {
+  const [draft, setDraft] = useAtom(
+    questionAnswerState(answerKey(sessionId, question.id))
+  );
+  useEffect(() => {
+    if (draft !== emptyAnswer) {
+      setDraft(emptyAnswer);
+    }
+  }, [draft, setDraft]);
+  return (
+    <div className="text-sm">
+      <p className="font-medium">{question.text}</p>
+      <p>{answer.text}</p>
+      <p className="text-muted-foreground text-xs">
+        {answer.actor === "agent"
+          ? "User answer relayed by agent"
+          : "Answered by user"}
+      </p>
+    </div>
+  );
+};
 
 const QuestionAnswer = ({
   question,
@@ -26,17 +73,15 @@ const QuestionAnswer = ({
   const answer = useAtomSet(agentTeachingInstructionRecordMutation, {
     mode: "promise",
   });
-  const [stateAtom] = useState(() =>
-    Atom.make({
-      error: "",
-      operationId: OperationId.make(crypto.randomUUID()),
-      pending: false,
-      text: "",
-    })
+  const [state, setState] = useAtom(
+    questionAnswerState(answerKey(sessionId, question.id))
   );
-  const [state, setState] = useAtom(stateAtom);
   const submit = async () => {
-    if (state.pending || state.text.trim() === "") {
+    if (
+      state.pending ||
+      state.text.trim() === "" ||
+      state.operationId === null
+    ) {
       return;
     }
     setState((current) => ({ ...current, error: "", pending: true }));
@@ -49,7 +94,7 @@ const QuestionAnswer = ({
           text: state.text,
         },
       });
-      setState((current) => ({ ...current, pending: false }));
+      setState(emptyAnswer);
     } catch (error) {
       setState((current) => ({
         ...current,
@@ -138,15 +183,12 @@ export const GuidedRunQuestions = ({
             closed={session.captureState._tag !== "recording"}
           />
         ) : (
-          <div key={question.id} className="text-sm">
-            <p className="font-medium">{question.text}</p>
-            <p>{answer.text}</p>
-            <p className="text-muted-foreground text-xs">
-              {answer.actor === "agent"
-                ? "User answer relayed by agent"
-                : "Answered by user"}
-            </p>
-          </div>
+          <AnsweredQuestion
+            key={question.id}
+            question={question}
+            answer={answer}
+            sessionId={session.id}
+          />
         );
       })}
     </section>

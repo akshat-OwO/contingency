@@ -1,3 +1,4 @@
+import { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import {
   createMemoryHistory,
@@ -13,13 +14,14 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cause, Deferred, Effect, Exit, Scope } from "effect";
+import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
 import { Atom } from "effect/reactivity";
 import { TestClock } from "effect/testing";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
+import { GuidedRunQuestions } from "@/components/agent/guided-run-questions";
 import { ModeToggle } from "@/components/mode-toggle";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
@@ -243,6 +245,12 @@ const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
       <RegistryProvider>{children}</RegistryProvider>
     </WorkspaceRefreshClockContext>
   </RpcDependenciesProvider>
+);
+
+const renderQuestions = (snapshot: AgentSessionSnapshot) => (
+  <TestRegistry>
+    <GuidedRunQuestions session={snapshot} />
+  </TestRegistry>
 );
 
 const session = {
@@ -1131,6 +1139,160 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   // Later-state actions have no RPC yet, so they are absent, not disabled.
   expect(screen.queryByRole("button", { name: "Learn flow" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+});
+
+test("preserves unsent Guided Run answers across request collapse", async () => {
+  const user = userEvent.setup();
+  const question = {
+    actor: "agent",
+    at: "2026-08-31T00:00:02.000Z",
+    dialogue: { _tag: "question" },
+    id: "question-one",
+    target: null,
+    text: "Which item should I add?",
+  };
+  const guided = {
+    ...teachingRecording,
+    origin: "guided-run",
+    teaching: { actionCount: 0, instructionCount: 1, instructions: [question] },
+  };
+  renderWorkspace(resultFor([guided]), session.id);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const answerName = "Answer: Which item should I add?";
+  await user.type(
+    within(dock).getByRole("textbox", { name: answerName }),
+    "Add one anvil"
+  );
+  await user.click(
+    within(dock).getByRole("button", { name: "Collapse requests" })
+  );
+  expect(within(dock).queryByRole("textbox", { name: answerName })).toBeNull();
+  expect(rpc.instructionCalls).toHaveLength(0);
+  await user.click(
+    within(dock).getByRole("button", {
+      name: "Show request: Guided Run questions. 1 of 1 needed",
+    })
+  );
+  expect(within(dock).getByRole("textbox", { name: answerName })).toHaveValue(
+    "Add one anvil"
+  );
+  expect(rpc.instructionCalls).toHaveLength(0);
+  await user.click(within(dock).getByRole("button", { name: "Send answer" }));
+  await waitFor(() => expect(rpc.instructionCalls).toHaveLength(1));
+  expect(rpc.instructionCalls[0]).toMatchObject({
+    payload: {
+      questionId: question.id,
+      sessionId: session.id,
+      text: "Add one anvil",
+    },
+  });
+  await waitFor(() =>
+    expect(within(dock).getByRole("textbox", { name: answerName })).toHaveValue(
+      ""
+    )
+  );
+});
+
+test("isolates Guided Run answer drafts by session and question", async () => {
+  const user = userEvent.setup();
+  const questions = ["Which item?", "How many?"].map((text, index) => ({
+    actor: "agent",
+    at: "2026-08-31T00:00:02.000Z",
+    dialogue: { _tag: "question" },
+    id: `question-${index}`,
+    target: null,
+    text,
+  }));
+  const guided = {
+    ...teachingRecording,
+    origin: "guided-run",
+    teaching: { actionCount: 0, instructionCount: 2, instructions: questions },
+  };
+  renderWorkspace(
+    resultFor([
+      guided,
+      { ...guided, flowSkillName: "other-cart", id: "agent-two" },
+    ]),
+    session.id
+  );
+  await screen.findByRole("region", { name: "Guided Run questions" });
+  await user.type(
+    screen.getByRole("textbox", { name: "Answer: Which item?" }),
+    "Anvil"
+  );
+  await user.type(
+    screen.getByRole("textbox", { name: "Answer: How many?" }),
+    "One"
+  );
+  await chooseSessionAt(user, 1);
+  expect(
+    screen.getByRole("textbox", { name: "Answer: Which item?" })
+  ).toHaveValue("");
+  expect(
+    screen.getByRole("textbox", { name: "Answer: How many?" })
+  ).toHaveValue("");
+  await user.type(
+    screen.getByRole("textbox", { name: "Answer: Which item?" }),
+    "Hammer"
+  );
+  await chooseSessionAt(user, 0);
+  expect(
+    screen.getByRole("textbox", { name: "Answer: Which item?" })
+  ).toHaveValue("Anvil");
+  expect(
+    screen.getByRole("textbox", { name: "Answer: How many?" })
+  ).toHaveValue("One");
+  expect(rpc.instructionCalls).toHaveLength(0);
+});
+
+test("clears a Guided Run draft when an agent relays the answer", async () => {
+  const user = userEvent.setup();
+  const question = {
+    actor: "agent",
+    at: "2026-08-31T00:00:02.000Z",
+    dialogue: { _tag: "question" },
+    id: "question-one",
+    target: null,
+    text: "Which item?",
+  };
+  const guided = {
+    ...teachingRecording,
+    origin: "guided-run",
+    teaching: { actionCount: 0, instructionCount: 1, instructions: [question] },
+  };
+  const decodeSnapshot = Schema.decodeUnknownSync(AgentSessionSnapshot);
+  const view = render(renderQuestions(decodeSnapshot(guided)));
+  await user.type(
+    screen.getByRole("textbox", { name: "Answer: Which item?" }),
+    "Unsent draft"
+  );
+  view.rerender(
+    renderQuestions(
+      decodeSnapshot({
+        ...guided,
+        teaching: {
+          ...guided.teaching,
+          instructionCount: 2,
+          instructions: [
+            question,
+            {
+              ...question,
+              dialogue: { _tag: "answer", questionId: question.id },
+              id: "answer-one",
+              text: "Add one anvil",
+            },
+          ],
+        },
+      })
+    )
+  );
+  expect(screen.getByText("User answer relayed by agent")).toBeVisible();
+  // A later snapshot can omit the answer. The answered draft must already be gone.
+  view.rerender(renderQuestions(decodeSnapshot(guided)));
+  expect(
+    screen.getByRole("textbox", { name: "Answer: Which item?" })
+  ).toHaveValue("");
+  expect(rpc.instructionCalls).toHaveLength(0);
 });
 
 test("keeps every dock control reachable from the keyboard", async () => {
