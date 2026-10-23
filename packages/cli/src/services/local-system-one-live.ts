@@ -35,7 +35,9 @@ export const localSystemOneEnvironment = (
   python?: string
 ) => ({
   HF_HOME: path.join(directory, "cache", "huggingface"),
-  HOME: directory,
+  HOME: process.env.HOME,
+  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  UV_PYTHON_INSTALL_DIR: process.env.UV_PYTHON_INSTALL_DIR,
   KEV_API_KEY: "",
   LANG: process.env.LANG,
   PATH: process.env.PATH,
@@ -47,7 +49,7 @@ export const localSystemOneEnvironment = (
   UV_PROJECT_ENVIRONMENT: path.join(directory, "kev", ".venv"),
   UV_PYTHON: python,
   UV_PYTHON_DOWNLOADS: "never",
-  UV_PYTHON_PREFERENCE: "only-system",
+  UV_PYTHON_PREFERENCE: "system",
   XDG_CACHE_HOME: path.join(directory, "cache"),
 });
 
@@ -102,6 +104,11 @@ export const LocalSystemOneLive = Layer.effect(
       spawner
         .string(
           ChildProcess.make(command, [...args], {
+            env: {
+              UV_PYTHON_DOWNLOADS: "never",
+              UV_PYTHON_PREFERENCE: "system",
+            },
+            extendEnv: true,
             stderr: "ignore",
             stdin: "ignore",
           })
@@ -145,7 +152,7 @@ export const LocalSystemOneLive = Layer.effect(
           );
         }),
       id: randomUUID,
-      install: (directory, python) =>
+      install: (directory, python, selectedModel) =>
         Effect.gen(function* installKev() {
           yield* fs.makeDirectory(path.join(directory, "kev"));
           yield* fs.makeDirectory(path.join(directory, "tmp"));
@@ -175,7 +182,7 @@ export const LocalSystemOneLive = Layer.effect(
             directory,
             python
           );
-          const model = LOCAL_SYSTEM_ONE_RELEASE.models.nev;
+          const model = LOCAL_SYSTEM_ONE_RELEASE.models[selectedModel];
           yield* run(
             path.join(directory, "kev", ".venv", "bin", "python"),
             [
@@ -221,10 +228,10 @@ export const LocalSystemOneLive = Layer.effect(
           }
           return hash.digest("hex");
         }),
-      smoke: (directory) =>
+      smoke: (directory, selectedModel) =>
         Effect.gen(function* smokeKev() {
           const port = yield* freePort;
-          const model = LOCAL_SYSTEM_ONE_RELEASE.models.nev;
+          const model = LOCAL_SYSTEM_ONE_RELEASE.models[selectedModel];
           const log = path.join(directory, "server.log");
           const child = yield* spawner.spawn(
             ChildProcess.make(

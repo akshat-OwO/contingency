@@ -76,9 +76,13 @@ export interface LocalSystemOneIO {
   readonly output: (command: string, args: readonly string[]) => Task<string>;
   readonly download: (url: string, file: string) => Task<void>;
   readonly sha256: (file: string) => Task<string>;
-  readonly install: (directory: string, python: string) => Task<void>;
+  readonly install: (
+    directory: string,
+    python: string,
+    model: "nev"
+  ) => Task<void>;
   /** Starts, probes and stops Kev, including on failure or interruption. */
-  readonly smoke: (directory: string) => Task<void>;
+  readonly smoke: (directory: string, model: "nev") => Task<void>;
   readonly stop: (
     server: NonNullable<LocalSystemOneState["server"]>,
     directory: string
@@ -150,8 +154,8 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
       .output("uv", [
         "python",
         "find",
-        "--system",
-        "--no-managed-python",
+        "--python-preference",
+        "system",
         "--no-python-downloads",
         ">=3.12,<3.14",
       ])
@@ -189,7 +193,8 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
   const setup = <R>(
     confirm: (
       platform: LocalSystemOnePlatform
-    ) => Effect.Effect<boolean, LocalSystemOneError, R>
+    ) => Effect.Effect<boolean, LocalSystemOneError, R>,
+    model: "nev" = "nev"
   ) =>
     Effect.gen(function* setupLocalSystemOne() {
       const { platform, python } = yield* preflight;
@@ -216,8 +221,8 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
               message: "Kev tarball SHA-256 mismatch; installation discarded.",
             });
           }
-          yield* io.install(owned, python);
-          yield* io.smoke(owned);
+          yield* io.install(owned, python, model);
+          yield* io.smoke(owned, model);
           if (prior?.server !== undefined && prior.server !== null) {
             yield* io.stop(
               prior.server,
@@ -228,9 +233,9 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
             current: {
               directory,
               kevCommit: release.kevCommit,
-              model: "nev",
-              modelId: release.models.nev.id,
-              nevRevision: release.models.nev.revision,
+              model,
+              modelId: release.models[model].id,
+              nevRevision: release.models[model].revision,
             },
             previous: prior?.current ?? null,
             server: null,

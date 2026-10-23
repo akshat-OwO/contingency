@@ -29,35 +29,37 @@ const setup = Command.make(
     ),
     yes: Flag.Boolean("yes").pipe(Flag.withDefault(false)),
   },
-  ({ yes }) =>
+  ({ yes, model }) =>
     Effect.gen(function* setupFromTerminal() {
       const local = yield* LocalSystemOne;
-      yield* local.setup((platform) =>
-        Effect.gen(function* confirmDownload() {
-          const sizes = LOCAL_SYSTEM_ONE_RELEASE.sizes[platform];
-          yield* Console.log(
-            `Nev + Kev environment: ${(sizes.downloadBytes / 1e9).toFixed(1)} GB download; ${(sizes.diskBytes / 1e9).toFixed(1)} GB disk (${sizes.measured ? "measured" : "estimated; not yet measured on this platform"}).`
-          );
-          if (yes) {
-            return true;
-          }
-          if (!process.stdin.isTTY || !process.stdout.isTTY) {
-            return yield* new LocalSystemOneError({
-              message:
-                "Setup confirmation requires a terminal. Pass --yes to consent without a prompt.",
-            });
-          }
-          return yield* Prompt.run(
-            Prompt.Confirm({
-              initial: false,
-              message: "Download and install Local System One?",
-            })
-          ).pipe(
-            Effect.mapError(
-              (error) => new LocalSystemOneError({ message: error.message })
-            )
-          );
-        })
+      yield* local.setup(
+        (platform) =>
+          Effect.gen(function* confirmDownload() {
+            const sizes = LOCAL_SYSTEM_ONE_RELEASE.sizes[platform];
+            yield* Console.log(
+              `Nev + Kev environment: ${(sizes.downloadBytes / 1e9).toFixed(1)} GB download; ${(sizes.diskBytes / 1e9).toFixed(1)} GB disk (${sizes.measured ? "measured" : "estimated; not yet measured on this platform"}).`
+            );
+            if (yes) {
+              return true;
+            }
+            if (!process.stdin.isTTY || !process.stdout.isTTY) {
+              return yield* new LocalSystemOneError({
+                message:
+                  "Setup confirmation requires a terminal. Pass --yes to consent without a prompt.",
+              });
+            }
+            return yield* Prompt.run(
+              Prompt.Confirm({
+                initial: false,
+                message: "Download and install Local System One?",
+              })
+            ).pipe(
+              Effect.mapError(
+                (error) => new LocalSystemOneError({ message: error.message })
+              )
+            );
+          }),
+        model
       );
       yield* status;
     })

@@ -186,6 +186,9 @@ describe("Local System One preflight", () => {
       expect((yield* test.service.preflight).platform).toBe("linux");
       expect(test.events[0]).toContain("nvidia-smi");
       expect(test.events).not.toContain("download");
+      expect(test.events).toContain(
+        "uv python find --python-preference system --no-python-downloads >=3.12,<3.14"
+      );
     })
   );
 });
@@ -357,6 +360,9 @@ it("keeps data and all caches inside the platform directory", () => {
   );
   const env = localSystemOneEnvironment(root);
   expect(env.UV_PYTHON_DOWNLOADS).toBe("never");
+  expect(env.UV_PYTHON_PREFERENCE).toBe("system");
+  expect(env.HOME).toBe(process.env.HOME);
+  expect(env.XDG_DATA_HOME).toBe(process.env.XDG_DATA_HOME);
   for (const key of [
     env.HF_HOME,
     env.UV_CACHE_DIR,
