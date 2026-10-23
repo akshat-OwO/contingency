@@ -125,11 +125,17 @@ const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
       | Payload<"Fetch.requestPaused">
       | Payload<"Network.loadingFinished">;
     const held = new Map<string, (() => void)[]>();
+    const delivered = new Set<string>();
     let reordered = 0;
     const reordering: CDPSession = Object.assign(Object.create(cdp), {
       on: (event: string, listener: (payload: Delivered) => void) => {
         if (event === "Network.requestWillBeSent") {
           cdp.on(event, (announced) => {
+            // Chrome itself may already have paused this request first.
+            if (delivered.has(announced.requestId)) {
+              listener(announced);
+              return;
+            }
             held.set(announced.requestId, [
               ...(held.get(announced.requestId) ?? []),
               () => listener(announced),
@@ -138,6 +144,9 @@ const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
         } else if (event === "Fetch.requestPaused") {
           cdp.on(event, (paused) => {
             listener(paused);
+            if (paused.networkId !== undefined) {
+              delivered.add(paused.networkId);
+            }
             const announced =
               paused.networkId === undefined
                 ? undefined
@@ -417,6 +426,15 @@ it.live(
           paused.intervention.id
         );
         expect(completed.evaluation?.failed).toBe(false);
+        // An application worker's requests pause on this page but are
+        // announced on the worker's own target; they must still continue.
+        expect(
+          yield* Effect.tryPromise(() =>
+            page.evaluate(
+              `new Promise(resolve => { const code = "fetch('" + location.origin + "/shop.html?app-worker').then(response => postMessage(response.status), error => postMessage(String(error)))"; const worker = new Worker(URL.createObjectURL(new Blob([code], {type: 'text/javascript'}))); worker.onerror = event => resolve('error ' + event.message); worker.onmessage = event => { worker.terminate(); resolve(event.data); }; })`
+            )
+          ).pipe(Effect.timeout("30 seconds"))
+        ).toBe(200);
         expect(
           yield* Effect.tryPromise(() =>
             page.getAttribute("body", "data-deleted")
