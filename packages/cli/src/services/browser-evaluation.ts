@@ -110,6 +110,23 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
     const scripts = new Set<string>();
     evaluationScripts.set(cdp, scripts);
     const requests = new Map<string, Promise<readonly string[] | undefined>>();
+    // CDP can pause a request before announcing it. The pause waits for the
+    // announcement, which carries the initiator stack that decides its policy.
+    const unannounced = new Map<
+      string,
+      PromiseWithResolvers<readonly string[] | undefined>
+    >();
+    const policyOf = (networkId: string) => {
+      const announced = requests.get(networkId);
+      if (announced !== undefined) {
+        return announced;
+      }
+      const waiting =
+        unannounced.get(networkId) ??
+        Promise.withResolvers<readonly string[] | undefined>();
+      unannounced.set(networkId, waiting);
+      return waiting.promise;
+    };
     const policyFor = async (
       stack?: InitiatorStack
     ): Promise<readonly string[] | undefined> => {
@@ -138,7 +155,10 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
         !requests.has(event.requestId) ||
         event.redirectResponse === undefined
       ) {
-        requests.set(event.requestId, policyFor(event.initiator.stack));
+        const policy = policyFor(event.initiator.stack);
+        requests.set(event.requestId, policy);
+        unannounced.get(event.requestId)?.resolve(policy);
+        unannounced.delete(event.requestId);
       }
     });
     cdp.on("Fetch.requestPaused", (event) => {
@@ -147,7 +167,7 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
           const policy =
             event.networkId === undefined
               ? undefined
-              : await requests.get(event.networkId);
+              : await policyOf(event.networkId);
           const host = webHost(event.request.url);
           await (policy !== undefined &&
           (host === undefined ||
@@ -166,6 +186,11 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
     });
     const finish = ({ requestId }: { readonly requestId: string }) => {
       requests.delete(requestId);
+      // A request that ends unannounced no longer has a pause to release.
+      unannounced
+        .get(requestId)
+        ?.reject(new Error("The request ended before CDP announced it."));
+      unannounced.delete(requestId);
     };
     cdp.on("Network.loadingFinished", finish);
     cdp.on("Network.loadingFailed", finish);

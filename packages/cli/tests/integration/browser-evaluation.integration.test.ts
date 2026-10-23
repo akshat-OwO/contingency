@@ -86,6 +86,93 @@ const expectInterruptedSetupDoesNotDispatch = (page: Page) =>
     expect(observed.result.value).toBeNull();
   }).pipe(Effect.scoped);
 
+/** CDP may pause a request before announcing it. Hold each announcement until
+ * its pause has been delivered, so policy lookup always sees that order. */
+const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
+  Effect.gen(function* pausedBeforeAnnounced() {
+    const cdp = yield* Effect.acquireRelease(
+      Effect.tryPromise(() => page.context().newCDPSession(page)),
+      (session) => Effect.tryPromise(() => session.detach()).pipe(Effect.ignore)
+    );
+    const target = outside.replace("outside-eval", "outside-paused-first");
+    // Chrome may also refuse the request for its own reasons; only the Fetch
+    // refusal proves the evaluation policy decided it.
+    const outcome = yield* Deferred.make<string>();
+    let targetId: string | undefined;
+    cdp.on("Network.requestWillBeSent", (announced) => {
+      if (announced.request.url === target) {
+        targetId = announced.requestId;
+      }
+    });
+    cdp.on("Network.loadingFailed", ({ errorText, requestId }) => {
+      if (requestId === targetId) {
+        Effect.runSync(Deferred.succeed(outcome, errorText));
+      }
+    });
+    cdp.on("Network.loadingFinished", ({ requestId }) => {
+      if (requestId === targetId) {
+        Effect.runSync(Deferred.succeed(outcome, "loaded"));
+      }
+    });
+    type Payload<
+      T extends
+        | "Network.requestWillBeSent"
+        | "Fetch.requestPaused"
+        | "Network.loadingFinished",
+    > = Parameters<Parameters<typeof cdp.on<T>>[1]>[0];
+    type Delivered =
+      | Payload<"Network.requestWillBeSent">
+      | Payload<"Fetch.requestPaused">
+      | Payload<"Network.loadingFinished">;
+    const held = new Map<string, (() => void)[]>();
+    let reordered = 0;
+    const reordering: CDPSession = Object.assign(Object.create(cdp), {
+      on: (event: string, listener: (payload: Delivered) => void) => {
+        if (event === "Network.requestWillBeSent") {
+          cdp.on(event, (announced) => {
+            held.set(announced.requestId, [
+              ...(held.get(announced.requestId) ?? []),
+              () => listener(announced),
+            ]);
+          });
+        } else if (event === "Fetch.requestPaused") {
+          cdp.on(event, (paused) => {
+            listener(paused);
+            const announced =
+              paused.networkId === undefined
+                ? undefined
+                : held.get(paused.networkId);
+            if (paused.networkId !== undefined && announced !== undefined) {
+              held.delete(paused.networkId);
+              reordered += 1;
+              for (const deliver of announced) {
+                deliver();
+              }
+            }
+          });
+        } else {
+          // SAFETY: the policy registers each remaining listener for the CDP
+          // event whose payload it reads; this forwards both unchanged.
+          cdp.on(event as "Network.loadingFinished", listener);
+        }
+        return reordering;
+      },
+      send: cdp.send.bind(cdp),
+    });
+    const result = yield* evaluateBrowserScript(
+      reordering,
+      `new Promise(resolve => { const image = new Image(); image.onload = image.onerror = () => resolve('settled'); image.src = ${JSON.stringify(target)}; })`,
+      "mutating",
+      ["127.0.0.1"],
+      []
+    );
+    expect(result.text).toBe('"settled"');
+    expect(
+      yield* Deferred.await(outcome).pipe(Effect.timeout("30 seconds"))
+    ).toBe("net::ERR_BLOCKED_BY_CLIENT.Inspector");
+    expect(reordered).toBeGreaterThan(0);
+  }).pipe(Effect.scoped);
+
 /** Page debugger statements must not freeze the tab once eval has run, and
  * read-only evaluation sees page globals with no realm budget. */
 const expectPageStaysResponsive = (
@@ -646,6 +733,7 @@ it.live(
           }
         });
         yield* expectInterruptedSetupDoesNotDispatch(page);
+        yield* expectPausedBeforeAnnouncedStaysBlocked(page, outside);
         const never = yield* call("never", "new Promise(() => {})");
         if (never.intervention === undefined || never.intervention === null) {
           return yield* Effect.die("Missing timeout Confirmation");
