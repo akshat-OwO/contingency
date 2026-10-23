@@ -25,10 +25,19 @@ const Installation = Schema.Struct({
 
 /** Server identity is reserved for the detached supervisor, never just a PID. */
 export const LocalSystemOneStateSchema = Schema.Struct({
+  crashes: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+  ),
   current: Installation,
   previous: Schema.NullOr(Installation),
   server: Schema.NullOr(
     Schema.Struct({
+      kevPid: Schema.Int.check(Schema.isGreaterThan(1)),
+      kevPort: Schema.Int.check(
+        Schema.isBetween({ maximum: 65_535, minimum: 1 })
+      ),
+      kevStartIdentity: Schema.NonEmptyString,
+      phase: Schema.Literals(["starting", "ready", "crashed"]),
       pid: Schema.Int.check(Schema.isGreaterThan(1)),
       port: Schema.Int.check(Schema.isBetween({ maximum: 65_535, minimum: 1 })),
       startIdentity: Schema.NonEmptyString,
@@ -64,6 +73,7 @@ export const localSystemOneDirectory = (
 
 /** All machine effects are injectable. No setup operation belongs to an MCP toolkit. */
 export interface LocalSystemOneIO {
+  readonly lock?: (<A>(body: Task<A>) => Task<A>) | undefined;
   readonly root: string;
   readonly platform: string;
   readonly arch: string;
@@ -182,19 +192,21 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
   });
   // Serializes terminal mutations. Slice 2's server lock has a separate lifetime.
   const locked = <A>(body: Task<A>): Task<A> =>
-    Effect.gen(function* exclusiveMutation() {
-      yield* io.mkdir(path.dirname(io.root));
-      yield* Effect.acquireRelease(io.mkdir(`${io.root}.lock`, true), () =>
-        io.remove(`${io.root}.lock`).pipe(Effect.orDie)
-      );
-      return yield* body;
-    }).pipe(Effect.scoped);
+    io.lock
+      ? io.lock(body)
+      : Effect.gen(function* exclusiveMutation() {
+          yield* io.mkdir(path.dirname(io.root));
+          yield* Effect.acquireRelease(io.mkdir(`${io.root}.lock`, true), () =>
+            io.remove(`${io.root}.lock`).pipe(Effect.orDie)
+          );
+          return yield* body;
+        }).pipe(Effect.scoped);
 
   const setup = <R>(
     confirm: (
       platform: LocalSystemOnePlatform
     ) => Effect.Effect<boolean, LocalSystemOneError, R>,
-    model: "nev" = "nev"
+    model = "nev" as const
   ) =>
     Effect.gen(function* setupLocalSystemOne() {
       const { platform, python } = yield* preflight;

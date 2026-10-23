@@ -330,6 +330,10 @@ describe("installation transaction", () => {
         JSON.stringify({
           ...prior,
           server: {
+            kevPid: 124,
+            kevPort: 1235,
+            kevStartIdentity: "kev-identity",
+            phase: "ready",
             pid: 123,
             port: 1234,
             startIdentity: "identity",
