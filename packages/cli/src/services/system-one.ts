@@ -1,4 +1,13 @@
-import { Config, Context, Data, Effect, Layer, Option, Schedule } from "effect";
+import {
+  Clock,
+  Config,
+  Context,
+  Data,
+  Effect,
+  Layer,
+  Option,
+  Schedule,
+} from "effect";
 import type { Redacted } from "effect";
 import {
   FetchHttpClient,
@@ -39,6 +48,15 @@ export interface SystemOneConfig {
   readonly first: boolean;
   readonly model: string;
   readonly url: string;
+  /** Local readiness resolves the current forwarder after startup or restart. */
+  readonly local?:
+    | ((
+        deadline: number
+      ) => Effect.Effect<
+        { readonly url: string; readonly model: string },
+        SystemOneError
+      >)
+    | undefined;
 }
 
 /** Accept either the server's origin or its full `/v1/systemone` route. */
@@ -77,7 +95,8 @@ export class SystemOneError extends Data.TaggedError("SystemOneError")<{
 
 export interface SystemOneService {
   readonly ask: (
-    questions: Omit<SystemOneRequest, "model">
+    questions: Omit<SystemOneRequest, "model">,
+    deadline?: number
   ) => Effect.Effect<SystemOneResponse, SystemOneError>;
   readonly first: boolean;
 }
@@ -91,39 +110,63 @@ export const makeSystemOneLayer = (config: SystemOneConfig) =>
     SystemOne,
     Effect.gen(function* makeSystemOne() {
       const client = yield* HttpClient.HttpClient;
-      const ask: SystemOneService["ask"] = (questions) =>
+      const ask: SystemOneService["ask"] = (questions, deadline) =>
         Effect.gen(function* askSystemOne() {
-          const response = yield* client.execute(
-            HttpClientRequest.post(config.url).pipe(
-              (request) =>
-                Option.match(config.apiKey, {
-                  onNone: () => request,
-                  onSome: (key) => HttpClientRequest.bearerToken(request, key),
-                }),
-              HttpClientRequest.bodyJsonUnsafe({
-                ...questions,
-                model: config.model,
-              })
+          const endpoint =
+            config.local === undefined
+              ? config
+              : yield* config.local(
+                  deadline ??
+                    (yield* Clock.currentTimeMillis) +
+                      SYSTEM_ONE_REQUEST_TIMEOUT_MS
+                );
+          const answer = Effect.gen(function* requestAnswer() {
+            const response = yield* client.execute(
+              HttpClientRequest.post(endpoint.url).pipe(
+                (request) =>
+                  Option.match(
+                    config.local === undefined ? config.apiKey : Option.none(),
+                    {
+                      onNone: () => request,
+                      onSome: (key) =>
+                        HttpClientRequest.bearerToken(request, key),
+                    }
+                  ),
+                HttpClientRequest.bodyJsonUnsafe({
+                  ...questions,
+                  model: endpoint.model,
+                })
+              )
+            );
+            if (response.status < 200 || response.status >= 300) {
+              const detail = yield* response.text;
+              return yield* new SystemOneError({
+                message: `System One answered HTTP ${response.status}: ${detail.slice(0, 300)}`,
+                retryable: RETRYABLE_STATUSES.has(response.status),
+              });
+            }
+            return yield* HttpClientResponse.schemaBodyJson(
+              SystemOneResponseSchema
+            )(response);
+          }).pipe(
+            Effect.retry({
+              schedule: Schedule.exponential("250 millis"),
+              times: RETRIES,
+              while: (cause) =>
+                cause._tag === "SystemOneError" && cause.retryable === true,
+            }),
+            Effect.timeout(
+              Math.max(
+                1,
+                Math.min(
+                  SYSTEM_ONE_REQUEST_TIMEOUT_MS,
+                  (deadline ?? Infinity) - (yield* Clock.currentTimeMillis)
+                )
+              )
             )
           );
-          if (response.status < 200 || response.status >= 300) {
-            const detail = yield* response.text;
-            return yield* new SystemOneError({
-              message: `System One answered HTTP ${response.status}: ${detail.slice(0, 300)}`,
-              retryable: RETRYABLE_STATUSES.has(response.status),
-            });
-          }
-          return yield* HttpClientResponse.schemaBodyJson(
-            SystemOneResponseSchema
-          )(response);
+          return yield* answer;
         }).pipe(
-          Effect.retry({
-            schedule: Schedule.exponential("250 millis"),
-            times: RETRIES,
-            while: (cause) =>
-              cause._tag === "SystemOneError" && cause.retryable === true,
-          }),
-          Effect.timeout(SYSTEM_ONE_REQUEST_TIMEOUT_MS),
           Effect.mapError((cause) =>
             cause._tag === "SystemOneError"
               ? cause

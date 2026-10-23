@@ -44,6 +44,7 @@ export const LocalSystemOneStateSchema = Schema.Struct({
       startedAt: Schema.NonEmptyString,
     })
   ),
+  skipReason: Schema.optionalKey(Schema.String),
   version: Schema.Literal(1),
 });
 export type LocalSystemOneState = typeof LocalSystemOneStateSchema.Type;

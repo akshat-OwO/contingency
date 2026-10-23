@@ -24,6 +24,8 @@ import type {
   LocalSystemOneIO,
   LocalSystemOneState,
 } from "../../src/services/local-system-one.ts";
+import { makeSettingsProvider } from "../../src/services/settings.ts";
+import { resolveSystemOne } from "../../src/services/system-one-discovery.ts";
 
 const initial: LocalSystemOneState = {
   current: {
@@ -285,3 +287,117 @@ it.effect("counts launch failures toward the persisted crash limit", () =>
     }
   })
 );
+
+describe("local Pursuit discovery and readiness", () => {
+  it.effect(
+    "resolves an installed model before launch without hosted credentials",
+    () =>
+      Effect.gen(function* discovery() {
+        const test = fixture();
+        const config = yield* resolveSystemOne(
+          makeSettingsProvider({
+            env: {
+              CONTINGENCY_SYSTEM_ONE_API_KEY: "hosted-secret",
+              CONTINGENCY_SYSTEM_ONE_MODEL: "hosted-model",
+            },
+          }),
+          test.local,
+          test.lifecycle
+        );
+        expect(config?.local).toBeDefined();
+        expect(config?.apiKey).toEqual(Option.none());
+        expect(test.launches()).toBe(0);
+        yield* test.lifecycle.ensureStarted;
+        const state = yield* test.local.status;
+        if (state === undefined || config?.local === undefined) {
+          return expect.unreachable();
+        }
+        yield* test.local.writeState({
+          ...state,
+          server: { ...server, phase: "ready", port: 4321 },
+        });
+        const endpoint = yield* config.local(
+          (yield* Clock.currentTimeMillis) + 1000
+        );
+        expect(endpoint.url).toBe("http://127.0.0.1:4321/v1/systemone");
+        expect(endpoint.model).toBe(
+          `${initial.current.modelId}@${initial.current.nevRevision}`
+        );
+      })
+  );
+  it.effect("uses the explicit endpoint even when local use is disabled", () =>
+    Effect.gen(function* explicitEndpoint() {
+      const test = fixture();
+      const config = yield* resolveSystemOne(
+        makeSettingsProvider({
+          env: {},
+          user: { systemOne: { local: false, url: "https://example.com" } },
+        }),
+        test.local,
+        test.lifecycle
+      );
+      expect(config?.url).toBe("https://example.com/v1/systemone");
+      expect(config?.local).toBeUndefined();
+      expect(test.launches()).toBe(0);
+      expect(
+        yield* resolveSystemOne(
+          makeSettingsProvider({
+            env: {},
+            project: { systemOne: { local: false } },
+          }),
+          test.local,
+          test.lifecycle
+        )
+      ).toBeUndefined();
+    })
+  );
+  it.effect("bounds warmup and launcher acknowledgement by virtual time", () =>
+    Effect.gen(function* readinessBudget() {
+      const test = fixture();
+      const config = yield* resolveSystemOne(
+        makeSettingsProvider({ env: {} }),
+        test.local,
+        { ...test.lifecycle, ensureStarted: Effect.never }
+      );
+      if (config?.local === undefined) {
+        return expect.unreachable();
+      }
+      const waiting = yield* config
+        .local((yield* Clock.currentTimeMillis) + 750)
+        .pipe(Effect.result, Effect.forkChild);
+      yield* TestClock.adjust(750);
+      const result = yield* Fiber.join(waiting);
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.message).toContain("still starting");
+      }
+    })
+  );
+  it.effect("reports pressure and retains the skip reason", () =>
+    Effect.gen(function* pressure() {
+      const test = fixture();
+      const lifecycle = makeLocalSystemOneLifecycle({
+        ...test.io,
+        memoryPressure: Effect.succeed(true),
+      });
+      const config = yield* resolveSystemOne(
+        makeSettingsProvider({ env: {} }),
+        test.local,
+        lifecycle
+      );
+      if (config?.local === undefined) {
+        return expect.unreachable();
+      }
+      const result = yield* Effect.result(config.local(1000));
+      if (Result.isFailure(result)) {
+        expect(result.failure.message).toContain("memory pressure");
+      } else {
+        expect.unreachable();
+      }
+      expect((yield* test.local.status)?.skipReason).toContain(
+        "memory pressure"
+      );
+      expect(test.launches()).toBe(0);
+    })
+  );
+});

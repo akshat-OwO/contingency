@@ -58,16 +58,16 @@ export const makeLocalSystemOneLifecycle = (io: LocalSystemOneLifecycleIO) => {
           });
         }
         if (!explicit && (yield* io.memoryPressure)) {
-          return {
-            reason:
-              "Local System One was not started because the machine is under memory pressure.",
-            started: false,
-          };
+          const reason =
+            "Local System One was not started because the machine is under memory pressure.";
+          yield* io.local.writeState({ ...state, skipReason: reason });
+          return { reason, started: false };
         }
         if (state.server !== null) {
           yield* io.stop(state.server);
         }
-        const next = explicit ? { ...state, crashes: 0 } : state;
+        const { skipReason: _skipReason, ...withoutSkip } = state;
+        const next = explicit ? { ...withoutSkip, crashes: 0 } : withoutSkip;
         // The launcher acknowledges the forwarder and pidfile, never model readiness.
         const server = yield* io.launch(next).pipe(
           Effect.tapError(() =>

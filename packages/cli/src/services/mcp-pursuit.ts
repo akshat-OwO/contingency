@@ -983,7 +983,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
           progress.recent
         );
         const response = yield* systemOne
-          .ask({ questions, state })
+          .ask({ questions, state }, startedAt + timeoutMs)
           .pipe(
             Effect.mapError((cause) => systemOneFailure(cause, progress.recent))
           );
