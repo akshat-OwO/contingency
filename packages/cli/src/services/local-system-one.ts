@@ -18,6 +18,9 @@ export const localSystemOneError = (cause: unknown): LocalSystemOneError =>
 const Installation = Schema.Struct({
   directory: Schema.String.check(Schema.isPattern(/^install-[a-zA-Z0-9-]+$/u)),
   kevCommit: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
+  kevSha256: Schema.optionalKey(
+    Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u))
+  ),
   model: Schema.Literal("nev"),
   modelId: Schema.String,
   nevRevision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
@@ -48,6 +51,16 @@ export const LocalSystemOneStateSchema = Schema.Struct({
   version: Schema.Literal(1),
 });
 export type LocalSystemOneState = typeof LocalSystemOneStateSchema.Type;
+export interface LocalSystemOneVersion {
+  readonly kevCommit: string;
+  readonly kevSha256?: string | undefined;
+  readonly nevRevision: string;
+}
+export const testedLocalSystemOneVersion: LocalSystemOneVersion = {
+  kevCommit: LOCAL_SYSTEM_ONE_RELEASE.kevCommit,
+  kevSha256: LOCAL_SYSTEM_ONE_RELEASE.kevSha256,
+  nevRevision: LOCAL_SYSTEM_ONE_RELEASE.models.nev.revision,
+};
 export type LocalSystemOnePlatform = "darwin" | "linux";
 type Task<A> = Effect.Effect<A, LocalSystemOneError>;
 
@@ -90,10 +103,15 @@ export interface LocalSystemOneIO {
   readonly install: (
     directory: string,
     python: string,
-    model: "nev"
+    model: "nev",
+    version: LocalSystemOneVersion
   ) => Task<void>;
   /** Starts, probes and stops Kev, including on failure or interruption. */
-  readonly smoke: (directory: string, model: "nev") => Task<void>;
+  readonly smoke: (
+    directory: string,
+    model: "nev",
+    version: LocalSystemOneVersion
+  ) => Task<void>;
   readonly stop: (
     server: NonNullable<LocalSystemOneState["server"]>,
     directory: string
@@ -207,7 +225,8 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
     confirm: (
       platform: LocalSystemOnePlatform
     ) => Effect.Effect<boolean, LocalSystemOneError, R>,
-    model = "nev" as const
+    model = "nev" as const,
+    version: LocalSystemOneVersion = testedLocalSystemOneVersion
   ) =>
     Effect.gen(function* setupLocalSystemOne() {
       const { platform, python } = yield* preflight;
@@ -226,16 +245,20 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
           const archive = path.join(owned, "kev.tar.gz");
           const release = LOCAL_SYSTEM_ONE_RELEASE;
           yield* io.download(
-            `https://codeload.github.com/jaredpalmer/kev/tar.gz/${release.kevCommit}`,
+            `https://codeload.github.com/jaredpalmer/kev/tar.gz/${version.kevCommit}`,
             archive
           );
-          if ((yield* io.sha256(archive)) !== release.kevSha256) {
+          const kevSha256 = yield* io.sha256(archive);
+          if (
+            version.kevSha256 !== undefined &&
+            kevSha256 !== version.kevSha256
+          ) {
             return yield* new LocalSystemOneError({
               message: "Kev tarball SHA-256 mismatch; installation discarded.",
             });
           }
-          yield* io.install(owned, python, model);
-          yield* io.smoke(owned, model);
+          yield* io.install(owned, python, model, version);
+          yield* io.smoke(owned, model, version);
           if (prior?.server !== undefined && prior.server !== null) {
             yield* io.stop(
               prior.server,
@@ -245,10 +268,11 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
           const next: LocalSystemOneState = {
             current: {
               directory,
-              kevCommit: release.kevCommit,
+              kevCommit: version.kevCommit,
+              kevSha256,
               model,
               modelId: release.models[model].id,
-              nevRevision: release.models[model].revision,
+              nevRevision: version.nevRevision,
             },
             previous: prior?.current ?? null,
             server: null,
@@ -270,6 +294,37 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
         }).pipe(Effect.scoped)
       );
     });
+  const rollback = locked(
+    Effect.gen(function* rollbackInstallation() {
+      const state = yield* status;
+      if (state?.previous === undefined || state.previous === null) {
+        return yield* new LocalSystemOneError({
+          message: "No previous Local System One installation is available.",
+        });
+      }
+      if (state.server !== null) {
+        yield* io.stop(
+          state.server,
+          path.join(io.root, state.current.directory)
+        );
+      }
+      const { previous } = state;
+      yield* io.smoke(
+        path.join(io.root, previous.directory),
+        previous.model,
+        previous
+      );
+      const next: LocalSystemOneState = {
+        crashes: 0,
+        current: previous,
+        previous: state.current,
+        server: null,
+        version: 1,
+      };
+      yield* writeState(next);
+      return next;
+    })
+  );
   const remove = locked(
     Effect.gen(function* removeInstallation() {
       const state = yield* status;
@@ -286,6 +341,7 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
     dataDirectory: io.root,
     preflight,
     remove,
+    rollback,
     setup,
     status,
     withLock: locked,

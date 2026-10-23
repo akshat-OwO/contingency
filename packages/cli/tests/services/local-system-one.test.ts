@@ -377,3 +377,48 @@ it("keeps data and all caches inside the platform directory", () => {
     expect(key.startsWith(`${root}/`)).toBe(true);
   }
 });
+
+it.effect(
+  "installs selected revisions beside current, records hash and rolls back",
+  () =>
+    Effect.gen(function* updateAndRollback() {
+      const seen: string[] = [];
+      const test = fixture({
+        install: (_directory, _python, _model, version) =>
+          Effect.sync(() => {
+            seen.push(version.nevRevision);
+          }),
+        sha256: () => Effect.succeed("c".repeat(64)),
+      });
+      test.files.set(statePath, JSON.stringify(prior));
+      const next = yield* test.service.setup(
+        () => Effect.succeed(true),
+        "nev",
+        { kevCommit: "d".repeat(40), nevRevision: "e".repeat(40) }
+      );
+      expect(next?.current.kevSha256).toBe("c".repeat(64));
+      expect(next?.current.kevCommit).toBe("d".repeat(40));
+      expect(seen).toEqual(["e".repeat(40)]);
+      expect(next?.previous).toEqual(prior.current);
+      const back = yield* test.service.rollback;
+      expect(back.current).toEqual(prior.current);
+      expect(back.previous).toEqual(next?.current);
+      const again = yield* test.service.rollback;
+      expect(again.current).toEqual(next?.current);
+    })
+);
+
+it.effect("keeps the current version if rollback smoke fails", () =>
+  Effect.gen(function* rollbackFailure() {
+    const test = fixture({ smoke: () => fail("rollback smoke failed") });
+    const state = {
+      ...prior,
+      previous: { ...prior.current, directory: "install-previous" },
+    };
+    test.files.set(statePath, JSON.stringify(state));
+    expect(Result.isFailure(yield* Effect.result(test.service.rollback))).toBe(
+      true
+    );
+    expect(yield* test.service.status).toEqual(state);
+  })
+);

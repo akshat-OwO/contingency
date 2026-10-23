@@ -143,7 +143,7 @@ export const LocalSystemOneLive = Layer.effect(
           );
         }),
       id: randomUUID,
-      install: (directory, python, selectedModel) =>
+      install: (directory, python, selectedModel, version) =>
         Effect.gen(function* installKev() {
           yield* fs.makeDirectory(path.join(directory, "kev"));
           yield* fs.makeDirectory(path.join(directory, "tmp"));
@@ -179,7 +179,7 @@ export const LocalSystemOneLive = Layer.effect(
             [
               "-c",
               "from kev.checkpoint import resolve_run; import sys; resolve_run(sys.argv[1])",
-              `${model.id}@${model.revision}`,
+              `${model.id}@${version.nevRevision}`,
             ],
             directory,
             python
@@ -247,7 +247,7 @@ export const LocalSystemOneLive = Layer.effect(
           }
           return hash.digest("hex");
         }),
-      smoke: (directory, selectedModel) =>
+      smoke: (directory, selectedModel, version) =>
         Effect.gen(function* smokeKev() {
           const port = yield* unusedLocalPort;
           const model = LOCAL_SYSTEM_ONE_RELEASE.models[selectedModel];
@@ -259,7 +259,7 @@ export const LocalSystemOneLive = Layer.effect(
                 "-m",
                 "kev.serve",
                 "--run",
-                `${model.id}@${model.revision}`,
+                `${model.id}@${version.nevRevision}`,
                 "--host",
                 "127.0.0.1",
                 "--port",
