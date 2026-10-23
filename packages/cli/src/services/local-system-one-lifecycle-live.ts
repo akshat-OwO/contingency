@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { open, rm } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import path from "node:path";
 
-import { Clock, Effect, Layer, Schema } from "effect";
+import { Clock, Effect, FileSystem, Layer, Schema } from "effect";
 
 import {
   LocalSystemOneLifecycle,
@@ -26,6 +26,7 @@ export const LocalSystemOneLifecycleLive = Layer.effect(
   LocalSystemOneLifecycle,
   Effect.gen(function* lifecycleLive() {
     const local = yield* LocalSystemOne;
+    const fs = yield* FileSystem.FileSystem;
     return makeLocalSystemOneLifecycle({
       alive: (server) =>
         supervisorAlive(server).pipe(
@@ -157,13 +158,11 @@ export const LocalSystemOneLifecycleLive = Layer.effect(
       stop: (server) =>
         stopLocalSystemOneProcesses(server).pipe(
           Effect.andThen(
-            Effect.tryPromise({
-              catch: localSystemOneError,
-              try: () =>
-                rm(path.join(local.dataDirectory, "server.pid.json"), {
-                  force: true,
-                }),
-            })
+            fs
+              .remove(path.join(local.dataDirectory, "server.pid.json"), {
+                force: true,
+              })
+              .pipe(Effect.mapError(localSystemOneError))
           )
         ),
     });

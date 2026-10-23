@@ -18,7 +18,6 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
   prepareLocalSystemOneLock,
-  recoverLegacyLocalSystemOneLock,
   withLocalSystemOneLock,
 } from "./local-system-one-lock.ts";
 import {
@@ -211,7 +210,7 @@ export const LocalSystemOneLive = Layer.effect(
           return yield* withLocalSystemOneLock(
             python,
             `${root}.mutation-lock`,
-            recoverLegacyLocalSystemOneLock(root).pipe(Effect.andThen(body))
+            body
           );
         }),
       mkdir: (directory, exclusive = false) =>

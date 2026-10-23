@@ -1,10 +1,9 @@
-import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { readFile } from "node:fs/promises";
 import net from "node:net";
-import { promisify } from "node:util";
 
-import { Effect, Schedule, Schema } from "effect";
+import { NodeServices } from "@effect/platform-node";
+import { Effect, FileSystem, Schedule, Schema } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import type { LocalSystemOneServer } from "./local-system-one-lifecycle.ts";
 import {
@@ -12,18 +11,32 @@ import {
   LocalSystemOneError,
 } from "./local-system-one.ts";
 
-const execute = promisify(execFile);
 export const localSystemOneOutput = (
   command: string,
   args: readonly string[]
 ) =>
-  Effect.tryPromise({
-    catch: localSystemOneError,
-    try: async (signal) => {
-      const result = await execute(command, args, { signal });
-      return result.stdout.trim();
-    },
-  });
+  ChildProcessSpawner.ChildProcessSpawner.pipe(
+    Effect.flatMap((spawner) =>
+      spawner.string(
+        ChildProcess.make(command, [...args], {
+          stderr: "ignore",
+          stdin: "ignore",
+        })
+      )
+    )
+  ).pipe(
+    Effect.map((text) => text.trim()),
+    Effect.mapError(localSystemOneError),
+    Effect.provide(NodeServices.layer)
+  );
+
+const readSystemFile = (file: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.readFileString(file))
+  ).pipe(
+    Effect.mapError(localSystemOneError),
+    Effect.provide(NodeServices.layer)
+  );
 
 export const processIdentity = (pid: number) =>
   localSystemOneOutput("ps", ["-p", String(pid), "-o", "lstart="]).pipe(
@@ -170,19 +183,13 @@ export const localSystemOneMemoryPressure = Effect.gen(
       ]);
       return Number(level) !== 1;
     }
-    const contents = yield* Effect.tryPromise({
-      catch: localSystemOneError,
-      try: () => readFile("/proc/meminfo", "utf-8"),
-    });
+    const contents = yield* readSystemFile("/proc/meminfo");
     const available = Number(
       /MemAvailable:\s+(?<available>\d+)/u.exec(contents)?.groups?.[
         "available"
       ] ?? 0
     );
-    const pressure = yield* Effect.tryPromise({
-      catch: localSystemOneError,
-      try: () => readFile("/proc/pressure/memory", "utf-8"),
-    });
+    const pressure = yield* readSystemFile("/proc/pressure/memory");
     const stalled = Number(
       /some avg10=(?<stalled>[\d.]+)/u.exec(pressure)?.groups?.["stalled"] ??
         100

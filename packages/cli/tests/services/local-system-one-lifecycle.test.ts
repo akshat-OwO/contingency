@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,10 +15,7 @@ import type {
   LocalSystemOneLifecycleIO,
   LocalSystemOneServer,
 } from "../../src/services/local-system-one-lifecycle.ts";
-import {
-  recoverLegacyLocalSystemOneLock,
-  withLocalSystemOneLock,
-} from "../../src/services/local-system-one-lock.ts";
+import { withLocalSystemOneLock } from "../../src/services/local-system-one-lock.ts";
 import {
   LocalSystemOneError,
   makeLocalSystemOne,
@@ -287,39 +284,4 @@ it.effect("counts launch failures toward the persisted crash limit", () =>
       expect.unreachable("automatic starts must stay disabled");
     }
   })
-);
-
-it.effect("recovers the abandoned slice-one directory lock", () =>
-  Effect.gen(function* legacyLock() {
-    const directory = yield* Effect.acquireRelease(
-      Effect.promise(() =>
-        mkdtemp(path.join(os.tmpdir(), "system-one-legacy-"))
-      ),
-      (dir) => Effect.promise(() => rm(dir, { force: true, recursive: true }))
-    );
-    const root = path.join(directory, "system-one");
-    yield* Effect.promise(() => mkdir(`${root}.lock`));
-    const busy = yield* Effect.result(
-      recoverLegacyLocalSystemOneLock(
-        root,
-        Effect.succeed("999999 /usr/bin/node contingency system-one setup")
-      )
-    );
-    expect(Result.isFailure(busy)).toBe(true);
-    yield* Effect.promise(() => access(`${root}.lock`));
-    yield* withLocalSystemOneLock(
-      "python3",
-      `${root}.mutation-lock`,
-      recoverLegacyLocalSystemOneLock(root, Effect.succeed(""))
-    );
-    const exists = yield* Effect.promise(async () => {
-      try {
-        await access(`${root}.lock`);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    expect(exists).toBe(false);
-  }).pipe(Effect.scoped, Effect.timeout("30 seconds"))
 );

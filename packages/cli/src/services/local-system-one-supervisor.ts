@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { open, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
-import { Clock, Effect, Schedule, Schema } from "effect";
+import { Clock, Effect, FileSystem, Schedule, Schema, Sink } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { makeLocalSystemOneIdle } from "./local-system-one-idle.ts";
 import { localSystemOneEnvironment } from "./local-system-one-live.ts";
@@ -26,6 +25,8 @@ const promise = <A>(run: (signal: AbortSignal) => Promise<A>) =>
 /** No CLI registration: index dispatches this private entry before Command.run. */
 export const superviseLocalSystemOne = Effect.gen(function* supervise() {
   const local = yield* LocalSystemOne;
+  const fs = yield* FileSystem.FileSystem;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const installed = yield* local.status;
   if (installed === undefined) {
     return yield* new LocalSystemOneError({
@@ -41,15 +42,16 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
       const idle = yield* makeLocalSystemOneIdle;
       const clock = yield* Clock.Clock;
       const kevPort = yield* unusedLocalPort;
-      const log = yield* Effect.acquireRelease(
-        promise(() =>
-          open(path.join(local.dataDirectory, "server.log"), "a", 0o600)
-        ),
-        (file) => Effect.promise(() => file.close())
-      );
-      const child = yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          spawn(
+      const logSink = () =>
+        fs
+          .sink(path.join(local.dataDirectory, "server.log"), {
+            flag: "a",
+            mode: 0o600,
+          })
+          .pipe(Sink.as(new Uint8Array()));
+      const child = yield* spawner
+        .spawn(
+          ChildProcess.make(
             python,
             [
               "-m",
@@ -65,49 +67,19 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
               cwd: path.join(directory, "kev"),
               detached: true,
               env: localSystemOneEnvironment(directory),
-              stdio: ["ignore", log.fd, log.fd],
+              extendEnv: false,
+              killSignal: "SIGKILL",
+              stderr: logSink(),
+              stdin: "ignore",
+              stdout: logSink(),
             }
           )
-        ),
-        (kev) =>
-          Effect.promise(async () => {
-            if (kev.exitCode !== null || kev.signalCode !== null) {
-              return;
-            }
-            const closed = once(kev, "close");
-            if (kev.pid !== undefined) {
-              try {
-                process.kill(-kev.pid, "SIGKILL");
-              } catch (error) {
-                if (
-                  !(
-                    error instanceof Error &&
-                    "code" in error &&
-                    error.code === "ESRCH"
-                  )
-                ) {
-                  throw error;
-                }
-              }
-            }
-            await closed;
-          })
+        )
+        .pipe(Effect.mapError(localSystemOneError));
+      const exited = child.exitCode.pipe(
+        Effect.as(true),
+        Effect.mapError(localSystemOneError)
       );
-      const exited = Effect.callback<boolean, LocalSystemOneError>((resume) => {
-        if (child.exitCode !== null || child.signalCode !== null) {
-          resume(Effect.succeed(true));
-          return;
-        }
-        const onExit = () => resume(Effect.succeed(true));
-        const onError = (error: Error) =>
-          resume(Effect.fail(localSystemOneError(error)));
-        child.once("exit", onExit);
-        child.once("error", onError);
-        return Effect.sync(() => {
-          child.removeListener("exit", onExit);
-          child.removeListener("error", onError);
-        });
-      });
       const proxy = http.createServer((request, response) => {
         // A private, read-only metrics endpoint does not count as a model request.
         if (
@@ -178,11 +150,6 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
       const address = yield* Schema.decodeUnknownEffect(
         Schema.Struct({ port: Schema.Int })
       )(proxy.address()).pipe(Effect.mapError(localSystemOneError));
-      if (child.pid === undefined) {
-        return yield* new LocalSystemOneError({
-          message: "Supervisor failed to bind its forwarder or start Kev.",
-        });
-      }
       const server = {
         kevPid: child.pid,
         kevPort,
@@ -204,11 +171,11 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
       };
       yield* local.writeState(initial);
       const pidfile = path.join(local.dataDirectory, "server.pid.json");
-      yield* promise(() =>
-        writeFile(pidfile, JSON.stringify(server), { mode: 0o600 })
-      );
+      yield* fs
+        .writeFileString(pidfile, JSON.stringify(server), { mode: 0o600 })
+        .pipe(Effect.mapError(localSystemOneError));
       yield* Effect.addFinalizer(() =>
-        promise(() => rm(pidfile, { force: true })).pipe(Effect.orDie)
+        fs.remove(pidfile, { force: true }).pipe(Effect.orDie)
       );
       // Parent holds the mutation lock until this acknowledgement. Readiness is separate.
       yield* Effect.callback<boolean, LocalSystemOneError>((resume) => {
