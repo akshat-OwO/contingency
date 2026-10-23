@@ -101,6 +101,7 @@ export interface TeachingRecordingDryRunReport extends TeachingRecordingMutation
 }
 
 export interface TeachingRecordingStop extends TeachingRecordingMutation {
+  readonly approvedHosts?: readonly string[];
   /** Runtime requirements finalized from the completed Teaching evidence. */
   readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly artifacts: readonly TeachingRecordingArtifact[];
@@ -861,10 +862,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             eventOrigin: origin,
             lifecycle,
           };
+          const scoped =
+            input.approvedHosts === undefined
+              ? finalized
+              : { ...finalized, approvedHosts: input.approvedHosts };
           const ready = yield* validateArtifactPaths(
             input.runtime === undefined
-              ? finalized
-              : { ...finalized, runtime: input.runtime }
+              ? scoped
+              : { ...scoped, runtime: input.runtime }
           );
           return yield* persist(
             withReceipt(

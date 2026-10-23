@@ -111,7 +111,7 @@ it.effect(
 );
 
 it.effect(
-  "releases policy state without breaking pending-decision scans of ended sessions",
+  "releases policy state but retains hosts for recording finalization",
   () =>
     withBoundary((boundary) =>
       Effect.sync(() => {
@@ -119,6 +119,7 @@ it.effect(
         boundary.dispose();
         expect(boundary.pending()).toBeUndefined();
         expect(boundary.allows("https://shop.example")).toBe(false);
+        expect(boundary.hosts()).toEqual(["shop.example", "*.trusted.example"]);
       })
     )
 );

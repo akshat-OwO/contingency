@@ -2,6 +2,7 @@ import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
 import {
+  ContingencyRpcs,
   FlowSkillName,
   OperationId,
   TeachingRecordingManifest,
@@ -18,6 +19,7 @@ import {
   Stream,
 } from "effect";
 import type { PlatformError } from "effect";
+import { RpcTest } from "effect/rpc";
 import { yauzl } from "playwright-core/lib/utilsBundle";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
@@ -33,6 +35,7 @@ import {
   catalogTool,
   findNode,
   makeCall,
+  requireBoundaryDecision,
   sessionTool,
   teachingRecordingTool,
 } from "./agent-harness.ts";
@@ -308,18 +311,12 @@ it.live(
         if (decision === undefined) {
           return yield* Effect.die("No domain decision");
         }
-        const hostApproval = yield* Effect.flip(
-          sessions.resolvePendingDecision({
-            decision: "allow",
-            operationId: operation("host-approval"),
-            pendingDecisionId: decision.pendingDecisionId,
-          })
-        );
-        expect(hostApproval).toMatchObject({
-          code: "agent_session_invalid",
-          message: expect.stringContaining("new hosts"),
+        yield* sessions.resolvePendingDecision({
+          decision: "allow",
+          operationId: operation("host-approval"),
+          pendingDecisionId: decision.pendingDecisionId,
         });
-        // Session closure must drain a partial recording, even without Stop.
+        // Closing before resume retains an approved but unvisited host.
         const closed = yield* sessionTool("agent_session_close", {
           operationId: operation("close"),
           sessionId: started.id,
@@ -337,6 +334,7 @@ it.live(
           )
         );
         expect(manifest.origin).toBe("guided-run");
+        expect(manifest.approvedHosts).toEqual(["127.0.0.1", "localhost"]);
         const claimOperationId = operation("claim");
         yield* teachingRecordingTool("agent_teaching_recording_claim", {
           action: "take",
@@ -835,4 +833,189 @@ inputs:
       Effect.provide(NodeServices.layer),
       Effect.timeout("60 seconds")
     )
+);
+
+it.live(
+  "Guided Run approved scope survives learning and bounds its Dry Run",
+  () =>
+    Effect.gen(function* approvedScope() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "guided-hosts-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.gen(function* approveAndLearn() {
+        const sessions = yield* AgentSession;
+        const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const url = fixtures.url("agent-boundary-frame.html");
+        const second = url.replace("127.0.0.1", "localhost");
+        const third = "http://unapproved.example/";
+        const started = yield* sessionTool("agent_guided_run_start", {
+          name: FlowSkillName.make("guided-hosts"),
+          operationId: operation("start"),
+          url,
+          viewport: agentViewport,
+        });
+        const sessionId = started.id;
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("Missing recording");
+        }
+        yield* sessionTool("agent_teaching_setup_handoff", {
+          operationId: operation("handoff"),
+          sessionId,
+        });
+        yield* sessions.startTeachingRecording(sessionId, operation("record"));
+        yield* sessionTool("agent_browser_snapshot", { sessionId });
+        // The fixture embeds a third-party frame, which does not grow the scope.
+        expect(fixtures.requests).toContain("/outside-frame.html");
+        expect((yield* sessions.get(sessionId)).boundary).toBeNull();
+        const paused = yield* sessionTool("agent_browser_act", {
+          action: { type: "navigate", url: second },
+          intent: { irreversible: true },
+          operationId: operation("second"),
+          sessionId,
+        });
+        expect(paused.entry.dispatched).toBe(false);
+        const boundaryId = paused.intervention?.id ?? "missing";
+        const pending = requireBoundaryDecision(
+          yield* sessions.get(sessionId),
+          boundaryId
+        );
+        expect(pending.scopeSummary).toContain("localhost");
+        expect(pending.scopeSummary).toContain("Flow Skill");
+        expect((yield* sessions.get(sessionId)).currentUrl).toBe(url);
+        const approval = {
+          decision: "allow" as const,
+          operationId: operation("approve"),
+          pendingDecisionId: pending.pendingDecisionId,
+          sessionId,
+        };
+        yield* client("agent.boundary.decision", approval);
+        yield* client("agent.boundary.decision", approval);
+        const confirmation = yield* sessionTool("agent_browser_resume", {
+          boundaryId,
+          sessionId,
+        });
+        expect(confirmation.entry.dispatched).toBe(false);
+        expect(confirmation.intervention?.reason).toBe("confirmation");
+        const confirmationId = confirmation.intervention?.id ?? "missing";
+        const confirm = requireBoundaryDecision(
+          yield* sessions.get(sessionId),
+          confirmationId
+        );
+        yield* sessions.resolvePendingDecision({
+          decision: "allow",
+          operationId: operation("confirm"),
+          pendingDecisionId: confirm.pendingDecisionId,
+        });
+        const resumed = yield* sessionTool("agent_browser_resume", {
+          boundaryId: confirmationId,
+          sessionId,
+        });
+        expect(resumed.entry.outcome).toBe("completed");
+        expect(resumed.url).toBe(second);
+        expect(
+          (yield* sessionTool("agent_browser_resume", {
+            boundaryId: confirmationId,
+            sessionId,
+          })).entry.id
+        ).toBe(resumed.entry.id);
+        for (const [index, destination] of [url, second].entries()) {
+          const visit = yield* sessionTool("agent_browser_act", {
+            action: { type: "navigate", url: destination },
+            operationId: operation(`revisit-${index}`),
+            sessionId,
+          });
+          expect(visit.entry.outcome).toBe("completed");
+          expect(visit.intervention).toBeUndefined();
+        }
+        const denied = yield* sessionTool("agent_browser_act", {
+          action: { type: "navigate", url: third },
+          operationId: operation("third"),
+          sessionId,
+        });
+        const deniedId = denied.intervention?.id ?? "missing";
+        const deny = requireBoundaryDecision(
+          yield* sessions.get(sessionId),
+          deniedId
+        );
+        yield* sessions.resolvePendingDecision({
+          decision: "refuse",
+          operationId: operation("refuse"),
+          pendingDecisionId: deny.pendingDecisionId,
+        });
+        const refusal = yield* Effect.flip(
+          sessionTool("agent_browser_resume", {
+            boundaryId: deniedId,
+            sessionId,
+          })
+        );
+        expect(refusal.code).toBe("agent_session_conflict");
+        expect(refusal.message).toContain("refused");
+        expect((yield* sessions.get(sessionId)).currentUrl).toBe(second);
+        yield* sessions.stopTeachingRecording(sessionId, operation("stop"));
+        const manifest = Schema.decodeUnknownSync(TeachingRecordingManifest)(
+          JSON.parse(
+            yield* fs.readFileString(
+              path.join(root, ".recordings", recordingId, "manifest.json")
+            )
+          )
+        );
+        expect(manifest).toHaveProperty("approvedHosts", [
+          "127.0.0.1",
+          "localhost",
+        ]);
+        const claimOperationId = operation("claim");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId,
+        });
+        yield* teachingRecordingTool("agent_flow_skill_save", {
+          claimOperationId,
+          files: [
+            {
+              content: `---
+name: guided-hosts
+description: Inspect the fixture across its approved hosts.
+inputs:
+---
+
+# Inspect the fixture
+
+1. Open the fixture on localhost. Done when: the fixture page appears.
+`,
+              path: "SKILL.md",
+            },
+          ],
+          operationId: operation("save"),
+          recordingId,
+        });
+        const saved = yield* fs.readFileString(
+          path.join(root, "guided-hosts", "SKILL.md")
+        );
+        expect(saved).toContain("hosts:\n  - 127.0.0.1\n  - localhost");
+        expect(saved).not.toContain("unapproved.example");
+        const dry = yield* teachingRecordingTool(
+          "agent_flow_skill_dry_run_start",
+          { inputs: [], operationId: operation("dry"), recordingId, url }
+        );
+        const drySecond = yield* sessionTool("agent_browser_act", {
+          action: { type: "navigate", url: second },
+          operationId: operation("dry-second"),
+          sessionId: dry.session.id,
+        });
+        expect(drySecond.intervention).toBeUndefined();
+        const dryThird = yield* sessionTool("agent_browser_act", {
+          action: { type: "navigate", url: third },
+          operationId: operation("dry-third"),
+          sessionId: dry.session.id,
+        });
+        expect(dryThird.intervention?.reason).toBe("domain");
+        expect(dryThird.entry.dispatched).toBe(false);
+      }).pipe(Effect.provide(agentProcessLayer(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

@@ -74,8 +74,14 @@ export interface ExecutionBoundary {
   readonly dispose: () => void;
 }
 
-const scopeSummary = (boundary: AgentExecutionBoundary): string => {
+const scopeSummary = (
+  boundary: AgentExecutionBoundary,
+  scope: "interactive" | "dry-run" | "guided-run"
+): string => {
   if (boundary.reason === "domain") {
+    if (scope === "guided-run") {
+      return `Allow the exact host ${webHost(boundary.requested) ?? boundary.requested} for this Guided Run and its saved Flow Skill. After Allow, resume this boundary with agent_browser_resume.`;
+    }
     return `Allow ${boundary.requested} for this Run. The saved Domain Scope stays unchanged.`;
   }
   const what =
@@ -105,11 +111,12 @@ export const makeExecutionBoundary = (options: {
   readonly hosts: readonly string[];
   readonly sessionId: AgentSessionId;
   readonly now: () => Date;
-  readonly scope: "interactive" | "dry-run";
+  readonly scope: "interactive" | "dry-run" | "guided-run";
 }): ExecutionBoundary => {
   const registry = AtomRegistry.make();
   const fixedHosts = new Set(options.hosts.map((host) => host.toLowerCase()));
   let disposed = false;
+  let finalHosts: readonly string[] = [];
   const state = Atom.make<BoundaryState>({
     grants: new Set<string>(),
     hosts: new Set(options.hosts.map((host) => host.toLowerCase())),
@@ -130,7 +137,7 @@ export const makeExecutionBoundary = (options: {
         pendingDecisionId: AgentPendingDecisionId.make(
           `pending-${randomUUID()}`
         ),
-        scopeSummary: scopeSummary(boundary),
+        scopeSummary: scopeSummary(boundary, options.scope),
         sessionId: options.sessionId,
         variable: null,
       },
@@ -269,10 +276,15 @@ export const makeExecutionBoundary = (options: {
         )
       ),
     dispose: () => {
+      if (disposed) {
+        return;
+      }
+      // The browser may close before its recording finishes finalizing.
+      finalHosts = [...registry.get(state).hosts];
       disposed = true;
       registry.dispose();
     },
-    hosts: () => [...registry.get(state).hosts],
+    hosts: () => (disposed ? finalHosts : [...registry.get(state).hosts]),
     invalidateAttempts: () =>
       registry.update(state, (current) => ({
         ...current,
