@@ -8,6 +8,8 @@ import packageJson from "../package.json" with { type: "json" };
 import { commands } from "./cmds/index.ts";
 import { AgentHarnessesLive } from "./services/agent-harnesses.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
+import { LocalSystemOneLive } from "./services/local-system-one-live.ts";
+import { superviseLocalSystemOne } from "./services/local-system-one-supervisor.ts";
 import { PlatformRuntimeFactoryLive } from "./services/platform-runtime-live.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
@@ -60,7 +62,7 @@ const onFirstSignal = (): void => {
 process.on("SIGINT", onFirstSignal);
 process.on("SIGTERM", onFirstSignal);
 
-Command.run(commands, { version: packageJson.version }).pipe(
-  Effect.provide(servicesLayer),
-  NodeRuntime.runMain
-);
+(process.argv[2] === "system-one" && process.argv[3] === "__supervise"
+  ? superviseLocalSystemOne.pipe(Effect.provide(LocalSystemOneLive))
+  : Command.run(commands, { version: packageJson.version })
+).pipe(Effect.provide(servicesLayer), NodeRuntime.runMain);

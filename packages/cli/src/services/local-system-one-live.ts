@@ -1,7 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { once } from "node:events";
 import { createReadStream, createWriteStream } from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -18,6 +16,15 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import {
+  prepareLocalSystemOneLock,
+  recoverLegacyLocalSystemOneLock,
+  withLocalSystemOneLock,
+} from "./local-system-one-lock.ts";
+import {
+  stopLocalSystemOneProcesses,
+  unusedLocalPort,
+} from "./local-system-one-process.ts";
 import { LOCAL_SYSTEM_ONE_RELEASE } from "./local-system-one-release.ts";
 import {
   LocalSystemOne,
@@ -36,8 +43,6 @@ export const localSystemOneEnvironment = (
 ) => ({
   HF_HOME: path.join(directory, "cache", "huggingface"),
   HOME: process.env.HOME,
-  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
-  UV_PYTHON_INSTALL_DIR: process.env.UV_PYTHON_INSTALL_DIR,
   KEV_API_KEY: "",
   LANG: process.env.LANG,
   PATH: process.env.PATH,
@@ -49,8 +54,10 @@ export const localSystemOneEnvironment = (
   UV_PROJECT_ENVIRONMENT: path.join(directory, "kev", ".venv"),
   UV_PYTHON: python,
   UV_PYTHON_DOWNLOADS: "never",
+  UV_PYTHON_INSTALL_DIR: process.env.UV_PYTHON_INSTALL_DIR,
   UV_PYTHON_PREFERENCE: "system",
   XDG_CACHE_HOME: path.join(directory, "cache"),
+  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
 });
 
 const smokeRequest: SystemOneRequest = {
@@ -74,26 +81,6 @@ const smokeRequest: SystemOneRequest = {
 
 const promise = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ catch: localSystemOneError, try: run });
-
-const freePort = promise(async (signal) => {
-  const server = net.createServer();
-  try {
-    const listening = once(server, "listening", { signal });
-    server.listen(0, "127.0.0.1");
-    await listening;
-    const address = server.address();
-    // This server binds only an IP address. Parse Node's union at its boundary.
-    return Schema.decodeUnknownSync(Schema.Struct({ port: Schema.Int }))(
-      address
-    ).port;
-  } finally {
-    if (server.listening) {
-      const closed = once(server, "close");
-      server.close();
-      await closed;
-    }
-  }
-});
 
 export const LocalSystemOneLive = Layer.effect(
   LocalSystemOne,
@@ -137,6 +124,11 @@ export const LocalSystemOneLive = Layer.effect(
           });
         }
       }).pipe(Effect.mapError(localSystemOneError));
+    const root = localSystemOneDirectory(
+      process.platform,
+      os.homedir(),
+      process.env.XDG_DATA_HOME
+    );
     return makeLocalSystemOne({
       arch: process.arch,
       download: (url, file) =>
@@ -194,6 +186,23 @@ export const LocalSystemOneLive = Layer.effect(
             python
           );
         }).pipe(Effect.mapError(localSystemOneError)),
+      lock: (body) =>
+        Effect.gen(function* mutationLock() {
+          yield* prepareLocalSystemOneLock(root);
+          const python = (yield* output("uv", [
+            "python",
+            "find",
+            "--python-preference",
+            "system",
+            "--no-python-downloads",
+            ">=3.12,<3.14",
+          ])).trim();
+          return yield* withLocalSystemOneLock(
+            python,
+            `${root}.mutation-lock`,
+            recoverLegacyLocalSystemOneLock(root).pipe(Effect.andThen(body))
+          );
+        }),
       mkdir: (directory, exclusive = false) =>
         fs
           .makeDirectory(directory, { mode: 0o700, recursive: !exclusive })
@@ -230,7 +239,7 @@ export const LocalSystemOneLive = Layer.effect(
         }),
       smoke: (directory, selectedModel) =>
         Effect.gen(function* smokeKev() {
-          const port = yield* freePort;
+          const port = yield* unusedLocalPort;
           const model = LOCAL_SYSTEM_ONE_RELEASE.models[selectedModel];
           const log = path.join(directory, "server.log");
           const child = yield* spawner.spawn(
@@ -307,49 +316,7 @@ export const LocalSystemOneLive = Layer.effect(
           Effect.scoped,
           Effect.mapError(localSystemOneError)
         ),
-      stop: (server, directory) =>
-        Effect.gen(function* stopRecordedServer() {
-          const identity = yield* output("ps", [
-            "-p",
-            String(server.pid),
-            "-o",
-            "lstart=",
-          ]);
-          if (identity.trim() === "") {
-            return;
-          }
-          const args = yield* output("ps", [
-            "-p",
-            String(server.pid),
-            "-o",
-            "args=",
-          ]);
-          if (
-            identity.trim() !== server.startIdentity ||
-            !args.includes(
-              path.join(directory, "kev", ".venv", "bin", "python")
-            ) ||
-            !args.includes("-m kev.serve")
-          ) {
-            return yield* new LocalSystemOneError({
-              message: `Refusing to stop PID ${server.pid}: process identity does not match the recorded Kev server.`,
-            });
-          }
-          yield* Effect.try({
-            catch: localSystemOneError,
-            try: () => process.kill(server.pid, "SIGKILL"),
-          });
-          yield* output("ps", ["-p", String(server.pid), "-o", "stat="]).pipe(
-            Effect.filterOrFail(
-              (value) => value.trim() === "" || value.trim().startsWith("Z"),
-              () =>
-                new LocalSystemOneError({
-                  message: `PID ${server.pid} has not stopped.`,
-                })
-            ),
-            Effect.retry({ schedule: Schedule.spaced("100 millis"), times: 50 })
-          );
-        }),
+      stop: (server) => stopLocalSystemOneProcesses(server),
       write: (file, content) =>
         fs
           .writeFileString(file, content, { flag: "wx", mode: 0o600 })

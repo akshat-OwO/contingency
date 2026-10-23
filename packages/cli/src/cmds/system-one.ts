@@ -1,6 +1,8 @@
-import { Console, Effect } from "effect";
+import { Console, Effect, Layer } from "effect";
 import { Command, Flag, Prompt } from "effect/cli";
 
+import { LocalSystemOneLifecycleLive } from "../services/local-system-one-lifecycle-live.ts";
+import { LocalSystemOneLifecycle } from "../services/local-system-one-lifecycle.ts";
 import { LocalSystemOneLive } from "../services/local-system-one-live.ts";
 import {
   LOCAL_SYSTEM_ONE_MODELS,
@@ -12,12 +14,12 @@ import {
 } from "../services/local-system-one.ts";
 
 const status = Effect.gen(function* showLocalSystemOne() {
-  const local = yield* LocalSystemOne;
-  const state = yield* local.status;
+  const lifecycle = yield* LocalSystemOneLifecycle;
+  const { state, running, metrics } = yield* lifecycle.status;
   yield* Console.log(
     state === undefined
       ? "Local System One is not installed."
-      : `Model: ${state.current.model} (${state.current.modelId}@${state.current.nevRevision})\nKev: ${state.current.kevCommit}\nServer: not running`
+      : `Model: ${state.current.model} (${state.current.modelId}@${state.current.nevRevision})\nKev: ${state.current.kevCommit}\nServer: ${running ? state.server?.phase : "not running"}${running ? `\nPort: ${state.server?.port}\nPID: ${state.server?.pid}\nKev PID: ${state.server?.kevPid}\nMemory: ${metrics?.rssBytes ?? 0} bytes RSS\nIdle: ${Math.floor((metrics?.idleMs ?? 0) / 1000)} seconds` : ""}`
   );
 });
 
@@ -79,12 +81,35 @@ export const systemOneCommand = Command.make(
   () => status
 ).pipe(
   Command.withDescription(
-    "Set up, inspect, or remove the opt-in Local System One."
+    "Set up, run, inspect, or remove the opt-in Local System One."
   ),
   Command.withSubcommands([
     setup,
     Command.make("status", {}, () => status),
     remove,
+    Command.make("start", {}, () =>
+      Effect.gen(function* startFromTerminal() {
+        const lifecycle = yield* LocalSystemOneLifecycle;
+        const result = yield* lifecycle.start;
+        yield* Console.log(
+          "reason" in result
+            ? result.reason
+            : `Local System One ${result.started ? "starting" : result.server.phase} on http://127.0.0.1:${result.server.port} (PID ${result.server.pid}).`
+        );
+      })
+    ),
+    Command.make("stop", {}, () =>
+      Effect.gen(function* stopFromTerminal() {
+        const lifecycle = yield* LocalSystemOneLifecycle;
+        yield* lifecycle.stop;
+        yield* Console.log("Stopped Local System One.");
+      })
+    ),
   ]),
-  Command.provide(LocalSystemOneLive)
+  Command.provide(
+    Layer.merge(
+      LocalSystemOneLive,
+      LocalSystemOneLifecycleLive.pipe(Layer.provide(LocalSystemOneLive))
+    )
+  )
 );
