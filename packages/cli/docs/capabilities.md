@@ -35,6 +35,8 @@ The external agent can follow your Source Document in a browser with `agent_guid
 
 Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`. You can finish setup in Workspace and press **Start recording**. Setup actions stay outside the evidence. Start returns browser control to the agent, and its existing action tools record actor-marked actions. Workspace labels the session **Guided Run**. Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it. Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
 
+During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**. Capture continues with `actor: "user"` actions. Use the private Variable input to enter secrets, which appear as `{{name}}` references with their declarations. Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt. Your Takeover actions and answers outrank the agent's reading of the Source Document wherever they disagree. A question stays open if you Takeover instead of answering. A later fresh Dry Run can pass even though the Guided Run had a Takeover.
+
 During capture, the agent asks through `agent_guided_run_question_ask`. The **Guided Run questions** region keeps the question visible until you answer with **Send answer**, then reads back the pair. You can also answer in the agent conversation. The agent relays your words through `agent_teaching_instruction_record` with the question's `questionId`. A fresh second answer is refused. Replaying the same operation returns the first result.
 
 The Teaching Timeline keeps both Instructions in capture order. Each carries an `id` and `actor`; `dialogue._tag` identifies a question or answer, and an answer's `dialogue.questionId` links it to the question. A user answer has `actor: "user"`; an answer relayed by the agent has `actor: "agent"`. Older Instructions omit this metadata and remain user Instructions. A question with no linked answer remains unanswered evidence after Stop. `agent_session_get` with `afterCursor` waits for `question-answered`; its `name` is the question id. Up to 50 questions are retained per recording.
@@ -44,7 +46,7 @@ Current limits:
 - MCP starts Guided Runs; Workspace cannot start one. Android is refused.
 - Domain Scope is the starting host. Outside navigation pauses under the Execution Boundary; approving another host is unavailable.
 - Browser Modifications and System One Pursuits are refused, including during setup.
-- Takeover and converting document checks into requirements are later slices.
+- Converting document checks into requirements is a later slice.
 
 ## Dry Run
 

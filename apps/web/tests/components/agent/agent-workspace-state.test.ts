@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 
 import {
   adoptSessionSnapshot,
+  agentControlPresentation,
   agentSessionActivityLabel,
   agentSessionLabel,
 } from "@/components/agent/agent-workspace-state";
@@ -151,4 +152,28 @@ test("labels a Guided Run apart from Teaching and Dry Runs", () => {
   };
   expect(agentSessionActivityLabel(guided)).toBe("Guided Run");
   expect(agentSessionLabel(guided)).toBe("add-anvil · Guided Run");
+});
+
+test("offers exclusive control only during Guided Run capture", () => {
+  const session = teaching("2026-10-23T00:00:00.000Z", {
+    _tag: "recording",
+    startedAt: "2026-10-23T00:00:00.000Z",
+  });
+  expect(agentControlPresentation(session).action).toBeNull();
+  const guided = {
+    ...session,
+    controller: "agent" as const,
+    origin: "guided-run" as const,
+  };
+  expect(agentControlPresentation(guided).action).toBe("Take control");
+  expect(
+    agentControlPresentation({
+      ...guided,
+      controller: "user",
+      phase: "takeover",
+    }).action
+  ).toBe("Return control");
+  expect(
+    agentControlPresentation({ ...guided, phase: "closed" }).action
+  ).toBeNull();
 });

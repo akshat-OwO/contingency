@@ -24,6 +24,7 @@ import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { DemonstrationCounts } from "./teaching-capture.ts";
 import type { Demonstration } from "./teaching-demonstration.ts";
 import { makeTeachingEncoder } from "./teaching-encoder.ts";
+import { redactTeachingTrace } from "./teaching-trace.ts";
 
 const EVENT_FILE = "events.jsonl";
 const TRACE_FILE = "trace.zip";
@@ -107,6 +108,7 @@ export interface TeachingRecorderOptions {
   readonly fileSystem: FileSystem.FileSystem;
   readonly limits?: TeachingCaptureLimits | undefined;
   readonly startedAt: string;
+  readonly sensitiveValues?: () => readonly string[];
 }
 
 const observation = (
@@ -395,7 +397,9 @@ export const makeTeachingRecorder = (
             browserFailure("Could not start the Teaching Trace", cause),
           try: () =>
             target.context.tracing.start({
-              screenshots: true,
+              // Video and masked keyframes own images. Raw Trace screenshots
+              // bypass private-field masking and cannot be scrubbed as text.
+              screenshots: false,
               snapshots: true,
             }),
         }),
@@ -550,6 +554,13 @@ export const makeTeachingRecorder = (
               );
           }
           yield* Scope.close(scope, Exit.void);
+          yield* redactTeachingTrace(
+            traceFile,
+            options.sensitiveValues?.() ?? []
+          ).pipe(
+            Effect.tapError((cause) => Ref.set(failure, cause.message)),
+            Effect.ignore
+          );
           const encoderFailure = yield* encoder.failure;
           const duration =
             Date.parse(stoppedAt) - Date.parse(options.startedAt);

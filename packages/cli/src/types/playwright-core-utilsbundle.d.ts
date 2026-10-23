@@ -6,6 +6,7 @@ declare module "playwright-core/lib/utilsBundle" {
   }
 
   interface ReadZipFile {
+    readonly close: () => void;
     readonly eachEntry: () => AsyncIterable<ZipEntry>;
     readonly openReadStreamPromise: (entry: ZipEntry) => Promise<Readable>;
   }

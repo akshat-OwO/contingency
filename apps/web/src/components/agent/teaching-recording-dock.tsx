@@ -178,6 +178,8 @@ const CommentTrigger = ({
  */
 export const TeachingRecordingDock = ({
   browserFocused,
+  control,
+  controlStatus,
   captureState,
   cleanup,
   controller,
@@ -197,6 +199,8 @@ export const TeachingRecordingDock = ({
   sessions,
   skills = null,
 }: {
+  readonly control?: React.ReactNode;
+  readonly controlStatus?: string;
   /** Whether the live browser holds focus, which changes the shortcut hint. */
   readonly browserFocused: boolean;
   readonly captureState: TeachingCaptureState;
@@ -320,7 +324,7 @@ export const TeachingRecordingDock = ({
             timer tick: the elapsed clock owns its own leaf render.
           */}
           {origin === "guided-run" && captureState._tag === "recording"
-            ? "The agent is following your journey. Stop recording when finished."
+            ? controlStatus
             : presentation.nextStep}
         </DockStatus>
       }
@@ -364,6 +368,7 @@ export const TeachingRecordingDock = ({
           )}
         </Button>
       ))}
+      {control}
       {action === null ? null : (
         <Button
           aria-label={action.accessibleName}

@@ -183,7 +183,13 @@ export const agentControlPresentation = (
 ): AgentControlPresentation => {
   const { takeover } = session;
   const reason = takeoverReason(takeover);
-  if (session.activity === "teaching") {
+  if (
+    session.activity === "teaching" &&
+    !(
+      session.origin === "guided-run" &&
+      session.captureState._tag === "recording"
+    )
+  ) {
     if (session.controller === "agent") {
       return {
         action: null,

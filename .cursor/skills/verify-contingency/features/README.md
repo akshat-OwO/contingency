@@ -43,7 +43,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Guided Run](./workspace.md#guided-run) proves MCP start, setup exclusion, the user's Start, agent actions, Workspace and relayed answers, duplicate refusal, Session Event wakeup, unanswered evidence at Stop, actor-marked learning, save, and fresh Dry Run on the ecommerce fixture.
+- [Guided Run](./workspace.md#guided-run) proves MCP start, setup exclusion, the user's Start, agent actions, Workspace and relayed answers, duplicate refusal, Session Event wakeup, unanswered evidence at Stop, actor-marked agent and Takeover learning, private Variable capture, save, and fresh passing Dry Run on the ecommerce fixture.
 
 - [Android live stream](./workspace.md#android-live-stream) proves decoded Workspace frames, secure-window notices, authenticated view-only routing, hard-kill recovery, preserved session state, and stream cleanup on an explicitly selected device.
 

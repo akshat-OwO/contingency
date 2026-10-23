@@ -232,7 +232,7 @@ const AgentSessionStartTool = Tool.make("agent_session_start", {
 const AgentGuidedRunStartTool = Tool.make("agent_guided_run_start", {
   dependencies: [AgentSession],
   description:
-    "Start one browser Guided Run for one named Flow Skill. Only you read the Source Document; Contingency never receives, parses, stores, or links it, and the skill has no source field. For several journeys, propose a split and have the user pick one; start one run per skill. Follow nextAction. Prepare unrecorded setup, call agent_teaching_setup_handoff, then wait with agent_session_get for the user's Workspace Start. After Start, act with existing browser tools. Actions record their actor. Domain Scope is the starting host. Android, Browser Modifications, Pursuits, and Takeover are refused. Stop in Workspace or close to finalize a partial recording; claim, learn, save, and Dry Run as usual.",
+    "Start one browser Guided Run for one named Flow Skill. Only you read the Source Document; Contingency never receives, parses, stores, or links it, and the skill has no source field. For several journeys, propose a split and have the user pick one; start one run per skill. Follow nextAction. Prepare unrecorded setup, call agent_teaching_setup_handoff, then wait with agent_session_get for the user's Workspace Start. After Start, act with existing browser tools. Actions record their actor. Domain Scope is the starting host. Android, Browser Modifications, and Pursuits are refused. During capture you may request Takeover; the user takes and returns control in Workspace. Capture continues with actor: user actions and private Variable references. The user may Takeover instead of answering; the question stays open. User demonstrations and answers outrank the Source Document. Stop in Workspace or close to finalize a partial recording; claim, learn, save, and Dry Run as usual.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     emulation: AgentSessionStart.fields.emulation,
@@ -336,7 +336,7 @@ const AgentBrowserActSequenceTool = Tool.make("agent_browser_act_sequence", {
 const AgentTakeoverRequestTool = Tool.make("agent_session_takeover_request", {
   dependencies: [AgentSession],
   description:
-    "Ask the user to take control of an Interactive Run. This pauses agent actions and answers immediately with the Workspace link; only the user can return control. Teaching has no Takeover: hand a prepared Teaching setup to the user with agent_teaching_setup_handoff.",
+    "Ask the user to take control of an Interactive Run, Dry Run, or recording Guided Run. This pauses agent actions and answers immediately with the Workspace link; only the user can return control. User-led Teaching has no Takeover: hand a prepared Teaching setup to the user with agent_teaching_setup_handoff.",
   failure: AgentSessionFailure,
   parameters: AgentTakeoverParameters,
   success: SessionResult,
@@ -347,7 +347,7 @@ const AgentTeachingSetupHandoffTool = Tool.make(
   {
     dependencies: [AgentSession],
     description:
-      "Hand an agent-prepared Teaching browser to the user once setup is done. The user then starts recording and demonstrates the journey; you cannot act in this Teaching session again. Retrying answers with the same user-held session.",
+      "Hand an agent-prepared Teaching browser to the user once setup is done. The user then starts recording. User-led Teaching stays with the user; a Guided Run returns control to the agent at Start. Retrying answers with the same user-held session.",
     failure: AgentSessionFailure,
     parameters: AgentTeachingSetupHandoffParameters,
     success: SessionResult,
