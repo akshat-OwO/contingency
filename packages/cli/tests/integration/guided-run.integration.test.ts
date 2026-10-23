@@ -1,6 +1,7 @@
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
 
+import type { GuidedRunCheckProposal } from "@contingency/protocol";
 import {
   ContingencyRpcs,
   FlowSkillName,
@@ -37,6 +38,8 @@ import {
   makeCall,
   requireBoundaryDecision,
   sessionTool,
+  runTool,
+  startUserTeaching,
   teachingRecordingTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
@@ -1016,6 +1019,325 @@ inputs:
         });
         expect(dryThird.intervention?.reason).toBe("domain");
         expect(dryThird.entry.dispatched).toBe(false);
+      }).pipe(Effect.provide(agentProcessLayer(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "Guided Run checks require confirmation before recording, learning, and Run coverage",
+  () =>
+    Effect.gen(function* confirmedChecks() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "guided-checks-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.gen(function* captureChecks() {
+        const sessions = yield* AgentSession;
+        const started = yield* sessionTool("agent_guided_run_start", {
+          name: FlowSkillName.make("guided-checks"),
+          operationId: operation("start-checks"),
+          url: fixtures.url("delivery.html"),
+          viewport: agentViewport,
+        });
+        if (started.recordingId === null) {
+          return yield* Effect.die("No recording");
+        }
+        yield* sessionTool("agent_teaching_setup_handoff", {
+          operationId: operation("handoff-checks"),
+          sessionId: started.id,
+        });
+        yield* sessions.startTeachingRecording(
+          started.id,
+          operation("record-checks")
+        );
+        const scan = {
+          id: "cart-a11y",
+          mode: "accessibility" as const,
+          phase: "start" as const,
+        };
+        const check = {
+          change: "current" as const,
+          demonstrated: false,
+          expectation: {
+            itemPath: [],
+            predicates: [{ operator: "exists" as const, path: [] }],
+          },
+          id: "delivery-state",
+          kind: "local" as const,
+          name: "delivery",
+          origin: new URL(fixtures.url("delivery.html")).origin,
+          timeoutMs: 10_000,
+          when: "Delivery is selected",
+        };
+        const ask = (id: string, proposal: GuidedRunCheckProposal) =>
+          catalogTool("agent_guided_run_question_ask", {
+            operationId: operation(id),
+            proposal,
+            sessionId: started.id,
+            text: "When delivery is selected",
+          });
+        const proposed = yield* ask("scan-proposal", {
+          _tag: "scan",
+          reason: "The document requests accessibility",
+          scan,
+        });
+        const question = proposed.teaching?.instructions.at(-1);
+        if (question === undefined) {
+          return yield* Effect.die("No proposal");
+        }
+        expect(question.scan).toBeUndefined();
+        const noChoice = yield* Effect.flip(
+          catalogTool("agent_teaching_instruction_record", {
+            operationId: operation("no-choice"),
+            questionId: question.id,
+            sessionId: started.id,
+            text: "yes",
+          })
+        );
+        expect(noChoice.code).toBe("agent_session_invalid");
+        const answerParams = {
+          decision: "confirm" as const,
+          operationId: operation("confirm-scan"),
+          questionId: question.id,
+          sessionId: started.id,
+          text: "Confirmed",
+        };
+        const confirmed = yield* catalogTool(
+          "agent_teaching_instruction_record",
+          answerParams
+        );
+        expect(confirmed.teaching?.instructions.at(-1)).toMatchObject({
+          actor: "agent",
+          dialogue: {
+            _tag: "answer",
+            decision: "confirm",
+            questionId: question.id,
+          },
+          scan,
+        });
+        expect(
+          yield* catalogTool("agent_teaching_instruction_record", answerParams)
+        ).toEqual(confirmed);
+        expect(
+          (yield* Effect.flip(
+            catalogTool("agent_teaching_instruction_record", {
+              ...answerParams,
+              decision: "reject",
+              operationId: operation("second-choice"),
+            })
+          )).code
+        ).toBe("agent_session_conflict");
+        const browser = yield* ask("browser-proposal", {
+          _tag: "browser",
+          check,
+          reason: "The document requests delivery state",
+        });
+        const browserId = browser.teaching?.instructions.at(-1)?.id;
+        if (browserId === undefined) {
+          return yield* Effect.die("No Browser Check proposal");
+        }
+        const userConfirmed = yield* sessions.recordInstruction(
+          started.id,
+          "Confirmed",
+          operation("confirm-browser"),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          browserId,
+          "confirm"
+        );
+        expect(userConfirmed.teaching?.instructions.at(-1)).toMatchObject({
+          actor: "user",
+          attachments: [{ candidate: check, id: check.id, requirement: check }],
+        });
+        const rejected = yield* ask("reject-proposal", {
+          _tag: "scan",
+          reason: "Optional document check",
+          scan: { ...scan, id: "rejected" },
+        });
+        const rejectedId = rejected.teaching?.instructions.at(-1)?.id;
+        if (rejectedId === undefined) {
+          return yield* Effect.die("No rejected proposal");
+        }
+        yield* catalogTool("agent_teaching_instruction_record", {
+          decision: "reject",
+          operationId: operation("reject"),
+          questionId: rejectedId,
+          sessionId: started.id,
+          text: "Rejected",
+        });
+        yield* ask("unanswered-proposal", {
+          _tag: "browser",
+          check: { ...check, id: "unanswered" },
+          reason: "Another document check",
+        });
+        expect(
+          (yield* Effect.flip(
+            sessions.recordInstruction(
+              started.id,
+              "Bypass",
+              operation("bypass"),
+              undefined,
+              { ...scan, id: "bypass" }
+            )
+          )).code
+        ).toBe("agent_session_invalid");
+        yield* sessions.stopTeachingRecording(
+          started.id,
+          operation("stop-checks")
+        );
+        const claimOperationId = operation("claim-checks");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId: started.recordingId,
+        });
+        const timeline = yield* teachingRecordingTool(
+          "agent_teaching_timeline_get",
+          { claimOperationId, recordingId: started.recordingId }
+        );
+        const instructions = timeline.entries.filter(
+          (entry) => entry._tag === "instruction"
+        );
+        expect(
+          instructions.flatMap((entry) =>
+            entry.scan === undefined ? [] : [entry.scan]
+          )
+        ).toEqual([scan]);
+        expect(
+          instructions
+            .flatMap((entry) => entry.attachments ?? [])
+            .map((attachment) => attachment.requirement)
+        ).toEqual([check]);
+        expect(
+          instructions.filter((entry) => entry.dialogue?._tag === "question")
+        ).toHaveLength(4);
+        const files = [
+          {
+            content:
+              "---\nname: guided-checks\ndescription: Inspect delivery state.\ninputs:\n---\n\n# Inspect delivery\n\nRead [scans](references/scans.json) and [Browser Checks](references/browser-checks.json).\n\n1. Select delivery. Done when: delivery is selected. Perform cart-a11y and delivery-state.\n",
+            path: "SKILL.md",
+          },
+          {
+            content: JSON.stringify({
+              requirements: [
+                { id: scan.id, mode: scan.mode, when: "Delivery is selected" },
+              ],
+              schemaVersion: 1,
+            }),
+            path: "references/scans.json",
+          },
+          {
+            content: JSON.stringify({
+              requirements: [check],
+              schemaVersion: 1,
+            }),
+            path: "references/browser-checks.json",
+          },
+        ];
+        yield* teachingRecordingTool("agent_flow_skill_save", {
+          claimOperationId,
+          files,
+          operationId: operation("save-checks"),
+          recordingId: started.recordingId,
+        });
+        expect(
+          JSON.parse(
+            yield* fs.readFileString(
+              path.join(root, "guided-checks", "references/browser-checks.json")
+            )
+          )
+        ).toEqual({ requirements: [check], schemaVersion: 1 });
+        const invented = files.map((file) =>
+          file.path === "references/scans.json"
+            ? {
+                ...file,
+                content: JSON.stringify({
+                  requirements: [
+                    {
+                      id: "rejected",
+                      mode: "accessibility",
+                      when: "Delivery is selected",
+                    },
+                  ],
+                  schemaVersion: 1,
+                }),
+              }
+            : file
+        );
+        expect(
+          (yield* Effect.flip(
+            teachingRecordingTool("agent_flow_skill_save", {
+              claimOperationId,
+              files: invented,
+              operationId: operation("invent-checks"),
+              recordingId: started.recordingId,
+            })
+          )).code
+        ).toBe("teaching_recording_invalid");
+        const later = (yield* teachingRecordingTool(
+          "agent_flow_skill_dry_run_start",
+          {
+            inputs: [],
+            operationId: operation("later-run"),
+            recordingId: started.recordingId,
+            url: fixtures.url("delivery.html"),
+          }
+        )).session;
+        if (later.run === null || !("schemaVersion" in later.run)) {
+          return yield* Effect.die("Expected a task Run");
+        }
+        expect(later.run.scanRequirements).toEqual([
+          {
+            flowSkillName: "guided-checks",
+            id: "cart-a11y",
+            mode: "accessibility",
+            when: "Delivery is selected",
+          },
+        ]);
+        expect(later.run.scanReports ?? []).toEqual([]);
+        const scanned = yield* runTool("agent_run_scan", {
+          action: "start",
+          flowSkillName: FlowSkillName.make("guided-checks"),
+          operationId: operation("later-scan"),
+          requirementId: "cart-a11y",
+          sessionId: later.id,
+        });
+        if (scanned.run === null || !("schemaVersion" in scanned.run)) {
+          return yield* Effect.die("Expected a scanned task Run");
+        }
+        expect(scanned.run.scanReports).toMatchObject([
+          { requirementId: "cart-a11y", status: "completed" },
+        ]);
+        yield* sessionTool("agent_session_close", {
+          operationId: operation("later-close"),
+          sessionId: later.id,
+        });
+        const ordinary = yield* startUserTeaching({
+          activity: "teaching",
+          clientName: "checks-test",
+          clientVersion: "1",
+          name: FlowSkillName.make("ordinary-checks"),
+          operationId: operation("ordinary"),
+          url: fixtures.url("delivery.html"),
+          viewport: agentViewport,
+        });
+        yield* sessions.startTeachingRecording(
+          ordinary.id,
+          operation("ordinary-record")
+        );
+        expect(
+          (yield* Effect.flip(
+            catalogTool("agent_guided_run_question_ask", {
+              operationId: operation("outside-guided"),
+              proposal: { _tag: "scan", reason: "Document", scan },
+              sessionId: ordinary.id,
+              text: "Check delivery",
+            })
+          )).code
+        ).toBe("agent_session_invalid");
       }).pipe(Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

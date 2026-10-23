@@ -50,7 +50,8 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
 // The Android tools (about 7.3 KB) joined every catalog when Android left its opt-in (#489).
 // Guided Run start adds its strict input schema and lifecycle guidance (#528).
 // Guided Run questions add one tool and a questionId on the Instruction relay (#529).
-const CATALOG_BUDGET_BYTES = 96_000;
+// Confirmed checks reuse the typed BrowserCheck proposal schema (+6 KB, #532).
+const CATALOG_BUDGET_BYTES = 102_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([

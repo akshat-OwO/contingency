@@ -3,6 +3,8 @@ import type {
   AgentSessionId,
   AgentSessionSnapshot,
   TeachingInstruction,
+  GuidedRunCheckDecision,
+  GuidedRunCheckProposal,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { useEffect } from "react";
@@ -30,6 +32,31 @@ const questionAnswerState = retainedFamily(emptyAnswer);
 const answerKey = (sessionId: AgentSessionId, questionId: string) =>
   JSON.stringify([sessionId, questionId]);
 
+const CheckProposal = ({
+  proposal,
+}: {
+  readonly proposal: GuidedRunCheckProposal | undefined;
+}) => {
+  if (proposal === undefined) {
+    return null;
+  }
+  return (
+    <div className="space-y-1 text-sm">
+      <p>{proposal.reason}</p>
+      <p>
+        {proposal._tag === "scan"
+          ? `Scan: ${proposal.scan.mode}, ${proposal.scan.phase} (${proposal.scan.id})`
+          : "Browser Check"}
+      </p>
+      {proposal._tag === "browser" ? (
+        <pre className="max-h-48 overflow-auto text-xs whitespace-pre-wrap">
+          {JSON.stringify(proposal.check, null, 2)}
+        </pre>
+      ) : null}
+    </div>
+  );
+};
+
 const AnsweredQuestion = ({
   question,
   answer,
@@ -50,6 +77,21 @@ const AnsweredQuestion = ({
   return (
     <div className="text-sm">
       <p className="font-medium">{question.text}</p>
+      <CheckProposal
+        proposal={
+          question.dialogue?._tag === "question"
+            ? question.dialogue.proposal
+            : undefined
+        }
+      />
+      {answer.dialogue?._tag === "answer" &&
+      answer.dialogue.decision !== undefined ? (
+        <p>
+          {answer.dialogue.decision === "confirm"
+            ? "Check confirmed"
+            : "Check rejected"}
+        </p>
+      ) : null}
       <p>{answer.text}</p>
       <p className="text-muted-foreground text-xs">
         {answer.actor === "agent"
@@ -76,23 +118,35 @@ const QuestionAnswer = ({
   const [state, setState] = useAtom(
     questionAnswerState(answerKey(sessionId, question.id))
   );
-  const submit = async () => {
+  const proposal =
+    question.dialogue?._tag === "question"
+      ? question.dialogue.proposal
+      : undefined;
+  const submit = async (decision?: GuidedRunCheckDecision) => {
     if (
       state.pending ||
-      state.text.trim() === "" ||
-      state.operationId === null
+      (decision === undefined &&
+        (state.text.trim() === "" || state.operationId === null))
     ) {
       return;
     }
     setState((current) => ({ ...current, error: "", pending: true }));
     try {
+      const payload = {
+        operationId: state.operationId ?? OperationId.make(crypto.randomUUID()),
+        questionId: question.id,
+        sessionId,
+        text: state.text,
+      };
       await answer({
-        payload: {
-          operationId: state.operationId,
-          questionId: question.id,
-          sessionId,
-          text: state.text,
-        },
+        payload:
+          decision === undefined
+            ? payload
+            : {
+                ...payload,
+                decision,
+                text: { confirm: "Confirmed", reject: "Rejected" }[decision],
+              },
       });
       setState(emptyAnswer);
     } catch (error) {
@@ -103,22 +157,18 @@ const QuestionAnswer = ({
       }));
     }
   };
-  return (
-    <form
-      className="space-y-2"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        await submit();
-      }}
-    >
-      <label className="block text-sm font-medium" htmlFor={question.id}>
-        {question.text}
-      </label>
-      {closed ? (
+  const controls = () => {
+    if (closed) {
+      return (
         <p className="text-muted-foreground text-sm">
-          Unanswered when recording stopped
+          {proposal === undefined
+            ? "Unanswered when recording stopped"
+            : "Unconfirmed when recording stopped"}
         </p>
-      ) : (
+      );
+    }
+    if (proposal === undefined) {
+      return (
         <>
           <Textarea
             id={question.id}
@@ -141,7 +191,41 @@ const QuestionAnswer = ({
             Send answer
           </Button>
         </>
-      )}
+      );
+    }
+    return (
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          type="button"
+          disabled={state.pending}
+          onClick={() => submit("confirm")}
+        >
+          Confirm check
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          type="button"
+          disabled={state.pending}
+          onClick={() => submit("reject")}
+        >
+          Reject check
+        </Button>
+      </div>
+    );
+  };
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        await submit();
+      }}
+    >
+      <p className="text-sm font-medium">{question.text}</p>
+      <CheckProposal proposal={proposal} />
+      {controls()}
       {state.error === "" ? null : (
         <p role="alert" className="text-destructive text-sm">
           {state.error}

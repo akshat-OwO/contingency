@@ -1149,6 +1149,55 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
 });
 
+test.each(["confirm", "reject"] as const)(
+  "%s a Guided Run check with an explicit choice",
+  async (decision) => {
+    const user = userEvent.setup();
+    const question = {
+      actor: "agent",
+      at: "2026-08-31T00:00:02.000Z",
+      dialogue: {
+        _tag: "question",
+        proposal: {
+          _tag: "scan",
+          reason: "The document requests a cart scan",
+          scan: { id: "cart-a11y", mode: "accessibility", phase: "start" },
+        },
+      },
+      id: "check-proposal",
+      target: null,
+      text: "When the cart opens",
+    };
+    const guided = {
+      ...teachingRecording,
+      origin: "guided-run",
+      teaching: {
+        actionCount: 0,
+        instructionCount: 1,
+        instructions: [question],
+      },
+    };
+    renderWorkspace(resultFor([guided]), session.id);
+    const region = await screen.findByRole("region", {
+      name: "Guided Run questions",
+    });
+    expect(
+      within(region).getByText("The document requests a cart scan")
+    ).toBeVisible();
+    expect(within(region).queryByRole("textbox")).toBeNull();
+    expect(rpc.instructionCalls).toHaveLength(0);
+    await user.click(
+      within(region).getByRole("button", {
+        name: decision === "confirm" ? "Confirm check" : "Reject check",
+      })
+    );
+    await waitFor(() => expect(rpc.instructionCalls).toHaveLength(1));
+    expect(rpc.instructionCalls[0]).toMatchObject({
+      payload: { decision, questionId: question.id, sessionId: session.id },
+    });
+  }
+);
+
 test("preserves unsent Guided Run answers across request collapse", async () => {
   const user = userEvent.setup();
   const question = {

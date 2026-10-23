@@ -1,4 +1,5 @@
 import {
+  GuidedRunCheckProposal,
   AgentCatalogInfo,
   AgentCatalogSelect,
   AgentPendingDecisionResolve,
@@ -95,10 +96,11 @@ const FlowSkillsListTool = readOnly(
 const GuidedRunQuestionAskTool = Tool.make("agent_guided_run_question_ask", {
   dependencies: [AgentSession],
   description:
-    "Ask the user a question during Guided Run capture. Workspace keeps it open until answered. Read teaching.instructions for its id; relay the user's answer with agent_teaching_instruction_record and questionId. Wait with agent_session_get afterCursor, not polling. Open questions remain evidence at Stop.",
+    "Ask the user a question during Guided Run capture. Workspace keeps it open until answered. Read teaching.instructions for its id; relay the user's answer with agent_teaching_instruction_record and questionId. Wait with agent_session_get afterCursor, not polling. Open questions remain evidence at Stop. To propose a document check, pass proposal with a short reason and text naming the outcome. Only an explicit user confirm decision creates Teaching evidence; reject and unanswered proposals create no requirement. Browser expectations not observed must use demonstrated:false.",
   failure: AgentCatalogFailure,
   parameters: Schema.Struct({
     operationId: TeachingInstructionRecord.fields.operationId,
+    proposal: Schema.optionalKey(GuidedRunCheckProposal),
     sessionId: TeachingInstructionRecord.fields.sessionId,
     text: TeachingInstructionRecord.fields.text,
     view: sessionViewParameter,
@@ -111,10 +113,11 @@ const TeachingInstructionRecordTool = Tool.make(
   {
     dependencies: [AgentSession],
     description:
-      "Record what the user told you to do next in a Teaching session, in their words. The instruction joins the recording's event stream in order, so a learning agent reads it beside the actions it explains. Pass questionId to relay the user's answer to a Guided Run question. The first answer closes it; a different second answer conflicts. An answer authored by agent is a relay of the user's words. Requires an operation id.",
+      "Record what the user told you to do next in a Teaching session, in their words. The instruction joins the recording's event stream in order, so a learning agent reads it beside the actions it explains. Pass decision confirm or reject only after the user explicitly chooses for a check proposal. Pass questionId to relay the user's answer to a Guided Run question. The first answer closes it; a different second answer conflicts. An answer authored by agent is a relay of the user's words. Requires an operation id.",
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
       attachments: TeachingInstructionRecord.fields.attachments,
+      decision: TeachingInstructionRecord.fields.decision,
       operationId: TeachingInstructionRecord.fields.operationId,
       questionId: TeachingInstructionRecord.fields.questionId,
       replaceId: TeachingInstructionRecord.fields.replaceId,
@@ -187,7 +190,12 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const session = yield* AgentSession;
       yield* session.noteAgentActivity(params.sessionId);
       return yield* session
-        .askQuestion(params.sessionId, params.text, params.operationId)
+        .askQuestion(
+          params.sessionId,
+          params.text,
+          params.operationId,
+          params.proposal
+        )
         .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
     }),
   agent_pending_decision_resolve: ({ view, ...params }) =>
@@ -218,7 +226,8 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
           params.scan,
           params.attachments,
           params.replaceId,
-          params.questionId
+          params.questionId,
+          params.decision
         )
         .pipe(fromAgent, Effect.mapError(failure), inView(params.view));
     }),

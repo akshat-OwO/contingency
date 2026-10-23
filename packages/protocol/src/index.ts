@@ -56,6 +56,7 @@ import {
   StorageKind,
 } from "./storage.ts";
 import {
+  GuidedRunCheckDecision,
   FlowSkillName,
   TeachingCaptureState,
   TeachingRecordingCleanupState,
@@ -477,6 +478,7 @@ export const AgentTeachingCleanupRetried = Schema.Struct(
  */
 export const AgentTeachingInstructionRecordRequest = Schema.Struct({
   attachments: browserAttachmentsField,
+  decision: Schema.optionalKey(GuidedRunCheckDecision),
   operationId: AgentSessionClose.fields.operationId,
   questionId: optionalNullable(Schema.String.check(Schema.isMinLength(1))),
   replaceId: optionalNullable(Schema.String),

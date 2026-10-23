@@ -41,13 +41,14 @@ During capture, the agent asks through `agent_guided_run_question_ask`. The **Gu
 
 The Teaching Timeline keeps both Instructions in capture order. Each carries an `id` and `actor`; `dialogue._tag` identifies a question or answer, and an answer's `dialogue.questionId` links it to the question. A user answer has `actor: "user"`; an answer relayed by the agent has `actor: "agent"`. Older Instructions omit this metadata and remain user Instructions. A question with no linked answer remains unanswered evidence after Stop. `agent_session_get` with `afterCursor` waits for `question-answered`; its `name` is the question id. Up to 50 questions are retained per recording.
 
+The agent proposes a document check through the question tool's `proposal`, naming the outcome in `text` and giving a short `reason`. Review its scan mode or typed Browser Check in Workspace, then choose **Confirm check** or **Reject check**. The agent can relay your explicit choice with `agent_teaching_instruction_record`, `questionId`, and `decision: "confirm"` or `"reject"`. Confirmation creates the same scan or Browser Attachment requirement as Teaching. Rejected and unanswered proposals create no requirement. After Stop, pending proposals read **Unconfirmed when recording stopped**. The learned Flow Skill preserves only confirmed checks; a later Run tracks their scan and Browser Check results. Confirmation does not establish that a Browser Check was observed. Unobserved expectations stay Not demonstrated.
+
 Domain Scope starts at the starting host. A new top-level host pauses for **Allow** or **Refuse** in Workspace, or a user decision relayed over MCP. Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow Skill for its Dry Run. Embedded subframes do not grow this scope. Irreversible actions still require separate Confirmation.
 
 Current limits:
 
 - MCP starts Guided Runs; Workspace cannot start one. Android is refused.
 - Browser Modifications and System One Pursuits are refused, including during setup.
-- Converting document checks into requirements is a later slice.
 
 ## Dry Run
 
