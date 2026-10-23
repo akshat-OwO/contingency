@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Guided Runs learn Flow Skills from Source Documents
