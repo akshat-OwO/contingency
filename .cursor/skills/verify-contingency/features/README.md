@@ -43,6 +43,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
+- [Guided Run](./workspace.md#guided-run) proves MCP start, setup exclusion, the user's Start, agent actions, Stop, actor-marked learning, save, and fresh Dry Run on the ecommerce fixture.
+
 - [Android live stream](./workspace.md#android-live-stream) proves decoded Workspace frames, secure-window notices, authenticated view-only routing, hard-kill recovery, preserved session state, and stream cleanup on an explicitly selected device.
 
 - [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.

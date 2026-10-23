@@ -59,10 +59,14 @@ export const modificationKind = (
 /** One authority table for new writes and removal of existing writes. */
 export const modificationRefusal = (
   snapshot: Pick<AgentSessionSnapshot, "activity" | "dryRun"> & {
+    readonly origin?: "teaching" | "guided-run";
     readonly captureState?: { readonly _tag: string } | null;
   },
   kind: BrowserModification["kind"]
 ): string | undefined => {
+  if (snapshot.origin === "guided-run") {
+    return "Browser Modifications are unavailable during a Guided Run, including setup.";
+  }
   if (snapshot.dryRun !== null) {
     return "A Dry Run must reproduce its saved browser state. Use an Interactive Run to modify the browser.";
   }

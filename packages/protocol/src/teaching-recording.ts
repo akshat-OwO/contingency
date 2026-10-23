@@ -256,12 +256,19 @@ export const TeachingRecordingReceipt = Schema.Struct({
 });
 export type TeachingRecordingReceipt = typeof TeachingRecordingReceipt.Type;
 
+export const TeachingRecordingOrigin = Schema.Literals([
+  "teaching",
+  "guided-run",
+]).pipe(Schema.withDecodingDefaultKey(Effect.succeed("teaching")));
+export type TeachingRecordingOrigin = typeof TeachingRecordingOrigin.Type;
+
 const TeachingRecordingManifestBase = {
   artifacts: Schema.Array(TeachingRecordingArtifact),
   createdAt: nonEmptyString,
   emulation: Schema.NullOr(DraftEmulation),
   eventOrigin: Schema.optional(Schema.Literals(["agent", "workspace"])),
   flowSkillName: FlowSkillName,
+  origin: TeachingRecordingOrigin,
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
   runtime: Schema.optionalKey(PlatformRequirements),
@@ -359,6 +366,9 @@ const TeachingStartedEvent = Schema.TaggedStruct("started", {
  * evidence a learning agent needs to write a completion condition.
  */
 const TeachingActionEvent = Schema.TaggedStruct("action", {
+  actor: AgentSessionController.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("user"))
+  ),
   ...teachingEventBase,
   after: TeachingObservation,
   appeared: Schema.Array(TeachingTargetSummary),

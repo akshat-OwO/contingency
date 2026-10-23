@@ -29,7 +29,7 @@ export const DOC_TOPICS = [
   },
   {
     description:
-      "What Contingency can and can't do: Platform Runtimes and the Support Matrix, Teaching, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, and the Execution Boundary.",
+      "What Contingency can and can't do: Platform Runtimes and the Support Matrix, Teaching, Guided Run, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, and the Execution Boundary.",
     title: "Capabilities",
     topic: "capabilities",
   },

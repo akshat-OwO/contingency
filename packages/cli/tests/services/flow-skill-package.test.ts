@@ -490,3 +490,15 @@ test("keeps a fenced comment inside the step that carries it", () => {
     'the status reads "Delivering to {{delivery_area}}, {{city}}".'
   );
 });
+
+test("refuses Source Document frontmatter in a learned Flow Skill", () => {
+  const files = withSkill(
+    GOLDEN_SKILL.replace("inputs:", "source: private-runbook.md\ninputs:")
+  );
+  expect(codesFor(files)).toContain("flow_skill_source_forbidden");
+  expect(pathFor(files, "flow_skill_source_forbidden")).toEqual([
+    "SKILL.md",
+    "frontmatter",
+    "source",
+  ]);
+});

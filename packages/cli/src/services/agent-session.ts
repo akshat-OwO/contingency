@@ -242,6 +242,8 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  /** Set only by the MCP Guided Run entry point. */
+  readonly origin?: TeachingRecordingManifest["origin"];
   readonly runtimeRequirements?: SavedPlatformRequirements;
   readonly domainScope?: DomainScope | undefined;
   readonly activity?: AgentSessionActivity | undefined;
@@ -782,6 +784,7 @@ const snapshotFromReadyManifest = (
     flowSkillName: manifest.flowSkillName,
     id: manifest.sessionId,
     interruptedAction: null,
+    origin: manifest.origin,
     ownerProcessId: owner,
     pendingDecisions: [],
     phase: "closed",
@@ -897,6 +900,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     domainScope: input.domainScope ?? null,
     emulation: input.emulation ?? null,
     name: input.name?.trim() || null,
+    origin: input.origin ?? "teaching",
     run: input.run?.runId ?? null,
     runtimeRequirements: input.runtimeRequirements ?? null,
     url: input.url ?? null,
@@ -988,7 +992,12 @@ const agentPreparesTeaching = (snapshot: AgentSessionSnapshot): boolean =>
  * rest of the session.
  */
 const userLedTeaching = (snapshot: AgentSessionSnapshot): boolean =>
-  snapshot.activity === "teaching" && !agentPreparesTeaching(snapshot);
+  snapshot.activity === "teaching" &&
+  !agentPreparesTeaching(snapshot) &&
+  !(
+    snapshot.origin === "guided-run" &&
+    snapshot.captureState._tag === "recording"
+  );
 
 /** Why an agent browser action cannot run during a Demonstration. */
 const teachingIsUserLed = (description: string): BrowserRpcErrorType =>
@@ -1362,6 +1371,7 @@ interface InFlightAction {
 }
 
 interface ActionControl {
+  closing: boolean;
   inFlight: InFlightAction | undefined;
   /** One agent action at a time, so Takeover always has one fiber to stop. */
   readonly lock: Semaphore.Semaphore;
@@ -2505,6 +2515,7 @@ const makeAgentSession = (
           const finished: AgentSessionSnapshot = {
             ...finalizing,
             captureState,
+            controller: "user",
             teaching: record.capture.progress(),
             updatedAt:
               captureState._tag === "failed"
@@ -2781,6 +2792,7 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 flowSkillName: record.snapshot.flowSkillName,
                 operationId: operation,
+                origin: record.snapshot.origin,
                 recordingId,
                 sessionId,
               })
@@ -2907,6 +2919,8 @@ const makeAgentSession = (
               _tag: "recording",
               startedAt: manifest.lifecycle.startedAt,
             },
+            controller:
+              record.snapshot.origin === "guided-run" ? "agent" : "user",
             recordingId,
             teaching: capture.progress(),
             updatedAt: manifest.lifecycle.startedAt,
@@ -3092,7 +3106,7 @@ const makeAgentSession = (
     ): Effect.Effect<SessionRecord, AgentSessionError> =>
       read(sessionId).pipe(
         Effect.flatMap((record) =>
-          isLive(record.snapshot.phase)
+          isLive(record.snapshot.phase) && !record.control.closing
             ? Effect.succeed(record)
             : Effect.fail(
                 error(
@@ -3173,11 +3187,15 @@ const makeAgentSession = (
         if (record !== undefined && entry.dispatched) {
           noteRunEvidence(record, "attempt", entry.id);
         }
-        if (record?.executionBoundary !== undefined) {
+        if (
+          record?.snapshot.activity === "run" &&
+          record.executionBoundary !== undefined
+        ) {
           record.runTimeline.push(entry);
         }
         if (
-          record?.executionBoundary !== undefined &&
+          record?.snapshot.activity === "run" &&
+          record.executionBoundary !== undefined &&
           record.artifactDirectory !== undefined &&
           fileSystem !== undefined
         ) {
@@ -3557,6 +3575,7 @@ const makeAgentSession = (
             operationId: OperationId.make(
               startInput.operationId ?? `start-${startSessionId}`
             ),
+            origin: startInput.origin ?? "teaching",
             recordingId: identity.recordingId,
             sessionId: startSessionId,
           })
@@ -3638,6 +3657,20 @@ const makeAgentSession = (
               );
             }
             const activity = input.activity ?? "run";
+            const recordingOrigin = input.origin ?? "teaching";
+            if (
+              input.origin === "guided-run" &&
+              (runtimeFactory.platform !== "web" ||
+                input.openedBy !== "agent" ||
+                activity !== "teaching")
+            ) {
+              return yield* Effect.fail(
+                error(
+                  "agent_session_invalid",
+                  `Guided Runs require an agent-opened web session; platform ${runtimeFactory.platform} is not supported for this request.`
+                )
+              );
+            }
             const declared = input.runtimeRequirements ?? {
               diagnostics: [],
               requirements: browserRequirements,
@@ -3815,6 +3848,7 @@ const makeAgentSession = (
                             controller: input.openedBy ?? "user",
                             dryRun: null,
                             flowSkillName: teachingIdentity.flowSkillName,
+                            origin: recordingOrigin,
                             recordingCleanup: { _tag: "pending" as const },
                             recordingId: teachingIdentity.recordingId,
                             run: null,
@@ -3841,6 +3875,7 @@ const makeAgentSession = (
                           ? makeDemonstrationCapture(base.currentUrl)
                           : undefined,
                       control: {
+                        closing: false,
                         inFlight: undefined,
                         lock: Semaphore.makeUnsafe(1),
                       },
@@ -4824,6 +4859,12 @@ const makeAgentSession = (
           boundaryAttempt.intent
         );
         const urlBefore = page.url();
+        const capture = recordingCapture(record);
+        if (capture !== undefined) {
+          capture.recordSnapshot(
+            redactCapturedSnapshot(record, yield* page.snapshot())
+          );
+        }
         const snapshotBefore =
           recordingCapture(record)?.latestSnapshotId() ?? null;
         // The action runs on a child fiber so a user Takeover can interrupt it
@@ -4947,6 +4988,7 @@ const makeAgentSession = (
             urlAfter: result.url,
             urlBefore,
           });
+          yield* captureTeachingKeyframe(record, page, id, result.entry.at);
           yield* recordEntry(sessionId, result.entry, {
             currentUrl: result.url,
           });
@@ -4956,7 +4998,7 @@ const makeAgentSession = (
             : { ...result, intervention: pending.boundary };
         }
         if (Cause.hasInterrupts(exit.cause)) {
-          // Takeover already recorded the dispatched attempt. The browser may
+          // Takeover or closure records the dispatched attempt. The browser may
           // have performed it, so this operation id is spent: retrying it
           // answers with the same refusal instead of acting again.
           const refusal = takenOver(
@@ -5747,6 +5789,53 @@ const makeAgentSession = (
       return yield* Effect.fail(safeFailure);
     });
 
+    /** Interrupt a dispatched attempt before its capture can be frozen. */
+    const interruptAction = Effect.fn("AgentSession.interruptAction")(
+      function* interruptAction(record: SessionRecord, detail: string) {
+        const { inFlight } = record.control;
+        if (inFlight === undefined) {
+          return null;
+        }
+        yield* Fiber.interrupt(inFlight.fiber);
+        const exit = yield* Fiber.await(inFlight.fiber);
+        // A completed action may still be appending its evidence under the
+        // control lock. Let that path finish rather than invent an interruption.
+        if (Exit.isSuccess(exit) || !Cause.hasInterrupts(exit.cause)) {
+          return null;
+        }
+        record.control.inFlight = undefined;
+        const at = now().toISOString();
+        const entry: AgentTimelineEntry = {
+          actor: "agent",
+          at,
+          description: inFlight.description,
+          detail,
+          dispatched: true,
+          id: inFlight.id,
+          outcome: "interrupted",
+        };
+        if (
+          inFlight.action.type !== "eval" &&
+          inFlight.action.type !== "upload"
+        ) {
+          recordingCapture(record)?.recordAction({
+            action: inFlight.action,
+            actor: "agent",
+            at,
+            description: inFlight.description,
+            detail,
+            id: inFlight.id,
+            outcome: "interrupted",
+            snapshotAfter: null,
+            snapshotBefore: inFlight.snapshotBefore,
+            urlAfter: record.snapshot.currentUrl,
+            urlBefore: inFlight.urlBefore,
+          });
+        }
+        return entry;
+      }
+    );
+
     /**
      * Enter Takeover. A user initiation takes control immediately and has
      * priority: it interrupts the in-flight agent action and waits for its
@@ -5775,7 +5864,9 @@ const makeAgentSession = (
               return yield* Effect.fail(
                 makeBrowserRpcError(
                   "agent_control_unavailable",
-                  "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
+                  record.snapshot.origin === "guided-run"
+                    ? "Takeover is unavailable during a Guided Run."
+                    : "Teaching has no Takeover: the user holds the browser for the whole Demonstration. Takeover belongs to Interactive Runs."
                 )
               );
             }
@@ -5784,49 +5875,13 @@ const makeAgentSession = (
             }
             yield* runScans.stop(sessionId, "Takeover interrupted the scan.");
             record.executionBoundary?.invalidateAttempts();
-            const inFlight =
-              by === "user" ? record.control.inFlight : undefined;
-            let interruptedAction: AgentTimelineEntry | null = null;
-            if (inFlight !== undefined) {
-              // Interruption waits for the action fiber's finalizers, but the
-              // browser may already have performed the effect, so the attempt is
-              // recorded as dispatched rather than as never having happened.
-              yield* Fiber.interrupt(inFlight.fiber);
-              record.control.inFlight = undefined;
-              const interruptedAt = now().toISOString();
-              const detail =
-                "Takeover interrupted this action. The browser may already have performed it.";
-              interruptedAction = {
-                actor: "agent",
-                at: interruptedAt,
-                description: inFlight.description,
-                detail,
-                dispatched: true,
-                id: inFlight.id,
-                outcome: "interrupted",
-              };
-              // The Demonstration keeps the attempt too: a compiler that never
-              // learns of it could place a Step boundary over an effect nobody
-              // can account for.
-              if (
-                inFlight.action.type !== "eval" &&
-                inFlight.action.type !== "upload"
-              ) {
-                recordingCapture(record)?.recordAction({
-                  action: inFlight.action,
-                  actor: "agent",
-                  at: interruptedAt,
-                  description: inFlight.description,
-                  detail,
-                  id: inFlight.id,
-                  outcome: "interrupted",
-                  snapshotAfter: null,
-                  snapshotBefore: inFlight.snapshotBefore,
-                  urlAfter: record.snapshot.currentUrl,
-                  urlBefore: inFlight.urlBefore,
-                });
-              }
-            }
+            const interruptedAction =
+              by === "user"
+                ? yield* interruptAction(
+                    record,
+                    "Takeover interrupted this action. The browser may already have performed it."
+                  )
+                : null;
             const at = now().toISOString();
             const entry: AgentTimelineEntry = {
               actor: by,
@@ -6224,6 +6279,21 @@ const makeAgentSession = (
       }
     );
 
+    /** Refuse queued work and capture the dispatched attempt before Stop. */
+    const settleActionsForClose = Effect.fn(
+      "AgentSession.settleActionsForClose"
+    )(function* settleActionsForClose(sessionId: AgentSessionId) {
+      const record = yield* read(sessionId);
+      record.control.closing = true;
+      const interrupted = yield* interruptAction(
+        record,
+        "Session closure interrupted this action. The browser may already have performed it."
+      );
+      if (interrupted !== null) {
+        yield* recordEntry(sessionId, interrupted);
+      }
+    });
+
     const closeUnlocked = Effect.fn("AgentSession.close")(
       function* closeSession(
         sessionId: AgentSessionId,
@@ -6250,6 +6320,7 @@ const makeAgentSession = (
                 return durable;
               }
             }
+            yield* settleActionsForClose(sessionId);
             let record = yield* read(sessionId);
             yield* ledger.releaseSession(sessionId);
             if (
@@ -6258,10 +6329,13 @@ const makeAgentSession = (
               record.snapshot.captureState._tag === "recording" &&
               record.teachingRecorder !== undefined
             ) {
-              yield* stopTeachingRecordingUnlocked(
+              yield* afterUserInput(
                 sessionId,
-                `close-recording-${String(operationId ?? sessionId)}`,
-                "session-closed"
+                stopTeachingRecordingUnlocked(
+                  sessionId,
+                  `close-recording-${String(operationId ?? sessionId)}`,
+                  "session-closed"
+                )
               );
               record = yield* read(sessionId);
             }
@@ -6358,15 +6432,20 @@ const makeAgentSession = (
         if (!isLive(record.snapshot.phase)) {
           return record.snapshot;
         }
+        yield* settleActionsForClose(sessionId);
+        record = yield* read(sessionId);
         if (
           record.snapshot.activity === "teaching" &&
           record.snapshot.captureState._tag === "recording" &&
           record.teachingRecorder !== undefined
         ) {
-          yield* stopTeachingRecordingUnlocked(
+          yield* afterUserInput(
             sessionId,
-            `interrupt-recording-${sessionId}`,
-            "session-closed"
+            stopTeachingRecordingUnlocked(
+              sessionId,
+              `interrupt-recording-${sessionId}`,
+              "session-closed"
+            )
           );
           record = yield* read(sessionId);
         }
@@ -7497,15 +7576,13 @@ const makeAgentSession = (
                       )
                     );
                   }
-                  if (
-                    record.snapshot.activity === "teaching" &&
-                    record.snapshot.captureState._tag !== "setup"
-                  ) {
+                  const refusal = modificationRefusal(
+                    record.snapshot,
+                    "emulation"
+                  );
+                  if (refusal !== undefined) {
                     return yield* Effect.fail(
-                      error(
-                        "agent_session_conflict",
-                        "Emulation is fixed from Start to Stop during Teaching."
-                      )
+                      error("agent_session_conflict", refusal)
                     );
                   }
                   const before = yield* browser.getEmulation(
@@ -8223,6 +8300,19 @@ const makeAgentSession = (
                     error(
                       "agent_session_conflict",
                       "This boundary request is no longer pending."
+                    )
+                  );
+                }
+                if (
+                  record.snapshot.activity === "teaching" &&
+                  record.snapshot.origin === "guided-run" &&
+                  pending.boundary.reason === "domain" &&
+                  input.decision === "allow"
+                ) {
+                  return yield* Effect.fail(
+                    error(
+                      "agent_session_invalid",
+                      "Approving new hosts is unavailable during a Guided Run."
                     )
                   );
                 }

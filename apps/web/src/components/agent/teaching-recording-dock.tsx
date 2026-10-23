@@ -182,6 +182,7 @@ export const TeachingRecordingDock = ({
   cleanup,
   controller,
   flowSkillName,
+  origin,
   instructions,
   onComment,
   onGesture,
@@ -202,6 +203,7 @@ export const TeachingRecordingDock = ({
   readonly cleanup: TeachingRecordingCleanupState | undefined;
   /** Who holds the browser. Start waits for the agent's setup handoff. */
   readonly controller: AgentSessionController;
+  readonly origin?: "teaching" | "guided-run";
   readonly flowSkillName: string;
   /**
    * Every Teaching instruction this recording has collected, oldest first,
@@ -291,7 +293,9 @@ export const TeachingRecordingDock = ({
                 {presentation.tone === "failed" ? (
                   <CircleAlertIcon aria-hidden="true" />
                 ) : null}
-                {presentation.badge}
+                {origin === "guided-run"
+                  ? `Guided Run · ${presentation.badge}`
+                  : presentation.badge}
               </Badge>
               <BrowserModificationBadge
                 modifications={
@@ -315,7 +319,9 @@ export const TeachingRecordingDock = ({
             The sentence changes when the capture state changes, never on a
             timer tick: the elapsed clock owns its own leaf render.
           */}
-          {presentation.nextStep}
+          {origin === "guided-run" && captureState._tag === "recording"
+            ? "The agent is following your journey. Stop recording when finished."
+            : presentation.nextStep}
         </DockStatus>
       }
     >

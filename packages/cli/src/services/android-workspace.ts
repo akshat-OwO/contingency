@@ -1099,6 +1099,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             yield* keyframe(session, before, actionId);
             yield* emit(session, {
               _tag: "action",
+              actor: "user",
               after: observationSummary(after),
               appeared: difference(after, before),
               before: observationSummary(before),
