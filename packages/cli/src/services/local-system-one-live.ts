@@ -129,7 +129,7 @@ export const LocalSystemOneLive = Layer.effect(
       os.homedir(),
       process.env.XDG_DATA_HOME
     );
-    return makeLocalSystemOne({
+    const local: ReturnType<typeof makeLocalSystemOne> = makeLocalSystemOne({
       arch: process.arch,
       download: (url, file) =>
         promise(async (signal) => {
@@ -189,14 +189,25 @@ export const LocalSystemOneLive = Layer.effect(
       lock: (body) =>
         Effect.gen(function* mutationLock() {
           yield* prepareLocalSystemOneLock(root);
-          const python = (yield* output("uv", [
-            "python",
-            "find",
-            "--python-preference",
-            "system",
-            "--no-python-downloads",
-            ">=3.12,<3.14",
-          ])).trim();
+          const installed = yield* local.status;
+          const python =
+            installed === undefined
+              ? (yield* output("uv", [
+                  "python",
+                  "find",
+                  "--python-preference",
+                  "system",
+                  "--no-python-downloads",
+                  ">=3.12,<3.14",
+                ])).trim()
+              : path.join(
+                  root,
+                  installed.current.directory,
+                  "kev",
+                  ".venv",
+                  "bin",
+                  "python"
+                );
           return yield* withLocalSystemOneLock(
             python,
             `${root}.mutation-lock`,
@@ -322,5 +333,6 @@ export const LocalSystemOneLive = Layer.effect(
           .writeFileString(file, content, { flag: "wx", mode: 0o600 })
           .pipe(Effect.mapError(localSystemOneError)),
     });
+    return local;
   })
 );
