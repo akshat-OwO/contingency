@@ -339,6 +339,14 @@ test("old recordings default to Teaching and user actions; Guided Run attributio
     "origin",
     "guided-run"
   );
+  expect(decodeManifest(manifest).approvedHosts).toBeUndefined();
+  expect(
+    decodeManifest({
+      ...manifest,
+      approvedHosts: ["shop.test", "checkout.test"],
+      origin: "guided-run",
+    }).approvedHosts
+  ).toEqual(["shop.test", "checkout.test"]);
   const observation = { nodeCount: 0, title: "Shop", url: "https://shop.test" };
   const action = {
     _tag: "action",

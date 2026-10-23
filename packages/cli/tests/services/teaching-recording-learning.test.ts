@@ -216,3 +216,97 @@ it.effect(
       expect(JSON.stringify(timeline)).not.toContain("4242-4242");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+for (const variant of [
+  "guided-run",
+  "legacy-guided-run",
+  "teaching",
+] as const) {
+  const origin = variant === "teaching" ? "teaching" : "guided-run";
+  const hasApprovedHosts = variant === "guided-run";
+  it.effect(
+    `stamps ${hasApprovedHosts ? "approved including unvisited" : "visited"} hosts for ${variant} recordings`,
+    () =>
+      Effect.gen(function* stampScope() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "recording-scope-",
+        });
+        const storeLayer = makeTeachingRecordingStoreLayer({
+          root: () => root,
+        });
+        const layer = Layer.mergeAll(
+          storeLayer,
+          TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
+        );
+        yield* Effect.gen(function* saveScope() {
+          const store = yield* TeachingRecordingStore;
+          const learning = yield* TeachingRecordingLearning;
+          const begun = yield* store.begin({
+            emulation: null,
+            flowSkillName: FlowSkillName.make("scope"),
+            operationId: OperationId.make("begin"),
+            origin,
+            recordingId,
+            sessionId: AgentSessionId.make("agent-scope"),
+          });
+          yield* store.start({
+            emulation: begun.emulation,
+            operationId: OperationId.make("start"),
+            recordingId,
+          });
+          const at = "2026-10-23T00:00:00.000Z";
+          yield* fs.writeFileString(
+            path.join(store.directory(recordingId), "events.jsonl"),
+            `${JSON.stringify({ _tag: "started", at, emulation: null, seq: 0, url: "https://shop.test" })}\n${JSON.stringify({ _tag: "url", at, from: "https://shop.test", seq: 1, url: "https://visited.test" })}\n`
+          );
+          const stopInput = {
+            artifacts: [
+              {
+                capturedAt: at,
+                hash: ContentHash.make(`sha256-${"a".repeat(64)}`),
+                id: "events",
+                kind: "events" as const,
+                path: "events.jsonl",
+              },
+            ],
+            operationId: OperationId.make("stop"),
+            recordingId,
+          };
+          yield* store.stop(
+            hasApprovedHosts
+              ? { ...stopInput, approvedHosts: ["shop.test", "approved.test"] }
+              : stopInput
+          );
+          const claimOperationId = OperationId.make("claim");
+          yield* store.startLearning({
+            operationId: claimOperationId,
+            recordingId,
+          });
+          yield* learning.save({
+            claimOperationId,
+            files: [
+              {
+                content:
+                  "---\nname: scope\ndescription: Inspect the shop.\ninputs:\n---\n\n# Inspect the shop\n\n1. Open the shop. Done when: the shop appears.\n",
+                path: "SKILL.md",
+              },
+            ],
+            operationId: OperationId.make("save"),
+            recordingId,
+          });
+          const saved = yield* fs.readFileString(
+            path.join(root, "scope", "SKILL.md")
+          );
+          expect(saved).toContain(
+            hasApprovedHosts
+              ? "hosts:\n  - approved.test\n  - shop.test"
+              : "hosts:\n  - shop.test\n  - visited.test"
+          );
+          if (hasApprovedHosts) {
+            expect(saved).not.toContain("visited.test");
+          }
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}

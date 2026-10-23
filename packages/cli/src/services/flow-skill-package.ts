@@ -52,7 +52,7 @@ export interface FlowSkillFrontmatter {
    * by Contingency at save time, not authored by the agent.
    */
   readonly emulation: FlowSkillEmulation | undefined;
-  /** The hosts the Teaching Recording actually visited. */
+  /** Hosts visited during Teaching or approved during a Guided Run. */
   readonly hosts: readonly string[];
   readonly inputs: readonly FlowSkillInput[];
   /**

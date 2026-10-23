@@ -374,3 +374,33 @@ test("refuses a pending attempt while the user holds Takeover", async () => {
     pendingDecisionId: pendingFor("ui-refuse").pendingDecisionId,
   });
 });
+
+test("Guided Run host approval explains its saved scope", async () => {
+  const user = userEvent.setup();
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Workspace dock" });
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        boundary: {
+          ...boundaryFor("host"),
+          action: { type: "navigate", url: "https://checkout.test" },
+          reason: "domain",
+          requested: "https://checkout.test",
+        },
+        origin: "guided-run",
+        pendingDecisions: [pendingFor("host")],
+      })
+    )
+  );
+  const boundary = await screen.findByRole("region", {
+    name: "Execution Boundary",
+  });
+  await user.click(
+    within(boundary).getByRole("button", { name: "Action details" })
+  );
+  expect(boundary).toHaveTextContent(
+    "adds it to this Guided Run and the saved Flow Skill's Domain Scope"
+  );
+  expect(boundary).not.toHaveTextContent("saved Domain Scope stays unchanged");
+});

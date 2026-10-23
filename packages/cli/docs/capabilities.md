@@ -41,10 +41,11 @@ During capture, the agent asks through `agent_guided_run_question_ask`. The **Gu
 
 The Teaching Timeline keeps both Instructions in capture order. Each carries an `id` and `actor`; `dialogue._tag` identifies a question or answer, and an answer's `dialogue.questionId` links it to the question. A user answer has `actor: "user"`; an answer relayed by the agent has `actor: "agent"`. Older Instructions omit this metadata and remain user Instructions. A question with no linked answer remains unanswered evidence after Stop. `agent_session_get` with `afterCursor` waits for `question-answered`; its `name` is the question id. Up to 50 questions are retained per recording.
 
+Domain Scope starts at the starting host. A new top-level host pauses for **Allow** or **Refuse** in Workspace, or a user decision relayed over MCP. Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow Skill for its Dry Run. Embedded subframes do not grow this scope. Irreversible actions still require separate Confirmation.
+
 Current limits:
 
 - MCP starts Guided Runs; Workspace cannot start one. Android is refused.
-- Domain Scope is the starting host. Outside navigation pauses under the Execution Boundary; approving another host is unavailable.
 - Browser Modifications and System One Pursuits are refused, including during setup.
 - Converting document checks into requirements is a later slice.
 
@@ -55,7 +56,7 @@ A Dry Run proves a drafted Flow Skill. The agent attempts the skill's complete o
 What it can't do:
 
 - Pass after a partial attempt or after any Takeover.
-- Visit a host the Teaching Recording did not visit.
+- Visit a host outside its stamped Domain Scope without a Pending Decision.
 - Make a Browser Modification, such as a mocked route or an injected cookie.
 - Change its prerequisites or ordinary inputs after it starts. Start a fresh Dry Run.
 - Verify the Flow Skill itself. Only the user verifies.
@@ -109,9 +110,9 @@ What it can't do:
 
 ## Execution Boundary
 
-The Execution Boundary limits what an agent may do in an Interactive Run or a Dry Run:
+The Execution Boundary limits what an agent may do in an Interactive Run, a Guided Run, or a Dry Run:
 
-- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is the hosts its Teaching Recording visited. An Interactive Run's scope is the hosts of the Flow Skills you asked for, or the starting host.
+- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is its saved Flow Skill's stamped hosts. A Guided Run starts at its starting host and adds exact hosts you approve. An Interactive Run's scope is the hosts of the Flow Skills you asked for, or the starting host.
 - **Confirmation.** An irreversible or high-impact browser action, such as placing an order, pauses for your approval every time.
 
 A pause appears as a Pending Decision. You allow or refuse it in the Workspace or in the conversation. One approval permits one exact action attempt.

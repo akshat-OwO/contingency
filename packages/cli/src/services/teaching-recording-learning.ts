@@ -587,7 +587,13 @@ const makeTeachingRecordingLearning = Effect.fn(
           visited.add(host);
         }
       }
-      const demonstratedHosts = [...visited].toSorted();
+      // Guided Runs grant exact hosts explicitly. A host approved but never
+      // reached still belongs to their scope; visited pages cannot enlarge it.
+      // Older recordings retain the original visited-host derivation.
+      const demonstratedHosts =
+        manifest.origin === "guided-run" && manifest.approvedHosts !== undefined
+          ? [...new Set(manifest.approvedHosts)].toSorted()
+          : [...visited].toSorted();
       const stamped = files.map((file) =>
         file.path === SKILL_FILE
           ? {

@@ -1534,8 +1534,12 @@ const boundaryAuthority = (run: AgentSessionSnapshot["run"]) => {
 
 const boundaryScopeKind = (
   input: AgentSessionStartInput
-): "interactive" | "dry-run" =>
-  input.dryRun === undefined ? "interactive" : "dry-run";
+): "interactive" | "dry-run" | "guided-run" => {
+  if (input.origin === "guided-run") {
+    return "guided-run";
+  }
+  return input.dryRun === undefined ? "interactive" : "dry-run";
+};
 
 /** Evidence capture exists only between the user's Start and Stop gestures. */
 const recordingCapture = (
@@ -2501,13 +2505,22 @@ const makeAgentSession = (
               artifact.kind === "keyframe" ? [artifact.path] : []
             )
           );
+          const stopInput = {
+            artifacts,
+            failure,
+            operationId: OperationId.make(operationId),
+            recordingId: record.snapshot.recordingId,
+          };
           const manifest = yield* teachingRecordingStore
-            .stop({
-              artifacts,
-              failure,
-              operationId: OperationId.make(operationId),
-              recordingId: record.snapshot.recordingId,
-            })
+            .stop(
+              record.snapshot.origin === "guided-run" &&
+                record.executionBoundary !== undefined
+                ? {
+                    ...stopInput,
+                    approvedHosts: record.executionBoundary.hosts().toSorted(),
+                  }
+                : stopInput
+            )
             .pipe(
               Effect.mapError((cause) =>
                 error("agent_session_invalid", cause.message)
@@ -8357,19 +8370,6 @@ const makeAgentSession = (
                     error(
                       "agent_session_conflict",
                       "This boundary request is no longer pending."
-                    )
-                  );
-                }
-                if (
-                  record.snapshot.activity === "teaching" &&
-                  record.snapshot.origin === "guided-run" &&
-                  pending.boundary.reason === "domain" &&
-                  input.decision === "allow"
-                ) {
-                  return yield* Effect.fail(
-                    error(
-                      "agent_session_invalid",
-                      "Approving new hosts is unavailable during a Guided Run."
                     )
                   );
                 }

@@ -263,6 +263,8 @@ export const TeachingRecordingOrigin = Schema.Literals([
 export type TeachingRecordingOrigin = typeof TeachingRecordingOrigin.Type;
 
 const TeachingRecordingManifestBase = {
+  /** Guided Run's starting host and exact approved hosts, independent of visits. */
+  approvedHosts: Schema.optionalKey(Schema.Array(nonEmptyString)),
   artifacts: Schema.Array(TeachingRecordingArtifact),
   createdAt: nonEmptyString,
   emulation: Schema.NullOr(DraftEmulation),
