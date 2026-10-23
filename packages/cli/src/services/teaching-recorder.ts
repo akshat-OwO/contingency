@@ -8,6 +8,7 @@ import type {
   TeachingCaptureLimits,
   TeachingEvent,
   TeachingEventTarget,
+  TeachingInstruction,
   TeachingStopReason,
 } from "@contingency/protocol";
 import { ContentHash, isWithheldValue } from "@contingency/protocol";
@@ -236,6 +237,24 @@ const measureEventBytes = (events: readonly TeachingEvent[]): number =>
     "utf-8"
   );
 
+const instructionEventFor = (
+  instruction: TeachingInstruction
+): TeachingEventWithoutSequence => {
+  const event: TeachingEventWithoutSequence = {
+    _tag: "instruction",
+    actor: instruction.actor ?? "user",
+    at: instruction.at,
+    attachments: instruction.attachments,
+    id: instruction.id,
+    scan: instruction.scan,
+    target: instruction.target,
+    text: instruction.text,
+  };
+  return instruction.dialogue === undefined
+    ? event
+    : { ...event, dialogue: instruction.dialogue };
+};
+
 /**
  * The semantic timeline one Demonstration becomes, in capture order. Pure, so
  * the evidence a learning agent will trust can be asserted on directly.
@@ -268,14 +287,7 @@ export const teachingEventsFor = (
     });
   }
   for (const instruction of demonstration.instructions) {
-    pending.push({
-      _tag: "instruction",
-      at: instruction.at,
-      attachments: instruction.attachments,
-      scan: instruction.scan,
-      target: instruction.target,
-      text: instruction.text,
-    });
+    pending.push(instructionEventFor(instruction));
   }
   const navigationActionIds = new Set<string>();
   for (const action of demonstration.actions) {

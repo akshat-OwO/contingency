@@ -203,6 +203,7 @@ import type { AgentOperationKind } from "./session-operation-ledger.ts";
 import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
+import { teachingInstructionAuthorship } from "./teaching-questions.ts";
 import { makeTeachingRecorder } from "./teaching-recorder.ts";
 import type { TeachingRecorder } from "./teaching-recorder.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
@@ -500,7 +501,13 @@ export interface AgentSessionService {
     target?: string | undefined,
     scan?: TeachingScan,
     attachments?: readonly TeachingBrowserAttachment[],
-    replaceId?: string
+    replaceId?: string,
+    questionId?: string
+  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
+  readonly askQuestion: (
+    sessionId: AgentSessionId,
+    text: string,
+    operationId: OperationId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Ask the user to take control, and answer immediately with the link. */
   readonly requestTakeover: (
@@ -6110,10 +6117,14 @@ const makeAgentSession = (
       target?: string | undefined,
       scan?: TeachingScan,
       attachments?: readonly TeachingBrowserAttachment[],
-      replaceId?: string
+      replaceId?: string,
+      questionId?: string,
+      asking = false
     ) {
       const requestInput = JSON.stringify({
+        asking,
         attachments: attachments ?? [],
+        questionId: questionId ?? null,
         replaceId: replaceId ?? null,
         scan: scan ?? null,
         target: target ?? null,
@@ -6145,6 +6156,19 @@ const makeAgentSession = (
               )
             );
           }
+          const authorship = yield* teachingInstructionAuthorship({
+            asking,
+            guided: record.snapshot.origin === "guided-run",
+            hasAttachment:
+              scan !== undefined ||
+              (attachments?.length ?? 0) > 0 ||
+              target !== undefined,
+            instructions: capture.progress().instructions,
+            origin: yield* SessionEventOrigin,
+            questionId,
+            replaceId,
+            text,
+          });
           const at = now().toISOString();
           const replacing = yield* validateTeachingAttachments(
             capture.progress().instructions,
@@ -6198,12 +6222,13 @@ const makeAgentSession = (
             target,
             scan,
             attachments,
-            replaceId
+            replaceId,
+            authorship
           );
           const next = yield* recordEntry(sessionId, {
-            actor: "user",
+            actor: authorship.actor,
             at,
-            description: "The user gave an instruction",
+            description: authorship.description,
             /*
           The timeline entry still reads as one sentence, so an instruction
           attached to an element names it where a reader sees it (#213).
@@ -6922,6 +6947,23 @@ const makeAgentSession = (
           })
         ),
       answerSetupVariable: setupVariableMutation,
+      askQuestion: (sessionId, text, operationId) =>
+        ledger.serializeMutation(
+          afterUserInput(
+            sessionId,
+            recordInstructionUnlocked(
+              sessionId,
+              text,
+              operationId,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              true
+            )
+          )
+        ),
       assessTask: (sessionId, input, finding, operationId) =>
         taskMutation(
           sessionId,
@@ -8015,7 +8057,8 @@ const makeAgentSession = (
         target,
         scan,
         attachments,
-        replaceId
+        replaceId,
+        questionId
       ) =>
         ledger.serializeMutation(
           afterUserInput(
@@ -8027,7 +8070,8 @@ const makeAgentSession = (
               target,
               scan,
               attachments,
-              replaceId
+              replaceId,
+              questionId
             )
           )
         ),

@@ -49,7 +49,8 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
  */
 // The Android tools (about 7.3 KB) joined every catalog when Android left its opt-in (#489).
 // Guided Run start adds its strict input schema and lifecycle guidance (#528).
-const CATALOG_BUDGET_BYTES = 95_000;
+// Guided Run questions add one tool and a questionId on the Instruction relay (#529).
+const CATALOG_BUDGET_BYTES = 96_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
@@ -98,9 +99,12 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(38);
+    expect(tools).toHaveLength(39);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
     expect(tools.map((tool) => tool.name)).toContain("agent_guided_run_start");
+    expect(tools.map((tool) => tool.name)).toContain(
+      "agent_guided_run_question_ask"
+    );
     expect(tools.map((tool) => tool.name)).not.toContain(
       "agent_run_variable_request"
     );

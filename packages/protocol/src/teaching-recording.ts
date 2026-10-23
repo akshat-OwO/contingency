@@ -389,9 +389,23 @@ const TeachingUrlEvent = Schema.TaggedStruct("url", {
   url: Schema.String,
 });
 
-/** Free text the user relayed while demonstrating. */
+/** Linked Instructions keep an unanswered question as evidence after Stop. */
+const instructionAuthorship = {
+  /** Absent in older recordings, whose Instructions were all user-authored. */
+  actor: Schema.optionalKey(AgentSessionController),
+  dialogue: Schema.optionalKey(
+    Schema.Union([
+      Schema.TaggedStruct("question", {}),
+      Schema.TaggedStruct("answer", { questionId: nonEmptyString }),
+    ])
+  ),
+};
+
+/** Free text, including a Guided Run question or its user's answer. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
+  ...instructionAuthorship,
   attachments: browserAttachmentsField,
+  id: Schema.optionalKey(nonEmptyString),
   scan: optionalNullable(TeachingScan),
   ...teachingEventBase,
   /** The element the instruction was attached to, when it named one. */
@@ -671,6 +685,7 @@ export type TeachingKeyframeBytes = typeof TeachingKeyframeBytes.Type;
 
 /** What the user told the agent to do, as the agent relayed it. */
 export const TeachingInstruction = Schema.Struct({
+  ...instructionAuthorship,
   at: nonEmptyString,
   attachments: browserAttachmentsField,
   id: nonEmptyString,
@@ -699,6 +714,7 @@ export type UrlTransition = typeof UrlTransition.Type;
 export const TeachingInstructionRecord = Schema.Struct({
   attachments: browserAttachmentsField,
   operationId: OperationId,
+  questionId: optionalNullable(nonEmptyString),
   replaceId: optionalNullable(Schema.String),
   scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionId,

@@ -478,6 +478,7 @@ export const AgentTeachingCleanupRetried = Schema.Struct(
 export const AgentTeachingInstructionRecordRequest = Schema.Struct({
   attachments: browserAttachmentsField,
   operationId: AgentSessionClose.fields.operationId,
+  questionId: optionalNullable(Schema.String.check(Schema.isMinLength(1))),
   replaceId: optionalNullable(Schema.String),
   scan: Schema.optional(TeachingScan),
   sessionId: AgentSessionClose.fields.sessionId,

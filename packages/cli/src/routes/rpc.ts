@@ -330,7 +330,8 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             data.target,
             data.scan,
             data.attachments,
-            data.replaceId
+            data.replaceId,
+            data.questionId
           )
         ).pipe(Effect.map((session) => ({ session }))),
       "agent.teaching.flow.rename": (data) =>

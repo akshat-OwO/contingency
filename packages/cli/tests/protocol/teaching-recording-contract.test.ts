@@ -9,6 +9,7 @@ import {
   TeachingRecordingList,
   TeachingRecordingManifest,
   TeachingTimeline,
+  TeachingInstruction,
 } from "@contingency/protocol";
 import { Schema } from "effect";
 import { expect, test } from "vitest";
@@ -365,4 +366,44 @@ test("old recordings default to Teaching and user actions; Guided Run attributio
     decodeTimeline({ ...timeline, entries: [{ ...action, actor: "agent" }] })
       .entries[0]
   ).toHaveProperty("actor", "agent");
+});
+
+test("older Instructions decode and linked question pairs round-trip", () => {
+  const legacy = { at, id: "old", target: null, text: "Skip the popup" };
+  expect(Schema.decodeUnknownSync(TeachingInstruction)(legacy)).toMatchObject(
+    legacy
+  );
+  const entries = [
+    { _tag: "instruction", at, seq: 0, target: null, text: "Old comment" },
+    {
+      _tag: "instruction",
+      actor: "agent",
+      at,
+      dialogue: { _tag: "question" },
+      id: "question-1",
+      seq: 1,
+      target: null,
+      text: "Which city?",
+    },
+    {
+      _tag: "instruction",
+      actor: "user",
+      at,
+      dialogue: { _tag: "answer", questionId: "question-1" },
+      id: "answer-1",
+      seq: 2,
+      target: null,
+      text: "Pune",
+    },
+  ];
+  const timeline = decodeTimeline({
+    entries,
+    maxCharacters: TEACHING_TIMELINE_BUDGET_CHARACTERS,
+    nextCursor: null,
+    recordingId: "recording-pair",
+  });
+  expect(timeline.entries).toMatchObject(entries);
+  expect(decodeTimeline(Schema.encodeSync(TeachingTimeline)(timeline))).toEqual(
+    timeline
+  );
 });

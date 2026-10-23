@@ -71,6 +71,22 @@ const instructionContent = (instruction: TeachingInstruction) => ({
   target: instruction.target,
   text: instruction.text,
 });
+// An answer wakes waiters from either surface, including a conversation relay.
+const answeredQuestions = (
+  previous: AgentSessionSnapshot,
+  snapshot: AgentSessionSnapshot,
+  emit: Emit
+) => {
+  if (snapshot.activity !== "teaching" || previous.activity !== "teaching") {
+    return;
+  }
+  const known = new Set(previous.teaching.instructions.map(({ id }) => id));
+  for (const instruction of snapshot.teaching.instructions) {
+    if (!known.has(instruction.id) && instruction.dialogue?._tag === "answer") {
+      emit("question-answered", instruction.dialogue.questionId);
+    }
+  }
+};
 const teachingChanges = (
   previous: AgentSessionSnapshot,
   snapshot: AgentSessionSnapshot,
@@ -105,6 +121,9 @@ const teachingChanges = (
       ])
     );
     for (const instruction of snapshot.teaching.instructions) {
+      if (instruction.dialogue?._tag === "answer") {
+        continue;
+      }
       const old = known.get(instruction.id);
       if (
         old === undefined ||
@@ -240,10 +259,15 @@ export const makeSessionEvents = (
     const atom = atomFor(snapshot.id);
     let log = registry.get(atom);
     const previous = log.snapshot;
-    if (previous !== undefined && origin === "workspace") {
+    if (previous !== undefined) {
       const emit = (kind: SessionEvent["kind"], name?: string) => {
         log = append(log, kind, snapshot.updatedAt, name);
       };
+      answeredQuestions(previous, snapshot, emit);
+      if (origin !== "workspace") {
+        commit(snapshot.id, atom, { ...log, snapshot });
+        return;
+      }
       teachingChanges(previous, snapshot, emit);
       if (
         snapshot.activity === "run" &&

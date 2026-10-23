@@ -16,6 +16,7 @@ import { hasRuntimeVariableNotice } from "./runtime-variable-state";
 export interface DockRequest {
   readonly key: string;
   readonly kind:
+    | "guided-run-questions"
     | "boundary"
     | "dry-run-secrets"
     | "runtime-variables"
@@ -150,11 +151,40 @@ const dryRunSecretsRequest = (
   };
 };
 
+const questionsRequest = (
+  session: AgentSessionSnapshot
+): DockRequest | undefined => {
+  if (session.activity !== "teaching" || session.origin !== "guided-run") {
+    return undefined;
+  }
+  const questions = session.teaching.instructions.filter(
+    (item) => item.dialogue?._tag === "question"
+  );
+  if (questions.length === 0) {
+    return undefined;
+  }
+  const waiting = questions.filter(
+    (question) =>
+      !session.teaching.instructions.some(
+        (item) =>
+          item.dialogue?._tag === "answer" &&
+          item.dialogue.questionId === question.id
+      )
+  );
+  return {
+    key: `questions:${waiting.map(({ id }) => id).join(",")}`,
+    kind: "guided-run-questions",
+    summary: remaining(waiting.length, questions.length),
+    title: "Guided Run questions",
+  };
+};
+
 /** The requests the dock's first tier shows, in the order it shows them. */
 export const dockRequests = (
   session: AgentSessionSnapshot
 ): readonly DockRequest[] =>
   [
+    questionsRequest(session),
     boundaryRequest(session),
     setupVariablesRequest(session),
     runtimeVariablesRequest(session),
