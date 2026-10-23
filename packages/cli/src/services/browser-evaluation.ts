@@ -110,6 +110,18 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
     const scripts = new Set<string>();
     evaluationScripts.set(cdp, scripts);
     const requests = new Map<string, Promise<readonly string[] | undefined>>();
+    // CDP can pause a request before announcing it. The renderer announces
+    // its own requests before they reach the network service, and its events
+    // and replies share this session in order, so one renderer round trip
+    // settles the race. Still unannounced after it, the request came from
+    // another target, such as an application worker; evaluation realms cannot
+    // create workers, so no evaluation policy applies to it.
+    const policyOf = async (networkId: string) => {
+      if (!requests.has(networkId)) {
+        await cdp.send("Runtime.evaluate", { expression: "0" });
+      }
+      return await requests.get(networkId);
+    };
     const policyFor = async (
       stack?: InitiatorStack
     ): Promise<readonly string[] | undefined> => {
@@ -147,7 +159,7 @@ const requireNetworkPolicy = (cdp: CDPSession) => {
           const policy =
             event.networkId === undefined
               ? undefined
-              : await requests.get(event.networkId);
+              : await policyOf(event.networkId);
           const host = webHost(event.request.url);
           await (policy !== undefined &&
           (host === undefined ||
