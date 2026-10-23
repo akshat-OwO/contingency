@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Contingency manages an opt-in Local System One

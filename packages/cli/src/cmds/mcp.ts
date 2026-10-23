@@ -16,6 +16,7 @@ import {
 import { McpProtocol, McpServer } from "effect/ai";
 import type { IllegalArgumentError } from "effect/Cause";
 import { Command, Flag } from "effect/cli";
+import { constUndefined } from "effect/Function";
 import { HttpServer } from "effect/http";
 import type { HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
@@ -42,6 +43,15 @@ import {
   makeHttpServerLayer,
   makeNodeServerLayer,
 } from "../services/http-server.ts";
+import { LocalSystemOneLifecycleLive } from "../services/local-system-one-lifecycle-live.ts";
+import { LocalSystemOneLifecycle } from "../services/local-system-one-lifecycle.ts";
+import { LocalSystemOneLive } from "../services/local-system-one-live.ts";
+import {
+  readLocalSystemOneUpdateCache,
+  refreshLocalSystemOneUpdateCache,
+  localSystemOneUpdateNotice,
+} from "../services/local-system-one-updates.ts";
+import { LocalSystemOne } from "../services/local-system-one.ts";
 import { McpChannelStdio } from "../services/mcp-channel.ts";
 import {
   makeMcpCatalogLayer,
@@ -55,7 +65,7 @@ import {
   MCP_INTERFACES,
   VIDEO_FAST_FORWARD_MODES,
 } from "../services/settings.ts";
-import { systemOneConfig } from "../services/system-one.ts";
+import { resolveSystemOne } from "../services/system-one-discovery.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -200,12 +210,54 @@ export const mcpCommand = Command.make(
     const { channel, port, videoFastForward } = config;
     const mcpInterface = config.interface;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
-    const systemOne = Option.getOrUndefined(
-      yield* systemOneConfig.parse(settings.provider)
+    const localServices = Layer.merge(
+      LocalSystemOneLive,
+      LocalSystemOneLifecycleLive.pipe(Layer.provide(LocalSystemOneLive))
     );
+    const {
+      systemOne,
+      lifecycle: localLifecycle,
+      local: localInstallation,
+    } = yield* Effect.gen(function* localDiscovery() {
+      const local = yield* LocalSystemOne;
+      const lifecycle = yield* LocalSystemOneLifecycle;
+      const resolvedSystemOne = yield* resolveSystemOne(
+        settings.provider,
+        local,
+        lifecycle
+      );
+      return { lifecycle, local, systemOne: resolvedSystemOne };
+    }).pipe(Effect.provide(localServices));
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
+        const installation = yield* localInstallation.status.pipe(
+          Effect.orElseSucceed(constUndefined)
+        );
+        if (installation !== undefined) {
+          const notice = localSystemOneUpdateNotice(
+            yield* readLocalSystemOneUpdateCache(
+              localInstallation.dataDirectory,
+              installation
+            )
+          );
+          if (notice !== undefined) {
+            yield* Console.error(notice);
+          }
+          yield* refreshLocalSystemOneUpdateCache(
+            localInstallation.dataDirectory,
+            installation
+          ).pipe(
+            Effect.catch((error) => Effect.logDebug(error.message)),
+            Effect.forkChild
+          );
+        }
+        if (systemOne?.local !== undefined) {
+          yield* localLifecycle.ensureStarted.pipe(
+            Effect.catch((error) => Console.error(error.message)),
+            Effect.forkChild
+          );
+        }
         const fileSystem = yield* FileSystem.FileSystem;
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()

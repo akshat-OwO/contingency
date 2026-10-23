@@ -6,6 +6,8 @@ import {
   MCP_INSTRUCTIONS,
   makeMcpInstructions,
 } from "../../src/services/mcp-http.ts";
+import { makeSettingsProvider } from "../../src/services/settings.ts";
+import { resolveSystemOne } from "../../src/services/system-one-discovery.ts";
 import {
   connectMcp,
   servingMcpHttp,
@@ -259,4 +261,36 @@ it.live("serves stateless 2026-07-28 requests without initialize", () =>
     expect(catalog.status).toBe(200);
     expect(JSON.stringify(catalog.body)).toContain('"isError":false');
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "leaves catalog and instructions byte-identical without an installation",
+  () =>
+    Effect.gen(function* noInstallation() {
+      const absent = yield* resolveSystemOne(
+        makeSettingsProvider({ env: {} }),
+        { status: Effect.sync((): undefined => undefined) },
+        {
+          ensureStarted: Effect.die("must not start"),
+          awaitReady: () => Effect.die("must not wait"),
+        }
+      );
+      const readTools = (origin: string) =>
+        Effect.gen(function* tools() {
+          const client = yield* connectMcp(origin);
+          return Schema.decodeUnknownSync(ToolList)(
+            yield* client.request("tools/list", {})
+          ).result.tools;
+        });
+      const baseline = yield* readTools(yield* servingMcpHttp());
+      const discovered = yield* readTools(
+        yield* servingMcpHttp(absent === undefined ? {} : { systemOne: absent })
+      );
+      expect(JSON.stringify(discovered)).toBe(JSON.stringify(baseline));
+      for (const mode of ["native", "single-tool"] as const) {
+        expect(makeMcpInstructions(false, absent, mode)).toBe(
+          makeMcpInstructions(false, undefined, mode)
+        );
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

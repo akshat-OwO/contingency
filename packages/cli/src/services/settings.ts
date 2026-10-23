@@ -53,7 +53,14 @@ const SystemOneSettings = Schema.Struct({
     Schema.Boolean.annotate({
       default: false,
       description:
-        "Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without systemOne.url.",
+        "Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without a configured endpoint or installed Local System One.",
+    })
+  ),
+  local: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      default: true,
+      description:
+        "Automatically use an installed Local System One when no endpoint is configured. Setup is always a user terminal action.",
     })
   ),
   url: Schema.optionalKey(
@@ -145,6 +152,7 @@ export const SETTING_ENV = {
   },
   systemOne: {
     first: "CONTINGENCY_SYSTEM_ONE_FIRST",
+    local: "CONTINGENCY_SYSTEM_ONE_LOCAL",
     url: "CONTINGENCY_SYSTEM_ONE_URL",
   },
   web: {

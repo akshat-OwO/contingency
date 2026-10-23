@@ -42,7 +42,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-task-combined-proof` composes partial flow1 with flow2 in one session, redirects the task, recovers after a finding, and checks lazy skill-scoped values, Domain Scope, per-attempt confirmation, priority Takeover, and operation replay.
 - `agent-dry-run-outcomes` retains evidence for failed, partial, and Takeover attempts, exposes verification only for a complete report without Takeover, retains rejected evidence, and resumes verified Cleanup after restart.
 - `agent-summary-restart-proof` reopens a task summary and an isolated historical version 2 fixture after restart, preserves Step assessments and timeout meaning, and serves both retained videos.
-- `agent-system-one-pursuit` lists `agent_browser_pursue` only when `CONTINGENCY_SYSTEM_ONE_URL` is set, pursues an ordered list of Flow Skill steps through a System One endpoint in one call, replays the same operation id without acting again, and shows each step in the Run Summary's `System One Pursuits` section (ADR 0057).
+- `agent-system-one-pursuit` lists `agent_browser_pursue` when an endpoint is configured or a Local System One is installed, pursues an ordered list of Flow Skill steps through a System One endpoint in one call, replays the same operation id without acting again, and shows each step in the Run Summary's `System One Pursuits` section (ADR 0057).
 - `agent-code-interpreter` serves only `agent_code_execute` by default, and the native catalog under `CONTINGENCY_MCP_INTERFACE=native` (ADR 0059, #460, #461), runs one program per fresh OpenCode interpreter process, offers every native tool as an operation, drives the combined task proof through programs, waits a full Session Event wait, keeps server receipts across killed interpreters, and ends a program at a Confirmation, a Variable request, or Android device preparation.
 - `agent-mcp-efficiency` keeps `tools/list` under its byte budget, answers session-returning tools with `view:"compact"`, pages omitted history with `agent_session_history_get`, performs a bounded `agent_browser_act_sequence`, and marks read-only tools with MCP hints (ADR 0045).
 - `agent-assessment-evidence-contract` publishes a typed evidence array for Agent Assessments, accepts Snapshot and attempt references, and explains the required object shape when an item is malformed.
@@ -480,15 +480,15 @@ Preconditions: the current CLI build, an isolated `launch`, and `ecommerce start
 
 ### System One Pursuits
 
-Preconditions: launch, doctor, and ecommerce are running in the isolated verification directory. A System One endpoint is serving `POST /v1/systemone`. For a free local run, start Nev as its model card describes, on port 8009. For hosted Jev, use `https://api.typesafe.ai` and keep the key in your shell, never in a file. Write a disposable verified `pursuit-delivery` package to `$CONTINGENCY_VERIFY_DIR/state/catalog/pursuit-delivery/`:
+Preconditions: launch, doctor, and ecommerce are running in the isolated verification directory. A System One endpoint is serving `POST /v1/systemone`. For a free local run, run `contingency system-one setup --yes` in a terminal, then unset `CONTINGENCY_SYSTEM_ONE_URL`. MCP discovers the installation and starts it in the background. For hosted Jev, use `https://api.typesafe.ai` and keep the key in your shell, never in a file. Write a disposable verified `pursuit-delivery` package to `$CONTINGENCY_VERIFY_DIR/state/catalog/pursuit-delivery/`:
 
 - `SKILL.md` declares lowercase `city` and `area` inputs and host `127.0.0.1`.
 - `references/verification.md` has a `- Verified:` timestamp.
 
 Uppercase input names are private Variables, so they cannot be passed as ordinary `inputs`.
 
-- **Start MCP with System One.** Run `CONTINGENCY_SYSTEM_ONE_URL=http://127.0.0.1:8009 CONTINGENCY_SYSTEM_ONE_MODEL=kev-latest control-contingency mcp start`. For Jev, set `CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai` and `CONTINGENCY_SYSTEM_ONE_API_KEY`, and leave the model at its default. `mcp start` passes the shell's environment to the server.
-- **Catalog with the tool.** Run `control-contingency mcp tools > artifacts/system-one-pursuit/tools.json`. It lists 36 tools, including `agent_browser_pursue`.
+- **Start MCP with System One.** For a managed local model run `env -u CONTINGENCY_SYSTEM_ONE_URL control-contingency mcp start`. Confirm startup returns while `system-one status` still reports starting and `mcp tools --name agent_browser_pursue` already lists the tool. For Jev, set `CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai` and `CONTINGENCY_SYSTEM_ONE_API_KEY`, and leave the model at its default. `mcp start` passes the shell's environment to the server.
+- **Catalog with the tool.** Run `control-contingency mcp tools > artifacts/system-one-pursuit/tools.json`. Use `CONTINGENCY_MCP_INTERFACE=native` for this recipe; the catalog includes `agent_browser_pursue`.
 - **Start the Run.** Call `agent_run_start` with:
   - `referencedSkills:["pursuit-delivery"]`;
   - `inputs` `city` Boulder and `area` Pearl Street, both scoped to that skill;
@@ -509,8 +509,9 @@ Uppercase input names are private Variables, so they cannot be passed as ordinar
 - **Replay.** Repeat the call unchanged. It answers at once with the same attempt ids and acts on nothing. The same id with different `steps` is refused with `agent_session_conflict`.
 - **Watch it live.** Before completing, open `$mcpUrl?session=<id>` and capture `artifacts/system-one-pursuit/live-run.png`. The shop shows `Delivering to Pearl Street, Boulder` and `1 item in cart`.
 - **Proof (Run Summary).** Complete the Run with `agent_run_complete`. The summary's `pursuits` list has steps 1 to 6, each `done` with its goal, `doneWhen`, reason, and attempt ids. Then open `$mcpUrl?run=<runId>` and run `control-contingency browser wait --role region --name "System One Pursuits"`. Capture `system-one-pursuit/summary.aria.txt` and `summary.png`. The region lists each step's ending, its goal, its reason, and a `Model-chosen attempts` list with the attempt id and the operation, target, and value percentages.
-- **Without an endpoint.** Run `mcp stop`, then `env -u CONTINGENCY_SYSTEM_ONE_URL control-contingency mcp start`, then `mcp tools`. There are 35 tools, without `agent_browser_pursue`.
-- **Cleanup.** Run `cleanup`. The `system-one-pursuit` artifacts survive.
+- **Without an endpoint.** Run `mcp stop`, then `env -u CONTINGENCY_SYSTEM_ONE_URL control-contingency mcp start`, then `mcp tools`. With the local installation removed, or `systemOne.local:false` in the isolated config.json, the catalog has no `agent_browser_pursue`.
+- **Local update and removal.** Run `contingency system-one update` in a terminal. Record the separate Kev and Nev listings and tested labels. Stay if there are no newer revisions; otherwise choose a version, confirm smoke promotion, then `contingency system-one update --rollback`. Record any install-beside or rollback path proved only by tests. Run `contingency system-one remove`.
+- **Cleanup.** Run `cleanup`. Confirm recorded supervisor, Kev, flock-helper, and MCP PIDs exited with `ps`, check their ports with `lsof -nP -iTCP -sTCP:LISTEN`, and confirm the owned directory is gone. The `system-one-pursuit` artifacts survive.
 
 ### Claude Code channels
 

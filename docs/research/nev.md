@@ -2,6 +2,10 @@
 
 Nev-0.8B is a small decision model that picks the next browser action for a Flow Skill step. It is published at [akshat-OwO/nev-0.8b](https://huggingface.co/akshat-OwO/nev-0.8b). Its test data and the scripts that rebuild every number below are at [akshat-OwO/nev-bench](https://huggingface.co/datasets/akshat-OwO/nev-bench). The live Flow Skill benchmark and the crawler are in [`packages/cli/benchmarks`](../../packages/cli/benchmarks).
 
+## Run Nev locally
+
+Run `contingency system-one setup` in your terminal. Contingency installs the tested Kev and Nev revisions, checks the tarball, and makes a smoke request. Apple Silicon macOS needs uv and a system Python 3.12 or 3.13; Linux also needs an NVIDIA GPU. Nothing is downloaded until setup asks for confirmation. `contingency mcp` then discovers the installation and starts it in the background. See [Local System One](../../packages/cli/docs/system-one.md) for Settings, status, updates, rollback, and removal. The upstream model card lives on Hugging Face.
+
 ## Steps fully right
 
 A step counts only when its operation and its target element are both correct. "Explicit" steps name the element, as Flow Skill steps do. "Goal only" steps give only the task. Every test set uses websites, or whole domains, that never appear in training. Numbers in brackets are steps scored.
@@ -61,7 +65,7 @@ A Jev request takes 0.34 s at the median and a Nev request 0.31 s. In a Pursuit,
 
 ## Run the live benchmark
 
-With Nev running on port 8009 (see the model card), run this from the repository root:
+For the benchmark scripts below, which explicitly configure their own endpoint, use the forwarder URL printed by `contingency system-one start` after running `contingency system-one setup`. The fast-loop script still defaults to port 8009; set `JEV_URL` to that URL when using the managed server. Run benchmarks from the repository root:
 
 ```sh
 JEV_PROVIDER=local JEV_BENCHMARK_REPEATS=3 nub packages/cli/benchmarks/jev-fast-loop.ts

@@ -17,6 +17,12 @@ export const DOCS_URI_PREFIX = "contingency://docs/";
 export const DOC_TOPICS = [
   {
     description:
+      "System One and Nev: how the user installs a Local System One with contingency system-one setup, endpoint precedence, startup, updates, rollback, and removal.",
+    title: "System One",
+    topic: "system-one",
+  },
+  {
+    description:
       "Every Setting: config.json locations, precedence, each key with its environment variable, type, and default, and the environment-only Settings.",
     title: "Settings",
     topic: "settings",
