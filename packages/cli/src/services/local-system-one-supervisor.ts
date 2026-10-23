@@ -2,7 +2,15 @@ import { once } from "node:events";
 import http from "node:http";
 import path from "node:path";
 
-import { Clock, Effect, FileSystem, Schedule, Schema, Sink } from "effect";
+import {
+  Clock,
+  Effect,
+  FileSystem,
+  Schedule,
+  Schema,
+  Sink,
+  Stream,
+} from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { makeLocalSystemOneIdle } from "./local-system-one-idle.ts";
@@ -76,6 +84,9 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
           )
         )
         .pipe(Effect.mapError(localSystemOneError));
+      // Command sinks transform lazy streams; drain them for the process lifetime.
+      yield* Stream.runDrain(child.stdout).pipe(Effect.forkChild);
+      yield* Stream.runDrain(child.stderr).pipe(Effect.forkChild);
       const exited = child.exitCode.pipe(
         Effect.as(true),
         Effect.mapError(localSystemOneError)

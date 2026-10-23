@@ -13,6 +13,7 @@ import {
   Schedule,
   Schema,
   Sink,
+  Stream,
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
@@ -278,6 +279,8 @@ export const LocalSystemOneLive = Layer.effect(
               }
             )
           );
+          yield* Stream.runDrain(child.stdout).pipe(Effect.forkChild);
+          yield* Stream.runDrain(child.stderr).pipe(Effect.forkChild);
           const origin = `http://127.0.0.1:${port}`;
           const ready = promise(async (signal) => {
             const response = await fetch(`${origin}/v1/models`, { signal });
