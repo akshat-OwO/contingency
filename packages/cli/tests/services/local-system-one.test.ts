@@ -3,7 +3,10 @@ import path from "node:path";
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Option, Result } from "effect";
 
-import { localSystemOneEnvironment } from "../../src/services/local-system-one-live.ts";
+import {
+  kevServeArguments,
+  localSystemOneEnvironment,
+} from "../../src/services/local-system-one-live.ts";
 import { LOCAL_SYSTEM_ONE_RELEASE } from "../../src/services/local-system-one-release.ts";
 import {
   LocalSystemOneError,
@@ -422,3 +425,13 @@ it.effect("keeps the current version if rollback smoke fails", () =>
     expect(yield* test.service.status).toEqual(state);
   })
 );
+
+const kevDevice = (platform: NodeJS.Platform) => {
+  const args = kevServeArguments(platform, "test/model@rev", 1234);
+  return args[args.indexOf("--device") + 1];
+};
+
+it("requires the platform accelerator instead of Kev's CPU fallback", () => {
+  expect(kevDevice("darwin")).toBe("mps");
+  expect(kevDevice("linux")).toBe("cuda");
+});

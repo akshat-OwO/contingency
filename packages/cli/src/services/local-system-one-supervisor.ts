@@ -14,7 +14,10 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { makeLocalSystemOneIdle } from "./local-system-one-idle.ts";
-import { localSystemOneEnvironment } from "./local-system-one-live.ts";
+import {
+  kevServeArguments,
+  localSystemOneEnvironment,
+} from "./local-system-one-live.ts";
 import { withLocalSystemOneLock } from "./local-system-one-lock.ts";
 import {
   processIdentity,
@@ -61,16 +64,11 @@ export const superviseLocalSystemOne = Effect.gen(function* supervise() {
         .spawn(
           ChildProcess.make(
             python,
-            [
-              "-m",
-              "kev.serve",
-              "--run",
+            kevServeArguments(
+              process.platform,
               `${installed.current.modelId}@${installed.current.nevRevision}`,
-              "--host",
-              "127.0.0.1",
-              "--port",
-              String(kevPort),
-            ],
+              kevPort
+            ),
             {
               cwd: path.join(directory, "kev"),
               detached: true,

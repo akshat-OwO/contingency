@@ -36,6 +36,27 @@ import {
 import { SystemOneResponseSchema } from "./system-one-request.ts";
 import type { SystemOneRequest } from "./system-one-request.ts";
 
+/**
+ * Kev's server arguments. An explicit accelerator fails closed, where Kev's
+ * default `auto` falls back to CPU, which ADR 0064 rules out.
+ */
+export const kevServeArguments = (
+  platform: NodeJS.Platform,
+  run: string,
+  port: number
+) => [
+  "-m",
+  "kev.serve",
+  "--run",
+  run,
+  "--host",
+  "127.0.0.1",
+  "--port",
+  String(port),
+  "--device",
+  platform === "darwin" ? "mps" : "cuda",
+];
+
 /** Kept inside each installation so remove reclaims all fetched artifacts. */
 export const localSystemOneEnvironment = (
   directory: string,
@@ -256,16 +277,11 @@ export const LocalSystemOneLive = Layer.effect(
           const child = yield* spawner.spawn(
             ChildProcess.make(
               path.join(directory, "kev", ".venv", "bin", "python"),
-              [
-                "-m",
-                "kev.serve",
-                "--run",
+              kevServeArguments(
+                process.platform,
                 `${model.id}@${version.nevRevision}`,
-                "--host",
-                "127.0.0.1",
-                "--port",
-                String(port),
-              ],
+                port
+              ),
               {
                 cwd: path.join(directory, "kev"),
                 env: localSystemOneEnvironment(directory),
