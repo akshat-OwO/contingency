@@ -1371,6 +1371,7 @@ interface InFlightAction {
 }
 
 interface ActionControl {
+  closing: boolean;
   inFlight: InFlightAction | undefined;
   /** One agent action at a time, so Takeover always has one fiber to stop. */
   readonly lock: Semaphore.Semaphore;
@@ -3105,7 +3106,7 @@ const makeAgentSession = (
     ): Effect.Effect<SessionRecord, AgentSessionError> =>
       read(sessionId).pipe(
         Effect.flatMap((record) =>
-          isLive(record.snapshot.phase)
+          isLive(record.snapshot.phase) && !record.control.closing
             ? Effect.succeed(record)
             : Effect.fail(
                 error(
@@ -3874,6 +3875,7 @@ const makeAgentSession = (
                           ? makeDemonstrationCapture(base.currentUrl)
                           : undefined,
                       control: {
+                        closing: false,
                         inFlight: undefined,
                         lock: Semaphore.makeUnsafe(1),
                       },
@@ -4996,7 +4998,7 @@ const makeAgentSession = (
             : { ...result, intervention: pending.boundary };
         }
         if (Cause.hasInterrupts(exit.cause)) {
-          // Takeover already recorded the dispatched attempt. The browser may
+          // Takeover or closure records the dispatched attempt. The browser may
           // have performed it, so this operation id is spent: retrying it
           // answers with the same refusal instead of acting again.
           const refusal = takenOver(
@@ -5787,6 +5789,53 @@ const makeAgentSession = (
       return yield* Effect.fail(safeFailure);
     });
 
+    /** Interrupt a dispatched attempt before its capture can be frozen. */
+    const interruptAction = Effect.fn("AgentSession.interruptAction")(
+      function* interruptAction(record: SessionRecord, detail: string) {
+        const { inFlight } = record.control;
+        if (inFlight === undefined) {
+          return null;
+        }
+        yield* Fiber.interrupt(inFlight.fiber);
+        const exit = yield* Fiber.await(inFlight.fiber);
+        // A completed action may still be appending its evidence under the
+        // control lock. Let that path finish rather than invent an interruption.
+        if (Exit.isSuccess(exit) || !Cause.hasInterrupts(exit.cause)) {
+          return null;
+        }
+        record.control.inFlight = undefined;
+        const at = now().toISOString();
+        const entry: AgentTimelineEntry = {
+          actor: "agent",
+          at,
+          description: inFlight.description,
+          detail,
+          dispatched: true,
+          id: inFlight.id,
+          outcome: "interrupted",
+        };
+        if (
+          inFlight.action.type !== "eval" &&
+          inFlight.action.type !== "upload"
+        ) {
+          recordingCapture(record)?.recordAction({
+            action: inFlight.action,
+            actor: "agent",
+            at,
+            description: inFlight.description,
+            detail,
+            id: inFlight.id,
+            outcome: "interrupted",
+            snapshotAfter: null,
+            snapshotBefore: inFlight.snapshotBefore,
+            urlAfter: record.snapshot.currentUrl,
+            urlBefore: inFlight.urlBefore,
+          });
+        }
+        return entry;
+      }
+    );
+
     /**
      * Enter Takeover. A user initiation takes control immediately and has
      * priority: it interrupts the in-flight agent action and waits for its
@@ -5826,49 +5875,13 @@ const makeAgentSession = (
             }
             yield* runScans.stop(sessionId, "Takeover interrupted the scan.");
             record.executionBoundary?.invalidateAttempts();
-            const inFlight =
-              by === "user" ? record.control.inFlight : undefined;
-            let interruptedAction: AgentTimelineEntry | null = null;
-            if (inFlight !== undefined) {
-              // Interruption waits for the action fiber's finalizers, but the
-              // browser may already have performed the effect, so the attempt is
-              // recorded as dispatched rather than as never having happened.
-              yield* Fiber.interrupt(inFlight.fiber);
-              record.control.inFlight = undefined;
-              const interruptedAt = now().toISOString();
-              const detail =
-                "Takeover interrupted this action. The browser may already have performed it.";
-              interruptedAction = {
-                actor: "agent",
-                at: interruptedAt,
-                description: inFlight.description,
-                detail,
-                dispatched: true,
-                id: inFlight.id,
-                outcome: "interrupted",
-              };
-              // The Demonstration keeps the attempt too: a compiler that never
-              // learns of it could place a Step boundary over an effect nobody
-              // can account for.
-              if (
-                inFlight.action.type !== "eval" &&
-                inFlight.action.type !== "upload"
-              ) {
-                recordingCapture(record)?.recordAction({
-                  action: inFlight.action,
-                  actor: "agent",
-                  at: interruptedAt,
-                  description: inFlight.description,
-                  detail,
-                  id: inFlight.id,
-                  outcome: "interrupted",
-                  snapshotAfter: null,
-                  snapshotBefore: inFlight.snapshotBefore,
-                  urlAfter: record.snapshot.currentUrl,
-                  urlBefore: inFlight.urlBefore,
-                });
-              }
-            }
+            const interruptedAction =
+              by === "user"
+                ? yield* interruptAction(
+                    record,
+                    "Takeover interrupted this action. The browser may already have performed it."
+                  )
+                : null;
             const at = now().toISOString();
             const entry: AgentTimelineEntry = {
               actor: by,
@@ -6266,6 +6279,21 @@ const makeAgentSession = (
       }
     );
 
+    /** Refuse queued work and capture the dispatched attempt before Stop. */
+    const settleActionsForClose = Effect.fn(
+      "AgentSession.settleActionsForClose"
+    )(function* settleActionsForClose(sessionId: AgentSessionId) {
+      const record = yield* read(sessionId);
+      record.control.closing = true;
+      const interrupted = yield* interruptAction(
+        record,
+        "Session closure interrupted this action. The browser may already have performed it."
+      );
+      if (interrupted !== null) {
+        yield* recordEntry(sessionId, interrupted);
+      }
+    });
+
     const closeUnlocked = Effect.fn("AgentSession.close")(
       function* closeSession(
         sessionId: AgentSessionId,
@@ -6292,6 +6320,7 @@ const makeAgentSession = (
                 return durable;
               }
             }
+            yield* settleActionsForClose(sessionId);
             let record = yield* read(sessionId);
             yield* ledger.releaseSession(sessionId);
             if (
@@ -6300,10 +6329,13 @@ const makeAgentSession = (
               record.snapshot.captureState._tag === "recording" &&
               record.teachingRecorder !== undefined
             ) {
-              yield* stopTeachingRecordingUnlocked(
+              yield* afterUserInput(
                 sessionId,
-                `close-recording-${String(operationId ?? sessionId)}`,
-                "session-closed"
+                stopTeachingRecordingUnlocked(
+                  sessionId,
+                  `close-recording-${String(operationId ?? sessionId)}`,
+                  "session-closed"
+                )
               );
               record = yield* read(sessionId);
             }
@@ -6400,15 +6432,20 @@ const makeAgentSession = (
         if (!isLive(record.snapshot.phase)) {
           return record.snapshot;
         }
+        yield* settleActionsForClose(sessionId);
+        record = yield* read(sessionId);
         if (
           record.snapshot.activity === "teaching" &&
           record.snapshot.captureState._tag === "recording" &&
           record.teachingRecorder !== undefined
         ) {
-          yield* stopTeachingRecordingUnlocked(
+          yield* afterUserInput(
             sessionId,
-            `interrupt-recording-${sessionId}`,
-            "session-closed"
+            stopTeachingRecordingUnlocked(
+              sessionId,
+              `interrupt-recording-${sessionId}`,
+              "session-closed"
+            )
           );
           record = yield* read(sessionId);
         }

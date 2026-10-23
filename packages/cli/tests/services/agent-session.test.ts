@@ -2,6 +2,8 @@ import path from "node:path";
 
 import {
   AgentElementRef,
+  FlowSkillName,
+  TeachingRecordingId,
   flowSkillNameRule,
   makeBrowserRpcError,
   OperationId,
@@ -1759,3 +1761,107 @@ it.live(
       yield* service.closeAll();
     }).pipe(Effect.scoped)
 );
+
+for (const ending of ["close", "interrupt"] as const) {
+  for (const mode of ["run", "dry-run"] as const) {
+    it.effect(
+      `${ending} interrupts ${mode} actions and refuses queued dispatch`,
+      () =>
+        Effect.gen(function* settleRunActions() {
+          const fake = makeFakeBrowser();
+          const browser = yield* makeInMemoryAgentBrowser({
+            url: CONTRACT_URL,
+          });
+          const tab = yield* browser.active();
+          const entered = yield* Deferred.make<true>();
+          const interrupted = yield* Deferred.make<true>();
+          const release = yield* Deferred.make<true>();
+          let dispatches = 0;
+          const service = yield* makeAgentSessionService(fake.browser, {
+            agentBrowserFactory: () =>
+              Effect.succeed({
+                ...browser,
+                active: () =>
+                  Effect.succeed({
+                    ...tab,
+                    perform: () =>
+                      Effect.gen(function* heldAction() {
+                        dispatches += 1;
+                        yield* Deferred.succeed(entered, true);
+                        yield* Effect.never;
+                      }).pipe(
+                        Effect.ensuring(
+                          Deferred.succeed(interrupted, true).pipe(
+                            Effect.andThen(Deferred.await(release))
+                          )
+                        )
+                      ),
+                  }),
+              }),
+            allowedActivity: "any",
+            baseUrl: "http://127.0.0.1:7777",
+          });
+          const started = yield* service.start({
+            ...startInput("start"),
+            dryRun:
+              mode === "dry-run"
+                ? {
+                    flowSkillName: FlowSkillName.make("dry"),
+                    inputs: [],
+                    recordingId: TeachingRecordingId.make("recording-dry"),
+                  }
+                : undefined,
+            url: CONTRACT_URL,
+          });
+          const action = { action: "reload", type: "history" } as const;
+          const running = yield* service
+            .act(started.id, action, OperationId.make("first"))
+            .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
+          yield* Deferred.await(entered);
+          const queued = yield* service
+            .act(started.id, action, OperationId.make("queued"))
+            .pipe(Effect.exit, Effect.forkChild({ startImmediately: true }));
+          const closing = yield* (
+            ending === "close" ? service.close(started.id) : service.closeAll()
+          ).pipe(Effect.forkChild({ startImmediately: true }));
+          yield* Deferred.await(interrupted);
+          const refused = yield* Effect.flip(
+            service.act(started.id, action, OperationId.make("late"))
+          );
+          expect(refused.code).toBe("agent_session_conflict");
+          yield* Deferred.succeed(release, true);
+          yield* Fiber.join(closing);
+          expect(Exit.isFailure(yield* Fiber.join(running))).toBe(true);
+          expect(Exit.isFailure(yield* Fiber.join(queued))).toBe(true);
+          expect(dispatches).toBe(1);
+          expect(fake.closed).toHaveLength(1);
+          const result = yield* service.get(started.id);
+          expect(result.phase).toBe(
+            ending === "close" ? "closed" : "interrupted"
+          );
+          expect(
+            result.timeline.filter((entry) => entry.dispatched)
+          ).toMatchObject([{ outcome: "interrupted" }]);
+        })
+    );
+  }
+  it.effect(`${ending} preserves user-led Teaching control`, () =>
+    Effect.gen(function* closeTeaching() {
+      const fake = makeFakeBrowser();
+      const service = yield* serviceFor(fake);
+      const teaching = yield* service.start({
+        ...startInput("teaching"),
+        activity: "teaching",
+      });
+      yield* ending === "close"
+        ? service.close(teaching.id)
+        : service.closeAll();
+      expect(yield* service.get(teaching.id)).toMatchObject({
+        captureState: { _tag: "setup" },
+        controller: "user",
+        phase: ending === "close" ? "closed" : "interrupted",
+      });
+      expect(fake.closed).toHaveLength(1);
+    })
+  );
+}

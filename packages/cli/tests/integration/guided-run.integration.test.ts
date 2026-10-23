@@ -7,9 +7,18 @@ import {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Schema,
+  Stream,
+} from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-browser.ts";
 import {
   PursuitToolHandlersLive,
   PursuitTools,
@@ -241,3 +250,153 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+for (const ending of ["close", "interrupt"] as const) {
+  it.live(
+    `Guided Run ${ending} records a dispatched action before finalizing`,
+    () =>
+      Effect.gen(function* closeDuringAction() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "guided-close-",
+        });
+        const fixtures = yield* fixtureServer;
+        const performed = yield* Deferred.make<true>();
+        const release = yield* Deferred.make<true>();
+        yield* Effect.gen(function* recordInterruptedAttempt() {
+          const sessions = yield* AgentSession;
+          const started = yield* sessionTool("agent_guided_run_start", {
+            name: FlowSkillName.make("guided-close"),
+            operationId: operation("start"),
+            url: fixtures.url("delivery.html"),
+            viewport: agentViewport,
+          });
+          if (started.recordingId === null) {
+            return yield* Effect.die("Expected a recording");
+          }
+          yield* sessionTool("agent_teaching_setup_handoff", {
+            operationId: operation("handoff"),
+            sessionId: started.id,
+          });
+          yield* sessions.startTeachingRecording(
+            started.id,
+            operation("record")
+          );
+          const snapshot = yield* sessionTool("agent_browser_snapshot", {
+            sessionId: started.id,
+          });
+          // On the unfixed code, release only after closure has frozen the
+          // capture. This keeps the reproduction finite without a timed wait.
+          yield* sessions.changes(started.id).pipe(
+            Stream.filter(
+              (session) =>
+                session.phase === "closed" || session.phase === "interrupted"
+            ),
+            Stream.take(1),
+            Stream.runForEach(() => Deferred.succeed(release, true)),
+            Effect.forkScoped
+          );
+          const action = yield* sessionTool("agent_browser_act", {
+            action: {
+              ref: findNode(snapshot.nodes, "button", "Choose delivery area")
+                .ref,
+              type: "click",
+            },
+            operationId: operation("held-action"),
+            sessionId: started.id,
+          }).pipe(Effect.exit, Effect.forkScoped);
+          yield* Deferred.await(performed).pipe(Effect.timeout("30 seconds"));
+          // The real click happened, but its acknowledgement is held until closure.
+          // Close must settle it without waiting for a timer or a test release.
+          yield* ending === "close"
+            ? sessionTool("agent_session_close", {
+                operationId: operation("close"),
+                sessionId: started.id,
+              })
+            : sessions.closeAll();
+          const claimOperationId = operation("claim");
+          yield* teachingRecordingTool("agent_teaching_recording_claim", {
+            action: "take",
+            operationId: claimOperationId,
+            recordingId: started.recordingId,
+          });
+          const timeline = yield* teachingRecordingTool(
+            "agent_teaching_timeline_get",
+            {
+              claimOperationId,
+              recordingId: started.recordingId,
+            }
+          );
+          expect(
+            timeline.entries.filter((event) => event._tag === "action")
+          ).toMatchObject([
+            {
+              actor: "agent",
+              detail: expect.stringContaining("interrupted"),
+              outcome: "failed",
+              target: { name: "Choose delivery area", role: "button" },
+            },
+          ]);
+          expect(timeline.entries.at(-1)).toMatchObject({
+            _tag: "stopped",
+            reason: "session-closed",
+          });
+          const events = yield* fs.readFileString(
+            path.join(root, ".recordings", started.recordingId, "events.jsonl")
+          );
+          expect(events).toContain('"outcome":"failed"');
+          expect(yield* sessions.get(started.id)).toMatchObject({
+            captureState: { _tag: "learning" },
+            phase: ending === "close" ? "closed" : "interrupted",
+            timeline: expect.arrayContaining([
+              expect.objectContaining({
+                dispatched: true,
+                outcome: "interrupted",
+              }),
+            ]),
+          });
+          yield* Fiber.join(action);
+          expect(events).toContain("Choose delivery area");
+          const refused = yield* Effect.flip(
+            sessionTool("agent_browser_act", {
+              action: { action: "reload", type: "history" },
+              operationId: operation("after-close"),
+              sessionId: started.id,
+            })
+          );
+          expect(refused.code).toBe("agent_session_conflict");
+        }).pipe(
+          Effect.onExit(() => Deferred.succeed(release, true)),
+          Effect.provide(
+            agentProcessLayer(root, {
+              agentBrowserFactory: (input) =>
+                makeChromiumAgentBrowser(input).pipe(
+                  Effect.map((browser) => ({
+                    ...browser,
+                    active: () =>
+                      browser.active().pipe(
+                        Effect.map((tab) => ({
+                          ...tab,
+                          perform: (action, pointer) =>
+                            tab
+                              .perform(action, pointer)
+                              .pipe(
+                                Effect.andThen(
+                                  Deferred.succeed(performed, true)
+                                ),
+                                Effect.andThen(Deferred.await(release))
+                              ),
+                        }))
+                      ),
+                  }))
+                ),
+            })
+          )
+        );
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(NodeServices.layer),
+        Effect.timeout("60 seconds")
+      )
+  );
+}
