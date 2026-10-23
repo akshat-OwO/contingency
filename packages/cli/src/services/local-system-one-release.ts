@@ -9,12 +9,12 @@ export const LOCAL_SYSTEM_ONE_RELEASE = {
     },
   },
   sizes: {
-    // Full installation measurements require a system Python 3.12/3.13.
-    // This development machine has only 3.14; do not present estimates as measured.
+    // Apple Silicon, Python 3.13: tarball + fetched wheel archives + HF blobs.
+    // Disk is du -sk of the owned directory after the setup smoke request.
     darwin: {
-      diskBytes: 9_000_000_000,
-      downloadBytes: 4_000_000_000,
-      measured: false,
+      diskBytes: 4_968_837_120,
+      downloadBytes: 2_239_757_880,
+      measured: true,
     },
     linux: {
       diskBytes: 16_000_000_000,
