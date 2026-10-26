@@ -4,9 +4,32 @@ import path from "node:path";
 import { Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { reviewVendorData, writeVendorDataManifest } from "./vendor-data.ts";
+import { vendorEnglishLocales } from "./vendor-locales.ts";
+import { lighthouseRuntimeDependencies } from "./vendor-sentry.ts";
+
+type RuntimeTarget =
+  | string
+  | null
+  | readonly RuntimeTarget[]
+  | { readonly [key: string]: RuntimeTarget };
+const RuntimeTargetSchema: Schema.Codec<RuntimeTarget> = Schema.suspend(() =>
+  Schema.Union([
+    Schema.String,
+    Schema.Null,
+    Schema.Array(RuntimeTargetSchema),
+    Schema.Record(Schema.String, RuntimeTargetSchema),
+  ])
+);
+
 const Dependencies = Schema.Record(Schema.String, Schema.String);
 const Manifest = Schema.Struct({
+  bin: Schema.optional(RuntimeTargetSchema),
   dependencies: Schema.optional(Dependencies),
+  exports: Schema.optional(RuntimeTargetSchema),
+  imports: Schema.optional(RuntimeTargetSchema),
+  main: Schema.optional(Schema.String),
+  module: Schema.optional(Schema.String),
   optionalDependencies: Schema.optional(Dependencies),
   peerDependencies: Schema.optional(Dependencies),
   peerDependenciesMeta: Schema.optional(
@@ -15,7 +38,37 @@ const Manifest = Schema.Struct({
       Schema.Struct({ optional: Schema.optional(Schema.Boolean) })
     )
   ),
+  version: Schema.optional(Schema.String),
 });
+
+const typeScriptFile = /\.(?:ts|mts|cts)$/u;
+
+// Consider every export condition, including custom conditions such as
+// @zod/source. Keep the whole TS tree when an entry can load it, since its
+// imports may reach other TS files. `types` conditions are compiler-only.
+export const hasTypeScriptRuntime = (value: RuntimeTarget): boolean => {
+  if (Schema.is(Schema.String)(value)) {
+    return typeScriptFile.test(value);
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasTypeScriptRuntime);
+  }
+  if (value !== null) {
+    return Object.entries(value).some(
+      ([key, target]) => key !== "types" && hasTypeScriptRuntime(target)
+    );
+  }
+  return false;
+};
+
+/** Paths are POSIX-style and package-relative; directories use the same predicate. */
+export const shouldVendorFile = (
+  relative: string,
+  preserveTypeScript = false
+): boolean =>
+  !relative.split("/").includes("node_modules") &&
+  !relative.endsWith(".map") &&
+  (preserveTypeScript || !typeScriptFile.test(relative));
 
 /** Preserve asset paths without shipping Nub's external store symlinks. */
 export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
@@ -33,6 +86,9 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
     parent: string,
     optional: boolean
   ) {
+    if (name.startsWith("@types/")) {
+      return;
+    }
     const search =
       createRequire(path.join(parent, "package.json")).resolve.paths(name) ??
       [];
@@ -54,7 +110,7 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
     name: string,
     source: string,
     parentTarget: string
-  ): Effect.Effect<void, Error | PlatformError> =>
+  ): Effect.Effect<void, Error | PlatformError, FileSystem.FileSystem> =>
     Effect.gen(function* copyPackage() {
       // Reuse the nearest matching package, but nest a conflicting version.
       // Recording before recursion also handles dependency and peer cycles.
@@ -82,21 +138,65 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
       placed.set(target, source);
       copied.add(target);
       yield* fs.makeDirectory(target, { recursive: true });
-      for (const entry of yield* fs.readDirectory(source)) {
-        if (entry !== "node_modules") {
-          yield* fs.copy(path.join(source, entry), path.join(target, entry));
-        }
-      }
       const text = yield* fs.readFileString(path.join(source, "package.json"));
       const manifest = yield* Effect.try({
         catch: (cause) =>
           new Error(`Invalid vendor manifest at ${source}`, { cause }),
         try: () => Schema.decodeUnknownSync(Manifest)(JSON.parse(text)),
       });
+      const preserveTypeScript = hasTypeScriptRuntime([
+        manifest.main ?? null,
+        manifest.module ?? null,
+        manifest.exports ?? null,
+        manifest.imports ?? null,
+        manifest.bin ?? null,
+      ]);
       const optional = manifest.optionalDependencies ?? {};
       const peers = manifest.peerDependencies ?? {};
       const dependencies = { ...peers, ...manifest.dependencies, ...optional };
-      for (const dependency of Object.keys(dependencies)) {
+      const data = yield* reviewVendorData(
+        name,
+        source,
+        Object.keys(dependencies)
+      );
+      const copyFiles = (
+        relative: string
+      ): Effect.Effect<void, PlatformError> =>
+        Effect.gen(function* copyDirectory() {
+          const from = path.join(source, relative);
+          const to = path.join(target, relative);
+          yield* fs.makeDirectory(to, { recursive: true });
+          for (const entry of yield* fs.readDirectory(from)) {
+            const child = path.posix.join(relative, entry);
+            if (
+              !shouldVendorFile(child, preserveTypeScript) ||
+              data.excluded.some(
+                (excluded) =>
+                  child === excluded || child.startsWith(`${excluded}/`)
+              )
+            ) {
+              continue;
+            }
+            const info = yield* fs.stat(path.join(source, child));
+            yield* info.type === "Directory"
+              ? copyFiles(child)
+              : fs.copy(path.join(source, child), path.join(target, child));
+          }
+        });
+      yield* copyFiles("");
+      yield* vendorEnglishLocales(name, manifest.version, target);
+      yield* writeVendorDataManifest(data, source, target, text);
+      // Traverse the retained graph after removing only reviewed dependency
+      // edges. Dependencies exclusive to those edges are never copied;
+      // shared dependencies (including Sentry itself) remain reachable from
+      // other roots, dependencies, optional dependencies or peers.
+      const retained = yield* lighthouseRuntimeDependencies(
+        name,
+        manifest.version,
+        data.dependencies,
+        source
+      );
+      for (const dependency of retained) {
         const resolved = yield* resolve(
           dependency,
           source,
