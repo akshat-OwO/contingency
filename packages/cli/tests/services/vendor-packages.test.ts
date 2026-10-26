@@ -5,10 +5,16 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
-import { vendorPackages } from "../../src/packaging/vendor-packages.ts";
+import {
+  hasTypeScriptRuntime,
+  shouldVendorFile,
+  vendorPackages,
+} from "../../src/packaging/vendor-packages.ts";
 
 interface FixtureManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
+  readonly exports?: unknown;
+  readonly main?: string;
   readonly name: string;
   readonly optionalDependencies?: Readonly<Record<string, string>>;
   readonly peerDependencies?: Readonly<Record<string, string>>;
@@ -114,5 +120,204 @@ it.effect(
         Effect.flip
       );
       expect(error.message).toContain("Cannot vendor missing-vendor-fixture");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it("filters dependency build metadata while retaining runtime files", () => {
+  for (const file of [
+    "index.js.map",
+    "nested/index.d.ts",
+    "index.d.mts",
+    "index.d.cts",
+    "src/index.ts",
+    "src/index.mts",
+    "src/index.cts",
+    "node_modules/child/index.js",
+  ]) {
+    expect(shouldVendorFile(file)).toBe(false);
+  }
+  for (const file of [
+    "package.json",
+    "index.js",
+    "index.mjs",
+    "index.cjs",
+    "data.json",
+    "assets/font.woff2",
+    "LICENSE",
+    "bin/runner",
+    "tsconfig.json",
+  ]) {
+    expect(shouldVendorFile(file)).toBe(true);
+  }
+  expect(shouldVendorFile("src/index.ts", true)).toBe(true);
+  expect(shouldVendorFile("src/index.ts.map", true)).toBe(false);
+  expect(
+    hasTypeScriptRuntime({ import: "./index.js", types: "./index.d.ts" })
+  ).toBe(false);
+  expect(
+    hasTypeScriptRuntime({
+      ".": { "@zod/source": "./src/index.ts", default: "./index.js" },
+    })
+  ).toBe(true);
+  expect(hasTypeScriptRuntime([null, { runner: "./bin/run.mts" }])).toBe(true);
+});
+
+it.effect(
+  "filters nested files, skips unresolved type packages and preserves TypeScript runtime entries",
+  () =>
+    Effect.gen(function* filterPackages() {
+      const { fs, source, output, writePackage } = yield* fixture;
+      const runtime = yield* writePackage("node_modules/runtime", {
+        dependencies: { "@types/missing": "1", typed: "1" },
+        name: "runtime",
+      });
+      const typed = yield* writePackage("node_modules/typed", {
+        exports: { default: "./entry.cts", types: "./index.d.ts" },
+        name: "typed",
+      });
+      yield* fs.makeDirectory(path.join(runtime, "nested"));
+      for (const file of [
+        "nested/source.ts",
+        "nested/types.d.ts",
+        "nested/index.js.map",
+      ]) {
+        yield* fs.writeFileString(path.join(runtime, file), "unused");
+      }
+      yield* fs.writeFileString(path.join(runtime, "nested/asset.json"), "{}");
+      yield* fs.writeFileString(
+        path.join(typed, "entry.cts"),
+        "module.exports = require('./value.cts');"
+      );
+      yield* fs.writeFileString(
+        path.join(typed, "value.cts"),
+        "module.exports = 'typed runtime';"
+      );
+      yield* vendorPackages(["runtime", "@types/missing"], source, output);
+      yield* fs.remove(source, { recursive: true });
+      for (const file of [
+        "nested/source.ts",
+        "nested/types.d.ts",
+        "nested/index.js.map",
+      ]) {
+        expect(
+          yield* fs.exists(path.join(output, "node_modules/runtime", file))
+        ).toBe(false);
+      }
+      expect(
+        yield* fs.exists(
+          path.join(output, "node_modules/runtime/nested/asset.json")
+        )
+      ).toBe(true);
+      expect(yield* fs.exists(path.join(output, "node_modules/@types"))).toBe(
+        false
+      );
+      expect(
+        yield* fs.readFileString(
+          path.join(output, "node_modules/typed/entry.cts")
+        )
+      ).toContain("require('./value.cts')");
+      expect(
+        yield* fs.readFileString(
+          path.join(output, "node_modules/typed/value.cts")
+        )
+      ).toContain("typed runtime");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "ships only English locale assets and rewrites Lighthouse's registry",
+  () =>
+    Effect.gen(function* englishLocales() {
+      const { fs, source, output, writePackage } = yield* fixture;
+      const lighthouse = yield* writePackage("node_modules/lighthouse", {
+        name: "lighthouse",
+        version: "13.5.0",
+      });
+      const trace = yield* writePackage(
+        "node_modules/@paulirish/trace_engine",
+        {
+          name: "@paulirish/trace_engine",
+          version: "0.0.65",
+        }
+      );
+      const localization = path.join(lighthouse, "shared/localization");
+      yield* fs.makeDirectory(localization, { recursive: true });
+      // Exercise the reviewed upstream registry, including all static imports.
+      yield* fs.copyFile(
+        path.resolve("node_modules/lighthouse/shared/localization/locales.js"),
+        path.join(localization, "locales.js")
+      );
+      for (const directory of [localization, trace]) {
+        yield* fs.makeDirectory(path.join(directory, "locales"));
+        for (const locale of ["en-US", "en-XL", "fr"]) {
+          yield* fs.writeFileString(
+            path.join(directory, "locales", `${locale}.json`),
+            "{}"
+          );
+        }
+      }
+      yield* vendorPackages(
+        ["lighthouse", "@paulirish/trace_engine"],
+        source,
+        output
+      );
+      yield* fs.remove(source, { recursive: true });
+      for (const relative of [
+        "lighthouse/shared/localization",
+        "@paulirish/trace_engine",
+      ]) {
+        expect(
+          yield* fs.readDirectory(
+            path.join(output, "node_modules", relative, "locales")
+          )
+        ).toEqual(["en-US.json"]);
+      }
+      const registry = yield* fs.readFileString(
+        path.join(
+          output,
+          "node_modules/lighthouse/shared/localization/locales.js"
+        )
+      );
+      expect(registry).toContain("const locales = {'en-US': enUS, en: enUS}");
+      expect(registry).toContain("export {locales}");
+      expect(registry).not.toContain("import ar from");
+      expect(registry).not.toContain("import enXL from");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("fails loudly when Lighthouse changes its locale registry", () =>
+  Effect.gen(function* changedRegistry() {
+    const { fs, source, output, writePackage } = yield* fixture;
+    const lighthouse = yield* writePackage("node_modules/lighthouse", {
+      name: "lighthouse",
+    });
+    const localization = path.join(lighthouse, "shared/localization");
+    yield* fs.makeDirectory(localization, { recursive: true });
+    yield* fs.writeFileString(
+      path.join(localization, "locales.js"),
+      "export const locales = {};\n"
+    );
+    const error = yield* vendorPackages(["lighthouse"], source, output).pipe(
+      Effect.flip
+    );
+    expect(error.message).toContain("Lighthouse locales.js changed");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "requires a locale loading review when trace_engine changes version",
+  () =>
+    Effect.gen(function* changedTraceEngine() {
+      const { source, output, writePackage } = yield* fixture;
+      yield* writePackage("node_modules/@paulirish/trace_engine", {
+        name: "@paulirish/trace_engine",
+        version: "0.0.66",
+      });
+      const error = yield* vendorPackages(
+        ["@paulirish/trace_engine"],
+        source,
+        output
+      ).pipe(Effect.flip);
+      expect(error.message).toContain("review its locale loading");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

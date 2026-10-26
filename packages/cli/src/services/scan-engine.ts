@@ -157,6 +157,7 @@ export const beginScanCollection = async (
         disableStorageReset: true,
         emulatedUserAgent: false,
         formFactor: mobile ? "mobile" : "desktop",
+        locale: "en-US",
         logLevel: "silent",
         onlyCategories: ["performance"],
         screenEmulation: { disabled: true },
