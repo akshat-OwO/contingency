@@ -49,7 +49,7 @@ it.effect(
         recursive: true,
       });
       yield* writeVendorDataManifest(
-        data.cutBaseline,
+        data,
         lighthouse,
         target,
         yield* fs.readFileString(path.join(lighthouse, "package.json"))
@@ -251,5 +251,86 @@ it.effect(
         []
       ).pipe(Effect.flip);
       expect(error.message).toContain("consumers changed");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "omits reviewed browser artifacts while preserving engines and licenses",
+  () =>
+    Effect.gen(function* browserArtifacts() {
+      const fs = yield* FileSystem.FileSystem;
+      const output = yield* fs.makeTempDirectoryScoped({
+        prefix: "vendor-browser-",
+      });
+      yield* vendorPackages(
+        ["playwright-core", "puppeteer-core"],
+        process.cwd(),
+        output
+      );
+      for (const relative of [
+        "playwright-core/lib/vite/htmlReport",
+        "puppeteer-core/lib/es5-iife",
+      ]) {
+        expect(
+          yield* fs.exists(path.join(output, "node_modules", relative))
+        ).toBe(false);
+      }
+      for (const relative of [
+        "playwright-core/lib/coreBundle.js",
+        "playwright-core/lib/server",
+        "playwright-core/lib/vite/recorder/index.html",
+        "playwright-core/lib/vite/traceViewer/index.html",
+        "playwright-core/lib/vite/dashboard/index.html",
+        "playwright-core/LICENSE",
+        "playwright-core/NOTICE",
+        "puppeteer-core/lib/puppeteer/puppeteer-core.js",
+      ]) {
+        expect(
+          yield* fs.exists(path.join(output, "node_modules", relative)),
+          relative
+        ).toBe(true);
+      }
+      // The installed Puppeteer tarball has inline license headers, no LICENSE.
+      expect(
+        yield* fs.readFileString(
+          path.join(
+            output,
+            "node_modules/puppeteer-core/lib/puppeteer/puppeteer-core.js"
+          )
+        )
+      ).toContain("SPDX-License-Identifier: Apache-2.0");
+      const manifest = yield* fs.readFileString(
+        path.join(output, "node_modules/puppeteer-core/package.json")
+      );
+      expect(manifest).not.toContain("es5-iife");
+      expect(manifest).not.toContain('"wireit":');
+      expect(manifest).toContain('"./lib/puppeteer/puppeteer-core.js"');
+      for (const [name, excluded] of [
+        ["playwright-core", "lib/vite/htmlReport"],
+        ["puppeteer-core", "lib/es5-iife"],
+      ] as const) {
+        const source = path.resolve("node_modules", name);
+        expect((yield* reviewVendorData(name, source, [])).excluded).toEqual([
+          excluded,
+        ]);
+        const changed = yield* fs.makeTempDirectoryScoped({
+          prefix: "vendor-browser-guard-",
+        });
+        yield* fs.makeDirectory(path.join(changed, excluded), {
+          recursive: true,
+        });
+        yield* fs.copyFile(
+          path.join(source, "package.json"),
+          path.join(changed, "package.json")
+        );
+        yield* fs.writeFileString(
+          path.join(changed, "new.cjs"),
+          `require('node:fs').readFileSync('${excluded}/index.js');`
+        );
+        const error = yield* reviewVendorData(name, changed, []).pipe(
+          Effect.flip
+        );
+        expect(error.message).toContain("consumers changed");
+      }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

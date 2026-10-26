@@ -186,7 +186,7 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
         });
       yield* copyFiles("");
       yield* vendorEnglishLocales(name, manifest.version, target);
-      yield* writeVendorDataManifest(data.cutBaseline, source, target, text);
+      yield* writeVendorDataManifest(data, source, target, text);
       // Traverse the retained graph after removing only reviewed dependency
       // edges. Dependencies exclusive to those edges are never copied;
       // shared dependencies (including Sentry itself) remain reachable from

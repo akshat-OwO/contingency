@@ -29,6 +29,20 @@ const reviewed = new Map<string, DataPolicy>(
       hash: "24cfdad86af147af75ed85ef235c41f0e2111369d21131aaf88f599db4d820d8",
       paths: ["changelog-pre10.md"],
     },
+    "playwright-core": {
+      hash: "270381ffbce14cc0489bb70b3227d3809d864cb132585e7206a59b84c5fb6455",
+      // No package consumer or export loads the test runner's HTML reporter.
+      // Keep recorder (PWDEBUG), traceViewer and dashboard: coreBundle still
+      // references their assets. Tracing and injected engine scripts stay too.
+      paths: ["lib/vite/htmlReport"],
+    },
+    "puppeteer-core": {
+      hash: "c2bb50c36786292b3a36f7fe59638077127cb9e2bd49256297e32f3305b8d489",
+      // Node import/require and Lighthouse load lib/puppeteer. Only Wireit's
+      // build:es5 task mentions this standalone browser script. Wildcard
+      // exports permit explicit subpath access, which no CLI consumer uses.
+      paths: ["lib/es5-iife"],
+    },
     "third-party-web": {
       hash: "79da3fbbb84c0ef1bf1193af1b5ef74d539db5c256e64a2ee159e98838b70486",
       // lib/index.js and the subset aliases load entities*.json, never the CSV.
@@ -52,7 +66,12 @@ export const reviewVendorData = Effect.fn("reviewVendorData")(function* review(
   const excluded: string[] = [];
   const policy = reviewed.get(name);
   if (policy === undefined) {
-    return { cutBaseline: false, dependencies, excluded };
+    return {
+      cutBaseline: false,
+      cutBrowserBuild: false,
+      dependencies,
+      excluded,
+    };
   }
   const fs = yield* FileSystem.FileSystem;
   for (const relative of policy.paths) {
@@ -60,10 +79,11 @@ export const reviewVendorData = Effect.fn("reviewVendorData")(function* review(
       excluded.push(relative);
     }
   }
+  const cutBrowserBuild = name === "puppeteer-core" && excluded.length > 0;
   const cutBaseline =
     name === "lighthouse" && dependencies.includes("web-features");
   if (excluded.length === 0 && !cutBaseline) {
-    return { cutBaseline, dependencies, excluded };
+    return { cutBaseline, cutBrowserBuild, dependencies, excluded };
   }
   const files: string[] = [];
   const collect = (relative: string): Effect.Effect<void, PlatformError> =>
@@ -104,6 +124,7 @@ export const reviewVendorData = Effect.fn("reviewVendorData")(function* review(
   // Cut only this edge; another package may still need web-features.
   return {
     cutBaseline,
+    cutBrowserBuild,
     dependencies: cutBaseline
       ? dependencies.filter((dependency) => dependency !== "web-features")
       : dependencies,
@@ -131,12 +152,15 @@ const preserveBaselineLicense = Effect.fn("preserveBaselineLicense")(
 
 export const writeVendorDataManifest = Effect.fn("writeVendorDataManifest")(
   function* writeManifest(
-    cutBaseline: boolean,
+    review: {
+      readonly cutBaseline: boolean;
+      readonly cutBrowserBuild: boolean;
+    },
     source: string,
     target: string,
     text: string
   ) {
-    if (!cutBaseline) {
+    if (!review.cutBaseline && !review.cutBrowserBuild) {
       return;
     }
     const fs = yield* FileSystem.FileSystem;
@@ -148,6 +172,12 @@ export const writeVendorDataManifest = Effect.fn("writeVendorDataManifest")(
         const value = Schema.decodeUnknownSync(
           Schema.Record(Schema.String, Schema.Unknown)
         )(JSON.parse(text));
+        if (review.cutBrowserBuild) {
+          // Installation/build tooling is never executed from dist. Removing
+          // Wireit also removes its sole references to the omitted IIFE build.
+          const { wireit: _wireit, ...runtime } = value;
+          return runtime;
+        }
         const dependencies = Schema.decodeUnknownSync(
           Schema.Record(Schema.String, Schema.String)
         )(value.dependencies);
@@ -165,6 +195,8 @@ export const writeVendorDataManifest = Effect.fn("writeVendorDataManifest")(
       path.join(target, "package.json"),
       `${JSON.stringify(original, null, 2)}\n`
     );
-    yield* preserveBaselineLicense(source, target);
+    if (review.cutBaseline) {
+      yield* preserveBaselineLicense(source, target);
+    }
   }
 );
