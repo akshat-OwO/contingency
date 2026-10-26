@@ -4,6 +4,7 @@ import path from "node:path";
 import { Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import { reviewVendorData, writeVendorDataManifest } from "./vendor-data.ts";
 import { vendorEnglishLocales } from "./vendor-locales.ts";
 import { lighthouseRuntimeDependencies } from "./vendor-sentry.ts";
 
@@ -150,6 +151,14 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
         manifest.imports ?? null,
         manifest.bin ?? null,
       ]);
+      const optional = manifest.optionalDependencies ?? {};
+      const peers = manifest.peerDependencies ?? {};
+      const dependencies = { ...peers, ...manifest.dependencies, ...optional };
+      const data = yield* reviewVendorData(
+        name,
+        source,
+        Object.keys(dependencies)
+      );
       const copyFiles = (
         relative: string
       ): Effect.Effect<void, PlatformError> =>
@@ -159,7 +168,14 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
           yield* fs.makeDirectory(to, { recursive: true });
           for (const entry of yield* fs.readDirectory(from)) {
             const child = path.join(relative, entry);
-            if (!shouldVendorFile(child, preserveTypeScript)) {
+            if (
+              !shouldVendorFile(child, preserveTypeScript) ||
+              data.excluded.some(
+                (excluded) =>
+                  child === excluded ||
+                  child.startsWith(`${excluded}${path.sep}`)
+              )
+            ) {
               continue;
             }
             const info = yield* fs.stat(path.join(source, child));
@@ -170,17 +186,15 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
         });
       yield* copyFiles("");
       yield* vendorEnglishLocales(name, manifest.version, target);
-      const optional = manifest.optionalDependencies ?? {};
-      const peers = manifest.peerDependencies ?? {};
-      const dependencies = { ...peers, ...manifest.dependencies, ...optional };
-      // Traverse the retained graph after removing only Lighthouse's reviewed
-      // Sentry edges. Dependencies exclusive to those edges are never copied;
+      yield* writeVendorDataManifest(data.cutBaseline, source, target, text);
+      // Traverse the retained graph after removing only reviewed dependency
+      // edges. Dependencies exclusive to those edges are never copied;
       // shared dependencies (including Sentry itself) remain reachable from
       // other roots, dependencies, optional dependencies or peers.
       const retained = yield* lighthouseRuntimeDependencies(
         name,
         manifest.version,
-        Object.keys(dependencies),
+        data.dependencies,
         source
       );
       for (const dependency of retained) {
