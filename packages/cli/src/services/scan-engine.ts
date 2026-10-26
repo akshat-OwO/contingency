@@ -2,6 +2,7 @@ import type { ScanMode } from "@contingency/protocol";
 import axe from "axe-core";
 import { Effect, Schema } from "effect";
 import { startFlow } from "lighthouse";
+import type { CliFlags, Flags } from "lighthouse";
 import type { Page } from "playwright-core";
 import { connect } from "puppeteer-core";
 
@@ -152,17 +153,21 @@ export const beginScanCollection = async (
     const mobile = await page.evaluate(() =>
       /Mobile|Android/u.test(navigator.userAgent)
     );
+    // Lighthouse types error reporting on CliFlags, though its delegate reads
+    // the same flags object. Keep reporting explicitly disabled in this host.
+    const flags: Flags & Pick<CliFlags, "enableErrorReporting"> = {
+      disableStorageReset: true,
+      emulatedUserAgent: false,
+      enableErrorReporting: false,
+      formFactor: mobile ? "mobile" : "desktop",
+      locale: "en-US",
+      logLevel: "silent",
+      onlyCategories: ["performance"],
+      screenEmulation: { disabled: true },
+      throttlingMethod: "provided",
+    };
     const flow = await startFlow(target.page, {
-      flags: {
-        disableStorageReset: true,
-        emulatedUserAgent: false,
-        formFactor: mobile ? "mobile" : "desktop",
-        locale: "en-US",
-        logLevel: "silent",
-        onlyCategories: ["performance"],
-        screenEmulation: { disabled: true },
-        throttlingMethod: "provided",
-      },
+      flags,
       name: "Contingency agent-driven scan",
     });
     const cancel = () => {

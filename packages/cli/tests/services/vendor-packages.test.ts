@@ -10,6 +10,7 @@ import {
   shouldVendorFile,
   vendorPackages,
 } from "../../src/packaging/vendor-packages.ts";
+import { lighthouseRuntimeDependencies } from "../../src/packaging/vendor-sentry.ts";
 
 interface FixtureManifest {
   readonly dependencies?: Readonly<Record<string, string>>;
@@ -230,6 +231,7 @@ it.effect(
     Effect.gen(function* englishLocales() {
       const { fs, source, output, writePackage } = yield* fixture;
       const lighthouse = yield* writePackage("node_modules/lighthouse", {
+        dependencies: { "@sentry/node": "1" },
         name: "lighthouse",
         version: "13.5.0",
       });
@@ -239,6 +241,13 @@ it.effect(
           name: "@paulirish/trace_engine",
           version: "0.0.65",
         }
+      );
+      yield* fs.makeDirectory(path.join(lighthouse, "core/lib"), {
+        recursive: true,
+      });
+      yield* fs.copyFile(
+        path.resolve("node_modules/lighthouse/core/lib/sentry.js"),
+        path.join(lighthouse, "core/lib/sentry.js")
       );
       const localization = path.join(lighthouse, "shared/localization");
       yield* fs.makeDirectory(localization, { recursive: true });
@@ -319,5 +328,142 @@ it.effect(
         output
       ).pipe(Effect.flip);
       expect(error.message).toContain("review its locale loading");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+const sentryFixture = Effect.gen(function* makeSentryFixture() {
+  const setup = yield* fixture;
+  const { fs, writePackage } = setup;
+  const lighthouse = yield* writePackage("node_modules/lighthouse", {
+    dependencies: { "@sentry/node": "1", retained: "1" },
+    name: "lighthouse",
+    version: "13.5.0",
+  });
+  for (const file of [
+    "core/lib/sentry.js",
+    "shared/localization/locales.js",
+    "shared/localization/locales/en-US.json",
+  ]) {
+    yield* fs.makeDirectory(path.dirname(path.join(lighthouse, file)), {
+      recursive: true,
+    });
+    yield* fs.copyFile(
+      path.resolve("node_modules/lighthouse", file),
+      path.join(lighthouse, file)
+    );
+  }
+  yield* writePackage("node_modules/@sentry/node", {
+    dependencies: { "@opentelemetry/exclusive": "1", shared: "1" },
+    name: "@sentry/node",
+  });
+  yield* writePackage("node_modules/@opentelemetry/exclusive", {
+    dependencies: { "import-in-the-middle": "1" },
+    name: "@opentelemetry/exclusive",
+  });
+  yield* writePackage("node_modules/import-in-the-middle", {
+    dependencies: { "@sentry/node": "1" },
+    name: "import-in-the-middle",
+  });
+  yield* writePackage("node_modules/shared", { name: "shared" });
+  yield* writePackage(
+    "node_modules/retained",
+    {
+      name: "retained",
+      optionalDependencies: { shared: "1" },
+    },
+    "module.exports = require('shared');"
+  );
+  return { ...setup, lighthouse };
+});
+
+it.effect(
+  "omits Lighthouse's exclusive Sentry closure while preserving shared optional and peer dependencies",
+  () =>
+    Effect.gen(function* exclusiveClosure() {
+      const { fs, source, output } = yield* sentryFixture;
+      yield* vendorPackages(["lighthouse"], source, output);
+      for (const name of [
+        "@sentry/node",
+        "@opentelemetry/exclusive",
+        "import-in-the-middle",
+      ]) {
+        expect(yield* fs.exists(path.join(output, "node_modules", name))).toBe(
+          false
+        );
+      }
+      yield* fs.remove(source, { recursive: true });
+      const require = createRequire(path.join(output, "entry.cjs"));
+      expect(require("retained")).toBe("unused");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "retains Sentry and its closure when another root needs it through a peer",
+  () =>
+    Effect.gen(function* retainedSentry() {
+      const { fs, source, output, writePackage } = yield* sentryFixture;
+      yield* writePackage("node_modules/other", {
+        name: "other",
+        peerDependencies: { "@sentry/node": "1" },
+      });
+      yield* vendorPackages(["lighthouse", "other"], source, output);
+      for (const name of [
+        "@sentry/node",
+        "@opentelemetry/exclusive",
+        "import-in-the-middle",
+        "shared",
+      ]) {
+        expect(
+          yield* fs.exists(
+            path.join(output, "node_modules", name, "package.json")
+          )
+        ).toBe(true);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "requires a Sentry review for changed versions, delegate code, dependencies or new import sites",
+  () =>
+    Effect.gen(function* changedSentry() {
+      const { fs, lighthouse } = yield* sentryFixture;
+      const dependencies = ["@sentry/node", "retained"];
+      for (const [version, names] of [
+        ["13.5.1", dependencies],
+        ["13.5.0", ["@sentry/new"]],
+      ] as const) {
+        const error = yield* lighthouseRuntimeDependencies(
+          "lighthouse",
+          version,
+          names,
+          lighthouse
+        ).pipe(Effect.flip);
+        expect(error.message).toContain("Lighthouse Sentry wiring changed");
+      }
+      yield* fs.writeFileString(
+        path.join(lighthouse, "new.js"),
+        "import '@sentry/node';"
+      );
+      const importError = yield* lighthouseRuntimeDependencies(
+        "lighthouse",
+        "13.5.0",
+        dependencies,
+        lighthouse
+      ).pipe(Effect.flip);
+      expect(importError.message).toContain("changed in new.js");
+      yield* fs.remove(path.join(lighthouse, "new.js"));
+      yield* fs.writeFileString(
+        path.join(lighthouse, "core/lib/sentry.js"),
+        "export const Sentry = {};"
+      );
+      const delegateError = yield* lighthouseRuntimeDependencies(
+        "lighthouse",
+        "13.5.0",
+        dependencies,
+        lighthouse
+      ).pipe(Effect.flip);
+      expect(delegateError.message).toContain(
+        "Lighthouse Sentry wiring changed"
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

@@ -5,6 +5,7 @@ import { Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { vendorEnglishLocales } from "./vendor-locales.ts";
+import { lighthouseRuntimeDependencies } from "./vendor-sentry.ts";
 
 type RuntimeTarget =
   | string
@@ -172,7 +173,17 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
       const optional = manifest.optionalDependencies ?? {};
       const peers = manifest.peerDependencies ?? {};
       const dependencies = { ...peers, ...manifest.dependencies, ...optional };
-      for (const dependency of Object.keys(dependencies)) {
+      // Traverse the retained graph after removing only Lighthouse's reviewed
+      // Sentry edges. Dependencies exclusive to those edges are never copied;
+      // shared dependencies (including Sentry itself) remain reachable from
+      // other roots, dependencies, optional dependencies or peers.
+      const retained = yield* lighthouseRuntimeDependencies(
+        name,
+        manifest.version,
+        Object.keys(dependencies),
+        source
+      );
+      for (const dependency of retained) {
         const resolved = yield* resolve(
           dependency,
           source,
