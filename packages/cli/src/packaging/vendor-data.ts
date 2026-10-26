@@ -94,7 +94,7 @@ export const reviewVendorData = Effect.fn("reviewVendorData")(function* review(
         if (entry === "node_modules") {
           continue;
         }
-        const child = path.join(relative, entry);
+        const child = path.posix.join(relative, entry);
         const info = yield* fs.stat(path.join(source, child));
         if (info.type === "Directory") {
           yield* collect(child);

@@ -61,12 +61,12 @@ export const hasTypeScriptRuntime = (value: RuntimeTarget): boolean => {
   return false;
 };
 
-/** Paths are relative to a package; directories use the same predicate. */
+/** Paths are POSIX-style and package-relative; directories use the same predicate. */
 export const shouldVendorFile = (
   relative: string,
   preserveTypeScript = false
 ): boolean =>
-  !relative.split(path.sep).includes("node_modules") &&
+  !relative.split("/").includes("node_modules") &&
   !relative.endsWith(".map") &&
   (preserveTypeScript || !typeScriptFile.test(relative));
 
@@ -167,13 +167,12 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
           const to = path.join(target, relative);
           yield* fs.makeDirectory(to, { recursive: true });
           for (const entry of yield* fs.readDirectory(from)) {
-            const child = path.join(relative, entry);
+            const child = path.posix.join(relative, entry);
             if (
               !shouldVendorFile(child, preserveTypeScript) ||
               data.excluded.some(
                 (excluded) =>
-                  child === excluded ||
-                  child.startsWith(`${excluded}${path.sep}`)
+                  child === excluded || child.startsWith(`${excluded}/`)
               )
             ) {
               continue;
