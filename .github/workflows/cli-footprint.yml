@@ -1,0 +1,105 @@
+name: CLI footprint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-footprint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Measure published CLI footprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .footprint-base
+          persist-credentials: false
+      - uses: nubjs/setup-nub@v0
+      # Match the publishing action's pack implementation and npm version.
+      - run: npm install --global npm@12.2.0
+      - run: nub ci
+      - name: Build and measure main
+        working-directory: .footprint-base
+        run: |
+          nub ci
+          nub packages/release/src/main.ts apply-version 0.0.0-ci
+          nub exec turbo run build --filter @contingencyhq/cli
+      - run: nub packages/release/src/footprint-main.ts measure --root .footprint-base --output "$RUNNER_TEMP/base.json"
+      - name: Build and measure PR
+        run: |
+          nub packages/release/src/main.ts apply-version 0.0.0-ci
+          nub exec turbo run build --filter @contingencyhq/cli
+          nub packages/release/src/footprint-main.ts measure --output "$RUNNER_TEMP/head.json"
+      - name: Measure published latest and alpha tarballs
+        run: nub packages/release/src/footprint-main.ts registry --output "$RUNNER_TEMP/registry.json"
+      - name: Compare footprints
+        env:
+          WARN_BYTES: ${{ vars.CLI_FOOTPRINT_WARN_BYTES || '51200' }}
+          WARN_PERCENT: ${{ vars.CLI_FOOTPRINT_WARN_PERCENT || '1' }}
+        run: |
+          nub packages/release/src/footprint-main.ts compare \
+            "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/registry.json" \
+            --warn-bytes "$WARN_BYTES" --warn-percent "$WARN_PERCENT" \
+            --output "$RUNNER_TEMP/footprint.md"
+          cat "$RUNNER_TEMP/footprint.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-footprint
+          path: |
+            ${{ runner.temp }}/footprint.md
+            ${{ runner.temp }}/base.json
+            ${{ runner.temp }}/head.json
+            ${{ runner.temp }}/registry.json
+          retention-days: 7
+
+  # This job never checks out or executes PR code. Forks retain a read-only
+  # token, so their report is available in the summary/artifact instead.
+  comment:
+    name: Update CLI footprint comment
+    needs: measure
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-footprint
+          path: report
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- contingency-cli-footprint -->';
+            const report = fs.readFileSync('report/footprint.md', 'utf8');
+            if (!report.startsWith(marker) || report.length > 55000) {
+              throw new Error('Invalid footprint report');
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.head.sha !== context.payload.pull_request.head.sha) {
+              core.info('A newer push superseded this report');
+              return;
+            }
+            const body = `${report}\nMain: ${context.payload.pull_request.base.sha}\nPR: ${pr.head.sha}\n[Measurement run](${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId})`;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const previous = comments.find(c => c.user?.login === 'github-actions[bot]' && c.body?.startsWith(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
