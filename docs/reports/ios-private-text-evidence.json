@@ -1,0 +1,777 @@
+{
+  "startedAt": "2026-10-27T15:41:05.849480+00:00",
+  "agentDevice": "0.21.25",
+  "sentinel": {
+    "sha256": "b3eeb1ac3ab2bcbc1c7513de3370ff294c8e8898955a7d251e55ba2e14d8cdcc",
+    "length": 40
+  },
+  "commands": [
+    {
+      "argv": ["sysctl", "vm.swapusage"],
+      "exitCode": 0
+    },
+    {
+      "argv": ["memory_pressure"],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "sh",
+        "packages/cli/prototypes/ios/private-text/build.sh",
+        "$WORK"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "create",
+        "contingency-ios-private-text-546",
+        "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "boot",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "bootstatus",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "-b"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "install",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "$WORK/PrivateTextFixture.app"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "nub",
+        "$REPO/packages/cli/dist/node_modules/agent-device/bin/agent-device.mjs",
+        "open",
+        "dev.contingency.private-text-spike",
+        "--platform",
+        "ios",
+        "--udid",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "--session",
+        "ios546",
+        "--json",
+        "--debug"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": ["ps", "-axo", "pid=,ppid=,lstart=,args="],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "nub",
+        "$REPO/packages/cli/dist/node_modules/agent-device/bin/agent-device.mjs",
+        "snapshot",
+        "-i",
+        "--session",
+        "ios546",
+        "--json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "get_app_container",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "dev.contingency.private-text-spike",
+        "data"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "nub",
+        "$REPO/packages/cli/dist/node_modules/agent-device/bin/agent-device.mjs",
+        "snapshot",
+        "-i",
+        "--session",
+        "ios546",
+        "--json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": ["sysctl", "vm.swapusage"],
+      "exitCode": 0
+    },
+    {
+      "argv": ["memory_pressure"],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "nub",
+        "$REPO/packages/cli/dist/node_modules/agent-device/bin/agent-device.mjs",
+        "close",
+        "--session",
+        "ios546",
+        "--json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "nub",
+        "$REPO/packages/cli/dist/node_modules/agent-device/bin/agent-device.mjs",
+        "daemon",
+        "stop",
+        "--clean",
+        "--json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "/usr/bin/log",
+        "show",
+        "--start",
+        "2026-10-27 15:41:50+0000",
+        "--end",
+        "2026-10-27 15:42:06+0000",
+        "--style",
+        "ndjson",
+        "--info",
+        "--debug"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "spawn",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "log",
+        "show",
+        "--start",
+        "2026-10-27 15:41:50+0000",
+        "--end",
+        "2026-10-27 15:42:06+0000",
+        "--style",
+        "ndjson",
+        "--info",
+        "--debug"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "shutdown",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": [
+        "xcrun",
+        "simctl",
+        "delete",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA"
+      ],
+      "exitCode": 0
+    },
+    {
+      "argv": ["xcrun", "simctl", "list", "devices", "--json"],
+      "exitCode": 0
+    }
+  ],
+  "resources": [
+    {
+      "kind": "daemon",
+      "pid": 89965,
+      "port": 60959,
+      "startTime": "Tue Oct 27 21:11:42 2026",
+      "stop": "pinned agent-device daemon stop --clean with owned state directory",
+      "exited": true,
+      "portClosed": true
+    },
+    {
+      "kind": "xcodebuild",
+      "pid": 90166,
+      "port": 60965,
+      "startTime": "Tue Oct 27 21:11:43 2026",
+      "stop": "agent-device close and daemon stop --clean",
+      "exited": true,
+      "portClosed": true
+    },
+    {
+      "kind": "host-unified",
+      "pid": 90752,
+      "startedAt": "2026-10-27T15:41:50.927391+00:00",
+      "command": [
+        "/usr/bin/log",
+        "stream",
+        "--style",
+        "ndjson",
+        "--level",
+        "debug"
+      ],
+      "stop": "SIGINT owned process group and wait",
+      "exited": true
+    },
+    {
+      "kind": "sim-unified",
+      "pid": 90753,
+      "startedAt": "2026-10-27T15:41:50.953471+00:00",
+      "command": [
+        "xcrun",
+        "simctl",
+        "spawn",
+        "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+        "log",
+        "stream",
+        "--style",
+        "ndjson",
+        "--level",
+        "debug"
+      ],
+      "stop": "SIGINT owned process group and wait",
+      "exited": true
+    }
+  ],
+  "channels": {
+    "fixtureContainer": {
+      "files": 4,
+      "bytes": 3482,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "ownedXcresult": {
+      "files": 4,
+      "bytes": 790945,
+      "fullValueMatches": [],
+      "fragmentMatches": [
+        {
+          "path": "Staging/1_Test/Diagnostics/AgentDeviceRunnerUITests-D62D26C8-8C17-47EC-91D7-E933EB52D625-Configuration-Configuration 1-Iteration-1/AgentDeviceRunnerUITests-36F39347-297F-4469-9552-515CF1D1BBF1/Session-AgentDeviceRunnerUITests-2026-10-27_211146-nr2TAu.log",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        },
+        {
+          "path": "Staging/1_Test/Diagnostics/AgentDeviceRunnerUITests-D62D26C8-8C17-47EC-91D7-E933EB52D625-Configuration-Configuration 1-Iteration-1/AgentDeviceRunnerUITests-36F39347-297F-4469-9552-515CF1D1BBF1/StandardOutputAndStandardError.txt",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        }
+      ],
+      "unreadable": []
+    },
+    "simulatorLogs": {
+      "files": 9,
+      "bytes": 142093,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "simulatorDiagnostics": {
+      "files": 9,
+      "bytes": 142093,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "hostDiagnosticReports": {
+      "files": 114,
+      "bytes": 3141867,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "systemDiagnosticReports": {
+      "files": 48,
+      "bytes": 4995233,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "contingencyProject": {
+      "files": 0,
+      "bytes": 0,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": [],
+      "exists": false
+    },
+    "contingencyHome": {
+      "files": 0,
+      "bytes": 0,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": [],
+      "exists": false
+    },
+    "host-unified": {
+      "files": 1,
+      "bytes": 139823266,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "sim-unified": {
+      "files": 1,
+      "bytes": 30793852,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "host-persisted": {
+      "files": 1,
+      "bytes": 17396942,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "sim-persisted": {
+      "files": 1,
+      "bytes": 77559904,
+      "fullValueMatches": [],
+      "fragmentMatches": [],
+      "unreadable": []
+    },
+    "state": {
+      "files": 5,
+      "bytes": 46017,
+      "fullValueMatches": [],
+      "fragmentMatches": [
+        {
+          "path": "daemon.log",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        },
+        {
+          "path": "sessions/ios546/runner.log",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        }
+      ],
+      "unreadable": []
+    },
+    "ownedWork": {
+      "files": 14,
+      "bytes": 265677899,
+      "fullValueMatches": [
+        {
+          "path": "fill-response.ndjson",
+          "encodings": {
+            "utf8": 1
+          }
+        }
+      ],
+      "fragmentMatches": [
+        {
+          "path": "fill-response.ndjson",
+          "longest": {
+            "offset": 0,
+            "length": 40
+          }
+        },
+        {
+          "path": "state/daemon.log",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        },
+        {
+          "path": "state/sessions/ios546/runner.log",
+          "longest": {
+            "offset": 1,
+            "length": 18
+          }
+        }
+      ],
+      "unreadable": []
+    }
+  },
+  "cleanup": {
+    "sessionClose": {
+      "success": true,
+      "data": {
+        "session": "ios546",
+        "message": "Closed: ios546"
+      }
+    },
+    "daemonStop": {
+      "success": true,
+      "data": {
+        "stopped": true,
+        "mode": "graceful",
+        "cleanupConfidence": "known",
+        "claimsReleased": [],
+        "claimsOrphaned": [],
+        "claimsSuperseded": [],
+        "claimsUnattributable": [],
+        "providerReleases": {
+          "status": "completed",
+          "released": [],
+          "pending": []
+        },
+        "warnings": [],
+        "clean": true
+      }
+    },
+    "simulatorShutdown": true,
+    "simulatorDelete": true,
+    "simulatorAbsent": true,
+    "ownedResultBundlesRemoved": 1,
+    "temporaryDirectoryRemoved": true
+  },
+  "memoryBeforeBoot": {
+    "swap": "vm.swapusage: total = 3072.00M  used = 1625.00M  free = 1447.00M  (encrypted)",
+    "pressure": "System-wide memory free percentage: 67%"
+  },
+  "simulator": {
+    "udid": "9E834A50-2DE2-4463-886C-9E5508A08BFA",
+    "runtime": "iOS 26.5",
+    "deviceType": "iPhone 17 Pro",
+    "createdAt": "2026-10-27T15:41:06.724360+00:00",
+    "stop": "simctl shutdown UDID; simctl delete UDID"
+  },
+  "captureStartedAt": "2026-10-27T15:41:50.922108+00:00",
+  "fill": {
+    "ok": true,
+    "responseContainsSentinel": true
+  },
+  "readback": {
+    "sha256": "b3eeb1ac3ab2bcbc1c7513de3370ff294c8e8898955a7d251e55ba2e14d8cdcc",
+    "secure": true,
+    "length": 40,
+    "exactHashMatches": true,
+    "exactLengthMatches": true,
+    "method": "fixture hashes actual UITextField.text on editingChanged"
+  },
+  "secureSnapshot": [
+    {
+      "type": "SecureTextField",
+      "valueLength": 40,
+      "valueIsMask": true
+    }
+  ],
+  "memoryDuringRun": {
+    "swap": "vm.swapusage: total = 3072.00M  used = 1625.00M  free = 1447.00M  (encrypted)",
+    "pressure": "System-wide memory free percentage: 58%"
+  },
+  "processArguments": {
+    "count": 65,
+    "fullMatches": 0,
+    "fragmentMatches": 0,
+    "runnerSamples": 65,
+    "samplingErrors": []
+  },
+  "xcresultExport": {
+    "console": {
+      "exitCode": 1,
+      "rootIdMissing": true
+    },
+    "action": {
+      "exitCode": 1,
+      "rootIdMissing": true
+    }
+  },
+  "endedAt": "2026-10-27T15:42:46.796572+00:00",
+  "host": {
+    "macOS": "27.0.1",
+    "macOSBuild": "26A434",
+    "xcode": "27.1",
+    "xcodeBuild": "27A9275"
+  },
+  "limitations": [
+    "Only iOS 26.5 and the public UIKit fixture were driven.",
+    "Exact readback is fixture-assisted, not XCTest secure-field readback.",
+    "Process sampling cannot exclude exposure between samples.",
+    "No production Contingency Workspace, MCP, Trace, Teaching or Run path was launched.",
+    "No packet capture or memory dump; persisted HTTP bodies outside audited roots remain unverified.",
+    "No forced crash; xcresult console/action export failed because root ID was missing.",
+    "Cached runner build reused; cold compilation was not repeated.",
+    "Only whole-value UTF-8, UTF-16LE, base64 and contiguous UTF-8 fragments of at least eight characters were searched.",
+    "The final harness setup rerun timed out before private input. Earlier completed proofs used the same fixture and pinned driver; final script changes tighten temporary file permissions and cleanup."
+  ],
+  "earlierRun": {
+    "sentinelSha256": "907c35dd5acd2da15e9e0a31d816dcfa31604a5e2215ac0457a93a6a6a982f04",
+    "length": 40,
+    "exactReadback": true,
+    "responseEcho": true,
+    "longestPersistedFragment": {
+      "offset": 1,
+      "length": 18
+    },
+    "simulatorDeleted": true,
+    "portsClosed": true,
+    "fixturePidExitedAfterShutdown": true
+  },
+  "successfulAuditSourceHashes": {
+    "packages/cli/prototypes/ios/private-text/audit.py": "a83d688dab18d4c156fc5087ed82f31e82767a2994608516db61f8d1ca320019",
+    "packages/cli/prototypes/ios/private-text/build.sh": "2c927d895bffec339716f73657e2879f786bc3f10a59eaddcace5a6fd22dbe1a",
+    "packages/cli/prototypes/ios/private-text/fixture.m": "d4eaca295ac209a4d6b823372ea819587f30f84a2f5ad090c3816728f2474cb9"
+  },
+  "sourceHashes": {
+    "packages/cli/prototypes/ios/private-text/audit.py": "5694ff0214b0cb44fe80783966786ac48ebece4090760751ca9f5ee33a0137b4",
+    "packages/cli/prototypes/ios/private-text/build.sh": "2c927d895bffec339716f73657e2879f786bc3f10a59eaddcace5a6fd22dbe1a",
+    "packages/cli/prototypes/ios/private-text/fixture.m": "d4eaca295ac209a4d6b823372ea819587f30f84a2f5ad090c3816728f2474cb9"
+  },
+  "finalHarnessSetupAttempt": {
+    "startedAt": "2026-10-27T15:45:04.847760+00:00",
+    "agentDevice": "0.21.25",
+    "sentinel": {
+      "sha256": "80cc4d6bde3b6d5d595911a7331cdc95725b84b802c212c51914d892a3132d86",
+      "length": 40
+    },
+    "commands": [
+      {
+        "argv": ["sysctl", "vm.swapusage"],
+        "exitCode": 0
+      },
+      {
+        "argv": ["memory_pressure"],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "sh",
+          "packages/cli/prototypes/ios/private-text/build.sh",
+          "$WORK"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "xcrun",
+          "simctl",
+          "create",
+          "contingency-ios-private-text-546",
+          "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+          "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "xcrun",
+          "simctl",
+          "boot",
+          "BF93BBD3-B739-4392-B2F3-B49916A8326A"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "/usr/bin/log",
+          "show",
+          "--start",
+          "2026-10-27 15:45:04+0000",
+          "--end",
+          "2026-10-27 15:48:08+0000",
+          "--style",
+          "ndjson",
+          "--info",
+          "--debug"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "xcrun",
+          "simctl",
+          "shutdown",
+          "BF93BBD3-B739-4392-B2F3-B49916A8326A"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": [
+          "xcrun",
+          "simctl",
+          "delete",
+          "BF93BBD3-B739-4392-B2F3-B49916A8326A"
+        ],
+        "exitCode": 0
+      },
+      {
+        "argv": ["xcrun", "simctl", "list", "devices", "--json"],
+        "exitCode": 0
+      }
+    ],
+    "resources": [],
+    "channels": {
+      "sim-persisted": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "simulatorLogs": {
+        "files": 9,
+        "bytes": 46270,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "simulatorDiagnostics": {
+        "files": 9,
+        "bytes": 46270,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "hostDiagnosticReports": {
+        "files": 115,
+        "bytes": 3158978,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "systemDiagnosticReports": {
+        "files": 48,
+        "bytes": 4995233,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "contingencyProject": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": [],
+        "exists": false
+      },
+      "contingencyHome": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": [],
+        "exists": false
+      },
+      "host-unified": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": [],
+        "exists": false
+      },
+      "sim-unified": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": [],
+        "exists": false
+      },
+      "host-persisted": {
+        "files": 1,
+        "bytes": 106727003,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      },
+      "state": {
+        "files": 0,
+        "bytes": 0,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": [],
+        "exists": false
+      },
+      "ownedWork": {
+        "files": 3,
+        "bytes": 106782995,
+        "fullValueMatches": [],
+        "fragmentMatches": [],
+        "unreadable": []
+      }
+    },
+    "cleanup": {
+      "simulatorShutdown": true,
+      "simulatorDelete": true,
+      "simulatorAbsent": true,
+      "ownedResultBundlesRemoved": 0,
+      "temporaryDirectoryRemoved": true
+    },
+    "memoryBeforeBoot": {
+      "swap": "vm.swapusage: total = 3072.00M  used = 1625.00M  free = 1447.00M  (encrypted)",
+      "pressure": "System-wide memory free percentage: 61%"
+    },
+    "simulator": {
+      "udid": "BF93BBD3-B739-4392-B2F3-B49916A8326A",
+      "runtime": "iOS 26.5",
+      "deviceType": "iPhone 17 Pro",
+      "createdAt": "2026-10-27T15:45:07.006755+00:00",
+      "stop": "simctl shutdown UDID; simctl delete UDID"
+    },
+    "failure": "TimeoutExpired",
+    "processArguments": {
+      "count": 0,
+      "fullMatches": 0,
+      "fragmentMatches": 0,
+      "runnerSamples": 0,
+      "samplingErrors": []
+    },
+    "endedAt": "2026-10-27T15:49:34.054106+00:00",
+    "note": "bootstatus timed out at 180 seconds before a fill; a subsequent simulator log show also timed out; simulator shutdown, deletion and temporary cleanup succeeded"
+  },
+  "driverSourceHashes": {
+    "package.json": "e5661644c7b24b83a0f6fb8866566ec779a6c957a513496f1c9a9d7e4f337f7f",
+    "dist/src/agent-device-client.js": "979bf99a8ddc99129c0effe830cac09fa04f4d5f0021cc7feb48b6644da50b87",
+    "dist/src/interactor.js": "a293ef9cb63512fa141d0006707b1ca1e5916cb8a381d471b246d69f06a87095",
+    "dist/src/runner-client.js": "36307a478c07f6fcd4b187d3fcdbaa32f6b2dcdc6f0fb73df1117e6384d1bb78",
+    "dist/src/runner-startup-transport.js": "bcaae73bef642814c33f697beedd21dcd8422be9c72943bb66243d9d619e14c9",
+    "dist/src/touch-runtime2.js": "ac02026d06b35e636f67a3a54c63d708bed73d4a33fb6e8291118df536454042",
+    "dist/src/type-text-runtime.js": "a9472fafbea8470380e60ad584e6ab6d694872218aae296a6c5db433f0560877",
+    "dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Transport.swift": "72a97bb351a299dda7b39b535f8bcf4afb9af353b837e569d124f6ac8e71ca93",
+    "dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift": "704a7156a25d4415a2e8f6d3267daa26b9cec450eb72cc13e3593bd5cdbcf71a",
+    "dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+TextTyping.swift": "10ebcf3a2992871d84c44e44962371dbbeea17cfa3874c92955c930af89070ca",
+    "dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+TextEntry.swift": "3734086ae105ae008584b169001bf59039d5646553adfbd3712f667df9d4d099",
+    "dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandJournal.swift": "269e042ebf59576b19c96f1592891d61dbab1446a2fe48ad406a6a7845a92d09"
+  },
+  "validation": {
+    "quality": {
+      "command": "nub exec turbo run quality",
+      "exitCode": 0
+    },
+    "finalDiffReviewed": true,
+    "noShippedCliChanges": true,
+    "siblingStreamPrototypeUnchanged": true,
+    "allOwnedSimulatorsAbsent": true,
+    "allOwnedTemporaryDirectoriesRemoved": true
+  }
+}
