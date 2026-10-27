@@ -1,0 +1,427 @@
+{
+  "issue": 545,
+  "date": "2026-10-27",
+  "environment": {
+    "macOS": "27.0.1 (26A434)",
+    "Xcode": "27.1 (27A9275)",
+    "chip": "Apple M5",
+    "physicalMemoryBytes": 25769803776,
+    "agentDevice": "0.21.25",
+    "expoDeviceHub": "0.15.3"
+  },
+  "sanitization": "Only public fixture aggregates, process IDs, ephemeral ports, and owned simulator IDs. No credentials, device pixels, user simulator inventory, host username, or user paths. Absolute temporary paths replaced with $SPIKE.",
+  "runs": [
+    {
+      "runtime": "27.1",
+      "ownerPid": 73310,
+      "startUnix": 1793113784.674592,
+      "resources": {
+        "helperPid": 73314,
+        "pid": 73312,
+        "port": 56375
+      },
+      "probes": [
+        {
+          "path": "/frames",
+          "credential": "missing-or-wrong",
+          "status": 401
+        },
+        {
+          "path": "/frames",
+          "credential": "missing-or-wrong",
+          "status": 401
+        },
+        {
+          "path": "/frames?device=other",
+          "credential": "correct",
+          "status": 404
+        },
+        {
+          "path": "/input",
+          "credential": "correct",
+          "status": 404
+        }
+      ],
+      "beforeStartBytes": 0,
+      "postStopFrames": 0,
+      "exit": 0,
+      "stopToExitMs": 39.256,
+      "psSamples": [
+        "73310 73292   0.0  17920 00:03\n73314 73312  13.9  42032 00:03",
+        "73310 73292   0.0  17920 00:05\n73314 73312  13.0  42032 00:05",
+        "73310 73292   0.0  17920 00:07\n73314 73312  16.3  42096 00:07",
+        "73310 73292   0.0  17920 00:10\n73314 73312  14.4  42128 00:10",
+        "73310 73292   0.0  17920 00:12\n73314 73312  15.1  42208 00:12"
+      ],
+      "portClosed": true,
+      "helperExited": true,
+      "device": "iPhone Duo",
+      "metrics": {
+        "frames": 325,
+        "fps": 26.977,
+        "startToFirstPacketMs": 23.433,
+        "sampleToEncodedMs": {
+          "p50": 5.762,
+          "p95": 7.138,
+          "max": 20.669
+        },
+        "callbackToEncodedMs": {
+          "p50": 12.88,
+          "p95": 21.208,
+          "max": 24.206
+        },
+        "uniqueJpegDigests": 325,
+        "sourceCallbacksAtLastSample": 722,
+        "outputSequenceGaps": 0,
+        "meanJpegBytes": 30569.862
+      }
+    },
+    {
+      "ownerPid": 76964,
+      "startUnix": 1793114096.8719192,
+      "psSamples": [
+        "76967 76964   0.7 112864 00:04\n76969 76967   9.9  36672 00:03",
+        "76967 76964   1.1 116448 00:06\n76969 76967  11.9  36720 00:05",
+        "76967 76964   1.3 130560 00:08\n76969 76967  10.6  36816 00:07",
+        "76967 76964   0.7 133024 00:10\n76969 76967  10.1  36816 00:09",
+        "76967 76964   0.8 142512 00:13\n76969 76967  10.3  36864 00:12"
+      ],
+      "resources": {
+        "helperPid": 76969,
+        "pid": 76967,
+        "port": 57104
+      },
+      "probes": [
+        {
+          "probe": "missing",
+          "status": 401
+        },
+        {
+          "probe": "wrong",
+          "status": 401
+        },
+        {
+          "probe": "device override",
+          "status": 404
+        },
+        {
+          "probe": "input",
+          "status": 404
+        },
+        {
+          "probe": "host",
+          "status": 404
+        },
+        {
+          "probe": "origin",
+          "status": 404
+        },
+        {
+          "probe": "upgrade",
+          "status": 404
+        },
+        {
+          "probe": "method",
+          "status": 404
+        }
+      ],
+      "beforeStartBytes": 0,
+      "postStopFrames": 0,
+      "exit": 0,
+      "stopToExitMs": 38.92,
+      "portClosed": true,
+      "helperExited": true,
+      "runtime": "26.5",
+      "device": "iPhone 17 Pro",
+      "metrics": {
+        "frames": 320,
+        "fps": 26.704,
+        "startToFirstPacketMs": 66.226,
+        "sampleToEncodedMs": {
+          "p50": 4.209,
+          "p95": 5.794,
+          "max": 20.752
+        },
+        "callbackToEncodedMs": {
+          "p50": 11.619,
+          "p95": 20.829,
+          "max": 29.196
+        },
+        "uniqueJpegDigests": 320,
+        "sourceCallbacksAtLastSample": 720,
+        "outputSequenceGaps": 0,
+        "meanJpegBytes": 38035.491
+      }
+    }
+  ],
+  "browser": {
+    "owner": 74261,
+    "startedUnix": 1793113882.606,
+    "resources": {
+      "helperPid": 74265,
+      "pid": 74263,
+      "port": 56436
+    },
+    "browserProcesses": [
+      {
+        "pid": 74266,
+        "parentPid": 74254,
+        "rssKiB": 208768
+      },
+      {
+        "pid": 74280,
+        "parentPid": 74266,
+        "rssKiB": 105600
+      },
+      {
+        "pid": 74281,
+        "parentPid": 74266,
+        "rssKiB": 96736
+      },
+      {
+        "pid": 74282,
+        "parentPid": 74266,
+        "rssKiB": 79696
+      },
+      {
+        "pid": 74285,
+        "parentPid": 74266,
+        "rssKiB": 161824
+      },
+      {
+        "pid": 74287,
+        "parentPid": 74266,
+        "rssKiB": 101328
+      },
+      {
+        "pid": 74288,
+        "parentPid": 74266,
+        "rssKiB": 121584
+      }
+    ],
+    "status": "180 decoded frames; 27.0 fps; 0 transport gaps",
+    "canvas": {
+      "width": 720,
+      "height": 1048
+    },
+    "exit": 0,
+    "stoppedStatus": "184 decoded frames; 27.0 fps; 0 transport gaps; capture ended"
+  },
+  "loss": {
+    "helperPid": 77102,
+    "pid": 77073,
+    "port": 57125,
+    "exit": 1,
+    "lossToExitMs": 37.01974998693913,
+    "portClosed": true
+  },
+  "candidates": {
+    "jpeg": {
+      "frames": 30,
+      "elapsedSeconds": 11.201903209032025,
+      "fps": 2.6781163379282895,
+      "medianMs": 368.36502101505175,
+      "p95Ms": 415.85662501165643,
+      "meanBytes": 84959.56666666667,
+      "childCpuPercent": 24.244299824071405
+    },
+    "png": {
+      "frames": 30,
+      "elapsedSeconds": 11.797932916961145,
+      "fps": 2.5428183234429897,
+      "medianMs": 384.9589375022333,
+      "p95Ms": 432.7649170299992,
+      "meanBytes": 124564,
+      "childCpuPercent": 23.353260434622563
+    },
+    "recordVideo": {
+      "pid": 74199,
+      "startedUnix": 1793113869.431102,
+      "processSample": "74199 73558   0.0  15344 00:06",
+      "beforeStop": {
+        "exit": 1,
+        "stderr": "[mov,mp4,m4a,3gp,3g2,mj2 @ 0x758cc5c000] moov atom not found\n$SPIKE/video.mp4: Invalid data found when processing input",
+        "stdout": "{\n\n}",
+        "bytes": 0
+      },
+      "exit": 0,
+      "stopToExitMs": 75.88445802684873,
+      "stderr": "Recording started\n",
+      "afterStop": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "width": 1398,
+            "height": 2034,
+            "avg_frame_rate": "108000/1799",
+            "duration": "5.985000",
+            "nb_read_frames": "360"
+          }
+        ]
+      }
+    }
+  },
+  "screenCaptureKit": {
+    "preflightGranted": false,
+    "captureAttempted": false,
+    "permissionRequested": false,
+    "cpuAndMemoryMeasured": false
+  },
+  "memory": {
+    "swapUsedMiBBefore": 1641,
+    "swapUsedMiBDuring": 1641,
+    "swapUsedMiBAfter": 1641,
+    "availablePercentBefore": 72,
+    "availablePercentMinimumObserved": 44,
+    "availablePercentAfterSimulatorDeletion": 58
+  },
+  "ownedSimulators": [
+    {
+      "udid": "237B283E-6FAF-466C-A4E5-0FBDEDF10973",
+      "runtime": "27.1",
+      "launchdPid": 67345,
+      "fixturePid": 70906,
+      "deleted": true
+    },
+    {
+      "udid": "D94E8E4B-E5DD-4FAA-BAC4-6803F845BE20",
+      "runtime": "26.5",
+      "launchdPid": 75309,
+      "fixturePid": 75938,
+      "deleted": true
+    }
+  ],
+  "sourceHashes": {
+    "packages/cli/prototypes/ios/measure.py": "0f97509ba8fb248ae2d23b8400fdc8d2fd235308f46a6060bb0c2f3e89e0cc35",
+    "packages/cli/prototypes/ios/fixture.plist": "4a0779a5b8424d9f5b8b2ddf1e7b952734f604553e2de83d3934a9935a85d0bd",
+    "packages/cli/prototypes/ios/stream.ts": "f700a077d47e5b5a09d56e0c7cec82da69b29553f3dc1bf4d746dcfdfa718b11",
+    "packages/cli/prototypes/ios/build.sh": "2459d3681bc2255f21183da5df0111a2b01832024e50a9b068eb56457ce56a33",
+    "packages/cli/prototypes/ios/viewer.html": "f08d0d9ef5b79cf94d2792e2ae3d9c22954c40743efe55b192929c241a188b3d",
+    "packages/cli/prototypes/ios/fixture.m": "526f07ed38dba6d1cd27b729eb89a5af33acb830e7c15ab7b6e7bd1ef4d6660a",
+    "packages/cli/prototypes/ios/compare.py": "24cf2d2f7d3dc58551342ace5d78cd19ea5a230bb4a3a8aa83f19c0cbff1d682",
+    "packages/cli/prototypes/ios/framebuffer.m": "e2c405f4ed609f5122e65a883d0c6f95179f7945e753036f86b8914be224dc18"
+  },
+  "cleanup": {
+    "observedUnix": 1793114465.17195,
+    "simulatorIdsAbsent": true,
+    "ownedRootPidsChecked": [
+      67345, 67501, 67550, 70262, 70751, 70906, 70979, 71106, 71862, 71864,
+      72159, 72161, 72479, 72481, 73310, 73312, 73314, 74254, 74261, 74263,
+      74265, 74266, 74280, 74281, 74282, 74285, 74287, 74288, 75309, 75938,
+      76538, 76540, 76542, 76964, 76967, 76969, 77073, 77102
+    ],
+    "stillLiveOwnedRootPids": [],
+    "matchingOwnedProcesses": [],
+    "ports": [
+      {
+        "port": 19455,
+        "closed": true
+      },
+      {
+        "port": 56228,
+        "closed": true
+      },
+      {
+        "port": 56263,
+        "closed": true
+      },
+      {
+        "port": 56307,
+        "closed": true
+      },
+      {
+        "port": 56375,
+        "closed": true
+      },
+      {
+        "port": 56436,
+        "closed": true
+      },
+      {
+        "port": 57033,
+        "closed": true
+      },
+      {
+        "port": 57104,
+        "closed": true
+      },
+      {
+        "port": 57125,
+        "closed": true
+      }
+    ],
+    "ownedDeviceDirectoriesAbsent": true,
+    "sharedServicesPreserved": true
+  },
+  "resourceLedger": [
+    {
+      "owner": "spike",
+      "resource": "iOS 27.1 simulator and descendants",
+      "pid": 67345,
+      "toolSession": 21811,
+      "startUtcApprox": "2026-10-27T14:59:01Z",
+      "stop": "simctl shutdown then delete exact owned UUID",
+      "ports": []
+    },
+    {
+      "owner": "spike",
+      "resource": "iOS 26.5 simulator and descendants",
+      "pid": 75309,
+      "toolSession": 17861,
+      "startUtcApprox": "2026-10-27T15:13:01Z",
+      "stop": "simctl shutdown then delete exact owned UUID",
+      "ports": []
+    },
+    {
+      "owner": "benchmark harness",
+      "resource": "proxy and framebuffer child",
+      "startUnix": 1793113784.674592,
+      "ownerPid": 73310,
+      "pid": 73312,
+      "descendantPids": [73314],
+      "ports": [56375],
+      "stop": "parent stdin Stop; scoped server close and helper termination; harness waits"
+    },
+    {
+      "owner": "benchmark harness",
+      "resource": "proxy and framebuffer child",
+      "startUnix": 1793114096.8719192,
+      "ownerPid": 76964,
+      "pid": 76967,
+      "descendantPids": [76969],
+      "ports": [57104],
+      "stop": "parent stdin Stop; scoped server close and helper termination; harness waits"
+    },
+    {
+      "owner": "browser harness",
+      "resource": "proxy, framebuffer helper, and isolated Chrome tree",
+      "startUnix": 1793113882.606,
+      "ownerPid": 74261,
+      "pid": 74263,
+      "descendantPids": [
+        74265, 74266, 74280, 74281, 74282, 74285, 74287, 74288
+      ],
+      "ports": [56436],
+      "stop": "parent Stop, await exit, browser context.close"
+    },
+    {
+      "owner": "spike",
+      "resource": "transient probes, compilation, and serial command children",
+      "toolSessions": [
+        24226, 33730, 92380, 53583, 39226, 40798, 66756, 84616, 76155, 65641,
+        48238, 74061, 6402, 72132, 43974, 41126, 54181, 23479, 83443, 75615,
+        81150
+      ],
+      "stop": "synchronously awaited command exit; benchmark children joined; failed proxy runs terminated by exact owned harness PID; final process and port inventory clear",
+      "ports": [19455, 56228, 56263, 56307]
+    }
+  ],
+  "verification": {
+    "quality": "nub exec turbo run quality: passed",
+    "prototypeTypes": "cd packages/cli && nub exec tsc --ignoreConfig --noEmit --strict --module nodenext --target es2024 --skipLibCheck --types node prototypes/ios/stream.ts: passed",
+    "nativeBuild": "sh packages/cli/prototypes/ios/build.sh /tmp/contingency-ios-545: passed",
+    "pythonSyntax": "ast.parse of measure.py and compare.py: passed",
+    "productionBuildIsolation": "Inspected explicit tsdown entries, package files, tsconfig includes, and absence of prototype imports. No production build run."
+  }
+}
