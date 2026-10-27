@@ -2,14 +2,20 @@ import type {
   AndroidElementBounds,
   PlatformCapability,
 } from "@contingency/protocol";
-import type { Effect, Redacted, Scope } from "effect";
+import type { Effect } from "effect";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import type {
-  PlatformFillResult,
+  NativeAppRuntimeStartInput,
+  NativeAppVariableFillRequest,
+  NativeAppVariableFillResult,
+  NativeAppRuntimeState,
+  NativeAppRuntime,
+  NativeAppRuntimeBackend,
+} from "./native-app-runtime-contract.ts";
+import type {
   PlatformObservation,
   PlatformRuntimeError,
-  PlatformRuntimeService,
 } from "./platform-runtime.ts";
 
 export const androidCapabilities: readonly PlatformCapability[] = [
@@ -46,31 +52,12 @@ export interface AndroidInstallationGrant {
   readonly operation: "install" | "replace" | "auto";
 }
 
-export interface AndroidRuntimeStartInput {
+export interface AndroidRuntimeStartInput extends NativeAppRuntimeStartInput<AndroidDeviceSelection> {
   readonly platform: "android";
-  readonly device: AndroidDeviceSelection;
-  readonly targetApp: string;
-  readonly requiredCapabilities: readonly PlatformCapability[];
   readonly installationGrant?: AndroidInstallationGrant;
-  readonly scope: Scope.Scope;
 }
-
-export interface AndroidVariableFillRequest {
-  readonly target: string;
-  /** The Variable reference recorded with the fill. */
-  readonly variable: string;
-  /** Resolved when dispatching the ordinary fill. */
-  readonly value: Effect.Effect<
-    Redacted.Redacted<string>,
-    PlatformRuntimeError
-  >;
-}
-
-export interface AndroidVariableFillResult {
-  readonly outcome: "entered";
-  readonly confirmation: "confirmed" | "unconfirmed";
-  readonly variable: string;
-}
+export type AndroidVariableFillRequest = NativeAppVariableFillRequest;
+export type AndroidVariableFillResult = NativeAppVariableFillResult;
 
 export interface AndroidObservation extends PlatformObservation {
   readonly platform: "android";
@@ -101,35 +88,12 @@ export interface AndroidObservation extends PlatformObservation {
   }[];
 }
 
-export interface AndroidRuntimeState {
-  readonly phase: "ready" | "paused" | "closed";
-  readonly observationId: string | null;
-  readonly outcome: "none" | "observed" | "uncertain";
-  readonly failure: PlatformRuntimeError | null;
-}
-
-/** Android has no browser session, URL, tab, or Emulation. */
-export interface AndroidPlatformRuntime extends PlatformRuntimeService {
+export type AndroidRuntimeState = NativeAppRuntimeState;
+export interface AndroidPlatformRuntime extends NativeAppRuntime<
+  AndroidObservation,
+  AndroidDeviceSelection
+> {
   readonly platform: "android";
-  readonly device: AndroidDeviceSelection;
-  readonly backendSessionId: string;
-  readonly observe: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
-  >;
-  readonly state: () => AndroidRuntimeState;
-  readonly back: (
-    observationId: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly recover: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
-  >;
-  /** Enters a Variable through the ordinary stock agent-device fill path. */
-  readonly enterVariable: (
-    observationId: string,
-    request: AndroidVariableFillRequest
-  ) => Effect.Effect<AndroidVariableFillResult, PlatformRuntimeError>;
 }
 
 export interface AndroidRuntimeFactoryService {
@@ -144,21 +108,8 @@ export interface AndroidRuntimeFactoryService {
 }
 
 /** Only evaluated operations are available to the adapter. */
-export interface AndroidRuntimeBackend {
-  readonly sessionId: string;
-  readonly validate: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly recover: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly capture: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
+export interface AndroidRuntimeBackend extends NativeAppRuntimeBackend<AndroidObservation> {
+  readonly back: NonNullable<
+    NativeAppRuntimeBackend<AndroidObservation>["back"]
   >;
-  readonly activate: (
-    target: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly fill: (
-    target: string,
-    text: string
-  ) => Effect.Effect<PlatformFillResult, PlatformRuntimeError>;
-  readonly back: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
 }

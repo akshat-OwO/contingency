@@ -1,6 +1,6 @@
 import { Schema, SchemaGetter } from "effect";
 
-export const PlatformIdentity = Schema.Literals(["web", "android"]);
+export const PlatformIdentity = Schema.Literals(["web", "android", "ios"]);
 export type PlatformIdentity = typeof PlatformIdentity.Type;
 
 export const PlatformCapability = Schema.Literals([

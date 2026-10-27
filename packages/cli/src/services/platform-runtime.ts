@@ -24,6 +24,8 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import { nativeAppRuntimeError } from "./native-app-error.ts";
+import type { NativeAppRuntimeStartInput } from "./native-app-runtime-contract.ts";
 import {
   browserCapabilities,
   validatePlatformRequirements,
@@ -158,7 +160,10 @@ export interface PlatformRuntimeFactoryService {
   readonly web: BrowserRuntimeFactoryService;
   readonly android: AndroidRuntimeFactoryService;
   readonly start: (
-    input: BrowserRuntimeStartInput | AndroidRuntimeStartInput
+    input:
+      | BrowserRuntimeStartInput
+      | AndroidRuntimeStartInput
+      | (NativeAppRuntimeStartInput & { readonly platform: "ios" })
   ) => Effect.Effect<
     BrowserPlatformRuntime | AndroidPlatformRuntime,
     BrowserRpcErrorType | PlatformRuntimeError
@@ -170,8 +175,15 @@ export const makePlatformRuntimeFactory = (
   android: AndroidRuntimeFactoryService
 ): PlatformRuntimeFactoryService => ({
   android,
-  start: (input) =>
-    input.platform === "web" ? web.start(input) : android.start(input),
+  start: (input) => {
+    if (input.platform === "web") {
+      return web.start(input);
+    }
+    if (input.platform === "android") {
+      return android.start(input);
+    }
+    return Effect.fail(nativeAppRuntimeError("capability_missing"));
+  },
   web,
 });
 
