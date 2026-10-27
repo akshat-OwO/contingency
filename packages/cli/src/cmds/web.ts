@@ -19,6 +19,7 @@ import {
   makeFlowSkillCatalogLayer,
 } from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { cleanupIosSessionSimulators } from "../services/ios-session-resources.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { loadSettings } from "../services/settings.ts";
 import {
@@ -65,6 +66,7 @@ export const webCommand = Command.make(
     return yield* Effect.scoped(
       Effect.gen(function* serveWebInterface() {
         const fileSystem = yield* FileSystem.FileSystem;
+        yield* cleanupIosSessionSimulators();
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
