@@ -187,39 +187,51 @@ def main():
                 except Exception as error:
                     receipt["cleanup"][name] = {"failure": type(error).__name__}
         if udid:
-            start = receipt.get("captureStartedAt", receipt["startedAt"])[:19].replace("T", " ") + "+0000"
-            end = now()[:19].replace("T", " ") + "+0000"
-            for name, prefix in [("host-persisted", ["/usr/bin/log", "show"]), ("sim-persisted", ["xcrun", "simctl", "spawn", udid, "log", "show"])]:
-                directory = work / name
-                directory.mkdir()
-                try:
-                    (directory / "show.ndjson").write_bytes(run(prefix + ["--start", start, "--end", end, "--style", "ndjson", "--info", "--debug"], 60))
-                except Exception as error:
-                    receipt["channels"][name] = {"failure": type(error).__name__}
-            # Identify result ownership using the simulator UUID in diagnostics,
-            # not the shared cache name or directory modification time.
-            runner_root = Path.home() / ".agent-device/apple-runner"
-            for path in runner_root.rglob("*.xcresult"):
-                if any(udid in str(p) for p in path.glob("Staging/1_Test/Diagnostics/*")):
-                    results.append(path)
-                    receipt["channels"]["ownedXcresult"] = scan(path)
-                    receipt["xcresultExport"] = {}
-                    for kind in ["console", "action"]:
-                        p = subprocess.run(["xcrun", "xcresulttool", "get", "log", "--path", str(path), "--type", kind], capture_output=True)
-                        receipt["xcresultExport"][kind] = {"exitCode": p.returncode, "rootIdMissing": b"root ID is missing" in p.stderr}
-            roots = {"simulatorLogs": Path.home() / "Library/Logs/CoreSimulator" / udid, "simulatorDiagnostics": Path.home() / "Library/Developer/CoreSimulator/Devices" / udid / "data/Library/Logs", "hostDiagnosticReports": Path.home() / "Library/Logs/DiagnosticReports", "systemDiagnosticReports": Path("/Library/Logs/DiagnosticReports"), "contingencyProject": ROOT / ".contingency", "contingencyHome": Path.home() / ".contingency"}
-            for name, root in roots.items():
-                receipt["channels"][name] = scan(root)
-            for name in ["host-unified", "sim-unified", "host-persisted", "sim-persisted", "state"]:
-                receipt["channels"][name] = scan(work / name)
-            receipt["channels"]["ownedWork"] = scan(work)
+            # Evidence collection may fail; cleanup below must still run.
+            try:
+                start = receipt.get("captureStartedAt", receipt["startedAt"])[:19].replace("T", " ") + "+0000"
+                end = now()[:19].replace("T", " ") + "+0000"
+                for name, prefix in [("host-persisted", ["/usr/bin/log", "show"]), ("sim-persisted", ["xcrun", "simctl", "spawn", udid, "log", "show"])]:
+                    directory = work / name
+                    directory.mkdir()
+                    try:
+                        (directory / "show.ndjson").write_bytes(run(prefix + ["--start", start, "--end", end, "--style", "ndjson", "--info", "--debug"], 60))
+                    except Exception as error:
+                        receipt["channels"][name] = {"failure": type(error).__name__}
+                # Identify result ownership using the simulator UUID in diagnostics,
+                # not the shared cache name or directory modification time.
+                runner_root = Path.home() / ".agent-device/apple-runner"
+                for path in runner_root.rglob("*.xcresult"):
+                    if any(udid in str(p) for p in path.glob("Staging/1_Test/Diagnostics/*")):
+                        results.append(path)
+                        receipt["channels"]["ownedXcresult"] = scan(path)
+                        receipt["xcresultExport"] = {}
+                        for kind in ["console", "action"]:
+                            p = subprocess.run(["xcrun", "xcresulttool", "get", "log", "--path", str(path), "--type", kind], capture_output=True)
+                            receipt["xcresultExport"][kind] = {"exitCode": p.returncode, "rootIdMissing": b"root ID is missing" in p.stderr}
+                roots = {"simulatorLogs": Path.home() / "Library/Logs/CoreSimulator" / udid, "simulatorDiagnostics": Path.home() / "Library/Developer/CoreSimulator/Devices" / udid / "data/Library/Logs", "hostDiagnosticReports": Path.home() / "Library/Logs/DiagnosticReports", "systemDiagnosticReports": Path("/Library/Logs/DiagnosticReports"), "contingencyProject": ROOT / ".contingency", "contingencyHome": Path.home() / ".contingency"}
+                for name, root in roots.items():
+                    receipt["channels"][name] = scan(root)
+                for name in ["host-unified", "sim-unified", "host-persisted", "sim-persisted", "state"]:
+                    scanned = scan(work / name)
+                    # Keep a collection failure visible beside the scan of what exists.
+                    if "failure" in receipt["channels"].get(name, {}):
+                        scanned["collectionFailure"] = receipt["channels"][name]["failure"]
+                    receipt["channels"][name] = scanned
+                receipt["channels"]["ownedWork"] = scan(work)
+            except Exception as error:
+                receipt["evidenceFailure"] = type(error).__name__
             for operation in ["shutdown", "delete"]:
                 try:
                     run(["xcrun", "simctl", operation, udid])
                     receipt["cleanup"]["simulator" + operation.title()] = True
                 except Exception as error:
                     receipt["cleanup"]["simulator" + operation.title()] = type(error).__name__
-            receipt["cleanup"]["simulatorAbsent"] = udid.encode() not in run(["xcrun", "simctl", "list", "devices", "--json"])
+            try:
+                receipt["cleanup"]["simulatorAbsent"] = udid.encode() not in run(["xcrun", "simctl", "list", "devices", "--json"])
+            except Exception as error:
+                receipt["cleanup"]["simulatorAbsent"] = False
+                receipt["cleanup"]["simulatorListFailure"] = type(error).__name__
         for path in results + owned:
             if path.is_dir():
                 shutil.rmtree(path)
@@ -235,7 +247,7 @@ def main():
         receipt["endedAt"] = now()
         destination.write_text(json.dumps(receipt, indent=2) + "\n")
         print(json.dumps({"evidence": str(destination), "fill": receipt.get("fill"), "exactReadback": receipt.get("readback", {}).get("exactHashMatches"), "failure": receipt.get("failure")}))
-    if receipt.get("failure") or not all(r["exited"] for r in receipt["resources"]) or (udid and not receipt["cleanup"].get("simulatorAbsent")):
+    if receipt.get("failure") or receipt.get("evidenceFailure") or not all(r["exited"] for r in receipt["resources"]) or (udid and not receipt["cleanup"].get("simulatorAbsent")):
         raise SystemExit(1)
 
 
