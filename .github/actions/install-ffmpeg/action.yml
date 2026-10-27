@@ -1,0 +1,40 @@
+name: Install ffmpeg
+description: Install ffmpeg from cached Ubuntu packages, bounding a slow mirror
+runs:
+  using: composite
+  steps:
+    # The runner's Azure mirror usually serves ffmpeg's 69 MB of packages in
+    # seconds, but sometimes at about 80 kB/s, which outlasts the job timeout.
+    # Cache the downloaded packages per runner image so a slow mirror only
+    # matters on a cache miss.
+    - name: Name the package cache
+      id: key
+      shell: bash
+      run: echo "key=apt-ffmpeg-$ImageOS-$ImageVersion-$RUNNER_ARCH" >> "$GITHUB_OUTPUT"
+
+    - name: Restore ffmpeg packages
+      uses: actions/cache@v5
+      with:
+        path: ~/.cache/apt-ffmpeg
+        key: ${{ steps.key.outputs.key }}
+
+    # Skip apt-get update: the runner's cached Ubuntu index is enough for
+    # ffmpeg, and update also refreshes Google's Chrome repo, which has
+    # intermittently failed with hash-sum mismatches and blocked CI.
+    # Only the download is bounded and retried, never dpkg itself. Each attempt
+    # keeps its partial files, so a retry resumes rather than restarts.
+    - name: Install ffmpeg packages
+      shell: bash
+      run: |
+        archives="$HOME/.cache/apt-ffmpeg"
+        mkdir -p "$archives/partial"
+        apt=(sudo apt-get -y -o Dir::Cache::Archives="$archives")
+        for attempt in 1 2 3; do
+          if timeout 180 "${apt[@]}" install --download-only ffmpeg; then
+            "${apt[@]}" install ffmpeg
+            sudo chown -R "$(id -u):$(id -g)" "$archives"
+            exit 0
+          fi
+          echo "::warning::ffmpeg download attempt $attempt did not finish"
+        done
+        exit 1
