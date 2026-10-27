@@ -1,0 +1,33 @@
+{
+  "issue": 549,
+  "tracker": 542,
+  "status": "incomplete",
+  "newLiveProof": false,
+  "host": {
+    "xcode": "27.1",
+    "xcodeBuild": "27A9275",
+    "installedSimulatorRuntimes": ["26.5", "27.1"]
+  },
+  "priorEvidence": {
+    "path": "docs/reports/ios-private-text-evidence.json",
+    "runtime": "26.5",
+    "scope": "Stock agent-device, fixture-assisted UIKit readback",
+    "secureSnapshot": "masked",
+    "privacyResult": "failed: response echoed the value and XCTest diagnostics persisted a fragment"
+  },
+  "newExperiments": [],
+  "unverified": [
+    "HID entry privacy and exact delivery",
+    "Injected comparator operation and privacy",
+    "SwiftUI SecureField readback",
+    "Private XCTest snapshot or activity suppression",
+    "Host and simulator accessibility secure readback",
+    "iOS 27.1 candidate behavior",
+    "Arbitrary app compatibility"
+  ],
+  "cleanup": {
+    "simulatorsCreated": 0,
+    "persistentProcessesStarted": 0,
+    "sentinelsCreated": 0
+  }
+}
