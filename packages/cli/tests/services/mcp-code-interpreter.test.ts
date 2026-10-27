@@ -86,6 +86,7 @@ const start = {
     kind: "run",
     operationId: OperationId.make("android-start"),
   },
+  platform: "android",
 };
 
 describe("Android interventions", () => {
@@ -108,7 +109,7 @@ describe("Android interventions", () => {
   it("lets a running session continue when nothing new waits on the user", () => {
     expect(
       androidIntervention(
-        { command: { _tag: "observe", sessionId } },
+        { command: { _tag: "observe", sessionId }, platform: "android" },
         androidSession({
           phase: "running",
           variables: [{ name: "PIN", status: "requested" }],

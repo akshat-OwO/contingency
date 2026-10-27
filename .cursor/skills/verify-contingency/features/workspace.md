@@ -583,6 +583,14 @@ Preconditions: Build current source and the login fixture with `JAVA_HOME=<jdk-1
 - **Probe secure windows:** **Show secure login window** must pause with **Secure window, not visible**, and a `working` claim must be stored as `inconclusive`.
 - **Read evidence:** Require empty `blockers`, `receipts.teaching.kinds` with one `fill`, one `variable`, two `activate`, and one `back`, and every key under `limits` in `artifacts/android-support-matrix/<cell>/receipt.json`. Require all `cleanup` flags. Record each cell in the [Support Matrix report](../../../../docs/reports/android-support-matrix.md).
 
+### Device MCP contract
+
+Build current source, launch an isolated instance, run doctor, and start MCP with `CONTINGENCY_MCP_INTERFACE=native`. Run `nub .cursor/skills/verify-contingency/bin/device-mcp-proof.mjs`.
+
+Done when `artifacts/device-mcp/receipt.json` reports `passed`, both device tools require `platform`, Android sessions list successfully, and both iOS calls return `ios_support_matrix_unproven` as a tool failure. The proof records the catalog bytes and MCP command stdout, stderr, and exit codes. It starts no device and proves no Android input or capture.
+
+Android lifecycle proofs below use `agent_device_workspace` and `agent_device_sessions_list` with `platform: "android"`. Require Teaching, a fresh passing Dry Run, verification, and a later Run through these tools in the Android checkout proof. Run cleanup after either proof and confirm evidence survives.
+
 ### Android workspace
 
 Preconditions: Build current source, launch an isolated instance, and run `doctor`. Start MCP with `ANDROID_HOME`; Android needs no opt-in. Open the printed **MCP URL**; Android sessions belong to that process. Obtain explicit authorization for the Pixel_9 API 36 emulator. Close existing Android sessions first, including paused sessions.

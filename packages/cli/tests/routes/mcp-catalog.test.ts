@@ -55,7 +55,7 @@ const CATALOG_BUDGET_BYTES = 102_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
-  "agent_android_sessions_list",
+  "agent_device_sessions_list",
   "agent_browser_screenshot",
   "agent_browser_snapshot",
   "agent_catalog_get",
@@ -72,21 +72,21 @@ const READ_ONLY_TOOLS = new Set([
 // Route tests serve native unless they choose; compare like with like.
 const NATIVE_INSTRUCTIONS = makeMcpInstructions(false, undefined, "native");
 
-it.live("lists the bounded Android tools without an opt-in", () =>
-  Effect.gen(function* androidTools() {
+it.live("lists the bounded device tools without an opt-in", () =>
+  Effect.gen(function* deviceTools() {
     const origin = yield* servingMcpHttp();
     const { tools } = Schema.decodeUnknownSync(ToolList)(
       yield* (yield* connectMcp(origin)).request("tools/list", {})
     ).result;
-    const android = tools.filter((tool) =>
-      tool.name.startsWith("agent_android_")
+    const device = tools.filter((tool) =>
+      tool.name.startsWith("agent_device_")
     );
-    expect(android.map((tool) => tool.name).toSorted()).toEqual([
-      "agent_android_sessions_list",
-      "agent_android_workspace",
+    expect(device.map((tool) => tool.name).toSorted()).toEqual([
+      "agent_device_sessions_list",
+      "agent_device_workspace",
     ]);
-    expect(bytes(android)).toBeLessThanOrEqual(10_000);
-    for (const tool of android) {
+    expect(bytes(device)).toBeLessThanOrEqual(10_000);
+    for (const tool of device) {
       expect(bytes(tool)).toBeLessThanOrEqual(TOOL_BUDGET_BYTES);
     }
   }).pipe(Effect.provide(NodeServices.layer))

@@ -14,11 +14,6 @@ import {
   AgentSessionTools,
   McpAgentSessionLayer,
 } from "./mcp-agent-session.ts";
-import {
-  AndroidWorkspaceToolHandlersLive,
-  AndroidWorkspaceTools,
-  McpAndroidWorkspaceLayer,
-} from "./mcp-android-workspace.ts";
 import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
 import {
   BrowserDevtoolsTools,
@@ -33,6 +28,11 @@ import {
   makeMcpCodeInterpreterLayer,
   operationSource,
 } from "./mcp-code-interpreter.ts";
+import {
+  DeviceWorkspaceToolHandlersLive,
+  DeviceWorkspaceTools,
+  McpDeviceWorkspaceLayer,
+} from "./mcp-device-workspace.ts";
 import {
   DocsToolHandlersLive,
   DocsTools,
@@ -83,7 +83,7 @@ export const makeMcpCatalogLayer = <R = never>(
   if ((options.interface ?? DEFAULT_MCP_INTERFACE) === "native") {
     return Layer.mergeAll(
       McpAgentSessionLayer,
-      McpAndroidWorkspaceLayer,
+      McpDeviceWorkspaceLayer,
       McpAgentCatalogLayer,
       McpAgentRunLayer,
       McpTeachingRecordingLayer,
@@ -103,10 +103,7 @@ export const makeMcpCatalogLayer = <R = never>(
         operationSource(DocsTools, DocsToolHandlersLive),
         operationSource(AgentSessionTools, AgentSessionToolHandlersLive),
         operationSource(BrowserDevtoolsTools, BrowserDevtoolsToolHandlersLive),
-        operationSource(
-          AndroidWorkspaceTools,
-          AndroidWorkspaceToolHandlersLive
-        ),
+        operationSource(DeviceWorkspaceTools, DeviceWorkspaceToolHandlersLive),
         operationSource(AgentCatalogTools, AgentCatalogToolHandlersLive),
         operationSource(AgentRunTools, AgentRunToolHandlersLive),
         operationSource(

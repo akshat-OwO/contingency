@@ -180,8 +180,8 @@ it.live(
         expect(base.native).not.toContain("docs_get");
         expect(base.offered).toEqual(
           expect.arrayContaining([
-            "agent_android_sessions_list",
-            "agent_android_workspace",
+            "agent_device_sessions_list",
+            "agent_device_workspace",
           ])
         );
         // Conditional capabilities follow their prerequisites.
@@ -272,8 +272,8 @@ it.live(
           return [
             await refused(() => tools.agent_sessions_get({ view: "compact", widen: true })),
             await refused(() => tools.agent_session_get({ sessionId: 7 })),
-            await refused(() => tools.agent_android_workspace({ command: { _tag: "observe" } })),
-            await refused(() => tools.agent_android_workspace({
+            await refused(() => tools.agent_device_workspace({ platform: "android", command: { _tag: "observe" } })),
+            await refused(() => tools.agent_device_workspace({ platform: "android",
               command: { _tag: "variable-supply", name: "PIN", operationId: "supply-1", requestId: "r", sessionId: "s", value: "1234" },
             })),
           ];
@@ -299,23 +299,23 @@ it.live(
   HANG_GUARD_MS
 );
 
-it.live(
-  "words a refusal exactly as the native tool does",
-  () =>
+it.live.each(["android", "ios"] as const)(
+  "words a %s refusal exactly as the native tool does",
+  (platform) =>
     live(
       Effect.gen(function* sameRefusal() {
         const command = { _tag: "read", sessionId: "agent-android-missing" };
         const native = yield* connectMcp(yield* servingMcpHttp());
         const nativeAnswer = Schema.decodeUnknownSync(Execution)(
           yield* native.request("tools/call", {
-            arguments: { command },
-            name: "agent_android_workspace",
+            arguments: { command, platform },
+            name: "agent_device_workspace",
           })
         ).result;
         expect(nativeAnswer.isError).toBe(true);
         const answer = yield* execute(`
           try {
-            await tools.agent_android_workspace({ command: ${JSON.stringify(command)} });
+            await tools.agent_device_workspace({ platform: ${JSON.stringify(platform)}, command: ${JSON.stringify(command)} });
             return "accepted";
           } catch (error) {
             return error.message;
