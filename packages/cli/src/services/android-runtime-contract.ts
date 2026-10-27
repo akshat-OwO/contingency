@@ -2,13 +2,20 @@ import type {
   AndroidElementBounds,
   PlatformCapability,
 } from "@contingency/protocol";
-import type { Effect, Redacted, Scope } from "effect";
+import type { Effect } from "effect";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import type {
+  NativeAppPrivateTextRequest,
+  NativeAppPrivateTextResult,
+  NativeAppRuntimeState,
+  NativeAppRuntime,
+  NativeAppRuntimeStartInput,
+  NativeAppRuntimeBackend,
+} from "./native-app-runtime-contract.ts";
+import type {
   PlatformObservation,
   PlatformRuntimeError,
-  PlatformRuntimeService,
 } from "./platform-runtime.ts";
 
 export const androidCapabilities: readonly PlatformCapability[] = [
@@ -63,15 +70,11 @@ export interface AndroidPrivateTextGrant {
   readonly operation: "install" | "replace" | "auto";
 }
 
-export interface AndroidRuntimeStartInput {
+export interface AndroidRuntimeStartInput extends NativeAppRuntimeStartInput<AndroidDeviceSelection> {
   readonly platform: "android";
-  readonly device: AndroidDeviceSelection;
-  readonly targetApp: string;
-  readonly requiredCapabilities: readonly PlatformCapability[];
   readonly installationGrant?: AndroidInstallationGrant;
-  /** Required with `private-input` when the private text helper is absent or different. */
+  /** Required with private input when the private text helper is absent or different. */
   readonly privateTextGrant?: AndroidPrivateTextGrant;
-  readonly scope: Scope.Scope;
 }
 
 /** The observed field a private value may enter, as the helper re-resolves it. */
@@ -84,21 +87,9 @@ export interface AndroidPrivateTextBinding {
   readonly focusedWindow: string;
 }
 
-export interface AndroidPrivateTextRequest {
-  readonly target: string;
-  /** The Variable reference; the only identity of the value a caller may record. */
-  readonly variable: string;
-  /** Resolved only after the helper has bound the observed field. */
-  readonly value: Effect.Effect<
-    Redacted.Redacted<string>,
-    PlatformRuntimeError
-  >;
-}
+export type AndroidPrivateTextRequest = NativeAppPrivateTextRequest;
 
-export interface AndroidPrivateTextResult {
-  readonly outcome: "verified";
-  readonly variable: string;
-}
+export type AndroidPrivateTextResult = NativeAppPrivateTextResult;
 
 export interface AndroidObservation extends PlatformObservation {
   readonly platform: "android";
@@ -129,35 +120,13 @@ export interface AndroidObservation extends PlatformObservation {
   }[];
 }
 
-export interface AndroidRuntimeState {
-  readonly phase: "ready" | "paused" | "closed";
-  readonly observationId: string | null;
-  readonly outcome: "none" | "observed" | "uncertain";
-  readonly failure: PlatformRuntimeError | null;
-}
+export type AndroidRuntimeState = NativeAppRuntimeState;
 
-/** Android has no browser session, URL, tab, or Emulation. */
-export interface AndroidPlatformRuntime extends PlatformRuntimeService {
+export interface AndroidPlatformRuntime extends NativeAppRuntime<
+  AndroidObservation,
+  AndroidDeviceSelection
+> {
   readonly platform: "android";
-  readonly device: AndroidDeviceSelection;
-  readonly backendSessionId: string;
-  readonly observe: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
-  >;
-  readonly state: () => AndroidRuntimeState;
-  readonly back: (
-    observationId: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly recover: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
-  >;
-  /** Enters one private Variable into one observed field, never through ADB arguments. */
-  readonly enterPrivate: (
-    observationId: string,
-    request: AndroidPrivateTextRequest
-  ) => Effect.Effect<AndroidPrivateTextResult, PlatformRuntimeError>;
 }
 
 export interface AndroidRuntimeFactoryService {
@@ -172,25 +141,11 @@ export interface AndroidRuntimeFactoryService {
 }
 
 /** Only evaluated operations are available to the adapter. */
-export interface AndroidRuntimeBackend {
-  readonly sessionId: string;
-  readonly validate: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly recover: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly capture: () => Effect.Effect<
-    AndroidObservation,
-    PlatformRuntimeError
+export interface AndroidRuntimeBackend extends NativeAppRuntimeBackend<AndroidObservation> {
+  readonly back: NonNullable<
+    NativeAppRuntimeBackend<AndroidObservation>["back"]
   >;
-  readonly activate: (
-    target: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly fill: (
-    target: string,
-    text: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly back: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly enterPrivate: (
-    target: string,
-    value: Effect.Effect<Redacted.Redacted<string>, PlatformRuntimeError>
-  ) => Effect.Effect<void, PlatformRuntimeError>;
-  readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
+  readonly enterPrivate: NonNullable<
+    NativeAppRuntimeBackend<AndroidObservation>["enterPrivate"]
+  >;
 }
