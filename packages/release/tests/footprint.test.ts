@@ -24,6 +24,12 @@ describe("CLI footprint comparisons", () => {
     expect(formatDelta(0, 1, false)).toBe("⚠️ +1 (new)");
     expect(formatDelta(100, 90, false)).toBe("-10 (-10.00%)");
     expect(formatDelta(100, 100, true)).toBe("0 B (0.00%)");
+    expect(formatDelta(30_000_000, 12_000_000, true)).toBe(
+      "-18.00 MB (-60.00%)"
+    );
+    expect(formatDelta(10_000_000, 10_051_200, true)).toBe(
+      "⚠️ +51.20 kB (+0.51%)"
+    );
   });
   it("uses strict configurable byte OR percentage limits and ignores decreases", () => {
     const thresholds = { bytes: 50, percent: 1 };

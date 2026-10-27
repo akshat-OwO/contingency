@@ -56,7 +56,14 @@ export const exceedsThreshold = (
   );
 };
 
-const size = (bytes: number) => `${(bytes / 1024).toFixed(2)} KiB`;
+// Decimal units match npm's pack output. Values below 1 MB would round to 0.00 MB.
+const size = (bytes: number) => {
+  const magnitude = Math.abs(bytes);
+  if (magnitude >= 1_000_000) {
+    return `${(bytes / 1_000_000).toFixed(2)} MB`;
+  }
+  return magnitude >= 1000 ? `${(bytes / 1000).toFixed(2)} kB` : `${bytes} B`;
+};
 const signed = (value: number, format: (n: number) => string) =>
   `${value > 0 ? "+" : ""}${format(value)}`;
 export const formatDelta = (
@@ -69,7 +76,7 @@ export const formatDelta = (
     change.percent === null
       ? "new"
       : `${signed(change.percent, (n) => n.toFixed(2))}%`;
-  return `${change.absolute > 0 ? "⚠️ " : ""}${signed(change.absolute, bytes ? (n) => `${n} B` : String)} (${percent})`;
+  return `${change.absolute > 0 ? "⚠️ " : ""}${signed(change.absolute, bytes ? size : String)} (${percent})`;
 };
 
 const unpacked = (snapshot: Footprint) =>
