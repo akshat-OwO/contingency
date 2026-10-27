@@ -1,33 +1,322 @@
 {
   "issue": 549,
   "tracker": 542,
-  "status": "incomplete",
-  "newLiveProof": false,
+  "status": "live-proof-passed-with-one-unexplained-drop",
+  "newLiveProof": true,
+  "candidate": "Simulator HID keyboard events via SimulatorKit IndigoHIDMessageForKeyboardArbitrary, with an in-process UIKit comparator loaded by DYLD_INSERT_LIBRARIES at launch",
   "host": {
     "xcode": "27.1",
-    "xcodeBuild": "27A9275",
-    "installedSimulatorRuntimes": ["26.5", "27.1"]
+    "macOS": "27.0.1",
+    "swapBefore": "vm.swapusage: total = 3072.00M  used = 1617.00M  free = 1455.00M  (encrypted)"
   },
-  "priorEvidence": {
-    "path": "docs/reports/ios-private-text-evidence.json",
-    "runtime": "26.5",
-    "scope": "Stock agent-device, fixture-assisted UIKit readback",
-    "secureSnapshot": "masked",
-    "privacyResult": "failed: response echoed the value and XCTest diagnostics persisted a fragment"
+  "fixture": {
+    "bundle": "dev.contingency.secure-readback-fixture",
+    "fields": ["UIKit UITextField secureTextEntry", "SwiftUI SecureField"],
+    "sceneLifecycle": true
   },
-  "newExperiments": [],
+  "value": {
+    "length": 32,
+    "alphabet": "ASCII letters and digits, mixed case",
+    "recorded": "hashes and length only"
+  },
+  "simulators": [
+    {
+      "runtime": "26.5",
+      "deviceType": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+      "createdAt": "2026-10-27T16:34:09.814452+00:00",
+      "deleted": true
+    },
+    {
+      "runtime": "27.1",
+      "deviceType": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+      "createdAt": "2026-10-27T16:36:29.021867+00:00",
+      "deleted": true
+    }
+  ],
+  "runs": [
+    {
+      "runtime": "26.5",
+      "field": "uikit",
+      "mode": "positive",
+      "verdict": "verified",
+      "reason": "exact_match",
+      "typedLength": 32,
+      "typedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldLength": 32,
+      "fieldSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": true,
+      "helperKeyEvents": 94,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 17,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "26.5",
+      "field": "uikit",
+      "mode": "wrong",
+      "verdict": "unverified",
+      "reason": "sha256_or_length_mismatch",
+      "typedLength": 32,
+      "typedSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "fieldLength": 32,
+      "fieldSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": false,
+      "helperKeyEvents": 96,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 17,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "26.5",
+      "field": "swiftui",
+      "mode": "positive",
+      "verdict": "verified",
+      "reason": "exact_match",
+      "typedLength": 32,
+      "typedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldLength": 32,
+      "fieldSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": true,
+      "helperKeyEvents": 94,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 28,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "26.5",
+      "field": "swiftui",
+      "mode": "wrong",
+      "verdict": "unverified",
+      "reason": "sha256_or_length_mismatch",
+      "typedLength": 32,
+      "typedSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "fieldLength": 32,
+      "fieldSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": false,
+      "helperKeyEvents": 96,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 33,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "27.1",
+      "field": "uikit",
+      "mode": "positive",
+      "verdict": "verified",
+      "reason": "exact_match",
+      "typedLength": 32,
+      "typedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldLength": 32,
+      "fieldSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": true,
+      "helperKeyEvents": 94,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 21,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "27.1",
+      "field": "uikit",
+      "mode": "wrong",
+      "verdict": "unverified",
+      "reason": "sha256_or_length_mismatch",
+      "typedLength": 32,
+      "typedSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "fieldLength": 32,
+      "fieldSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": false,
+      "helperKeyEvents": 96,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 25,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "27.1",
+      "field": "swiftui",
+      "mode": "positive",
+      "verdict": "verified",
+      "reason": "exact_match",
+      "typedLength": 32,
+      "typedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldLength": 32,
+      "fieldSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": true,
+      "helperKeyEvents": 94,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 13,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    {
+      "runtime": "27.1",
+      "field": "swiftui",
+      "mode": "wrong",
+      "verdict": "unverified",
+      "reason": "sha256_or_length_mismatch",
+      "typedLength": 32,
+      "typedSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "fieldLength": 32,
+      "fieldSha256": "c0ecfc7473087d3534c999908d4b963179678fab3a7a630bfbc660cc5f69ee88",
+      "expectedLength": 32,
+      "expectedSha256": "15dc737962fbdc0b5d05b22c0b82c6b38f388a3a3d36db2f991d1cde241232cd",
+      "fieldMatchesTyped": true,
+      "fieldMatchesExpected": false,
+      "helperKeyEvents": 96,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 18,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    }
+  ],
+  "priorRun": {
+    "description": "First full driver run before the second rerun; same fixture build, different random value",
+    "failedCase": {
+      "runtime": "27.1",
+      "field": "uikit",
+      "mode": "positive",
+      "verdict": "unverified",
+      "reason": "sha256_or_length_mismatch",
+      "typedLength": 32,
+      "typedSha256": "151d7a0b2e889f4bbdfc61bc4c95005906c8ade8904628315d3397e9eb4a72cb",
+      "fieldLength": 0,
+      "fieldSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expectedLength": 32,
+      "expectedSha256": "151d7a0b2e889f4bbdfc61bc4c95005906c8ade8904628315d3397e9eb4a72cb",
+      "fieldMatchesTyped": false,
+      "fieldMatchesExpected": false,
+      "helperKeyEvents": 96,
+      "helperExitCode": 0,
+      "helperOutputContainsValue": false,
+      "processArgumentSamples": 18,
+      "processArgumentFullOrFragmentSamples": 0,
+      "channelsWithValueOrFragment": [],
+      "channelFilesScanned": {
+        "hostStream": 1,
+        "simStream": 1,
+        "hostPersisted": 1,
+        "simPersisted": 1
+      }
+    },
+    "otherCasesPassed": 7
+  },
+  "isolatedProbes": {
+    "runtime": "27.1",
+    "deviceType": "iPhone Duo",
+    "launches": 7,
+    "verified": 7,
+    "note": "Probe launches typed the same way; no failure reproduced."
+  },
+  "channelsPerRun": [
+    "hostStream",
+    "simStream",
+    "hostPersisted",
+    "simPersisted",
+    "processArguments",
+    "helperOutput"
+  ],
+  "channelsPerRuntime": [
+    "appContainer",
+    "simulatorData",
+    "coreSimulatorLogs",
+    "hostDiagnosticReportsSinceStart",
+    "systemDiagnosticReportsSinceStart"
+  ],
   "unverified": [
-    "HID entry privacy and exact delivery",
-    "Injected comparator operation and privacy",
-    "SwiftUI SecureField readback",
-    "Private XCTest snapshot or activity suppression",
-    "Host and simulator accessibility secure readback",
-    "iOS 27.1 candidate behavior",
-    "Arbitrary app compatibility"
+    "Cause of the single 27.1 UIKit positive drop (fieldLength 0 after 96 key events); not reproduced in one full rerun or seven probes",
+    "Arbitrary app compatibility: only the public fixture was tested",
+    "Custom controls, web views, and other secure widgets",
+    "UTF-16 and base64 fragment scanning is limited to full values; fragments are checked as UTF-8 8-character windows",
+    "Unified log scan covers only each run's window, not all of macOS logging",
+    "Physical devices, other keyboard layouts, and non-hex or symbol characters",
+    "Production refusal, field binding, and Contingency integration"
   ],
   "cleanup": {
-    "simulatorsCreated": 0,
-    "persistentProcessesStarted": 0,
-    "sentinelsCreated": 0
+    "simulatorsDeleted": true,
+    "childProcessesExited": true,
+    "fixtureProcessesExited": true,
+    "workDirectoryRemoved": true
   }
 }
