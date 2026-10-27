@@ -34,14 +34,30 @@ export const makeIosSessionResources = (
   isAlive: ProcessIsAlive = hostProcessIsAlive,
   stopRunner: typeof stopIosRunner = stopIosRunner
 ) => {
-  const remove = (udid: string) =>
+  // Startup reclamation passes reclaiming: another process may already have
+  // reclaimed the same dead owner's clone and removed its record.
+  const remove = (udid: string, reclaiming = false) =>
     Effect.gen(function* deleteRecordedClone() {
       if (!iosUuid.test(udid)) {
         return yield* Effect.fail(iosError("cleanup_failed"));
       }
-      const record = yield* recordIo(() =>
-        readFile(path.join(directory, `${udid}.json`), "utf-8")
-      ).pipe(Effect.flatMap((text) => decodeIosJson(Record, text)));
+      const text = yield* recordIo(async () => {
+        try {
+          return await readFile(path.join(directory, `${udid}.json`), "utf-8");
+        } catch (error) {
+          if (
+            reclaiming &&
+            Schema.is(Schema.Struct({ code: Schema.Literal("ENOENT") }))(error)
+          ) {
+            return;
+          }
+          throw error;
+        }
+      });
+      if (text === undefined) {
+        return;
+      }
+      const record = yield* decodeIosJson(Record, text);
       if (record.udid !== udid) {
         return yield* Effect.fail(iosError("cleanup_failed"));
       }
@@ -134,7 +150,7 @@ export const makeIosSessionResources = (
             yield* requireIosHost(io);
             checkedHost = true;
           }
-          yield* remove(udid);
+          yield* remove(udid, true);
         }
       }),
     isRecorded: (stateDirectory: string) =>

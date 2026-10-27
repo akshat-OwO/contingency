@@ -459,6 +459,45 @@ it.live(
 );
 
 it.live(
+  "tolerates another startup reclaiming the same dead owner's clone first",
+  () =>
+    withDirectory((directory) =>
+      Effect.gen(function* verifyIosBehavior() {
+        const first = fakeHost();
+        const second = fakeHost();
+        const checking = yield* Deferred.make<boolean>();
+        const release = yield* Deferred.make<boolean>();
+        // The second startup has parsed the record and is checking the host.
+        const held: IosSimctlService = {
+          ...second.io,
+          xcode: () =>
+            Deferred.succeed(checking, true).pipe(
+              Effect.andThen(Deferred.await(release))
+            ),
+        };
+        yield* makeIosSessionResources(directory, first.io, () => false).record(
+          clone,
+          40_101
+        );
+        const late = yield* Effect.forkChild(
+          makeIosSessionResources(directory, held, () => false).cleanup()
+        );
+        yield* Deferred.await(checking);
+        yield* makeIosSessionResources(
+          directory,
+          first.io,
+          () => false
+        ).cleanup();
+        yield* Deferred.succeed(release, true);
+        expect(Exit.isSuccess(yield* Fiber.await(late))).toBe(true);
+        expect(first.commands).toEqual([["delete", clone]]);
+        expect(second.commands).toEqual([]);
+        expect(yield* Effect.promise(() => readdir(directory))).toEqual([]);
+      })
+    )
+);
+
+it.live(
   "reclaims a SIGKILLed owner's clone on the next startup and spares a live owner",
   () =>
     withDirectory((directory) =>
