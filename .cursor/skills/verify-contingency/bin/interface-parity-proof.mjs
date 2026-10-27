@@ -227,7 +227,10 @@ const cancellation = async () => {
 const android = async () => {
   const device = androidPrerequisite();
   const androidCall = (commandValue) =>
-    call("agent_android_workspace", { command: commandValue });
+    call("agent_device_workspace", {
+      command: commandValue,
+      platform: "android",
+    });
   const session = await androidCall({
     _tag: "start",
     agentSetup: true,

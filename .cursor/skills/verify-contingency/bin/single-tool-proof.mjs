@@ -122,8 +122,8 @@ const browserProof = Effect.gen(function* singleToolProof() {
   assert.equal(searched.status, "completed");
   assert.deepEqual(searched.receipts, []);
   for (const name of [
-    "agent_android_sessions_list",
-    "agent_android_workspace",
+    "agent_device_sessions_list",
+    "agent_device_workspace",
     "agent_browser_act",
     "agent_browser_resume",
     "agent_flow_skill_dry_run_start",
@@ -510,7 +510,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
 // emulator with the checkout fixture installed. Both interventions end their
 // program before the operation after them is dispatched.
 const android = (input) =>
-  `await tools.agent_android_workspace({ command: ${input} })`;
+  `await tools.agent_device_workspace({ platform: "android", command: ${input} })`;
 
 const androidProof = Effect.gen(function* singleToolAndroidProof() {
   const device = {
@@ -567,7 +567,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
   assert.ok(started.intervention.reasons.includes("device_preparation"));
   assert.deepEqual(
     started.receipts.map(({ operation: name, outcome }) => [name, outcome]),
-    [["agent_android_workspace", "succeeded"]]
+    [["agent_device_workspace", "succeeded"]]
   );
   const { sessionId } = started.intervention;
   const id = JSON.stringify(sessionId);
@@ -625,7 +625,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
   assert.deepEqual(requested.intervention.reasons, ["variable_requested"]);
   assert.deepEqual(
     requested.receipts.map(({ operation: name, outcome }) => [name, outcome]),
-    [["agent_android_workspace", "succeeded"]]
+    [["agent_device_workspace", "succeeded"]]
   );
   yield* command(
     "browser",

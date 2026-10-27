@@ -33,7 +33,7 @@ Android 11 has no `pm set-permission-flags`. Permission decisions now require AP
 
 ## Product changes
 
-- Android needs no opt-in. `CONTINGENCY_MCP_ANDROID_EXPERIMENTAL` is gone, and every MCP client lists `agent_android_workspace` and `agent_android_sessions_list`. That adds about 7.3 KB to each catalog. The catalog budget rose from 81 KB to 91 KB to match.
+- Android needs no opt-in. `CONTINGENCY_MCP_ANDROID_EXPERIMENTAL` is gone, and the native catalog lists `agent_device_workspace` and `agent_device_sessions_list` with `platform: "android"`. These replace the Android-specific names without aliases under [ADR 0066](../adr/0066-ios-simulator-is-the-next-platform-runtime.md). iOS calls return the typed `ios_support_matrix_unproven` refusal until its Support Matrix is proven. The catalog budget originally rose from 81 KB to 91 KB when Android left its opt-in.
 - The Experimental badge, the experimental Summary field, and the **Android experimental** entry label are gone. The entry button reads **Android**.
 - Back, a picked field, and a private-field binding compare only the Target App's own elements to detect a changed screen. In one earlier phone run, a Workspace Back during Teaching sent no input, and its refusal text was not captured. A service test shows that a status-bar change alone refused Back before this fix, which is the likely cause.
 - Discovery reports each device's Android release. The setup sheet declares that release as the taught Android version instead of a fixed `16`.

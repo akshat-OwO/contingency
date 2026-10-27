@@ -135,7 +135,7 @@ runtime: ${JSON.stringify(requirements)}
     skill: content,
   });
   const ui = await workspace(options);
-  const session = await options.mcp.operation("agent_android_workspace", {
+  const session = await options.mcp.operation("agent_device_workspace", {
     command: {
       _tag: "start",
       flowSkillName: "eval-android-checkout",
@@ -144,11 +144,13 @@ runtime: ${JSON.stringify(requirements)}
       recordingId: null,
       selection: device.selection,
     },
+    platform: "android",
   });
   const viewUrl = `http://127.0.0.1:${options.mcp.port}/?android=${session.id}`;
   const read = () =>
-    options.mcp.operation("agent_android_workspace", {
+    options.mcp.operation("agent_device_workspace", {
       command: { _tag: "read", sessionId: session.id },
+      platform: "android",
     });
   const close = async () => {
     try {
@@ -184,8 +186,9 @@ runtime: ${JSON.stringify(requirements)}
         : "Prepare selected device"
     );
     await ui.command("wait", { name: "Take control", role: "button" });
-    const observed = await options.mcp.operation("agent_android_workspace", {
+    const observed = await options.mcp.operation("agent_device_workspace", {
       command: { _tag: "observe", image: false, sessionId: session.id },
+      platform: "android",
     });
     assert.ok(
       observed.observation.nodes.some(
@@ -210,7 +213,7 @@ runtime: ${JSON.stringify(requirements)}
 };
 export const scriptedAndroid = async (mcp, sessionId) => {
   const call = (command) =>
-    mcp.operation("agent_android_workspace", { command });
+    mcp.operation("agent_device_workspace", { command, platform: "android" });
   let observed = await call({ _tag: "observe", image: false, sessionId });
   const field = observed.observation.nodes.find(
     (node) => node.role === "text-field" && node.name === "Shopper name"

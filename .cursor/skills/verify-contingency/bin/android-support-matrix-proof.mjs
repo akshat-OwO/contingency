@@ -96,7 +96,8 @@ const tool = async (name, params) => {
     throw error;
   }
 };
-const command = (input) => tool("agent_android_workspace", { command: input });
+const command = (input) =>
+  tool("agent_device_workspace", { command: input, platform: "android" });
 const read = (sessionId) => command({ _tag: "read", sessionId });
 const observe = (sessionId) =>
   command({ _tag: "observe", image: false, sessionId });
@@ -431,7 +432,7 @@ try {
     startedAt: new Date().toISOString(),
   };
   const tools = await control("mcp", "tools");
-  assert.match(tools, /agent_android_workspace/u, "Android needs no opt-in.");
+  assert.match(tools, /agent_device_workspace/u, "Android needs no opt-in.");
 
   // API levels outside 30 through 36 are refused at selection, before the device.
   receipt.limits.apiBelow30 = await refusal(
@@ -449,7 +450,9 @@ try {
   // Teaching through Workspace: public fill, private fill, two activations, and Back.
   await control("browser", "goto", "--url", instance.mcpUrl);
   await openAndroidSheet(control, selection, flowSkillName, snapshot);
-  const listed = await tool("agent_android_sessions_list", {});
+  const listed = await tool("agent_device_sessions_list", {
+    platform: "android",
+  });
   const teaching = listed.find(
     (session) =>
       session.flowSkillName === flowSkillName && session.phase !== "closed"

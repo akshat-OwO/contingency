@@ -588,6 +588,14 @@ Preconditions: Build current source and the login fixture with `JAVA_HOME=<jdk-1
 - **Probe the limits:** On a live Run, the runner requires refusals for a second session on the same device, a second bound device, and an MCP coordinate tap. A raw Workspace point over blank space must show **Nothing to activate there. No input was sent.** **Request camera permission** opens a system dialog and **Open device settings** opens another app; each must pause the Run. The runner dismisses each with Back from outside the runtime and recovers the same device. **Show secure login window** must pause with **Secure window, not visible**, and a `working` claim must be stored as `inconclusive`.
 - **Read evidence:** Require empty `blockers`, `receipts.teaching.kinds` with one `fill`, one `variable`, two `activate`, and one `back`, and every key under `limits` in `artifacts/android-support-matrix/<cell>/receipt.json`. Require all `cleanup` flags. Record each cell in the [Support Matrix report](../../../../docs/reports/android-support-matrix.md).
 
+### Device MCP contract
+
+Build current source, launch an isolated instance, run doctor, and start MCP with `CONTINGENCY_MCP_INTERFACE=native`. Run `nub .cursor/skills/verify-contingency/bin/device-mcp-proof.mjs`.
+
+Done when `artifacts/device-mcp/receipt.json` reports `passed`, both device tools require `platform`, Android sessions list successfully, and both iOS calls return `ios_support_matrix_unproven` as a tool failure. The proof records the catalog bytes and MCP command stdout, stderr, and exit codes. It starts no device and proves no Android input or capture.
+
+Android lifecycle proofs below use `agent_device_workspace` and `agent_device_sessions_list` with `platform: "android"`. Require Teaching, a fresh passing Dry Run, verification, and a later Run through these tools in the Android checkout proof. Run cleanup after either proof and confirm evidence survives.
+
 ### Android private text
 
 Preconditions: Obtain explicit selection and authorization for the Pixel_9 API 36 emulator, and for installing the private text helper on it. Start only that AVD. The pinned agent-device helper must already be installed. Close every open Android session first.

@@ -25,7 +25,7 @@ Two cells, each with a current iPhone simulator: iOS 27.1 and iOS 26.5. Selectio
 
 ## Platform-neutral services and tools
 
-Extract a shared native-app layer from the Android services for session lifecycle, observation, actions, Run Environment Permission, and Teaching capture. Discovery, preparation, and streaming stay platform modules. The MCP tools become `agent_device_workspace` and `agent_device_sessions_list` with a `platform: "android" | "ios"` field. The `agent_android_*` names are removed without aliases, because a second platform's tools would otherwise add about 7 KB to every client's catalog ([ADR 0045](./0045-the-mcp-surface-is-sized-for-the-model.md)). Workspace shows an **iOS** button beside **Android**.
+Extract a shared native-app layer from the Android services for session lifecycle, observation, actions, Run Environment Permission, and Teaching capture. Discovery, preparation, and streaming stay platform modules. The MCP tools become `agent_device_workspace` and `agent_device_sessions_list` with a `platform: "android" | "ios"` field. The old Android-specific tool names are removed without aliases, because a second platform's tools would otherwise add about 7 KB to every client's catalog ([ADR 0045](./0045-the-mcp-surface-is-sized-for-the-model.md)). Workspace shows an **iOS** button beside **Android**.
 
 ## Consequences
 
