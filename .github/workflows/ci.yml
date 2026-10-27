@@ -97,11 +97,8 @@ jobs:
       # without it the test skips itself, and a skipped test proves nothing
       # about the feature it names. The runner no longer encodes with ffmpeg,
       # but the probe stays a hard prerequisite of this job.
-      # Skip apt-get update: the runner's cached Ubuntu index is enough for
-      # ffmpeg, and update also refreshes Google's Chrome repo, which has
-      # intermittently failed with hash-sum mismatches and blocked CI.
       - name: Install ffmpeg (ffprobe for the video assertions)
-        run: sudo apt-get install -y ffmpeg
+        uses: ./.github/actions/install-ffmpeg
 
       - name: Check ffprobe is present
         run: ffprobe -version
@@ -151,11 +148,13 @@ jobs:
       - if: ${{ steps.changed.outputs.any == 'true' }}
         run: nub exec turbo run build
 
-      - name: Install Chromium and ffmpeg
+      - name: Install Chromium
         if: ${{ steps.changed.outputs.integration != '' }}
-        run: |
-          nub exec --cwd packages/cli playwright-core install chromium
-          sudo apt-get install -y ffmpeg
+        run: nub exec --cwd packages/cli playwright-core install chromium
+
+      - name: Install ffmpeg
+        if: ${{ steps.changed.outputs.integration != '' }}
+        uses: ./.github/actions/install-ffmpeg
 
       - name: Repeat CLI unit tests
         if: ${{ steps.changed.outputs.cli != '' }}
