@@ -29,4 +29,4 @@ Extract a shared native-app layer from the Android services for session lifecycl
 
 ## Consequences
 
-Session Simulators are released through scoped finalizers on every exit that runs them. A hard kill, OOM, or power loss skips finalizers and would leave a multi-gigabyte clone behind. Contingency therefore records each clone's identifier before it boots and erases the record after deletion. At startup, Cleanup deletes only recorded clones and never deletes a simulator by name.
+Session Simulators are released through scoped finalizers on every exit that runs them. A hard kill, OOM, or power loss skips finalizers and would leave a multi-gigabyte clone behind. Contingency therefore records each clone's identifier with its owning process before the clone boots, and erases the record after deletion. Independent Contingency processes may run at once, so a record proves ownership but not abandonment. At startup, Cleanup deletes a recorded clone only when its owning process is no longer alive, using the same owner-liveness rule as other Agent Session resources. It never deletes a simulator by name.
