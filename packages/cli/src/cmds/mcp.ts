@@ -43,6 +43,7 @@ import {
   makeHttpServerLayer,
   makeNodeServerLayer,
 } from "../services/http-server.ts";
+import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
 import { LocalSystemOneLifecycleLive } from "../services/local-system-one-lifecycle-live.ts";
 import { LocalSystemOneLifecycle } from "../services/local-system-one-lifecycle.ts";
 import { LocalSystemOneLive } from "../services/local-system-one-live.ts";
@@ -338,7 +339,23 @@ export const mcpCommand = Command.make(
             )
           )
         );
-        const agentSession = Layer.merge(browserSession, androidWorkspace);
+        const iosWorkspace =
+          process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"
+            ? Layer.succeedContext(
+                yield* Layer.build(
+                  makeIosWorkspaceLayer({
+                    root: () => selectedCatalogRoot,
+                  }).pipe(
+                    Layer.provide(Layer.merge(teachingRecordingStore, catalog))
+                  )
+                )
+              )
+            : Layer.empty;
+        const agentSession = Layer.mergeAll(
+          browserSession,
+          androidWorkspace,
+          iosWorkspace
+        );
         const shared = Layer.mergeAll(
           agentSession,
           catalog,

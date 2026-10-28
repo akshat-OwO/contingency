@@ -345,6 +345,13 @@ export const TeachingObservation = Schema.Struct({
   ),
   /** Navigation was observed, but destination rendering was not verified. */
   capture: Schema.optionalKey(Schema.Literal("transitional")),
+  ios: Schema.optionalKey(
+    Schema.Struct({
+      nodes: Schema.Array(TeachingTargetSummary),
+      observationId: nonEmptyString,
+      screenshotCapturedAt: nonEmptyString,
+    })
+  ),
   nodeCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   title: Schema.String,
   url: Schema.String,

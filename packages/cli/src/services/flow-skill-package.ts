@@ -588,7 +588,8 @@ export const stampFlowSkillProvenance = (
       (line) => !legacySecretDeclaration.test(line)
     ),
     `runtime: ${JSON.stringify(provenance.runtime ?? browserRequirements)}`,
-    ...(provenance.runtime?.platform === "android"
+    ...(provenance.runtime !== undefined &&
+    provenance.runtime.platform !== "web"
       ? []
       : [
           "hosts:",

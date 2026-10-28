@@ -19,6 +19,7 @@ import {
   makeFlowSkillCatalogLayer,
 } from "../services/flow-skill-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
+import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { loadSettings } from "../services/settings.ts";
 import {
@@ -124,7 +125,28 @@ export const webCommand = Command.make(
             )
           )
         );
-        const agentSession = Layer.merge(browserSession, androidWorkspace);
+        const iosWorkspace =
+          process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"
+            ? Layer.succeedContext(
+                yield* Layer.build(
+                  makeIosWorkspaceLayer({
+                    root: () => selectedCatalogRoot,
+                  }).pipe(
+                    Layer.provide(
+                      Layer.merge(
+                        teachingRecordingStore,
+                        makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
+                      )
+                    )
+                  )
+                )
+              )
+            : Layer.empty;
+        const agentSession = Layer.mergeAll(
+          browserSession,
+          androidWorkspace,
+          iosWorkspace
+        );
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })

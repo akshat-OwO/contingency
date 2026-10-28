@@ -56,6 +56,9 @@ export const makeNativeAppTeachingCapture = <
   ) => Effect.Effect<A, CaptureError>;
   readonly error: (code: string, message: string) => CaptureError;
   readonly eventArtifactId: string;
+  readonly stopSources?: (
+    session: CaptureSession
+  ) => Effect.Effect<void, CaptureError>;
   readonly messages: { readonly limit: string; readonly sizeLimit: string };
 }) => {
   const { fs, store } = input;
@@ -142,11 +145,19 @@ export const makeNativeAppTeachingCapture = <
       }
       // Close the retention interval before any durable finalization can fail.
       input.update(session, (value) => ({ ...value, recording: false }));
+      const sources = yield* Effect.result(
+        input.stopSources?.(session) ?? Effect.void
+      );
+      const sourceFailure =
+        failure ??
+        (Result.isFailure(sources)
+          ? "Capture transport finalization lost retained evidence."
+          : undefined);
       const emitted = yield* Effect.result(
         emit(session, {
           _tag: "stopped",
-          detail: failure ?? null,
-          reason: failure === undefined ? "user" : "capture-failed",
+          detail: sourceFailure ?? null,
+          reason: sourceFailure === undefined ? "user" : "capture-failed",
         })
       );
       const contents = yield* Effect.result(
@@ -170,7 +181,7 @@ export const makeNativeAppTeachingCapture = <
       yield* store.stop({
         artifacts: [...input.state(session).artifacts, ...eventArtifacts],
         failure:
-          failure ??
+          sourceFailure ??
           (Result.isFailure(contents) || Result.isFailure(emitted)
             ? "Capture finalization lost retained evidence."
             : undefined),

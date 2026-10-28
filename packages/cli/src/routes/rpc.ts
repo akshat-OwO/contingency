@@ -29,6 +29,8 @@ import type {
   CatalogBrowserError,
   CatalogBrowserService,
 } from "../services/catalog-browser.ts";
+import { makeIosDiscovery } from "../services/ios-discovery.ts";
+import { IosWorkspace } from "../services/ios-workspace.ts";
 import {
   decideFlowSkill,
   stopDryRun,
@@ -188,6 +190,79 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
     // Handlers stay grouped by Agent Session lifecycle rather than sorted.
     // oxlint-disable-next-line eslint/sort-keys
     return {
+      "ios.devices.list": () =>
+        process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"
+          ? makeIosDiscovery()
+              .devices()
+              .pipe(
+                Effect.mapError((cause) =>
+                  makeBrowserRpcError(
+                    "agent_session_unavailable",
+                    cause.message
+                  )
+                )
+              )
+          : Effect.succeed([]),
+      "ios.workspace.enabled": () =>
+        Effect.succeed(process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"),
+      "ios.workspace.command": ({ command, source }) =>
+        Effect.gen(function* iosWorkspaceCommand() {
+          const service = yield* Effect.serviceOption(IosWorkspace);
+          if (
+            Option.isNone(service) ||
+            process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL !== "1"
+          ) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_session_unavailable",
+                "iOS Workspace is unlisted."
+              )
+            );
+          }
+          return yield* service.value
+            .execute(command, source)
+            .pipe(
+              Effect.mapError((cause) =>
+                makeBrowserRpcError(
+                  "agent_session_unavailable",
+                  `${cause.code}: ${cause.message}`
+                )
+              )
+            );
+        }),
+      "ios.workspace.list": () =>
+        Effect.gen(function* listIosWorkspace() {
+          const service = yield* Effect.serviceOption(IosWorkspace);
+          return Option.isSome(service) &&
+            process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"
+            ? yield* service.value
+                .list()
+                .pipe(
+                  Effect.mapError((cause) =>
+                    makeBrowserRpcError(
+                      "agent_session_unavailable",
+                      cause.message
+                    )
+                  )
+                )
+            : [];
+        }),
+      "ios.stream.access": ({ sessionId }) =>
+        Effect.gen(function* iosAccess() {
+          const service = yield* Effect.serviceOption(IosWorkspace);
+          const stream = Option.isSome(service)
+            ? yield* service.value.stream(sessionId)
+            : null;
+          if (!stream) {
+            return yield* Effect.fail(
+              makeBrowserRpcError(
+                "agent_session_unavailable",
+                "Prepare this iOS session first."
+              )
+            );
+          }
+          return stream.access;
+        }),
       "android.stream.access": ({ sessionId }) =>
         Effect.gen(function* androidStreamAccess() {
           const service = yield* Effect.serviceOption(AndroidWorkspace);

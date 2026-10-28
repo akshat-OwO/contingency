@@ -15,6 +15,9 @@ const messages = {
     "The selected Android device identity changed. Execution is paused.",
   device_selection_required:
     "Explicitly select a local Android device by serial and identity.",
+  device_unsupported:
+    "Select an iPhone simulator. Physical iPhones and iPads are unsupported.",
+  discovery_failed: "Could not read the iOS Simulator inventory.",
   environment_changed:
     "The selected Android app build or permission state changed. Start a new Run and review its environment.",
   execution_canceled:
@@ -23,12 +26,14 @@ const messages = {
     "The Android helper does not match the pinned release or required API.",
   helper_owned:
     "An Android helper or device session is already owned. No existing session was adopted.",
+  host_unsupported: "iOS Simulator requires a local macOS host.",
   installation_denied:
     "Authorize installation or replacement of this exact helper release on the selected device.",
   installation_failed:
     "The authorized Android helper installation did not finish successfully. No input was sent.",
   observation_stale:
     "Take a fresh Android observation before acting. Observations are consumed once.",
+  os_unsupported: "Select an iPhone simulator running iOS 26 through 27.",
   permission_decisions_unsupported:
     "Android permission decisions need API 31 or later, which can keep a denied choice from prompting again. Remove the permission declarations or select an API 31 through 36 device.",
   permission_stale: "This decision is not pending for this Run.",
@@ -41,6 +46,7 @@ const messages = {
   runtime_closed: "The Android runtime is closed.",
   runtime_failed:
     "The Android backend failed. Execution is paused; dispatched input may have an uncertain outcome.",
+  runtime_missing: "Install the selected iOS Simulator runtime in Xcode.",
   runtime_paused:
     "Android execution is paused. Explicitly recover the same selected device before continuing.",
   secure_window:
@@ -51,6 +57,7 @@ const messages = {
     "The observed Android field or window changed. No input was sent; take a fresh observation.",
   target_unsupported:
     "The Android target is absent, covered, or unsupported for this action.",
+  xcode_missing: "Select a full Xcode installation with xcode-select.",
 } as const;
 
 export const platformRuntimeError = (
