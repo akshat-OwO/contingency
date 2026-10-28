@@ -35,9 +35,9 @@ export const makeIosSessionResources = (
   stopRunner: typeof stopIosRunner = stopIosRunner
 ) => {
   // Startup reclamation passes reclaiming: another process may already have
-  // reclaimed the same dead owner's clone and removed its record.
+  // reclaimed the same dead owner's Session Simulator and removed its record.
   const remove = (udid: string, reclaiming = false) =>
-    Effect.gen(function* deleteRecordedClone() {
+    Effect.gen(function* deleteRecordedSimulator() {
       if (!iosUuid.test(udid)) {
         return yield* Effect.fail(iosError("cleanup_failed"));
       }
@@ -112,7 +112,7 @@ export const makeIosSessionResources = (
     });
   return {
     cleanup: () =>
-      Effect.gen(function* cleanupRecordedClones() {
+      Effect.gen(function* cleanupRecordedSimulators() {
         const entries = yield* recordIo(async () => {
           try {
             return await readdir(directory);
@@ -183,7 +183,7 @@ export const makeIosSessionResources = (
         return false;
       }),
     record: (udid: string, owner = process.pid, stateDirectory?: string) =>
-      Effect.gen(function* recordClone() {
+      Effect.gen(function* recordSessionSimulator() {
         const input =
           stateDirectory === undefined
             ? { owner, udid }
