@@ -141,7 +141,14 @@ export const adaptAndroidRuntime = (input: {
                 action.text
               );
               yield* input.backend.validate();
-              return result;
+              // agent-device accepts masked text by length alone, which proves nothing.
+              const masked = captured.nodes.some(
+                (candidate) =>
+                  candidate.target === action.target && candidate.password
+              );
+              return masked
+                ? { ...result, confirmation: "unconfirmed" as const }
+                : result;
             }
             yield* input.backend.validate();
             // A successful dispatch is still uncertain until independently observed.

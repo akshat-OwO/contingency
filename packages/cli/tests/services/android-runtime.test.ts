@@ -511,7 +511,11 @@ it.effect(
 it.effect("fills ordinary and password fields through the same backend", () =>
   Effect.gen(function* variableFills() {
     const { commands, runtime } = yield* makeFixture();
-    for (const target of ["@e2~s1", "@e3~s1"]) {
+    // A masked field reads back only its length, so its fill stays unconfirmed.
+    for (const [target, confirmation] of [
+      ["@e2~s1", "confirmed"],
+      ["@e3~s1", "unconfirmed"],
+    ] as const) {
       const before = yield* runtime.observe();
       expect(
         yield* runtime.enterVariable(before.id, {
@@ -520,7 +524,7 @@ it.effect("fills ordinary and password fields through the same backend", () =>
           variable: "PASSWORD",
         })
       ).toEqual({
-        confirmation: "confirmed",
+        confirmation,
         outcome: "entered",
         variable: "PASSWORD",
       });
