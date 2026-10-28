@@ -385,6 +385,47 @@ try {
     const paused = await read(sessionId);
     assert.equal(paused.phase, "paused");
     await screenshot(`limit-${label}`);
+    if (label === "otherApp") {
+      await execute("xcrun", [
+        "simctl",
+        "launch",
+        resource.udid,
+        selection.environment.bundleId,
+      ]);
+      await screenshot("ownership-return-to-target");
+      await click("Recover selected simulator");
+      const recovered = await read(sessionId);
+      assert.equal(recovered.phase, "running");
+      const recoveredResource = await ownResource();
+      assert.equal(recoveredResource.udid, resource.udid);
+      const observation = await observe(sessionId);
+      assert.ok(
+        observation.observation.nodes.some(
+          (entry) => entry.name === "Signed in as Public Shopper"
+        )
+      );
+      const foregroundReply = await execute("xcrun", [
+        "simctl",
+        "spawn",
+        resource.udid,
+        path.join(root, "packages/cli/dist/ios/foreground/foreground"),
+      ]);
+      const foreground = JSON.parse(foregroundReply.stdout);
+      assert.equal(foreground.version, 1);
+      assert.equal(foreground.udid, resource.udid);
+      assert.equal(foreground.owner.bundleId, selection.environment.bundleId);
+      assert.ok(
+        Number.isInteger(foreground.owner.pid) && foreground.owner.pid > 0
+      );
+      receipt.limits.otherAppRecovery = {
+        foreground,
+        observationId: observation.observation.id,
+        phase: recovered.phase,
+        sameDevice: true,
+        targetApp: foreground.owner.bundleId,
+      };
+      await screenshot("ownership-recovered");
+    }
     await call({ _tag: "close", operationId: operation(), sessionId }, "user");
   }
   const lossSession = await start("teaching");
