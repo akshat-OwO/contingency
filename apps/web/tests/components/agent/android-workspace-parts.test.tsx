@@ -54,9 +54,9 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
     model: "A059",
     serial: "phone",
   } as const;
-  expect(selectable(phone)).toMatchObject({ kind: "physical", model: "A059" });
+  expect(selectable(phone)).toBeNull();
   expect(unavailableReason({ ...phone, state: "unauthorized" })).toBe(
-    "Allow USB debugging on the device"
+    "physical_device_unsupported: Select an Android emulator"
   );
   expect(selectable({ ...emulator, api: 30, release: "11" })).toMatchObject({
     api: 30,

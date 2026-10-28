@@ -23,7 +23,7 @@ export const AndroidPreparation = Schema.Struct({
   conditions: Schema.Array(AndroidStartingCondition).check(
     Schema.isMinLength(1)
   ),
-  kind: Schema.Literals(["restart-activity", "clear-app-data"]),
+  kind: Schema.Literal("restart-activity"),
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
 

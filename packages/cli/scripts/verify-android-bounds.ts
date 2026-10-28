@@ -18,7 +18,6 @@ Effect.scoped(
     const serial = process.env.CONTINGENCY_ANDROID_SERIAL;
     const targetApp = process.env.CONTINGENCY_ANDROID_TARGET_APP;
     const directory = process.env.CONTINGENCY_ANDROID_EVIDENCE_DIRECTORY;
-    const model = process.env.CONTINGENCY_ANDROID_MODEL;
     if (!serial || !targetApp || !directory) {
       throw new Error(
         "Supply the authorized serial, current Target App and evidence directory."
@@ -29,21 +28,19 @@ Effect.scoped(
         Effect.map(({ stdout }) => stdout.trim())
       );
     const fingerprint = yield* read("shell", "getprop", "ro.build.fingerprint");
-    const device: AndroidDeviceSelection = model
-      ? { api: 36, fingerprint, host: "local", kind: "physical", model, serial }
-      : {
-          api: 36,
-          avd: (yield* read("emu", "avd", "name")).split(/\r?\n/u)[0] ?? "",
-          fingerprint,
-          host: "local",
-          kind: "emulator",
-          serial,
-        };
+    const device: AndroidDeviceSelection = {
+      api: 36,
+      avd: (yield* read("emu", "avd", "name")).split(/\r?\n/u)[0] ?? "",
+      fingerprint,
+      host: "local",
+      kind: "emulator",
+      serial,
+    };
     const scope = yield* Scope.Scope;
     const runtime = yield* makeAndroidRuntimeFactory().start({
       device,
       installationGrant:
-        process.env.CONTINGENCY_ANDROID_HELPER_GRANT === "install" && !model
+        process.env.CONTINGENCY_ANDROID_HELPER_GRANT === "install"
           ? {
               operation: "install",
               serial,

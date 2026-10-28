@@ -80,7 +80,7 @@ export interface PlatformRuntimeError {
     | "device_selection_required"
     | "api_unsupported"
     | "permission_decisions_unsupported"
-    | "user_profile_unsupported"
+    | "physical_device_unsupported"
     | "device_mismatch"
     | "device_disconnected"
     | "installation_denied"
@@ -96,7 +96,6 @@ export interface PlatformRuntimeError {
     | "cleanup_failed"
     | "preparation_failed"
     | "preparation_required"
-    | "clear_data_denied"
     | "permission_stale"
     | "starting_condition_failed"
     | "environment_changed";

@@ -35,10 +35,9 @@ const completed: AndroidWorkspaceSnapshot = {
   selection: {
     device: {
       api: 36,
+      avd: "Pixel_9",
       fingerprint: "Nothing/A059",
       host: "local",
-      kind: "physical",
-      model: "A059",
       serial: "phone",
     },
     environment: {
@@ -52,7 +51,7 @@ const completed: AndroidWorkspaceSnapshot = {
     setup: {
       activity: app.launchActivity,
       conditions: [{ name: "Fresh fixture data", role: "text" }],
-      kind: "clear-app-data",
+      kind: "restart-activity",
     },
   },
   startedAt: "2026-10-15T00:00:00.000Z",

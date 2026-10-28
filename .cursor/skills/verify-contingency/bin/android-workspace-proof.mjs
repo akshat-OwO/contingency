@@ -141,10 +141,7 @@ assert.ok(
   Object.values(selection.device).every((value) => value !== undefined),
   "Supply the explicitly authorized device declarations."
 );
-const prepareName =
-  selection.device.kind === "physical"
-    ? "Prepare selected device"
-    : "Prepare selected emulator";
+const prepareName = "Prepare selected emulator";
 const flowSkillName = `android-public-field-${process.pid}`;
 const publicText = "Public fixture 470";
 let recordingId;

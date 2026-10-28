@@ -11,13 +11,16 @@ const availableCapabilities = new Set(androidCapabilities);
 
 export const validateAndroidStartup = (input: AndroidRuntimeStartInput) =>
   Effect.gen(function* validateStartup() {
+    if (input.device.kind === "physical") {
+      return yield* Effect.fail(
+        platformRuntimeError("physical_device_unsupported")
+      );
+    }
     if (
       input.device.host !== "local" ||
       !serialPattern.test(input.device.serial) ||
       !packagePattern.test(input.targetApp) ||
-      (input.device.kind === "physical"
-        ? !input.device.model
-        : !input.device.avd) ||
+      !input.device.avd ||
       !input.device.fingerprint
     ) {
       return yield* Effect.fail(

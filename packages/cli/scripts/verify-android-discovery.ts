@@ -56,19 +56,13 @@ const program = Effect.scoped(
       host: "local" as const,
       serial,
     };
-    const device: AndroidDeviceSelection = process.env.CONTINGENCY_ANDROID_MODEL
-      ? {
-          ...common,
-          kind: "physical",
-          model: process.env.CONTINGENCY_ANDROID_MODEL,
-        }
-      : {
-          ...common,
-          avd: yield* read("emu", "avd", "name").pipe(
-            Effect.map((name) => name.split(/\r?\n/u)[0] ?? "")
-          ),
-          kind: "emulator",
-        };
+    const device: AndroidDeviceSelection = {
+      ...common,
+      avd: yield* read("emu", "avd", "name").pipe(
+        Effect.map((name) => name.split(/\r?\n/u)[0] ?? "")
+      ),
+      kind: "emulator",
+    };
     const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
     const temporaryBefore = yield* Effect.promise(() =>
       readdir(tmpdir()).then((entries) =>

@@ -20,7 +20,6 @@ assert.ok(
   "Select an authorized device, a matrix cell name, and an isolated verification instance."
 );
 assert.equal(process.env.CONTINGENCY_ANDROID_FIXTURE_INSTALL, "authorized");
-const physical = Boolean(process.env.CONTINGENCY_ANDROID_MODEL);
 const feature = `android-support-matrix-${cell}`;
 const root = path.resolve(import.meta.dirname, "../../../..");
 const skillRoot = path.resolve(import.meta.dirname, "..");
@@ -194,17 +193,8 @@ const view = async (sessionId) => {
 };
 const prepare = async (sessionId) => {
   await view(sessionId);
-  if (physical) {
-    await control(
-      "browser",
-      "android-allow-request",
-      "--name",
-      "Clear Target App data"
-    );
-  }
-  await click(
-    physical ? "Prepare selected device" : "Prepare selected emulator"
-  );
+
+  await click("Prepare selected emulator");
   await androidIdle(control);
   const prepared = await read(sessionId);
   assert.equal(
@@ -232,12 +222,10 @@ const flowSkillName = `${feature}-${process.pid}`;
 const selection = {
   device: {
     api,
+    avd: process.env.CONTINGENCY_ANDROID_AVD,
     fingerprint: process.env.CONTINGENCY_ANDROID_FINGERPRINT,
     host: "local",
     serial,
-    ...(physical
-      ? { kind: "physical", model: process.env.CONTINGENCY_ANDROID_MODEL }
-      : { avd: process.env.CONTINGENCY_ANDROID_AVD }),
   },
   environment: {
     androidVersion: release,
@@ -251,7 +239,7 @@ const selection = {
   setup: {
     activity: `${appId}/.LoginActivity`,
     conditions: [{ name: "Private login fixture", role: "text" }],
-    kind: physical ? "clear-app-data" : "restart-activity",
+    kind: "restart-activity",
   },
 };
 assert.ok(
@@ -340,7 +328,7 @@ const recoverIfPaused = async (sessionId) => {
   const retained = await read(sessionId);
   if (retained.phase === "paused") {
     await view(sessionId);
-    await click(physical ? "Recover same device" : "Recover same emulator");
+    await click("Recover same emulator");
     await androidIdle(control);
   }
   const recovered = await read(sessionId);

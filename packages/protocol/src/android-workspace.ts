@@ -148,11 +148,7 @@ export const AndroidWorkspacePreparation = Schema.Struct({
   pending: Schema.Array(
     Schema.Struct({
       id: text,
-      kind: Schema.Literals([
-        "run-environment-permission",
-        "app-installation",
-        "clear-app-data",
-      ]),
+      kind: Schema.Literals(["run-environment-permission", "app-installation"]),
       serial: Schema.optionalKey(text),
       targetApp: text,
     })
