@@ -104,7 +104,7 @@ The private selector names were checked against Meta's MIT-licensed [CoreSimulat
 
 Before #548 ships this backend:
 
-1. Package and hash-check a Contingency-owned helper for supported host architectures. Prove Developer ID signing and notarization on a clean host. Only local arm64 ad hoc execution was tested here.
+1. Package and hash-check a Contingency-owned helper for supported host architectures. Only local arm64 ad hoc execution was tested here. While iOS stays unlisted, #548 may build and run the helper ad hoc signed. Developer ID signing, notarization, and a clean-host proof are exit criteria for #550, before iOS is listed.
 2. Bind the exact Session Simulator and active integrated display from preparation. The iPhone Duo has two populated integrated surfaces. The default `simctl` display selected an inactive one. Never choose by largest surface or silently fall back to another display. Prove display replacement and orientation changes.
 3. Keep the authenticated proxy's existing session credential, Host, Origin, generation, revocation, and bounded-queue contracts. Reuse the Android service's architecture, not its backend or unrestricted hub routes. The prototype rejects all Origin headers; production must admit its validated Workspace origin.
 4. Add an explicit transport state and integrity manifest. Prove mid-recording loss, helper restart, slow consumers, source replacement, static screens, and Stop races. Do not infer complete source capture from contiguous output sequence numbers.
