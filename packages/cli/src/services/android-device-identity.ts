@@ -4,13 +4,22 @@ import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
+/**
+ * Only an `emulator-<port>` serial is an emulator. A caller's declared kind is
+ * not trusted, so a phone labelled as an emulator is still refused.
+ */
+export const isPhysicalAndroidSelection = (device: {
+  readonly kind?: string;
+  readonly serial: string;
+}) => device.kind === "physical" || !device.serial.startsWith("emulator-");
+
 /** Discovery never selects a device. Every read uses the caller's selected serial. */
 export const requireAndroidDeviceIdentity = (
   device: AndroidDeviceSelection,
   adb: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
 ) =>
   Effect.gen(function* identity() {
-    if (device.kind === "physical") {
+    if (device.kind === "physical" || isPhysicalAndroidSelection(device)) {
       return yield* Effect.fail(
         platformRuntimeError("physical_device_unsupported")
       );

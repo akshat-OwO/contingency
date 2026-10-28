@@ -26,6 +26,56 @@ it.effect("refuses physical app discovery before issuing commands", () =>
     );
   })
 );
+// A phone serial declared as an emulator, or with no kind, is still a phone.
+const spoofed = [
+  {
+    api: 36,
+    avd: "Pixel_9",
+    fingerprint: "build",
+    host: "local",
+    serial: "phone",
+  },
+  {
+    api: 36,
+    avd: "Pixel_9",
+    fingerprint: "build",
+    host: "local",
+    kind: "emulator",
+    serial: "phone",
+  },
+] as const;
+
+it.effect("refuses phone serials whatever kind the caller declares", () =>
+  Effect.gen(function* spoofedRefusal() {
+    const discovery = makeAndroidDiscovery({
+      adb: () => Effect.die("unexpected device command"),
+      readApk: () => Effect.die("unexpected APK read"),
+    });
+    for (const selection of spoofed) {
+      expect((yield* Effect.flip(discovery.apps(selection))).code).toBe(
+        "physical_device_unsupported"
+      );
+      expect(
+        (yield* Effect.flip(
+          requireAndroidDeviceIdentity(selection, () =>
+            Effect.die("unexpected device command")
+          )
+        )).code
+      ).toBe("physical_device_unsupported");
+      expect(
+        (yield* Effect.flip(
+          makeAndroidRuntimeFactory().start({
+            device: selection,
+            platform: "android",
+            requiredCapabilities: [],
+            scope: yield* Effect.scope,
+            targetApp: "dev.fixture",
+          })
+        )).code
+      ).toBe("physical_device_unsupported");
+    }
+  }).pipe(Effect.scoped)
+);
 it.effect("lists connected phones without issuing device commands", () =>
   Effect.gen(function* inventoryRefusal() {
     const discovery = makeAndroidDiscovery({

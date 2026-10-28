@@ -15,7 +15,10 @@ import {
 import { Effect, Schema } from "effect";
 import { yazl } from "playwright-core/lib/utilsBundle";
 
-import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import {
+  isPhysicalAndroidSelection,
+  requireAndroidDeviceIdentity,
+} from "./android-device-identity.ts";
 import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 
@@ -215,7 +218,7 @@ export const makeAndroidDiscovery = (
       )(selection).pipe(
         Effect.mapError(() => failure("android_device_unauthorized"))
       );
-      if (device.kind === "physical") {
+      if (isPhysicalAndroidSelection(device)) {
         return yield* Effect.fail(failure("physical_device_unsupported"));
       }
       if (!serialPattern.test(device.serial)) {
@@ -331,7 +334,7 @@ export const makeAndroidDiscovery = (
           rawState === "unauthorized"
             ? rawState
             : "unavailable";
-        if (!serial.startsWith("emulator-")) {
+        if (isPhysicalAndroidSelection({ serial })) {
           devices.push({
             api: null,
             avd: null,
