@@ -69,6 +69,10 @@ Commands:
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
+  browser ios-click --name <button>
+  browser ios-pick --session-id <id> --role <role> --name <name>
+  browser ios-swipe
+  browser ios-orientation --orientation <portrait|landscape>
   browser skills-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
   browser video-layout-check --path <directory> [--allow-overflow]
   browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
@@ -317,6 +321,25 @@ const runPageAction = async (page, appUrl, action, flags) => {
         throw new Error("Device glass contains element overlays.");
       }
       return JSON.stringify({ main: await main.ariaSnapshot(), noOverlays: true });
+    }
+    case "ios-orientation": {
+      await page.waitForFunction((orientation) => {
+        const canvas = document.querySelector('canvas[aria-label="Live iOS viewport"]');
+        return canvas && canvas.width > 0 && (orientation === "landscape" ? canvas.width > canvas.height : canvas.height > canvas.width);
+      }, flags.orientation, { timeout: 30_000 });
+      return "iOS frame orientation updated";
+    }
+    case "ios-swipe": {
+      const { swipeIos } = await import("./ios-ui.mjs");
+      return JSON.stringify(await swipeIos(page));
+    }
+    case "ios-pick": {
+      const { pickIos } = await import("./ios-ui.mjs");
+      return JSON.stringify(await pickIos(page, flags));
+    }
+    case "ios-click": {
+      const { clickIos } = await import("./ios-ui.mjs");
+      return JSON.stringify(await clickIos(page, flags.name));
     }
     case "android-idle": {
       const { waitAndroidIdle } = await import("./android-ui.mjs");
@@ -1160,6 +1183,7 @@ const cmdDriverServe = async (url, userDataDir) => {
     globalThis.__scrollFrames = [];
     globalThis.__canvasCompletedInputs = [];
     globalThis.__workspaceCompletedCommands = [];
+    globalThis.__workspaceCommandReplies = [];
     const workspacePending = new Map();
     const canvasPending = new Map();
     globalThis.WebSocket = class extends NativeWebSocket {
@@ -1196,6 +1220,7 @@ const cmdDriverServe = async (url, userDataDir) => {
               const parsed = JSON.parse(line);
               for (const reply of Array.isArray(parsed) ? parsed : [parsed]) {
                 if (reply._tag === "Exit" && workspacePending.has(String(reply.requestId))) {
+                  globalThis.__workspaceCommandReplies.push({ tag: workspacePending.get(String(reply.requestId)), success: reply.exit._tag === "Success" });
                   if (reply.exit._tag === "Success") globalThis.__workspaceCompletedCommands.push(workspacePending.get(String(reply.requestId)));
                   workspacePending.delete(String(reply.requestId));
                 }

@@ -809,3 +809,26 @@ The proof opens `tools.html` in an Interactive Run. The agent clicks **Open popu
 Activity rules: `tabs`, `downloads`, `clipboard_read`, and profiling are observation and work in every activity. Opening, switching, and closing tabs need agent control. Uploads and clipboard writes follow the cookie rules: Interactive Runs and agent-held Teaching setup, never Dry Runs or Teaching recording. Teaching setup refuses uploads from outside the Catalog Root because it has no Confirmation. Uploads cannot be undone; removing a clipboard write restores the earlier text. A popup's first document request joins its tab's network buffer. Headless Chromium keeps its own clipboard, so the user's system clipboard is never read or written.
 
 `browser-downloads.test.ts` checks private suggested filenames, metadata, and failures against readable saved files. `browser-tools.integration.test.ts` proves popup listing, per-tab network buffers and Snapshots, switch replay, last-tab refusal, out-of-scope `tab_open` refusal, the Domain Scope pause for an outside popup, download evidence, CPU and trace profile files with Variable values, profile replay and file-write recovery, Catalog Root and confirmed uploads, Teaching and Dry Run refusals, irreversible upload evidence, and clipboard restoration. Run `cleanup` and confirm all owned processes and ports stopped and evidence survived.
+
+## iOS Workspace (internal)
+
+Feature id: `ios-workspace-runs`. Entry points: the opt-in Workspace **iOS** button, mirrored Teaching, and the internal Workspace RPC used by the verification harness. Public device MCP continues to return `ios_support_matrix_unproven`.
+
+Preconditions: macOS with Xcode and an available iOS 26.5 iPhone 17 Pro runtime. Check memory and swap before each build or device proof. Build with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force`. Build `fixtures/ios-login` into an owned temporary directory. Create an owned shutdown template using that runtime and device type; never boot, alter, or delete a pre-existing simulator. Export its UDID as `CONTINGENCY_IOS_TEMPLATE` and the fixture app path as `CONTINGENCY_IOS_FIXTURE`.
+
+Launch with `CONTINGENCY_IOS_WORKSPACE_INTERNAL=1 CONTINGENCY_MCP_INTERFACE=native`, export the printed `CONTINGENCY_VERIFY_DIR`, run `doctor`, and start MCP with the same environment. On hosts where the shebang cannot resolve nub, invoke `nub bin/control-contingency` from the skill directory.
+
+```sh
+nub .cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs
+nub .cursor/skills/verify-contingency/bin/ios-limits-proof.mjs
+nub .cursor/skills/verify-contingency/bin/ios-slow-consumer-proof.mjs
+```
+
+The first proof opens **iOS**, completes the setup sheet, presses **Prepare Session Simulator**, and teaches through the mirror. `browser ios-pick` waits for a fresh observation bound to the canvas and sends a real pointer pick. `browser ios-click --name <name>` waits for the actual Workspace command reply. Dock typing enters the public name. Rotation keeps the recording active; an old-size pick must return “The stream size or orientation changed. No input was sent.” A fresh pick then continues the same recording.
+
+After Stop, the proof claims and reads the Teaching Timeline through public learning MCP. It requires four semantic actions with before/after iOS observations, saves the learned Flow Skill, passes a fresh `working` Dry Run, presses **Verify flow**, reads back `verified` and `purged`, and passes another fresh Run. The second proof checks public MCP gating, one simulator binding, Takeover authority, raw-coordinate and Back refusals, Private Variables, and real notification-alert and Settings ownership pauses. It kills only the exact owned framebuffer helper midway through recording, checks failed capture, and recovers the same simulator. The third proof stops reading an authenticated viewer and requires a `slow-consumer` gap with failed capture.
+
+Read `artifacts/ios-workspace-runs/receipt.json`, `timeline.json`, `limits.json`, the command journal, ARIA snapshots, and screenshots. Retain only sanitized public evidence. Each proof closes the sessions it creates on failure as well as success. Run `control-contingency cleanup`, delete the owned template by exact UDID, remove the owned fixture build directory, and audit every recorded process, listener and simulator. Evidence survives cleanup. Developer ID signing, notarization and clean-host qualification belong to #550.
+
+Current #548 status: the public journey passes, but the limits proof fails when Settings is visibly in front and stock agent-device still reports the target app foreground. The entry remains internal. See `docs/reports/ios-workspace-runs.md`; do not treat a passing journey as complete ownership or Support Matrix proof.
+
