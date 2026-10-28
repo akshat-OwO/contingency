@@ -55,7 +55,7 @@ it("accepts and drops legacy secret keys even with strict excess-property checks
   ).not.toHaveProperty("secret");
 });
 
-it("shows the Teaching literal and writes its reference into every learned file", () => {
+it("shows the Teaching literal and writes its reference into learned Markdown", () => {
   const at = "2026-10-28T00:00:00.000Z";
   const url = "https://shop.test/login?password=test-password#test-password";
   const capture = makeDemonstrationCapture(url);
@@ -155,14 +155,27 @@ it("shows the Teaching literal and writes its reference into every learned file"
   );
   const content =
     "---\nname: login\ndescription: Test login.\ninputs:\n  - name: PASSWORD\n    secret: true\n---\n\n1. Enter test-password. Done when: signed in.\n";
+  const untouched = [
+    {
+      content: '{ "password": "test-password" }\r\n',
+      path: "references/data.json",
+    },
+    { content: "test-password", path: "references/value.txt" },
+    { content: "test-password", path: "README.md" },
+  ];
   const files = parameterizeVariables(
     [
       { content, path: "SKILL.md" },
       { content: "Use test-password", path: "references/login.md" },
+      ...untouched,
     ],
     events
   );
-  expect(JSON.stringify(files)).not.toContain("test-password");
+  expect(JSON.stringify(files.slice(0, 2))).not.toContain("test-password");
+  expect(files.slice(2)).toEqual(untouched);
+  expect(files[0]?.content.split("1. Enter")[0]).toBe(
+    content.split("1. Enter")[0]
+  );
   expect(files[1]?.content).toBe("Use {{PASSWORD}}");
   const stamped = stampFlowSkillProvenance(files[0]?.content ?? "", {
     emulation: null,

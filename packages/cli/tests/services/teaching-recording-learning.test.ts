@@ -312,3 +312,142 @@ for (const variant of [
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 }
+for (const value of ["login", "anvil"]) {
+  it.effect(
+    `saves metadata and reviewed checks matching Variable value ${value}`,
+    () =>
+      Effect.gen(function* preserveStructuredFiles() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped({
+          prefix: "variable-save-",
+        });
+        const storeLayer = makeTeachingRecordingStoreLayer({
+          root: () => root,
+        });
+        const layer = Layer.mergeAll(
+          storeLayer,
+          TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
+        );
+        yield* Effect.gen(function* saveVariableSkill() {
+          const store = yield* TeachingRecordingStore;
+          const learning = yield* TeachingRecordingLearning;
+          const begun = yield* store.begin({
+            emulation: null,
+            flowSkillName: FlowSkillName.make("login"),
+            operationId: OperationId.make("begin"),
+            recordingId,
+            sessionId: AgentSessionId.make("agent-variable-save"),
+          });
+          yield* store.start({
+            emulation: begun.emulation,
+            operationId: OperationId.make("start"),
+            recordingId,
+          });
+          const at = "2026-10-28T00:00:00.000Z";
+          const check = {
+            demonstrated: true,
+            expectation: {
+              itemPath: [],
+              predicates: [
+                { expected: value, operator: "equals", path: ["product"] },
+              ],
+            },
+            id: "product",
+            kind: "response",
+            request: {
+              method: "GET",
+              origin: "https://shop.test",
+              path: "/cart",
+              query: {},
+            },
+            response: "matching",
+            timeoutMs: 1000,
+            when: "After adding the product",
+          };
+          const events = [
+            {
+              _tag: "started",
+              at,
+              emulation: null,
+              seq: 0,
+              url: "https://shop.test",
+            },
+            {
+              ...actionEvent(1, { value, valueWithheld: false }),
+              variableName: "USER",
+            },
+            {
+              _tag: "instruction",
+              at,
+              attachments: [
+                {
+                  candidate: check,
+                  id: "product",
+                  label: "Product",
+                  requirement: check,
+                },
+              ],
+              seq: 2,
+              text: "Check the product",
+            },
+          ];
+          yield* fs.writeFileString(
+            path.join(store.directory(recordingId), "events.jsonl"),
+            `${events.map((event) => JSON.stringify(event)).join("\n")}\n`
+          );
+          yield* store.stop({
+            artifacts: [
+              {
+                capturedAt: at,
+                hash: ContentHash.make(`sha256-${"a".repeat(64)}`),
+                id: "events",
+                kind: "events",
+                path: "events.jsonl",
+              },
+            ],
+            operationId: OperationId.make("stop"),
+            recordingId,
+          });
+          const claimOperationId = OperationId.make("claim");
+          yield* store.startLearning({
+            operationId: claimOperationId,
+            recordingId,
+          });
+          const structured = `${JSON.stringify({ requirements: [check], schemaVersion: 1 }, null, 2)}\n`;
+          yield* learning.save({
+            claimOperationId,
+            files: [
+              {
+                content: `---\nname: login\ndescription: Sign in to login.\ninputs:\n  - USER\n---\n\nRequire product from [checks](references/browser-checks.json) and [notes](references/notes.md).\n\n1. Enter ${value} as {{USER}}. Done when: signed in.\n`,
+                path: "SKILL.md",
+              },
+              { content: structured, path: "references/browser-checks.json" },
+              {
+                content: `Use ${value} as {{USER}}.`,
+                path: "references/notes.md",
+              },
+            ],
+            operationId: OperationId.make("save"),
+            recordingId,
+          });
+          const saved = yield* fs.readFileString(
+            path.join(root, "login", "SKILL.md")
+          );
+          expect(saved).toContain(
+            "name: login\ndescription: Sign in to login."
+          );
+          expect(saved).toContain("Enter {{USER}} as {{USER}}");
+          expect(
+            yield* fs.readFileString(
+              path.join(root, "login", "references/notes.md")
+            )
+          ).toBe("Use {{USER}} as {{USER}}.");
+          expect(
+            yield* fs.readFileString(
+              path.join(root, "login", "references/browser-checks.json")
+            )
+          ).toBe(structured);
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}

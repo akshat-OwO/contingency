@@ -76,16 +76,26 @@ export const parameterizeVariables = (
     `\\{\\{[^{}]+\\}\\}|(?<![\\p{L}\\p{N}_])(?:${literals.join("|")})(?![\\p{L}\\p{N}_])`,
     "gu"
   );
-  return files.map((file) => ({
-    ...file,
-    content: file.content.replace(pattern, (match) => {
+  return files.map((file) => {
+    if (
+      file.path !== SKILL_FILE &&
+      !(file.path.startsWith("references/") && file.path.endsWith(".md"))
+    ) {
+      return file;
+    }
+    const prefix =
+      file.path === SKILL_FILE
+        ? (/^---\r?\n[\s\S]*?\r?\n---\r?\n?/u.exec(file.content)?.[0] ?? "")
+        : "";
+    const body = file.content.slice(prefix.length).replace(pattern, (match) => {
       if (match.startsWith("{{")) {
         return match;
       }
       const name = names.get(match);
       return name === undefined ? match : `{{${name}}}`;
-    }),
-  }));
+    });
+    return { ...file, content: prefix + body };
+  });
 };
 const SKILL_LOCK_FILE = ".flow-skill.lock";
 
