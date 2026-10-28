@@ -304,17 +304,31 @@ export const createAndroidRun = (
                   );
                 }
               }
-              yield* active.dispatch(id, action);
+              const result = yield* active.dispatch(id, action);
+              if (result) {
+                record({
+                  inputConfirmation: result.confirmation,
+                  observationId: id,
+                  type: "fill",
+                });
+              }
+              return result;
             })
           )
         ),
-      enterPrivate: (id, privateRequest) =>
+      enterVariable: (id, variableRequest) =>
         lock.withPermits(1)(
           guarded(
-            Effect.gen(function* enterPrivate() {
+            Effect.gen(function* fillVariable() {
               const active = yield* requireRuntime();
               registry.set(latest, null);
-              return yield* active.enterPrivate(id, privateRequest);
+              const result = yield* active.enterVariable(id, variableRequest);
+              record({
+                inputConfirmation: result.confirmation,
+                observationId: id,
+                type: "fill",
+              });
+              return result;
             })
           )
         ),

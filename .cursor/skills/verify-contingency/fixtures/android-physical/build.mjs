@@ -74,10 +74,7 @@ try {
   }
   await writeFile(manifest, manifestContents);
   await execute(
-    path.resolve(
-      source,
-      "../../../../../packages/cli/android/private-text-helper/gradlew"
-    ),
+    path.join(source, "gradlew"),
     [
       "--no-daemon",
       "--quiet",

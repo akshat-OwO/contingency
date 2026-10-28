@@ -6,6 +6,7 @@ import type { Effect, Redacted, Scope } from "effect";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import type {
+  PlatformFillResult,
   PlatformObservation,
   PlatformRuntimeError,
   PlatformRuntimeService,
@@ -27,18 +28,6 @@ export const androidHelperRelease = {
   versionCode: 21_025,
 } as const;
 
-/** Contingency's own helper; it enters private text and nothing else. */
-export const androidPrivateTextRelease = {
-  instrumentation: "dev.contingency.privatetext/.PrivateText",
-  packageName: "dev.contingency.privatetext",
-  protocol: "contingency-private-text-v1",
-  sha256: "3391ecaff97427952b634419af52ed5b6debc12672b5f14a04eb7ccc5abe7796",
-  signingCertificateSha256:
-    "f5aad901eaaa4ddc5d529021a435e6f357f32a75dc437f20e5de5eec4612b0de",
-  version: "1.0.0",
-  versionCode: 1,
-} as const;
-
 /** A selection is supplied by the user, never inferred from device count. */
 export type AndroidDeviceSelection = {
   readonly host: "local";
@@ -57,46 +46,29 @@ export interface AndroidInstallationGrant {
   readonly operation: "install" | "replace" | "auto";
 }
 
-export interface AndroidPrivateTextGrant {
-  readonly serial: string;
-  readonly sha256: typeof androidPrivateTextRelease.sha256;
-  readonly operation: "install" | "replace" | "auto";
-}
-
 export interface AndroidRuntimeStartInput {
   readonly platform: "android";
   readonly device: AndroidDeviceSelection;
   readonly targetApp: string;
   readonly requiredCapabilities: readonly PlatformCapability[];
   readonly installationGrant?: AndroidInstallationGrant;
-  /** Required with `private-input` when the private text helper is absent or different. */
-  readonly privateTextGrant?: AndroidPrivateTextGrant;
   readonly scope: Scope.Scope;
 }
 
-/** The observed field a private value may enter, as the helper re-resolves it. */
-export interface AndroidPrivateTextBinding {
-  readonly packageName: string;
-  readonly resourceId: string | null;
-  readonly className: string;
-  readonly bounds: readonly [number, number, number, number];
-  readonly password: boolean;
-  readonly focusedWindow: string;
-}
-
-export interface AndroidPrivateTextRequest {
+export interface AndroidVariableFillRequest {
   readonly target: string;
-  /** The Variable reference; the only identity of the value a caller may record. */
+  /** The Variable reference recorded with the fill. */
   readonly variable: string;
-  /** Resolved only after the helper has bound the observed field. */
+  /** Resolved when dispatching the ordinary fill. */
   readonly value: Effect.Effect<
     Redacted.Redacted<string>,
     PlatformRuntimeError
   >;
 }
 
-export interface AndroidPrivateTextResult {
-  readonly outcome: "verified";
+export interface AndroidVariableFillResult {
+  readonly outcome: "entered";
+  readonly confirmation: "confirmed" | "unconfirmed";
   readonly variable: string;
 }
 
@@ -153,11 +125,11 @@ export interface AndroidPlatformRuntime extends PlatformRuntimeService {
     AndroidObservation,
     PlatformRuntimeError
   >;
-  /** Enters one private Variable into one observed field, never through ADB arguments. */
-  readonly enterPrivate: (
+  /** Enters a Variable through the ordinary stock agent-device fill path. */
+  readonly enterVariable: (
     observationId: string,
-    request: AndroidPrivateTextRequest
-  ) => Effect.Effect<AndroidPrivateTextResult, PlatformRuntimeError>;
+    request: AndroidVariableFillRequest
+  ) => Effect.Effect<AndroidVariableFillResult, PlatformRuntimeError>;
 }
 
 export interface AndroidRuntimeFactoryService {
@@ -186,11 +158,7 @@ export interface AndroidRuntimeBackend {
   readonly fill: (
     target: string,
     text: string
-  ) => Effect.Effect<void, PlatformRuntimeError>;
+  ) => Effect.Effect<PlatformFillResult, PlatformRuntimeError>;
   readonly back: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly enterPrivate: (
-    target: string,
-    value: Effect.Effect<Redacted.Redacted<string>, PlatformRuntimeError>
-  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
 }

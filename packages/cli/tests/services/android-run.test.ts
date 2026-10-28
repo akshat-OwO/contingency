@@ -46,7 +46,7 @@ const request = (scope: Scope.Scope): AndroidRunInput => ({
   },
 });
 
-const fixture = () =>
+const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
   Effect.gen(function* makeFixture() {
     const input = request(yield* Scope.Scope);
     const calls: string[] = [];
@@ -85,6 +85,16 @@ const fixture = () =>
                 role: "button",
                 target: "@e1",
               },
+              {
+                covered: false,
+                editable: true,
+                hittable: true,
+                name: "Password",
+                packageName: "dev.fixture",
+                password: true,
+                role: "textbox",
+                target: "@password",
+              },
             ],
             ownership: {
               focusedPackage: "dev.fixture",
@@ -104,9 +114,7 @@ const fixture = () =>
         Effect.sync(() => {
           calls.push("close");
         }),
-      enterPrivate: () =>
-        Effect.fail(platformRuntimeError("capability_missing")),
-      fill: () => Effect.void,
+      fill: () => Effect.succeed({ confirmation, outcome: "entered" }),
       recover: () => Effect.void,
       sessionId: "fixture-session",
       validate: () =>
@@ -493,4 +501,32 @@ it.effect("refuses a physical Run that only restarts an activity", () =>
     expect(result.code).toBe("preparation_failed");
     expect(calls).toEqual([]);
   }).pipe(Effect.scoped)
+);
+
+it.effect("retains fill confirmation without pausing the journey", () =>
+  Effect.gen(function* fillEvidence() {
+    for (const confirmation of ["confirmed", "unconfirmed"] as const) {
+      const { driver, input } = yield* fixture(confirmation);
+      const run = yield* createAndroidRun(input, driver);
+      for (const decision of run.state().pending) {
+        yield* run.decide(decision.id, true);
+      }
+      const before = yield* run.prepare();
+      expect(
+        yield* run.dispatch(before.id, {
+          target: "@password",
+          text: "test-password",
+          type: "fill",
+        })
+      ).toEqual({ confirmation, outcome: "entered" });
+      expect(run.state()).toMatchObject({ phase: "ready" });
+      expect(run.state().evidence.at(-1)).toEqual({
+        inputConfirmation: confirmation,
+        observationId: before.id,
+        type: "fill",
+      });
+      const after = yield* run.observe();
+      yield* run.dispatch(after.id, { target: "@e1", type: "activate" });
+    }
+  })
 );

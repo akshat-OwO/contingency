@@ -4,7 +4,7 @@ const messages = {
   api_unsupported:
     "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
   capability_missing:
-    "The Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable; private input needs the private text helper.",
+    "The Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable.",
   capture_incomplete:
     "Android capture is incomplete or obscured. Execution is paused.",
   cleanup_failed:
@@ -28,7 +28,7 @@ const messages = {
   installation_denied:
     "Authorize installation or replacement of this exact helper release on the selected device.",
   installation_failed:
-    "The authorized Android helper installation did not finish successfully. No private input was sent.",
+    "The authorized Android helper installation did not finish successfully. No input was sent.",
   observation_stale:
     "Take a fresh Android observation before acting. Observations are consumed once.",
   ownership_unknown:
@@ -40,8 +40,6 @@ const messages = {
     "The declared Android setup is unsupported or failed. Input is blocked.",
   preparation_required:
     "Complete Android preparation and all Run decisions before input.",
-  private_input_uncertain:
-    "Private input may have reached the Android device but was not verified. Execution is paused; observe before continuing and do not retry.",
   runtime_closed: "The Android runtime is closed.",
   runtime_failed:
     "The Android backend failed. Execution is paused; dispatched input may have an uncertain outcome.",
@@ -52,9 +50,9 @@ const messages = {
   starting_condition_failed:
     "The fresh Android observation did not satisfy the declared starting conditions.",
   target_changed:
-    "The observed Android field or window changed. No private input was sent; take a fresh observation.",
+    "The observed Android field or window changed. No input was sent; take a fresh observation.",
   target_unsupported:
-    "The Android target is absent, covered, private, or unsupported for this action.",
+    "The Android target is absent, covered, or unsupported for this action.",
   user_profile_unsupported:
     "Android preparation and execution support only owner user 0. The active or focused profile is unsupported. Execution is paused.",
 } as const;

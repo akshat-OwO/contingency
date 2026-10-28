@@ -48,6 +48,11 @@ export type PlatformAction =
   | { readonly type: "press"; readonly target: string; readonly key: string }
   | { readonly type: "coordinate"; readonly x: number; readonly y: number };
 
+export interface PlatformFillResult {
+  readonly outcome: "entered";
+  readonly confirmation: "confirmed" | "unconfirmed";
+}
+
 export interface PlatformRuntimeError {
   readonly _tag: "PlatformRuntimeError";
   readonly operation?:
@@ -58,7 +63,6 @@ export interface PlatformRuntimeError {
     | "activate"
     | "fill"
     | "back"
-    | "private-text"
     | "session-check";
   readonly backendReason?:
     | "ref_generation_mismatch"
@@ -66,10 +70,7 @@ export interface PlatformRuntimeError {
     | "device_not_found"
     | "request_canceled"
     | "android_text_input_unverified"
-    | "input_failed"
-    | "input_unverified"
-    | "field_mismatch"
-    | "window_changed";
+    | "input_unverified";
   readonly code:
     | "observation_stale"
     | "runtime_failed"
@@ -89,7 +90,6 @@ export interface PlatformRuntimeError {
     | "ownership_unknown"
     | "target_unsupported"
     | "target_changed"
-    | "private_input_uncertain"
     | "runtime_paused"
     | "runtime_closed"
     | "execution_canceled"
@@ -122,7 +122,9 @@ export interface PlatformRuntimeService {
   readonly dispatch: (
     observationId: string,
     action: PlatformAction
-  ) => Effect.Effect<void, PlatformRuntimeError>;
+    // Non-fill actions have no result; fills carry their readback confirmation.
+    // oxlint-disable-next-line typescript/no-invalid-void-type
+  ) => Effect.Effect<void | PlatformFillResult, PlatformRuntimeError>;
   readonly invalidate: () => Effect.Effect<void>;
   readonly close: () => Effect.Effect<void>;
 }

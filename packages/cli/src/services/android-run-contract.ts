@@ -59,6 +59,7 @@ export interface AndroidRunDecision {
 
 export interface AndroidRunEvidence {
   readonly type:
+    | "fill"
     | "preflight"
     | "grant"
     | "refusal"
@@ -66,6 +67,7 @@ export interface AndroidRunEvidence {
     | "observation"
     | "pause"
     | "closed";
+  readonly inputConfirmation?: "confirmed" | "unconfirmed";
   readonly observationId?: string;
   readonly decisionId?: string;
   readonly code?: PlatformRuntimeError["code"];
@@ -100,7 +102,7 @@ export interface AndroidRun {
   readonly observe: AndroidPlatformRuntime["observe"];
   readonly dispatch: AndroidPlatformRuntime["dispatch"];
   readonly back: AndroidPlatformRuntime["back"];
-  readonly enterPrivate: AndroidPlatformRuntime["enterPrivate"];
+  readonly enterVariable: AndroidPlatformRuntime["enterVariable"];
   readonly recover: AndroidPlatformRuntime["recover"];
   readonly close: AndroidPlatformRuntime["close"];
 }

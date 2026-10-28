@@ -61,9 +61,6 @@ export const AndroidWorkspaceSelection = Schema.Struct({
   }),
   helperConsent: Schema.Literals(["none", "install", "replace", "auto"]),
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
-  privateHelperConsent: Schema.optionalKey(
-    Schema.Literals(["none", "install", "replace", "auto"])
-  ),
   privateInput: Schema.optionalKey(Schema.Boolean),
   reversibleActions: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
   setup: AndroidPreparation,

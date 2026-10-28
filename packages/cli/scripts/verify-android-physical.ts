@@ -22,10 +22,7 @@ import type {
   AndroidRun,
   AndroidRunInput,
 } from "../src/services/android-run-contract.ts";
-import {
-  androidHelperRelease,
-  androidPrivateTextRelease,
-} from "../src/services/android-runtime-contract.ts";
+import { androidHelperRelease } from "../src/services/android-runtime-contract.ts";
 import type {
   AndroidDeviceSelection,
   AndroidObservation,
@@ -426,7 +423,7 @@ const provePrivateInput = (
           const deviceArgs = yield* adb(["shell", "ps", "-A", "-o", "ARGS"]);
           samples.device += 1;
           samples.deviceContained ||= deviceArgs.includes(sentinel);
-          if (deviceArgs.includes(androidPrivateTextRelease.packageName)) {
+          if (deviceArgs.includes("dev.contingency.privatetext")) {
             samples.helperSeen += 1;
           }
           const hostArgs = yield* Effect.tryPromise(() =>
@@ -437,16 +434,18 @@ const provePrivateInput = (
         }).pipe(Effect.repeat(Schedule.spaced("50 millis")))
       );
       const fillResult = yield* Effect.result(
-        runtime.enterPrivate(bound.id, { ...variable, target: password.target })
+        runtime.enterVariable(bound.id, {
+          ...variable,
+          target: password.target,
+        })
       );
       const uncertain =
-        fillResult._tag === "Failure" &&
-        fillResult.failure.code === "private_input_uncertain" &&
-        fillResult.failure.backendReason === "input_unverified";
+        fillResult._tag === "Success" &&
+        fillResult.success.confirmation === "unconfirmed";
       yield* check(
         widget === "material"
           ? fillResult._tag === "Success" &&
-              fillResult.success.outcome === "verified"
+              fillResult.success.confirmation === "confirmed"
           : uncertain,
         widget === "material"
           ? "Stock Material field must verify exact readback."
@@ -505,7 +504,10 @@ const provePrivateInput = (
       );
       yield* retainObservation(widget, "after", semantic);
       const stale = yield* Effect.flip(
-        runtime.enterPrivate(bound.id, { ...variable, target: password.target })
+        runtime.enterVariable(bound.id, {
+          ...variable,
+          target: password.target,
+        })
       );
       const ordinaryObservation = yield* runtime.recover();
       const ordinary = yield* requireNamed(
@@ -513,7 +515,7 @@ const provePrivateInput = (
         "Public fixture field"
       );
       const ordinaryRefusal = yield* Effect.flip(
-        runtime.enterPrivate(ordinaryObservation.id, {
+        runtime.enterVariable(ordinaryObservation.id, {
           ...variable,
           target: ordinary.target,
         })
@@ -522,7 +524,7 @@ const provePrivateInput = (
       const replaceWindow = launchFixture("ReplacementActivity");
       yield* replaceWindow;
       const beforeBind = yield* Effect.flip(
-        runtime.enterPrivate(replaced.id, {
+        runtime.enterVariable(replaced.id, {
           ...variable,
           target: (yield* requireField(replaced)).target,
         })
@@ -530,7 +532,7 @@ const provePrivateInput = (
       yield* launchFixture(activity, widget === "material-filtered");
       const afterBindObservation = yield* runtime.recover();
       const afterBind = yield* Effect.flip(
-        runtime.enterPrivate(afterBindObservation.id, {
+        runtime.enterVariable(afterBindObservation.id, {
           target: (yield* requireField(afterBindObservation)).target,
           value: replaceWindow.pipe(Effect.as(Redacted.make(sentinel))),
           variable: "proof.windowChange",
@@ -555,7 +557,7 @@ const provePrivateInput = (
         `${widget}: fixture did not acknowledge field removal.`
       );
       const mismatch = yield* Effect.flip(
-        runtime.enterPrivate(mismatchObservation.id, {
+        runtime.enterVariable(mismatchObservation.id, {
           ...variable,
           target: mismatchPassword.target,
         })
@@ -630,7 +632,7 @@ Effect.gen(function* proveDevice() {
   for (const packageName of [
     targetApp,
     androidHelperRelease.packageName,
-    androidPrivateTextRelease.packageName,
+    "dev.contingency.privatetext",
   ]) {
     const present = yield* adb(["shell", `pm path ${packageName} || true`]);
     if (present === "") {
@@ -687,16 +689,6 @@ Effect.gen(function* proveDevice() {
               operation: "install",
               serial,
               sha256: androidHelperRelease.sha256,
-            },
-          };
-        }
-        if (owned.includes(androidPrivateTextRelease.packageName)) {
-          startup = {
-            ...startup,
-            privateTextGrant: {
-              operation: "install",
-              serial,
-              sha256: androidPrivateTextRelease.sha256,
             },
           };
         }
@@ -899,7 +891,7 @@ Effect.gen(function* proveDevice() {
   const after = yield* deviceState;
   const helperProcess = yield* adb([
     "shell",
-    `pidof ${androidPrivateTextRelease.packageName} || true`,
+    "pidof dev.contingency.privatetext || true",
   ]);
   const cleanup = {
     forwardsUnchanged:

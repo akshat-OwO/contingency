@@ -513,7 +513,6 @@ export const AndroidSetupSheet = ({
     ([permission, decision]) => ({ decision, permission })
   );
   const conditionsReady = start.name !== "" && outcome.name !== "";
-  const privateHelperConsent = form.privateInput ? "auto" : "none";
   const ready =
     device !== null && app !== undefined && conditionsReady && validName;
   return (
@@ -545,7 +544,6 @@ export const AndroidSetupSheet = ({
               },
               helperConsent: "auto",
               outcomes: [outcome],
-              privateHelperConsent,
               privateInput: form.privateInput,
               setup: {
                 activity: app.launchActivity,
@@ -678,11 +676,11 @@ export const AndroidSetupSheet = ({
                     }));
                   }}
                 />
-                Enable private Variables
+                Enable Variables
               </label>
               <p className="text-muted-foreground mt-3 text-xs">
-                Opening a session checks Contingency's helpers on this device
-                and installs or updates them if needed.
+                Opening a session checks agent-device's capture helper on this
+                device and installs or updates it if needed.
               </p>
             </Step>
           </div>

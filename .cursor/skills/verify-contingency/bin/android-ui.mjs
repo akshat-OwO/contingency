@@ -177,7 +177,7 @@ export const openAndroidSheet = async (
       "--role",
       "checkbox",
       "--name",
-      "Enable private Variables"
+      "Enable Variables"
     );
   }
   const labels = {

@@ -237,7 +237,6 @@ const android = async () => {
     recordingId: null,
     selection: {
       ...device.selection,
-      privateHelperConsent: "none",
       privateInput: true,
     },
   });

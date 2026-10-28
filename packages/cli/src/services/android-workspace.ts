@@ -31,16 +31,14 @@ import {
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
-import {
-  androidPrivateTextRelease,
-  androidHelperRelease,
-} from "./android-runtime-contract.ts";
+import { androidHelperRelease } from "./android-runtime-contract.ts";
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import { acquireAndroidStream } from "./android-stream.ts";
 import type { AndroidDeviceStream } from "./android-stream.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
+import type { PlatformFillResult } from "./platform-runtime.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -104,17 +102,6 @@ const supportsWorkspaceRequirements = (
     /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
   ) &&
   new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
-const privateTextGrant = (selection: AndroidWorkspaceSummary["selection"]) => {
-  const operation = selection.privateHelperConsent;
-  if (operation === undefined || operation === "none") {
-    return;
-  }
-  return {
-    operation,
-    serial: selection.device.serial,
-    sha256: androidPrivateTextRelease.sha256,
-  };
-};
 const actionDescription = (
   action: Extract<
     AndroidWorkspaceCommand,
@@ -751,16 +738,11 @@ export const makeAndroidWorkspaceLayer = (options: {
               taught,
               teaching: command.kind === "teaching",
             };
-            const grant = privateTextGrant(selection);
-            const authorizedStartup =
-              grant === undefined
-                ? startup
-                : { ...startup, privateTextGrant: grant };
             const create =
               selection.helperConsent === "none"
-                ? factory.android.createRun(authorizedStartup)
+                ? factory.android.createRun(startup)
                 : factory.android.createRun({
-                    ...authorizedStartup,
+                    ...startup,
                     installationGrant: {
                       operation: selection.helperConsent,
                       serial: selection.device.serial,
@@ -954,7 +936,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                   current.field.target === action.target;
             if (!bound) {
               return yield* denied(
-                "This private field observation is stale. Observe or pick the field again; no input was sent."
+                "This field observation is stale. Observe or pick the field again; no input was sent."
               );
             }
           }
@@ -967,11 +949,12 @@ export const makeAndroidWorkspaceLayer = (options: {
           if (
             action._tag !== "back" &&
             (!selectedTarget ||
-              selectedTarget.password !== (action._tag === "variable") ||
+              ((action._tag === "fill" || action._tag === "variable") &&
+                !selectedTarget.editable) ||
               selectedTarget.covered)
           ) {
             return yield* denied(
-              "Select an uncovered semantic target. Password fields require a Variable."
+              "Select an uncovered semantic target, or an editable field for a fill."
             );
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
@@ -992,7 +975,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                     node.role === selectedTarget.role &&
                     node.name === selectedTarget.name &&
                     node.editable === selectedTarget.editable &&
-                    node.password === (action._tag === "variable") &&
+                    node.password === selectedTarget.password &&
                     (action._tag !== "variable" ||
                       (node.editable &&
                         JSON.stringify(node.bounds) ===
@@ -1020,11 +1003,6 @@ export const makeAndroidWorkspaceLayer = (options: {
               "The screen changed before Back. Inspect the fresh screen and choose Back again."
             );
           }
-          if (action._tag === "fill" && /[^\u0020-\u007E]/u.test(action.text)) {
-            return yield* denied(
-              "Use public ASCII text here, or select a Variable for a password field."
-            );
-          }
           const variable =
             action._tag === "variable"
               ? registry
@@ -1045,8 +1023,9 @@ export const makeAndroidWorkspaceLayer = (options: {
             field: null,
             observation: null,
           }));
+          let fillResult: PlatformFillResult | undefined;
           if (action._tag === "variable") {
-            yield* session.run.enterPrivate(before.id, {
+            fillResult = yield* session.run.enterVariable(before.id, {
               target: target?.target ?? "",
               value: Effect.suspend(() =>
                 variable?.value === undefined
@@ -1058,7 +1037,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           } else if (action._tag === "back") {
             yield* session.run.back(before.id);
           } else {
-            yield* session.run.dispatch(
+            const dispatched = yield* session.run.dispatch(
               before.id,
               action._tag === "fill"
                 ? {
@@ -1068,6 +1047,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                   }
                 : { target: target?.target ?? "", type: "activate" }
             );
+            fillResult = dispatched || undefined;
           }
           const after = yield* session.run.observe();
           acceptObservation(session, after);
@@ -1114,6 +1094,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               ...actionDescription(action, target, enteredValue),
               disappeared: difference(before, after),
               id: actionId,
+              inputConfirmation: fillResult?.confirmation,
               kind: action._tag,
               outcome: "succeeded",
               target:
@@ -1136,7 +1117,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             yield* io(
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
-                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
+                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, inputConfirmation: fillResult?.confirmation, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );

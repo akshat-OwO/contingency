@@ -49,11 +49,9 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.
 
-- [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, exact private readback on a stock Material password widget, native/filtered uncertainty, targeting refusals, privacy, and cleanup on a selected daily-use phone using a disposable app.
+- [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, same-device recovery, and cleanup on a selected daily-use phone using a disposable app.
 - [Android preparation](./workspace.md#android-preparation) proves the internal Android factory lifecycle, with explicit device selection and sanitized receipts.
-- [Android private login](./workspace.md#android-private-login) proves Variables and Setup Variables through Workspace Teaching, learning, fresh Dry Runs, verification, and later Runs, with private helper transport and refusal evidence.
 - [Android Support Matrix](./workspace.md#android-support-matrix) proves each matrix cell's Teaching, Dry Run, and verification, and every documented-limit refusal.
-- [Android private text](./workspace.md#android-private-text) proves a private fill through the Contingency helper beside agent-device on an emulator: readable Variable evidence, refusals, kept agent-device session, and cleanup.
 - [Android workspace](./workspace.md#android-workspace) proves Android Teaching, Takeover, Dry Run verification and purge, a later Run, and Summary readback after restart through mirrored Workspace.
 - [Android checkout](./workspace.md#android-checkout) proves the Expo checkout fixture on emulator and an explicitly authorized phone: discovered setup, stream picks and refusals, dock typing without overlays, Workspace Teaching, Timeline readback, learning, fresh Dry Run, verification and purge, changed-build permission, broken-build detection, ownership pause, capture loss, restart, and same-device disconnect recovery.
 
