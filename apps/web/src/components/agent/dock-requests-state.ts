@@ -147,7 +147,7 @@ const dryRunSecretsRequest = (
     key: `secrets:${waiting.map(({ name }) => name).join(",")}`,
     kind: "dry-run-secrets",
     summary: remaining(waiting.length, variables.length),
-    title: "Dry Run secrets",
+    title: "Dry Run Variables",
   };
 };
 

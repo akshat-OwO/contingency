@@ -46,7 +46,9 @@ const SecretVariable = ({
           });
           setValue("");
         } catch (error) {
-          setSupplyError(failureMessage(error, "Could not supply the secret."));
+          setSupplyError(
+            failureMessage(error, "Could not supply the Variable.")
+          );
         } finally {
           setPending(false);
         }
@@ -77,12 +79,12 @@ export const DryRunVariables = ({
     return null;
   }
   return (
-    <section aria-label="Dry Run secrets" className="space-y-2">
+    <section aria-label="Dry Run Variables" className="space-y-2">
       <RequestHeader
         action={
           <>
             <span className="text-muted-foreground hidden text-xs @xl:inline">
-              The agent sees status, never values
+              Values are visible in journey evidence
             </span>
             {collapse}
           </>
@@ -95,7 +97,7 @@ export const DryRunVariables = ({
         icon={
           <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
         }
-        title="Dry Run secrets"
+        title="Dry Run Variables"
       />
       <div className="space-y-2.5">
         {waiting.map((variable) => (

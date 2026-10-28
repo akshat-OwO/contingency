@@ -24,7 +24,6 @@ import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { DemonstrationCounts } from "./teaching-capture.ts";
 import type { Demonstration } from "./teaching-demonstration.ts";
 import { makeTeachingEncoder } from "./teaching-encoder.ts";
-import { redactTeachingTrace } from "./teaching-trace.ts";
 
 const EVENT_FILE = "events.jsonl";
 const TRACE_FILE = "trace.zip";
@@ -176,9 +175,7 @@ const targetFor = (
  * What the field held once a fill landed. The tree recorded before the action
  * still shows the control as the user found it, so a fill read off it carries
  * an empty value whatever was typed. The action's own text is the value that
- * landed, already rewritten to a Variable reference or a redaction placeholder
- * on the private paths, which is what keeps a withheld value distinguishable
- * from an empty field.
+ * landed and is retained in the event even when the before tree was empty.
  */
 const filledTarget = (
   target: TeachingEventTarget | null,
@@ -321,6 +318,7 @@ export const teachingEventsFor = (
       kind: action.action.type,
       outcome: action.outcome === "completed" ? "succeeded" : "failed",
       target: filledTarget(targetFor(before ?? after, ref), action.action),
+      variableName: action.variableName,
     });
   }
   const actionsById = new Map(
@@ -397,8 +395,7 @@ export const makeTeachingRecorder = (
             browserFailure("Could not start the Teaching Trace", cause),
           try: () =>
             target.context.tracing.start({
-              // Video and masked keyframes own images. Raw Trace screenshots
-              // bypass private-field masking and cannot be scrubbed as text.
+              // Video and keyframes already retain the visual evidence.
               screenshots: false,
               snapshots: true,
             }),
@@ -554,13 +551,6 @@ export const makeTeachingRecorder = (
               );
           }
           yield* Scope.close(scope, Exit.void);
-          yield* redactTeachingTrace(
-            traceFile,
-            options.sensitiveValues?.() ?? []
-          ).pipe(
-            Effect.tapError((cause) => Ref.set(failure, cause.message)),
-            Effect.ignore
-          );
           const encoderFailure = yield* encoder.failure;
           const duration =
             Date.parse(stoppedAt) - Date.parse(options.startedAt);

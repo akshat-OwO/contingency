@@ -45,7 +45,7 @@ const makeDownload = () =>
     url: () => url,
   }) satisfies Download;
 
-it.effect("saves to an opaque, usable path and redacts returned metadata", () =>
+it.effect("saves to an opaque, usable path and retains Variable metadata", () =>
   Effect.gen(function* savedDownloadProjection() {
     const fs = yield* FileSystem.FileSystem;
     const root = yield* fs.makeTempDirectoryScoped({
@@ -64,10 +64,10 @@ it.effect("saves to an opaque, usable path and redacts returned metadata", () =>
     expect(download.saveAs).toHaveBeenCalledWith(file);
     expect(yield* fs.readFileString(file)).toBe(contents);
     expect(saved.size).toBe(Buffer.byteLength(contents));
-    expect(saved.name).toBe("report-[sensitive input].csv");
-    expect(saved.type).toBe("application/[sensitive input]");
-    expect(saved.url).toBe("https://example.test/[sensitive input]");
-    expect(JSON.stringify(saved)).not.toContain(secret);
+    expect(saved.name).toBe(`report-${secret}.csv`);
+    expect(saved.type).toBe(`application/${secret}`);
+    expect(saved.url).toBe(url);
+    expect(JSON.stringify(saved)).toContain(secret);
 
     const second = yield* saveDownload(event, {
       ...options,
@@ -81,7 +81,7 @@ it.effect("saves to an opaque, usable path and redacts returned metadata", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("redacts download failures and their metadata", () =>
+it.effect("retains download failures and their metadata", () =>
   Effect.gen(function* failedDownloadProjection() {
     const fs = yield* FileSystem.FileSystem;
     const directory = yield* fs.makeTempDirectoryScoped({
@@ -99,26 +99,24 @@ it.effect("redacts download failures and their metadata", () =>
     expect(saved.state).toBe("failed");
     expect(saved.path).toBeNull();
     expect(saved.size).toBeNull();
-    expect(saved).toHaveProperty("error", "Server rejected [sensitive input]");
-    expect(saved.type).toBe("application/[sensitive input]");
-    expect(JSON.stringify(saved)).not.toContain(secret);
+    expect(saved).toHaveProperty("error", `Server rejected ${secret}`);
+    expect(saved.type).toBe(`application/${secret}`);
+    expect(JSON.stringify(saved)).toContain(secret);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect(
-  "redacts names before filename sanitization changes secret values",
-  () =>
-    Effect.gen(function* sanitizedDownloadName() {
-      const download = makeDownload();
-      download.suggestedFilename = () => "report-private:token.csv";
-      const saved = yield* saveDownload(
-        { download, startedAt: 0, tabId },
-        { ...options, directory: undefined, secrets: ["private:token"] }
-      );
+it.effect("sanitizes filenames without concealing Variable values", () =>
+  Effect.gen(function* sanitizedDownloadName() {
+    const download = makeDownload();
+    download.suggestedFilename = () => "report-private:token.csv";
+    const saved = yield* saveDownload(
+      { download, startedAt: 0, tabId },
+      { ...options, directory: undefined, secrets: ["private:token"] }
+    );
 
-      expect(saved.name).toBe("report-[sensitive input].csv");
-      expect(download.cancel).toHaveBeenCalledOnce();
-      expect(saved.state).toBe("failed");
-      expect(saved.path).toBeNull();
-    }).pipe(Effect.provide(NodeServices.layer))
+    expect(saved.name).toBe("report-private_token.csv");
+    expect(download.cancel).toHaveBeenCalledOnce();
+    expect(saved.state).toBe("failed");
+    expect(saved.path).toBeNull();
+  }).pipe(Effect.provide(NodeServices.layer))
 );

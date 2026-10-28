@@ -588,7 +588,7 @@ it.effect("reads where the browser is, not where it was last driven", () =>
     fake.visit("https://example.com/pricing?access_token=private-value");
 
     const read = yield* service.get(started.id);
-    expect(read.currentUrl).not.toContain("private-value");
+    expect(read.currentUrl).toContain("private-value");
     const listed = yield* service.list();
     expect(listed.map(({ currentUrl }) => currentUrl)).toEqual([
       read.currentUrl,
@@ -1304,7 +1304,7 @@ it.effect(
  * whole-sentence redaction pass looks for it. Redaction runs per field, before
  * assembly, so no prefix of a long token reaches the timeline.
  */
-it("redacts a private literal longer than the label limit", () => {
+it("retains a Variable literal longer than the label limit", () => {
   // Long enough to outlast the label's length limit, and shaped like nothing
   // a credential scanner should mistake for a real key.
   const secret = "private-value-".repeat(16);
@@ -1314,12 +1314,12 @@ it("redacts a private literal longer than the label limit", () => {
     {},
     [secret]
   );
-  expect(described).toBe('Fill textbox "API token" with [sensitive input]');
-  expect(described).not.toContain("private-value");
+  expect(described).toContain('Fill textbox "API token" with');
+  expect(described).toContain("private-value");
 });
 
 /** A control whose accessible name echoes a private value is redacted too. */
-it("redacts a private literal in an accessible name or objective", () => {
+it("retains a Variable literal in an accessible name or objective", () => {
   const secret = "hunter2-hunter2-hunter2";
   expect(
     describeCapturedAction(
@@ -1328,7 +1328,7 @@ it("redacts a private literal in an accessible name or objective", () => {
       { objective: `Confirm ${secret} is signed in` },
       [secret]
     )
-  ).toBe("Confirm [sensitive input] is signed in");
+  ).toBe(`Confirm ${secret} is signed in`);
   expect(
     describeCapturedAction(
       { name: `Signed in as ${secret}`, role: "button" },
@@ -1336,7 +1336,7 @@ it("redacts a private literal in an accessible name or objective", () => {
       {},
       [secret]
     )
-  ).toBe('Click button "Signed in as [sensitive input]"');
+  ).toBe(`Click button "Signed in as ${secret}"`);
 });
 
 /**
@@ -1344,7 +1344,7 @@ it("redacts a private literal in an accessible name or objective", () => {
  * secrets, so a private value the session knows about survives it in a path
  * segment. The description strips it on the way to the timeline.
  */
-it("redacts a private literal carried in a navigated URL", () => {
+it("retains a Variable literal carried in a navigated URL", () => {
   const secret = "not-a-real-session-value";
   const described = describeCapturedAction(
     undefined,
@@ -1356,9 +1356,9 @@ it("redacts a private literal carried in a navigated URL", () => {
     [secret]
   );
   expect(described).toBe(
-    "Navigate to https://shop.example.com/session/[sensitive input]/cart"
+    `Navigate to https://shop.example.com/session/${secret}/cart`
   );
-  expect(described).not.toContain(secret);
+  expect(described).toContain(secret);
 });
 
 it.live(

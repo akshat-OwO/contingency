@@ -120,7 +120,7 @@ it.live(
           });
           const pageError = yield* Fiber.join(uncaught);
           expect(pageError._tag).toBe("Some");
-          expect(JSON.stringify(pageError)).not.toContain(secret);
+          expect(JSON.stringify(pageError)).toContain(secret);
           // The action's settled Snapshot waits for the completed HTTP request.
           const result = decodeRequests(
             yield* call({
@@ -158,8 +158,10 @@ it.live(
             detail
           );
           expect(decoded.status).toBe(500);
-          expect(decoded.headers["authorization"]).toBe("[redacted]");
-          expect(decoded.responseHeaders?.["set-cookie"]).toBe("[redacted]");
+          expect(decoded.headers["authorization"]).toContain(secret);
+          expect(decoded.responseHeaders?.["set-cookie"]).toContain(
+            "never-show-this"
+          );
           expect(decoded.bodyTruncated).toBe(true);
           expect(
             Buffer.byteLength(decoded.responseBody ?? "")
@@ -172,8 +174,7 @@ it.live(
             yield* call({ action: "storage", kind: "local" }),
             yield* call({ action: "storage", kind: "session" }),
           ]) {
-            expect(JSON.stringify(value)).not.toContain(secret);
-            expect(JSON.stringify(value)).not.toContain("never-show-this");
+            expect(JSON.stringify(value)).toContain(secret);
           }
           const toolkit = yield* BrowserDevtoolsTools;
           const stop = () =>
@@ -198,8 +199,8 @@ it.live(
           )(reference.value.result);
           expect(file.path.startsWith(root)).toBe(true);
           const har = yield* fs.readFileString(file.path);
-          expect(har).not.toContain(secret);
-          expect(har).not.toContain("never-show-this");
+          expect(har).toContain(secret);
+          expect(har).toContain("never-show-this");
           expect(har).toContain('"status":500');
           expect(yield* stop()).toEqual(reference);
           expect(
@@ -412,7 +413,7 @@ it.live("reads background tab storage without changing the active tab", () =>
           expect(snapshot).toMatchObject(
             kind === "cookies"
               ? {
-                  cookies: [{ name: "background", value: "[redacted]" }],
+                  cookies: [{ name: "background", value: "tab-a" }],
                   kind,
                   tabId,
                 }

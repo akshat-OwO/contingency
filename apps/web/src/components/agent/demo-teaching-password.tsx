@@ -35,7 +35,7 @@ export const DemoTeachingPassword = ({
       className="bg-background space-y-2 rounded-lg border p-3 text-sm shadow-lg"
     >
       <h2 className="text-sm leading-5 font-semibold">
-        Record sign-in with a private password
+        Record sign-in with a test password
       </h2>
       <p>
         Click the store's Password field first. Enter a demo password here, then
@@ -57,7 +57,6 @@ export const DemoTeachingPassword = ({
                 variable: {
                   name: "DEMO_PASSWORD",
                   runtime: true,
-                  secret: true,
                 },
               },
             });
@@ -78,7 +77,7 @@ export const DemoTeachingPassword = ({
           <span>Demo password</span>
           <Input
             id={id}
-            type="password"
+            type="text"
             autoComplete="off"
             minLength={8}
             required

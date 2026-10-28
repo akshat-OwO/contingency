@@ -2458,7 +2458,7 @@ test("takes over a Guided Run and enters a private Variable before returning", a
     name: "Variable name",
   });
   await user.type(variableName, "password");
-  await user.type(screen.getByLabelText("Secret value"), "private-fixture");
+  await user.type(screen.getByLabelText("Variable value"), "private-fixture");
   await user.click(screen.getByRole("button", { name: "Enter Variable" }));
   expect(rpc.privateInputCalls).toHaveLength(0);
   await user.clear(variableName);
@@ -2469,10 +2469,10 @@ test("takes over a Guided Run and enters a private Variable before returning", a
     payload: {
       sessionId: session.id,
       value: "private-fixture",
-      variable: { name: "PASSWORD", runtime: true, secret: true },
+      variable: { name: "PASSWORD", runtime: true },
     },
   });
-  expect(screen.getByLabelText("Secret value")).toHaveValue("");
+  expect(screen.getByLabelText("Variable value")).toHaveValue("");
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
 });

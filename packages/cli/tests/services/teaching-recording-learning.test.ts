@@ -138,7 +138,7 @@ const actionEvent = (
 });
 
 it.effect(
-  "keeps a Variable placeholder on a timeline target and drops a page secret",
+  "keeps both legacy Variable placeholders and literal page values",
   () =>
     Effect.gen(function* projectWithheldFill() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -212,8 +212,10 @@ it.effect(
       expect(placeholder?._tag === "action" && placeholder.target?.value).toBe(
         "{{ACCOUNT_ID}}"
       );
-      expect(secret?._tag === "action" && secret.target?.value).toBeNull();
-      expect(JSON.stringify(timeline)).not.toContain("4242-4242");
+      expect(secret?._tag === "action" && secret.target?.value).toBe(
+        "4242-4242"
+      );
+      expect(JSON.stringify(timeline)).toContain("4242-4242");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

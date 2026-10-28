@@ -8,11 +8,9 @@ import type {
   BrowserNetworkRequestDetail,
   BrowserTabId,
 } from "@contingency/protocol";
-import { Effect, Predicate, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import type { Page, Request, Response } from "playwright-core";
-
-import { redactKnownValues } from "./agent-browser.ts";
 
 export const DEVTOOLS_LIMITS = {
   bodyBytes: 65_536,
@@ -20,69 +18,14 @@ export const DEVTOOLS_LIMITS = {
   requests: 500,
   textBytes: 8192,
 } as const;
-const credentialHeaders = new Set([
-  "authorization",
-  "cookie",
-  "set-cookie",
-  "proxy-authorization",
-]);
-
 /** Scrub the literal and its common transport encodings before clipping any text. */
-export const redactDevtoolsText = (text: string, secrets: readonly string[]) =>
-  redactKnownValues(
-    text,
-    secrets.flatMap((secret) => [
-      secret,
-      encodeURIComponent(secret.toWellFormed()),
-      new URLSearchParams({ value: secret }).toString().slice(6),
-      JSON.stringify(secret).slice(1, -1),
-    ])
-  );
-
-export const redactDevtoolsJson = (
-  value: Schema.Json,
-  secrets: readonly string[]
-): Schema.Json => {
-  if (Predicate.isString(value)) {
-    return redactDevtoolsText(value, secrets);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item: Schema.Json) => redactDevtoolsJson(item, secrets));
-  }
-  if (
-    value === null ||
-    Predicate.isNumber(value) ||
-    Predicate.isBoolean(value)
-  ) {
-    return value;
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      redactDevtoolsText(key, secrets),
-      redactDevtoolsJson(item, secrets),
-    ])
-  );
-};
-
-export const redactDevtoolsHeaders = (
-  headers: Readonly<Record<string, string>>,
-  secrets: readonly string[]
-) =>
-  Object.fromEntries(
-    Object.entries(headers).map(([name, value]) => [
-      redactDevtoolsText(name, secrets),
-      credentialHeaders.has(name.toLowerCase())
-        ? "[redacted]"
-        : redactDevtoolsText(value, secrets),
-    ])
-  );
 
 export const boundedDevtoolsText = (
   text: string,
-  secrets: readonly string[],
+  _secrets: readonly string[],
   limit: number = DEVTOOLS_LIMITS.bodyBytes
 ) => {
-  const bytes = Buffer.from(redactDevtoolsText(text, secrets));
+  const bytes = Buffer.from(text);
   const prefix = bytes.subarray(0, limit).toString("utf-8");
   return {
     text: prefix.endsWith("\uFFFD") ? prefix.slice(0, -1) : prefix,
@@ -100,18 +43,15 @@ export const redactDevtoolsRequest = (
     ...request,
     bodyTruncated:
       request.bodyTruncated === true || post.truncated || body.truncated,
-    headers: redactDevtoolsHeaders(request.headers, secrets),
-    mimeType:
-      request.mimeType === undefined
-        ? undefined
-        : redactDevtoolsText(request.mimeType, secrets),
+    headers: request.headers,
+    mimeType: request.mimeType === undefined ? undefined : request.mimeType,
     postData: request.postData === undefined ? undefined : post.text,
     responseBody: request.responseBody === undefined ? undefined : body.text,
     responseHeaders:
       request.responseHeaders === undefined || request.responseHeaders === null
         ? undefined
-        : redactDevtoolsHeaders(request.responseHeaders, secrets),
-    url: redactDevtoolsText(request.url, secrets),
+        : request.responseHeaders,
+    url: request.url,
   };
 };
 
@@ -127,7 +67,7 @@ export type DevtoolsRequestMetadata = Omit<
 >;
 
 /**
- * Redacts each request, applies the `requests` filter to the redacted URL,
+ * Bounds each request, applies the `requests` filter to its URL,
  * and projects the survivors to metadata. `dropped` is the tab's retention count.
  */
 export interface DevtoolsRequestsResult {
@@ -392,13 +332,13 @@ export const makeTabDevtools = (
     adopt,
     clearConsole: () =>
       update((current) => ({ ...current, console: [], consoleDropped: 0 })),
-    console: (secrets: readonly string[]) => {
+    console: (_secrets: readonly string[]) => {
       const current = registry.get(state);
       return {
         dropped: current.consoleDropped,
         entries: current.console.map((entry) => ({
           ...entry,
-          text: redactDevtoolsText(entry.text, secrets),
+          text: entry.text,
         })),
       };
     },
@@ -438,7 +378,7 @@ export const makeTabDevtools = (
       Effect.gen(function* stopCapture() {
         const current = registry.get(state);
         if (current.stopped?.id === id) {
-          return redactDevtoolsJson(current.stopped.har, secrets);
+          return current.stopped.har;
         }
         if (current.capture === undefined) {
           return yield* Effect.fail(

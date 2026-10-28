@@ -256,7 +256,7 @@ it("marks a keyframe that observes navigation after an unchanged action snapshot
   ).not.toHaveProperty("capture");
 });
 
-it("redacts known private values from the keyframe URL exposed to learning", () => {
+it("retains Variable values from the keyframe URL exposed to learning", () => {
   const capture = makeDemonstrationCapture(SHOP_URL, () => [
     "private-account-123",
   ]);
@@ -274,8 +274,8 @@ it("redacts known private values from the keyframe URL exposed to learning", () 
     "user"
   );
   const keyframe = events.find((event) => event._tag === "keyframe");
-  expect(keyframe?.url).not.toContain("private-account-123");
-  expect(keyframe?.url).not.toContain("private-token");
+  expect(keyframe?.url).toContain("private-account-123");
+  expect(keyframe?.url).toContain("private-token");
   expect(keyframe?.url).toContain("tab=details");
 });
 

@@ -30,7 +30,7 @@ import { Viewport } from "./viewport.ts";
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
 export const SetupVariableName = Schema.String.check(
-  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/u),
   Schema.isMaxLength(128)
 );
 export const AgentSetupVariable = Schema.Struct({
@@ -138,8 +138,8 @@ export const AgentDryRunState = Schema.Struct({
   flowSkillName: FlowSkillName,
   /**
    * The inputs the rehearsal was started with, and which of them differ from
-   * the recorded journey. A secret input arrives with a `null` value: the
-   * Workspace names it without ever holding the literal.
+   * the recorded journey. An input without a startup value is `null` until
+   * the user supplies it in Workspace.
    */
   inputs: Schema.Array(
     Schema.Struct({

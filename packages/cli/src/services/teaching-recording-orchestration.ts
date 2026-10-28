@@ -26,7 +26,7 @@ import {
   validatePlatformRequirements,
 } from "./platform-requirements.ts";
 import {
-  PRIVATE_INPUT_NAME,
+  VARIABLE_REFERENCE_NAME,
   readRequestedSkills,
   taskVariables,
   validateTaskInputs,
@@ -195,18 +195,12 @@ export const stopDryRun = (input: TeachingRecordingMutation) =>
     return manifest;
   });
 
-export type DryRunInput =
-  | {
-      readonly changed: boolean;
-      readonly name: string;
-      readonly secret: false;
-      readonly value: string;
-    }
-  | {
-      readonly changed: boolean;
-      readonly name: string;
-      readonly secret: true;
-    };
+export interface DryRunInput {
+  readonly changed: boolean;
+  readonly name: string;
+  readonly secret?: boolean;
+  readonly value?: string;
+}
 
 export interface DryRunStartInput extends TeachingRecordingMutation {
   readonly inputs: readonly DryRunInput[];
@@ -351,27 +345,26 @@ export const startDryRun = (input: DryRunStartInput) =>
         )
       );
     }
-    const secretNames = input.inputs.flatMap((entry) =>
-      entry.secret ? [entry.name.toUpperCase()] : []
+    const requestedNames = input.inputs.flatMap((entry) =>
+      entry.value === undefined ? [entry.name.toUpperCase()] : []
     );
     if (
-      secretNames.some((name) => !PRIVATE_INPUT_NAME.test(name)) ||
-      new Set(secretNames).size !== secretNames.length
+      requestedNames.some((name) => !VARIABLE_REFERENCE_NAME.test(name)) ||
+      new Set(requestedNames).size !== requestedNames.length
     ) {
       return yield* Effect.fail(
         invalid(
-          "Secret input names must map uniquely to uppercase Variable names."
+          "On-demand input names must map uniquely to uppercase Variable names."
         )
       );
     }
     /*
-      A secret input is named and never valued: the Dry Run session snapshot
-      reaches the Workspace, so the literal stops here (ADR 0039).
+      An input without a startup value is requested in Workspace when needed.
     */
     const dryRunInputs = input.inputs.map((entry) => ({
       changed: entry.changed,
       name: entry.name,
-      value: entry.secret ? null : entry.value,
+      value: entry.value ?? null,
     }));
     if (
       new Set(input.prerequisites).size !== input.prerequisites.length ||
@@ -389,24 +382,6 @@ export const startDryRun = (input: DryRunStartInput) =>
     yield* validateTaskInputs(prerequisites, input.prerequisiteInputs).pipe(
       Effect.mapError(fromCause)
     );
-    const unsupplied = prerequisites.find((prerequisite) =>
-      prerequisite.inputs.some(
-        (declared) =>
-          !PRIVATE_INPUT_NAME.test(declared.name) &&
-          !input.prerequisiteInputs.some(
-            (supplied) =>
-              supplied.flowSkillName === prerequisite.name &&
-              supplied.name === declared.name
-          )
-      )
-    );
-    if (unsupplied !== undefined) {
-      return yield* Effect.fail(
-        invalid(
-          `Supply every ordinary prerequisite input for ${unsupplied.name} at Dry Run startup.`
-        )
-      );
-    }
     const startedAt = new Date().toISOString();
     const run: TaskAgentRunState = markDemoWork(hosts, {
       assessment: null,
@@ -462,11 +437,10 @@ export const startDryRun = (input: DryRunStartInput) =>
       title: manifest.flowSkillName,
       variables: [
         ...prerequisites.flatMap(taskVariables),
-        ...secretNames.map((name) => ({
+        ...requestedNames.map((name) => ({
           flowSkillName: manifest.flowSkillName,
           name,
           runtime: true,
-          secret: true,
           supplied: false,
         })),
       ],
@@ -500,10 +474,9 @@ export const startDryRun = (input: DryRunStartInput) =>
           flowSkillName: manifest.flowSkillName,
           inputs: dryRunInputs,
           recordingId: manifest.recordingId,
-          variables: secretNames.map((name) => ({
+          variables: requestedNames.map((name) => ({
             name,
             runtime: true,
-            secret: true,
             supplied: false,
           })),
         },

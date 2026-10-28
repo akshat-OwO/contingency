@@ -129,7 +129,7 @@ it("summarizes active routes, state and latest Emulation without removed modific
   );
 });
 
-it("masks cookie values and redacts mock bodies before bounding UTF-8 evidence", () => {
+it("retains cookie values and mock bodies while bounding UTF-8 evidence", () => {
   const secret = 'private +"value"';
   const mock = modificationDescription(
     {
@@ -145,8 +145,8 @@ it("masks cookie values and redacts mock bodies before bounding UTF-8 evidence",
     },
     [secret]
   );
-  expect(mock).toContain("[sensitive input]");
-  expect(mock).not.toContain("private");
+  expect(mock).toContain(JSON.stringify(secret).slice(1, -1));
+  expect(mock).toContain("private");
   expect(Buffer.byteLength(mock)).toBeLessThan(2150);
   const cookie = modificationDescription(
     {
@@ -163,7 +163,7 @@ it("masks cookie values and redacts mock bodies before bounding UTF-8 evidence",
     },
     [secret]
   );
-  expect(cookie).toBe("Set cookie auth on example.test/: [redacted]");
+  expect(cookie).toBe(`Set cookie auth on example.test/: ${secret}`);
 });
 
 it.effect(

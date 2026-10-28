@@ -8,7 +8,7 @@ import { expect, it } from "@effect/vitest";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import { teachingEventsFor } from "../../src/services/teaching-recorder.ts";
 
-it("masks setup reflections in semantic evidence without declaring Flow Skill inputs", () => {
+it("retains setup reflections in semantic evidence without declaring Flow Skill inputs", () => {
   const values = new Set(["x7", "replaced-private-code"]);
   const url = "https://shop.test/x7/replaced-private-code";
   const capture = makeDemonstrationCapture(url, () => [...values]);
@@ -46,7 +46,7 @@ it("masks setup reflections in semantic evidence without declaring Flow Skill in
   const demonstration = capture.current();
   expect(demonstration.variables).toEqual([]);
   expect(demonstration.actions[0]?.action).toMatchObject({
-    text: "[sensitive input]",
+    text: "x7",
   });
   const events = teachingEventsFor(
     demonstration,
@@ -59,8 +59,8 @@ it("masks setup reflections in semantic evidence without declaring Flow Skill in
     at,
     "user"
   );
-  expect(JSON.stringify(events)).not.toContain("x7");
-  expect(JSON.stringify(events)).not.toContain("replaced-private-code");
+  expect(JSON.stringify(events)).toContain("x7");
+  expect(JSON.stringify(events)).toContain("replaced-private-code");
   values.clear();
   expect(capture.sensitiveValues()).toEqual([]);
 });

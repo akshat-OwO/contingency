@@ -15,11 +15,6 @@ import type {
 } from "@contingency/protocol";
 import { KeyframeHash } from "@contingency/protocol";
 
-import {
-  redactActionText,
-  redactAgentSnapshot,
-  redactKnownValues,
-} from "./agent-browser.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { Demonstration } from "./teaching-demonstration.ts";
 
@@ -41,7 +36,7 @@ const KEYFRAME_LIMIT = 400;
 const KEYFRAME_MIN_INTERVAL_MS = 750;
 /** How many URL transitions one Demonstration keeps. */
 const TRANSITION_LIMIT = 4000;
-/** Bound declarations and local-only masking state like captured actions. */
+/** Bound declarations and retained field associations like captured actions. */
 const VARIABLE_LIMIT = 2000;
 
 /**
@@ -55,6 +50,7 @@ export interface CapturedActionInput {
   readonly description: string;
   readonly detail?: string | undefined;
   readonly id: string;
+  readonly variableName?: string;
   readonly outcome: CapturedAction["outcome"];
   readonly snapshotAfter: AgentBrowserSnapshot | null;
   readonly snapshotBefore: AgentSnapshotId | null;
@@ -117,7 +113,7 @@ export interface DemonstrationCapture {
   /** Remember an observation so the next action has a `before` state. */
   readonly recordSnapshot: (snapshot: AgentBrowserSnapshot) => void;
   /**
-   * Record one best-effort-masked visual observation, attributed to the action
+   * Record one visual observation, attributed to the action
    * whose result it photographed when there is one.
    */
   readonly recordKeyframe: (
@@ -154,9 +150,9 @@ export interface DemonstrationCapture {
    * read before that capture would put Stop ahead of it.
    */
   readonly stopTime: (at: string) => string;
-  /** Values that keyframe and snapshot capture must mask, longest first. */
+  /** Legacy capture hook. Variable values are never masked. */
   readonly sensitiveValues: () => readonly string[];
-  /** Known private fields that keyframe capture must mask. */
+  /** Legacy capture hook. Variable fields are never masked. */
   readonly sensitiveSelectors: () => readonly string[];
 }
 
@@ -190,9 +186,20 @@ const gestureStart = (
   at: string
 ): string => previous?.at ?? at;
 
+const variableForAction = (
+  action: CapturedAction["action"],
+  values: ReadonlyMap<string, string>,
+  explicit: string | undefined
+): string | undefined => {
+  if (explicit !== undefined || action.type !== "fill") {
+    return explicit;
+  }
+  return [...values].find(([, value]) => action.text === value)?.[0];
+};
+
 export const makeDemonstrationCapture = (
   initialUrl: string,
-  externalSensitiveValues: () => readonly string[] = () => []
+  _externalSensitiveValues: () => readonly string[] = () => []
 ): DemonstrationCapture => {
   const actions: CapturedAction[] = [];
   const instructions: TeachingInstruction[] = [];
@@ -206,15 +213,9 @@ export const makeDemonstrationCapture = (
   const urlTransitions: Demonstration["urlTransitions"][number][] = [];
   const variables = new Map<string, Variable>();
   const privateValues = new Set<string>();
+  const variableValues = new Map<string, string>();
   const privateSelectors = new Set<string>();
-  const sensitiveValues = () =>
-    [...privateValues, ...externalSensitiveValues()].toSorted(
-      (left, right) => right.length - left.length
-    );
-  const redact = (text: string) => redactKnownValues(text, sensitiveValues());
-  const safeUrl = (url: string) => redact(sanitizeTeachingUrl(url));
-  const redactCapturedAction = (action: CapturedAction["action"]) =>
-    action.type === "input" ? action : redactActionText(action, redact);
+  const safeUrl = sanitizeTeachingUrl;
   let latestSnapshot: AgentSnapshotId | null = null;
   const startUrl = safeUrl(initialUrl);
   let currentUrl = startUrl;
@@ -236,7 +237,7 @@ export const makeDemonstrationCapture = (
 
   const recordSnapshot = (snapshot: AgentBrowserSnapshot): void => {
     snapshots.set(snapshot.snapshotId, {
-      ...redactAgentSnapshot(snapshot, sensitiveValues()),
+      ...snapshot,
       url: safeUrl(snapshot.url),
     });
     latestSnapshot = snapshot.snapshotId;
@@ -303,10 +304,10 @@ export const makeDemonstrationCapture = (
     }
     const coalesced = coalescedAction(input, previous);
     const capturedBase = {
-      action: redactCapturedAction(coalesced),
+      action: coalesced,
       actor: input.actor,
       at: gestureStart(previous, at),
-      description: redact(input.description),
+      description: input.description,
       id: previous?.id ?? input.id,
       outcome: input.outcome,
       snapshotAfter: input.snapshotAfter?.snapshotId ?? null,
@@ -314,10 +315,18 @@ export const makeDemonstrationCapture = (
       urlAfter: safeUrl(input.urlAfter),
       urlBefore: previous?.urlBefore ?? safeUrl(input.urlBefore),
     };
-    const captured: CapturedAction =
+    const captured: {
+      -readonly [K in keyof CapturedAction]: CapturedAction[K];
+    } =
       input.detail === undefined
         ? capturedBase
-        : { ...capturedBase, detail: redact(input.detail) };
+        : { ...capturedBase, detail: input.detail };
+    const variableName = variableForAction(
+      coalesced,
+      variableValues,
+      input.variableName
+    );
+    Object.assign(captured, { variableName });
     // The action is what moved the Page, so the transition it caused is
     // attributed to it even when the URL was noticed only afterwards.
     transition(safeUrl(input.urlBefore), at, null);
@@ -376,9 +385,7 @@ export const makeDemonstrationCapture = (
         (privateValues.has(value) || privateValues.size < VARIABLE_LIMIT) &&
         (privateSelectors.has(selector) ||
           privateSelectors.size < VARIABLE_LIMIT) &&
-        (existing === undefined ||
-          (existing.runtime === variable.runtime &&
-            existing.secret === variable.secret))
+        (existing === undefined || existing.runtime === variable.runtime)
       );
     },
     closeCoalescedAction: (snapshotAfter) => {
@@ -432,8 +439,8 @@ export const makeDemonstrationCapture = (
         at: eventTime(at),
         attachments: attachments ?? [],
         id: `instruction-${randomUUID()}`,
-        target: target === undefined ? null : redact(target),
-        text: redact(text),
+        target: target === undefined ? null : target,
+        text,
       };
       let instruction: TeachingInstruction =
         scan === undefined ? baseInstruction : { ...baseInstruction, scan };
@@ -444,7 +451,7 @@ export const makeDemonstrationCapture = (
             ...dialogue,
             proposal: {
               ...dialogue.proposal,
-              reason: redact(dialogue.proposal.reason),
+              reason: dialogue.proposal.reason,
             },
           };
         }
@@ -522,12 +529,14 @@ export const makeDemonstrationCapture = (
     recordSnapshot,
     recordUrl: (url, at) => transition(safeUrl(url), eventTime(at), null),
     recordVariable: (variable, value, selector) => {
-      variables.set(variable.name, variable);
+      const { secret: _secret, ...declaration } = variable;
+      variables.set(variable.name, declaration);
+      variableValues.set(variable.name, value);
       privateValues.add(value);
       privateSelectors.add(selector);
     },
-    sensitiveSelectors: () => [...privateSelectors],
-    sensitiveValues,
+    sensitiveSelectors: () => [],
+    sensitiveValues: () => [],
     stopTime: eventTime,
   };
 };

@@ -31,13 +31,7 @@ import type {
   PrivateInputTarget,
 } from "./agent-browser-contract.ts";
 import { networkQuietFor } from "./page-activity.ts";
-import {
-  SENSITIVE_AUTOCOMPLETE,
-  SENSITIVE_EXACT_FIELD_NAMES,
-  SENSITIVE_FIELD_METADATA,
-  SENSITIVE_FIELD_PHRASES,
-  sanitizeTeachingUrl,
-} from "./sensitive-data.ts";
+import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 
 /** How long one browser action or observation may take before it fails. */
 const ACTION_TIMEOUT_MS = 10_000;
@@ -66,32 +60,8 @@ const isIndex = (index: unknown): index is number =>
   typeof index === "number" && Number.isInteger(index) && index >= 0;
 
 /** Inputs whose values are never copied into a Browser Snapshot. */
-const SENSITIVE_INPUT_SELECTOR = [
-  '[type="password" i]',
-  '[autocomplete^="current-password"]',
-  '[autocomplete^="new-password"]',
-  '[autocomplete="one-time-code"]',
-  '[autocomplete^="cc-"]',
-  ...SENSITIVE_FIELD_PHRASES.flatMap((term) => [
-    `[name*="${term}" i]`,
-    `[id*="${term}" i]`,
-    `[aria-label*="${term}" i]`,
-  ]),
-  ...SENSITIVE_EXACT_FIELD_NAMES.flatMap((name) => [
-    `[name="${name}" i]`,
-    `[id="${name}" i]`,
-    `[aria-label="${name}" i]`,
-  ]),
-  ...["4", "5", "6", "7", "8"].flatMap((length) => [
-    `[inputmode="numeric"][maxlength="${length}"]`,
-    `[inputmode="decimal"][maxlength="${length}"]`,
-  ]),
-].join(",");
-
-/** A refused browser input, named by a reason that holds no private value. */
 class BrowserInputRefusedError extends Error {
   readonly reason: BrowserFailureReasonType;
-
   constructor(reason: BrowserFailureReasonType, message: string) {
     super(message);
     this.name = "BrowserInputRefusedError";
@@ -180,10 +150,6 @@ const PAGE_READING_PRELUDE = `
     reset: "Reset",
     submit: "Submit",
   };
-  const SENSITIVE_INPUT_SELECTOR = ${JSON.stringify(SENSITIVE_INPUT_SELECTOR)};
-  const SENSITIVE_AUTOCOMPLETE = new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, "iu");
-  const SENSITIVE_FIELD_METADATA = new RegExp(${JSON.stringify(SENSITIVE_FIELD_METADATA.source)}, "iu");
-  const SENSITIVE_EXACT_FIELD_NAMES = new Set(${JSON.stringify(SENSITIVE_EXACT_FIELD_NAMES)});
   // Markup that declares itself a control or a landmark. An SPA row that
   // carries its handler in script matches none of this, so it is found by
   // cursor instead.
@@ -209,47 +175,7 @@ const PAGE_READING_PRELUDE = `
     "TEMPLATE",
     "TITLE",
   ]);
-  const isSensitive = (element) => {
-    const metadataFields = [
-      element.getAttribute("name"),
-      element.getAttribute("id"),
-      element.getAttribute("aria-label"),
-    ]
-      .filter(Boolean)
-      .map((value) => value.trim().toLowerCase());
-    const metadata = metadataFields.join(" ");
-    const inputMode = element.getAttribute("inputmode")?.toLowerCase();
-    const maxLength = Number(element.getAttribute("maxlength"));
-    const looksLikeUnlabelledCode =
-      (inputMode === "numeric" || inputMode === "decimal") &&
-      Number.isInteger(maxLength) &&
-      maxLength >= 4 &&
-      maxLength <= 8;
-    return (
-      element.getAttribute("type")?.toLowerCase() === "password" ||
-      SENSITIVE_AUTOCOMPLETE.test(
-        element.getAttribute("autocomplete") || ""
-      ) ||
-      SENSITIVE_FIELD_METADATA.test(metadata) ||
-      metadataFields.some((value) => SENSITIVE_EXACT_FIELD_NAMES.has(value)) ||
-      looksLikeUnlabelledCode
-    );
-  };
-  const sensitiveValues = Array.from(
-    document.querySelectorAll('input,textarea,select,[role="textbox"]')
-  )
-    .filter(isSensitive)
-    .map((element) => element.value)
-    // Short segmented-code values are not safe global redaction tokens. A
-    // one-character OTP box must not rewrite every matching digit in the
-    // Page before Contingency can redact the complete declared Variable.
-    .filter((value) => typeof value === "string" && value.length >= 4)
-    .sort((left, right) => right.length - left.length);
-  const redactSensitive = (text) =>
-    sensitiveValues.reduce(
-      (redacted, value) => redacted.split(value).join("[sensitive input]"),
-      text
-    );
+  const redactSensitive = (text) => text;
   // One computed style per element: visibility and the cursor test below both
   // read it, and the cursor test reads the parent's as well.
   const styles = new Map();
@@ -952,7 +878,7 @@ const SNAPSHOT_SCRIPT = ({
   // Property-only edits and CSS layout changes need not create mutations.
   const signature = point ? null : JSON.stringify(eligible.map((element) => {
     const bounds = element.getBoundingClientRect();
-    return [accessibleName(element), isSensitive(element) ? null : element.value,
+    return [accessibleName(element), element.value,
       element.checked, element.disabled, bounds.x, bounds.y, bounds.width, bounds.height,
       access.get(element)?.blocker];
   }));
@@ -1044,11 +970,7 @@ const SNAPSHOT_SCRIPT = ({
       const value = element.tagName === "SELECT"
         ? Array.from(element.selectedOptions, (option) => option.label).join(", ")
         : element.value;
-      if (isSensitive(element)) {
-        if (value.length > 0) {
-          node.valueWithheld = true;
-        }
-      } else if (value.length > 0) {
+      if (value.length > 0) {
         node.value = value.slice(0, ${NAME_LIMIT});
       }
     }
@@ -1298,11 +1220,11 @@ export interface AgentElementRegistry {
    * by a reference that means nothing once the Snapshot is out of view.
    */
   readonly describe: (ref: string) => AgentActionSubject | undefined;
-  /** Determine whether a referenced control is known to contain sensitive data. */
+  /** Legacy classification hook. Journey controls have no privacy classification. */
   readonly isSensitive: (
     ref: string
   ) => Effect.Effect<boolean, BrowserRpcErrorType>;
-  /** Document-local selectors for entering and masking a private field. */
+  /** Document-local selectors for entering a named Variable. */
   readonly privateSelector: (
     ref: string,
     segmentCount?: number
@@ -1731,61 +1653,6 @@ export const makeAgentElementRegistry = (
     );
   };
 
-  const isSensitive = (
-    ref: string
-  ): Effect.Effect<boolean, BrowserRpcErrorType> =>
-    resolve(ref).pipe(
-      Effect.flatMap((element) =>
-        Effect.tryPromise({
-          catch: (cause) =>
-            browserFailure("Could not inspect the referenced control", cause),
-          try: () =>
-            element.evaluate(
-              (candidate, patterns) => {
-                const metadataFields = [
-                  candidate.getAttribute("name"),
-                  candidate.getAttribute("id"),
-                  candidate.getAttribute("aria-label"),
-                ]
-                  .filter(Boolean)
-                  .map((value) => value.trim().toLowerCase());
-                const metadata = metadataFields.join(" ");
-                const autocomplete =
-                  candidate.getAttribute("autocomplete") ?? "";
-                const inputMode = candidate
-                  .getAttribute("inputmode")
-                  ?.toLowerCase();
-                const maxLength = Number(candidate.getAttribute("maxlength"));
-                const sensitiveMetadata = new RegExp(patterns.metadata, "iu");
-                const sensitiveAutocomplete = new RegExp(
-                  patterns.autocomplete,
-                  "iu"
-                );
-                const exactNames = new Set(patterns.exactNames);
-                const looksLikeUnlabelledCode =
-                  (inputMode === "numeric" || inputMode === "decimal") &&
-                  Number.isInteger(maxLength) &&
-                  maxLength >= 4 &&
-                  maxLength <= 8;
-                return (
-                  candidate.getAttribute("type")?.toLowerCase() ===
-                    "password" ||
-                  sensitiveAutocomplete.test(autocomplete) ||
-                  sensitiveMetadata.test(metadata) ||
-                  metadataFields.some((value) => exactNames.has(value)) ||
-                  looksLikeUnlabelledCode
-                );
-              },
-              {
-                autocomplete: SENSITIVE_AUTOCOMPLETE.source,
-                exactNames: [...SENSITIVE_EXACT_FIELD_NAMES],
-                metadata: SENSITIVE_FIELD_METADATA.source,
-              }
-            ),
-        })
-      )
-    );
-
   const focusedRef = (): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
     focused === undefined
       ? Effect.fail(
@@ -2057,7 +1924,7 @@ export const makeAgentElementRegistry = (
     focusedRef,
     hasFocus,
     inspect,
-    isSensitive,
+    isSensitive: (_ref) => Effect.succeed(false),
     pointElement,
     pointRef,
     privateSelector,
@@ -2068,78 +1935,7 @@ export const makeAgentElementRegistry = (
   };
 };
 
-const REDACTED = "[sensitive input]";
-
-export const redactKnownValues = (
-  text: string,
-  values: readonly string[]
-): string => {
-  if (values.includes(text)) {
-    return REDACTED;
-  }
-  let redacted = text;
-  for (const value of values) {
-    if (value.length === 0) {
-      continue;
-    }
-    redacted = redacted.split(value).join(REDACTED);
-  }
-  return redacted;
-};
-
-/**
- * A control's own value is redacted whenever it is any part of a known private
- * value, not only the whole of it. Split one-time-code inputs hold one
- * character each, so the digit-per-box form of a declared Variable is
- * reassembleable even when no control holds the full value. Over-redacting a public
- * control that happens to hold a segment of a secret is the safe direction.
- */
-const redactControlValue = (
-  value: string,
-  values: readonly string[]
-): string => {
-  if (value.length === 0) {
-    return value;
-  }
-  return values.some((known) => known.includes(value))
-    ? REDACTED
-    : redactKnownValues(value, values);
-};
-
-/** Remove session-known private values from every textual Snapshot field. */
-export const redactAgentSnapshot = (
-  snapshot: AgentBrowserSnapshot,
-  values: readonly string[]
-): AgentBrowserSnapshot => ({
-  ...snapshot,
-  nodes: snapshot.nodes.map((node) => {
-    const redacted = {
-      ...node,
-      name: redactKnownValues(node.name, values),
-    };
-    if (node.blockedBy !== undefined && node.blockedBy !== null) {
-      redacted.blockedBy = {
-        ...node.blockedBy,
-        name: redactKnownValues(node.blockedBy.name, values),
-      };
-    }
-    if (node.context !== undefined) {
-      redacted.context = redactKnownValues(node.context, values);
-    }
-    if (node.url !== undefined) {
-      redacted.url = redactKnownValues(node.url, values);
-    }
-    if (node.value === undefined) {
-      return redacted;
-    }
-    const value = redactControlValue(node.value, values);
-    return value === node.value
-      ? { ...redacted, value }
-      : { ...redacted, value, valueWithheld: true };
-  }),
-  title: redactKnownValues(snapshot.title, values),
-  url: redactKnownValues(snapshot.url, values),
-});
+/** Variables remain readable in all browser evidence. */
 
 export const captureAgentScreenshot = (
   page: Page,
@@ -2147,65 +1943,11 @@ export const captureAgentScreenshot = (
     mask: readonly Locator[]
   ) => Effect.Effect<Buffer, BrowserRpcErrorType>,
   now: () => Date = () => new Date(),
-  maskSensitive = false,
-  privateValues: readonly string[] = [],
-  privateSelectors: readonly string[] = []
+  _maskSensitive = false,
+  _privateValues: readonly string[] = [],
+  _privateSelectors: readonly string[] = []
 ): Effect.Effect<AgentScreenshot, BrowserRpcErrorType> =>
-  Effect.tryPromise({
-    catch: (cause) => browserFailure("Could not capture a screenshot", cause),
-    try: async (): Promise<readonly Locator[]> => {
-      if (!maskSensitive) {
-        return [];
-      }
-      const controls = page.locator(
-        'input,textarea,select,[contenteditable=""],[contenteditable="true"],[role="textbox"]'
-      );
-      const privateIndexes =
-        privateValues.length === 0
-          ? []
-          : await controls.evaluateAll((elements, values) => {
-              const known = new Set(values);
-              return elements.flatMap((element, index) => {
-                const value =
-                  "value" in element
-                    ? String(element.value)
-                    : (element.textContent ?? "");
-                return known.has(value) ? [index] : [];
-              });
-            }, privateValues);
-      const textElements = page.locator("body *");
-      // Free page text is scanned only for values long enough to be a
-      // meaningful match. A one-character Variable would otherwise black out
-      // most of a Teaching screenshot; its control is already masked above.
-      const textValues = privateValues.filter((value) => value.length >= 4);
-      const privateTextIndexes =
-        textValues.length === 0
-          ? []
-          : await textElements.evaluateAll(
-              (elements, values) =>
-                elements.flatMap((element, index) => {
-                  const textParts: string[] = [];
-                  for (const node of element.childNodes) {
-                    if (node.nodeType === 3) {
-                      textParts.push(node.textContent ?? "");
-                    }
-                  }
-                  const ownText = textParts.join(" ");
-                  return values.some((value) => ownText.includes(value))
-                    ? [index]
-                    : [];
-                }),
-              textValues
-            );
-      return [
-        page.locator(SENSITIVE_INPUT_SELECTOR),
-        ...privateSelectors.map((selector) => page.locator(selector)),
-        ...privateIndexes.map((index) => controls.nth(index)),
-        ...privateTextIndexes.map((index) => textElements.nth(index)),
-      ];
-    },
-  }).pipe(
-    Effect.flatMap(capture),
+  capture([]).pipe(
     Effect.map((image) => ({
       capturedAt: now().toISOString(),
       encoding: "base64" as const,
@@ -3190,8 +2932,8 @@ const enterPrivateVariable = (
 /**
  * Enter one private Variable and prove that the target controls accepted it.
  * A comma-separated selector represents a split input such as six OTP boxes.
- * Succeeds with the selector of the controls that hold the value, so masking
- * and replay cover every box a page spread the value across.
+ * Succeeds with the selector of the controls that hold the value, so replay
+ * covers every box a page spread the value across.
  */
 export const performPrivateVariableInput = (
   page: Page,

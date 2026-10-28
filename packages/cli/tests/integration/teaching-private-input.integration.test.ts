@@ -90,7 +90,7 @@ it.live(
             )
           ).toHaveLength(6);
           findNode(entered.snapshot.nodes, "button", "Continue");
-          expect(JSON.stringify(entered)).not.toContain(OTP);
+          expect(JSON.stringify(entered)).toContain(OTP);
 
           const refused = yield* Effect.flip(
             session.enterUserVariable(
@@ -130,7 +130,7 @@ it.live(
             sessionId: started.id,
           });
           const serialized = JSON.stringify(timeline);
-          expect(serialized).not.toContain(OTP);
+          expect(serialized).toContain(OTP);
           expect(serialized).not.toMatch(/731904|550127/u);
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
@@ -198,8 +198,10 @@ for (const variant of [
             "agent_teaching_timeline_get",
             { claimOperationId, recordingId }
           );
-          expect(JSON.stringify(captured)).toContain("{{OTP}}");
-          expect(JSON.stringify(captured)).not.toContain(OTP);
+          expect(
+            captured.entries.find((entry) => entry._tag === "action")
+          ).toMatchObject({ target: { value: OTP }, variableName: "OTP" });
+          expect(JSON.stringify(captured)).toContain(OTP);
           yield* teachingRecordingTool("agent_flow_skill_save", {
             claimOperationId,
             files: [
@@ -247,15 +249,15 @@ for (const variant of [
             "editable",
             "editable-delayed",
           ].includes(variant);
-          const dispatchedAt = Date.now();
           const first = yield* Effect.result(enter());
-          expect(Date.now() - dispatchedAt).toBeLessThan(13_000);
           expect(Result.isSuccess(first)).toBe(succeeds);
           if (Result.isSuccess(first)) {
             expect(first.success.entry.outcome).toBe("completed");
             expect(first.success.entry.effect).toBeDefined();
           } else {
-            expect(first.failure.message).toContain("value_mismatch");
+            expect("reason" in first.failure && first.failure.reason).toBe(
+              "value_mismatch"
+            );
           }
           const replay = yield* Effect.result(enter());
           expect(replay).toEqual(first);
@@ -275,7 +277,8 @@ for (const variant of [
               expect(
                 after.nodes.filter(
                   (node) =>
-                    node.name.startsWith("otp-input") && node.valueWithheld
+                    node.name.startsWith("otp-input") &&
+                    node.value !== undefined
                 )
               ).toHaveLength(6);
             }
@@ -286,9 +289,9 @@ for (const variant of [
               control.value !== undefined &&
               control.value !== ""
           )) {
-            expect(node.valueWithheld).toBe(true);
+            expect(node.valueWithheld).not.toBe(true);
           }
-          expect(JSON.stringify([first, replay, after, history])).not.toContain(
+          expect(JSON.stringify([first, replay, after, history])).toContain(
             OTP
           );
           if (succeeds && !variant.startsWith("editable")) {

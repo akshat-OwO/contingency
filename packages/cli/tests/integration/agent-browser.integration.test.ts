@@ -1276,7 +1276,7 @@ it.live(
         truncated: false,
       });
       findNode(scoped.nodes, "paragraph", "Total amount: 24.00");
-      expect(JSON.stringify(scoped)).not.toContain("fixture-private-cart-code");
+      expect(JSON.stringify(scoped)).toContain("fixture-private-cart-code");
       const missing = yield* Effect.flip(
         callTool("agent_browser_snapshot", {
           selector: "#missing",
@@ -1309,8 +1309,8 @@ it.live(
       });
       expect(text.nodes).toEqual([]);
       expect(text.text).toContain('paragraph "Total amount: 24.00"');
-      expect(text.text).toContain("value withheld");
-      expect(JSON.stringify(text)).not.toContain("fixture-private-cart-code");
+      expect(text.text).toContain("fixture-private-cart-code");
+      expect(JSON.stringify(text)).toContain("fixture-private-cart-code");
       const ref = text.text?.match(/@(?<ref>e\d+) button "Change quantity"/u)
         ?.groups?.["ref"];
       expect(ref).toBeDefined();

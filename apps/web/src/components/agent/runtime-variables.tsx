@@ -27,7 +27,7 @@ export const RuntimeVariables = ({
   return (
     <WorkspaceVariables
       collapse={collapse}
-      description="Supply or refuse private inputs here. The agent sees their status, never their values."
+      description="Supply or refuse Variables here. Values are visible in journey evidence."
       heading="Runtime Variables"
       session={session}
     />

@@ -124,11 +124,6 @@ import type {
   AgentBrowserFactory,
   PrivateInputTarget,
 } from "./agent-browser-contract.ts";
-import {
-  redactAgentSnapshot,
-  redactActionText,
-  redactKnownValues,
-} from "./agent-browser.ts";
 import { AGENT_RUNS_DIRECTORY, AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
@@ -142,7 +137,6 @@ import {
   boundedDevtoolsText,
   filterDevtoolsRequests,
   redactDevtoolsRequest,
-  redactDevtoolsText,
 } from "./browser-devtools.ts";
 import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
 import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
@@ -154,7 +148,7 @@ import {
   modificationKind,
   modificationRefusal,
 } from "./browser-modifications.ts";
-import { redactProfile } from "./browser-page-tools.ts";
+import { parseProfile } from "./browser-page-tools.ts";
 import { makeChromiumAgentBrowser } from "./chromium-agent-browser.ts";
 import { CreateBrowser } from "./create-browser-contract.ts";
 import type {
@@ -273,8 +267,8 @@ export interface AgentSessionStartInput {
     | {
         readonly flowSkillName: FlowSkillName;
         /**
-         * The inputs the rehearsal runs with, already masked: a secret input
-         * carries a `null` value so no literal reaches the session snapshot.
+         * The inputs the rehearsal runs with. An input without a startup value
+         * carries `null` until it is supplied in Workspace.
          */
         readonly inputs: readonly {
           readonly changed: boolean;
@@ -933,43 +927,12 @@ const privateInputFingerprint = (
     variable: input.variable,
   });
 
-const variableReference = (name: string): string => `{{${name}}}`;
-
-/**
- * Every private value this session knows: what the Demonstration captured
- * during Teaching, and what the user supplied to a Run. A Run keeps no
- * Demonstration, so without the supplied literals its Snapshots would hand the
- * agent back the value the user typed privately.
- */
-const sessionSensitiveValues = (record: SessionRecord): readonly string[] =>
-  [
-    ...new Set([
-      ...(record.capture?.sensitiveValues() ?? []),
-      ...record.supplied.values(),
-      ...record.replacedSensitiveValues,
-      ...record.setupSensitiveValues,
-    ]),
-  ].toSorted((left, right) => right.length - left.length);
-
-/**
- * Drops supplied values for replacement while keeping them redacted. The Page
- * can still show a replaced value, such as an unsubmitted OTP field.
- */
+/** Invalidate supplied values when their Variable is requested again. */
 const retireSupplied = (record: SessionRecord, keys: readonly string[]) => {
   for (const key of keys) {
-    const value = record.supplied.get(key);
-    if (value !== undefined) {
-      record.replacedSensitiveValues.add(value);
-    }
     record.supplied.delete(key);
   }
 };
-
-const redactCapturedSnapshot = (
-  record: SessionRecord,
-  snapshot: AgentBrowserSnapshot
-): AgentBrowserSnapshot =>
-  redactAgentSnapshot(snapshot, sessionSensitiveValues(record));
 
 /**
  * Whether agent action tools are disabled. They are while the user holds the
@@ -1154,83 +1117,27 @@ const TYPING_BURST_IDLE_MS = 750;
 /** How long scrolling pauses before its gesture's photograph is taken. */
 export const SCROLL_PAUSE_MS = 200;
 
-/** Keep public Teaching records free of credentials and sensitive URL values. */
+/** Normalize navigation URLs in recorded actions. */
 const sanitizeTeachingAction = <A extends AgentBrowserAction>(action: A): A =>
   action.type === "navigate"
     ? ({ ...action, url: sanitizeTeachingUrl(action.url) } satisfies A)
     : action;
 
-/** What a private control's value reads as anywhere it is recorded. */
-const SENSITIVE_INPUT = "[sensitive input]";
-
-const sanitizeSensitiveAction = (
-  action: AgentBrowserAction,
-  sensitive: boolean
-): AgentBrowserAction => {
-  if (!sensitive) {
-    return sanitizeTeachingAction(action);
-  }
-  switch (action.type) {
-    case "fill": {
-      return { ...action, text: SENSITIVE_INPUT };
-    }
-    case "select": {
-      return { ...action, values: [SENSITIVE_INPUT] };
-    }
-    case "press": {
-      return { ...action, key: SENSITIVE_INPUT };
-    }
-    default: {
-      return action;
-    }
-  }
-};
-
-/**
- * The value a user edit left in the focused control. A private control's
- * Snapshot node never carries its value, only whether it holds one, so its
- * edit reads as the redaction placeholder: the step stays a readable fill and
- * the secret never enters the record.
- */
-const editedValue = (
-  node: AgentSnapshotNode | undefined,
-  sensitive: boolean
-): string | undefined => {
-  if (node === undefined || !sensitive) {
-    return node?.value ?? undefined;
-  }
-  return node.valueWithheld === true ? SENSITIVE_INPUT : "";
-};
-
 /**
  * Describe an attempt by what it acted on. The description is read long after
  * the Snapshot that minted the reference is gone, so the control's role and
  * accessible name are resolved now, while the reference still means something.
- *
- * Redaction runs field by field before the label is assembled. A description
- * is a sentence built from truncated fragments, so redacting the finished
- * sentence would look for a private literal that a length limit had already
- * cut in half, and leave its surviving prefix on the timeline.
  */
 export const describeCapturedAction = (
   subject: AgentActionSubject | undefined,
   action: AgentBrowserAction,
   intent: AgentActionIntent,
-  privateValues: readonly string[]
-): string => {
-  const redact = (text: string): string =>
-    privateValues.length === 0 ? text : redactKnownValues(text, privateValues);
-  return describeAgentAction(redactActionText(action, redact), {
-    objective:
-      intent.objective === undefined || intent.objective === null
-        ? undefined
-        : redact(intent.objective),
-    subject:
-      subject === undefined
-        ? undefined
-        : { name: redact(subject.name), role: subject.role },
+  _privateValues: readonly string[]
+): string =>
+  describeAgentAction(action, {
+    objective: intent.objective ?? undefined,
+    subject,
   });
-};
 
 /**
  * How a click reads when the tree recorded beside it does not describe the
@@ -1364,11 +1271,6 @@ const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
 
 const TIMELINE_LIMIT = 200;
 const SETUP_VARIABLE_LIMIT = 64;
-/**
- * Retired values must keep masking Page reflections until the session closes.
- * Bound that per-field scan even when an agent repeatedly replaces a code.
- */
-const SETUP_PRIVATE_VALUE_LIMIT = 256;
 const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
 /**
@@ -1441,13 +1343,9 @@ interface SessionRecord {
   readonly scope: Scope.Closeable;
   readonly snapshot: AgentSessionSnapshot;
   /**
-   * Runtime Variable values the user supplied to this Run. They live for the
-   * session and are never published, persisted, or returned.
+   * Runtime Variable values supplied to this Run, reused until replacement or closure.
    */
   readonly supplied: Map<string, string>;
-  /** Replaced supplied values, still redacted for the rest of the session. */
-  readonly replacedSensitiveValues: Set<string>;
-  readonly setupSensitiveValues: Set<string>;
   /** Start-scoped capture resources. Absent during setup and after Stop. */
   readonly teachingRecorder: TeachingRecorder | undefined;
   /** The local sensitive-artifact retention manifest. */
@@ -1505,12 +1403,6 @@ interface TypingBurst {
 interface FocusedTextControl {
   readonly node: AgentSnapshotNode;
   readonly ref: AgentElementRef;
-  readonly sensitive: boolean;
-  /**
-   * The private control's value as a digest. Its node withholds the value, so
-   * this is what shows whether a keystroke changed it.
-   */
-  readonly valueDigest: string | undefined;
 }
 
 const boundaryAuthority = (run: AgentSessionSnapshot["run"]) => {
@@ -1601,9 +1493,9 @@ const variablePendingDecisions = (
             pendingDecisionId: AgentPendingDecisionId.make(
               `pending-${randomUUID()}`
             ),
-            scopeSummary: `Supply runtime Variable ${variable.name}${variable.secret ? " (secret)" : ""} for this Run. The value stays on this machine and never reaches you or the Run artifacts.`,
+            scopeSummary: `Supply runtime Variable ${variable.name} for this Run. The value is visible in session and Run evidence.`,
             sessionId: snapshot.id,
-            variable: { name: variable.name, secret: variable.secret },
+            variable: { name: variable.name },
           },
         ]
       : []
@@ -1904,11 +1796,7 @@ const makeAgentSession = (
           return;
         }
         const keyframe = yield* page
-          .screenshot(
-            true,
-            sessionSensitiveValues(record),
-            capture.sensitiveSelectors()
-          )
+          .screenshot(true, [], capture.sensitiveSelectors())
           .pipe(Effect.option);
         if (Option.isSome(keyframe)) {
           capture.recordKeyframe(keyframe.value, actionId);
@@ -2063,10 +1951,7 @@ const makeAgentSession = (
       currentUrl: string
     ): Effect.Effect<AgentSessionSnapshot | undefined> =>
       mutate(sessionId, (snapshot) => {
-        const safeCurrentUrl = redactKnownValues(
-          sanitizeTeachingUrl(currentUrl),
-          sessionSensitiveValues(record)
-        );
+        const safeCurrentUrl = sanitizeTeachingUrl(currentUrl);
         if (snapshot.currentUrl === safeCurrentUrl) {
           return snapshot;
         }
@@ -2451,11 +2336,7 @@ const makeAgentSession = (
             Effect.flatMap((page) =>
               page.snapshotAfter(page.url()).pipe(
                 Effect.tap((snapshot) =>
-                  Effect.sync(() =>
-                    capture.closeCoalescedAction(
-                      redactCapturedSnapshot(record, snapshot)
-                    )
-                  )
+                  Effect.sync(() => capture.closeCoalescedAction(snapshot))
                 ),
                 Effect.flatMap(() =>
                   openActionId === undefined
@@ -2864,7 +2745,7 @@ const makeAgentSession = (
           }
           const capture = makeDemonstrationCapture(
             record.snapshot.currentUrl,
-            () => [...record.setupSensitiveValues]
+            () => []
           );
           const recorderScope = yield* Scope.make("sequential");
           yield* Scope.addFinalizer(
@@ -3127,7 +3008,6 @@ const makeAgentSession = (
             variable: {
               name: declared.name,
               runtime: declared.runtime,
-              secret: declared.secret,
             },
           };
     };
@@ -3193,14 +3073,12 @@ const makeAgentSession = (
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
         const record = Ref.getUnsafe(sessions).get(sessionId);
-        const values =
-          record === undefined ? [] : sessionSensitiveValues(record);
         const entry = {
           ...rawEntry,
-          description: redactKnownValues(rawEntry.description, values),
+          description: rawEntry.description,
         };
         if (rawEntry.detail !== undefined) {
-          entry.detail = redactKnownValues(rawEntry.detail, values);
+          entry.detail = rawEntry.detail;
         }
         // The entry joins the timeline as it stands now: an action that ran
         // while control changed hands records what it did without undoing the
@@ -3210,10 +3088,7 @@ const makeAgentSession = (
             ? patch
             : {
                 ...patch,
-                currentUrl: redactKnownValues(
-                  sanitizeTeachingUrl(patch.currentUrl),
-                  record === undefined ? [] : sessionSensitiveValues(record)
-                ),
+                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
               };
         if (record !== undefined && entry.dispatched) {
           noteRunEvidence(record, "attempt", entry.id);
@@ -3400,7 +3275,7 @@ const makeAgentSession = (
           directory: downloadDirectory(record),
           index,
           requests,
-          secrets: sessionSensitiveValues(record),
+          secrets: [],
         }).pipe(
           Effect.provideService(
             FileSystem.FileSystem,
@@ -3440,7 +3315,7 @@ const makeAgentSession = (
       urlBefore: string
     ): Effect.Effect<AgentBrowserSnapshot, AgentSessionError> =>
       page.snapshotAfter(urlBefore).pipe(
-        Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
+        Effect.map((snapshot) => snapshot),
         Effect.tap((snapshot) =>
           Effect.sync(() =>
             noteRunEvidence(record, "snapshot", snapshot.snapshotId)
@@ -3461,7 +3336,7 @@ const makeAgentSession = (
         Effect.map(({ effect, snapshot }) => ({
           effect:
             action.type === "wait_for_text" ? undefined : (effect ?? undefined),
-          snapshot: redactCapturedSnapshot(record, snapshot),
+          snapshot,
         })),
         Effect.tap(({ snapshot }) =>
           Effect.sync(() =>
@@ -3652,12 +3527,9 @@ const makeAgentSession = (
             description:
               subject === undefined
                 ? "element"
-                : redactKnownValues(
-                    `${subject.role}${
-                      subject.name === "" ? "" : `: ${subject.name}`
-                    }`,
-                    sessionSensitiveValues(record)
-                  ),
+                : `${subject.role}${
+                    subject.name === "" ? "" : `: ${subject.name}`
+                  }`,
             height: located.rectangle.height,
             ref: located.ref,
             width: located.rectangle.width,
@@ -3926,7 +3798,6 @@ const makeAgentSession = (
                             }),
                       finalized: makeRunFinalizationState(),
                       footage,
-                      replacedSensitiveValues: new Set<string>(),
                       retentionFile,
                       runEvidence: {
                         attempts: new Set(),
@@ -3937,7 +3808,6 @@ const makeAgentSession = (
                       scope: sessionScope,
                       screenshots: { directory: undefined },
                       scroll: { burst: undefined },
-                      setupSensitiveValues: new Set<string>(),
                       snapshot: base,
                       supplied: new Map<string, string>(),
                       teachingRecorder: undefined,
@@ -3951,8 +3821,6 @@ const makeAgentSession = (
                         if (record.snapshot.activity === "teaching") {
                           record.supplied.clear();
                         }
-                        record.replacedSensitiveValues.clear();
-                        record.setupSensitiveValues.clear();
                       }).pipe(
                         Effect.andThen(ledger.releaseSession(sessionId)),
                         Effect.andThen(modifications.dispose(sessionId))
@@ -4041,7 +3909,7 @@ const makeAgentSession = (
       page: AgentBrowserTab
     ) =>
       Effect.gen(function* observeFocusedControl() {
-        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
+        const snapshot = yield* page.snapshot();
         recordingCapture(record)?.recordSnapshot(snapshot);
         const ref = yield* record.agentBrowser.focusedRef();
         const node = snapshot.nodes.find((candidate) => candidate.ref === ref);
@@ -4053,15 +3921,10 @@ const makeAgentSession = (
             )
           );
         }
-        const sensitive = yield* record.agentBrowser.isSensitive(ref);
         return {
           node,
           ref,
-          sensitive,
           snapshot,
-          valueDigest: sensitive
-            ? yield* record.agentBrowser.valueDigest(ref)
-            : undefined,
         };
       });
 
@@ -4072,7 +3935,7 @@ const makeAgentSession = (
       y: number
     ) =>
       Effect.gen(function* observeUserClickTarget() {
-        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
+        const snapshot = yield* page.snapshot();
         recordingCapture(record)?.recordSnapshot(snapshot);
         return {
           ref: yield* record.agentBrowser.pointRef(x, y),
@@ -4085,20 +3948,6 @@ const makeAgentSession = (
      * compared by digest, since its placeholder reads the same after every
      * keystroke; a digest that cannot be read counts as no change.
      */
-    const valueChanged = (
-      record: SessionRecord,
-      focused: FocusedTextControl,
-      refAfter: AgentElementRef,
-      value: string
-    ): Effect.Effect<boolean> =>
-      focused.sensitive
-        ? observedOrNothing(record.agentBrowser.valueDigest(refAfter)).pipe(
-            Effect.map(
-              (digest) => digest !== undefined && digest !== focused.valueDigest
-            )
-          )
-        : Effect.succeed(value !== focused.node.value);
-
     const semanticUserEdit = (
       record: SessionRecord,
       page: AgentBrowserTab,
@@ -4131,18 +3980,14 @@ const makeAgentSession = (
         if (refAfter === undefined) {
           return;
         }
-        const value = editedValue(
-          observed.nodes.find((candidate) => candidate.ref === refAfter),
-          focused.sensitive
-        );
+        const value = observed.nodes.find(
+          (candidate) => candidate.ref === refAfter
+        )?.value;
         // A fill is the field's value changing. Keys that left the value as it
         // was — Enter in a single-line field, a Backspace in an empty one — are
         // not an edit, so they end the fill and are recorded as the key presses
         // they were.
-        if (
-          value === undefined ||
-          !(yield* valueChanged(record, focused, refAfter, value))
-        ) {
+        if (value === undefined || value === focused.node.value) {
           return;
         }
         const action = { ref: focused.ref, text: value, type: "fill" as const };
@@ -4186,7 +4031,7 @@ const makeAgentSession = (
       page: AgentBrowserTab
     ) =>
       Effect.gen(function* observeScrollOriginTree() {
-        const snapshot = redactCapturedSnapshot(record, yield* page.snapshot());
+        const snapshot = yield* page.snapshot();
         recordingCapture(record)?.recordSnapshot(snapshot);
         return snapshot;
       });
@@ -4892,9 +4737,7 @@ const makeAgentSession = (
         const urlBefore = page.url();
         const capture = recordingCapture(record);
         if (capture !== undefined) {
-          capture.recordSnapshot(
-            redactCapturedSnapshot(record, yield* page.snapshot())
-          );
+          capture.recordSnapshot(yield* page.snapshot());
         }
         const snapshotBefore =
           recordingCapture(record)?.latestSnapshotId() ?? null;
@@ -4992,10 +4835,7 @@ const makeAgentSession = (
           )
         );
         record.control.inFlight = {
-          action:
-            privateRegistration === undefined
-              ? capturedAction
-              : sanitizeSensitiveAction(action, true),
+          action: privateRegistration === undefined ? capturedAction : action,
           description,
           fiber,
           id,
@@ -5040,7 +4880,7 @@ const makeAgentSession = (
         const cause = Cause.findErrorOption(exit.cause);
         const detail = sanitizeFailureDetail(
           action,
-          sensitive,
+          false,
           Option.isSome(cause) ? cause.value : undefined
         );
         const failedAt = now().toISOString();
@@ -5048,10 +4888,7 @@ const makeAgentSession = (
         // where the browser actually is rather than where it last succeeded.
         const urlAfter = page.url();
         recordingCapture(record)?.recordAction({
-          action:
-            privateRegistration === undefined
-              ? capturedAction
-              : sanitizeSensitiveAction(action, true),
+          action: privateRegistration === undefined ? capturedAction : action,
           actor: "agent",
           at: failedAt,
           description: failedDescription,
@@ -5135,18 +4972,10 @@ const makeAgentSession = (
               );
             }
             const page = yield* record.agentBrowser.active();
-            const sensitive =
-              privateCapture !== undefined ||
-              ("ref" in action && action.ref !== undefined
-                ? yield* record.agentBrowser.isSensitive(action.ref)
-                : false);
-            const capturedAction =
-              privateCapture?.action ??
-              sanitizeSensitiveAction(action, sensitive);
+            const sensitive = false;
+            const capturedAction = sanitizeTeachingAction(action);
             const privateValues =
-              privateCapture === undefined
-                ? sessionSensitiveValues(record)
-                : [...sessionSensitiveValues(record), privateCapture.value];
+              privateCapture === undefined ? [] : [privateCapture.value];
             const description = describeCapturedAction(
               actionSubject(record.agentBrowser, capturedAction),
               capturedAction,
@@ -5158,7 +4987,7 @@ const makeAgentSession = (
                 ? description
                 : describeCapturedAction(
                     actionSubject(record.agentBrowser, action),
-                    sanitizeSensitiveAction(action, true),
+                    action,
                     intent,
                     privateValues
                   );
@@ -5207,7 +5036,7 @@ const makeAgentSession = (
                     description,
                     failedDescription,
                     id,
-                    sensitive,
+                    false,
                     {
                       intent,
                       onDispatch: Effect.gen(function* spendActionAttempt() {
@@ -5258,11 +5087,7 @@ const makeAgentSession = (
           );
           return outcome.success;
         }
-        const current = Ref.getUnsafe(sessions).get(sessionId);
-        const message = redactKnownValues(
-          outcome.failure.message,
-          current === undefined ? [] : sessionSensitiveValues(current)
-        );
+        const { message } = outcome.failure;
         const failure =
           outcome.failure._tag === "BrowserRpcError"
             ? makeBrowserRpcError(
@@ -5340,16 +5165,7 @@ const makeAgentSession = (
           );
         }
         if (input.value !== null) {
-          if (record.setupSensitiveValues.size >= SETUP_PRIVATE_VALUE_LIMIT) {
-            return yield* Effect.fail(
-              error(
-                "agent_session_invalid",
-                "This setup has reached its private-value limit. Start another session."
-              )
-            );
-          }
           record.supplied.set(variableKey(existing.name), input.value);
-          record.setupSensitiveValues.add(input.value);
         }
         variables[variables.indexOf(existing)] = {
           ...existing,
@@ -5576,7 +5392,7 @@ const makeAgentSession = (
                 description: supply
                   ? `Supplied Variable ${name}`
                   : `Refused to supply Variable ${name}`,
-                detail: pending.variable.secret ? "secret Variable" : name,
+                detail: value ?? name,
                 dispatched: false,
                 id: randomUUID(),
                 outcome: supply ? "completed" : "refused",
@@ -5683,26 +5499,20 @@ const makeAgentSession = (
           yield* afterUserInput(sessionId, Effect.void);
           const page = yield* record.agentBrowser.active();
           if (input.ref === undefined) {
-            const observed = redactCapturedSnapshot(
-              record,
-              yield* page.snapshot()
-            );
+            const observed = yield* page.snapshot();
             capture.recordSnapshot(observed);
           }
           const ref = AgentElementRef.make(
             input.ref ?? (yield* record.agentBrowser.focusedRef())
           );
           const action = { ref, text: input.value, type: "fill" as const };
-          const capturedAction = {
-            ...action,
-            text: variableReference(input.variable.name),
-          };
+          const capturedAction = action;
           const subject = actionSubject(record.agentBrowser, action);
           const target =
             subject === undefined
               ? "an unidentified control"
               : describeActionSubject(subject);
-          const description = `Enter Variable ${input.variable.name} in ${target}`;
+          const description = `Enter Variable ${input.variable.name}: ${input.value} in ${target}`;
           const id = `user-variable-${randomUUID()}`;
           const urlBefore = page.url();
           const snapshotBefore = capture.latestSnapshotId();
@@ -5749,6 +5559,7 @@ const makeAgentSession = (
                   snapshotBefore,
                   urlAfter: page.url(),
                   urlBefore,
+                  variableName: input.variable.name,
                 });
                 yield* captureTeachingKeyframe(
                   record,
@@ -5781,6 +5592,7 @@ const makeAgentSession = (
             snapshotBefore,
             urlAfter: executed.url,
             urlBefore,
+            variableName: input.variable.name,
           });
           yield* captureTeachingKeyframe(record, page, captured.id, at);
           yield* recordEntry(sessionId, entry, { currentUrl: executed.url });
@@ -6224,7 +6036,7 @@ const makeAgentSession = (
               ],
               undefined,
               undefined,
-              sessionSensitiveValues(record)
+              []
             ).pipe(
               Effect.mapError((cause) =>
                 error("agent_session_invalid", cause.message)
@@ -6237,7 +6049,7 @@ const makeAgentSession = (
             confirmedAttachments,
             replaceId,
             confirmedScan,
-            sessionSensitiveValues(record)
+            []
           ).pipe(
             Effect.mapError((cause) =>
               error("agent_session_invalid", cause.message)
@@ -6652,10 +6464,7 @@ const makeAgentSession = (
                   !path.isAbsolute(relative)
                 );
               };
-              const secrets = sessionSensitiveValues(record);
-              const names = resolved.map((file) =>
-                redactDevtoolsText(path.basename(file), secrets)
-              );
+              const names = resolved.map((file) => path.basename(file));
               const target = yield* browser.activeTarget(
                 record.browserSessionId,
                 tabId
@@ -6776,11 +6585,7 @@ const makeAgentSession = (
         return observe(sessionId, (record) =>
           browser
             .clipboard(record.browserSessionId, undefined, tabId)
-            .pipe(
-              Effect.map((text) =>
-                boundedDevtoolsText(text, sessionSensitiveValues(record))
-              )
-            )
+            .pipe(Effect.map((text) => boundedDevtoolsText(text, [])))
         );
       }
       if (
@@ -6805,10 +6610,9 @@ const makeAgentSession = (
             if (command.action === "profile_start") {
               return { kind: command.kind, profiling: true };
             }
-            // Secrets may have been supplied after capture or a failed write.
-            const current = yield* requireLiveRecord(sessionId);
+            yield* requireLiveRecord(sessionId);
             return {
-              data: yield* redactProfile(data, sessionSensitiveValues(current)),
+              data: yield* parseProfile(data, []),
               kind: command.kind,
             };
           })
@@ -7056,10 +6860,7 @@ const makeAgentSession = (
                         event.type === "console" || event.type === "page_error"
                           ? {
                               ...event,
-                              text: redactDevtoolsText(
-                                event.text,
-                                sessionSensitiveValues(record)
-                              ),
+                              text: event.text,
                             }
                           : event
                       )
@@ -7174,7 +6975,7 @@ const makeAgentSession = (
               record.executionBoundary?.hosts() ?? [
                 new URL(record.snapshot.currentUrl).hostname,
               ],
-              sessionSensitiveValues(record),
+              [],
               evaluationTabId
             );
           if (command.mode === "read_only") {
@@ -7233,7 +7034,7 @@ const makeAgentSession = (
                         }
                         const preview = boundedDevtoolsText(
                           command.script,
-                          sessionSensitiveValues(record),
+                          [],
                           2048
                         );
                         // The user confirms the whole script. A truncated excerpt could
@@ -7570,10 +7371,7 @@ const makeAgentSession = (
                       record.executionBoundary?.allows
                     );
                   }
-                  description = modificationDescription(
-                    command,
-                    sessionSensitiveValues(record)
-                  );
+                  description = modificationDescription(command, []);
                   const modification: BrowserModification = {
                     actor: "agent",
                     at,
@@ -7777,7 +7575,7 @@ const makeAgentSession = (
               record.browserSessionId,
               tabId
             );
-            const secrets = sessionSensitiveValues(record);
+            const secrets: readonly string[] = [];
             switch (command.action) {
               case "requests": {
                 return filterDevtoolsRequests(
@@ -7811,16 +7609,16 @@ const makeAgentSession = (
                       ...snapshot,
                       cookies: snapshot.cookies.map((cookie) => ({
                         ...cookie,
-                        name: redactDevtoolsText(cookie.name, secrets),
-                        value: "[redacted]",
+                        name: cookie.name,
+                        value: cookie.value,
                       })),
                     }
                   : {
                       ...snapshot,
                       entries: Object.fromEntries(
                         Object.entries(snapshot.entries).map(([key, value]) => [
-                          redactDevtoolsText(key, secrets),
-                          redactDevtoolsText(value, secrets),
+                          key,
+                          value,
                         ])
                       ),
                     };
@@ -7916,10 +7714,10 @@ const makeAgentSession = (
                   type: "fill" as const,
                 };
                 return yield* actUnlocked(sessionId, action, operationId, {
-                  action: { ...action, text: variableReference(name) },
+                  action,
                   requestInput,
                   value,
-                  variable: { name, runtime: true, secret: true },
+                  variable: { name, runtime: true },
                 });
               })
             );
@@ -7948,7 +7746,7 @@ const makeAgentSession = (
             type: "fill" as const,
           };
           return yield* actUnlocked(sessionId, action, operationId, {
-            action: { ...action, text: variableReference(name) },
+            action,
             // The fingerprint names the Variable, not its value: a retry of
             // the same request is the same request whatever the user typed.
             requestInput: JSON.stringify({
@@ -8010,11 +7808,7 @@ const makeAgentSession = (
           Effect.flatMap((record) =>
             browser
               .devtools(record.browserSessionId, tabId)
-              .pipe(
-                Effect.flatMap((tools) =>
-                  tools.request(requestId, sessionSensitiveValues(record))
-                )
-              )
+              .pipe(Effect.flatMap((tools) => tools.request(requestId, [])))
           )
         ),
       networkRequests: (sessionId, tabId) =>
@@ -8024,12 +7818,7 @@ const makeAgentSession = (
               .getNetworkRequests(record.browserSessionId, tabId)
               .pipe(
                 Effect.map((requests) =>
-                  requests.map((request) =>
-                    redactDevtoolsRequest(
-                      request,
-                      sessionSensitiveValues(record)
-                    )
-                  )
+                  requests.map((request) => redactDevtoolsRequest(request, []))
                 )
               )
           )
@@ -8206,7 +7995,7 @@ const makeAgentSession = (
               }
               const { dryRun } = record.snapshot;
               if (dryRun !== null && flowSkillName === dryRun.flowSkillName) {
-                if (!declared.variable.secret) {
+                if (!declared.variable.runtime) {
                   return yield* Effect.fail(
                     error(
                       "agent_session_invalid",
@@ -8276,12 +8065,11 @@ const makeAgentSession = (
                 pendingDecisionId: AgentPendingDecisionId.make(
                   `pending-${randomUUID()}`
                 ),
-                scopeSummary: `Supply Variable ${flowSkillName}/${name}. The value stays on this machine.`,
+                scopeSummary: `Supply Variable ${flowSkillName}/${name}. The value is visible in session and Run evidence.`,
                 sessionId,
                 variable: {
                   flowSkillName,
                   name,
-                  secret: declared.variable.secret,
                 },
               };
               const next = {
@@ -8659,11 +8447,7 @@ const makeAgentSession = (
       screenshot: (sessionId) =>
         observe(sessionId, (record, page) =>
           page
-            .screenshot(
-              true,
-              sessionSensitiveValues(record),
-              record.capture?.sensitiveSelectors() ?? []
-            )
+            .screenshot(true, [], record.capture?.sensitiveSelectors() ?? [])
             .pipe(
               Effect.tap((screenshot) =>
                 Effect.sync(() => {
@@ -8904,7 +8688,7 @@ const makeAgentSession = (
               diagnostics = yield* record.diagnostics.reader(
                 browser,
                 record.browserSessionId,
-                sessionSensitiveValues(record)
+                []
               );
             }
             let browserCheckResults: readonly BrowserCheckResult[] = [];
@@ -8946,7 +8730,7 @@ const makeAgentSession = (
               ? result
               : { ...result, diagnostics };
           }).pipe(
-            Effect.map((snapshot) => redactCapturedSnapshot(record, snapshot)),
+            Effect.map((snapshot) => snapshot),
             Effect.tap((snapshot) =>
               rememberCurrentUrl(sessionId, record, snapshot.url)
             ),
@@ -9018,7 +8802,7 @@ const makeAgentSession = (
             );
           }
           const variable = dryRun.variables.find(
-            (candidate) => candidate.name === name && candidate.secret
+            (candidate) => candidate.name === name
           );
           if (variable === undefined || value.length === 0) {
             return yield* Effect.fail(
