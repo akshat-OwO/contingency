@@ -511,7 +511,33 @@ const IosDock = ({
             </Button>
           </>
         ) : null}
+        {session?.cleanup?._tag === "purge-pending" ? (
+          <Button
+            disabled={gesture.pending}
+            onClick={() =>
+              send({
+                _tag: "flow-decision",
+                ...fields(),
+                decision: "retry-cleanup",
+              })
+            }
+            variant="outline"
+          >
+            Retry cleanup
+          </Button>
+        ) : null}
       </div>
+      {session?.cleanup?._tag === "purge-pending" ? (
+        <p className="text-destructive text-pretty" role="alert">
+          {session.cleanup.failure} Kept:{" "}
+          {session.cleanup.retainedFiles.join(", ")}.
+        </p>
+      ) : null}
+      {session?.cleanup?._tag === "purged" ? (
+        <p className="text-muted-foreground text-pretty">
+          Recording deleted. Verified Flow Skill retained.
+        </p>
+      ) : null}
       {session?.field ? (
         <form
           aria-label={`Type into ${session.field.name}`}
