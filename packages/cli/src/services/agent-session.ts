@@ -4972,6 +4972,10 @@ const makeAgentSession = (
               );
             }
             const page = yield* record.agentBrowser.active();
+            // Resolve observation references before Confirmation can store an attempt.
+            if ("ref" in action && action.ref !== undefined) {
+              yield* record.agentBrowser.currentRef(action.ref);
+            }
             const sensitive = false;
             const capturedAction = sanitizeTeachingAction(action);
             const privateValues =

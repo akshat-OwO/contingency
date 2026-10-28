@@ -342,7 +342,8 @@ it.live(
           });
           expect(traceText).toContain(privateFieldValue);
           const serialized = JSON.stringify(timeline);
-          expect(serialized).toContain(privateQueryValue);
+          expect(serialized).not.toContain(privateQueryValue);
+          expect(serialized).toContain("token=%5Bsensitive%5D");
           expect(serialized).toContain(privateFieldValue);
           expect(serialized).not.toContain(root);
           expect(serialized).not.toContain("trace.zip");

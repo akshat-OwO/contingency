@@ -108,7 +108,7 @@ export const agentBrowserContract = <R = never>(
   );
 
   it.live(
-    `${name}: inspects points and answers focus and sensitivity without exposing values`,
+    `${name}: inspects points and answers focus with plain-text input values`,
     () =>
       run(
         Effect.gen(function* pointFocusPrivacy() {
@@ -129,7 +129,7 @@ export const agentBrowserContract = <R = never>(
             return;
           }
           expect(yield* browser.isSensitive(inspected.ref)).toBe(false);
-          expect(yield* browser.isSensitive(password.ref)).toBe(true);
+          expect(yield* browser.isSensitive(password.ref)).toBe(false);
           yield* tab.perform({
             ref: inspected.ref,
             text: "hello",
@@ -147,9 +147,9 @@ export const agentBrowserContract = <R = never>(
           const privateSnapshot = yield* tab.snapshotAfter(snapshot.url);
           expect(
             privateSnapshot.nodes.find((node) => node.name === "Password")
-              ?.valueWithheld
-          ).toBe(true);
-          expect(JSON.stringify(privateSnapshot)).not.toContain(
+              ?.value
+          ).toBe("disposable-secret");
+          expect(JSON.stringify(privateSnapshot)).toContain(
             "disposable-secret"
           );
         })

@@ -73,7 +73,7 @@ const driveDeliveryAsAgent = (
   city: string,
   area: string,
   operationPrefix: string,
-  secretArea = false
+  variableArea = false
 ) =>
   Effect.gen(function* driveDeliveryFlowSkill() {
     const first = yield* sessionTool("agent_browser_snapshot", { sessionId });
@@ -104,7 +104,7 @@ const driveDeliveryAsAgent = (
       "textbox",
       "Search for your delivery area"
     );
-    const areaFilled = secretArea
+    const areaFilled = variableArea
       ? yield* sessionTool("agent_variable_enter", {
           name: "DELIVERY_AREA",
           operationId: OperationId.make(`${operationPrefix}-area`),
@@ -128,9 +128,7 @@ const driveDeliveryAsAgent = (
     });
     expect(
       confirmed.snapshot.nodes.some((node) =>
-        node.name.includes(
-          `Delivering to ${secretArea ? "[sensitive input]" : area}, ${city}`
-        )
+        node.name.includes(`Delivering to ${area}, ${city}`)
       )
     ).toBe(true);
   });
@@ -680,7 +678,6 @@ it.live(
           expect(passedRun.session.dryRun?.variables).toContainEqual({
             name: "DELIVERY_AREA",
             runtime: true,
-            secret: true,
             supplied: false,
           });
           const session = yield* AgentSession;
@@ -709,7 +706,6 @@ it.live(
           );
           expect(supplied.dryRun?.variables[0]?.supplied).toBe(true);
           expect(supplied.run?.variables[0]?.supplied).toBe(true);
-          expect(JSON.stringify(supplied)).not.toContain("Bandra");
           yield* driveDeliveryAsAgent(
             passedRun.session.id,
             "Mumbai",
@@ -717,10 +713,10 @@ it.live(
             "delivery-dry-passed",
             true
           );
-          const redacted = yield* sessionTool("agent_browser_snapshot", {
+          const visible = yield* sessionTool("agent_browser_snapshot", {
             sessionId: passedRun.session.id,
           });
-          expect(JSON.stringify(redacted)).not.toContain("Bandra");
+          expect(JSON.stringify(visible)).toContain("Bandra");
           // Driving the rehearsal writes timeline entries, which must not
           // cost the session the identity it started with (#202).
           const afterActing = yield* sessionTool("agent_session_get", {

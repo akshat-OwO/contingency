@@ -346,7 +346,7 @@ it.live(
 );
 
 it.live(
-  "sends a private Variable by name and asks for it when it has no value",
+  "sends a Variable by name, asks for missing values, and retains entered values in evidence",
   () =>
     Effect.gen(function* pursuePrivateInput() {
       const files = yield* FileSystem.FileSystem;
@@ -411,9 +411,9 @@ it.live(
           const entered = yield* pursue(sessionId, "secret-second", goal);
           expect(entered.ending).toBe("done");
           expect(entered.actions[0]?.variable).toBe("DEMO_PASSWORD");
-          expect(JSON.stringify(entered)).not.toContain(secret);
+          expect(JSON.stringify(entered)).toContain(secret);
           const sent = JSON.stringify(systemOne.requests);
-          expect(sent).not.toContain(secret);
+          expect(sent).toContain(secret);
           expect(sent).toContain("the private Variable DEMO_PASSWORD");
           expect(sent).toContain('"order":"RH-1057"');
         }).pipe(

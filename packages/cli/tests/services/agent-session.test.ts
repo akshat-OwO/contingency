@@ -588,7 +588,9 @@ it.effect("reads where the browser is, not where it was last driven", () =>
     fake.visit("https://example.com/pricing?access_token=private-value");
 
     const read = yield* service.get(started.id);
-    expect(read.currentUrl).toContain("private-value");
+    expect(read.currentUrl).toBe(
+      "https://example.com/pricing?access_token=%5Bsensitive%5D"
+    );
     const listed = yield* service.list();
     expect(listed.map(({ currentUrl }) => currentUrl)).toEqual([
       read.currentUrl,

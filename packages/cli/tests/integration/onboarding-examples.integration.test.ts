@@ -120,7 +120,7 @@ const click = (
   });
 
 it.live(
-  "runs bundled Examples on the demo store with Workspace private inputs, isolated faults, and a required scan",
+  "runs bundled Examples on the demo store with Workspace Variables, isolated faults, and a required scan",
   () =>
     Effect.gen(function* exampleRuns() {
       const files = yield* FileSystem.FileSystem;
@@ -171,7 +171,7 @@ it.live(
             pendingDecisionId: decision.pendingDecisionId,
             value: secret,
           });
-          expect(JSON.stringify(supplied)).not.toContain(secret);
+          expect(JSON.stringify(supplied)).toContain(secret);
           const form = yield* snapshotText(signedIn.id);
           yield* sessionTool("agent_browser_act", {
             action: {

@@ -23,11 +23,10 @@ interface Control {
   readonly key: string;
   readonly name: string;
   readonly role: string;
-  readonly sensitive?: boolean;
 }
 const controls: readonly Control[] = [
   { key: "message", name: "Message", role: "textbox" },
-  { key: "password", name: "Password", role: "textbox", sensitive: true },
+  { key: "password", name: "Password", role: "textbox" },
   { key: "save", name: "Save", role: "button" },
   { key: "remove", name: "Remove field", role: "button" },
 ];
@@ -96,9 +95,7 @@ export const makeInMemoryAgentBrowser = (input: {
             if (value === undefined || value === "") {
               return node;
             }
-            return control.sensitive
-              ? { ...node, valueWithheld: true }
-              : { ...node, value };
+            return { ...node, value };
           });
         if (current.saved) {
           nodes.push({
@@ -292,8 +289,7 @@ export const makeInMemoryAgentBrowser = (input: {
           Effect.map((control) => atoms.get(state).focused === control.key),
           Effect.orElseSucceed(() => false)
         ),
-      isSensitive: (ref) =>
-        resolve(ref).pipe(Effect.map((control) => control.sensitive ?? false)),
+      isSensitive: (ref) => resolve(ref).pipe(Effect.as(false)),
       pointRef,
       privateSelector: (ref) =>
         resolve(ref).pipe(

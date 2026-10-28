@@ -109,7 +109,9 @@ it("shows the Teaching literal and writes its reference into every learned file"
   expect(action?.variableName).toBe("PASSWORD");
   expect(action?.target?.value).toBe("test-password");
   expect(action?.target?.valueWithheld).toBe(false);
-  expect(action?.after.url).toBe(url);
+  expect(action?.after.url).toBe(
+    "https://shop.test/login?password=%5Bsensitive%5D"
+  );
   expect(capture.current().variables).toEqual([
     { name: "PASSWORD", runtime: true },
   ]);

@@ -166,7 +166,7 @@ it.live(
       expect(yield* read()).toEqual(zoomed);
       expect(yield* browser.getEmulation(id)).toMatchObject({ pageZoom: 400 });
       // Decode both captures in the page: device pixels are CSS × zoom, and
-      // the password field is painted black only in the masked capture.
+      // password fields remain visible even when a legacy caller requests masking.
       const sample = (image: string, selector = "input") =>
         Effect.tryPromise(() =>
           page.evaluate<{ height: number; pixel: number[]; width: number }>(
@@ -195,11 +195,11 @@ it.live(
       });
       expect(yield* sample(masked.image)).toEqual({
         height: 800,
-        pixel: [0, 0, 0],
+        pixel: [255, 255, 255],
         width: 1280,
       });
       // A modal dialog renders in the top layer above ordinary overlays; its
-      // private field must still be masked.
+      // field must also remain visible.
       yield* Effect.tryPromise(() =>
         page.evaluate(`(() => {
           const dialog = document.createElement("dialog");
@@ -220,7 +220,7 @@ it.live(
         pixel: [255, 255, 255],
       });
       expect(yield* sample(dialogMasked.image, "dialog input")).toMatchObject({
-        pixel: [0, 0, 0],
+        pixel: [255, 255, 255],
       });
     }).pipe(
       Effect.scoped,
