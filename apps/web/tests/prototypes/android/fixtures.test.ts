@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 import { applyCommand, FIXTURE_SELECTION } from "@/prototypes/android/fixtures";
 import { actionableNodes } from "@/prototypes/android/presentation";
 
-test("offers only the taps the setup allowed", () => {
+test("offers untaught controls", () => {
   const started = applyCommand(null, {
     _tag: "start",
     flowSkillName: FlowSkillName.make("checkout"),
@@ -17,12 +17,10 @@ test("offers only the taps the setup allowed", () => {
         ...FIXTURE_SELECTION.environment,
         appId: "com.example.notes",
       },
-      reversibleActions: [],
     },
   });
   expect(started?.requirements).toMatchObject({
     environment: { appId: "com.example.notes" },
-    reversibleActions: [],
   });
   const prepared =
     started === null
@@ -37,5 +35,5 @@ test("offers only the taps the setup allowed", () => {
   );
   expect(
     prepared === null ? [] : actionableNodes(prepared).map((node) => node.name)
-  ).not.toContain("Sign in");
+  ).toContain("Sign in");
 });

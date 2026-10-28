@@ -148,22 +148,18 @@ Effect.scoped(
         "android.intent.category.HOME",
       ])
     );
-    const ownershipRefusal = yield* audit(
-      "observe unexpected app and pause",
-      Effect.flip(run.observe())
+    const outside = yield* audit(
+      "observe another app without pausing",
+      run.observe()
     );
-    yield* check(
-      ownershipRefusal.code === "ownership_unknown" &&
-        run.state().phase === "paused",
-      "Unexpected app did not pause."
-    );
+    yield* check(run.state().phase === "ready", "Another app paused the Run.");
     yield* audit(
       "return selected Target App without replay",
       adb(["shell", "am", "start", "-W", "-n", `'${input.setup.activity}'`])
     );
     const recovered = yield* audit(
       "recover same device with fresh observation",
-      run.recover()
+      run.observe()
     );
     yield* check(recovered.id !== before.id, "Recovery reused observation.");
     yield* check(
@@ -198,10 +194,13 @@ Effect.scoped(
         "No physical-device, snapshot-baseline, APK update, or destructive-reset live proof",
         "Host checks are experimental; no atomic device authority or stock retry guarantee",
       ],
-      observations: { before: summary(before), recovered: summary(recovered) },
+      observations: {
+        before: summary(before),
+        outside: summary(outside),
+        recovered: summary(recovered),
+      },
       refusals: {
         outsideAppRefusal,
-        ownershipRefusal,
         permissionRefusal,
         startingRefusal,
       },

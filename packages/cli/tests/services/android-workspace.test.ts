@@ -942,11 +942,8 @@ it.effect("picks a button once and records only its semantic action", () =>
       if (stopped.recordingId === null) {
         return yield* Effect.die("Recording missing.");
       }
-      const manifest = yield* store.read(stopped.recordingId);
-      expect(
-        manifest.runtime?.platform === "android" &&
-          manifest.runtime.reversibleActions
-      ).toEqual([{ name: "Edit", role: "button" }]);
+      yield* store.read(stopped.recordingId);
+
       const events = yield* fs.readFileString(
         path.join(store.directory(stopped.recordingId), "events.jsonl")
       );
@@ -980,14 +977,6 @@ for (const [name, nodes, message] of [
     "unnamed hittable scroll container",
     [pickNode({ name: "", role: "scroll-area" })],
     "Nothing to activate there. No input was sent.",
-  ],
-  [
-    "outside",
-    [
-      pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
-      pickNode({ packageName: "other.app" }),
-    ],
-    "That element belongs to another app. No input was sent.",
   ],
   [
     "private",
@@ -1227,64 +1216,57 @@ for (const origin of ["unknown", "evicted"] as const) {
     )
   );
 }
-it.effect(
-  "Dry Run gates activation using the buttons actually recorded during Teaching",
-  () =>
-    fixture(({ calls, setNodes }) =>
-      Effect.gen(function* taughtGate() {
-        const workspace = yield* AndroidWorkspace;
-        const recordingId = yield* taught;
-        const prepared = yield* dryRun(recordingId);
-        expect(
-          prepared.requirements.platform === "android" &&
-            prepared.requirements.reversibleActions
-        ).toEqual([{ name: "Edit", role: "button" }]);
-        const activated = yield* workspace.execute(
+it.effect("Dry Run allows untaught activation", () =>
+  fixture(({ calls, setNodes }) =>
+    Effect.gen(function* taughtGate() {
+      const workspace = yield* AndroidWorkspace;
+      const recordingId = yield* taught;
+      const prepared = yield* dryRun(recordingId);
+
+      const activated = yield* workspace.execute(
+        {
+          _tag: "input",
+          action: { _tag: "activate", target: "@e2" },
+          observationId: prepared.observation?.id ?? "",
+          operationId: op("dry-recorded"),
+          sessionId: prepared.id,
+        },
+        "agent"
+      );
+      expect(calls.filter((call) => call === "activate")).toHaveLength(2);
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* TeachingRecordingStore;
+      const actions = yield* fs.readFileString(
+        path.join(
+          store.directory(recordingId),
+          "android-runs",
+          prepared.id,
+          "actions.jsonl"
+        )
+      );
+      expect(actions).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
+
+      setNodes([pickNode({ name: "Untaught" })]);
+      const observed = yield* workspace.execute(
+        { _tag: "observe", image: false, sessionId: activated.id },
+        "agent"
+      );
+      const result = yield* Effect.result(
+        workspace.execute(
           {
             _tag: "input",
-            action: { _tag: "activate", target: "@e2" },
-            observationId: prepared.observation?.id ?? "",
-            operationId: op("dry-recorded"),
+            action: { _tag: "activate", target: "@picked" },
+            observationId: observed.observation?.id ?? "",
+            operationId: op("dry-untaught"),
             sessionId: prepared.id,
           },
           "agent"
-        );
-        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
-        const fs = yield* FileSystem.FileSystem;
-        const store = yield* TeachingRecordingStore;
-        const actions = yield* fs.readFileString(
-          path.join(
-            store.directory(recordingId),
-            "android-runs",
-            prepared.id,
-            "actions.jsonl"
-          )
-        );
-        expect(actions).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
-
-        setNodes([pickNode({ name: "Untaught" })]);
-        const observed = yield* workspace.execute(
-          { _tag: "observe", image: false, sessionId: activated.id },
-          "agent"
-        );
-        const result = yield* Effect.result(
-          workspace.execute(
-            {
-              _tag: "input",
-              action: { _tag: "activate", target: "@picked" },
-              observationId: observed.observation?.id ?? "",
-              operationId: op("dry-untaught"),
-              sessionId: prepared.id,
-            },
-            "agent"
-          )
-        );
-        expect(Result.isFailure(result) && result.failure.code).toBe(
-          "target_unsupported"
-        );
-        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
-      })
-    )
+        )
+      );
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(calls.filter((call) => call === "activate")).toHaveLength(3);
+    })
+  )
 );
 it.effect(
   "clears a picked field when its screen changes or the session closes",
@@ -2001,4 +1983,104 @@ it.effect(
         expect(finished.captureState?._tag).toBe("dry-run-failed");
       })
     )
+);
+
+for (const source of ["agent", "user"] as const) {
+  for (const allow of [true, false]) {
+    it.effect(
+      `Android Confirmation via ${source} ${allow ? "allows once" : "refuses"}`,
+      () =>
+        fixture(({ calls }) =>
+          Effect.gen(function* confirmation() {
+            const workspace = yield* AndroidWorkspace;
+            const prepared = yield* dryRun(yield* taught);
+            const initial = calls.filter((call) => call === "activate").length;
+            const paused = yield* workspace.execute(
+              {
+                _tag: "input",
+                action: { _tag: "activate", target: "@e2" },
+                irreversible: true,
+                observationId: prepared.observation?.id ?? "",
+                operationId: op("confirm-attempt"),
+                sessionId: prepared.id,
+              },
+              "agent"
+            );
+            expect(paused.pendingDecision?.kind).toBe("boundary");
+            expect(paused.boundary?.reason).toBe("confirmation");
+            expect(calls.filter((call) => call === "activate")).toHaveLength(
+              initial
+            );
+            for (let frame = 0; frame < 12; frame += 1) {
+              yield* workspace.execute(
+                { _tag: "observe", image: false, sessionId: prepared.id },
+                "agent"
+              );
+            }
+            const resolved = yield* workspace.execute(
+              {
+                _tag: "decide",
+                allow,
+                decisionId: paused.pendingDecision?.pendingDecisionId ?? "",
+                operationId: op("confirm-decision"),
+                sessionId: prepared.id,
+              },
+              source
+            );
+            expect(calls.filter((call) => call === "activate")).toHaveLength(
+              initial + (allow ? 1 : 0)
+            );
+            expect(resolved.pendingDecision).toBeNull();
+            const retry = yield* workspace.execute(
+              {
+                _tag: "input",
+                action: { _tag: "activate", target: "@e2" },
+                irreversible: true,
+                observationId: resolved.observation?.id ?? "",
+                operationId: op("confirm-retry"),
+                sessionId: prepared.id,
+              },
+              "agent"
+            );
+            expect(retry.pendingDecision?.pendingDecisionId).not.toBe(
+              paused.pendingDecision?.pendingDecisionId
+            );
+            expect(calls.filter((call) => call === "activate")).toHaveLength(
+              initial + (allow ? 1 : 0)
+            );
+          })
+        )
+    );
+  }
+}
+
+it.effect("Workspace Teaching can pick another app", () =>
+  fixture(({ calls, setNodes }) =>
+    Effect.gen(function* systemPick() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* preparePick;
+      setNodes([
+        pickNode({
+          name: "Allow",
+          packageName: "com.android.permissioncontroller",
+        }),
+      ]);
+      const observed = yield* workspace.execute(
+        { _tag: "observe", image: false, sessionId: prepared.id },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "pick",
+          frame: { height: 1, width: 1 },
+          observationId: observed.observation?.id ?? "",
+          operationId: op("system-pick"),
+          point: { x: 0.5, y: 0.5 },
+          sessionId: prepared.id,
+        },
+        "user"
+      );
+      expect(calls).toContain("activate");
+    })
+  )
 );

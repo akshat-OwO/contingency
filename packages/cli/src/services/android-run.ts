@@ -270,26 +270,7 @@ export const createAndroidRun = (
           guarded(
             Effect.gen(function* dispatch() {
               const active = yield* requireRuntime();
-              const observation = registry.get(latest);
               registry.set(latest, null);
-              if (action.type === "activate") {
-                const node = observation?.nodes.find(
-                  (candidate) => candidate.target === action.target
-                );
-                if (
-                  node === undefined ||
-                  (!startup.teaching &&
-                    !startup.reversibleActions?.some(
-                      (allowed) =>
-                        allowed.role === node.role && allowed.name === node.name
-                    ))
-                ) {
-                  yield* active.invalidate();
-                  return yield* Effect.fail(
-                    platformRuntimeError("target_unsupported")
-                  );
-                }
-              }
               const result = yield* active.dispatch(id, action);
               if (result) {
                 record({

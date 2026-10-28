@@ -178,30 +178,20 @@ const requireHelper = (serial: string) =>
     }
   });
 
-/** Returns the focused window, which must belong to the target app. */
-const requireOwnership = (input: AndroidRuntimeStartInput) =>
-  Effect.gen(function* ownership() {
+/** Secure windows cannot provide usable evidence. */
+const requireVisibleWindow = (input: AndroidRuntimeStartInput) =>
+  Effect.gen(function* visibleWindow() {
     const windows = yield* adb(input.device.serial, [
       "shell",
       "dumpsys",
       "window",
     ]);
     const focus = focusPattern.exec(windows)?.groups;
-    if (focus?.packageName !== input.targetApp || focus.window === undefined) {
-      return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
-    }
     if (androidWindowVisibility(windows) === "secure") {
       return yield* Effect.fail(platformRuntimeError("secure_window"));
     }
-    return focus.window;
+    return focus?.window ?? "unknown";
   });
-
-const publicNodeName = (node: SnapshotNode, targetApp: string) => {
-  if (node.bundleId !== targetApp) {
-    return "Other window";
-  }
-  return node.label ?? "";
-};
 
 const requireCapture = (snapshot: CaptureSnapshotResult) =>
   Effect.gen(function* completeCapture() {
@@ -452,7 +442,7 @@ export const acquireAndroidBackend = (
       const validateEnvironment = () =>
         requireIdentity(input).pipe(
           Effect.andThen(requireHelper(input.device.serial)),
-          Effect.andThen(requireOwnership(input)),
+          Effect.andThen(requireVisibleWindow(input)),
           Effect.andThen(
             preparation === undefined
               ? Effect.void
@@ -521,15 +511,6 @@ export const acquireAndroidBackend = (
               "capture"
             );
             yield* identities(snapshot.identifiers);
-            if (
-              (snapshot.appBundleId !== undefined &&
-                snapshot.appBundleId !== input.targetApp) ||
-              !snapshot.nodes.some((node) => node.bundleId === input.targetApp)
-            ) {
-              return yield* Effect.fail(
-                platformRuntimeError("ownership_unknown")
-              );
-            }
             const { generation, windowCount } = yield* requireCapture(snapshot);
             for (const node of snapshot.nodes) {
               if (node.rect !== undefined) {
@@ -577,7 +558,7 @@ export const acquireAndroidBackend = (
                     node.enabled === false,
                   editable: node.editable === true,
                   hittable: node.hittable === true,
-                  name: publicNodeName(node, input.targetApp),
+                  name: node.label ?? "",
                   packageName: node.bundleId ?? null,
                   password: node.password === true,
                   role: node.kind ?? node.role ?? node.type ?? "unknown",

@@ -66,3 +66,25 @@ test("asks for clicks on the screen while recording", () => {
   expect(recording.nextStep).toContain("clicking the emulator screen");
   expect(recording.action?.accessibleName).toBe("Stop recording");
 });
+
+test("Confirmation pauses request a decision and preserve Takeover", () => {
+  const session = {
+    ...pending,
+    boundary: {
+      action: { action: '{"_tag":"activate","target":"@e1"}', type: "android" },
+      description: "Place order",
+      id: "boundary",
+      operationId: "attempt",
+      reason: "confirmation",
+      requested: "Checkout",
+    },
+    phase: "paused",
+  } satisfies AndroidWorkspaceSnapshot;
+  const presentation = androidDockPresentation(session);
+  expect(presentation.badge).toBe("Confirmation needed");
+  expect(presentation.action?.gesture).toBe("return-control");
+  expect(presentation.tone).toBe("default");
+  expect(
+    androidDockPresentation({ ...session, controller: "agent" }).action?.gesture
+  ).toBe("take-control");
+});

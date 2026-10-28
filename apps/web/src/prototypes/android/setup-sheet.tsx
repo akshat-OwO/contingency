@@ -410,7 +410,6 @@ export const SetupSheet = ({
                     },
                     helperConsent: form.helper ? "install" : "none",
                     outcomes: [{ name: form.outcome.trim(), role: "group" }],
-                    reversibleActions: form.allowed,
                     setup: {
                       ...FIXTURE_SELECTION.setup,
                       activity: app.activity,

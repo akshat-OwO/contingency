@@ -29,8 +29,6 @@ const messages = {
     "The authorized Android helper installation did not finish successfully. No input was sent.",
   observation_stale:
     "Take a fresh Android observation before acting. Observations are consumed once.",
-  ownership_unknown:
-    "Android window ownership is unknown or outside the selected target app. Execution is paused.",
   permission_decisions_unsupported:
     "Android permission decisions need API 31 or later, which can keep a denied choice from prompting again. Remove the permission declarations or select an API 31 through 36 device.",
   permission_stale: "This decision is not pending for this Run.",

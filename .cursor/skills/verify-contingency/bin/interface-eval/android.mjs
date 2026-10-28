@@ -96,12 +96,6 @@ export const prepareAndroid = async (options, device) => {
     outcomes: device.selection.outcomes,
     platform: "android",
     preparation: device.selection.setup,
-    reversibleActions: [
-      { name: "Sign in", role: "button" },
-      { name: "Add Anvil to cart", role: "button" },
-      { name: "Open cart", role: "button" },
-      { name: "Place mock order", role: "button" },
-    ],
   };
   const skill = path.join(
     options.mcp.directory,

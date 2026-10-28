@@ -117,7 +117,6 @@ export const adaptAndroidRuntime = (input: {
               );
               if (
                 node === undefined ||
-                node.packageName !== input.startup.targetApp ||
                 node.covered ||
                 (action.type === "fill" && !node.editable)
               ) {

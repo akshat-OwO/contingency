@@ -582,11 +582,6 @@ try {
   await waitText("Ask an agent to learn this recording.");
   const stopped = await read(taughtSession.id);
   assert.equal(stopped.captureState._tag, "ready");
-  assert.deepEqual(
-    stopped.requirements.reversibleActions,
-    reversibleActions,
-    "Teaching must derive allowed activations from the captured journey."
-  );
   await snapshot("teaching-stopped");
   await click("Close session");
   await wait("New session");
