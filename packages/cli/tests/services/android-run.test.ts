@@ -95,6 +95,16 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
                 role: "textbox",
                 target: "@password",
               },
+              {
+                covered: false,
+                editable: true,
+                hittable: true,
+                name: "Login name",
+                packageName: "dev.fixture",
+                password: false,
+                role: "textbox",
+                target: "@login",
+              },
             ],
             ownership: {
               focusedPackage: "dev.fixture",
@@ -514,8 +524,8 @@ it.effect("retains fill confirmation without pausing the journey", () =>
       const before = yield* run.prepare();
       expect(
         yield* run.dispatch(before.id, {
-          target: "@password",
-          text: "test-password",
+          target: "@login",
+          text: "test-login",
           type: "fill",
         })
       ).toEqual({ confirmation, outcome: "entered" });
