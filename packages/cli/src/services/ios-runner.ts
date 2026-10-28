@@ -96,7 +96,7 @@ export const openIosRunner = (
       Schema.Struct({ version: Schema.Literal("0.21.25") }),
       manifest
     );
-    // The clone ownership finalizer closes the runner before deleting its simulator.
+    // The Session Simulator ownership finalizer closes the runner before deleting its simulator.
     yield* Effect.logInfo(
       "Preparing the iOS XCTest runner. The first selection builds it with Xcode."
     );

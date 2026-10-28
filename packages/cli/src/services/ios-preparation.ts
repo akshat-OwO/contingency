@@ -54,7 +54,7 @@ export const makeIosPreparation = (
         fileIo(() => mkdtemp(path.join(tmpdir(), "contingency-ios-"))),
         (owned) =>
           Effect.gen(function* releaseHostDirectory() {
-            // Retain daemon state when clone/runner cleanup failed, so startup can retry it.
+            // Retain daemon state when simulator or runner cleanup failed, so startup can retry it.
             if (!(yield* resources.isRecorded(owned))) {
               yield* fileIo(() => rm(owned, { force: true, recursive: true }));
             }
@@ -73,37 +73,33 @@ export const makeIosPreparation = (
       }
       // acquireRelease masks interruption until the record and the deletion finalizer exist.
       const udid = yield* Effect.acquireRelease(
-        Effect.gen(function* acquireClone() {
-          const clone = (yield* io.device([
-            "clone",
-            input.device.udid,
+        Effect.gen(function* acquireSessionSimulator() {
+          // A booted `simctl clone` writes into its source through absolute
+          // paths, so each session gets a new simulator instead (ADR 0066).
+          const created = (yield* io.device([
+            "create",
             `Contingency ${randomUUID()}`,
+            input.device.deviceType,
+            input.device.runtime,
           ])).trim();
-          if (!iosUuid.test(clone) || clone === input.device.udid) {
+          if (!iosUuid.test(created) || created === input.device.udid) {
             return yield* Effect.fail(iosError("preparation_failed"));
           }
           yield* resources
-            .record(clone, process.pid, directory)
+            .record(created, process.pid, directory)
             .pipe(
               Effect.onError(() =>
-                io.device(["delete", clone]).pipe(Effect.orDie)
+                io.device(["delete", created]).pipe(Effect.orDie)
               )
             );
-          return clone;
+          return created;
         }),
-        (clone) => resources.remove(clone).pipe(Effect.orDie)
+        (created) => resources.remove(created).pipe(Effect.orDie)
       );
-      // No mutation below this point ever targets the selected simulator.
+      // The selected simulator is only read above; it is never booted or changed.
       yield* io.device(["boot", udid]);
       yield* io.device(["bootstatus", udid, "-b"]);
-      // Uninstall before install: simctl install alone preserves the template's app data.
-      const installed = yield* discovery.apps({ ...input.device, udid });
-      if (installed.some((entry) => entry.bundleId === app.bundleId)) {
-        yield* io.device(["uninstall", udid, app.bundleId]);
-      }
       yield* io.device(["install", udid, bundle]);
-      yield* io.device(["keychain", udid, "reset"]);
-      yield* io.device(["privacy", udid, "reset", "all"]);
       yield* runner(udid, app.bundleId, directory);
       return {
         device: { ...input.device, udid },

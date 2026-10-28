@@ -39,7 +39,7 @@ const io = {
         assert.equal(
           Object.values(JSON.parse(booted).devices).flat().length,
           0,
-          "Another simulator is booted; do not boot this clone"
+          "Another simulator is booted; do not boot this Session Simulator"
         );
       }
       return yield* iosSimctlHost.device(args);
@@ -72,7 +72,10 @@ const digestTree = async (root: string): Promise<string> => {
 const workerInput = process.env.CONTINGENCY_IOS_PROOF_INPUT;
 if (workerInput === undefined) {
   const fixture = process.argv.at(2);
-  assert.ok(fixture, "Supply a simulator .app path");
+  assert.ok(
+    fixture,
+    "Supply a simulator .app path, then optionally a device type and runtime identifier"
+  );
   assert.ok(
     fixture?.endsWith(".app"),
     "Supply an absolute simulator .app path"
@@ -99,8 +102,9 @@ if (workerInput === undefined) {
     template = await simctl([
       "create",
       "Contingency issue 547 proof",
-      "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
-      "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+      process.argv.at(3) ??
+        "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+      process.argv.at(4) ?? "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
     ]);
     process.stdout.write(
       `template=${template}, owner=${process.pid}, started=${new Date().toISOString()}\n`
@@ -156,7 +160,7 @@ if (workerInput === undefined) {
           );
           assert.equal(entries.includes("template-only.txt"), false);
           process.stdout.write(
-            `normal clone=${session.device.udid}, fresh app data verified\n`
+            `normal session=${session.device.udid}, fresh app data verified\n`
           );
         })
       )
@@ -199,7 +203,7 @@ if (workerInput === undefined) {
       Schema.Struct({ ready: Schema.String.check(Schema.isPattern(iosUuid)) })
     )(rawMessage);
     process.stdout.write(
-      `SIGKILL owner=${child.pid}, clone=${message.ready}\n`
+      `SIGKILL owner=${child.pid}, session=${message.ready}\n`
     );
     const exited = once(child, "exit");
     child.kill("SIGKILL");
@@ -214,7 +218,7 @@ if (workerInput === undefined) {
     const inventory = await simctl(["list", "devices", "--json"]);
     assert.equal(inventory.includes(message.ready), false);
     process.stdout.write(
-      `PASS: template hash ${before} unchanged after success, failure and SIGKILL; startup reclaimed only the recorded clone\n`
+      `PASS: template hash ${before} unchanged after success, failure and SIGKILL; startup reclaimed only the recorded Session Simulator\n`
     );
   } finally {
     if (
@@ -232,7 +236,7 @@ if (workerInput === undefined) {
     }
     await rm(directory, { force: true, recursive: true });
     process.stdout.write(
-      "Cleanup: owned child exited, recorded clones and template deleted, temporary state removed\n"
+      "Cleanup: owned child exited, recorded Session Simulators and template deleted, temporary state removed\n"
     );
   }
 } else {
