@@ -163,3 +163,27 @@ it.effect("fails closed when the helper never answers", () =>
     });
   })
 );
+
+for (const reason of [
+  "ax_query_failed",
+  "ax_query_timeout",
+  "ax_no_primary_app",
+  "ax_device_missing",
+  "ax_automation_unavailable",
+  "ax_pid_changed",
+  "ax_bundle_changed",
+] as const) {
+  it.effect(`retains the sanitized helper refusal ${reason}`, () =>
+    Effect.gen(function* helperRefusal() {
+      const authority = makeIosForegroundAuthority("unused", () =>
+        Effect.succeed(JSON.stringify({ reason, version: 1 }))
+      );
+      expect(
+        yield* Effect.flip(authority.validate(udid, target))
+      ).toMatchObject({
+        code: "ownership_unknown",
+        ownershipReason: reason,
+      });
+    })
+  );
+}

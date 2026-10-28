@@ -21,6 +21,8 @@ import { verifyIosForegroundRelease } from "./ios-foreground-release.ts";
 import { makeIosForegroundAuthority } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import { iosNodeInteraction } from "./ios-observation.ts";
+import { iosOwnershipError, logIosOwnershipError } from "./ios-ownership.ts";
+import type { IosOwnershipReason } from "./ios-ownership.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
 import type {
   NativeAppRun,
@@ -77,6 +79,11 @@ const identities = (
     ? Effect.void
     : Effect.fail(iosRuntimeError("device_mismatch"));
 
+const ownershipFailure = (reason: IosOwnershipReason) =>
+  Effect.fail(iosOwnershipError(reason)).pipe(
+    Effect.tapError(logIosOwnershipError)
+  );
+
 const startIosRuntime = (
   input: IosRunInput
 ): Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError> =>
@@ -128,7 +135,7 @@ const startIosRuntime = (
             app.appBundleId !== input.targetApp ||
             app.device_udid !== udid
           ) {
-            return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+            return yield* ownershipFailure("app_state_mismatch");
           }
           const alert = yield* Effect.result(
             Effect.tryPromise({
@@ -145,7 +152,7 @@ const startIosRuntime = (
               alert.failure.details?.reason === "alert-not-found"
             )
           ) {
-            return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+            return yield* ownershipFailure("alert_present_or_unknown");
           }
           yield* foreground.validate(udid, input.targetApp);
         });
@@ -163,20 +170,32 @@ const startIosRuntime = (
                 signal,
               }),
             "ownership_unknown"
-          );
+          ).pipe(Effect.catch(() => ownershipFailure("snapshot_transport")));
           yield* identities(snapshot.identifiers, udid, session);
           if (
-            (snapshot.appBundleId !== undefined &&
-              snapshot.appBundleId !== input.targetApp) ||
-            snapshot.truncated === true ||
-            snapshot.targetActivation !== undefined ||
+            snapshot.appBundleId !== undefined &&
+            snapshot.appBundleId !== input.targetApp
+          ) {
+            return yield* ownershipFailure("snapshot_bundle_mismatch");
+          }
+          if (snapshot.truncated === true) {
+            return yield* ownershipFailure("snapshot_truncated");
+          }
+          if (snapshot.targetActivation !== undefined) {
+            return yield* ownershipFailure("snapshot_activation_metadata");
+          }
+          if (
             snapshot.nodes.some((node) =>
               /alert/iu.test(node.kind ?? node.role ?? node.type ?? "")
-            ) ||
-            !snapshot.viewport ||
-            snapshot.refsGeneration === undefined
+            )
           ) {
-            return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+            return yield* ownershipFailure("snapshot_alert");
+          }
+          if (!snapshot.viewport) {
+            return yield* ownershipFailure("snapshot_viewport_missing");
+          }
+          if (snapshot.refsGeneration === undefined) {
+            return yield* ownershipFailure("snapshot_generation_missing");
           }
           const id = randomUUID();
           const filename = path.join(
