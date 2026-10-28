@@ -133,6 +133,24 @@ it("shows the Teaching literal and writes its reference into every learned file"
     ]
   );
   expect(overlapping[0]?.content).toBe("{{PASSWORD}} {{PASSWORD}} {{OTHER}}");
+  const bounded = parameterizeVariables(
+    [{ content: "1. Sign in as admin, not administrator.", path: "SKILL.md" }],
+    [
+      {
+        ...action,
+        target: { ...action.target, value: "1" },
+        variableName: "PIN",
+      },
+      {
+        ...action,
+        target: { ...action.target, value: "admin" },
+        variableName: "USER",
+      },
+    ]
+  );
+  expect(bounded[0]?.content).toBe(
+    "1. Sign in as {{USER}}, not administrator."
+  );
   const content =
     "---\nname: login\ndescription: Test login.\ninputs:\n  - name: PASSWORD\n    secret: true\n---\n\n1. Enter test-password. Done when: signed in.\n";
   const files = parameterizeVariables(

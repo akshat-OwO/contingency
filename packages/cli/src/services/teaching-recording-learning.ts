@@ -44,6 +44,9 @@ import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts"
 const EVENTS_FILE_KIND = "events";
 const SKILL_FILE = "SKILL.md";
 
+/** Shorter values match ordinary prose too often to rewrite safely. */
+const MIN_PARAMETERIZED_LENGTH = 4;
+
 /** A reusable skill stores the declared Variable reference, never its example value. */
 export const parameterizeVariables = (
   files: readonly FlowSkillFile[],
@@ -53,7 +56,9 @@ export const parameterizeVariables = (
     .flatMap((event) =>
       event._tag === "action" &&
       event.variableName !== undefined &&
-      event.target?.value
+      event.target?.value !== undefined &&
+      event.target.value !== null &&
+      event.target.value.length >= MIN_PARAMETERIZED_LENGTH
         ? [{ name: event.variableName, value: event.target.value }]
         : []
     )
@@ -66,7 +71,11 @@ export const parameterizeVariables = (
     value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")
   );
   // One pass preserves existing references and cannot rewrite a reference it just inserted.
-  const pattern = new RegExp(`\\{\\{[^{}]+\\}\\}|${literals.join("|")}`, "gu");
+  // Whole tokens only, so a value inside a longer word is left alone.
+  const pattern = new RegExp(
+    `\\{\\{[^{}]+\\}\\}|(?<![\\p{L}\\p{N}_])(?:${literals.join("|")})(?![\\p{L}\\p{N}_])`,
+    "gu"
+  );
   return files.map((file) => ({
     ...file,
     content: file.content.replace(pattern, (match) => {
