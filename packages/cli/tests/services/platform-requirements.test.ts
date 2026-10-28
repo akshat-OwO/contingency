@@ -152,3 +152,28 @@ it.effect("persists declared Android preparation in saved requirements", () =>
     ).toHaveLength(1);
   })
 );
+
+it("reads Android skills saved with the retired activation allowlist", () => {
+  const environment = {
+    androidVersion: "16",
+    appBuild: "2",
+    appId: "dev.fixture",
+    startingState: "fresh home",
+  };
+  const saved = readPlatformRequirements([
+    JSON.stringify({
+      capabilities: ["semantic-actions"],
+      environment,
+      platform: "android",
+      reversibleActions: [{ name: "Open account", role: "button" }],
+    }),
+  ]);
+  expect(saved).toEqual({
+    diagnostics: [],
+    requirements: {
+      capabilities: ["semantic-actions"],
+      environment,
+      platform: "android",
+    },
+  });
+});
