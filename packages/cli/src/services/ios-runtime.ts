@@ -17,6 +17,8 @@ import {
   compareIosEnvironments,
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
+import { verifyIosForegroundRelease } from "./ios-foreground-release.ts";
+import { makeIosForegroundAuthority } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import { iosNodeInteraction } from "./ios-observation.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
@@ -86,6 +88,9 @@ const startIosRuntime = (
         .prepare(input)
         .pipe(Effect.mapError((cause) => iosRuntimeError(cause.code)));
       const { udid } = prepared.device;
+      const foreground = makeIosForegroundAuthority(
+        yield* verifyIosForegroundRelease()
+      );
       const session = `contingency-ios-${udid}`;
       const client = createAgentDeviceClient({
         cwd: prepared.directory,
@@ -112,6 +117,7 @@ const startIosRuntime = (
           if (bound?.device.ios?.udid !== udid) {
             return yield* Effect.fail(iosRuntimeError("device_mismatch"));
           }
+          yield* foreground.validate(udid, input.targetApp);
           const app = yield* io((signal) =>
             client.command.appState({ ...options(), signal })
           );
@@ -141,6 +147,7 @@ const startIosRuntime = (
           ) {
             return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
           }
+          yield* foreground.validate(udid, input.targetApp);
         });
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const captureOnce = () =>
@@ -330,6 +337,7 @@ export const createIosRun = (
           Effect.asVoid,
           Effect.mapError((cause) => iosRuntimeError(cause.code)),
           Effect.andThen(verifyIosFramebufferRelease()),
+          Effect.andThen(verifyIosForegroundRelease()),
           Effect.asVoid
         ),
     start: startIosRuntime,

@@ -6,6 +6,7 @@ import path from "node:path";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
+import { verifyIosForegroundRelease } from "../../src/services/ios-foreground-release.ts";
 import { verifyIosFramebufferRelease } from "../../src/services/ios-framebuffer-release.ts";
 import {
   IosFramebufferPacket,
@@ -128,57 +129,67 @@ it("rejects malformed packets before retention", () => {
   expect(decode({ ...packet(1), jpeg: "" })._tag).toBe("Failure");
 });
 
-it.effect("hash-checks the exact host artifact and refuses tampering", () =>
-  Effect.gen(function* verifyRelease() {
-    const directory = yield* Effect.acquireRelease(
-      Effect.promise(() =>
-        mkdtemp(path.join(tmpdir(), "contingency-ios-release-test-"))
-      ),
-      (owned) =>
-        Effect.promise(() => rm(owned, { force: true, recursive: true }))
-    );
-    const bytes = Buffer.from("test helper bytes");
-    const manifest = {
-      architecture: "arm64",
-      executable: "framebuffer",
-      platform: "darwin",
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-      signing: "ad-hoc",
-      sourceSha256: "a".repeat(64),
-      version: 1,
-    };
-    yield* Effect.promise(() =>
-      writeFile(path.join(directory, "manifest.json"), JSON.stringify(manifest))
-    );
-    yield* Effect.promise(() =>
-      writeFile(path.join(directory, "framebuffer"), bytes)
-    );
-    const host = { architecture: "arm64", platform: "darwin" };
-    expect(yield* verifyIosFramebufferRelease(directory, host)).toBe(
-      path.join(directory, "framebuffer")
-    );
-    expect(
-      (yield* Effect.result(
-        verifyIosFramebufferRelease(directory, { ...host, architecture: "x64" })
-      ))._tag
-    ).toBe("Failure");
-    yield* Effect.promise(() =>
-      writeFile(path.join(directory, "framebuffer"), "tampered")
-    );
-    expect(
-      (yield* Effect.result(verifyIosFramebufferRelease(directory, host)))._tag
-    ).toBe("Failure");
-    yield* Effect.promise(() =>
-      writeFile(
-        path.join(directory, "manifest.json"),
-        JSON.stringify({ ...manifest, executable: "../foreign" })
-      )
-    );
-    expect(
-      (yield* Effect.result(verifyIosFramebufferRelease(directory, host)))._tag
-    ).toBe("Failure");
-  })
-);
+for (const [executable, verify] of [
+  ["framebuffer", verifyIosFramebufferRelease],
+  ["foreground", verifyIosForegroundRelease],
+] as const) {
+  it.effect(
+    `hash-checks the ${executable} artifact and refuses tampering`,
+    () =>
+      Effect.gen(function* verifyRelease() {
+        const directory = yield* Effect.acquireRelease(
+          Effect.promise(() =>
+            mkdtemp(path.join(tmpdir(), "contingency-ios-release-test-"))
+          ),
+          (owned) =>
+            Effect.promise(() => rm(owned, { force: true, recursive: true }))
+        );
+        const bytes = Buffer.from("test helper bytes");
+        const manifest = {
+          architecture: "arm64",
+          executable,
+          platform: "darwin",
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          signing: "ad-hoc",
+          sourceSha256: "a".repeat(64),
+          version: 1,
+        };
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, "manifest.json"),
+            JSON.stringify(manifest)
+          )
+        );
+        yield* Effect.promise(() =>
+          writeFile(path.join(directory, executable), bytes)
+        );
+        const host = { architecture: "arm64", platform: "darwin" };
+        expect(yield* verify(directory, host)).toBe(
+          path.join(directory, executable)
+        );
+        expect(
+          (yield* Effect.result(
+            verify(directory, { ...host, architecture: "x64" })
+          ))._tag
+        ).toBe("Failure");
+        yield* Effect.promise(() =>
+          writeFile(path.join(directory, executable), "tampered")
+        );
+        expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
+          "Failure"
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, "manifest.json"),
+            JSON.stringify({ ...manifest, executable: "../foreign" })
+          )
+        );
+        expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
+          "Failure"
+        );
+      })
+  );
+}
 
 it.effect(
   "excludes queued pre-Start samples and marks an empty interval incomplete",

@@ -1,0 +1,7 @@
+# iOS foreground helper
+
+This read-only Simulator executable queries AXRuntime's `AXElement.primaryApp` twice and requires the same positive PID and bundle identifier in both replies. It returns the Simulator's own `SIMULATOR_UDID`, protocol version and owner. Missing automation access, selectors, identity, disagreement or a native exception returns failure without diagnostics. It never activates an app or changes accessibility settings.
+
+The optional `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1` build packages this helper beside the framebuffer helper, with its own ad hoc signature and source and executable digests. Runtime verifies the artifact before use, spawns it on the exact bound Session Simulator and accepts only that device's reply naming the Target App. Each validation makes a fresh query. A native watchdog exits a blocked query after four seconds, before the host's five-second deadline. Errors, malformed replies and deadlines return `ownership_unknown`. XCTest app state and alert checks remain additional refusals.
+
+Qualification covers one arm64 host and iOS 26.5 iPhone 17 Pro. AX ownership can change after a query, as with any observation; this does not make input and foreground transitions atomic. The internal entry remains unlisted. See `docs/reports/ios-workspace-runs.md` for candidate evidence and remaining gaps. Signing and clean-host release qualification belong to #550.
