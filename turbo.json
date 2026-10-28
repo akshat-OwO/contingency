@@ -33,7 +33,8 @@
         "!$TURBO_ROOT$/apps/web/node_modules/**",
         "!$TURBO_ROOT$/apps/web/.turbo/**"
       ],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**"],
+      "env": ["CONTINGENCY_BUILD_IOS_FRAMEBUFFER"]
     },
     "check-types": {
       "dependsOn": ["^check-types"]
