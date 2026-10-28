@@ -366,7 +366,6 @@ export const makeAndroidWorkspaceLayer = (options: {
           const pending = session.boundary.pending();
           return {
             ...current.summary,
-            phase: pending === undefined ? current.summary.phase : "paused",
             ...recording,
             boundary: session.boundary.pending()?.boundary ?? null,
             field: current.field,
@@ -950,30 +949,6 @@ export const makeAndroidWorkspaceLayer = (options: {
               "Only the current controller can forward Android input. Agent tools are disabled during Takeover."
             );
           }
-          if (source === "agent") {
-            const capturedAction = {
-              action: JSON.stringify(command.action),
-              type: "android" as const,
-            };
-            const check = yield* session.boundary.checkAttempt({
-              action: capturedAction,
-              capturedAction,
-              description: `Android ${JSON.stringify(command.action)}`,
-              intent: { irreversible: command.irreversible === true },
-              objective: summary.flowSkillName,
-              operationId: command.operationId,
-              step: undefined,
-            });
-            if (check !== undefined) {
-              if (check.created) {
-                update(session, (value) => ({
-                  ...value,
-                  pendingInput: structuredClone(command),
-                }));
-              }
-              return;
-            }
-          }
           const selectedObservation = current.observations.find(
             (observation) => observation.id === command.observationId
           );
@@ -1011,6 +986,33 @@ export const makeAndroidWorkspaceLayer = (options: {
             return yield* denied(
               "Select an uncovered semantic target, or an editable field for a fill."
             );
+          }
+          if (source === "agent") {
+            const capturedAction = {
+              action: JSON.stringify(command.action),
+              type: "android" as const,
+            };
+            const check = yield* session.boundary.checkAttempt({
+              action: capturedAction,
+              capturedAction,
+              description:
+                action._tag === "back"
+                  ? "Go back"
+                  : `${action._tag === "activate" ? "Activate" : "Fill"} ${selectedTarget?.role} ${JSON.stringify(selectedTarget?.name)}${selectedTarget?.packageName ? ` in ${selectedTarget.packageName}` : ""}`,
+              intent: { irreversible: command.irreversible === true },
+              objective: summary.flowSkillName,
+              operationId: command.operationId,
+              step: undefined,
+            });
+            if (check !== undefined) {
+              if (check.created) {
+                update(session, (value) => ({
+                  ...value,
+                  pendingInput: structuredClone(command),
+                }));
+              }
+              return;
+            }
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.

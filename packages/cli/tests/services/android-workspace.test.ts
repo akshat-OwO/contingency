@@ -1985,6 +1985,73 @@ it.effect(
     )
 );
 
+it.effect("Confirmation permits user input during Takeover", () =>
+  fixture(({ calls }) =>
+    Effect.gen(function* takeoverConfirmation() {
+      const workspace = yield* AndroidWorkspace;
+      const prepared = yield* dryRun(yield* taught);
+      const pending = yield* workspace.execute(
+        {
+          _tag: "input",
+          action: { _tag: "activate", target: "@e2" },
+          irreversible: true,
+          observationId: prepared.observation?.id ?? "",
+          operationId: op("pending"),
+          sessionId: prepared.id,
+        },
+        "agent"
+      );
+      const controlled = yield* workspace.execute(
+        {
+          _tag: "control",
+          controller: "user",
+          operationId: op("take"),
+          sessionId: prepared.id,
+        },
+        "user"
+      );
+      expect(controlled.phase).toBe("running");
+      expect(controlled.boundary).toEqual(pending.boundary);
+      const initial = calls.filter((call) => call === "activate").length;
+      yield* workspace.execute(
+        {
+          _tag: "input",
+          action: { _tag: "activate", target: "@e2" },
+          observationId: controlled.observation?.id ?? "",
+          operationId: op("user-input"),
+          sessionId: prepared.id,
+        },
+        "user"
+      );
+      expect(calls.filter((call) => call === "activate")).toHaveLength(
+        initial + 1
+      );
+      const returned = yield* workspace.execute(
+        {
+          _tag: "control",
+          controller: "agent",
+          operationId: op("return"),
+          sessionId: prepared.id,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "input",
+          action: { _tag: "activate", target: "@e2" },
+          observationId: returned.observation?.id ?? "",
+          operationId: op("blocked-agent"),
+          sessionId: prepared.id,
+        },
+        "agent"
+      );
+      expect(calls.filter((call) => call === "activate")).toHaveLength(
+        initial + 1
+      );
+    })
+  )
+);
+
 for (const source of ["agent", "user"] as const) {
   for (const allow of [true, false]) {
     it.effect(
@@ -2008,6 +2075,10 @@ for (const source of ["agent", "user"] as const) {
             );
             expect(paused.pendingDecision?.kind).toBe("boundary");
             expect(paused.boundary?.reason).toBe("confirmation");
+            expect(paused.phase).toBe("running");
+            expect(paused.boundary?.description).toBe(
+              'Activate button "Edit" in dev.fixture'
+            );
             expect(calls.filter((call) => call === "activate")).toHaveLength(
               initial
             );

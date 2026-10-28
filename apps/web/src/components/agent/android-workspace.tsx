@@ -519,7 +519,7 @@ type InputAction = Extract<
 >["action"];
 
 /** One selected session: the device on the stage and the dock over it. */
-const AndroidSessionView = ({
+export const AndroidSessionView = ({
   mutate,
   notices,
   onBrowser,

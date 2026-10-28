@@ -5,7 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { parseAndroidPermissionDecisions } from "@/components/agent/android-setup-state";
-import { AndroidEmptyState } from "@/components/agent/android-workspace";
+import {
+  AndroidSessionView,
+  AndroidEmptyState,
+} from "@/components/agent/android-workspace";
 
 const app = {
   label: "Permission fixture",
@@ -110,4 +113,67 @@ test("preserves explicit permission grants and denials and rejects ambiguous dec
     )
   ).toBeUndefined();
   expect(parseAndroidPermissionDecisions("grant camera")).toBeUndefined();
+});
+
+test("Confirmation keeps the device healthy and Take control enables Back", async () => {
+  const user = userEvent.setup();
+  const session: AndroidWorkspaceSnapshot = {
+    ...completed,
+    boundary: {
+      action: { action: '{"_tag":"activate","target":"@e2"}', type: "android" },
+      description: 'Activate button "Place order" in dev.fixture',
+      id: "boundary",
+      operationId: "attempt",
+      reason: "confirmation",
+      requested: "Checkout",
+    },
+    completedAt: null,
+    controller: "agent",
+    observation: {
+      capturedAt: "",
+      height: 800,
+      id: "observed",
+      image: null,
+      width: 360,
+    },
+    phase: "running",
+  };
+  const mutate = vi.fn();
+  const props = {
+    mutate,
+    notices: null,
+    onBrowser: vi.fn(),
+    pending: false,
+    run: vi.fn(),
+    session,
+    setState: vi.fn(),
+    state: {
+      dismissedField: null,
+      failure: null,
+      instructing: false,
+      session,
+      setupOpen: false,
+    },
+  };
+  const view = render(<AndroidSessionView {...props} />);
+  expect(screen.queryByText("Device disconnected")).toBeNull();
+  expect(screen.getByRole("button", { name: "Android Back" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Take control" }));
+  expect(mutate).toHaveBeenCalledWith(
+    expect.objectContaining({ _tag: "control", controller: "user" })
+  );
+  view.rerender(
+    <AndroidSessionView
+      {...props}
+      session={{ ...session, controller: "user" }}
+    />
+  );
+  await user.click(screen.getByRole("button", { name: "Android Back" }));
+  expect(mutate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      _tag: "input",
+      action: { _tag: "back" },
+      observationId: "observed",
+    })
+  );
 });
