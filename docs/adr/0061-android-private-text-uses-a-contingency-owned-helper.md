@@ -4,6 +4,8 @@ status: accepted
 
 # Android private text uses a Contingency-owned helper
 
+> Superseded by [ADR 0067](./0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): Variables are no longer private, so stock agent-device types every value and the helper is removed.
+
 For [issue 478](https://github.com/akshat-OwO/contingency/issues/478), private Variables on Android reach the device through a Contingency-owned instrumentation helper, beside stock agent-device. The helper receives the value over an authenticated, ADB-forwarded loopback socket, enters it with `AccessibilityNodeInfo.ACTION_SET_TEXT` on the bound field, and verifies the result internally. Stock agent-device keeps every other action. This amends [ADR 0060](./0060-use-stock-agent-device-for-an-experimental-android-runtime.md), which deferred private Variables, and serves the private login that [ADR 0058](./0058-android-is-the-next-platform-runtime.md) requires.
 
 The [driver feasibility prototype](../reports/android-driver-feasibility.md) proved this path on an emulator: the value never appeared in ADB arguments or diagnostics, and readback matched. Stock agent-device sends text through an IME broadcast whose base64 payload is an ADB argument, so it cannot carry secrets.
