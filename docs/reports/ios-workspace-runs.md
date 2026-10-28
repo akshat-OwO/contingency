@@ -1,6 +1,6 @@
 # iOS Workspace Teaching and Runs
 
-**Status: blocked; #548 is not complete.** The final diagnostic build passed a fresh main journey and limits rerun. An earlier diagnostic attempt failed during its Dry Run on the foreground helper deadline. The original first-pick failure and the intermittent timeout still lack an isolated root cause. The Support Matrix remains deferred to #550.
+**Status: acceptance passed on the final build.** A fresh main journey and limits rerun passed on iPhone 17 Pro with iOS 26.5. One earlier diagnostic Dry Run paused safely on a foreground-query deadline under first-boot load; its root cause is tracked in #560, and first-boot cost in #561. The Support Matrix remains deferred to #550.
 
 Issue #548 adds an internal iOS Workspace on top of #552, #554 and #558. iOS remains unlisted pending #550. The public-input proof uses iPhone 17 Pro with iOS 26.5 and a disposable UIKit version of the Android login fixture.
 
