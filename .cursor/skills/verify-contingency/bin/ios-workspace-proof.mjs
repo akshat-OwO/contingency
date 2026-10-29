@@ -352,7 +352,7 @@ try {
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)
   );
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
+  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
   await tool("agent_flow_skill_save", {
     claimOperationId: claim,
     files: [{ content, path: "SKILL.md" }],
