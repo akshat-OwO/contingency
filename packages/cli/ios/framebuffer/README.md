@@ -1,6 +1,6 @@
 # iOS framebuffer helper
 
-This Contingency-owned helper samples the selected selected simulator's active integrated display. It exposes no input API. The parent chooses an exact device UDID and display-port UUID from that device's `simctl io enumerate` inventory. No display or simulator fallback is permitted.
+This Contingency-owned helper samples the selected simulator's active integrated display. It exposes no input API. The parent chooses an exact device UDID and display-port UUID from that device's `simctl io enumerate` inventory. No display or simulator fallback is permitted.
 
 On macOS, build the optional artifact with:
 

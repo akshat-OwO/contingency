@@ -21,3 +21,13 @@ Attempts 9 and 13 passed earlier implementations. Those receipts do not verify t
 ## Limits
 
 The Support Matrix remains unproven. This one-host iOS 26.5 proof cannot establish iOS 27.1, rotation, display replacement, Stop races, x64, signing, notarization, clean-host qualification, or an arbitrary-duration foreground-ownership guarantee. Other-app observation remains a documented SDK limit.
+
+## Selected-device verification results
+
+The selected-device revision passes repository quality and type checks and all 818 CLI unit tests in 105 files. The production CLI and optional framebuffer helper build also pass. Check logs are under `/tmp/ios-selected-sim-checks/`.
+
+Attempt 14 reached fixture setup on iOS 26.5, then stopped before launching Contingency. The proof created simulator `9928EB95-32FE-48D1-8D68-0755D653545F`. The Device panel could not find that exact UDID, including after its prescribed inventory refresh and retry, although simctl listed it. Its error was `No device 9928EB95-32FE-48D1-8D68-0755D653545F on 'This machine' (hostId local). Call device_list for current ids.` The device-tool instructions require stopping after that retry. No direct simulator-driving fallback was used. Attempt 15 was not started because this prerequisite remained unresolved.
+
+The blocker receipt is `.cursor/skills/verify-contingency/artifacts/ios-selected-attempt14/receipt.json`. Setup logs, before/after simulator inventories, process and listener snapshots, and `cleanup-audit.json` are under `/tmp/ios-0067-live/attempt14/`. Cleanup deleted only the exact proof-owned UDID and its fixture directory. All pre-existing simulator identities and states match the baseline. No product server, browser, device session, or private daemon was launched, and the T3 daemon was untouched.
+
+The required complete live receipt remains a gap. Historical successful receipts do not close it. The updated proof retains every earlier journey assertion, adds separate installation approval and existing-data preservation, checks the actual owned framebuffer's selected-device binding, and compares unrelated simulator inventories.

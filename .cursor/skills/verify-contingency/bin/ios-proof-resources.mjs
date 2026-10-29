@@ -19,13 +19,22 @@ export const simulatorInventory = async (excluding) => {
 };
 export const selectedSimulatorResource = async (instance, udid) => {
   assert.ok(udid);
-  const result = await execute("ps", ["-axo", "pid=,ppid="]);
-  const parents = new Map(
-    result.stdout
-      .trim()
-      .split("\n")
-      .map((line) => line.trim().split(/\s+/u).map(Number))
-  );
+  const result = await execute("ps", ["-axo", "pid=,ppid=,command="]);
+  const processes = result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => {
+      const match = /^\s*(?<pid>\d+)\s+(?<parent>\d+)\s+(?<command>.*)$/u.exec(
+        line
+      )?.groups;
+      assert.ok(match);
+      return {
+        command: match.command,
+        parent: Number(match.parent),
+        pid: Number(match.pid),
+      };
+    });
+  const parents = new Map(processes.map(({ pid, parent }) => [pid, parent]));
   const descendants = [...parents]
     .filter(([candidate]) => {
       const seen = new Set();
@@ -40,10 +49,31 @@ export const selectedSimulatorResource = async (instance, udid) => {
       return false;
     })
     .map(([pid, parent]) => ({ parent, pid }));
+  const descendantIds = new Set(descendants.map(({ pid }) => pid));
+  const helpers = processes.filter(
+    (entry) =>
+      descendantIds.has(entry.pid) &&
+      entry.command.includes("/dist/ios/framebuffer/framebuffer ")
+  );
+  assert.equal(
+    helpers.length,
+    1,
+    "Expected one framebuffer owned by this MCP instance"
+  );
+  const [helper] = helpers;
+  const boundUdid = /[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/iu.exec(
+    helper.command
+  )?.[0];
+  assert.equal(
+    boundUdid,
+    udid,
+    "The live framebuffer must bind the selected simulator"
+  );
   return {
     descendants,
     observedAt: new Date().toISOString(),
     owner: instance.mcpPid,
-    udid,
+    pid: helper.pid,
+    udid: boundUdid,
   };
 };
