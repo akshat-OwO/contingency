@@ -1,109 +1,19 @@
 # iOS Workspace Teaching and Runs
 
-**Status: acceptance passed on the final build.** A fresh main journey and limits rerun passed on iPhone 17 Pro with iOS 26.5. One earlier diagnostic Dry Run paused safely on a foreground-query deadline under first-boot load; its root cause is tracked in #560, and first-boot cost in #561. The Support Matrix remains deferred to #550.
+This branch implements ADR 0067 on the internal iOS Workspace. The complete Support Matrix remains unproven. `CONTINGENCY_IOS_WORKSPACE_INTERNAL=1` exposes the internal Workspace only; public device MCP still returns `ios_support_matrix_unproven`.
 
-Issue #548 adds an internal iOS Workspace on top of #552, #554 and #558. iOS remains unlisted pending #550. The public-input proof uses iPhone 17 Pro with iOS 26.5 and a disposable UIKit version of the Android login fixture.
+## Runtime behavior
 
-## Implementation and gates
+The agent can use all semantic controls on its Session Simulator, including system alerts, Settings, other apps, and untaught controls. Simulator identity, current observation, covered targets, controller authority, capture integrity, and lifecycle checks still apply. The framebuffer helper, stream, fresh Session Simulator preparation, recorded-resource scavenging, and scoped cleanup are preserved.
 
-`CONTINGENCY_IOS_WORKSPACE_INTERNAL=1` enables the Workspace entry and its private verification RPCs. The default UI has no iOS entry, discovery returns no devices through that entry, and public device MCP always returns `ios_support_matrix_unproven`, including with the internal gate enabled. The verification harness uses internal Workspace commands for agent actions and public MCP for recording claims, Timeline readback and Flow Skill learning. This gate is a development entry, not a Support Matrix claim.
+Discovery lists simulators only. A physical selection returns `physical_device_unsupported` before any device command. The selected template supplies device type, runtime, and app build and is never booted or changed.
 
-Preparation creates a new Session Simulator from the selected template's device type and runtime. Input and the framebuffer helper bind that exact UDID. Stock pinned agent-device runs in a private state directory and socket daemon; it does not adopt the T3 daemon. Input uses fresh semantic references, session authority, app ownership checks and explicit preparation/recovery. Snapshots use the SDK’s `observeOnly` mode and reject activation metadata, so checking a session cannot reactivate its app over another app. Private Variables remain `capability_missing`; there is no private text transport or iOS Back control.
+Variables are ordinary text. Stock agent-device enters every value through the shared `native-app-fill.ts` path. SDK readback success records `confirmed`; unavailable readback records `entered` and `unconfirmed`. The shared native runtime always makes secure-field fills unconfirmed. Runtime evidence carries values; saved skills carry only Variable names. The login fixture teaches a readable Login name and a secure `{{PASSWORD}}` fill, followed by **Sign in privately**, **Open account**, and **Return to account**.
 
-The opt-in build `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1` packages the Contingency-owned Objective-C source into `dist/ios/framebuffer`, ad hoc signs it, verifies its signature, and records source and executable SHA-256 hashes, host architecture and protocol version. Runtime validates the manifest and executable digest before spawning it. Ordinary builds need no Xcode and contain no executable iOS backend. Developer ID signing, notarization and clean-host proof remain #550 exit criteria.
-
-The helper exposes pixels only. The session's authenticated view-only route validates session, credential, Host, Origin, method and path, has a bounded queue and revokes credentials at close. Transport failure pauses input and invalidates active capture. The manifest records the retained Start-to-Stop sample interval, output continuity and explicit gaps. It makes no claim that every compositor source frame was observed. Static displays remain valid; Start excludes queued earlier samples; Stop closes retention before durable finalization. Helper and Node use the same monotonic clock, including host sleep.
-
-Rotation continues the same Teaching recording. A pick against incompatible fresh dimensions returns “The stream size or orientation changed. No input was sent.” The user picks again. Rotation alone does not make the recording incomplete. For display replacement, the parent resolves only the unique active integrated display of the same bound Session Simulator. The helper rebinds only that exact positively identified display. Unknown or ambiguous identity stops mirroring and pauses on typed `ownership_unknown`; it never chooses a largest surface or another simulator.
-
-## Foreground ownership qualification
-
-The stock XCTest `appState` and observe-only tree cannot establish visible ownership. The runner contains an internal active-application PID query, but the pinned public command protocol exposes no read-only query for that value. Its documented meaning is active accessibility sessions, without ordering or bundle identity. No pinned agent-device source was changed.
-
-Qualification used an owned iPhone 17 Pro on iOS 26.5, UDID `37C7B399-B67E-4A27-9A46-61EE16FA6F44`. The shared device panel did not discover that new UDID. The probe therefore used an isolated stock runner state directory and exact-UDID Simulator commands, preserving the T3 daemon. The following table records settled cases. Screenshots pair Settings, Safari, Home and Control Center with the queries; the stock alert-wait command establishes the notification dialog. Immediate post-command samples remain in the evidence and do not establish that a transition completed.
-
-| Candidate | Target | Settings | Safari | Notification alert | Home | Control Center | Decision |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `launchctl list` | Target PID present | Target PID still present | Target PID still present | Target PID still present | Target PID still present | Target PID still present | Process liveness only; rejected |
-| `notifyutil -g com.apple.springboard.frontmostApp` | 0 | 0 | 0 | 0 | 0 | 0 | No owner identity; rejected |
-| `SBSCopyFrontmostApplicationDisplayIdentifier` | null | null | null | null | null | null | Symbol loads but supplies no owner; rejected |
-| AXRuntime `AXElement.primaryApp` | Target PID and bundle | Preferences PID and bundle | Safari PID and bundle | SpringBoard PID and bundle | SpringBoard PID and bundle | SpringBoard PID and bundle | Implemented; settled cases pass, full qualification blocked |
-
-The stock app-switcher command returned success, but both screenshots still showed the Target App. That case was not reached and remains unqualified for every candidate. An immediate Safari transition supplied its PID with no bundle identifier, so the authority must reject it. Immediate Settings and Home samples still named the target before the settled checks. Settings remains correctly identified even with the Target App named in its return-to-app status-bar control. The paired settled screenshots and queries distinguish those cases; the probes do not establish atomic ownership through a transition. Unified scene logs showed activation and keyboard-focus events, but a historical event has no current-state checkpoint or loss guarantee, so logs were not used as an authority or sampled across the matrix.
-
-Contingency owns a small read-only guest helper under `packages/cli/ios/foreground`. It reads the primary AX application twice and requires an unchanged positive PID and nonempty bundle identifier. The reply includes the guest's own Simulator UDID and protocol version. The helper requires existing automation access, never enables it, and never activates an app. Missing selectors, unavailable identity, disagreement and native exceptions fail without diagnostics. A four-second guest watchdog bounds a blocked AX call; the Effect caller has a five-second deadline.
-
-The iOS service validates the reply schema, exact bound Session Simulator UDID and Target App bundle identifier on every check. It retains no successful ownership cache. Every authority error, including an invalid helper artifact, becomes typed `ownership_unknown`. Existing app-state and alert checks remain extra refusals. The helper has a separate versioned manifest, source and executable SHA-256 digests, and a verified ad hoc signature. Both final artifact digests match their source and executable. These settled observations do not qualify a stable Apple API or the #550 Support Matrix. The fresh journey failure below prevents full local acceptance.
-
-Raw candidate results, paired screenshots, probe sources, final build digests and resource ownership are retained under `artifacts/ios-workspace-runs/` as `ownership-candidates.json`, `ownership-build.json` and `ownership-resources.json`.
+Both Android and iOS use `native-app-confirmation.ts` and the existing Execution Boundary service. An agent action marked `irreversible: true` creates a Pending Decision before dispatch. Workspace displays the exact action. Approval consumes a grant for that stored attempt, refusal dispatches nothing, and every retry requires a fresh decision. Operation receipts prevent duplicate dispatch. This shared-layer change is kept on this branch.
 
 ## Verification
 
-The earlier public journey passed on macOS 27.0.1 (26A434), arm64, Xcode 27.1 (27A9275), iPhone 17 Pro / iOS 26.5:
+The maintained recipe is `.cursor/skills/verify-contingency/features/workspace.md#ios-workspace-internal`. The main proof covers Teaching, Timeline and skill learning, a fresh Dry Run, verification and purge, a later Run, Confirmation Allow and Refuse, duplicate operation readback, and an agent answer to a notification system alert.
 
-| Acceptance item | Result |
-| --- | --- |
-| Workspace Teaching and rotation | Passed; same recording, stale-size refusal, four semantic actions |
-| Flow Skill learning | Passed through public claim, Timeline and save MCP |
-| `working` Dry Run | Passed on a fresh Session Simulator |
-| Verification and purge | Passed; saved marker read back, capture directory absent |
-| Later `working` Run | Passed on another fresh Session Simulator |
-| Default unlisted gate | Passed; no iOS button, disabled entry, empty discovery/session lists |
-| Public MCP iOS refusal | Passed, including with the internal entry enabled |
-| Duplicate binding, Takeover, coordinates, Back, Private Variables, edge swipe | Passed live |
-| Real system alert | Notification dialog observed; `ownership_unknown` pause passed |
-| Other app | Passed with AX authority; Settings pauses on `ownership_unknown`, then explicit recovery retains the same UDID |
-
-A normal SDK snapshot initially reactivated the target app after Settings opened. `observeOnly: true` prevents that activation, but the SDK still returns the target app's `runningForeground` state and accessibility tree while Settings is visibly in front. The new AX authority closes that settled-state failure. The inherited final limits proof exited successfully with no blockers, including real notification-alert and Settings pauses, positive Target App ownership after same-device recovery, mid-recording helper loss and recovery. Its receipt is preserved as `ownership-inherited-limits.json`.
-
-The takeover instance used a newly created shutdown iPhone 17 Pro / iOS 26.5 template, `13B2A615-D847-4CB8-BCFE-658505A09827`. Its main journey failed at the first `browser ios-pick` for `Login name`, after preparation and Start recording. The screenshot shows the Target App while the service reports `ownership_unknown`. The current error does not distinguish the AX query from other observation guards, so the failing guard is not isolated. No retry or relaxed ownership check was added. `takeover-main-receipt.json`, `takeover-main-blocked.png`, and `takeover-main.log` retain the failure. Earlier successful main journeys remain historical evidence, not a pass for this attempt.
-
-The fresh slow-consumer proof passed with no blockers. Its authenticated stalled viewer produced an incomplete capture with a `slow-consumer` gap, recorded in `slow-consumer.json`. The limits and helper-loss/recovery results come from the inherited successful final run; they were not repeated after instance cleanup. A complete fresh main journey and fresh limits rerun remain required. Display-port replacement, live Stop races and complete source consistency remain unproved.
-
-Evidence is under `.cursor/skills/verify-contingency/artifacts/ios-workspace-runs/` and contains only the public fixture journey. The recipe is `features/workspace.md#ios-workspace-internal` in verify-contingency.
-
-## Checks
-
-Each heavy command ran separately after a memory/swap check. Swap stayed at 1,083.5 MiB used in the recorded checks; no memory-pressure expansion was needed.
-
-| Final command | Result |
-| --- | --- |
-| `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force` | 1/1 task passed; both ad hoc helpers built and signatures verified |
-| `nub exec turbo run quality` | 2/2 tasks passed; 0 warnings, 0 errors; 731 linted and 982 formatted files |
-| `nub exec tsc --noEmit -p packages/cli/tsconfig.json` | Passed; 0 errors |
-| `nub exec tsc --noEmit -p apps/web/tsconfig.json` | Passed; 0 errors |
-| Affected service tests via `nub exec vitest run` in `packages/cli` | 163/163 tests passed in 11/11 files; 0 failed |
-
-The affected files include the Settings-in-front service regression, blocked input and capture, same-device recovery, unknown and malformed ownership, virtual-time helper timeout, both helper artifacts, iOS preparation, display identity/orientation, stream integrity and artifact tampering, UIKit node interaction, shared native capture and runtime, Android Workspace regression, Flow Skill packaging, recording store and platform requirements. Live checks expose the remaining observation failure; unit results do not establish final journey acceptance.
-
-## Remaining qualification
-
-This issue proves the public journey on one local arm64 host. It does not establish the #550 matrix, private input, x64 execution, Developer ID signing, notarization or a clean host. Long-run CPU/RAM, macOS/Xcode combinations and composition consistency require qualification beyond this journey. The display selector and rebind preserve fail-closed identity, but a real physical display-port replacement must be separately demonstrated if the installed simulator cannot produce one. Unit continuity checks are not live replacement evidence.
-
-## Resource cleanup
-
-The resource ledger records owned templates, Session Simulator UDIDs, private daemon owners, helpers, verification processes and listeners. Every simulator is deleted by exact UDID; user-owned devices and T3 services are preserved. Final audit: 30 owned simulator UDIDs are absent, including the template; 97 recorded PIDs were checked, with no owned process remaining; all 38 recorded listener ports are closed. No Session Simulator ownership marker remains. The temporary fixture build was removed. The three baseline user simulators remain shutdown. T3 and shared CoreSimulator services were preserved. Full identifiers and checks are in `resources.json` and `cleanup.json`; no cleanup failure was observed.
-
-## Takeover cleanup audit
-
-PID 18876 was awaited through a kernel process-exit event and exited successfully, without signaling it. Its wrapper also exited. PID 70757 was checked against its October 28 14:13:35 start time and exact driver command before `control-contingency cleanup` stopped the inherited instance. The inherited Session Simulator `8CDC2678-8008-4DB2-90E4-26DB2D816CDC` was already absent after scoped cleanup. Only the recorded owned shutdown template needed explicit deletion.
-
-Both verification instances are cleaned. The final audit checked 1,123 recorded process identities, 17 owned simulator UDIDs and 26 listener ports. No recorded process, owned simulator, listener or ownership marker remains. Probe sources and public fixture screenshots were copied to `ownership-research/` under the artifacts directory before `/tmp/contingency-ios-548-ownership/` was removed. `ownership-cleanup-inherited.json` and `ownership-cleanup-final.json` retain the audit. User-owned simulators and T3 services were preserved. Evidence is local and gitignored.
-
-## Diagnostic implementation follow-up
-
-**Status remains blocked on root-cause isolation.** The complete main journey passed on the diagnostic revision, but another fresh attempt failed during its Dry Run. No ownership behavior, deadline, retry policy, or activation policy was changed.
-
-The first diagnostic attempt used owned shutdown template `F70D66A4-F59E-4231-BB2D-FEB65C5316FF`, iPhone 17 Pro / iOS 26.5. Teaching, rotation, and learning passed. The Dry Run then paused with `ownership_unknown`. The internal warning identifies `helper_timeout` at 2026-10-28 09:24:05 UTC. This is the caller's five-second foreground-query deadline, not evidence of a PID mismatch, bundle mismatch, keyboard mismatch, or stale snapshot. The guest watchdog and caller deadline were previously indistinguishable. This does not reproduce the earlier first-pick failure at the same step and does not establish whether AX or simulator transport stalled.
-
-The final diagnostic build adds typed internal `ownershipReason` values and fixed-token warnings. The native helper reports AX query failure, no primary app, automation unavailable, missing guest device identity, changing PID or bundle, and its own watchdog timeout separately. The caller distinguishes transport, reply validation, exact-device mismatch, bundle mismatch, and deadline failure. Observation guards distinguish snapshot transport, bundle mismatch, truncation, activation metadata, alert nodes, missing viewport, and missing reference generation. Error messages and public `ownership_unknown` state remain unchanged. Logs contain reason tokens only, without app identifiers, PIDs, field contents, or native exception descriptions.
-
-A second fresh journey on the complete diagnostic build passed Teaching, rotation, learning, a fresh `working` Dry Run, verified and purged readback, and a later fresh `working` Run. Its receipt has no blockers. No AX refusal was logged during that attempt. A passing repeat does not resolve the intermittent query deadline failure. No settling wait or behavioral fix is justified by the current evidence, and no regression test is claimed for an isolated product root cause. Seven new service cases preserve native refusal reasons; the existing virtual-time stalled-helper regression remains.
-
-Evidence: `diagnostic-main-receipt.json`, `diagnostic-main.log`, `diagnostic-mcp.log`, `diagnostic-final-main-receipt.json`, and `diagnostic-final-main.log` under the existing artifacts directory.
-
-Sequential checks on the diagnostic implementation passed: quality 2/2 tasks, 0 warnings and 0 errors, 732 linted and 983 formatted files; CLI and web type checks, 0 errors; affected iOS and shared native-app service tests, 92/92 across 7 files; opt-in CLI build, 1/1 task, both helpers built and signatures verified. Swap remained 1,083.5 MiB used. Live display replacement, Stop races, source consistency, and #550 signing and Support Matrix qualification remain gaps.
-
-The final fresh limits rerun passed with no blockers: Settings pause, positive Target App ownership and recovery on the same UDID, notification alert pause, mid-recording framebuffer helper loss, incomplete capture, and same-simulator recovery. Logs distinguish `bundle_mismatch` and `ax_pid_changed` refusals during the limits transitions. Neither is evidence of the original first-pick cause. App-switcher visibility was not established in this follow-up and remains unqualified. Evidence is `diagnostic-final-limits.json`, `diagnostic-final-limits.log`, and `diagnostic-final-mcp.log`.
-
-Cleanup completed for both owned verification instances. The audit checked 10 owned simulator UDIDs, 49 recorded process IDs, and eight listener ports. Every recorded simulator is absent, every recorded process has exited, and all eight ports are closed. The owned template was deleted by exact UDID and the owned fixture build was removed. No T3 daemon was signaled or reused; no existing simulator was booted, changed, or deleted. The ledger and audit are `diagnostic-resources.json` and `diagnostic-cleanup.json`. No cleanup failure remains.
+On 2026-10-29, quality, CLI/protocol/web typechecks, 804 CLI unit tests, 178 integration tests, and the production framebuffer build passed. The one live iOS 26.5 attempt passed public MCP gating and Session Simulator preparation, then stopped after the readable fill because no selectable `secure-text-field` named Password appeared in the next snapshot. Confirmation and system-alert steps were not reached. See `.cursor/skills/verify-contingency/artifacts/ios-workspace-runs/receipt.json`, `journal.json`, and `blocked.png`. The script closed the session, verification cleanup stopped the owned servers and browser, and both owned simulator identifiers were deleted. This revision does not have a passing live journey proof. Historical evidence predates these rules and does not qualify this revision. Rotation, live display replacement, Stop races, x64, signing, notarization, clean-host qualification, and both Support Matrix cells are outside this one-host proof.

@@ -35,7 +35,7 @@ import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 export interface IosObservation extends Omit<
   AndroidObservation,
-  "platform" | "device" | "capture"
+  "platform" | "device" | "capture" | "ownership"
 > {
   readonly platform: "ios";
   readonly device: IosDevice;
