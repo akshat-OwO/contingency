@@ -751,7 +751,11 @@ export const makeIosWorkspaceLayer = (options: {
                 (code) =>
                   session.lock
                     .withPermits(1)(pause(session, platformRuntimeError(code)))
-                    .pipe(Effect.orDie)
+                    .pipe(Effect.orDie),
+                () => {
+                  const observed = state(session).observation;
+                  return observed ? observationSize(observed) : undefined;
+                }
               ),
               summaryFile: path.join(root, ".ios-workspace", `${id}.json`),
               variables: Atom.make<readonly WorkspaceVariable[]>(
