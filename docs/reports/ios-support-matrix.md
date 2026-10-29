@@ -53,7 +53,13 @@ The macOS build used CI's release implementation: stamp version `0.0.1`, build t
 
 A second npm install used a fresh empty prefix, fresh cache, and isolated HOME with offline strict peer-dependency resolution. The installed ad hoc helper had no quarantine xattr and passed `codesign -v`. On each matrix simulator it emitted three valid sequential JPEG packets for the selected simulator and then exited normally. The temporary prefix, HOME, and npm tooling were removed; the tarball and receipt remain under `/tmp/ios-matrix-release/` for local review.
 
-This is an install on the development Mac. A clean-machine run remains a gap. The framebuffer helper build is explicitly enabled with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1`; this check does not qualify an x64 artifact or a different host architecture.
+This earlier check installed a locally built helper on the development Mac. It did not prove the Ubuntu release workflow included that helper. A clean-machine run remains a gap, and native x86_64 execution has not been qualified.
+
+## Packaging
+
+Release and PR artifact CI now build a universal arm64 + x86_64 framebuffer helper on one GitHub-hosted macOS runner. The job verifies both architectures with `lipo` and the ad hoc signature with `codesign`. The Ubuntu job restores the binary and manifest after the CLI build, requires them before packing, and checks them again in the fresh npm install. Published installs require no local build environment variable or helper compilation. Local Linux source builds may still omit it.
+
+The versioned manifest pins the exact packaged binary SHA-256, since Xcode versions do not produce identical bytes. Runtime checks that digest and both actual Mach-O executable slices. The manifest detects corruption or replacement of the binary alone; it is not an independent publisher identity. npm provenance supplies package origin evidence. Ad hoc signing does not establish Developer ID identity or notarization.
 
 ## Cleanup and limits of evidence
 

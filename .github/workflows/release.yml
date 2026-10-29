@@ -39,6 +39,31 @@ permissions:
   contents: read
 
 jobs:
+  ios-framebuffer:
+    name: Build universal iOS framebuffer helper
+    needs: [preflight]
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+      - run: nub ci
+      - name: Build and verify helper
+        working-directory: packages/cli
+        env:
+          CONTINGENCY_BUILD_IOS_FRAMEBUFFER: "1"
+        run: |
+          nub src/packaging/build-ios-framebuffer.ts
+          lipo -info dist/ios/framebuffer/framebuffer
+          lipo dist/ios/framebuffer/framebuffer -verify_arch arm64
+          lipo dist/ios/framebuffer/framebuffer -verify_arch x86_64
+          codesign -v --strict --all-architectures dist/ios/framebuffer/framebuffer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-framebuffer
+          path: packages/cli/dist/ios/framebuffer/
+          if-no-files-found: error
+
   preflight:
     name: Resolve release
     runs-on: ubuntu-latest
@@ -114,7 +139,7 @@ jobs:
 
   publish:
     name: Publish to npm
-    needs: [preflight, quality, integration]
+    needs: [preflight, quality, integration, ios-framebuffer]
     runs-on: ubuntu-latest
     environment: release
     permissions:

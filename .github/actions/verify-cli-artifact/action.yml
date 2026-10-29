@@ -44,13 +44,27 @@ runs:
           exit 1
         fi
 
+    # Build clears dist. Restore the macOS artifact only after it finishes.
+    - name: Download iOS framebuffer helper
+      uses: actions/download-artifact@v5
+      with:
+        name: ios-framebuffer
+        path: packages/cli/dist/ios/framebuffer
+
+    - name: Restore helper executable mode
+      shell: bash
+      run: chmod +x packages/cli/dist/ios/framebuffer/framebuffer
+
     - name: Pack
       id: pack
       shell: bash
+      env:
+        CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER: "1"
       run: nub packages/release/src/main.ts pack-cli --output "$GITHUB_OUTPUT"
 
     - name: Verify a clean packed CLI install
       shell: bash
       env:
+        CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER: "1"
         TARBALL: ${{ steps.pack.outputs.tarball }}
       run: nub packages/release/src/main.ts verify-cli-install "$TARBALL"

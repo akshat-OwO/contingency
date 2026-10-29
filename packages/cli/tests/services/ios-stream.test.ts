@@ -142,15 +142,28 @@ for (const [executable, verify] of [
           (owned) =>
             Effect.promise(() => rm(owned, { force: true, recursive: true }))
         );
-        const bytes = Buffer.from("test helper bytes");
+        const bytes = Buffer.alloc(112);
+        bytes.writeUInt32BE(0xca_fe_ba_be, 0);
+        bytes.writeUInt32BE(2, 4);
+        for (const [entry, cpu, offset] of [
+          [8, 0x01_00_00_0c, 48],
+          [28, 0x01_00_00_07, 80],
+        ] as const) {
+          bytes.writeUInt32BE(cpu, entry);
+          bytes.writeUInt32BE(offset, entry + 8);
+          bytes.writeUInt32BE(32, entry + 12);
+          bytes.writeUInt32LE(0xfe_ed_fa_cf, offset);
+          bytes.writeUInt32LE(cpu, offset + 4);
+          bytes.writeUInt32LE(2, offset + 12);
+        }
         const manifest = {
-          architecture: "arm64",
+          architecture: "universal",
           executable,
           platform: "darwin",
           sha256: createHash("sha256").update(bytes).digest("hex"),
           signing: "ad-hoc",
           sourceSha256: "a".repeat(64),
-          version: 1,
+          version: 2,
         };
         yield* Effect.promise(() =>
           writeFile(
@@ -158,20 +171,52 @@ for (const [executable, verify] of [
             JSON.stringify(manifest)
           )
         );
+        const host = { architecture: "arm64", platform: "darwin" };
+        expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
+          "Failure"
+        );
         yield* Effect.promise(() =>
           writeFile(path.join(directory, executable), bytes)
         );
-        const host = { architecture: "arm64", platform: "darwin" };
         expect(yield* verify(directory, host)).toBe(
+          path.join(directory, executable)
+        );
+        expect(yield* verify(directory, { ...host, architecture: "x64" })).toBe(
           path.join(directory, executable)
         );
         expect(
           (yield* Effect.result(
-            verify(directory, { ...host, architecture: "x64" })
+            verify(directory, { ...host, platform: "linux" })
           ))._tag
         ).toBe("Failure");
+        // A matching digest cannot make a thin binary a universal release.
+        const thin = bytes.subarray(48, 80);
         yield* Effect.promise(() =>
-          writeFile(path.join(directory, executable), "tampered")
+          writeFile(path.join(directory, executable), thin)
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, "manifest.json"),
+            JSON.stringify({
+              ...manifest,
+              sha256: createHash("sha256").update(thin).digest("hex"),
+            })
+          )
+        );
+        expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
+          "Failure"
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, "manifest.json"),
+            JSON.stringify(manifest)
+          )
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, executable),
+            Buffer.concat([bytes, Buffer.from("tampered")])
+          )
         );
         expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
           "Failure"
