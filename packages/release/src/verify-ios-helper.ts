@@ -267,6 +267,15 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
   });
   const run = (command: string, args: readonly string[]) =>
     runInstallCheckCommand(command, args, directory);
+  // CoreSimulator starts on demand; a cold hosted runner can take minutes to answer.
+  const simctl = (args: readonly string[]) =>
+    runInstallCheckCommand(
+      "xcrun",
+      ["simctl", ...args],
+      directory,
+      {},
+      "5 minutes"
+    );
   const host = (yield* run("uname", ["-m"])).stdout.trim();
   const translated =
     (yield* run("sysctl", ["-in", "sysctl.proc_translated"])).stdout.trim() ||
@@ -328,12 +337,7 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
   yield* Console.log(
     "Installed universal helper passed runtime manifest, codesign, and quarantine checks."
   );
-  const inventory = (yield* run("xcrun", [
-    "simctl",
-    "list",
-    "runtimes",
-    "--json",
-  ])).stdout;
+  const inventory = (yield* simctl(["list", "runtimes", "--json"])).stdout;
   const { runtime, device } = yield* parse(() => selectIosRuntime(inventory));
   yield* Console.log(
     JSON.stringify({
@@ -343,8 +347,7 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
     })
   );
   const udid = yield* Effect.acquireRelease(
-    run("xcrun", [
-      "simctl",
+    simctl([
       "create",
       `contingency-clean-host-${randomUUID()}`,
       device.identifier,
@@ -355,7 +358,7 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
       )
     ),
     (id) =>
-      run("xcrun", ["simctl", "delete", id]).pipe(
+      simctl(["delete", id]).pipe(
         Effect.andThen(Console.log(`Deleted proof-owned simulator ${id}`)),
         Effect.orDie
       )
@@ -368,7 +371,7 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
       stop: `xcrun simctl delete ${udid}`,
     })
   );
-  yield* run("xcrun", ["simctl", "boot", udid]);
+  yield* simctl(["boot", udid]);
   yield* Effect.gen(function* boot() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const child = yield* spawner.spawn(
