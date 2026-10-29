@@ -14,6 +14,14 @@ it("classifies secure UIKit fields before a value can become a public name", () 
   expect(iosNodeInteraction({ kind: "secure-text-field" }).password).toBe(true);
   expect(iosNodeInteraction({ type: "SecureTextField" }).password).toBe(true);
 });
+it("names an unmapped UIKit secure field as an editable secure-text-field", () => {
+  expect(iosNodeInteraction({ type: "SecureTextField" })).toMatchObject({
+    editable: true,
+    hittable: true,
+    password: true,
+    role: "secure-text-field",
+  });
+});
 it("never turns an application container or static text into an actionable pick", () => {
   expect(
     iosNodeInteraction({ hittable: true, kind: "application" }).hittable

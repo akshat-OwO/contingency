@@ -14,11 +14,14 @@ export const iosNodeInteraction = (
     | "interactionBlocked"
   >
 ) => {
-  const role = node.kind ?? node.role ?? node.type ?? "unknown";
-  const password =
-    node.password === true ||
-    role === "secure-text-field" ||
-    (node.type ?? "").endsWith("SecureTextField");
+  // agent-device has no kind for UIKit secure fields, so name them from the element type.
+  const secure =
+    node.kind === "secure-text-field" ||
+    (node.kind === undefined && (node.type ?? "").endsWith("SecureTextField"));
+  const role = secure
+    ? "secure-text-field"
+    : (node.kind ?? node.role ?? node.type ?? "unknown");
+  const password = node.password === true || secure;
   const editable =
     node.editable === true ||
     ["text-field", "secure-text-field", "text-view"].includes(role);
