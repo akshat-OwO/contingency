@@ -82,8 +82,9 @@ try {
   const listed = await tool("agent_device_sessions_list", { platform: "ios" });
   assert.ok(Array.isArray(listed));
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
-  const device = devices.find((entry) => entry.udid === selected);
-  assert.ok(device);
+  const discovered = devices.find((entry) => entry.udid === selected);
+  assert.ok(discovered);
+  const { state: _state, ...device } = discovered;
   receipt.cell = {
     deviceType: device.deviceType,
     runtimeVersion: device.runtimeVersion,

@@ -294,8 +294,9 @@ try {
     receipt.coverage.publicMcpGate = true;
   }
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
-  const device = devices.find((candidate) => candidate.udid === selected);
-  assert.ok(device && ["26.5", "27.1"].includes(device.runtimeVersion));
+  const discovered = devices.find((candidate) => candidate.udid === selected);
+  assert.ok(discovered && ["26.5", "27.1"].includes(discovered.runtimeVersion));
+  const { state: _state, ...device } = discovered;
   receipt.cell = {
     deviceType: device.deviceType,
     runtime: device.runtime,
@@ -327,6 +328,8 @@ try {
     assert.ok(message, "Expected an explicit refusal");
     assert.match(message, pattern);
     return message
+      .replaceAll(root, "<repo>")
+      .replaceAll(appPath, "<fixture.app>")
       .replaceAll(selected, "<selected>")
       .replaceAll(/agent-ios-[0-9a-f]+/gu, "<session>")
       .slice(0, 600);
