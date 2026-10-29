@@ -1220,7 +1220,7 @@ const cmdDriverServe = async (url, userDataDir) => {
               const parsed = JSON.parse(line);
               for (const reply of Array.isArray(parsed) ? parsed : [parsed]) {
                 if (reply._tag === "Exit" && workspacePending.has(String(reply.requestId))) {
-                  globalThis.__workspaceCommandReplies.push({ tag: workspacePending.get(String(reply.requestId)), success: reply.exit._tag === "Success" });
+                  globalThis.__workspaceCommandReplies.push({ cause: reply.exit._tag === "Success" ? undefined : JSON.stringify(reply.exit).slice(0, 4000), tag: workspacePending.get(String(reply.requestId)), success: reply.exit._tag === "Success" });
                   if (reply.exit._tag === "Success") globalThis.__workspaceCompletedCommands.push(workspacePending.get(String(reply.requestId)));
                   workspacePending.delete(String(reply.requestId));
                 }

@@ -15,10 +15,11 @@ const waitReply = async (page, before) => {
     (index) => globalThis.__workspaceCommandReplies.slice(index),
     before
   );
+  const reply = replies.find((entry) => entry.tag === "ios.workspace.command");
   assert.equal(
-    replies.find((reply) => reply.tag === "ios.workspace.command")?.success,
+    reply?.success,
     true,
-    "Workspace command refused; inspect the captured UI."
+    `Workspace command refused; inspect the captured UI. ${reply?.cause ?? ""}`
   );
   await page.waitForFunction(
     () =>
