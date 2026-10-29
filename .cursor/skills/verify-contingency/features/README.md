@@ -50,7 +50,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.
 
 - [Android preparation](./workspace.md#android-preparation) proves the internal Android factory lifecycle, with explicit device selection and sanitized receipts.
-- [Android Support Matrix](./workspace.md#android-support-matrix) proves each matrix cell's Teaching, Dry Run, and verification, and every documented-limit refusal.
+- [Android Support Matrix](./workspace.md#android-support-matrix) proves both emulator cells' Teaching, Dry Run, verification with Cleanup, later Run, system-dialog answer, Confirmation, secure-window pause, and physical-device refusal.
 - [Android workspace](./workspace.md#android-workspace) proves Android Teaching, Takeover, Dry Run verification and purge, a later Run, and Summary readback after restart through mirrored Workspace.
 - [Android checkout](./workspace.md#android-checkout) proves the Expo checkout fixture on an explicitly selected emulator: discovered setup, stream picks and refusals, dock typing without overlays, Workspace Teaching, Timeline readback, learning, fresh Dry Run, verification and purge, changed-build permission, broken-build detection, ownership pause, capture loss, restart, and same-device disconnect recovery.
 

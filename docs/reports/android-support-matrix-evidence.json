@@ -1,21 +1,26 @@
 {
-  "checkedAt": "2026-10-15",
-  "issue": 489,
+  "checkedAt": "2026-10-29",
+  "issue": 567,
+  "adr": "0067",
   "proof": ".cursor/skills/verify-contingency/bin/android-support-matrix-proof.mjs",
   "cells": {
     "pixel9-api36": {
       "device": {
         "api": 36,
+        "avd": "Pixel_9",
         "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
         "host": "local",
-        "serial": "emulator-5562",
-        "avd": "Pixel_9",
+        "serial": "emulator-5554",
         "release": "16"
       },
-      "fixtureSha256": "065d9af394403b96fbb86332a18edbcb1b81842d8967da34aacb67af2de09ca0",
-      "finishedAt": "2026-10-15T11:03:35.077Z",
+      "sourceRevision": "45d156c449273f54231c1546dcffb0a9286baf76",
+      "fixtureSha256": "1329824a21e367dff9b806b2400878a9347868781414d3969dd439cf351046fc",
+      "finishedAt": "2026-10-29T02:33:34.972Z",
+      "artifacts": ".cursor/skills/verify-contingency/artifacts/android-support-matrix/pixel9-api36",
       "teaching": {
-        "actionKinds": ["fill", "variable", "activate", "activate", "back"]
+        "actionKinds": ["fill", "variable", "activate", "activate", "back"],
+        "variableFill": "ordinary",
+        "inputConfirmation": "unconfirmed"
       },
       "dryRun": {
         "outcome": "working"
@@ -35,52 +40,88 @@
       },
       "limits": {
         "apiBelow30": "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
-        "sameDeviceBound": "Android session <id> is already bound to emulator-5562. Close it before starting another session.",
-        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5562. Multiple bound devices are unsupported; close that session first.",
+        "physicalDevice": {
+          "refusal": "Physical Android devices are unsupported. Select an emulator.",
+          "noDeviceCommands": true
+        },
+        "sameDeviceBound": "Android session <session> is already bound to emulator-5554. Close it before starting another session.",
+        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5554. Multiple bound devices are unsupported; close that session first.",
         "rawCoordinates": {
-          "mcp": "Invalid parameters: input action must be activate, fill, variable, or back",
+          "mcp": "Invalid parameters: action must be activate, fill, variable, or back",
           "workspace": "Nothing to activate there. No input was sent."
         },
         "systemDialog": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
+          "phase": "running",
+          "answered": true
         },
         "crossApp": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
+          "phase": "running"
+        },
+        "confirmation": [
+          {
+            "allow": true,
+            "dispatched": true,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          },
+          {
+            "allow": false,
+            "dispatched": false,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          },
+          {
+            "allow": true,
+            "dispatched": true,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          }
+        ],
+        "freshConfirmationIds": true,
+        "confirmationUi": {
+          "allowEnabled": true,
+          "refuseEnabled": true,
+          "descriptionMatched": true
         },
         "secureWindow": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
+          "error": "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
           "pause": "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
           "outcome": "inconclusive"
         }
       },
-      "privacy": {
-        "inspectedFiles": 59,
-        "logcatChecked": true,
-        "sentinelContained": false
+      "variableEvidence": {
+        "inspectedFiles": 58,
+        "literalValueObserved": true,
+        "logcatChecked": true
       },
       "cleanup": {
         "forwardsUnchanged": true,
         "imeUnchanged": true,
-        "helperStopped": true,
         "packagesRestored": true,
         "runtimeDirectoriesClean": true
-      }
+      },
+      "blockers": [],
+      "evidenceLimitations": [
+        "Pending-Confirmation screenshots show Device stream lost. Decision controls and descriptions are visible; fresh MCP observations verify fixture and Settings transitions."
+      ]
     },
     "pixel9-api30": {
       "device": {
         "api": 30,
+        "avd": "Pixel_9_API_30",
         "fingerprint": "google/sdk_gphone_arm64/emulator_arm64:11/RSR1.240422.006/12134477:userdebug/dev-keys",
         "host": "local",
-        "serial": "emulator-5560",
-        "avd": "Pixel_9_API_30",
+        "serial": "emulator-5554",
         "release": "11"
       },
-      "fixtureSha256": "065d9af394403b96fbb86332a18edbcb1b81842d8967da34aacb67af2de09ca0",
-      "finishedAt": "2026-10-15T11:09:04.328Z",
+      "sourceRevision": "45d156c449273f54231c1546dcffb0a9286baf76",
+      "fixtureSha256": "1329824a21e367dff9b806b2400878a9347868781414d3969dd439cf351046fc",
+      "finishedAt": "2026-10-29T02:27:46.950Z",
+      "artifacts": ".cursor/skills/verify-contingency/artifacts/android-support-matrix/pixel9-api30",
       "teaching": {
-        "actionKinds": ["fill", "variable", "activate", "activate", "back"]
+        "actionKinds": ["fill", "variable", "activate", "activate", "back"],
+        "variableFill": "ordinary",
+        "inputConfirmation": "unconfirmed"
       },
       "dryRun": {
         "outcome": "working"
@@ -100,104 +141,67 @@
       },
       "limits": {
         "apiBelow30": "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
-        "sameDeviceBound": "Android session <id> is already bound to emulator-5560. Close it before starting another session.",
-        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5560. Multiple bound devices are unsupported; close that session first.",
+        "physicalDevice": {
+          "refusal": "Physical Android devices are unsupported. Select an emulator.",
+          "noDeviceCommands": true
+        },
+        "sameDeviceBound": "Android session <session> is already bound to emulator-5554. Close it before starting another session.",
+        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5554. Multiple bound devices are unsupported; close that session first.",
         "rawCoordinates": {
-          "mcp": "Invalid parameters: input action must be activate, fill, variable, or back",
+          "mcp": "Invalid parameters: action must be activate, fill, variable, or back",
           "workspace": "Nothing to activate there. No input was sent."
         },
         "systemDialog": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
+          "phase": "running",
+          "answered": true
         },
         "crossApp": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
+          "phase": "running"
+        },
+        "confirmation": [
+          {
+            "allow": true,
+            "dispatched": true,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          },
+          {
+            "allow": false,
+            "dispatched": false,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          },
+          {
+            "allow": true,
+            "dispatched": true,
+            "phase": "running",
+            "description": "Activate button \"Open device settings\" in dev.contingency.physicalfixture"
+          }
+        ],
+        "freshConfirmationIds": true,
+        "confirmationUi": {
+          "allowEnabled": true,
+          "refuseEnabled": true,
+          "descriptionMatched": true
         },
         "secureWindow": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
+          "error": "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
           "pause": "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
           "outcome": "inconclusive"
         }
       },
-      "privacy": {
-        "inspectedFiles": 72,
-        "logcatChecked": true,
-        "sentinelContained": false
+      "variableEvidence": {
+        "inspectedFiles": 97,
+        "literalValueObserved": true,
+        "logcatChecked": true
       },
       "cleanup": {
         "forwardsUnchanged": true,
         "imeUnchanged": true,
-        "helperStopped": true,
         "packagesRestored": true,
         "runtimeDirectoriesClean": true
-      }
-    },
-    "nothing-phone-3a-api36": {
-      "device": {
-        "api": 36,
-        "fingerprint": "Nothing/AsteroidsIND/Asteroids:16/BQ2A.250721.001-BP2A.250605.031.A3/2609281204:user/release-keys",
-        "host": "local",
-        "serial": "001593546001716",
-        "kind": "physical",
-        "model": "A059",
-        "release": "16"
       },
-      "fixtureSha256": "065d9af394403b96fbb86332a18edbcb1b81842d8967da34aacb67af2de09ca0",
-      "finishedAt": "2026-10-15T10:57:52.869Z",
-      "teaching": {
-        "actionKinds": ["fill", "variable", "activate", "activate", "back"]
-      },
-      "dryRun": {
-        "outcome": "working"
-      },
-      "verification": {
-        "cleanup": "purged",
-        "decision": "verify"
-      },
-      "laterRun": {
-        "outcome": "working"
-      },
-      "agentActions": {
-        "fill": ["dry-run", "run"],
-        "variable": ["dry-run", "run"],
-        "activate": ["dry-run", "dry-run", "run", "run"],
-        "back": ["dry-run", "run"]
-      },
-      "limits": {
-        "apiBelow30": "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
-        "sameDeviceBound": "Android session <id> is already bound to 001593546001716. Close it before starting another session.",
-        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to 001593546001716. Multiple bound devices are unsupported; close that session first.",
-        "rawCoordinates": {
-          "mcp": "Invalid parameters: input action must be activate, fill, variable, or back",
-          "workspace": "Nothing to activate there. No input was sent."
-        },
-        "systemDialog": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
-        },
-        "crossApp": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Android window ownership is unknown or outside the selected target app. Execution is paused."
-        },
-        "secureWindow": {
-          "untaught": "The Android target is absent, covered, private, or unsupported for this action.",
-          "pause": "Secure window, not visible. Android input is paused and the outcome is inconclusive.",
-          "outcome": "inconclusive"
-        }
-      },
-      "privacy": {
-        "inspectedFiles": 46,
-        "logcatChecked": true,
-        "sentinelContained": false
-      },
-      "cleanup": {
-        "forwardsUnchanged": true,
-        "imeUnchanged": true,
-        "helperStopped": true,
-        "packagesRestored": true,
-        "runtimeDirectoriesClean": true
-      }
+      "blockers": []
     }
   }
 }

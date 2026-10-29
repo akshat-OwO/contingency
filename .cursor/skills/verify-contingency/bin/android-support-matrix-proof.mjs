@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 import { androidIdle, androidPick, openAndroidSheet } from "./android-ui.mjs";
 
 // One Support Matrix cell: Teaching, a Dry Run, and verification of activate,
-// public fill, private fill, and Back, then every documented-limit refusal.
+// public fill, ordinary Variable fill, and Back, then every documented-limit refusal.
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
 const serial = process.env.CONTINGENCY_ANDROID_SERIAL;
 const cell = process.env.CONTINGENCY_ANDROID_MATRIX_CELL;
@@ -20,6 +20,13 @@ assert.ok(
   "Select an authorized device, a matrix cell name, and an isolated verification instance."
 );
 assert.equal(process.env.CONTINGENCY_ANDROID_FIXTURE_INSTALL, "authorized");
+const avds = { "pixel9-api30": "Pixel_9_API_30", "pixel9-api36": "Pixel_9" };
+assert.ok(
+  Object.hasOwn(avds, cell),
+  "Select one of the two emulator matrix cells."
+);
+assert.equal(process.env.CONTINGENCY_ANDROID_AVD, avds[cell]);
+assert.match(serial, /^emulator-\d+$/u);
 const feature = `android-support-matrix-${cell}`;
 const root = path.resolve(import.meta.dirname, "../../../..");
 const skillRoot = path.resolve(import.meta.dirname, "..");
@@ -35,12 +42,19 @@ const journal = [];
 const sentinel = `Matrix-${randomUUID()}-Z9!`;
 const observedValues = { encoded: false, literal: false };
 const safe = (value) => {
-  const text = JSON.stringify(value);
+  let text = JSON.stringify(value);
   observedValues.literal ||= text.includes(sentinel);
   observedValues.encoded ||= [
     Buffer.from(sentinel).toString("base64"),
     encodeURIComponent(sentinel),
   ].some((marker) => text.includes(marker));
+  for (const marker of [
+    sentinel,
+    Buffer.from(sentinel).toString("base64"),
+    encodeURIComponent(sentinel),
+  ]) {
+    text = text.replaceAll(marker, "<generated-value>");
+  }
   return text;
 };
 const run = async (file, args, options = {}) => {
@@ -174,7 +188,7 @@ const supply = async (name) => {
   const result = await response.json();
   assert.equal(result.ok, true, safe(result));
   journal.push({
-    action: "Workspace private field fill",
+    action: "Workspace Variable field fill",
     name,
     value: "withheld",
   });
@@ -393,6 +407,8 @@ const tapOutside = async ({ bounds }) => {
 };
 
 try {
+  const sourceRevision = await run("git", ["rev-parse", "HEAD"]);
+  receipt.sourceRevision = sourceRevision.trim();
   assert.ok(
     api >= 30 && api <= 36,
     `API ${api} is outside the Support Matrix.`
@@ -406,7 +422,11 @@ try {
     .digest("hex");
   await adb("install", apk);
   await run("nub", [controlPath, "mcp", "start"], {
-    env: { ...process.env, NODE_OPTIONS: `--import=${hook}` },
+    env: {
+      ...process.env,
+      CONTINGENCY_MCP_INTERFACE: "native",
+      NODE_OPTIONS: `--import=${hook}`,
+    },
   });
   mcpOwned = true;
   instance = JSON.parse(
@@ -435,7 +455,34 @@ try {
     /below 30 are unsupported/u
   );
 
-  // Teaching through Workspace: public fill, private fill, two activations, and Back.
+  const refusedSerial = "matrix-non-emulator";
+  receipt.limits.physicalDevice = await refusal(
+    {
+      _tag: "start",
+      flowSkillName,
+      kind: "teaching",
+      operationId: operation(),
+      recordingId: null,
+      selection: {
+        ...selection,
+        device: { ...selection.device, serial: refusedSerial },
+      },
+    },
+    /physical_device_unsupported|Physical Android devices are unsupported/u
+  );
+  const auditText = await readFile(audit, "utf-8");
+  const dispatched = auditText
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.equal(
+    dispatched.some((entry) => entry.args.includes(refusedSerial)),
+    false
+  );
+  receipt.limits.physicalDeviceNoCommands = true;
+
+  // Teaching through Workspace: public fill, ordinary Variable fill, two activations, and Back.
   await control("browser", "goto", "--url", instance.mcpUrl);
   await openAndroidSheet(control, selection, flowSkillName, snapshot);
   const listed = await tool("agent_android_sessions_list", {});
@@ -543,7 +590,7 @@ try {
       assert.equal(key in event, false, `Timeline leaks ${key}.`);
     }
   }
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with a public login name and a private password, open the account, and go back. Use when proving an Android Support Matrix cell.\ninputs:\n  - password\n---\n\n# Sign in and return\n\n1. Enter the public login name ${loginName}. Done when: the login name field shows it.\n2. Enter {{password}} in the private password field. Done when: the password field stays masked.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Go back. Done when: Signed in privately is visible.\n`;
+  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with a public login name and a password, open the account, and go back. Use when proving an Android Support Matrix cell.\ninputs:\n  - password\n---\n\n# Sign in and return\n\n1. Enter the public login name ${loginName}. Done when: the login name field shows it.\n2. Enter {{password}} in the password field. Done when: the password field stays masked.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Go back. Done when: Signed in privately is visible.\n`;
   await tool("agent_flow_skill_save", {
     claimOperationId: claim,
     files: [{ content, path: "SKILL.md" }],
@@ -727,13 +774,88 @@ try {
     "Request camera permission"
   );
   await snapshot("limit-system-dialog");
-  await returnToFixture(limits.id);
+  current = await observe(limits.id);
+  const answer = find(
+    current,
+    (node) =>
+      /^(?:While using the app|Allow)$/iu.test(node.name) &&
+      node.role === "button",
+    "system permission answer"
+  );
+  await command({
+    _tag: "input",
+    action: { _tag: "activate", target: answer.target },
+    observationId: current.observation.id,
+    operationId: operation(),
+    sessionId: limits.id,
+  });
+  current = await observe(limits.id);
+  assert.equal(current.phase, "running");
+  assert.ok(visible(current, "Private login fixture"));
+  receipt.limits.systemDialog.answered = true;
+  await snapshot("system-dialog-answered");
   receipt.limits.crossApp = await fullOsProbe(
     limits.id,
     "Open device settings"
   );
   await snapshot("limit-cross-app");
   await returnToFixture(limits.id);
+  const confirmations = [];
+  for (const allow of [true, false, true]) {
+    current = await observe(limits.id);
+    const target = find(
+      current,
+      named("Open device settings"),
+      "confirmation probe"
+    );
+    const paused = await command({
+      _tag: "input",
+      action: { _tag: "activate", target: target.target },
+      irreversible: true,
+      observationId: current.observation.id,
+      operationId: operation(),
+      sessionId: limits.id,
+    });
+    assert.equal(paused.boundary.reason, "confirmation");
+    assert.equal(paused.phase, "running");
+    const description = `Activate button "Open device settings" in ${appId}`;
+    assert.equal(paused.boundary.description, description);
+    assert.ok(visible(paused, "Private login fixture"));
+    const id = paused.pendingDecision.pendingDecisionId;
+    assert.equal(
+      confirmations.some((entry) => entry.id === id),
+      false
+    );
+    await wait("Allow");
+    await wait("Refuse");
+    await wait("Confirmation", "region");
+    const evidenceName = `confirmation-${confirmations.length}-pending`;
+    await snapshot(evidenceName);
+    const pendingAria = await readFile(
+      path.join(artifacts, `${evidenceName}.aria.txt`),
+      "utf-8"
+    );
+    assert.ok(pendingAria.includes(description));
+    assert.match(pendingAria, /button "Allow"(?! \[disabled\])/u);
+    assert.match(pendingAria, /button "Refuse"(?! \[disabled\])/u);
+    await click(allow ? "Allow" : "Refuse");
+    await androidIdle(control);
+    const resolved = await read(limits.id);
+    assert.equal(resolved.pendingDecision, null);
+    current = await observe(limits.id);
+    assert.equal(visible(current, "Private login fixture"), !allow);
+    if (allow) {
+      await returnToFixture(limits.id);
+    }
+    confirmations.push({
+      allow,
+      description,
+      dispatched: allow,
+      id,
+      phase: paused.phase,
+    });
+  }
+  receipt.limits.confirmation = confirmations;
   const beforeSecure = await observe(limits.id);
   receipt.limits.secureWindow = await pausingProbe(
     limits.id,
