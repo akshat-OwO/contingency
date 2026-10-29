@@ -56,7 +56,7 @@ const runnerCommand = (
     },
   });
 };
-/** Stop only the daemon whose state directory this Session Simulator owns. */
+/** Stop only the daemon in this session's private state directory. */
 export const stopIosRunner = (directory: string, udid: string) =>
   Effect.gen(function* stopOwnedRunner() {
     const exists = yield* Effect.promise(async () => {
@@ -96,7 +96,7 @@ export const openIosRunner = (
       Schema.Struct({ version: Schema.Literal("0.21.25") }),
       manifest
     );
-    // The Session Simulator ownership finalizer closes the runner before deleting its simulator.
+    // Scoped release closes this runner and leaves the selected simulator running.
     yield* Effect.logInfo(
       "Preparing the iOS XCTest runner. The first selection builds it with Xcode."
     );

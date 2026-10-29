@@ -13,7 +13,6 @@ import {
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
-import { makeIosSessionResources } from "./ios-session-resources.ts";
 import { IosSimctl, iosSimctlHost } from "./ios-simctl.ts";
 import type { NativeAppPlatformServices } from "./native-app-platform-services.ts";
 
@@ -37,16 +36,15 @@ export const IosPlatformLive = Layer.effect(
   IosPlatform,
   Effect.gen(function* iosServices() {
     const io = yield* IosSimctl;
-    const resources = makeIosSessionResources(undefined, io);
     return {
-      cleanup: resources.cleanup,
+      cleanup: () => Effect.void,
       discovery: makeIosDiscovery(io),
       environment: {
         compare: compareIosEnvironments,
         permission: iosEnvironmentPermission,
       },
       platform: "ios" as const,
-      preparation: makeIosPreparation(io, resources),
+      preparation: makeIosPreparation(io),
     };
   })
 ).pipe(Layer.provide(Layer.succeed(IosSimctl, iosSimctlHost)));

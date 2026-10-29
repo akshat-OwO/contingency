@@ -61,7 +61,7 @@ const simctl = (args: readonly string[]) =>
   iosCommand("xcrun", ["simctl", ...args]);
 /** Host inventory is separate from commands bound to a selected device. */
 export const iosSimctlHost = {
-  // Reading bundles also works while the template is shut down. Never boot it to discover apps.
+  // Read installed bundles without starting the selected simulator.
   apps: (dataPath: string) =>
     Effect.gen(function* installedBundles() {
       const root = path.join(dataPath, "Containers/Bundle/Application");
@@ -87,6 +87,28 @@ export const iosSimctlHost = {
   platform: () => process.platform,
   readApp,
   runtimes: () => simctl(["list", "runtimes", "--json"]),
+  terminate: (udid: string, bundleId: string) =>
+    Effect.tryPromise({
+      catch: () => iosError("preparation_failed"),
+      try: async (signal) => {
+        try {
+          await execute("xcrun", ["simctl", "terminate", udid, bundleId], {
+            signal,
+            timeout: 30_000,
+          });
+        } catch (error) {
+          const stopped = Schema.Struct({
+            stderr: Schema.String,
+          });
+          if (
+            !Schema.is(stopped)(error) ||
+            !error.stderr.includes("found nothing to terminate")
+          ) {
+            throw error;
+          }
+        }
+      },
+    }),
   xcode: () =>
     iosCommand("xcodebuild", ["-version"], "xcode_missing").pipe(Effect.asVoid),
 };

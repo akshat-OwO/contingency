@@ -28,6 +28,7 @@ const Inventory = Schema.Struct({
         deviceTypeIdentifier: Schema.String,
         isAvailable: Schema.Boolean,
         name: Schema.String,
+        state: Schema.String,
         udid: Schema.String,
       })
     )
@@ -47,6 +48,11 @@ export const requireIosPrerequisites = (
   Effect.gen(function* prerequisites() {
     yield* requireIosHost(io);
     if (selected !== undefined) {
+      if (
+        Schema.is(Schema.Struct({ kind: Schema.Literal("physical") }))(selected)
+      ) {
+        return yield* Effect.fail(iosError("physical_device_unsupported"));
+      }
       if (!Schema.is(IosDeviceSchema)(selected)) {
         return yield* Effect.fail(iosError("device_unsupported"));
       }
@@ -113,6 +119,7 @@ export const makeIosDiscovery = (io: IosSimctlService = iosSimctlHost) => {
                     runtimeVersion: runtime.version,
                     udid: entry.udid,
                   },
+                  state: entry.state,
                 },
               ]
             : []
@@ -134,15 +141,26 @@ export const makeIosDiscovery = (io: IosSimctlService = iosSimctlHost) => {
       }
       return entry;
     });
+  const requireRunning = (selected: IosDevice) =>
+    resolve(selected).pipe(
+      Effect.flatMap((entry) =>
+        entry.state === "Booted"
+          ? Effect.succeed(entry)
+          : Effect.fail(iosError("device_stopped"))
+      )
+    );
   return {
     apps: (selected: IosDevice) =>
-      resolve(selected).pipe(
+      requireRunning(selected).pipe(
         Effect.flatMap(({ dataPath }) => io.apps(dataPath))
       ),
     devices: () =>
       inventory().pipe(
-        Effect.map((entries) => entries.map(({ device }) => device))
+        Effect.map((entries) =>
+          entries.map(({ device, state }) => ({ ...device, state }))
+        )
       ),
+    requireRunning,
     resolve,
   };
 };

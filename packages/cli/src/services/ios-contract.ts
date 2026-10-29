@@ -30,7 +30,7 @@ export type IosEnvironment = typeof IosEnvironmentSchema.Type;
 export interface IosPreparationInput {
   readonly device: IosDevice;
   readonly environment: IosEnvironment;
-  /** Omit to copy the installed bundle from the selected simulator. */
+  /** An explicit path authorizes installation. Omit to use the installed app. */
   readonly appPath?: string;
   readonly requiredCapabilities: readonly PlatformCapability[];
 }
@@ -38,8 +38,9 @@ const messages = {
   capability_missing:
     "Private Variables are refused on iOS until a private input transport is proven.",
   cleanup_failed:
-    "Could not delete a recorded Session Simulator. Its ownership record is retained for Cleanup.",
+    "Could not stop the session runner. Its private state directory is retained.",
   device_mismatch: "The selected simulator identity changed. Select it again.",
+  device_stopped: "Start the selected simulator in Simulator, then refresh.",
   device_unsupported:
     "Explicitly select an iPhone simulator. Physical iPhones and iPads are unsupported.",
   discovery_failed: "Could not read the iOS Simulator inventory.",
@@ -47,7 +48,9 @@ const messages = {
     "The authorized bundle identifier, build, or runtime changed.",
   host_unsupported: "iOS Simulator requires a local macOS host.",
   os_unsupported: "Select an iPhone simulator running iOS 26 through 27.",
-  preparation_failed: "Could not prepare the Session Simulator.",
+  physical_device_unsupported:
+    "Physical iOS devices are unsupported. Select an iPhone simulator.",
+  preparation_failed: "Could not prepare the selected simulator.",
   runtime_missing: "Install the selected iOS Simulator runtime in Xcode.",
   xcode_missing: "Select a full Xcode installation with xcode-select.",
 } as const;

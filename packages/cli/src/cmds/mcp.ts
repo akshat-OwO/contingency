@@ -43,7 +43,6 @@ import {
   makeHttpServerLayer,
   makeNodeServerLayer,
 } from "../services/http-server.ts";
-import { cleanupIosSessionSimulators } from "../services/ios-session-resources.ts";
 import { LocalSystemOneLifecycleLive } from "../services/local-system-one-lifecycle-live.ts";
 import { LocalSystemOneLifecycle } from "../services/local-system-one-lifecycle.ts";
 import { LocalSystemOneLive } from "../services/local-system-one-live.ts";
@@ -260,7 +259,6 @@ export const mcpCommand = Command.make(
           );
         }
         const fileSystem = yield* FileSystem.FileSystem;
-        yield* cleanupIosSessionSimulators();
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );

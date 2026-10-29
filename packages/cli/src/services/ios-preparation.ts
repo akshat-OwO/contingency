@@ -1,15 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { Effect } from "effect";
 
-import { iosError, iosUuid } from "./ios-contract.ts";
+import { iosError } from "./ios-contract.ts";
 import type { IosPreparationInput } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
-import { openIosRunner } from "./ios-runner.ts";
-import { makeIosSessionResources } from "./ios-session-resources.ts";
+import { openIosRunner, stopIosRunner } from "./ios-runner.ts";
 import { iosSimctlHost } from "./ios-simctl.ts";
 import type { IosSimctlService } from "./ios-simctl.ts";
 
@@ -21,89 +19,76 @@ const fileIo = <A>(run: () => Promise<A>) =>
 
 export const makeIosPreparation = (
   io: IosSimctlService = iosSimctlHost,
-  resources = makeIosSessionResources(undefined, io),
-  runner: typeof openIosRunner = openIosRunner
+  runner: typeof openIosRunner = openIosRunner,
+  stopRunner: typeof stopIosRunner = stopIosRunner
 ) => ({
   prepare: (input: IosPreparationInput) =>
-    Effect.gen(function* prepareSessionSimulator() {
+    Effect.gen(function* prepareSelectedSimulator() {
       if (input.requiredCapabilities.includes("private-input")) {
         return yield* Effect.fail(iosError("capability_missing"));
       }
       const discovery = makeIosDiscovery(io);
-      yield* discovery.resolve(input.device);
+      yield* discovery.requireRunning(input.device);
       if (
         input.environment.deviceType !== input.device.deviceType ||
         input.environment.runtimeVersion !== input.device.runtimeVersion
       ) {
         return yield* Effect.fail(iosError("environment_changed"));
       }
-      const source =
-        input.appPath === undefined
-          ? (yield* discovery.apps(input.device)).find(
-              (app) => app.bundleId === input.environment.bundleId
-            )?.path
-          : input.appPath;
-      if (
-        source === undefined ||
-        !path.isAbsolute(source) ||
-        !source.endsWith(".app")
-      ) {
-        return yield* Effect.fail(iosError("preparation_failed"));
-      }
       const directory = yield* Effect.acquireRelease(
         fileIo(() => mkdtemp(path.join(tmpdir(), "contingency-ios-"))),
         (owned) =>
-          Effect.gen(function* releaseHostDirectory() {
-            // Retain daemon state when simulator or runner cleanup failed, so startup can retry it.
-            if (!(yield* resources.isRecorded(owned))) {
-              yield* fileIo(() => rm(owned, { force: true, recursive: true }));
-            }
+          Effect.gen(function* releaseRunnerDirectory() {
+            // Keep daemon state available for diagnosis if stopping it fails.
+            yield* stopRunner(owned, input.device.udid);
+            yield* fileIo(() => rm(owned, { force: true, recursive: true }));
           }).pipe(Effect.orDie)
       );
-      const bundle = path.join(directory, "Target.app");
-      yield* fileIo(() =>
-        cp(source, bundle, { dereference: true, recursive: true })
-      );
-      const app = yield* io.readApp(bundle);
+      let app;
+      if (input.appPath === undefined) {
+        app = (yield* discovery.apps(input.device)).find(
+          (installed) => installed.bundleId === input.environment.bundleId
+        );
+      } else {
+        if (
+          !path.isAbsolute(input.appPath) ||
+          !input.appPath.endsWith(".app")
+        ) {
+          return yield* Effect.fail(iosError("preparation_failed"));
+        }
+        const bundle = path.join(directory, "Target.app");
+        yield* fileIo(() =>
+          cp(input.appPath ?? "", bundle, {
+            dereference: true,
+            recursive: true,
+          })
+        );
+        app = yield* io.readApp(bundle);
+      }
+      if (app === undefined) {
+        return yield* Effect.fail(iosError("preparation_failed"));
+      }
       if (
         app.bundleId !== input.environment.bundleId ||
         app.build !== input.environment.build
       ) {
         return yield* Effect.fail(iosError("environment_changed"));
       }
-      // acquireRelease masks interruption until the record and the deletion finalizer exist.
-      const udid = yield* Effect.acquireRelease(
-        Effect.gen(function* acquireSessionSimulator() {
-          // A booted `simctl clone` writes into its source through absolute
-          // paths, so each session gets a new simulator instead (ADR 0066).
-          const created = (yield* io.device([
-            "create",
-            `Contingency ${randomUUID()}`,
-            input.device.deviceType,
-            input.device.runtime,
-          ])).trim();
-          if (!iosUuid.test(created) || created === input.device.udid) {
-            return yield* Effect.fail(iosError("preparation_failed"));
-          }
-          yield* resources
-            .record(created, process.pid, directory)
-            .pipe(
-              Effect.onError(() =>
-                io.device(["delete", created]).pipe(Effect.orDie)
-              )
-            );
-          return created;
-        }),
-        (created) => resources.remove(created).pipe(Effect.orDie)
-      );
-      // The selected simulator is only read above; it is never booted or changed.
-      yield* io.device(["boot", udid]);
-      yield* io.device(["bootstatus", udid, "-b"]);
-      yield* io.device(["install", udid, bundle]);
+      // Recheck the selected device before the first mutation, as Android does.
+      yield* discovery.requireRunning(input.device);
+      const { udid } = input.device;
+      if (input.appPath !== undefined) {
+        yield* io.device(["install", udid, app.path]);
+        const installed = (yield* discovery.apps(input.device)).find(
+          (candidate) => candidate.bundleId === app.bundleId
+        );
+        if (installed?.build !== input.environment.build) {
+          return yield* Effect.fail(iosError("environment_changed"));
+        }
+      }
+      yield* io.terminate(udid, app.bundleId);
+      yield* io.device(["launch", udid, app.bundleId]);
       yield* runner(udid, app.bundleId, directory);
-      return {
-        device: { ...input.device, udid },
-        environment: input.environment,
-      };
+      return { device: input.device, environment: input.environment };
     }),
 });

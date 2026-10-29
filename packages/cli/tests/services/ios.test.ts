@@ -1,21 +1,11 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Exit, Fiber, FileSystem, Scope } from "effect";
+import type { Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, FileSystem } from "effect";
 
-import { hostProcessIsAlive } from "../../src/services/agent-session-resources.ts";
 import { iosError } from "../../src/services/ios-contract.ts";
 import type {
   IosDevice,
@@ -28,7 +18,6 @@ import {
 } from "../../src/services/ios-environment.ts";
 import { makeIosPreparation } from "../../src/services/ios-preparation.ts";
 import { iosRunnerArguments } from "../../src/services/ios-runner.ts";
-import { makeIosSessionResources } from "../../src/services/ios-session-resources.ts";
 import type { IosSimctlService } from "../../src/services/ios-simctl.ts";
 
 const selected: IosDevice = {
@@ -56,19 +45,13 @@ const app = {
 const fakeHost = () => {
   const commands: string[][] = [];
   const inventoryReads: string[] = [];
-  let sessionExists = false;
+
   const io: IosSimctlService = {
     apps: () => Effect.succeed([app]),
     device: (args) =>
       Effect.sync(() => {
         commands.push([...args]);
-        if (args[0] === "create") {
-          sessionExists = true;
-        }
-        if (args[0] === "delete") {
-          sessionExists = false;
-        }
-        return args[0] === "create" ? session : "";
+        return "";
       }),
     devices: () =>
       Effect.sync(() => {
@@ -81,14 +64,8 @@ const fakeHost = () => {
                 deviceTypeIdentifier: selected.deviceType,
                 isAvailable: true,
                 name: selected.name,
+                state: "Booted",
                 udid: selected.udid,
-              },
-              {
-                dataPath: "/session/data",
-                deviceTypeIdentifier: selected.deviceType,
-                isAvailable: sessionExists,
-                name: "Session",
-                udid: session,
               },
             ],
           },
@@ -108,6 +85,10 @@ const fakeHost = () => {
           ],
         })
       ),
+    terminate: (udid, bundleId) =>
+      Effect.sync(() => {
+        commands.push(["terminate", udid, bundleId]);
+      }),
     xcode: () => Effect.void,
   };
   return { commands, inventoryReads, io };
@@ -203,7 +184,11 @@ for (const device of [
         // SAFETY: Deliberately invalid input exercises the runtime selection guard.
         expect(
           yield* failureCode(makeIosDiscovery(io).apps(device as IosDevice))
-        ).toBe("device_unsupported");
+        ).toBe(
+          device.kind === "physical"
+            ? "physical_device_unsupported"
+            : "device_unsupported"
+        );
         expect(commands).toEqual([]);
         expect(inventoryReads).toEqual([]);
       })
@@ -229,11 +214,13 @@ it.effect(
     })
 );
 it.effect(
-  "discovers iPhones and apps without booting or modifying the template",
+  "discovers iPhones and apps without booting or modifying the selected simulator",
   () =>
     Effect.gen(function* verifyIosBehavior() {
       const { io, commands } = fakeHost();
-      expect(yield* makeIosDiscovery(io).devices()).toEqual([selected]);
+      expect(yield* makeIosDiscovery(io).devices()).toEqual([
+        { ...selected, state: "Booted" },
+      ]);
       expect(yield* makeIosDiscovery(io).apps(selected)).toEqual([app]);
       expect(commands).toEqual([]);
     })
@@ -320,380 +307,6 @@ const withDirectory = <A, E>(
     return yield* run(directory);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
-for (const outcome of [
-  "success",
-  "boot",
-  "install",
-  "runner",
-  "interruption",
-] as const) {
-  it.live(
-    `releases the recorded Session Simulator after ${outcome} and leaves template unchanged`,
-    () =>
-      withDirectory((directory) =>
-        Effect.gen(function* verifyIosBehavior() {
-          const { io, commands } = fakeHost();
-          const source = path.join(directory, "Source.app");
-          yield* Effect.promise(() => mkdir(source));
-          yield* Effect.promise(() =>
-            writeFile(
-              path.join(source, "sentinel"),
-              "unchanged template bundle"
-            )
-          );
-          const records = path.join(directory, "records");
-          const host = {
-            ...io,
-            apps: (dataPath: string) =>
-              Effect.sync(() => {
-                expect(dataPath).toBe("/template/data");
-                expect(commands).toEqual([]);
-                return [{ ...app, path: source }];
-              }),
-            device: (args: readonly string[]) =>
-              Effect.gen(function* device() {
-                if (args[0] === "boot") {
-                  expect(
-                    JSON.parse(
-                      yield* Effect.promise(() =>
-                        readFile(path.join(records, `${session}.json`), "utf-8")
-                      )
-                    )
-                  ).toMatchObject({ owner: process.pid, udid: session });
-                }
-                const result = yield* io.device(args);
-                if (args[0] === outcome) {
-                  return yield* Effect.fail(iosError("preparation_failed"));
-                }
-                return result;
-              }),
-            readApp: (bundle: string) =>
-              Effect.gen(function* validateCopiedBundle() {
-                expect(bundle).not.toBe(source);
-                expect(commands).toEqual([]);
-                expect(
-                  yield* Effect.promise(() =>
-                    readFile(path.join(bundle, "sentinel"), "utf-8")
-                  )
-                ).toBe("unchanged template bundle");
-                return { ...app, path: bundle };
-              }),
-          };
-          const runner = () =>
-            outcome === "runner"
-              ? Effect.fail(iosError("preparation_failed"))
-              : Effect.void;
-          const service = makeIosPreparation(
-            host,
-            makeIosSessionResources(records, host),
-            runner
-          );
-          const input: IosPreparationInput = {
-            device: selected,
-            environment,
-            requiredCapabilities: [],
-          };
-          const request =
-            outcome === "success" ? { ...input, appPath: source } : input;
-          const scope = yield* Scope.make();
-          const prepared = yield* Effect.result(
-            service.prepare(request).pipe(Scope.provide(scope))
-          );
-          if (outcome === "interruption") {
-            // Interrupt use after acquisition; closing its scope owns all finalization.
-            yield* Effect.scoped(
-              Effect.gen(function* interruptSession() {
-                yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
-                return yield* Effect.interrupt;
-              })
-            ).pipe(Effect.exit);
-          }
-          yield* Scope.close(scope, Exit.void);
-          expect(prepared._tag).toBe(
-            outcome === "boot" || outcome === "install" || outcome === "runner"
-              ? "Failure"
-              : "Success"
-          );
-          expect(commands.at(-1)).toEqual(["delete", session]);
-          expect(
-            commands
-              .filter(([command]) => command !== "create")
-              .every((args) => args[1] === session)
-          ).toBe(true);
-          expect(yield* Effect.promise(() => readdir(records))).toEqual([]);
-          expect(
-            yield* Effect.promise(() =>
-              readFile(path.join(source, "sentinel"), "utf-8")
-            )
-          ).toBe("unchanged template bundle");
-          if (outcome === "success") {
-            expect(commands.map(([command]) => command)).toEqual([
-              "create",
-              "boot",
-              "bootstatus",
-              "install",
-              "delete",
-            ]);
-            expect(commands[0]).toEqual([
-              "create",
-              expect.stringMatching(/^Contingency /u),
-              selected.deviceType,
-              selected.runtime,
-            ]);
-          }
-        })
-      )
-  );
-}
-
-it.live(
-  "scavenges only recorded dead owners, sparing live owners and unrelated simulators",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* verifyIosBehavior() {
-        const { io, commands } = fakeHost();
-        const resources = makeIosSessionResources(
-          directory,
-          io,
-          (pid) => pid === process.pid
-        );
-        yield* resources.record(session, 40_101);
-        yield* resources.record(other);
-        yield* Effect.promise(() =>
-          writeFile(
-            path.join(directory, `${selected.udid}.json`),
-            JSON.stringify({ owner: 40_101, udid: session })
-          )
-        );
-        yield* Effect.promise(() =>
-          writeFile(path.join(directory, "Contingency session.json"), "{}")
-        );
-        yield* resources.cleanup();
-        expect(commands).toEqual([["delete", session]]);
-        expect(yield* Effect.promise(() => readdir(directory))).toContain(
-          `${other}.json`
-        );
-      })
-    )
-);
-
-it.live(
-  "tolerates another startup reclaiming the same dead owner's Session Simulator first",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* verifyIosBehavior() {
-        const first = fakeHost();
-        const second = fakeHost();
-        const checking = yield* Deferred.make<boolean>();
-        const release = yield* Deferred.make<boolean>();
-        // The second startup has parsed the record and is checking the host.
-        const held: IosSimctlService = {
-          ...second.io,
-          xcode: () =>
-            Deferred.succeed(checking, true).pipe(
-              Effect.andThen(Deferred.await(release))
-            ),
-        };
-        yield* makeIosSessionResources(directory, first.io, () => false).record(
-          session,
-          40_101
-        );
-        const late = yield* Effect.forkChild(
-          makeIosSessionResources(directory, held, () => false).cleanup()
-        );
-        yield* Deferred.await(checking);
-        yield* makeIosSessionResources(
-          directory,
-          first.io,
-          () => false
-        ).cleanup();
-        yield* Deferred.succeed(release, true);
-        expect(Exit.isSuccess(yield* Fiber.await(late))).toBe(true);
-        expect(first.commands).toEqual([["delete", session]]);
-        expect(second.commands).toEqual([]);
-        expect(yield* Effect.promise(() => readdir(directory))).toEqual([]);
-      })
-    )
-);
-
-it.live(
-  "reclaims a SIGKILLed owner's Session Simulator on the next startup and spares a live owner",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* verifyIosBehavior() {
-        const { io, commands } = fakeHost();
-        const child = yield* Effect.acquireRelease(
-          Effect.promise(async () => {
-            const process = spawn(
-              globalThis.process.execPath,
-              ["-e", "process.stdin.resume()"],
-              { stdio: ["pipe", "ignore", "ignore"] }
-            );
-            await once(process, "spawn");
-            return process;
-          }),
-          (process) =>
-            Effect.promise(async () => {
-              if (process.exitCode === null && process.signalCode === null) {
-                const exit = once(process, "exit");
-                process.kill("SIGKILL");
-                await exit;
-              }
-            })
-        );
-        expect(child.pid).toBeDefined();
-        const resources = makeIosSessionResources(directory, io);
-        yield* resources.record(session, child.pid);
-        yield* resources.record(other);
-        expect(hostProcessIsAlive(child.pid ?? 0)).toBe(true);
-        yield* resources.cleanup();
-        expect(commands).toEqual([]);
-        yield* Effect.promise(async () => {
-          const exit = once(child, "exit");
-          child.kill("SIGKILL");
-          await exit;
-        });
-        expect(hostProcessIsAlive(child.pid ?? 0)).toBe(false);
-        yield* makeIosSessionResources(directory, io).cleanup();
-        expect(commands).toEqual([["delete", session]]);
-        expect(yield* Effect.promise(() => readdir(directory))).toEqual([
-          `${other}.json`,
-        ]);
-      })
-    ).pipe(Effect.timeout("30 seconds"))
-);
-
-it.live(
-  "interruption while waiting for boot deletes the Session Simulator",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* interruptBoot() {
-        const { io, commands } = fakeHost();
-        const source = path.join(directory, "Target.app");
-        yield* Effect.promise(() => mkdir(source));
-        const booting = yield* Deferred.make<boolean>();
-        const host = {
-          ...io,
-          apps: () => Effect.succeed([{ ...app, path: source }]),
-          device: (args: readonly string[]) =>
-            io
-              .device(args)
-              .pipe(
-                Effect.andThen((result) =>
-                  args[0] === "bootstatus"
-                    ? Deferred.succeed(booting, true).pipe(
-                        Effect.andThen(Effect.never)
-                      )
-                    : Effect.succeed(result)
-                )
-              ),
-        };
-        const records = path.join(directory, "records");
-        const fiber = yield* Effect.scoped(
-          makeIosPreparation(
-            host,
-            makeIosSessionResources(records, host),
-            () => Effect.void
-          ).prepare({
-            appPath: source,
-            device: selected,
-            environment,
-            requiredCapabilities: [],
-          })
-        ).pipe(Effect.forkChild);
-        yield* Deferred.await(booting);
-        yield* Fiber.interrupt(fiber);
-        expect(commands.at(-1)).toEqual(["delete", session]);
-        expect(yield* Effect.promise(() => readdir(records))).toEqual([]);
-      })
-    ).pipe(Effect.timeout("30 seconds"))
-);
-
-it.live(
-  "retains ownership when deletion fails and retries on next startup",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* retryDeletion() {
-        const { io, commands } = fakeHost();
-        const host = {
-          ...io,
-          device: () => Effect.fail(iosError("preparation_failed")),
-          devices: () =>
-            Effect.succeed(
-              JSON.stringify({ devices: { runtime: [{ udid: session }] } })
-            ),
-        };
-        const resources = makeIosSessionResources(directory, host, () => false);
-        yield* resources.record(session, 40_101);
-        expect(yield* failureCode(resources.cleanup())).toBe("cleanup_failed");
-        expect(yield* Effect.promise(() => readdir(directory))).toEqual([
-          `${session}.json`,
-        ]);
-        yield* makeIosSessionResources(directory, io, () => false).cleanup();
-        expect(commands).toEqual([["delete", session]]);
-        expect(yield* Effect.promise(() => readdir(directory))).toEqual([]);
-      })
-    )
-);
-
-it.live(
-  "does not issue a delete without a matching valid ownership record",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* noUnrecordedDeletion() {
-        const { io, commands } = fakeHost();
-        const resources = makeIosSessionResources(directory, io);
-        expect(yield* failureCode(resources.remove(selected.udid))).toBe(
-          "cleanup_failed"
-        );
-        expect(yield* failureCode(resources.remove("booted"))).toBe(
-          "cleanup_failed"
-        );
-        expect(commands).toEqual([]);
-      })
-    )
-);
-
-it.live(
-  "deletes a new Session Simulator if recording fails, without booting it",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* recordFailure() {
-        const { io, commands } = fakeHost();
-        const source = path.join(directory, "Target.app");
-        yield* Effect.promise(() => mkdir(source));
-        const resources = makeIosSessionResources(
-          path.join(directory, "records"),
-          io
-        );
-        const service = makeIosPreparation(
-          io,
-          {
-            ...resources,
-            record: () => Effect.fail(iosError("cleanup_failed")),
-          },
-          () => Effect.void
-        );
-        expect(
-          yield* failureCode(
-            Effect.scoped(
-              service.prepare({
-                appPath: source,
-                device: selected,
-                environment,
-                requiredCapabilities: [],
-              })
-            )
-          )
-        ).toBe("cleanup_failed");
-        expect(commands.map(([command]) => command)).toEqual([
-          "create",
-          "delete",
-        ]);
-      })
-    )
-);
-
 for (const [version, supported] of [
   ["26", true],
   ["26.5", true],
@@ -725,7 +338,7 @@ for (const [version, supported] of [
 }
 
 it.live(
-  "refuses changed build, bundle, runtime and invalid paths before cloning",
+  "refuses changed build, bundle, runtime and invalid paths before mutation",
   () =>
     withDirectory((directory) =>
       Effect.gen(function* changedEnvironment() {
@@ -787,151 +400,127 @@ it.effect(
     })
 );
 
-it.live(
-  "stops the owned runner before deletion and retains all state if stopping fails",
+it.effect(
+  "lists stopped simulators but refuses apps and preparation without booting",
   () =>
-    withDirectory((directory) =>
-      Effect.gen(function* runnerCleanupFailure() {
-        const { io, commands } = fakeHost();
-        const state = yield* Effect.acquireRelease(
-          Effect.promise(() =>
-            mkdtemp(path.join(tmpdir(), "contingency-ios-test-"))
-          ),
-          (owned) =>
-            Effect.promise(() => rm(owned, { force: true, recursive: true }))
-        );
-        const stopCalls: string[] = [];
-        const resources = makeIosSessionResources(
-          directory,
-          io,
-          () => false,
-          () =>
-            Effect.gen(function* failedStop() {
-              stopCalls.push("stop");
-              return yield* Effect.fail(iosError("cleanup_failed"));
+    Effect.gen(function* stoppedSelection() {
+      const { io, commands } = fakeHost();
+      const host = {
+        ...io,
+        devices: () =>
+          io
+            .devices()
+            .pipe(Effect.map((text) => text.replaceAll("Booted", "Shutdown"))),
+      };
+      expect(yield* makeIosDiscovery(host).devices()).toEqual([
+        { ...selected, state: "Shutdown" },
+      ]);
+      expect(yield* failureCode(makeIosDiscovery(host).apps(selected))).toBe(
+        "device_stopped"
+      );
+      expect(
+        yield* failureCode(
+          Effect.scoped(
+            makeIosPreparation(host).prepare({
+              device: selected,
+              environment,
+              requiredCapabilities: [],
             })
-        );
-        yield* resources.record(session, 40_101, state);
-        expect(yield* resources.isRecorded(state)).toBe(true);
-        expect(yield* failureCode(resources.cleanup())).toBe("cleanup_failed");
-        expect(commands).toEqual([]);
-        expect(stopCalls).toEqual(["stop"]);
-        expect(yield* resources.isRecorded(state)).toBe(true);
-        yield* makeIosSessionResources(
-          directory,
-          io,
-          () => false,
-          () =>
-            Effect.sync(() => {
-              expect(commands).toEqual([]);
-              stopCalls.push("stopped");
-            })
-        ).cleanup();
-        expect(commands).toEqual([["delete", session]]);
-        expect(stopCalls).toEqual(["stop", "stopped"]);
-        expect(yield* resources.isRecorded(state)).toBe(false);
-      })
-    )
-);
-
-it.effect("lists only available iPhone simulators", () =>
-  Effect.gen(function* inventoryFiltering() {
-    const { io, commands } = fakeHost();
-    const entries = [
-      {
-        dataPath: "/data",
-        deviceTypeIdentifier: selected.deviceType,
-        isAvailable: true,
-        name: selected.name,
-        udid: selected.udid,
-      },
-      {
-        dataPath: "/data",
-        deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro",
-        isAvailable: true,
-        name: "iPad",
-        udid: other,
-      },
-      {
-        dataPath: "/data",
-        deviceTypeIdentifier: selected.deviceType,
-        isAvailable: false,
-        name: "Unavailable",
-        udid: session,
-      },
-    ];
-    const discovery = makeIosDiscovery({
-      ...io,
-      devices: () =>
-        Effect.succeed(
-          JSON.stringify({ devices: { [selected.runtime]: entries } })
-        ),
-    });
-    expect(yield* discovery.devices()).toEqual([selected]);
-    expect(commands).toEqual([]);
-  })
-);
-
-it.live(
-  "retains Session Simulator and daemon state when a scoped deletion fails",
-  () =>
-    withDirectory((directory) =>
-      Effect.gen(function* failedFinalizer() {
-        const { io } = fakeHost();
-        const source = path.join(directory, "Target.app");
-        yield* Effect.promise(() => mkdir(source));
-        const host = {
-          ...io,
-          device: (args: readonly string[]) =>
-            args[0] === "delete"
-              ? Effect.fail(iosError("cleanup_failed"))
-              : io.device(args),
-          devices: () =>
-            Effect.succeed(
-              JSON.stringify({
-                devices: {
-                  [selected.runtime]: [
-                    {
-                      dataPath: "/template/data",
-                      deviceTypeIdentifier: selected.deviceType,
-                      isAvailable: true,
-                      name: selected.name,
-                      udid: selected.udid,
-                    },
-                    {
-                      dataPath: "/session/data",
-                      deviceTypeIdentifier: selected.deviceType,
-                      isAvailable: true,
-                      name: "Session",
-                      udid: session,
-                    },
-                  ],
-                },
-              })
-            ),
-        };
-        const records = path.join(directory, "records");
-        const resources = makeIosSessionResources(records, host);
-        const result = yield* Effect.scoped(
-          makeIosPreparation(host, resources, () => Effect.void).prepare({
-            appPath: source,
-            device: selected,
-            environment,
-            requiredCapabilities: [],
-          })
-        ).pipe(Effect.exit);
-        expect(result._tag).toBe("Failure");
-        const record = JSON.parse(
-          yield* Effect.promise(() =>
-            readFile(path.join(records, `${session}.json`), "utf-8")
           )
-        );
-        expect(yield* resources.isRecorded(record.directory)).toBe(true);
-        expect(
-          yield* Effect.promise(() => readdir(record.directory))
-        ).toContain("Target.app");
-        yield* makeIosSessionResources(records, io, () => false).cleanup();
-        expect(yield* resources.isRecorded(record.directory)).toBe(false);
-      })
-    )
+        )
+      ).toBe("device_stopped");
+      expect(commands).toEqual([]);
+    })
 );
+
+for (const install of [false, true]) {
+  for (const outcome of [
+    "success",
+    "launch",
+    "runner",
+    "interruption",
+  ] as const) {
+    it.effect(
+      `binds the selected simulator with install=${install} after ${outcome}`,
+      () =>
+        withDirectory((directory) =>
+          Effect.gen(function* selectedLifecycle() {
+            const { io, commands } = fakeHost();
+            const source = path.join(directory, "Target.app");
+            yield* Effect.promise(() => mkdir(source));
+            yield* Effect.promise(() =>
+              writeFile(path.join(source, "sentinel"), "existing data")
+            );
+            const host = {
+              ...io,
+              device: (args: readonly string[]) =>
+                io
+                  .device(args)
+                  .pipe(
+                    Effect.andThen((result) =>
+                      args[0] === outcome
+                        ? Effect.fail(iosError("preparation_failed"))
+                        : Effect.succeed(result)
+                    )
+                  ),
+              readApp: (bundle: string) =>
+                Effect.succeed({ ...app, path: bundle }),
+            };
+            const stopped: string[] = [];
+            const ready = yield* Deferred.make<boolean>();
+            const service = makeIosPreparation(
+              host,
+              () =>
+                outcome === "runner"
+                  ? Effect.fail(iosError("preparation_failed"))
+                  : Effect.void,
+              (owned, udid) =>
+                Effect.sync(() => {
+                  stopped.push(udid);
+                  expect(owned).toContain("contingency-ios-");
+                })
+            );
+            const base: IosPreparationInput = {
+              device: selected,
+              environment,
+              requiredCapabilities: [],
+            };
+            const input = install ? { ...base, appPath: source } : base;
+            const run = Effect.scoped(
+              Effect.gen(function* sessionUse() {
+                const prepared = yield* service.prepare(input);
+                expect(prepared.device).toEqual(selected);
+                yield* Deferred.succeed(ready, true);
+                if (outcome === "interruption") {
+                  yield* Effect.never;
+                }
+              })
+            );
+            if (outcome === "interruption") {
+              const fiber = yield* Effect.forkChild(run);
+              yield* Deferred.await(ready);
+              yield* Fiber.interrupt(fiber);
+            } else {
+              expect(Exit.isSuccess(yield* Effect.exit(run))).toBe(
+                outcome === "success"
+              );
+            }
+            expect(stopped).toEqual([selected.udid]);
+            expect(commands.map(([command]) => command)).toEqual([
+              ...(install ? ["install"] : []),
+              "terminate",
+              "launch",
+            ]);
+            expect(commands.every((args) => args[1] === selected.udid)).toBe(
+              true
+            );
+            expect(
+              yield* Effect.promise(() =>
+                readFile(path.join(source, "sentinel"), "utf-8")
+              )
+            ).toBe("existing data");
+          })
+        )
+    );
+  }
+}
