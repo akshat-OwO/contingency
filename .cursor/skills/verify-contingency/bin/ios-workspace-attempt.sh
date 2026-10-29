@@ -48,7 +48,6 @@ trap cleanup EXIT
 export CONTINGENCY_IOS_SELECTED=$SELECTED CONTINGENCY_IOS_FIXTURE=$A/fixture/IosLogin.app
 unset CONTINGENCY_IOS_WORKSPACE_INTERNAL
 export CONTINGENCY_MCP_INTERFACE=native
-export CONTINGENCY_IOS_PROOF_ENTRY=${CONTINGENCY_IOS_PROOF_ENTRY:-public}
 export CONTINGENCY_VERIFY_DIR=$A/verify
 export CONTINGENCY_IOS_PROOF_ARTIFACTS=.cursor/skills/verify-contingency/artifacts/$ART
 nub $CONTROL launch > $A/launch.log 2>&1 || exit 5

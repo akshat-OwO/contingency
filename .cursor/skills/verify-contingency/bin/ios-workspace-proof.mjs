@@ -30,9 +30,8 @@ const artifacts = path.join(
 );
 await mkdir(artifacts, { recursive: true });
 const execute = promisify(execFile);
-// Before listing, agent commands use internal RPC and public MCP must refuse iOS.
-const proofEntry = process.env.CONTINGENCY_IOS_PROOF_ENTRY ?? "public";
-assert.ok(["internal", "public"].includes(proofEntry));
+const proofEntry = "public";
+assert.equal(process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL, undefined);
 let sequence = 0;
 const operation = () => {
   sequence += 1;
@@ -93,7 +92,7 @@ const call = async (command, source = "agent") => {
   const began = performance.now();
   const startedAt = new Date().toISOString();
   try {
-    if (proofEntry === "public" && source === "agent") {
+    if (source === "agent") {
       return await tool("agent_device_workspace", { command, platform: "ios" });
     }
     return await iosRpc(instance.mcpUrl, "ios.workspace.command", {
@@ -280,19 +279,9 @@ const ownSessionResources = async () => [
 const inventoryBefore = await simulatorInventory();
 
 try {
-  if (proofEntry === "public") {
-    const listed = await tool("agent_device_sessions_list", {
-      platform: "ios",
-    });
-    assert.ok(Array.isArray(listed), "Public MCP must list iOS sessions");
-    receipt.coverage.publicListing = true;
-  } else {
-    await assert.rejects(
-      tool("agent_device_sessions_list", { platform: "ios" }),
-      /ios_support_matrix_unproven/u
-    );
-    receipt.coverage.publicMcpGate = true;
-  }
+  const listed = await tool("agent_device_sessions_list", { platform: "ios" });
+  assert.ok(Array.isArray(listed), "Public MCP must list iOS sessions");
+  receipt.coverage.publicListing = true;
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
   const discovered = devices.find((candidate) => candidate.udid === selected);
   assert.ok(discovered && ["26.5", "27.1"].includes(discovered.runtimeVersion));
