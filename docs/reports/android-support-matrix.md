@@ -1,51 +1,49 @@
 # Android Support Matrix
 
-> Changed by [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): physical devices, private fills, and the system-dialog and cross-app limits no longer apply. This matrix describes shipped behavior until [issue 567](https://github.com/akshat-OwO/contingency/issues/567) re-proves it on emulators only.
-
-Issue #489 proves the Android Support Matrix for #457. Every cell below passed live on 2026-10-15 through the product entry points: Workspace for Teaching and verification, and the MCP server for Dry Runs and later Runs. Android is supported only within this matrix. Every capability outside it is a documented limit, which the product refuses or pauses on explicitly.
+Issue [#567](https://github.com/akshat-OwO/contingency/issues/567) re-proves Android under [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md). Both cells passed live on 2026-10-29 against product revision `45d156c4`. The matrix covers the two emulator images below. Physical devices are unsupported.
 
 ## Cells
 
-Each cell ran [`android-support-matrix-proof.mjs`](../../.cursor/skills/verify-contingency/bin/android-support-matrix-proof.mjs) against the [login fixture](../../.cursor/skills/verify-contingency/fixtures/android-physical/README.md), built with minimum API 30. In each cell, the user taught one journey in Workspace: a public **Login name** fill, a `{{PASSWORD}}` private fill, **Sign in privately**, **Open account**, and **Android Back**. The Timeline recorded exactly one `fill`, one `variable`, two `activate`, and one `back` action, with no coordinate keys. An agent learned the Flow Skill and repeated every action in a fresh Dry Run. The user chose **Verify flow**, the Recording was purged, and a later Run also passed.
+Each cell runs [`android-support-matrix-proof.mjs`](../../.cursor/skills/verify-contingency/bin/android-support-matrix-proof.mjs) against the [login fixture](../../.cursor/skills/verify-contingency/fixtures/android-physical/README.md), with minimum API 30. Workspace Teaching records a public **Login name** fill, a `{{PASSWORD}}` Variable fill, **Sign in privately**, **Open account**, and **Android Back**. The Timeline contains one `fill`, one `variable`, two `activate`, and one `back` action. Variable values use stock agent-device as ordinary text and appear in runtime evidence. A fill records `confirmed` when readable text matches, or `unconfirmed` when exact readback is unavailable. Sign-in establishes the journey outcome.
 
-| Device | API | Release | Activate | Public fill | Private fill | Back | Teaching | Dry Run | Verification |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pixel_9 emulator | 36 | 16 | Pass | Pass | Pass | Pass | Pass | `working` | Verified, purged |
-| Pixel_9_API_30 emulator | 30 | 11 | Pass | Pass | Pass | Pass | Pass | `working` | Verified, purged |
-| Nothing Phone 3a (A059) | 36 | 16 | Pass | Pass | Pass | Pass | Pass | `working` | Verified, purged |
+An agent learns the Flow Skill and repeats every action through MCP in a fresh Dry Run. The user chooses **Verify flow** in Workspace, Cleanup purges the Recording and Dry Run evidence, and a later Run repeats the journey.
 
-The [sanitized evidence](android-support-matrix-evidence.json) records each cell's device identity, Timeline action kinds, session outcomes, refusal messages, privacy scan, and cleanup. Retained ARIA snapshots and screenshots stayed under the skill's ignored `artifacts/` directory. No generated private value appeared in recordings, runtime diagnostics, MCP logs, logcat, or child-process arguments. Cleanup uninstalled only packages the proof installed and left ADB forwards, the input method, and runtime directories at their baseline.
+| Emulator | API | Android | Teaching | Dry Run | Verification and Cleanup | Later Run |
+| --- | --- | --- | --- | --- | --- | --- |
+| Pixel_9 | 36 | 16 | Pass | `working` | Verified, `purged` | `working` |
+| Pixel_9_API_30 | 30 | 11 | Pass | `working` | Verified, `purged` | `working` |
 
-Selection accepts API 30 through 36 and refuses every other level with a typed `api_unsupported` reason, before any device command. Only API 30 and 36 are proven; the levels between them are accepted without a cell of their own.
+The [sanitized evidence](android-support-matrix-evidence.json) records device identities, source revision, fixture hash, action kinds, outcomes, boundary probes, and cleanup. Generated Variable values and credentials are excluded from retained evidence. ARIA snapshots, screenshots, sanitized Timelines, command journals, and receipts remain under `.cursor/skills/verify-contingency/artifacts/android-support-matrix/<cell>/`.
+
+Selection accepts API 30 through 36. Only API 30 and 36 have proven cells. Intermediate levels are accepted without separate proof.
+
+## Full OS use and Confirmation
+
+Each cell exercises untaught controls on a later live Run:
+
+- **Request camera permission** opens the system dialog. The agent answers through MCP, and the fixture regains focus while the Run remains `running`, without `ownership_unknown`.
+- **Open device settings** opens Settings while the Run remains `running`. Runtime Back returns to the fixture.
+- Marking **Open device settings** `irreversible:true` creates a Pending Decision with reason `confirmation`. The session remains `running` while input waits for the decision. Workspace shows `Activate button "Open device settings" in dev.contingency.physicalfixture` with enabled **Allow** and **Refuse** controls.
+- Three separate attempts exercise Allow, Refuse, and Allow. Allow dispatches the stored attempt to Settings. Refuse leaves the fixture visible. Every retry receives a distinct Confirmation ID.
 
 ## Documented limits
 
-Every cell produced each refusal or pause below on a live Run.
+| Limit | Proven behavior in each cell |
+| --- | --- |
+| Physical devices | A synthetic non-emulator selection is refused as unsupported before any child command uses its serial. |
+| API levels below 30 | API 29 selection is refused before Teaching. |
+| Multiple bound devices | A second live session is refused on both the same serial and another emulator serial. |
+| Raw coordinates | MCP rejects `tap`. A blank Workspace point shows **Nothing to activate there. No input was sent.** |
+| Secure windows | A `FLAG_SECURE` window pauses on `secure_window` with **Secure window, not visible**. A `working` claim is stored as `inconclusive`. |
 
-| Limit | Behavior | Evidence |
-| --- | --- | --- |
-| API levels below 30 | Refused at selection: `api_unsupported` in startup, `android_api_unsupported` in app discovery, and the setup sheet disables the device | API 29 start refused before Teaching |
-| Multiple bound devices | One live session binds one device. A second session is refused while another is pending, running, or paused, on the same or another serial | Both refusals while the limits Run was live |
-| Raw coordinates | The MCP schema has no coordinate action. A Workspace point resolves to a fresh semantic element or is refused | MCP `tap` rejected; a blank Workspace point showed **Nothing to activate there. No input was sent.** |
-| System dialogs | The agent may open and answer system dialogs; emulator proof pending #567 | Camera permission dialog paused the Run; recovery took a fresh observation after the dialog closed |
-| Secure windows | A secure window pauses the Run on `secure_window`, and a `working` claim is stored as `inconclusive` | `FLAG_SECURE` login window |
-| Cross-app actions | The agent may use Settings and other apps; emulator proof pending #567 | Settings in the foreground paused the Run; recovery returned to the fixture |
+Android 11 lacks `pm set-permission-flags`. Preparation permission decisions require API 31 and are refused on API 30 with `permission_decisions_unsupported`. Answering a live system dialog through the agent remains supported on both proven cells.
 
-Android 11 has no `pm set-permission-flags`. Permission decisions now require API 31 and are refused on API 30 with `permission_decisions_unsupported` before any device command. Preparation also fails when `pm` prints anything, so an unknown command can no longer pass as success.
+## Proof and cleanup
 
-## Product changes
+The limits Run takes Workspace control for the blank-point probe and returns it before agent actions. It records Takeover and ends `inconclusive` after the secure-window probe. This outcome is separate from the successful journey Run.
 
-- Android needs no opt-in. `CONTINGENCY_MCP_ANDROID_EXPERIMENTAL` is gone, and every MCP client lists `agent_android_workspace` and `agent_android_sessions_list`. That adds about 7.3 KB to each catalog. The catalog budget rose from 81 KB to 91 KB to match.
-- The Experimental badge, the experimental Summary field, and the **Android experimental** entry label are gone. The entry button reads **Android**.
-- Back, a picked field, and a private-field binding compare only the Target App's own elements to detect a changed screen. In one earlier phone run, a Workspace Back during Teaching sent no input, and its refusal text was not captured. A service test shows that a status-bar change alone refused Back before this fix, which is the likely cause.
-- Discovery reports each device's Android release. The setup sheet declares that release as the taught Android version instead of a fixed `16`.
+On API 36, the pending-Confirmation screenshots show **Device stream lost** while the decision controls and description remain visible. Fresh MCP observations confirm that the fixture stays visible before a decision, Allow opens Settings, and Refuse leaves the fixture visible. These screenshots prove the decision UI, with MCP readback proving the OS transitions.
 
-## Proof details
+The proof restores installed-package, input-method, forwarding, and runtime-directory baselines. It stops its MCP server, isolated Workspace, driver browser, and emulator. The parent-owned ADB server remains running. Raw Teaching and Run state is purged with the isolated verification directory.
 
-- Workspace recovery is a user action. After each pause, the runner closed the dialog or app with Back from outside the runtime and clicked **Recover same emulator** or **Recover same device**.
-- The raw-coordinate probe took Workspace control and returned it. The limits Run therefore records `takeoverOccurred`, and its secure-window outcome is `inconclusive`. It never claimed a pass.
-- On the phone, the cross-app probe opened Settings without changing anything, and the camera permission prompt was dismissed as a denial for the disposable fixture. The fixture was uninstalled afterwards.
-
-## Out of scope
-
-This proof adds no devices or API levels beyond the matrix and builds no documented-limit capability. Necessary-system-dialog authority, cross-app permission, secure-window capture, observation-bound coordinates, and multiple-device Runs remain [ADR 0058](../adr/0058-android-is-the-next-platform-runtime.md) work.
+Secure-window capture, concurrent device Runs, and additional emulator images remain outside this proof.
