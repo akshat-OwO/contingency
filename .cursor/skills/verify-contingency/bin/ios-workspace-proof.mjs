@@ -232,7 +232,7 @@ const settingsRefusal = async (sessionId, stage, tap) => {
 const ownSessionResources = async () => [
   await selectedSimulatorResource(instance, selected),
 ];
-const inventoryBefore = await simulatorInventory(selected);
+const inventoryBefore = await simulatorInventory();
 
 try {
   await assert.rejects(
@@ -638,14 +638,14 @@ try {
   );
   receipt.coverage.selectedSimulatorRemainsRunning = true;
   receipt.simulatorInventory = {
-    after: await simulatorInventory(selected),
+    after: await simulatorInventory(),
     before: inventoryBefore,
-    excludedProofOwned: selected,
+    selectedUdid: selected,
   };
   assert.deepEqual(
     receipt.simulatorInventory.after,
     inventoryBefore,
-    "Product created, deleted, or changed an unrelated simulator"
+    "Product created, deleted, or changed a simulator"
   );
   receipt.coverage.noSimulatorCreationOrDeletion = true;
   receipt.completedAt = new Date().toISOString();
