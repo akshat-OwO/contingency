@@ -1,54 +1,69 @@
 import {
   AndroidWorkspaceCommand,
   IosReturnToTargetAppCommand,
+  IosWorkspaceCommand,
+  IosWorkspaceSelection,
 } from "@contingency/protocol";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AndroidWorkspace } from "./android-workspace.ts";
+import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
 
-// oxlint-disable-next-line unicorn/throw-new-error
-class DeviceWorkspaceFailure extends Schema.Error<DeviceWorkspaceFailure>(
-  "DeviceWorkspaceFailure"
-)({ code: Schema.String, message: Schema.String }) {}
-
-// MCP encodes data failures as JSON; Error subclasses expose only their message.
-const IosSupportMatrixUnproven = Schema.Struct({
-  code: Schema.Literal("ios_support_matrix_unproven"),
+const DeviceWorkspaceFailure = Schema.Struct({
+  code: Schema.String,
   message: Schema.String,
 });
-const failure = Schema.Union([
-  DeviceWorkspaceFailure,
-  IosSupportMatrixUnproven,
-]);
+const deviceFailure = (cause: typeof DeviceWorkspaceFailure.Type) => ({
+  code: cause.code,
+  message: cause.message,
+});
+
+const available = <A>(service: Effect.Effect<Option.Option<A>>) =>
+  service.pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            deviceFailure({
+              code: "agent_session_unavailable",
+              message: "Device Workspace is unavailable in this process.",
+            })
+          ),
+        onSome: Effect.succeed,
+      })
+    )
+  );
 const platform = Schema.Literals(["android", "ios"]);
-const requireAndroid = (selected: typeof platform.Type) =>
-  selected === "android"
-    ? Effect.void
-    : Effect.fail({
-        code: "ios_support_matrix_unproven" as const,
-        message: "iOS is unavailable until its Support Matrix is proven.",
-      });
+const [androidStart, ...sharedCommands] = AndroidWorkspaceCommand.members;
+const start = Schema.Struct({
+  ...androidStart.fields,
+  selection: Schema.Union([
+    androidStart.fields.selection,
+    IosWorkspaceSelection,
+  ]),
+});
 
 export const DeviceWorkspaceTools = withStrictParameters(
   Toolkit.make(
     Tool.make("agent_device_workspace", {
-      dependencies: [AndroidWorkspace],
+      dependencies: [],
       description:
-        "Android API30-36; iOS unavailable. Workspace /?android=<id>: authorize/prepare/record/Takeover/verify. Input: observationId. Variables: request/supply/input; unreadable=unconfirmed; handoff expires. Learn: claim/Timeline/save, fresh dry-run, verified Run. Complete: latest observation; gaps/Takeover fail. Whole OS. irreversible:true: decide once; retries need fresh Confirmation. Cancellation cannot undo input.",
-      failure,
+        "Android API30-36; iOS26-27 simulators. Workspace: /?android=<id> or /?ios=<id>. User prepares/records/verifies. Input needs observationId; unreadable fills=unconfirmed. Learn: claim/Timeline/save, dry-run, verify. Gaps/Takeover fail. iOS Settings needs Return to Target App. irreversible:true needs fresh Confirmation.",
+      failure: DeviceWorkspaceFailure,
       parameters: Schema.Struct({
         command: Schema.Union(
-          [
-            ...AndroidWorkspaceCommand.members,
-            IosReturnToTargetAppCommand,
-          ].filter(
+          [start, ...sharedCommands, IosReturnToTargetAppCommand].filter(
             (member) =>
-              !["pick", "field-dismiss", "variable-supply"].includes(
-                member.fields._tag.schema.literal
-              )
+              ![
+                "pick",
+                "field-dismiss",
+                "variable-supply",
+                "prepare",
+                "flow-decision",
+              ].includes(member.fields._tag.schema.literal)
           )
         ),
         platform,
@@ -57,10 +72,9 @@ export const DeviceWorkspaceTools = withStrictParameters(
     }),
     readOnly(
       Tool.make("agent_device_sessions_list", {
-        dependencies: [AndroidWorkspace],
-        description:
-          "List retained device sessions and Run Summaries. iOS unavailable.",
-        failure,
+        dependencies: [],
+        description: "List retained Android or iOS sessions and Run Summaries.",
+        failure: DeviceWorkspaceFailure,
         parameters: Schema.Struct({ platform }),
         success: Schema.Unknown,
       })
@@ -70,28 +84,52 @@ export const DeviceWorkspaceTools = withStrictParameters(
 
 export const DeviceWorkspaceToolHandlersLive = DeviceWorkspaceTools.toLayer({
   agent_device_sessions_list: ({ platform: selected }) =>
-    Effect.gen(function* listAndroidSessions() {
-      yield* requireAndroid(selected);
-      const service = yield* AndroidWorkspace;
+    Effect.gen(function* listDeviceSessions() {
+      if (selected === "ios") {
+        const service = yield* available(Effect.serviceOption(IosWorkspace));
+        return yield* service
+          .list()
+          .pipe(Effect.mapError((cause) => deviceFailure(cause)));
+      }
+      const service = yield* available(Effect.serviceOption(AndroidWorkspace));
       return yield* service
         .list()
-        .pipe(Effect.mapError((cause) => new DeviceWorkspaceFailure(cause)));
+        .pipe(Effect.mapError((cause) => deviceFailure(cause)));
     }),
   agent_device_workspace: ({ command, platform: selected }) =>
-    Effect.gen(function* driveAndroidWorkspace() {
-      yield* requireAndroid(selected);
-      if (command._tag === "return-to-target-app") {
-        return yield* Effect.fail(
-          new DeviceWorkspaceFailure({
-            code: "capability_missing",
-            message: "Return to Target App is an iOS recovery.",
-          })
+    Effect.gen(function* driveDeviceWorkspace() {
+      // Decode against the selected platform as well as the compact shared catalog.
+      // A valid selection for the other platform must never reach its service.
+      if (selected === "ios") {
+        const decoded = yield* Schema.decodeUnknownEffect(IosWorkspaceCommand)(
+          command
+        ).pipe(
+          Effect.mapError(() =>
+            deviceFailure({
+              code: "invalid_selection",
+              message: "Invalid iOS Workspace command.",
+            })
+          )
         );
+        const service = yield* available(Effect.serviceOption(IosWorkspace));
+        return yield* service
+          .execute(decoded, "agent")
+          .pipe(Effect.mapError((cause) => deviceFailure(cause)));
       }
-      const service = yield* AndroidWorkspace;
+      const decoded = yield* Schema.decodeUnknownEffect(
+        AndroidWorkspaceCommand
+      )(command).pipe(
+        Effect.mapError(() =>
+          deviceFailure({
+            code: "capability_missing",
+            message: "Invalid Android Workspace command.",
+          })
+        )
+      );
+      const service = yield* available(Effect.serviceOption(AndroidWorkspace));
       return yield* service
-        .execute(command, "agent")
-        .pipe(Effect.mapError((cause) => new DeviceWorkspaceFailure(cause)));
+        .execute(decoded, "agent")
+        .pipe(Effect.mapError((cause) => deviceFailure(cause)));
     }),
 });
 

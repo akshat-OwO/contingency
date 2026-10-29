@@ -151,7 +151,7 @@ export const acquireIosStream = (
     registry.get(orientationBinding);
     const boundDevice = Atom.make<IosDevice | null>(null).pipe(Atom.keepAlive);
     registry.get(boundDevice);
-    const captureBinding = Atom.make<CaptureSize | undefined>().pipe(
+    const captureBinding = Atom.make<CaptureSize | null>(null).pipe(
       Atom.keepAlive
     );
     registry.get(captureBinding);
@@ -161,7 +161,7 @@ export const acquireIosStream = (
         registry.set(captureBinding, current);
       }
       // A foreground refusal clears the observation, not the established panel binding.
-      return current ?? registry.get(captureBinding);
+      return current ?? registry.get(captureBinding) ?? undefined;
     };
     const secret = randomBytes(32).toString("base64url");
 

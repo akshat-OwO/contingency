@@ -17,12 +17,13 @@ export type PlatformCapability = typeof PlatformCapability.Type;
 export const AndroidStartingCondition = Schema.Struct({
   name: Schema.String.check(Schema.isMinLength(1)),
   role: Schema.String.check(Schema.isMinLength(1)),
-});
+}).annotate({ identifier: "StartingCondition" });
+export const AndroidStartingConditions = Schema.Array(AndroidStartingCondition)
+  .check(Schema.isMinLength(1))
+  .annotate({ identifier: "Conditions" });
 export const AndroidPreparation = Schema.Struct({
   activity: Schema.String.check(Schema.isMinLength(1)),
-  conditions: Schema.Array(AndroidStartingCondition).check(
-    Schema.isMinLength(1)
-  ),
+  conditions: AndroidStartingConditions,
   kind: Schema.Literal("restart-activity"),
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
@@ -58,9 +59,7 @@ export const IosRunEnvironment = Schema.Struct({
   runtimeVersion: Schema.NonEmptyString,
 });
 export const IosPreparation = Schema.Struct({
-  conditions: Schema.Array(AndroidStartingCondition).check(
-    Schema.isMinLength(1)
-  ),
+  conditions: AndroidStartingConditions,
   kind: Schema.Literal("restart-app"),
 });
 

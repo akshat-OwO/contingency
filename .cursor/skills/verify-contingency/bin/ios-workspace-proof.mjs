@@ -30,6 +30,9 @@ const artifacts = path.join(
 );
 await mkdir(artifacts, { recursive: true });
 const execute = promisify(execFile);
+// Before listing, agent commands use internal RPC and public MCP must refuse iOS.
+const proofEntry = process.env.CONTINGENCY_IOS_PROOF_ENTRY ?? "public";
+assert.ok(["internal", "public"].includes(proofEntry));
 let sequence = 0;
 const operation = () => {
   sequence += 1;
@@ -40,6 +43,8 @@ const receipt = {
   actionDurations: [],
   blockers: [],
   coverage: {},
+  entry: proofEntry,
+  limits: {},
   resources: [],
   settingsObservations: [],
   startedAt: new Date().toISOString(),
@@ -64,10 +69,33 @@ const control = async (...args) => {
   });
   return result.stdout;
 };
+const tool = async (name, params) => {
+  try {
+    return JSON.parse(
+      await control(
+        "mcp",
+        "call",
+        "--tool",
+        name,
+        "--params",
+        JSON.stringify(params)
+      )
+    );
+  } catch (error) {
+    // Keep MCP refusals matchable the same way as internal RPC refusals.
+    throw new Error(
+      `${name} failed: ${error.stdout ?? ""}${error.stderr ?? ""}${error.message ?? error}`,
+      { cause: error }
+    );
+  }
+};
 const call = async (command, source = "agent") => {
   const began = performance.now();
   const startedAt = new Date().toISOString();
   try {
+    if (proofEntry === "public" && source === "agent") {
+      return await tool("agent_device_workspace", { command, platform: "ios" });
+    }
     return await iosRpc(instance.mcpUrl, "ios.workspace.command", {
       command,
       source,
@@ -131,17 +159,6 @@ const snapshot = async (name) => {
     path.join(artifacts, `${name}.png`)
   );
 };
-const tool = async (name, params) =>
-  JSON.parse(
-    await control(
-      "mcp",
-      "call",
-      "--tool",
-      name,
-      "--params",
-      JSON.stringify(params)
-    )
-  );
 const sessions = [];
 const flowSkillName = "ios-login";
 const loginName = "Test Shopper";
@@ -222,7 +239,7 @@ const settingsRefusal = async (sessionId, stage, tap) => {
       return false;
     } catch (error) {
       const refused = /foreign_app_foreground/u.test(
-        String(error.stderr ?? error.stdout ?? error)
+        `${error.stderr ?? ""}${error.stdout ?? ""}${error}`
       );
       receipt.settingsObservations.push({
         at,
@@ -263,15 +280,27 @@ const ownSessionResources = async () => [
 const inventoryBefore = await simulatorInventory();
 
 try {
-  await assert.rejects(
-    tool("agent_device_sessions_list", { platform: "ios" }),
-    (cause) =>
-      /ios_support_matrix_unproven/u.test(String(cause.stdout ?? cause))
-  );
-  receipt.coverage.publicMcpGate = true;
+  if (proofEntry === "public") {
+    const listed = await tool("agent_device_sessions_list", {
+      platform: "ios",
+    });
+    assert.ok(Array.isArray(listed), "Public MCP must list iOS sessions");
+    receipt.coverage.publicListing = true;
+  } else {
+    await assert.rejects(
+      tool("agent_device_sessions_list", { platform: "ios" }),
+      /ios_support_matrix_unproven/u
+    );
+    receipt.coverage.publicMcpGate = true;
+  }
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
-  const device = devices.find((entry) => entry.udid === selected);
+  const device = devices.find((candidate) => candidate.udid === selected);
   assert.ok(device && ["26.5", "27.1"].includes(device.runtimeVersion));
+  receipt.cell = {
+    deviceType: device.deviceType,
+    runtime: device.runtime,
+    runtimeVersion: device.runtimeVersion,
+  };
   selection = {
     appPath,
     device,
@@ -287,6 +316,54 @@ try {
       kind: "restart-app",
     },
   };
+  // Selection limits are refused before any session or device command.
+  const refusal = async (command, pattern) => {
+    let message;
+    try {
+      await call(command);
+    } catch (error) {
+      message = String(error);
+    }
+    assert.ok(message, "Expected an explicit refusal");
+    assert.match(message, pattern);
+    return message
+      .replaceAll(selected, "<selected>")
+      .replaceAll(/agent-ios-[0-9a-f]+/gu, "<session>")
+      .slice(0, 600);
+  };
+  const probe = (probeDevice, kind = "teaching") => ({
+    _tag: "start",
+    flowSkillName,
+    kind,
+    operationId: operation(),
+    recordingId: null,
+    selection: { ...selection, device: probeDevice },
+  });
+  receipt.limits.physicalDevice = await refusal(
+    probe({
+      kind: "physical",
+      name: "Synthetic iPhone",
+      udid: "00008030-001A2C3E0A88802E",
+    }),
+    /physical_device_unsupported/u
+  );
+  receipt.limits.osOutsideMatrix = {};
+  for (const runtimeVersion of ["25.0", "28.0"]) {
+    receipt.limits.osOutsideMatrix[runtimeVersion] = await refusal(
+      probe({ ...device, runtimeVersion }),
+      /os_unsupported/u
+    );
+  }
+  const listedAfterProbes = await iosRpc(
+    instance.mcpUrl,
+    "ios.workspace.list",
+    {}
+  );
+  assert.equal(
+    listedAfterProbes.length,
+    0,
+    "Refused selections must not create sessions"
+  );
   // Teaching starts through the actual Workspace setup controls.
   await control("browser", "goto", "--url", instance.mcpUrl);
   await control("browser", "click", "--role", "button", "--name", "iOS");
@@ -660,6 +737,64 @@ try {
     }
     process.stdout.write(`iOS ${kind} passed\n`);
   }
+  // A separate limits Run keeps refusals out of the successful journey Run.
+  const limits = await call({
+    _tag: "start",
+    flowSkillName,
+    kind: "run",
+    operationId: operation(),
+    recordingId: null,
+    selection: installedSelection,
+  });
+  sessions.push(limits.id);
+  await view(limits.id);
+  await click("Prepare selected simulator");
+  receipt.resources.push(...(await ownSessionResources()));
+  receipt.limits.sameDeviceBound = await refusal(
+    probe(device, "run"),
+    /already bound/u
+  );
+  receipt.limits.multipleBoundDevices = await refusal(
+    probe(
+      {
+        ...device,
+        name: "Synthetic iPhone",
+        udid: "00000000-0000-4000-8000-000000000001",
+      },
+      "run"
+    ),
+    /binds one device at a time/u
+  );
+  let limitObservation = await observe(limits.id);
+  receipt.limits.rawCoordinates = await refusal(
+    {
+      _tag: "input",
+      action: { _tag: "coordinate", x: 1, y: 2 },
+      observationId: limitObservation.observation.id,
+      operationId: operation(),
+      sessionId: limits.id,
+    },
+    /Expected|Invalid parameters/u
+  );
+  limitObservation = await observe(limits.id);
+  find(limitObservation, "text", "Login fixture");
+  receipt.limits.back = await refusal(
+    {
+      _tag: "input",
+      action: { _tag: "back" },
+      observationId: limitObservation.observation.id,
+      operationId: operation(),
+      sessionId: limits.id,
+    },
+    /capability_missing/u
+  );
+  await snapshot("limit-back");
+  await call(
+    { _tag: "close", operationId: operation(), sessionId: limits.id },
+    "user"
+  );
+  receipt.coverage.documentedLimits = true;
+  process.stdout.write("iOS documented limits passed\n");
 } catch (error) {
   receipt.blockers.push(String(error));
   for (const resource of await ownSessionResources().catch(() => [])) {

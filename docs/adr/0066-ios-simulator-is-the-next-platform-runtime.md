@@ -4,7 +4,7 @@ status: accepted
 
 # iOS Simulator is the next platform runtime
 
-Users want to teach and verify iOS journeys the way they already do on Android. Extend Contingency to the iOS Simulator through the native-app layer that [ADR 0058](./0058-android-is-the-next-platform-runtime.md) anticipated, and support it only within an iOS Support Matrix. iOS skips Android's experimental opt-in from [ADR 0060](./0060-use-stock-agent-device-for-an-experimental-android-runtime.md): its MCP surface and Workspace entry stay unlisted until every cell of the matrix passes. iOS follows [ADR 0067](./0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md) from the start: Variables are plain text, and the agent may use the whole simulator OS. Verification on one platform still does not verify a journey on another, and web, Android, and iOS keep separate Flow Skills.
+Users want to teach and verify iOS journeys the way they already do on Android. Extend Contingency to the iOS Simulator through the native-app layer that [ADR 0058](./0058-android-is-the-next-platform-runtime.md) anticipated, and support it only within an iOS Support Matrix. iOS skips Android's experimental opt-in from [ADR 0060](./0060-use-stock-agent-device-for-an-experimental-android-runtime.md): its MCP surface and Workspace entry are listed after both cells of its [Support Matrix](../reports/ios-support-matrix.md) passed. iOS Simulator is supported within that matrix. iOS follows [ADR 0067](./0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md) from the start: Variables are plain text, and the agent may use the whole simulator OS. Verification on one platform still does not verify a journey on another, and web, Android, and iOS keep separate Flow Skills.
 
 ## Rules
 
@@ -23,7 +23,7 @@ Users want to teach and verify iOS journeys the way they already do on Android. 
 
 ## Support Matrix
 
-Two cells, each with a current iPhone simulator: iOS 27.1 and iOS 26.5. Selection accepts iOS 26 through 27. The journey matches Android's [login fixture](../reports/android-support-matrix.md), built for the simulator: a public fill, a `{{PASSWORD}}` fill into a secure field, **Sign in privately**, **Open account**, and back through the app's navigation button. Each cell must pass Teaching, a `working` Dry Run, verification with Cleanup, a later Run, and every documented-limit refusal. Its proof must also show the agent answering a system alert and a Confirmation pause.
+Two cells, each with a current iPhone simulator: iOS 27.1 and iOS 26.5. Both cells passed on 2026-10-29. See the [matrix report and receipts](../reports/ios-support-matrix.md). Selection accepts iOS 26 through 27. The journey matches Android's [login fixture](../reports/android-support-matrix.md), built for the simulator: a public fill, a `{{PASSWORD}}` fill into a secure field, **Sign in privately**, **Open account**, and back through the app's navigation button. Each cell must pass Teaching, a `working` Dry Run, verification with Cleanup, a later Run, and every documented-limit refusal. Its proof must also show the agent answering a system alert and a Confirmation pause.
 
 ## Platform-neutral services and tools
 

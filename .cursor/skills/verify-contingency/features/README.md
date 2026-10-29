@@ -88,6 +88,6 @@ Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoo
 - [Browser evaluation](workspace.md#browser-evaluation) proves computed-style reads without a pause, per-attempt Confirmation, blocked requests, and irreversible Summary evidence.
 - [Browser tools](workspace.md#browser-tools) proves popup tabs, download evidence, Catalog Root and confirmed uploads, the page clipboard, CPU profile replay, and trace files without screenshots.
 
-- [Device MCP contract](./workspace.md#device-mcp-contract) checks platform arguments, retained Android sessions, and typed iOS refusals without a device.
+- [Device MCP contract](./workspace.md#device-mcp-contract) checks platform arguments, retained Android sessions, and public iOS dispatch without a device.
 
-- [Internal iOS Workspace](./workspace.md#ios-workspace-internal) proves Teaching with ordinary Variables, learning, a fresh working Dry Run, verification and purge, a later Run, a system-alert answer with observe-only snapshots, Confirmation, and Settings refusal plus Return to Target App recovery while iOS stays unlisted.
+- [iOS Workspace](./workspace.md#ios-workspace-internal) proves Teaching with ordinary Variables, learning, a fresh working Dry Run, verification and purge, a later Run, a system-alert answer with observe-only snapshots, Confirmation, and Settings refusal plus Return to Target App recovery through public device MCP.

@@ -1,7 +1,10 @@
 #!/bin/zsh
 # Usage: attempt.sh <attempt-dir> <artifact-subdir> setup|run
+# Setup reads CONTINGENCY_IOS_RUNTIME and CONTINGENCY_IOS_DEVICE_TYPE (default iOS 26.5, iPhone 17).
 set -eu
 A=$1; ART=$2; STAGE=$3
+RUNTIME=${CONTINGENCY_IOS_RUNTIME:-com.apple.CoreSimulator.SimRuntime.iOS-26-5}
+DEVICE_TYPE=${CONTINGENCY_IOS_DEVICE_TYPE:-com.apple.CoreSimulator.SimDeviceType.iPhone-17}
 ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
 CONTROL=$ROOT/.cursor/skills/verify-contingency/bin/control-contingency
 cd $ROOT
@@ -14,7 +17,7 @@ if [[ $STAGE == setup ]]; then
   ps -axo pid=,ppid=,lstart=,comm= > $A/processes-before.txt
   lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-before.txt
   sh .cursor/skills/verify-contingency/fixtures/ios-login/build.sh $A/fixture > $A/fixture-build.log 2>&1 || exit 3
-  xcrun simctl create "contingency-selected-attempt$(basename $A | tr -cd '0-9')" com.apple.CoreSimulator.SimDeviceType.iPhone-17 com.apple.CoreSimulator.SimRuntime.iOS-26-5 > $A/selected || exit 4
+  xcrun simctl create "contingency-selected-attempt$(basename $A | tr -cd '0-9')" "$DEVICE_TYPE" "$RUNTIME" > $A/selected || exit 4
   SELECTED=$(cat "$A/selected")
   # Fixture setup owns only the exact UDID returned by this create.
   xcrun simctl boot "$SELECTED" > "$A/boot.log" 2>&1 || exit 8
@@ -43,7 +46,9 @@ cleanup() {
 }
 trap cleanup EXIT
 export CONTINGENCY_IOS_SELECTED=$SELECTED CONTINGENCY_IOS_FIXTURE=$A/fixture/IosLogin.app
-export CONTINGENCY_IOS_WORKSPACE_INTERNAL=1 CONTINGENCY_MCP_INTERFACE=native
+unset CONTINGENCY_IOS_WORKSPACE_INTERNAL
+export CONTINGENCY_MCP_INTERFACE=native
+export CONTINGENCY_IOS_PROOF_ENTRY=${CONTINGENCY_IOS_PROOF_ENTRY:-public}
 export CONTINGENCY_VERIFY_DIR=$A/verify
 export CONTINGENCY_IOS_PROOF_ARTIFACTS=.cursor/skills/verify-contingency/artifacts/$ART
 nub $CONTROL launch > $A/launch.log 2>&1 || exit 5
@@ -54,7 +59,7 @@ ps -axo pid=,ppid=,lstart=,comm= > $A/processes-launched.txt
 lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-launched.txt
 date -u +%FT%TZ > $A/proof-start
 set +e
-nub .cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs > $A/proof.log 2>&1
+nub ${CONTINGENCY_IOS_PROOF_SCRIPT:-.cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs} > $A/proof.log 2>&1
 echo $? > $A/proof-exit
 set -e
 date -u +%FT%TZ > $A/proof-end
