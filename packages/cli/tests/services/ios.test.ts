@@ -298,7 +298,6 @@ const withDirectory = <A, E>(
     return yield* run(directory);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
-
 for (const [version, supported] of [
   ["26", true],
   ["26.5", true],

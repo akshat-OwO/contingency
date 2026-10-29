@@ -7,8 +7,14 @@ import {
 import type {
   IosWorkspaceCommand,
   IosWorkspaceSnapshot,
+  IosWorkspaceSelection,
 } from "@contingency/protocol";
-import { useAtom, useAtomValue, useAtomSet } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomValue,
+  useAtomSet,
+  useAtomRefresh,
+} from "@effect/atom-react";
 import { Effect, Fiber, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
@@ -220,6 +226,7 @@ const IosSetupSheet = ({
   readonly onClose: () => void;
 }) => {
   const devices = useAtomValue(iosDevicesAtom);
+  const refresh = useAtomRefresh(iosDevicesAtom);
   return (
     <section
       aria-label="New iOS session"
@@ -227,8 +234,8 @@ const IosSetupSheet = ({
     >
       <h1>New iOS session</h1>
       <p>
-        Unlisted iPhone simulator proof. A fresh Session Simulator is created
-        for this journey.
+        Unlisted iPhone simulator proof. Each journey restarts the Target App on
+        the selected running simulator using its existing data.
       </p>
       <form
         className="grid gap-3"
@@ -238,40 +245,41 @@ const IosSetupSheet = ({
           const device = AsyncResult.isSuccess(devices)
             ? devices.value.find((entry) => entry.udid === text(data, "device"))
             : undefined;
-          if (!device) {
+          if (!device || device.state !== "Booted") {
             return;
           }
+          const selection: IosWorkspaceSelection = {
+            device,
+            environment: {
+              build: text(data, "build"),
+              bundleId: text(data, "bundle"),
+              deviceType: device.deviceType,
+              runtimeVersion: device.runtimeVersion,
+            },
+            outcomes: [
+              {
+                name: text(data, "outcome"),
+                role: text(data, "outcomeRole"),
+              },
+            ],
+            setup: {
+              conditions: [
+                {
+                  name: text(data, "starting"),
+                  role: text(data, "startingRole"),
+                },
+              ],
+              kind: "restart-app",
+            },
+          };
+          const appPath = text(data, "path");
           send({
             _tag: "start",
             flowSkillName: FlowSkillName.make(text(data, "flow")),
             kind: "teaching",
             operationId: operationId(),
             recordingId: null,
-            selection: {
-              appPath: text(data, "path"),
-              device,
-              environment: {
-                build: text(data, "build"),
-                bundleId: text(data, "bundle"),
-                deviceType: device.deviceType,
-                runtimeVersion: device.runtimeVersion,
-              },
-              outcomes: [
-                {
-                  name: text(data, "outcome"),
-                  role: text(data, "outcomeRole"),
-                },
-              ],
-              setup: {
-                conditions: [
-                  {
-                    name: text(data, "starting"),
-                    role: text(data, "startingRole"),
-                  },
-                ],
-                kind: "fresh-install",
-              },
-            },
+            selection: appPath === "" ? selection : { ...selection, appPath },
           });
         }}
       >
@@ -284,16 +292,29 @@ const IosSetupSheet = ({
           <select name="device" required>
             {AsyncResult.isSuccess(devices)
               ? devices.value.map((device) => (
-                  <option key={device.udid} value={device.udid}>
-                    {device.name} · iOS {device.runtimeVersion} · {device.udid}
+                  <option
+                    key={device.udid}
+                    value={device.udid}
+                    disabled={device.state !== "Booted"}
+                  >
+                    {device.name} · iOS {device.runtimeVersion} ·{" "}
+                    {device.state === "Booted"
+                      ? "Running"
+                      : "Stopped. Start in Simulator, then refresh"}
                   </option>
                 ))
               : null}
           </select>
         </label>
+        <Button onClick={refresh} type="button" variant="outline">
+          Refresh devices
+        </Button>
         <label>
           Simulator app path
-          <Input name="path" required />
+          <Input name="path" />
+          <span>
+            Optional. A named build requires a separate installation decision.
+          </span>
         </label>
         <label>
           Bundle identifier
@@ -485,15 +506,22 @@ const IosDock = ({
           key={decision.id}
           role="region"
           aria-label={
-            decision.kind === "confirmation"
-              ? "Confirmation"
-              : "Run Environment Permission"
+            {
+              "app-installation": "App installation",
+              confirmation: "Confirmation",
+              "run-environment-permission": "Run Environment Permission",
+            }[decision.kind]
           }
         >
           <p>
-            {decision.kind === "confirmation"
-              ? "Allow this action attempt once?"
-              : "Allow this Run to use the selected environment?"}
+            {
+              {
+                "app-installation": `Install build ${session.selection.environment.build} of ${session.selection.environment.bundleId} on the selected simulator?`,
+                confirmation: "Allow this action attempt once?",
+                "run-environment-permission":
+                  "Allow this Run to use the selected environment?",
+              }[decision.kind]
+            }
           </p>
           <Button
             disabled={gesture.pending}
@@ -553,7 +581,7 @@ const IosDock = ({
             disabled={gesture.pending || session.preparation.pending.length > 0}
             onClick={() => send({ _tag: "prepare", ...fields() })}
           >
-            Prepare Session Simulator
+            Prepare selected simulator
           </Button>
         ) : null}
         {session?.phase === "paused" ? (

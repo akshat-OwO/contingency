@@ -1,19 +1,22 @@
-/* oxlint-disable eslint/no-await-in-loop -- Each probe owns one live Session Simulator and closes it before the next. */
+/* oxlint-disable eslint/no-await-in-loop -- Each probe owns one live selected simulator and closes it before the next. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, writeFile, readdir } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { request } from "node:http";
-import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import {
+  selectedSimulatorResource,
+  simulatorInventory,
+} from "./ios-proof-resources.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
 const appPath = process.env.CONTINGENCY_IOS_FIXTURE;
-const template = process.env.CONTINGENCY_IOS_TEMPLATE;
-assert.ok(directory && appPath && template);
+const selected = process.env.CONTINGENCY_IOS_SELECTED;
+assert.ok(directory && appPath && selected);
 const instance = JSON.parse(
   await readFile(path.join(directory, "instance.json"), "utf-8")
 );
@@ -58,7 +61,7 @@ const screenshot = async (name) => {
   );
 };
 const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
-const device = devices.find((entry) => entry.udid === template);
+const device = devices.find((entry) => entry.udid === selected);
 assert.ok(device);
 const selection = {
   appPath,
@@ -72,7 +75,7 @@ const selection = {
   outcomes: [{ name: "Signed in as Test Shopper", role: "text" }],
   setup: {
     conditions: [{ name: "Login fixture", role: "text" }],
-    kind: "fresh-install",
+    kind: "restart-app",
   },
 };
 const sessions = [];
@@ -95,7 +98,8 @@ const start = async (kind = "run") => {
     "--url",
     `${instance.mcpUrl}?ios=${session.id}`
   );
-  await click("Prepare Session Simulator");
+  await click("Allow");
+  await click("Prepare selected simulator");
   return session.id;
 };
 const refusal = async (command, pattern = /capability_missing/u) => {
@@ -110,54 +114,12 @@ const refusal = async (command, pattern = /capability_missing/u) => {
   return message;
 };
 const ownResource = async () => {
-  const processes = await execute("ps", ["-axo", "pid=,ppid="]);
-  const parents = new Map(
-    processes.stdout
-      .trim()
-      .split("\n")
-      .map((line) => line.trim().split(/\s+/u).map(Number))
-  );
-  for (const file of await readdir(
-    path.join(homedir(), ".contingency/ios-session-simulators")
-  )) {
-    const record = JSON.parse(
-      await readFile(
-        path.join(homedir(), ".contingency/ios-session-simulators", file),
-        "utf-8"
-      )
-    );
-    let pid = record.owner;
-    const seen = new Set();
-    while (pid && !seen.has(pid)) {
-      if (pid === instance.mcpPid) {
-        const descendants = [...parents]
-          .filter(([candidate]) => {
-            let current = candidate;
-            const visited = new Set();
-            while (current && !visited.has(current)) {
-              if (current === record.owner) {
-                return true;
-              }
-              visited.add(current);
-              current = parents.get(current);
-            }
-            return false;
-          })
-          .map(([descendantPid, parent]) => ({ parent, pid: descendantPid }));
-        receipt.resources.push({
-          descendants,
-          observedAt: new Date().toISOString(),
-          owner: record.owner,
-          udid: record.udid,
-        });
-        return record;
-      }
-      seen.add(pid);
-      pid = parents.get(pid);
-    }
-  }
-  assert.fail("No Session Simulator owned by this MCP process");
+  const resource = await selectedSimulatorResource(instance, selected);
+  receipt.resources.push(resource);
+  return resource;
 };
+const inventoryBefore = await simulatorInventory(selected);
+
 try {
   try {
     await control(
@@ -385,6 +347,12 @@ try {
       ).catch((error) => receipt.blockers.push(`Cleanup: ${error}`));
     }
   }
+  receipt.simulatorInventory = {
+    after: await simulatorInventory(selected),
+    before: inventoryBefore,
+    excludedProofOwned: selected,
+  };
+  assert.deepEqual(receipt.simulatorInventory.after, inventoryBefore);
   await writeFile(
     path.join(artifacts, "limits.json"),
     JSON.stringify(receipt, null, 2)

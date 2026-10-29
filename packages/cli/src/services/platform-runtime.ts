@@ -91,6 +91,7 @@ export interface PlatformRuntimeError {
     | "permission_decisions_unsupported"
     | "physical_device_unsupported"
     | "device_mismatch"
+    | "device_stopped"
     | "device_disconnected"
     | "installation_denied"
     | "installation_failed"

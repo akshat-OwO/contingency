@@ -49,7 +49,7 @@ export const IosPreparation = Schema.Struct({
   conditions: Schema.Array(AndroidStartingCondition).check(
     Schema.isMinLength(1)
   ),
-  kind: Schema.Literal("fresh-install"),
+  kind: Schema.Literal("restart-app"),
 });
 
 /** Internal runtime requirements. Browser Emulation remains a separate typed contract. */

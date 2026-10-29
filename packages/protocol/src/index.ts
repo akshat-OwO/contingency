@@ -993,7 +993,9 @@ export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("ios.devices.list", {
     error: BrowserRpcError,
     payload: Schema.Struct({}),
-    success: Schema.Array(IosDeviceSelection),
+    success: Schema.Array(
+      Schema.Struct({ ...IosDeviceSelection.fields, state: Schema.String })
+    ),
   }),
   Rpc.make("ios.stream.access", {
     error: BrowserRpcError,

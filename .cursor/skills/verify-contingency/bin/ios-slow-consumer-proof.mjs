@@ -1,19 +1,19 @@
-/* oxlint-disable eslint/no-await-in-loop -- Audit the owned Session Simulator records sequentially. */
+/* oxlint-disable eslint/no-await-in-loop -- Track the selected proof device and owned processes sequentially. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile, writeFile, readdir } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { request } from "node:http";
-import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { selectedSimulatorResource } from "./ios-proof-resources.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
 assert.ok(
   directory &&
-    process.env.CONTINGENCY_IOS_TEMPLATE &&
+    process.env.CONTINGENCY_IOS_SELECTED &&
     process.env.CONTINGENCY_IOS_FIXTURE
 );
 const instance = JSON.parse(
@@ -43,7 +43,7 @@ let viewer;
 try {
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
   const device = devices.find(
-    (entry) => entry.udid === process.env.CONTINGENCY_IOS_TEMPLATE
+    (entry) => entry.udid === process.env.CONTINGENCY_IOS_SELECTED
   );
   assert.ok(device);
   const session = await call({
@@ -64,7 +64,7 @@ try {
       outcomes: [{ name: "Signed in as Public Shopper", role: "text" }],
       setup: {
         conditions: [{ name: "Public login fixture", role: "text" }],
-        kind: "fresh-install",
+        kind: "restart-app",
       },
     },
   });
@@ -75,36 +75,11 @@ try {
     "--url",
     `${instance.mcpUrl}?ios=${sessionId}`
   );
-  await control("browser", "ios-click", "--name", "Prepare Session Simulator");
-  const markers = path.join(homedir(), ".contingency/ios-session-simulators");
-  // The service refuses a second live iOS binding. Record the resource owned by this broker child.
-  const processes = await execute("ps", ["-axo", "pid=,ppid="]);
-  const parents = new Map(
-    processes.stdout
-      .trim()
-      .split("\n")
-      .map((line) => line.trim().split(/\s+/u).map(Number))
+  await control("browser", "ios-click", "--name", "Allow");
+  await control("browser", "ios-click", "--name", "Prepare selected simulator");
+  receipt.resources.push(
+    await selectedSimulatorResource(instance, device.udid)
   );
-  for (const file of await readdir(markers)) {
-    const record = JSON.parse(
-      await readFile(path.join(markers, file), "utf-8")
-    );
-    let pid = record.owner;
-    const seen = new Set();
-    while (pid && !seen.has(pid)) {
-      if (pid === instance.mcpPid) {
-        receipt.resources.push({
-          observedAt: new Date().toISOString(),
-          owner: record.owner,
-          udid: record.udid,
-        });
-        break;
-      }
-      seen.add(pid);
-      pid = parents.get(pid);
-    }
-  }
-  assert.equal(receipt.resources.length, 1);
   await control("browser", "ios-click", "--name", "Start recording");
   const access = await iosRpc(instance.mcpUrl, "ios.stream.access", {
     sessionId,

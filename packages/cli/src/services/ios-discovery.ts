@@ -51,11 +51,6 @@ export const requireIosPrerequisites = (
     }
     yield* requireIosHost(io);
     if (selected !== undefined) {
-      if (
-        Schema.is(Schema.Struct({ kind: Schema.Literal("physical") }))(selected)
-      ) {
-        return yield* Effect.fail(iosError("physical_device_unsupported"));
-      }
       if (!Schema.is(IosDeviceSchema)(selected)) {
         return yield* Effect.fail(iosError("device_unsupported"));
       }

@@ -1,20 +1,23 @@
 /* oxlint-disable eslint/no-await-in-loop -- One owned simulator and its Workspace journey run sequentially. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import {
+  selectedSimulatorResource,
+  simulatorInventory,
+} from "./ios-proof-resources.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
-const template = process.env.CONTINGENCY_IOS_TEMPLATE;
+const selected = process.env.CONTINGENCY_IOS_SELECTED;
 const appPath = process.env.CONTINGENCY_IOS_FIXTURE;
 assert.ok(
-  directory && template && appPath,
-  "Select the owned verification instance, template UDID, and fixture."
+  directory && selected && appPath,
+  "Select the owned verification instance, selected UDID, and fixture."
 );
 const instance = JSON.parse(
   await readFile(path.join(directory, "instance.json"), "utf-8")
@@ -226,56 +229,11 @@ const settingsRefusal = async (sessionId, stage, tap) => {
   }
   return { tapRefused };
 };
-const ownSessionResources = async () => {
-  const records = path.join(homedir(), ".contingency/ios-session-simulators");
-  const found = [];
-  const processList = await execute("ps", ["-axo", "pid=,ppid="]);
-  const parents = new Map(
-    processList.stdout
-      .trim()
-      .split("\n")
-      .map((line) => line.trim().split(/\s+/u).map(Number))
-  );
-  const owned = (initialPid) => {
-    let pid = initialPid;
-    const seen = new Set();
-    while (pid && !seen.has(pid)) {
-      if (pid === instance.mcpPid) {
-        return true;
-      }
-      seen.add(pid);
-      pid = parents.get(pid);
-    }
-    return false;
-  };
-  for (const file of await readdir(records)) {
-    const record = JSON.parse(
-      await readFile(path.join(records, file), "utf-8")
-    );
-    if (owned(record.owner)) {
-      const descendants = [...parents]
-        .filter(([candidate]) => {
-          let pid = candidate;
-          const seen = new Set();
-          while (pid && !seen.has(pid)) {
-            if (pid === record.owner) {
-              return true;
-            }
-            seen.add(pid);
-            pid = parents.get(pid);
-          }
-          return false;
-        })
-        .map(([pid, parent]) => ({ parent, pid }));
-      found.push({
-        ...record,
-        descendants,
-        observedAt: new Date().toISOString(),
-      });
-    }
-  }
-  return found;
-};
+const ownSessionResources = async () => [
+  await selectedSimulatorResource(instance, selected),
+];
+const inventoryBefore = await simulatorInventory(selected);
+
 try {
   await assert.rejects(
     tool("agent_device_sessions_list", { platform: "ios" }),
@@ -284,7 +242,7 @@ try {
   );
   receipt.coverage.publicMcpGate = true;
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
-  const device = devices.find((entry) => entry.udid === template);
+  const device = devices.find((entry) => entry.udid === selected);
   assert.ok(device && ["26.5", "27.1"].includes(device.runtimeVersion));
   selection = {
     appPath,
@@ -298,7 +256,7 @@ try {
     outcomes: [{ name: `Signed in as ${loginName}`, role: "text" }],
     setup: {
       conditions: [{ name: "Login fixture", role: "text" }],
-      kind: "fresh-install",
+      kind: "restart-app",
     },
   };
   // Teaching starts through the actual Workspace setup controls.
@@ -313,7 +271,7 @@ try {
     "--name",
     "Device",
     "--value",
-    template
+    selected
   );
   for (const [name, value] of [
     ["Simulator app path", appPath],
@@ -330,7 +288,9 @@ try {
   assert.ok(teaching);
   sessions.push(teaching.id);
   await view(teaching.id);
-  await click("Prepare Session Simulator");
+  await click("Allow");
+  receipt.coverage.appInstallationDecision = true;
+  await click("Prepare selected simulator");
   receipt.resources.push(...(await ownSessionResources()));
   await snapshot("teaching-prepared");
   process.stdout.write("iOS Workspace preparation passed\n");
@@ -452,6 +412,20 @@ try {
   });
   receipt.coverage.learning = true;
   process.stdout.write("iOS Teaching and Flow Skill learning passed\n");
+  // Existing data must survive later sessions on this selected device.
+  const dataContainer = await execute("xcrun", [
+    "simctl",
+    "get_app_container",
+    selected,
+    selection.environment.bundleId,
+    "data",
+  ]);
+  const sentinel = path.join(
+    dataContainer.stdout.trim(),
+    "Documents/selected-data-proof.txt"
+  );
+  await writeFile(sentinel, "selected simulator data survives sessions");
+  const { appPath: _installedPath, ...installedSelection } = selection;
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
@@ -459,12 +433,17 @@ try {
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? recordingId : null,
-      selection,
+      selection: installedSelection,
     });
     sessions.push(started.id);
     await view(started.id);
-    await click("Prepare Session Simulator");
+    await click("Prepare selected simulator");
     receipt.resources.push(...(await ownSessionResources()));
+    assert.equal(
+      await readFile(sentinel, "utf-8"),
+      "selected simulator data survives sessions"
+    );
+    receipt.coverage.existingAppData = true;
     let current = await publicJourney(started.id);
     if (kind === "run") {
       const ids = [];
@@ -646,6 +625,17 @@ try {
       ).catch((error) => receipt.blockers.push(`Cleanup: ${error}`));
     }
   }
+  receipt.simulatorInventory = {
+    after: await simulatorInventory(selected),
+    before: inventoryBefore,
+    excludedProofOwned: selected,
+  };
+  assert.deepEqual(
+    receipt.simulatorInventory.after,
+    inventoryBefore,
+    "Product created, deleted, or changed an unrelated simulator"
+  );
+  receipt.coverage.noSimulatorCreationOrDeletion = true;
   receipt.completedAt = new Date().toISOString();
   await writeFile(
     path.join(artifacts, "receipt.json"),

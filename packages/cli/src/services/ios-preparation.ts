@@ -86,6 +86,10 @@ export const makeIosPreparation = (
       yield* io.terminate(udid, app.bundleId);
       yield* io.device(["launch", udid, app.bundleId]);
       yield* runner(udid, app.bundleId, directory);
-      return { device: input.device, directory, environment: input.environment };
+      return {
+        device: input.device,
+        directory,
+        environment: input.environment,
+      };
     }),
 });

@@ -110,7 +110,7 @@ export const iosSnapshotFailure = (cause: unknown): PlatformRuntimeError => {
     return {
       ...iosAgentDeviceFailure(cause, "foreign_app_foreground", "capture"),
       message:
-        "iOS cannot observe the Target App while another app is in front. Choose Return to Target App to continue on this Session Simulator.",
+        "iOS cannot observe the Target App while another app is in front. Choose Return to Target App to continue on this selected simulator.",
     };
   }
   return iosAgentDeviceFailure(
@@ -450,19 +450,36 @@ const startIosRuntime = (
     );
   });
 
+export const iosRunDecisions = (
+  request: IosRunInput,
+  runId: string
+): readonly NativeAppRunDecision[] => [
+  ...(request.taught.platform === "ios"
+    ? iosEnvironmentPermission(
+        runId,
+        request.taught.environment,
+        request.environment
+      )
+    : []),
+  ...(request.appPath === undefined
+    ? []
+    : [
+        {
+          differences: [],
+          id: randomUUID(),
+          kind: "app-installation" as const,
+          runId,
+          targetApp: request.targetApp,
+        },
+      ]),
+];
+
 export const createIosRun = (
   input: IosRunInput
 ): Effect.Effect<IosRun, PlatformRuntimeError> =>
   createNativeAppRun(input, {
     authorize: (request) => request,
-    decisions: (request, runId) =>
-      request.taught.platform === "ios"
-        ? iosEnvironmentPermission(
-            runId,
-            request.taught.environment,
-            request.environment
-          )
-        : [],
+    decisions: iosRunDecisions,
     differences: (request) =>
       request.taught.platform === "ios"
         ? compareIosEnvironments(
@@ -473,7 +490,7 @@ export const createIosRun = (
     error: iosRuntimeError,
     preflight: (request) =>
       makeIosDiscovery()
-        .resolve(request.device)
+        .requireRunning(request.device)
         .pipe(
           Effect.asVoid,
           Effect.mapError((cause) => iosRuntimeError(cause.code)),
