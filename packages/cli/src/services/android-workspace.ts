@@ -36,6 +36,7 @@ import type { AndroidDeviceStream } from "./android-stream.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
@@ -875,22 +876,13 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
           }
           if (source === "agent") {
-            const capturedAction = {
-              action: JSON.stringify(command.action),
-              type: "android" as const,
-            };
-            const check = yield* session.boundary.checkAttempt({
-              action: capturedAction,
-              capturedAction,
-              description:
-                action._tag === "back"
-                  ? "Go back"
-                  : `${action._tag === "activate" ? "Activate" : "Fill"} ${selectedTarget?.role} ${JSON.stringify(selectedTarget?.name)}${selectedTarget?.packageName ? ` in ${selectedTarget.packageName}` : ""}`,
-              intent: { irreversible: command.irreversible === true },
-              objective: summary.flowSkillName,
-              operationId: command.operationId,
-              step: undefined,
-            });
+            const check = yield* checkNativeAppConfirmation(
+              session.boundary,
+              "android",
+              command,
+              summary.flowSkillName,
+              selectedTarget
+            );
             if (check !== undefined) {
               if (check.created) {
                 update(session, (value) => ({

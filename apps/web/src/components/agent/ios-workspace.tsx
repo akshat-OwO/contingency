@@ -24,6 +24,7 @@ import {
 } from "@/lib/rpc";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
+import { AndroidVariables } from "./android-dock";
 import { Wordmark } from "./workspace-dock";
 import { useWorkspaceGesture } from "./workspace-gesture";
 
@@ -329,6 +330,114 @@ const IosSetupSheet = ({
   );
 };
 
+const IosInput = ({
+  session,
+  send,
+  pending,
+}: {
+  readonly session: IosWorkspaceSnapshot;
+  readonly send: (command: IosWorkspaceCommand) => boolean;
+  readonly pending: boolean;
+}) => {
+  const fields = () => ({ operationId: operationId(), sessionId: session.id });
+  return (
+    <>
+      {session ? (
+        <AndroidVariables
+          session={session}
+          pending={pending}
+          onSupply={(name, requestId, value) =>
+            send({
+              _tag: "variable-supply",
+              ...fields(),
+              name,
+              requestId,
+              value,
+            })
+          }
+        />
+      ) : null}
+      {session?.field ? (
+        <form
+          aria-label="Field Variable"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = text(new FormData(event.currentTarget), "variable");
+            send({
+              _tag: "variable-request",
+              ...fields(),
+              name,
+              purpose: `Input for ${session.field?.name}`,
+              replace: false,
+            });
+          }}
+        >
+          <label>
+            Variable name
+            <Input name="variable" defaultValue="PASSWORD" required />
+          </label>
+          <Button disabled={pending} type="submit">
+            Request Variable
+          </Button>
+          {(session.variables ?? []).map((variable) =>
+            variable.status === "supplied" ? (
+              <Button
+                key={variable.name}
+                disabled={pending}
+                type="button"
+                onClick={() => {
+                  if (session.field) {
+                    send({
+                      _tag: "input",
+                      ...fields(),
+                      action: {
+                        _tag: "variable",
+                        name: variable.name,
+                        target: session.field.target,
+                      },
+                      observationId: session.field.observationId,
+                    });
+                  }
+                }}
+              >
+                Enter {variable.name}
+              </Button>
+            ) : null
+          )}
+        </form>
+      ) : null}
+      {session?.field ? (
+        <form
+          aria-label={`Type into ${session.field.name}`}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (session.field) {
+              send({
+                _tag: "input",
+                ...fields(),
+                action: {
+                  _tag: "fill",
+                  target: session.field.target,
+                  text: text(new FormData(event.currentTarget), "text"),
+                },
+                observationId: session.field.observationId,
+              });
+            }
+          }}
+        >
+          <label>
+            Text for {session.field.name}
+            <Input name="text" required />
+          </label>
+          <Button disabled={pending} type="submit">
+            Type
+          </Button>
+        </form>
+      ) : null}
+    </>
+  );
+};
+
 // Each dock control belongs to one closed native Workspace lifecycle state.
 // oxlint-disable-next-line eslint/complexity
 const IosDock = ({
@@ -370,13 +479,22 @@ const IosDock = ({
       </p>
       {gesture.error ? <p role="alert">{gesture.error}</p> : null}
       {session?.error ? <p role="alert">{session.error}</p> : null}
+      {session?.boundary ? <p>{session.boundary.description}</p> : null}
       {session?.preparation.pending.map((decision) => (
         <div
           key={decision.id}
           role="region"
-          aria-label="Run Environment Permission"
+          aria-label={
+            decision.kind === "confirmation"
+              ? "Confirmation"
+              : "Run Environment Permission"
+          }
         >
-          <p>Allow this Run to use the selected environment?</p>
+          <p>
+            {decision.kind === "confirmation"
+              ? "Allow this action attempt once?"
+              : "Allow this Run to use the selected environment?"}
+          </p>
           <Button
             disabled={gesture.pending}
             onClick={() =>
@@ -538,39 +656,8 @@ const IosDock = ({
           Recording deleted. Verified Flow Skill retained.
         </p>
       ) : null}
-      {session?.field ? (
-        <form
-          aria-label={`Type into ${session.field.name}`}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (session.field) {
-              send({
-                _tag: "input",
-                ...fields(),
-                action: {
-                  _tag: "fill",
-                  target: session.field.target,
-                  text: text(new FormData(event.currentTarget), "text"),
-                },
-                observationId: session.field.observationId,
-              });
-            }
-          }}
-        >
-          <label>
-            Text for {session.field.name}
-            <Input name="text" required />
-          </label>
-          <Button
-            disabled={gesture.pending || session.field.password}
-            type="submit"
-          >
-            Type
-          </Button>
-          {session.field.password ? (
-            <p>Private Variables are refused on iOS.</p>
-          ) : null}
-        </form>
+      {session ? (
+        <IosInput session={session} send={send} pending={gesture.pending} />
       ) : null}
       {commenting && recording ? (
         <form

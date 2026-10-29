@@ -28,6 +28,8 @@ import {
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import { makeExecutionBoundary } from "./execution-boundary.ts";
+import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   createIosRun,
@@ -37,7 +39,9 @@ import {
 import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
+import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import type { PlatformFillResult } from "./platform-runtime.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -63,7 +67,7 @@ const observationSummary = (observation: IosObservation) => ({
     screenshotCapturedAt: observation.screenshot.capturedAt,
   },
   nodeCount: observation.nodes.length,
-  title: observation.ownership.focusedPackage,
+  title: observation.appId ?? observation.device.name,
   url: "",
 });
 const difference = (left: IosObservation, right: IosObservation) =>
@@ -84,8 +88,7 @@ const visible = (
       node.role === condition.role &&
       node.name === condition.name &&
       !node.password &&
-      !node.covered &&
-      node.packageName === observation.ownership.focusedPackage
+      !node.covered
   );
 const supportsWorkspaceRequirements = (
   requirements: PlatformRequirements,
@@ -94,28 +97,23 @@ const supportsWorkspaceRequirements = (
   requirements.platform === "ios" &&
   requirements.preparation !== undefined &&
   (requirements.outcomes?.length ?? 0) > 0 &&
-  (inputs.length === 0 ||
-    requirements.capabilities.includes("private-input")) &&
   inputs.length <= 64 &&
   inputs.every(({ name }) =>
     /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
   ) &&
   new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
-const requirePublicInput = (action: { readonly _tag: string }) =>
-  action._tag === "variable"
-    ? Effect.fail(platformRuntimeError("capability_missing"))
-    : Effect.void;
 const actionDescription = (
   action: Extract<IosWorkspaceCommand, { readonly _tag: "input" }>["action"],
-  target: IosObservation["nodes"][number] | undefined
+  target: IosObservation["nodes"][number] | undefined,
+  value: string | null
 ) => {
   // All action variants are handled.
   // oxlint-disable-next-line eslint/default-case
   switch (action._tag) {
     case "variable": {
       return {
-        description: `Enter {{${action.name}}} in ${target?.role} Private field`,
-        detail: `{{${action.name}}}`,
+        description: `Enter Variable ${action.name}: ${value} in ${target?.role} ${target?.name}`,
+        detail: value,
       };
     }
     case "back": {
@@ -147,17 +145,19 @@ const satisfiesOutcomes = (
   requirements.outcomes.every(
     (condition) => visible(before, condition) && visible(after, condition)
   );
-/**
- * The Target App's semantic screen. Other windows, such as the status bar,
- * change on their own; ownership checks, not this comparison, cover them.
- */
-const semanticSignature = (nodes: IosObservation["nodes"], targetApp: string) =>
+/** Compare the visible OS controls before resolving a mirrored selection. */
+const semanticSignature = (nodes: IosObservation["nodes"]) =>
   JSON.stringify(
-    nodes.flatMap(
-      ({ role, name, editable, covered, password, packageName, bounds }) =>
-        packageName === targetApp
-          ? [{ bounds, covered, editable, name, packageName, password, role }]
-          : []
+    nodes.map(
+      ({ role, name, editable, covered, password, packageName, bounds }) => ({
+        bounds,
+        covered,
+        editable,
+        name,
+        packageName,
+        password,
+        role,
+      })
     )
   );
 
@@ -203,6 +203,10 @@ interface SessionState {
     readonly width: number;
     readonly height: number;
   })[];
+  readonly pendingInput: Extract<
+    IosWorkspaceCommand,
+    { readonly _tag: "input" }
+  > | null;
   readonly field: IosWorkspaceSnapshot["field"];
   readonly revision: number;
   readonly summary: IosWorkspaceSummary;
@@ -212,7 +216,7 @@ interface SessionState {
   readonly artifacts: readonly TeachingRecordingArtifact[];
   readonly bytes: number;
 }
-interface PrivateVariable {
+interface WorkspaceVariable {
   readonly name: string;
   readonly purpose: string;
   readonly setup: boolean;
@@ -221,7 +225,8 @@ interface PrivateVariable {
   readonly value?: Redacted.Redacted<string>;
 }
 interface Session {
-  readonly variables: Atom.Writable<readonly PrivateVariable[]>;
+  readonly boundary: ExecutionBoundary;
+  readonly variables: Atom.Writable<readonly WorkspaceVariable[]>;
   readonly stream: IosDeviceStream;
   readonly state: Atom.Writable<SessionState>;
   readonly run: IosRun;
@@ -343,9 +348,11 @@ export const makeIosWorkspaceLayer = (options: {
           const current = state(session);
           const recording = yield* recordingState(current.summary.recordingId);
           const captured = current.observation;
+          const pending = session.boundary.pending();
           return {
             ...current.summary,
             ...recording,
+            boundary: session.boundary.pending()?.boundary ?? null,
             field: current.field,
             observation:
               captured === null
@@ -357,7 +364,23 @@ export const makeIosWorkspaceLayer = (options: {
                     image: image ? captured.screenshot.image : null,
                     nodes: captured.nodes,
                   },
-            preparation: session.run.state(),
+            pendingDecision: session.boundary.pending()?.decision ?? null,
+            preparation: {
+              ...session.run.state(),
+              pending: [
+                ...session.run.state().pending,
+                ...(pending === undefined
+                  ? []
+                  : [
+                      {
+                        id: pending.decision.pendingDecisionId,
+                        kind: "confirmation" as const,
+                        targetApp:
+                          current.summary.selection.environment.bundleId,
+                      },
+                    ]),
+              ],
+            },
             revision: current.revision,
             variables: registry
               .get(session.variables)
@@ -427,24 +450,22 @@ export const makeIosWorkspaceLayer = (options: {
           field:
             current.field?.password !== true &&
             current.observation !== null &&
-            semanticSignature(
-              current.observation.nodes,
-              current.summary.selection.environment.bundleId
-            ) ===
-              semanticSignature(
-                observation.nodes,
-                current.summary.selection.environment.bundleId
-              )
+            semanticSignature(current.observation.nodes) ===
+              semanticSignature(observation.nodes)
               ? current.field
               : null,
           observation,
           observations: [
             ...current.observations.filter(
-              (retained) => retained.id === current.field?.observationId
+              (retained) =>
+                retained.id === current.field?.observationId ||
+                retained.id === current.pendingInput?.observationId
             ),
             ...current.observations
               .filter(
-                (retained) => retained.id !== current.field?.observationId
+                (retained) =>
+                  retained.id !== current.field?.observationId &&
+                  retained.id !== current.pendingInput?.observationId
               )
               .slice(-7),
             {
@@ -511,7 +532,6 @@ export const makeIosWorkspaceLayer = (options: {
             outcomes: selection.outcomes,
             platform: "ios",
             preparation: selection.setup,
-            reversibleActions: [],
           };
           let inputs: readonly { readonly name: string }[] = [];
           let { recordingId } = command;
@@ -540,7 +560,7 @@ export const makeIosWorkspaceLayer = (options: {
             ({ inputs } = skill);
             if (!supportsWorkspaceRequirements(taught, skill.inputs)) {
               return yield* denied(
-                "This iOS journey requires declared preparation and outcomes and supports named private inputs only."
+                "This iOS journey requires declared preparation and outcomes and supports named inputs only."
               );
             }
             if (command.kind === "run") {
@@ -674,6 +694,12 @@ export const makeIosWorkspaceLayer = (options: {
               takeoverOccurred: false,
             };
             const session: Session = {
+              boundary: makeExecutionBoundary({
+                hosts: [],
+                now: () => new Date(),
+                scope: command.kind === "dry-run" ? "dry-run" : "interactive",
+                sessionId: id,
+              }),
               directory,
               lock: Semaphore.makeUnsafe(1),
               receipts: new Map(),
@@ -685,6 +711,7 @@ export const makeIosWorkspaceLayer = (options: {
                 field: null,
                 observation: null,
                 observations: [],
+                pendingInput: null,
                 recording: false,
                 revision: 0,
                 sequence: 0,
@@ -700,10 +727,10 @@ export const makeIosWorkspaceLayer = (options: {
                     .pipe(Effect.orDie)
               ),
               summaryFile: path.join(root, ".ios-workspace", `${id}.json`),
-              variables: Atom.make<readonly PrivateVariable[]>(
+              variables: Atom.make<readonly WorkspaceVariable[]>(
                 inputs.map(({ name }) => ({
                   name: name.toUpperCase(),
-                  purpose: `Private input for ${command.flowSkillName}`,
+                  purpose: `Input for ${command.flowSkillName}`,
                   requestId: randomUUID(),
                   setup: false,
                   status: "requested" as const,
@@ -714,7 +741,10 @@ export const makeIosWorkspaceLayer = (options: {
             registry.get(session.variables);
             yield* Scope.addFinalizer(
               scope,
-              Effect.sync(() => clearVariables(session))
+              Effect.sync(() => {
+                clearVariables(session);
+                session.boundary.dispose();
+              })
             );
             sessions.set(id, session);
             starts.set(command.operationId, { fingerprint, id });
@@ -806,7 +836,8 @@ export const makeIosWorkspaceLayer = (options: {
         session: Session,
         command: Extract<IosWorkspaceCommand, { readonly _tag: "input" }>,
         source: "agent" | "user",
-        fresh?: IosObservation
+        fresh?: IosObservation,
+        approved = false
       ) =>
         // oxlint-disable-next-line eslint/complexity
         Effect.gen(function* inputWorkspaceCommand() {
@@ -827,17 +858,15 @@ export const makeIosWorkspaceLayer = (options: {
             );
           }
           const { action } = command;
-          yield* requirePublicInput(action);
-
           if (action._tag === "variable") {
             const bound =
               source === "agent"
-                ? current.observation?.id === command.observationId
+                ? approved || current.observation?.id === command.observationId
                 : current.field?.observationId === command.observationId &&
                   current.field.target === action.target;
             if (!bound) {
               return yield* denied(
-                "This private field observation is stale. Observe or pick the field again; no input was sent."
+                "This field observation is stale. Observe or pick the field again; no input was sent."
               );
             }
           }
@@ -850,12 +879,31 @@ export const makeIosWorkspaceLayer = (options: {
           if (
             action._tag !== "back" &&
             (!selectedTarget ||
-              selectedTarget.password !== (action._tag === "variable") ||
+              ((action._tag === "fill" || action._tag === "variable") &&
+                !selectedTarget.editable) ||
               selectedTarget.covered)
           ) {
             return yield* denied(
-              "Select an uncovered semantic target. Password fields require a Variable."
+              "Select an uncovered semantic target, or an editable field for a fill."
             );
+          }
+          if (source === "agent") {
+            const check = yield* checkNativeAppConfirmation(
+              session.boundary,
+              "ios",
+              command,
+              summary.flowSkillName,
+              selectedTarget
+            );
+            if (check !== undefined) {
+              if (check.created) {
+                update(session, (value) => ({
+                  ...value,
+                  pendingInput: structuredClone(command),
+                }));
+              }
+              return;
+            }
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
@@ -866,7 +914,6 @@ export const makeIosWorkspaceLayer = (options: {
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
-          const { bundleId: appId } = summary.selection.environment;
           const matches =
             selectedTarget === undefined
               ? []
@@ -875,18 +922,15 @@ export const makeIosWorkspaceLayer = (options: {
                     node.role === selectedTarget.role &&
                     node.name === selectedTarget.name &&
                     node.editable === selectedTarget.editable &&
-                    node.password === (action._tag === "variable") &&
+                    node.password === selectedTarget.password &&
                     (action._tag !== "variable" ||
                       (node.editable &&
                         JSON.stringify(node.bounds) ===
                           JSON.stringify(selectedTarget.bounds) &&
-                        semanticSignature(before.nodes, appId) ===
-                          semanticSignature(
-                            selectedObservation.nodes,
-                            appId
-                          ))) &&
+                        semanticSignature(before.nodes) ===
+                          semanticSignature(selectedObservation.nodes))) &&
                     !node.covered &&
-                    node.packageName === appId
+                    node.packageName === selectedTarget.packageName
                 );
           if (action._tag !== "back" && matches.length !== 1) {
             return yield* denied(
@@ -896,16 +940,11 @@ export const makeIosWorkspaceLayer = (options: {
           const [target] = matches;
           if (
             action._tag === "back" &&
-            semanticSignature(before.nodes, appId) !==
-              semanticSignature(selectedObservation.nodes, appId)
+            semanticSignature(before.nodes) !==
+              semanticSignature(selectedObservation.nodes)
           ) {
             return yield* denied(
               "The screen changed before Back. Inspect the fresh screen and choose Back again."
-            );
-          }
-          if (action._tag === "fill" && /[^\u0020-\u007E]/u.test(action.text)) {
-            return yield* denied(
-              "Use public ASCII text here, or select a Variable for a password field."
             );
           }
           const variable =
@@ -928,13 +967,21 @@ export const makeIosWorkspaceLayer = (options: {
             field: null,
             observation: null,
           }));
+          let fillResult: PlatformFillResult | undefined;
           if (action._tag === "variable") {
-            yield* Effect.fail(platformRuntimeError("capability_missing"));
+            fillResult = yield* session.run.enterVariable(before.id, {
+              target: target?.target ?? "",
+              value: Effect.suspend(() =>
+                variable?.value === undefined
+                  ? Effect.fail(platformRuntimeError("target_unsupported"))
+                  : Effect.succeed(variable.value)
+              ),
+              variable: `{{${action.name}}}`,
+            });
           } else if (action._tag === "back") {
             yield* session.run.back(before.id);
           } else {
-            yield* session.stream.start();
-            yield* session.run.dispatch(
+            const dispatched = yield* session.run.dispatch(
               before.id,
               action._tag === "fill"
                 ? {
@@ -944,45 +991,29 @@ export const makeIosWorkspaceLayer = (options: {
                   }
                 : { target: target?.target ?? "", type: "activate" }
             );
+            fillResult = dispatched || undefined;
           }
           const after = yield* session.run.observe();
           acceptObservation(session, after);
           if (current.recording) {
-            if (
-              action._tag === "activate" &&
-              target !== undefined &&
-              summary.requirements.platform === "ios"
-            ) {
-              const activated = summary.requirements.reversibleActions ?? [];
-              if (
-                !activated.some(
-                  (node) =>
-                    node.role === target.role && node.name === target.name
-                )
-              ) {
-                const requirements = {
-                  ...summary.requirements,
-                  reversibleActions: [
-                    ...activated,
-                    { name: target.name, role: target.role },
-                  ],
-                };
-                update(session, (value) => ({
-                  ...value,
-                  summary: { ...value.summary, requirements },
-                }));
-              }
-            }
             yield* keyframe(session, before, actionId);
+            let enteredValue: string | null = null;
+            if (action._tag === "fill") {
+              enteredValue = action.text;
+            }
+            if (action._tag === "variable" && variable?.value !== undefined) {
+              enteredValue = Redacted.value(variable.value);
+            }
             yield* emit(session, {
               _tag: "action",
               actor: "user",
               after: observationSummary(after),
               appeared: difference(after, before),
               before: observationSummary(before),
-              ...actionDescription(action, target),
+              ...actionDescription(action, target, enteredValue),
               disappeared: difference(before, after),
               id: actionId,
+              inputConfirmation: fillResult?.confirmation,
               kind: action._tag,
               outcome: "succeeded",
               target:
@@ -994,16 +1025,18 @@ export const makeIosWorkspaceLayer = (options: {
                       disabled: null,
                       name: target.name,
                       role: target.role,
-                      value: null,
-                      valueWithheld: action._tag === "variable" ? true : null,
+                      value: enteredValue,
+                      valueWithheld: null,
                     },
+              variableName:
+                action._tag === "variable" ? action.name : undefined,
             });
             yield* keyframe(session, after, actionId);
           } else if (summary.kind !== "teaching") {
             yield* io(
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
-                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, variable: action._tag === "variable" ? `{{${action.name}}}` : undefined })}\n`,
+                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, inputConfirmation: fillResult?.confirmation, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );
@@ -1051,24 +1084,11 @@ export const makeIosWorkspaceLayer = (options: {
           }
           const x = command.point.x * width;
           const y = command.point.y * height;
-          // Resolve containing candidates first, so a private or foreign child cannot fall through to an eligible parent.
+          // Resolve containing candidates before their parents.
           const target = hitTest(observed.nodes, x, y);
           if (target === undefined || target.covered) {
             return yield* denied(
               "Nothing to activate there. No input was sent."
-            );
-          }
-          if (target.packageName !== summary.selection.environment.bundleId) {
-            return yield* denied(
-              "That element belongs to another app. No input was sent."
-            );
-          }
-          if (
-            target.password &&
-            !summary.requirements.capabilities.includes("private-input")
-          ) {
-            return yield* denied(
-              "Private fields need a Variable. No input was sent."
             );
           }
           const priorTarget = hitTest(
@@ -1246,12 +1266,79 @@ export const makeIosWorkspaceLayer = (options: {
               "This iOS session has ended. Open a new prepared session."
             );
           }
-          if (
-            command._tag === "variable-request" ||
-            command._tag === "variable-supply"
-          ) {
-            return yield* Effect.fail(
-              platformRuntimeError("capability_missing")
+          if (command._tag === "variable-request") {
+            const setup =
+              summary.kind === "teaching" &&
+              summary.controller === "agent" &&
+              current.sequence === 0;
+            if (
+              (summary.kind === "teaching" &&
+                !setup &&
+                !(source === "user" && current.recording)) ||
+              (setup && source !== "agent")
+            ) {
+              return yield* denied(
+                "Request Variables during agent-held setup, user-led recording, or a Run with input enabled."
+              );
+            }
+            const variables = registry.get(session.variables);
+            const existing = variables.find(
+              (entry) => entry.name === command.name
+            );
+            if (
+              (summary.kind !== "teaching" && !existing) ||
+              (variables.length >= 64 && !existing)
+            ) {
+              return yield* denied(
+                "Select a declared Flow Skill input; Teaching supports at most 64 Variables."
+              );
+            }
+            if (!existing || command.replace) {
+              if (existing?.value) {
+                Redacted.wipeUnsafe(existing.value);
+              }
+              registry.set(session.variables, [
+                ...variables.filter((entry) => entry.name !== command.name),
+                {
+                  name: command.name,
+                  purpose: command.purpose,
+                  requestId: command.operationId,
+                  setup,
+                  status: "requested",
+                },
+              ]);
+            }
+          } else if (command._tag === "variable-supply") {
+            const variables = registry.get(session.variables);
+            const existing = variables.find(
+              (entry) =>
+                entry.name === command.name &&
+                entry.requestId === command.requestId
+            );
+            if (
+              source !== "user" ||
+              !existing ||
+              existing.status !== "requested"
+            ) {
+              return yield* denied(
+                "Only Workspace can answer the current Variable request."
+              );
+            }
+            registry.set(
+              session.variables,
+              variables.map((entry): WorkspaceVariable => {
+                if (entry !== existing) {
+                  return entry;
+                }
+                if (command.value === null) {
+                  return { ...entry, status: "refused" };
+                }
+                return {
+                  ...entry,
+                  status: "supplied",
+                  value: Redacted.make(command.value),
+                };
+              })
             );
           } else if (command._tag === "field-dismiss") {
             if (source !== "user" || summary.controller !== "user") {
@@ -1280,6 +1367,39 @@ export const makeIosWorkspaceLayer = (options: {
               summary: { ...value.summary, controller: "user" },
             }));
           } else if (command._tag === "decide") {
+            const pending = session.boundary.pending();
+            if (
+              pending !== undefined &&
+              pending.decision.pendingDecisionId === command.decisionId
+            ) {
+              yield* session.boundary
+                .resolve(
+                  {
+                    decision: command.allow ? "allow" : "refuse",
+                    operationId: command.operationId,
+                    pendingDecisionId: pending.decision.pendingDecisionId,
+                  },
+                  summary.controller !== "agent"
+                )
+                .pipe(
+                  Effect.mapError((cause) =>
+                    error("ios_session_invalid", cause.message)
+                  )
+                );
+              const attempt = state(session).pendingInput;
+              update(session, (value) => ({ ...value, pendingInput: null }));
+              if (command.allow && attempt !== null) {
+                yield* inputWorkspace(
+                  session,
+                  attempt,
+                  "agent",
+                  undefined,
+                  true
+                );
+              }
+              yield* persist(session);
+              return yield* snapshot(session, source === "user");
+            }
             if (source !== "user") {
               return yield* denied(
                 "Run Environment Permission requires an explicit Workspace choice."
@@ -1319,8 +1439,7 @@ export const makeIosWorkspaceLayer = (options: {
                 "Prepare or explicitly recover this selected device first."
               );
             }
-            // Keep the exact private field observation alive while the user supplies
-            // its Variable. The helper rechecks that binding before resolving a value.
+            // Retain the selected field while the user supplies its Variable.
             if (source === "user" && current.field?.password === true) {
               return yield* snapshot(session, command.image);
             }

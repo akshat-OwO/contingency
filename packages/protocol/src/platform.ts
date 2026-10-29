@@ -94,8 +94,12 @@ export const PlatformRequirements = Schema.Union([
     outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
     platform: Schema.Literal("ios"),
     preparation: Schema.optionalKey(IosPreparation),
-    reversibleActions: Schema.optionalKey(
-      Schema.Array(AndroidStartingCondition)
+    /** Legacy taught controls do not limit native Runs. */
+    reversibleActions: Schema.optionalKey(Schema.Unknown).pipe(
+      Schema.decodeTo(Schema.optionalKey(Schema.Unknown), {
+        decode: SchemaGetter.omit(),
+        encode: SchemaGetter.omit(),
+      })
     ),
   }),
 ]);

@@ -6,7 +6,6 @@ import path from "node:path";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { verifyIosForegroundRelease } from "../../src/services/ios-foreground-release.ts";
 import { verifyIosFramebufferRelease } from "../../src/services/ios-framebuffer-release.ts";
 import {
   IosFramebufferPacket,
@@ -131,7 +130,6 @@ it("rejects malformed packets before retention", () => {
 
 for (const [executable, verify] of [
   ["framebuffer", verifyIosFramebufferRelease],
-  ["foreground", verifyIosForegroundRelease],
 ] as const) {
   it.effect(
     `hash-checks the ${executable} artifact and refuses tampering`,

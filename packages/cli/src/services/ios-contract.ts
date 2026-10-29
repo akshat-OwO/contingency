@@ -35,8 +35,7 @@ export interface IosPreparationInput {
   readonly requiredCapabilities: readonly PlatformCapability[];
 }
 const messages = {
-  capability_missing:
-    "Private Variables are refused on iOS until a private input transport is proven.",
+  capability_missing: "The selected iOS runtime lacks a required capability.",
   cleanup_failed:
     "Could not stop the session runner. Its private state directory is retained.",
   device_mismatch: "The selected simulator identity changed. Select it again.",

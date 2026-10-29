@@ -6,9 +6,9 @@ import type {
   IosWorkspaceSelection,
   PlatformRequirements,
 } from "@contingency/protocol";
-import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
+import { createAgentDeviceClient } from "agent-device";
 import type { AgentDeviceIdentifiers } from "agent-device";
-import { Effect, Exit, Scope, Result } from "effect";
+import { Effect, Exit, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import type { IosDevice } from "./ios-contract.ts";
@@ -17,13 +17,11 @@ import {
   compareIosEnvironments,
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
-import { verifyIosForegroundRelease } from "./ios-foreground-release.ts";
-import { makeIosForegroundAuthority } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import { iosNodeInteraction } from "./ios-observation.ts";
-import { iosOwnershipError, logIosOwnershipError } from "./ios-ownership.ts";
-import type { IosOwnershipReason } from "./ios-ownership.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
+import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
+import { performNativeAppFill } from "./native-app-fill.ts";
 import type {
   NativeAppRun,
   NativeAppRunDecision,
@@ -41,6 +39,7 @@ export interface IosObservation extends Omit<
 > {
   readonly platform: "ios";
   readonly device: IosDevice;
+  readonly appId: string | null;
 }
 export interface IosRunInput extends NativeAppRunInput {
   readonly platform: "ios";
@@ -58,6 +57,7 @@ export const iosCapabilities = [
   "semantic-actions",
   "screenshots",
   "teaching-capture",
+  "private-input",
 ] as const;
 export const iosRuntimeError = (
   code: PlatformRuntimeError["code"]
@@ -79,11 +79,6 @@ const identities = (
     ? Effect.void
     : Effect.fail(iosRuntimeError("device_mismatch"));
 
-const ownershipFailure = (reason: IosOwnershipReason) =>
-  Effect.fail(iosOwnershipError(reason)).pipe(
-    Effect.tapError(logIosOwnershipError)
-  );
-
 const startIosRuntime = (
   input: IosRunInput
 ): Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError> =>
@@ -95,9 +90,6 @@ const startIosRuntime = (
         .prepare(input)
         .pipe(Effect.mapError((cause) => iosRuntimeError(cause.code)));
       const { udid } = prepared.device;
-      const foreground = makeIosForegroundAuthority(
-        yield* verifyIosForegroundRelease()
-      );
       const session = `contingency-ios-${udid}`;
       const client = createAgentDeviceClient({
         cwd: prepared.directory,
@@ -124,78 +116,26 @@ const startIosRuntime = (
           if (bound?.device.ios?.udid !== udid) {
             return yield* Effect.fail(iosRuntimeError("device_mismatch"));
           }
-          yield* foreground.validate(udid, input.targetApp);
-          const app = yield* io((signal) =>
-            client.command.appState({ ...options(), signal })
-          );
-          if (
-            app.platform !== "ios" ||
-            app.source !== "runner" ||
-            app.state !== "runningForeground" ||
-            app.appBundleId !== input.targetApp ||
-            app.device_udid !== udid
-          ) {
-            return yield* ownershipFailure("app_state_mismatch");
-          }
-          const alert = yield* Effect.result(
-            Effect.tryPromise({
-              catch: (cause) => cause,
-              try: (signal) =>
-                client.command.alert({ ...options(), action: "get", signal }),
-            })
-          );
-          if (
-            Result.isSuccess(alert) ||
-            !isAgentDeviceError(alert.failure) ||
-            !(
-              alert.failure.details?.runnerErrorCode === "ALERT_NOT_FOUND" ||
-              alert.failure.details?.reason === "alert-not-found"
-            )
-          ) {
-            return yield* ownershipFailure("alert_present_or_unknown");
-          }
-          yield* foreground.validate(udid, input.targetApp);
         });
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const captureOnce = () =>
         Effect.gen(function* captureIos() {
           yield* validate();
-          const snapshot = yield* io(
-            (signal) =>
-              client.capture.snapshot({
-                ...options(),
-                interactiveOnly: false,
-                noRecord: true,
-                observeOnly: true,
-                signal,
-              }),
-            "ownership_unknown"
-          ).pipe(Effect.catch(() => ownershipFailure("snapshot_transport")));
+          const snapshot = yield* io((signal) =>
+            client.capture.snapshot({
+              ...options(),
+              interactiveOnly: false,
+              noRecord: true,
+              signal,
+            })
+          );
           yield* identities(snapshot.identifiers, udid, session);
           if (
-            snapshot.appBundleId !== undefined &&
-            snapshot.appBundleId !== input.targetApp
+            snapshot.truncated === true ||
+            !snapshot.viewport ||
+            snapshot.refsGeneration === undefined
           ) {
-            return yield* ownershipFailure("snapshot_bundle_mismatch");
-          }
-          if (snapshot.truncated === true) {
-            return yield* ownershipFailure("snapshot_truncated");
-          }
-          if (snapshot.targetActivation !== undefined) {
-            return yield* ownershipFailure("snapshot_activation_metadata");
-          }
-          if (
-            snapshot.nodes.some((node) =>
-              /alert/iu.test(node.kind ?? node.role ?? node.type ?? "")
-            )
-          ) {
-            return yield* ownershipFailure("snapshot_alert");
-          }
-          if (!snapshot.viewport) {
-            return yield* ownershipFailure("snapshot_viewport_missing");
-          }
-          if (snapshot.refsGeneration === undefined) {
-            return yield* ownershipFailure("snapshot_generation_missing");
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
           }
           const id = randomUUID();
           const filename = path.join(
@@ -227,6 +167,7 @@ const startIosRuntime = (
           const sx = width / snapshot.viewport.width;
           const sy = height / snapshot.viewport.height;
           const observation: IosObservation = {
+            appId: snapshot.appBundleId ?? null,
             backendSessionId: session,
             device: prepared.device,
             generation: snapshot.refsGeneration,
@@ -235,10 +176,8 @@ const startIosRuntime = (
               const interaction = iosNodeInteraction(node);
               const observed: IosObservation["nodes"][number] = {
                 ...interaction,
-                name: interaction.password
-                  ? "Private field"
-                  : (node.label ?? node.value ?? node.identifier ?? ""),
-                packageName: node.bundleId ?? input.targetApp,
+                name: node.label ?? node.value ?? node.identifier ?? "",
+                packageName: node.bundleId ?? snapshot.appBundleId ?? null,
                 target: `@${node.ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`,
               };
               return node.rect === undefined
@@ -253,11 +192,6 @@ const startIosRuntime = (
                     },
                   };
             }),
-            ownership: {
-              focusedPackage: input.targetApp,
-              kind: "experimental-host-check",
-              systemDialogAuthority: "unsupported",
-            },
             platform: "ios",
             screenshot: {
               capturedAt: new Date().toISOString(),
@@ -288,13 +222,10 @@ const startIosRuntime = (
           capture,
           close: () => Scope.close(resources, Exit.void),
           fill: (target, text) =>
-            io((signal) =>
-              fillPublic({ ...options(), ref: target, signal, text })
-            ).pipe(
-              Effect.as({
-                confirmation: "unconfirmed" as const,
-                outcome: "entered" as const,
-              })
+            performNativeAppFill(
+              (signal) =>
+                fillPublic({ ...options(), ref: target, signal, text }),
+              iosRuntimeError
             ),
           recover: validate,
           sessionId: session,
@@ -302,27 +233,7 @@ const startIosRuntime = (
         },
         capabilities: iosCapabilities,
         error: iosRuntimeError,
-        policy: {
-          publicAction: (observed, action) => {
-            if (
-              action.type === "back" ||
-              action.type === "coordinate" ||
-              action.type === "press"
-            ) {
-              return Effect.fail(iosRuntimeError("capability_missing"));
-            }
-            const node = observed.nodes.find(
-              (candidate) => candidate.target === action.target
-            );
-            return node &&
-              !node.covered &&
-              !node.password &&
-              node.packageName === input.targetApp &&
-              (action.type !== "fill" || node.editable)
-              ? Effect.void
-              : Effect.fail(iosRuntimeError("target_unsupported"));
-          },
-        },
+        policy: nativeAppActionPolicy(iosRuntimeError, false),
         startup: { ...input, device: prepared.device },
       });
     }).pipe(
@@ -359,7 +270,6 @@ export const createIosRun = (
           Effect.asVoid,
           Effect.mapError((cause) => iosRuntimeError(cause.code)),
           Effect.andThen(verifyIosFramebufferRelease()),
-          Effect.andThen(verifyIosForegroundRelease()),
           Effect.asVoid
         ),
     start: startIosRuntime,

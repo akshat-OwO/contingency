@@ -177,3 +177,28 @@ it("reads Android skills saved with the retired activation allowlist", () => {
     },
   });
 });
+
+it("discards the retired iOS activation allowlist", () => {
+  const environment = {
+    build: "1",
+    bundleId: "fixture.app",
+    deviceType: "iPhone",
+    runtimeVersion: "26.5",
+  };
+  const saved = readPlatformRequirements([
+    JSON.stringify({
+      capabilities: ["semantic-actions"],
+      environment,
+      platform: "ios",
+      reversibleActions: [{ name: "Sign in", role: "button" }],
+    }),
+  ]);
+  expect(saved).toEqual({
+    diagnostics: [],
+    requirements: {
+      capabilities: ["semantic-actions"],
+      environment,
+      platform: "ios",
+    },
+  });
+});

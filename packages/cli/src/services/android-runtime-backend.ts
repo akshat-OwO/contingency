@@ -31,6 +31,7 @@ import type {
 } from "./android-runtime-contract.ts";
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
 import { androidWindowVisibility } from "./android-stream-contract.ts";
+import { performNativeAppFill } from "./native-app-fill.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -85,31 +86,7 @@ const io = <A>(
     try: operation,
   });
 
-/** SDK readback failures acknowledge entry without making the journey fail. */
-export const performAndroidFill = (
-  operation: (
-    signal: AbortSignal
-  ) => Promise<{ readonly verification?: "unconfirmed" }>
-) =>
-  io(operation, "runtime_failed", "fill").pipe(
-    Effect.map((result) => ({
-      confirmation:
-        result.verification === "unconfirmed"
-          ? ("unconfirmed" as const)
-          : ("confirmed" as const),
-      outcome: "entered" as const,
-    })),
-    Effect.catchIf(
-      (error) =>
-        error.backendReason === "android_text_input_unverified" ||
-        error.backendReason === "input_unverified",
-      () =>
-        Effect.succeed({
-          confirmation: "unconfirmed" as const,
-          outcome: "entered" as const,
-        })
-    )
-  );
+export { performNativeAppFill as performAndroidFill } from "./native-app-fill.ts";
 
 const cleanEnvironment = () => {
   const environment: NodeJS.ProcessEnv = Object.fromEntries(
@@ -595,7 +572,7 @@ export const acquireAndroidBackend = (
             )
           ),
         fill: (ref, text) =>
-          performAndroidFill((signal) =>
+          performNativeAppFill((signal) =>
             fillPublic({ ...options(), ref, signal, text })
           ),
         recover: lifecycle.recover,

@@ -80,9 +80,7 @@ export const acquireIosStream = (
   sessionId: string,
   device: () => IosDevice | null,
   scope: Scope.Scope,
-  onFault: (
-    code: "capture_incomplete" | "ownership_unknown"
-  ) => Effect.Effect<void>
+  onFault: (code: "capture_incomplete") => Effect.Effect<void>
 ) =>
   Effect.gen(function* acquireIosMirror() {
     const lock = Semaphore.makeUnsafe(1);
@@ -129,7 +127,7 @@ export const acquireIosStream = (
       }
     };
     const failed = (
-      code: "capture_incomplete" | "ownership_unknown" = "capture_incomplete",
+      code = "capture_incomplete" as const,
       reason: IosStreamGap = "helper-exited"
     ) => {
       if (revoked || ["lost", "restarting"].includes(registry.get(transport))) {
@@ -195,12 +193,12 @@ export const acquireIosStream = (
               selected.udid,
               "enumerate",
             ]).pipe(
-              Effect.mapError(() => iosRuntimeError("ownership_unknown"))
+              Effect.mapError(() => iosRuntimeError("capture_incomplete"))
             );
             const display = activeIosDisplay(inventory);
             const orientation = iosDisplayOrientation(inventory);
             if (!display || !orientation) {
-              return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+              return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
             }
             registry.set(orientationBinding, orientation);
             const developer = yield* iosCommand("xcode-select", ["-p"]).pipe(
@@ -251,7 +249,7 @@ export const acquireIosStream = (
                 }
                 if (packet.value.displayPort !== registry.get(displayBinding)) {
                   if (packet.value.displayPort !== requestedDisplay) {
-                    failed("ownership_unknown");
+                    failed("capture_incomplete");
                     child.kill("SIGTERM");
                     return;
                   }
@@ -316,7 +314,7 @@ export const acquireIosStream = (
                       ? iosDisplayOrientation(current.success)
                       : null;
                   if (!active || !currentOrientation) {
-                    failed("ownership_unknown");
+                    failed("capture_incomplete");
                     child.kill("SIGTERM");
                   } else if (active !== registry.get(displayBinding)) {
                     requestedDisplay = active;
@@ -355,21 +353,21 @@ export const acquireIosStream = (
           );
           const selected = registry.get(boundDevice);
           if (!selected || registry.get(transport) !== "live") {
-            return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
           }
           const inventory = yield* iosCommand("xcrun", [
             "simctl",
             "io",
             selected.udid,
             "enumerate",
-          ]).pipe(Effect.mapError(() => iosRuntimeError("ownership_unknown")));
+          ]).pipe(Effect.mapError(() => iosRuntimeError("capture_incomplete")));
           const active = activeIosDisplay(inventory);
           if (active !== registry.get(displayBinding)) {
             if (active === null) {
-              failed("ownership_unknown");
+              failed("capture_incomplete");
               worker?.kill("SIGTERM");
             }
-            return yield* Effect.fail(iosRuntimeError("ownership_unknown"));
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
           }
         })
       );

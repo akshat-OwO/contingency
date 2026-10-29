@@ -88,7 +88,7 @@ const scopeSummary = (
     boundary.reason === "confirmation"
       ? "Confirm this irreversible or high-impact action attempt once"
       : "Allow this objective outside the requested task once";
-  if (boundary.action.type === "android") {
+  if (boundary.action.type === "android" || boundary.action.type === "ios") {
     return `${what}: ${boundary.description}. Allow dispatches this stored attempt once. A retry needs fresh Confirmation.`;
   }
   return `${what}: ${boundary.description} (${boundary.requested}). After Allow, resume this boundary with agent_browser_resume. A new action attempt needs another decision.`;

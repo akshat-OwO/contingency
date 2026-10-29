@@ -24,9 +24,6 @@ export const makeIosPreparation = (
 ) => ({
   prepare: (input: IosPreparationInput) =>
     Effect.gen(function* prepareSelectedSimulator() {
-      if (input.requiredCapabilities.includes("private-input")) {
-        return yield* Effect.fail(iosError("capability_missing"));
-      }
       const discovery = makeIosDiscovery(io);
       yield* discovery.requireRunning(input.device);
       if (

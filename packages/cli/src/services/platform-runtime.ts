@@ -24,7 +24,6 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
-import type { IosOwnershipReason } from "./ios-ownership.ts";
 import { nativeAppRuntimeError } from "./native-app-error.ts";
 import type { NativeAppRuntimeStartInput } from "./native-app-runtime-contract.ts";
 import {
@@ -57,7 +56,6 @@ export interface PlatformFillResult {
 }
 
 export interface PlatformRuntimeError {
-  readonly ownershipReason?: IosOwnershipReason;
   readonly _tag: "PlatformRuntimeError";
   readonly operation?:
     | "host-io"
@@ -76,7 +74,6 @@ export interface PlatformRuntimeError {
     | "android_text_input_unverified"
     | "input_unverified";
   readonly code:
-    | "ownership_unknown"
     | "host_unsupported"
     | "xcode_missing"
     | "runtime_missing"
