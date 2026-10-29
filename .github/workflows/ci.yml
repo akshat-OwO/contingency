@@ -72,8 +72,8 @@ jobs:
   integration:
     name: Integration (real browser, ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    # The suite launches a real Chromium per test file and runs its files one
-    # at a time, so it is split across runners by file. Every shard reports,
+    # Each runner runs two isolated browser-owning file workers. Keep three
+    # shards to spread the longest files across runners. Every shard reports,
     # so one failing shard still shows the others' results.
     strategy:
       fail-fast: false
