@@ -8,7 +8,7 @@ import type {
 } from "@contingency/protocol";
 import { createAgentDeviceClient } from "agent-device";
 import type { AgentDeviceIdentifiers } from "agent-device";
-import { Effect, Exit, Scope } from "effect";
+import { Effect, Exit, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import type { IosDevice } from "./ios-contract.ts";
@@ -79,6 +79,32 @@ const identities = (
     ? Effect.void
     : Effect.fail(iosRuntimeError("device_mismatch"));
 
+/** A truncated tree is observed again: AutoFill's out-of-process sheet after a sign-in cuts one capture short. */
+export const iosSnapshotProblem = (snapshot: {
+  readonly truncated?: boolean;
+  readonly viewport?: unknown;
+  readonly refsGeneration?: number;
+}): PlatformRuntimeError["code"] | null => {
+  if (!snapshot.viewport || snapshot.refsGeneration === undefined) {
+    return "capture_incomplete";
+  }
+  return snapshot.truncated === true ? "observation_stale" : null;
+};
+/** Re-observe a stale or cut-short capture; never act on mixed coordinate spaces or a partial tree. */
+export const settleIosCapture = <A>(
+  captureOnce: Effect.Effect<A, PlatformRuntimeError>
+) =>
+  captureOnce.pipe(
+    Effect.retry({
+      schedule: Schedule.spaced("250 millis"),
+      while: (cause) => cause.code === "observation_stale",
+    }),
+    Effect.timeoutOrElse({
+      duration: "30 seconds",
+      orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
+    })
+  );
+
 const startIosRuntime = (
   input: IosRunInput
 ): Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError> =>
@@ -130,12 +156,15 @@ const startIosRuntime = (
             })
           );
           yield* identities(snapshot.identifiers, udid, session);
+          const problem = iosSnapshotProblem(snapshot);
           if (
-            snapshot.truncated === true ||
+            problem !== null ||
             !snapshot.viewport ||
             snapshot.refsGeneration === undefined
           ) {
-            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+            return yield* Effect.fail(
+              iosRuntimeError(problem ?? "capture_incomplete")
+            );
           }
           const id = randomUUID();
           const filename = path.join(
@@ -202,17 +231,7 @@ const startIosRuntime = (
           };
           return observation;
         });
-      // Re-observe a rotation that crossed the tree/image boundary; never act on mixed coordinate spaces.
-      const capture = () =>
-        captureOnce().pipe(
-          Effect.retry({
-            while: (cause) => cause.code === "observation_stale",
-          }),
-          Effect.timeoutOrElse({
-            duration: "30 seconds",
-            orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
-          })
-        );
+      const capture = () => settleIosCapture(captureOnce());
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
