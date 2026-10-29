@@ -395,14 +395,16 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
   yield* simctl(["boot", udid]);
   // The helper needs only the display. Waiting for bootstatus can stall on a
   // slow hosted runner's data migration, so poll the device state instead.
-  yield* simctl(["list", "devices", "--json"]).pipe(
+  yield* run("xcrun", ["simctl", "list", "devices", "--json"]).pipe(
     Effect.flatMap(({ stdout }) => parse(() => simulatorBooted(stdout, udid))),
     Effect.flatMap((booted) =>
       booted
         ? Effect.void
         : Effect.fail(new Error(`Simulator ${udid} is not booted yet`))
     ),
-    Effect.retry({ schedule: Schedule.spaced("5 seconds"), times: 60 })
+    Effect.retry({ schedule: Schedule.spaced("5 seconds") }),
+    // One deadline for the whole wait, however each poll ends.
+    Effect.timeout("6 minutes")
   );
   yield* Console.log(JSON.stringify({ booted: udid }));
   // A fresh hosted runner's first boot can report a terminal status before its
