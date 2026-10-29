@@ -559,9 +559,16 @@ const IosDock = ({
         {session?.phase === "paused" ? (
           <Button
             disabled={gesture.pending}
-            onClick={() => send({ _tag: "recover", ...fields() })}
+            onClick={() =>
+              send({
+                _tag: session.refusal?.recovery ?? "recover",
+                ...fields(),
+              })
+            }
           >
-            Recover selected simulator
+            {session.refusal
+              ? "Return to Target App"
+              : "Recover selected simulator"}
           </Button>
         ) : null}
         {session?.phase === "running" &&

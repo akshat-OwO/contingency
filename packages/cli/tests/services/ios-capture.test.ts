@@ -4,7 +4,9 @@ import { Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  makeIosSessionAccess,
   iosAgentDeviceFailure,
+  iosAppStateProblem,
   iosRuntimeError,
   iosSnapshotFailure,
   iosSnapshotProblem,
@@ -172,3 +174,147 @@ it.effect("observes again when one snapshot arrives without a viewport", () =>
     ).toBe("runtime_failed");
   })
 );
+
+it.effect(
+  "never activates the Target App while observing a foreign foreground",
+  () =>
+    Effect.gen(function* foreignForeground() {
+      const calls: unknown[] = [];
+      const access = makeIosSessionAccess({
+        open: () => {
+          throw new Error("Observation must never open an app");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          calls.push(options);
+          return Promise.reject(
+            new AppError(
+              "OBSERVATION_UNAVAILABLE",
+              "session app is backgrounded"
+            )
+          );
+        },
+        targetApp: "dev.fixture",
+      });
+      const failure = yield* Effect.flip(access.snapshot());
+      expect(calls).toEqual([
+        expect.objectContaining({
+          noRecord: true,
+          observeOnly: true,
+          udid: "session-simulator",
+        }),
+      ]);
+      expect(failure.code).toBe("foreign_app_foreground");
+    })
+);
+
+it("maps observe-only refusal to a distinct typed reason", () => {
+  expect(
+    iosSnapshotFailure(new AppError("OBSERVATION_UNAVAILABLE", "background"))
+  ).toMatchObject({ code: "foreign_app_foreground", operation: "capture" });
+});
+
+it.effect("returns to the session bundle without relaunching", () =>
+  Effect.gen(function* returnToTargetApp() {
+    const calls: unknown[] = [];
+    const access = makeIosSessionAccess({
+      open: (options) => {
+        calls.push(options);
+        return Promise.resolve({});
+      },
+      options: () => ({
+        platform: "ios",
+        requestId: "recover",
+        udid: "session-simulator",
+      }),
+      snapshot: () => Promise.resolve("observed"),
+      targetApp: "dev.fixture",
+    });
+    yield* access.recover();
+    expect(calls).toEqual([
+      expect.objectContaining({
+        app: "dev.fixture",
+        platform: "ios",
+        relaunch: false,
+        udid: "session-simulator",
+      }),
+    ]);
+    expect(yield* access.snapshot()).toBe("observed");
+  })
+);
+
+it.effect("does not retry or activate after an observe-only refusal", () =>
+  Effect.gen(function* refusesWithoutActivation() {
+    let snapshots = 0;
+    let opens = 0;
+    const access = makeIosSessionAccess({
+      open: () => {
+        opens += 1;
+        return Promise.resolve({});
+      },
+      options: () => ({
+        platform: "ios",
+        requestId: "capture",
+        udid: "same-simulator",
+      }),
+      snapshot: () => {
+        snapshots += 1;
+        return Promise.reject(
+          new AppError("OBSERVATION_UNAVAILABLE", "background")
+        );
+      },
+      targetApp: "dev.fixture",
+    });
+    expect((yield* Effect.flip(settleIosCapture(access.snapshot()))).code).toBe(
+      "foreign_app_foreground"
+    );
+    expect(snapshots).toBe(1);
+    expect(opens).toBe(0);
+  })
+);
+
+it("refuses a Target App that backgrounds between its tree and screenshot", () => {
+  const foreground = {
+    appBundleId: "dev.fixture",
+    appName: "Fixture",
+    device_udid: "session-simulator",
+    platform: "ios",
+    source: "runner",
+    state: "runningForeground",
+    surface: "app",
+  } as const;
+  expect(
+    iosAppStateProblem(foreground, "session-simulator", "dev.fixture")
+  ).toBeNull();
+  expect(
+    iosAppStateProblem(
+      { ...foreground, state: "runningBackground" },
+      "session-simulator",
+      "dev.fixture"
+    )
+  ).toBe("foreign_app_foreground");
+  expect(
+    iosAppStateProblem(
+      { ...foreground, state: "runningBackgroundSuspended" },
+      "session-simulator",
+      "dev.fixture"
+    )
+  ).toBe("foreign_app_foreground");
+  expect(
+    iosAppStateProblem(
+      { ...foreground, source: "session" },
+      "session-simulator",
+      "dev.fixture"
+    )
+  ).toBe("capture_incomplete");
+  expect(iosAppStateProblem(foreground, "other-simulator", "dev.fixture")).toBe(
+    "device_mismatch"
+  );
+  expect(
+    iosAppStateProblem(foreground, "session-simulator", "other.bundle")
+  ).toBe("target_changed");
+});

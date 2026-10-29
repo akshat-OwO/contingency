@@ -60,3 +60,19 @@ it.live("refuses iOS with a typed tool failure before accessing Android", () =>
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it("exposes Return to Target App in the device workspace command schema", () => {
+  const accepts = Schema.is(
+    DeviceWorkspaceTools.tools.agent_device_workspace.parametersSchema
+  );
+  expect(
+    accepts({
+      command: {
+        _tag: "return-to-target-app",
+        operationId: "return-1",
+        sessionId: "agent-ios-session",
+      },
+      platform: "ios",
+    })
+  ).toBe(true);
+});

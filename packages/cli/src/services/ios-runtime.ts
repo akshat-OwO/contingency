@@ -7,7 +7,11 @@ import type {
   PlatformRequirements,
 } from "@contingency/protocol";
 import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
-import type { AgentDeviceIdentifiers } from "agent-device";
+import type {
+  AgentDeviceIdentifiers,
+  CaptureSnapshotOptions,
+  AppOpenOptions,
+} from "agent-device";
 import { Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
@@ -102,6 +106,13 @@ export const iosAgentDeviceFailure = (
 /** agent-device refuses one presentation when the runner reports no usable viewport; observe again as for a cut-short tree. */
 export const iosSnapshotFailure = (cause: unknown): PlatformRuntimeError => {
   const reason = isAgentDeviceError(cause) ? cause.details?.reason : undefined;
+  if (isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE") {
+    return {
+      ...iosAgentDeviceFailure(cause, "foreign_app_foreground", "capture"),
+      message:
+        "iOS cannot observe the Target App while another app is in front. Choose Return to Target App to continue on this Session Simulator.",
+    };
+  }
   return iosAgentDeviceFailure(
     cause,
     reason === "invalid-viewport" || reason === "missing-viewport"
@@ -181,6 +192,71 @@ export const settleIosCapture = <A>(
     })
   );
 
+type IosSessionAppState = Awaited<
+  ReturnType<ReturnType<typeof createAgentDeviceClient>["command"]["appState"]>
+>;
+
+/** Check the session app after the screenshot, which can outlive a foreground transition. */
+export const iosAppStateProblem = (
+  state: IosSessionAppState,
+  udid: string,
+  bundle: string
+): PlatformRuntimeError["code"] | null => {
+  if (state.platform !== "ios" || state.device_udid !== udid) {
+    return "device_mismatch";
+  }
+  if (state.appBundleId !== bundle) {
+    return "target_changed";
+  }
+  if (state.source !== "runner" || state.state === undefined) {
+    return "capture_incomplete";
+  }
+  if (
+    state.state === "runningBackground" ||
+    state.state === "runningBackgroundSuspended"
+  ) {
+    return "foreign_app_foreground";
+  }
+  return state.state === "runningForeground" ? null : "runtime_failed";
+};
+
+/** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
+export const makeIosSessionAccess = <A, B>(input: {
+  readonly snapshot: (options: CaptureSnapshotOptions) => Promise<A>;
+  readonly open: (options: AppOpenOptions) => Promise<B>;
+  readonly options: () => {
+    readonly platform: "ios";
+    readonly udid: string;
+    readonly requestId: string;
+  };
+  readonly targetApp: string;
+}) => ({
+  recover: () =>
+    io(
+      (signal) =>
+        input.open({
+          ...input.options(),
+          app: input.targetApp,
+          noRecord: true,
+          relaunch: false,
+          signal,
+        }),
+      "open"
+    ).pipe(Effect.asVoid),
+  snapshot: () =>
+    Effect.tryPromise({
+      catch: iosSnapshotFailure,
+      try: (signal) =>
+        input.snapshot({
+          ...input.options(),
+          interactiveOnly: false,
+          noRecord: true,
+          observeOnly: true,
+          signal,
+        }),
+    }),
+});
+
 const startIosRuntime = (
   input: IosRunInput
 ): Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError> =>
@@ -220,21 +296,18 @@ const startIosRuntime = (
             return yield* Effect.fail(iosRuntimeError("device_mismatch"));
           }
         });
+      const access = makeIosSessionAccess({
+        open: client.apps.open.bind(client.apps),
+        options,
+        snapshot: client.capture.snapshot.bind(client.capture),
+        targetApp: input.targetApp,
+      });
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const window = yield* Ref.make<IosViewport | null>(null);
       const captureOnce = () =>
         Effect.gen(function* captureIos() {
           yield* validate();
-          const snapshot = yield* Effect.tryPromise({
-            catch: iosSnapshotFailure,
-            try: (signal) =>
-              client.capture.snapshot({
-                ...options(),
-                interactiveOnly: false,
-                noRecord: true,
-                signal,
-              }),
-          });
+          const snapshot = yield* access.snapshot();
           yield* identities(snapshot.identifiers, udid, session);
           const problem = iosSnapshotProblem(snapshot);
           if (
@@ -265,6 +338,18 @@ const startIosRuntime = (
             "screenshot"
           );
           yield* identities(screenshot.identifiers, udid, session);
+          const appState = yield* io(
+            (signal) => client.command.appState({ ...options(), signal }),
+            "session-check"
+          );
+          const stateProblem = iosAppStateProblem(
+            appState,
+            udid,
+            input.targetApp
+          );
+          if (stateProblem !== null) {
+            return yield* Effect.fail(iosRuntimeError(stateProblem));
+          }
           yield* validate();
           const bytes = yield* io(() => readFile(filename), "host-io");
           if (
@@ -343,7 +428,7 @@ const startIosRuntime = (
                 fillPublic({ ...options(), ref: target, signal, text }),
               iosRuntimeError
             ),
-          recover: validate,
+          recover: () => validate().pipe(Effect.andThen(access.recover())),
           sessionId: session,
           validate,
         },

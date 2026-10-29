@@ -80,6 +80,7 @@ export interface PlatformRuntimeError {
     | "os_unsupported"
     | "device_unsupported"
     | "discovery_failed"
+    | "foreign_app_foreground"
     | "observation_stale"
     | "runtime_failed"
     | "capability_missing"

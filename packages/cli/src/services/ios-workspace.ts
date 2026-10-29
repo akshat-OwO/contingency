@@ -429,16 +429,28 @@ export const makeIosWorkspaceLayer = (options: {
             observations: [],
             summary: {
               ...current.summary,
-              captureGaps: [...current.summary.captureGaps, cause.code],
+              captureGaps:
+                cause.code === "foreign_app_foreground"
+                  ? current.summary.captureGaps
+                  : [...current.summary.captureGaps, cause.code],
               error: cause.message,
               phase: "paused",
+              refusal:
+                cause.code === "foreign_app_foreground"
+                  ? {
+                      code: "foreign_app_foreground",
+                      recovery: "return-to-target-app",
+                    }
+                  : null,
             },
           }));
-          yield* finishRecording(
-            session,
-            OperationId.make(`ios-gap-${randomUUID()}`),
-            cause.message
-          );
+          if (cause.code !== "foreign_app_foreground") {
+            yield* finishRecording(
+              session,
+              OperationId.make(`ios-gap-${randomUUID()}`),
+              cause.message
+            );
+          }
           yield* persist(session);
         });
       const acceptObservation = (
@@ -474,7 +486,12 @@ export const makeIosWorkspaceLayer = (options: {
               ...observationSize(observation),
             },
           ],
-          summary: { ...current.summary, error: null, phase: "running" },
+          summary: {
+            ...current.summary,
+            error: null,
+            phase: "running",
+            refusal: null,
+          },
         }));
       };
       const close = (session: Session) =>
@@ -1420,10 +1437,21 @@ export const makeIosWorkspaceLayer = (options: {
             }
             acceptObservation(session, yield* session.run.prepare());
             yield* session.stream.start();
-          } else if (command._tag === "recover") {
+          } else if (
+            command._tag === "recover" ||
+            command._tag === "return-to-target-app"
+          ) {
             if (source !== "user") {
               return yield* denied(
                 "Recovery requires an explicit same-device Workspace action."
+              );
+            }
+            if (
+              (command._tag === "return-to-target-app") !==
+              (summary.refusal?.code === "foreign_app_foreground")
+            ) {
+              return yield* denied(
+                "Use the recovery attached to this session's refusal."
               );
             }
             acceptObservation(
@@ -1432,8 +1460,20 @@ export const makeIosWorkspaceLayer = (options: {
                 ? session.run.observe()
                 : session.run.recover()
             );
-            yield* session.stream.recover();
+            // Returning an app does not replace the framebuffer source. Keep the
+            // active Teaching interval intact; only transport recovery restarts it.
+            if (command._tag === "recover") {
+              yield* session.stream.recover();
+            }
           } else if (command._tag === "observe") {
+            if (
+              summary.phase === "paused" &&
+              summary.refusal?.code === "foreign_app_foreground"
+            ) {
+              return yield* Effect.fail(
+                platformRuntimeError("foreign_app_foreground")
+              );
+            }
             if (summary.phase !== "running") {
               return yield* denied(
                 "Prepare or explicitly recover this selected device first."

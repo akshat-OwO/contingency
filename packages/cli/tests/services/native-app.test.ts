@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Exit, Scope } from "effect";
 
+import { iosRuntimeError } from "../../src/services/ios-runtime.ts";
 import {
   compareNativeAppEnvironments,
   nativeAppEnvironmentPermission,
@@ -218,5 +219,58 @@ it.effect(
       expect(
         (yield* Effect.flip(run.decide(decision?.id ?? "missing", true))).code
       ).toBe("permission_stale");
+    })
+);
+
+it.effect(
+  "pauses native input on a foreign-app refusal until explicit recovery",
+  () =>
+    Effect.gen(function* foreignAppRecovery() {
+      const { input, calls } = fixture(yield* Scope.Scope);
+      let foreign = false;
+      let recoveries = 0;
+      const runtime = yield* adaptNativeAppRuntime({
+        ...input,
+        backend: {
+          ...input.backend,
+          capture: () =>
+            foreign
+              ? Effect.fail(iosRuntimeError("foreign_app_foreground"))
+              : Effect.succeed(observation),
+          recover: () =>
+            Effect.sync(() => {
+              foreign = false;
+              recoveries += 1;
+            }),
+        },
+        startup: { ...input.startup, platform: "ios" },
+      });
+      yield* runtime.observe();
+      foreign = true;
+      expect((yield* Effect.flip(runtime.observe())).code).toBe(
+        "foreign_app_foreground"
+      );
+      expect(runtime.state()).toMatchObject({
+        failure: { code: "foreign_app_foreground" },
+        observationId: null,
+        phase: "paused",
+      });
+      expect(
+        (yield* Effect.flip(
+          runtime.dispatch(observation.id, {
+            target: "button",
+            type: "activate",
+          })
+        )).code
+      ).toBe("runtime_paused");
+      expect(calls).toEqual([]);
+      yield* runtime.recover();
+      expect(recoveries).toBe(1);
+      expect(runtime.state()).toMatchObject({ failure: null, phase: "ready" });
+      yield* runtime.dispatch(observation.id, {
+        target: "button",
+        type: "activate",
+      });
+      expect(calls).toEqual(["activate"]);
     })
 );

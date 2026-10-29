@@ -1,4 +1,7 @@
-import { AndroidWorkspaceCommand } from "@contingency/protocol";
+import {
+  AndroidWorkspaceCommand,
+  IosReturnToTargetAppCommand,
+} from "@contingency/protocol";
 import { Effect, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
@@ -34,11 +37,14 @@ export const DeviceWorkspaceTools = withStrictParameters(
     Tool.make("agent_device_workspace", {
       dependencies: [AndroidWorkspace],
       description:
-        "Android API 30-36 emulators; iOS unavailable. Authorize one device/app; share /?android=<id>. Workspace owns prepare, recording, Takeover, verification. Input: observationId. Variables: stock agent-device, variable-request, Workspace supply, input variable. Unreadable fills are entered but unconfirmed; assess journey outcome. agentSetup:true; setup-handoff expires Variables. Learn: claim/Timeline/save; fresh dry-run, verified later Run. Complete: latest observation; gaps/Takeover cannot pass. Full OS use. High-impact input: irreversible:true; decide allows/refuses one exact attempt. Retries need fresh Confirmation. Cancellation cannot undo input.",
+        "Android API30-36; iOS unavailable. Workspace /?android=<id>: authorize/prepare/record/Takeover/verify. Input: observationId. Variables: request/supply/input; unreadable=unconfirmed; handoff expires. Learn: claim/Timeline/save, fresh dry-run, verified Run. Complete: latest observation; gaps/Takeover fail. Whole OS. irreversible:true: decide once; retries need fresh Confirmation. Cancellation cannot undo input.",
       failure,
       parameters: Schema.Struct({
         command: Schema.Union(
-          AndroidWorkspaceCommand.members.filter(
+          [
+            ...AndroidWorkspaceCommand.members,
+            IosReturnToTargetAppCommand,
+          ].filter(
             (member) =>
               !["pick", "field-dismiss", "variable-supply"].includes(
                 member.fields._tag.schema.literal
@@ -74,6 +80,14 @@ export const DeviceWorkspaceToolHandlersLive = DeviceWorkspaceTools.toLayer({
   agent_device_workspace: ({ command, platform: selected }) =>
     Effect.gen(function* driveAndroidWorkspace() {
       yield* requireAndroid(selected);
+      if (command._tag === "return-to-target-app") {
+        return yield* Effect.fail(
+          new DeviceWorkspaceFailure({
+            code: "capability_missing",
+            message: "Return to Target App is an iOS recovery.",
+          })
+        );
+      }
       const service = yield* AndroidWorkspace;
       return yield* service
         .execute(command, "agent")

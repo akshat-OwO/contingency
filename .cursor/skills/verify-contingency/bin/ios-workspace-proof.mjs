@@ -286,6 +286,25 @@ try {
   await click("Supply PASSWORD");
   await click("Enter PASSWORD");
   await pick(teaching.id, "button", "Sign in privately");
+  await assert.rejects(
+    pick(teaching.id, "button", "Open device settings"),
+    (cause) =>
+      /foreign_app_foreground/u.test(
+        String(cause.stderr ?? cause.stdout ?? cause)
+      )
+  );
+  const teachingRefused = await read(teaching.id);
+  assert.equal(teachingRefused.phase, "paused");
+  assert.equal(teachingRefused.refusal.code, "foreign_app_foreground");
+  assert.equal(teachingRefused.captureState._tag, "recording");
+  await snapshot("teaching-settings-refused");
+  await click("Return to Target App");
+  const teachingRecovered = await observe(teaching.id);
+  assert.equal(teachingRecovered.phase, "running");
+  assert.equal(teachingRecovered.captureState._tag, "recording");
+  find(teachingRecovered, "text", `Signed in as ${loginName}`);
+  receipt.coverage.teachingSettingsRecovery = true;
+  await snapshot("teaching-settings-recovered");
   await pick(teaching.id, "button", "Open account");
   await pick(teaching.id, "button", "Return to account");
   await snapshot("teaching-outcome");
@@ -441,6 +460,43 @@ try {
       find(current, "text", `Signed in as ${loginName}`);
       receipt.coverage.systemAlert = true;
       await snapshot("system-alert-answered");
+      const resourcesBeforeSettings = await ownSessionResources();
+      const beforeSettings = await observe(started.id);
+      find(beforeSettings, "text", `Signed in as ${loginName}`);
+      await assert.rejects(
+        agentAction(started.id, "button", "Open device settings"),
+        /foreign_app_foreground/u
+      );
+      const refused = await read(started.id);
+      assert.equal(refused.phase, "paused");
+      assert.equal(refused.observation, null);
+      assert.deepEqual(refused.refusal, {
+        code: "foreign_app_foreground",
+        recovery: "return-to-target-app",
+      });
+      await assert.rejects(observe(started.id), /foreign_app_foreground/u);
+      await snapshot("settings-refused");
+      await click("Return to Target App");
+      current = await observe(started.id);
+      assert.equal(current.phase, "running");
+      assert.equal(current.refusal, null);
+      find(current, "text", `Signed in as ${loginName}`);
+      const resourcesAfterSettings = await ownSessionResources();
+      assert.deepEqual(
+        resourcesAfterSettings.map((resource) => resource.udid).toSorted(),
+        resourcesBeforeSettings.map((resource) => resource.udid).toSorted()
+      );
+      await snapshot("settings-recovered");
+      current = await agentAction(started.id, "button", "Open account");
+      find(current, "text", "Account details");
+      current = await agentAction(started.id, "button", "Return to account");
+      find(current, "text", `Signed in as ${loginName}`);
+      receipt.coverage.settingsRecovery = {
+        code: refused.refusal.code,
+        journeyContinued: true,
+        sameSimulator: true,
+        statePreserved: true,
+      };
     }
     const finished = await call({
       _tag: "complete",
