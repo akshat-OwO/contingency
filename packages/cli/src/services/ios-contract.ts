@@ -1,4 +1,7 @@
-import type { PlatformCapability } from "@contingency/protocol";
+import type {
+  IosRunEnvironment,
+  PlatformCapability,
+} from "@contingency/protocol";
 import { Schema } from "effect";
 
 export const iosUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
@@ -20,13 +23,33 @@ export const IosAppSchema = Schema.Struct({
   path: Schema.String,
 });
 export type IosApp = typeof IosAppSchema.Type;
-export const IosEnvironmentSchema = Schema.Struct({
-  build: Schema.NonEmptyString,
-  bundleId: Schema.NonEmptyString,
-  deviceType: Schema.NonEmptyString,
-  runtimeVersion: Schema.NonEmptyString,
-});
-export type IosEnvironment = typeof IosEnvironmentSchema.Type;
+export type IosEnvironment = typeof IosRunEnvironment.Type;
+/** Services `xcrun simctl help privacy` lists on Xcode 27.1, except the bundle-wide `all`. */
+export const iosPrivacyServices = [
+  "calendar",
+  "contacts-limited",
+  "contacts",
+  "location",
+  "location-always",
+  "photos-add",
+  "photos",
+  "media-library",
+  "microphone",
+  "motion",
+  "reminders",
+  "siri",
+] as const;
+/** One state per supported service, so the applied order cannot change the outcome. */
+export const supportsIosPermissions = (environment: IosEnvironment) => {
+  const services = (environment.permissions ?? []).map(
+    (state) => state.service
+  );
+  return (
+    services.every((service) =>
+      iosPrivacyServices.some((supported) => supported === service)
+    ) && new Set(services).size === services.length
+  );
+};
 export interface IosPreparationInput {
   readonly device: IosDevice;
   readonly environment: IosEnvironment;
@@ -47,6 +70,8 @@ const messages = {
     "The authorized bundle identifier, build, or runtime changed.",
   host_unsupported: "iOS Simulator requires a local macOS host.",
   os_unsupported: "Select an iPhone simulator running iOS 26 through 27.",
+  permission_service_unsupported:
+    "Declare each permission service once, from those simctl privacy supports. Notifications and camera are unsupported.",
   physical_device_unsupported:
     "Physical iOS devices are unsupported. Select an iPhone simulator.",
   preparation_failed: "Could not prepare the selected simulator.",

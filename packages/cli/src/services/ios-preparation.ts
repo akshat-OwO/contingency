@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { Effect } from "effect";
 
-import { iosError } from "./ios-contract.ts";
+import { iosError, supportsIosPermissions } from "./ios-contract.ts";
 import type { IosPreparationInput } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
 import { openIosRunner, stopIosRunner } from "./ios-runner.ts";
@@ -24,6 +24,9 @@ export const makeIosPreparation = (
 ) => ({
   prepare: (input: IosPreparationInput) =>
     Effect.gen(function* prepareSelectedSimulator() {
+      if (!supportsIosPermissions(input.environment)) {
+        return yield* Effect.fail(iosError("permission_service_unsupported"));
+      }
       const discovery = makeIosDiscovery(io);
       yield* discovery.requireRunning(input.device);
       if (
@@ -84,6 +87,10 @@ export const makeIosPreparation = (
         }
       }
       yield* io.terminate(udid, app.bundleId);
+      // Declared states change only the Target App's entries on the selected simulator.
+      for (const { decision, service } of input.environment.permissions ?? []) {
+        yield* io.device(["privacy", udid, decision, service, app.bundleId]);
+      }
       yield* io.device(["launch", udid, app.bundleId]);
       yield* runner(udid, app.bundleId, directory);
       return {

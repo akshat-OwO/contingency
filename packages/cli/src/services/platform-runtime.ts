@@ -89,6 +89,7 @@ export interface PlatformRuntimeError {
     | "device_selection_required"
     | "api_unsupported"
     | "permission_decisions_unsupported"
+    | "permission_service_unsupported"
     | "physical_device_unsupported"
     | "device_mismatch"
     | "device_stopped"

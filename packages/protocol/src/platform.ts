@@ -39,10 +39,16 @@ export const IosDeviceSelection = Schema.Struct({
     Schema.isPattern(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu)
   ),
 });
+/** A Target App's starting privacy state; preparation refuses services `simctl privacy` lacks. */
+export const IosPermissionState = Schema.Struct({
+  decision: Schema.Literals(["grant", "revoke", "reset"]),
+  service: Schema.String.check(Schema.isPattern(/^[a-z][a-z-]*$/u)),
+});
 export const IosRunEnvironment = Schema.Struct({
   build: Schema.NonEmptyString,
   bundleId: Schema.NonEmptyString,
   deviceType: Schema.NonEmptyString,
+  permissions: Schema.optionalKey(Schema.Array(IosPermissionState)),
   runtimeVersion: Schema.NonEmptyString,
 });
 export const IosPreparation = Schema.Struct({
