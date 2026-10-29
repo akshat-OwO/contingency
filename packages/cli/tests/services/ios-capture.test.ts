@@ -1,12 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, Logger } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
   makeIosSessionAccess,
   iosAgentDeviceFailure,
   iosAppStateProblem,
+  iosCaptureFailure,
+  traceIosCapture,
   iosRuntimeError,
   iosSnapshotFailure,
   iosSnapshotProblem,
@@ -54,7 +56,10 @@ it.effect("refuses input when every capture stays incomplete", () =>
     );
     // The 30-second capture bound runs on this test's TestClock.
     yield* TestClock.adjust("31 seconds");
-    expect((yield* Fiber.join(fiber)).code).toBe("capture_incomplete");
+    const failure = yield* Fiber.join(fiber);
+    expect(failure.code).toBe("capture_incomplete");
+    expect(failure.operation).toBe("capture");
+    expect(failure.message).toContain("settle-deadline");
   })
 );
 
@@ -311,7 +316,7 @@ it("refuses a Target App that backgrounds between its tree and screenshot", () =
       "session-simulator",
       "dev.fixture"
     )
-  ).toBe("capture_incomplete");
+  ).toBe("observation_stale");
   expect(iosAppStateProblem(foreground, "other-simulator", "dev.fixture")).toBe(
     "device_mismatch"
   );
@@ -411,3 +416,157 @@ it.effect("does not capture again after the first post-action refusal", () =>
     expect(source.calls()).toBe(1);
   })
 );
+
+it.effect(
+  "records failed capture steps without snapshot content or SDK messages",
+  () =>
+    Effect.gen(function* recordsCaptureFailure() {
+      const messages: unknown[] = [];
+      const logger = Logger.make((event) => {
+        messages.push(event.message);
+      });
+      const failure = iosAgentDeviceFailure(
+        new AppError("COMMAND_FAILED", "secret screenshot contents", {
+          reason: "invalid-viewport",
+        }),
+        "runtime_failed",
+        "screenshot"
+      );
+      const result = yield* Effect.flip(
+        traceIosCapture(
+          (step) =>
+            Effect.gen(function* capture() {
+              yield* step(
+                "snapshot",
+                Effect.succeed({ nodes: ["private field value"] })
+              );
+              return yield* step("screenshot", Effect.fail(failure));
+            }),
+          7
+        )
+      ).pipe(Effect.provide(Logger.layer([logger])));
+      expect(result).toEqual(failure);
+      // it.effect supplies virtual monotonic time; no host duration is asserted.
+      expect(messages).toEqual([
+        [
+          "iOS capture failed",
+          {
+            attempt: 7,
+            code: "runtime_failed",
+            detail: failure.message,
+            durationMs: 0,
+            operation: "screenshot",
+            steps: [
+              { durationMs: 0, outcome: "ok", step: "snapshot" },
+              { durationMs: 0, outcome: "failed", step: "screenshot" },
+            ],
+          },
+        ],
+      ]);
+    })
+);
+
+it("distinguishes local capture failures from SDK failures", () => {
+  for (const reason of [
+    "snapshot-metadata",
+    "app-state-unverified",
+    "png-header",
+    "settle-deadline",
+  ] as const) {
+    const failure = iosCaptureFailure("capture_incomplete", "capture", reason);
+    expect(failure).toMatchObject({
+      code: "capture_incomplete",
+      operation: "capture",
+    });
+    expect(failure.message).toContain(`during capture (${reason})`);
+  }
+});
+
+it.effect(
+  "re-observes a passive app-state read until the runner verifies foreground",
+  () =>
+    Effect.gen(function* settlesPassiveState() {
+      let calls = 0;
+      const capture = Effect.suspend(() => {
+        calls += 1;
+        const state = {
+          appBundleId: "dev.fixture",
+          appName: "Fixture",
+          device_udid: "selected",
+          platform: "ios" as const,
+          surface: "app" as const,
+          ...(calls === 1
+            ? { source: "session" as const }
+            : {
+                source: "runner" as const,
+                state: "runningForeground" as const,
+              }),
+        };
+        const problem = iosAppStateProblem(state, "selected", "dev.fixture");
+        return problem === null
+          ? Effect.succeed("verified")
+          : Effect.fail(iosRuntimeError(problem));
+      });
+      const fiber = yield* Effect.forkChild(
+        Effect.result(settleIosCapture(capture))
+      );
+      // The existing capture retry schedule receives it.effect's TestClock.
+      yield* TestClock.adjust("1 second");
+      expect(yield* Fiber.join(fiber)).toMatchObject({
+        _tag: "Success",
+        success: "verified",
+      });
+      expect(calls).toBe(2);
+    })
+);
+
+it.effect(
+  "refuses a persistently unverified app state within the existing capture bound",
+  () =>
+    Effect.gen(function* refusesPassiveState() {
+      const problem = iosAppStateProblem(
+        {
+          appBundleId: "dev.fixture",
+          appName: "Fixture",
+          device_udid: "selected",
+          platform: "ios",
+          source: "session",
+          surface: "app",
+        },
+        "selected",
+        "dev.fixture"
+      );
+      expect(problem).toBe("observation_stale");
+      const source = sequence([problem ?? "observed"]);
+      const fiber = yield* Effect.forkChild(
+        Effect.flip(settleIosCapture(source.capture))
+      );
+      // The capture deadline and retry spacing both receive this test's TestClock.
+      yield* TestClock.adjust("31 seconds");
+      expect((yield* Fiber.join(fiber)).code).toBe("capture_incomplete");
+    })
+);
+
+it("withholds runner results without state and session results claiming foreground", () => {
+  const state = {
+    appBundleId: "dev.fixture",
+    appName: "Fixture",
+    device_udid: "selected",
+    platform: "ios",
+    surface: "app",
+  } as const;
+  expect(
+    iosAppStateProblem(
+      { ...state, source: "runner" },
+      "selected",
+      "dev.fixture"
+    )
+  ).toBe("observation_stale");
+  expect(
+    iosAppStateProblem(
+      { ...state, source: "session", state: "runningForeground" },
+      "selected",
+      "dev.fixture"
+    )
+  ).toBe("observation_stale");
+});

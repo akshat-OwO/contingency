@@ -46,6 +46,7 @@ const receipt = {
   limits: {},
   resources: [],
   settingsObservations: [],
+  signIns: [],
   startedAt: new Date().toISOString(),
 };
 const control = async (...args) => {
@@ -171,7 +172,11 @@ const find = (current, role, name) => {
   assert.equal(nodes.length, 1, `Expected one ${role} ${name}`);
   return nodes[0];
 };
+let signInAttempt;
 const agentAction = async (sessionId, role, name, text) => {
+  if (signInAttempt) {
+    signInAttempt.stage = name;
+  }
   const before = await observe(sessionId);
   const target = find(before, role, name);
   return call({
@@ -526,6 +531,70 @@ try {
   const { appPath: _installedPath, ...installedSelection } = selection;
   // The later Run declares a starting permission state Teaching never had.
   const permissions = [{ decision: "revoke", service: "photos" }];
+  const repeatSignIns = Number(process.env.CONTINGENCY_IOS_SIGN_INS ?? 0);
+  assert.ok(
+    Number.isInteger(repeatSignIns) && repeatSignIns >= 0 && repeatSignIns <= 30
+  );
+  // Fresh product Dry Runs retain the taught requirements and restart only the Target App.
+  for (let index = 1; index <= repeatSignIns; index += 1) {
+    let repeated;
+    const began = performance.now();
+    const entry = {
+      index,
+      stage: "start",
+      startedAt: new Date().toISOString(),
+    };
+    try {
+      repeated = await call({
+        _tag: "start",
+        flowSkillName,
+        kind: "dry-run",
+        operationId: operation(),
+        recordingId,
+        selection: installedSelection,
+      });
+      sessions.push(repeated.id);
+      await view(repeated.id);
+      entry.stage = "prepare";
+      await click("Prepare selected simulator");
+      entry.stage = "sign-in-journey";
+      signInAttempt = entry;
+      const current = await publicJourney(repeated.id);
+      find(current, "text", `Signed in as ${loginName}`);
+      entry.outcome = "passed";
+    } catch (error) {
+      entry.outcome = "failed";
+      entry.error = String(error);
+      await snapshot(`sign-in-${index}-blocked`).catch((evidenceError) => {
+        entry.evidenceError = String(evidenceError);
+      });
+    } finally {
+      signInAttempt = undefined;
+      if (repeated) {
+        await call(
+          { _tag: "close", operationId: operation(), sessionId: repeated.id },
+          "user"
+        );
+      }
+      entry.completedAt = new Date().toISOString();
+      entry.durationMs = performance.now() - began;
+      receipt.signIns.push(entry);
+      await writeFile(
+        path.join(artifacts, "sign-ins.json"),
+        JSON.stringify(receipt.signIns, null, 2)
+      );
+      process.stdout.write(
+        `iOS repeated sign-in ${index}/${repeatSignIns}: ${entry.outcome}\n`
+      );
+    }
+  }
+  if (repeatSignIns > 0) {
+    assert.equal(
+      receipt.signIns.filter((entry) => entry.outcome === "failed").length,
+      0,
+      "Repeated sign-in failures are retained in sign-ins.json"
+    );
+  }
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
