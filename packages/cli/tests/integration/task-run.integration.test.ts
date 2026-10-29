@@ -742,7 +742,7 @@ it.live(
               "agent_pending_decision_resolve",
               supply
             );
-            expect(JSON.stringify(supplied)).not.toContain(value);
+            expect(JSON.stringify(supplied)).toContain(value);
             expect(
               yield* catalogTool("agent_pending_decision_resolve", supply)
             ).toEqual(supplied);
@@ -757,7 +757,7 @@ it.live(
               sessionId: started.id,
             });
             expect(entered.entry.outcome).toBe("completed");
-            expect(JSON.stringify(entered)).not.toContain(value);
+            expect(JSON.stringify(entered)).toContain(value);
           }
           const final = yield* sessionTool("agent_session_get", {
             sessionId: started.id,
@@ -771,8 +771,8 @@ it.live(
             operationId: operation("compose-complete"),
             sessionId: started.id,
           });
-          expect(JSON.stringify(summary)).not.toContain("private-one");
-          expect(JSON.stringify(summary)).not.toContain("private-two");
+          expect(JSON.stringify(summary)).toContain("private-one");
+          expect(JSON.stringify(summary)).toContain("private-two");
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

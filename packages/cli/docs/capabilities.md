@@ -27,7 +27,7 @@ What it can't do:
 - Share control during recording. The user drives the browser from Start to Stop, and Takeover is not available.
 - Capture anything before **Start recording** or after **Stop**.
 - Keep the recording. Verifying the learned Flow Skill deletes its video, Trace, events, and keyframes.
-- Hide sensitive data completely. Videos and Traces are unredacted. Contingency scrubs known secret values where it can, but the scrub is best effort.
+- Hide sensitive data completely. Videos and Traces are unredacted. Variable values remain visible in all journey evidence.
 
 ## Guided Run
 
@@ -35,7 +35,7 @@ The external agent can follow your Source Document in a browser with `agent_guid
 
 Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`. You can finish setup in Workspace and press **Start recording**. Setup actions stay outside the evidence. Start returns browser control to the agent, and its existing action tools record actor-marked actions. Workspace labels the session **Guided Run**. Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it. Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
 
-During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**. Capture continues with `actor: "user"` actions. Use the private Variable input to enter secrets, which appear as `{{name}}` references with their declarations. Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt. Your Takeover actions and answers outrank the agent's reading of the Source Document wherever they disagree. A question stays open if you Takeover instead of answering. A later fresh Dry Run can pass even though the Guided Run had a Takeover.
+During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**. Capture continues with `actor: "user"` actions. Use the Variable input to enter secrets, whose values remain visible in the Timeline; saved skills store `{{name}}` references. Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt. Your Takeover actions and answers outrank the agent's reading of the Source Document wherever they disagree. A question stays open if you Takeover instead of answering. A later fresh Dry Run can pass even though the Guided Run had a Takeover.
 
 During capture, the agent asks through `agent_guided_run_question_ask`. The **Guided Run questions** region keeps the question visible until you answer with **Send answer**, then reads back the pair. You can also answer in the agent conversation. The agent relays your words through `agent_teaching_instruction_record` with the question's `questionId`. A fresh second answer is refused. Replaying the same operation returns the first result.
 

@@ -352,7 +352,7 @@ const awaitingUser = (
   // A tested skill's secret the user must supply again, such as after a
   // replacement; it opens no Pending Decision of its own.
   for (const variable of snapshot.dryRun?.variables ?? []) {
-    if (variable.secret && !variable.supplied) {
+    if (!variable.supplied) {
       waits.set(`dry-run-variable:${variable.name}`, "variable_requested");
     }
   }

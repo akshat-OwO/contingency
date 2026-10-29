@@ -6,7 +6,6 @@ import type {
 } from "@contingency/protocol";
 import { Effect, FileSystem, Result } from "effect";
 
-import { redactDevtoolsText } from "./browser-devtools.ts";
 import type { BrowserDownloadEvent } from "./create-browser-contract.ts";
 
 /** One download as the agent reads it. The file lives in Run evidence. */
@@ -50,9 +49,7 @@ export const saveDownload = (
   Effect.gen(function* saveBrowserDownload() {
     const fs = yield* FileSystem.FileSystem;
     const { download } = event;
-    const name = safeDownloadName(
-      redactDevtoolsText(download.suggestedFilename(), options.secrets)
-    );
+    const name = safeDownloadName(download.suggestedFilename());
     const url = download.url();
     const type =
       options.requests.findLast((request) => request.url === url)?.mimeType ??
@@ -62,8 +59,8 @@ export const saveDownload = (
       id: `download-${options.index}`,
       name,
       tabId: event.tabId,
-      type: redactDevtoolsText(type, options.secrets),
-      url: redactDevtoolsText(url, options.secrets),
+      type,
+      url,
     };
     const { directory } = options;
     if (directory === undefined) {
@@ -90,10 +87,7 @@ export const saveDownload = (
       );
       return {
         ...base,
-        error: redactDevtoolsText(
-          reason ?? "The download did not finish.",
-          options.secrets
-        ),
+        error: reason ?? "The download did not finish.",
         path: null,
         size: null,
         state: "failed",

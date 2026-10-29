@@ -7,9 +7,9 @@ import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
-/** Variable names are shouty snake case, so `{{NAME}}` is unambiguous. */
+/** Variable names contain letters, digits, and underscores. */
 const variableName = Schema.String.check(
-  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/u),
   Schema.isMinLength(1)
 );
 
@@ -79,14 +79,14 @@ export const AgentPendingDecision = Schema.Struct({
   sessionId: Schema.NullOr(AgentSessionId),
   /**
    * The runtime Variable this decision supplies, for `supply_variable`. The
-   * declaration travels so the agent can name it and say whether it is secret;
+   * declaration travels so the agent can name it;
    * the literal never does.
    */
   variable: Schema.NullOr(
     Schema.Struct({
       flowSkillName: optionalNullable(nonEmptyString),
       name: variableName,
-      secret: Schema.Boolean,
+      secret: Variable.fields.secret,
     })
   ).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
 }).annotate({ identifier: "AgentPendingDecision" });

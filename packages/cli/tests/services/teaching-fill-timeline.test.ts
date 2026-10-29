@@ -80,7 +80,7 @@ it("records the value a fill landed on its target", () => {
   expect(action?.description).toBe('Fill textbox "SKU" with "ANVIL-1"');
 });
 
-it("records a private Variable as its placeholder, not its literal", () => {
+it("records a Variable literal together with its name", () => {
   const capture = capturing();
   capture.recordVariable(
     { name: "ACCOUNT_ID", runtime: true, secret: true },
@@ -88,16 +88,17 @@ it("records a private Variable as its placeholder, not its literal", () => {
     "#sku"
   );
   capture.recordAction({
-    ...fillInput("2026-09-18T00:00:01.000Z", 0, "{{ACCOUNT_ID}}"),
+    ...fillInput("2026-09-18T00:00:01.000Z", 0, "4242-4242"),
     description: 'Enter Variable ACCOUNT_ID in textbox "SKU"',
-    snapshotAfter: fieldSnapshot("snapshot-fill-0", "{{ACCOUNT_ID}}"),
+    snapshotAfter: fieldSnapshot("snapshot-fill-0", "4242-4242"),
   });
   const events = timelineOf(capture);
   const action = events.find((event) => event._tag === "action");
 
-  expect(action?.target?.value).toBe("{{ACCOUNT_ID}}");
-  expect(action?.target?.valueWithheld).toBe(true);
-  expect(JSON.stringify(events)).not.toContain("4242-4242");
+  expect(action?.variableName).toBe("ACCOUNT_ID");
+  expect(action?.target?.value).toBe("4242-4242");
+  expect(action?.target?.valueWithheld).toBe(false);
+  expect(JSON.stringify(events)).toContain("4242-4242");
 });
 
 it("tells an empty field apart from a withheld value", () => {

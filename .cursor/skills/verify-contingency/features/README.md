@@ -43,7 +43,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 ## Features
 
-- [Guided Run](./workspace.md#guided-run) proves MCP start, setup exclusion, the user's Start, agent actions, Workspace and relayed answers, duplicate refusal, Session Event wakeup, unanswered evidence at Stop, actor-marked agent and Takeover learning, private Variable capture, exact-host approval and refusal, saved scope, explicit scan and Browser Check confirmation with rejected/unanswered evidence, and fresh Dry Run scope enforcement on the ecommerce fixture.
+- [Guided Run](./workspace.md#guided-run) proves MCP start, setup exclusion, the user's Start, agent actions, Workspace and relayed answers, duplicate refusal, Session Event wakeup, unanswered evidence at Stop, actor-marked agent and Takeover learning, Variable capture with literal evidence, exact-host approval and refusal, saved scope, explicit scan and Browser Check confirmation with rejected/unanswered evidence, and fresh Dry Run scope enforcement on the ecommerce fixture.
 
 - [Android live stream](./workspace.md#android-live-stream) proves decoded Workspace frames, secure-window notices, authenticated view-only routing, hard-kill recovery, preserved session state, and stream cleanup on an explicitly selected device.
 
@@ -51,9 +51,9 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Android physical device](./workspace.md#android-physical-device) proves authorized app-data clearing, recorded permissions, exact private readback on a stock Material password widget, native/filtered uncertainty, targeting refusals, privacy, and cleanup on a selected daily-use phone using a disposable app.
 - [Android preparation](./workspace.md#android-preparation) proves the internal Android factory lifecycle, with explicit device selection and sanitized receipts.
-- [Android private login](./workspace.md#android-private-login) proves secret Variables and Setup Variables through Workspace Teaching, learning, fresh Dry Runs, verification, and later Runs, with private helper transport and refusal evidence.
+- [Android private login](./workspace.md#android-private-login) proves Variables and Setup Variables through Workspace Teaching, learning, fresh Dry Runs, verification, and later Runs, with private helper transport and refusal evidence.
 - [Android Support Matrix](./workspace.md#android-support-matrix) proves each matrix cell's Teaching, Dry Run, and verification, and every documented-limit refusal.
-- [Android private text](./workspace.md#android-private-text) proves a private fill through the Contingency helper beside agent-device on an emulator: sentinel absence, refusals, kept agent-device session, and cleanup.
+- [Android private text](./workspace.md#android-private-text) proves a private fill through the Contingency helper beside agent-device on an emulator: readable Variable evidence, refusals, kept agent-device session, and cleanup.
 - [Android workspace](./workspace.md#android-workspace) proves Android Teaching, Takeover, Dry Run verification and purge, a later Run, and Summary readback after restart through mirrored Workspace.
 - [Android checkout](./workspace.md#android-checkout) proves the Expo checkout fixture on emulator and an explicitly authorized phone: discovered setup, stream picks and refusals, dock typing without overlays, Workspace Teaching, Timeline readback, learning, fresh Dry Run, verification and purge, changed-build permission, broken-build detection, ownership pause, capture loss, restart, and same-device disconnect recovery.
 
@@ -65,7 +65,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup skills, private Workspace supply and refusal, skill-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.
 
-- [Teaching setup Variables](./workspace.md#teaching-setup-variables) proves private Workspace supply and refusal before recording, replacement and replay, masking across handoff, and setup-free learned inputs with the isolated sign-in fixture.
+- [Teaching setup Variables](./workspace.md#teaching-setup-variables) proves private Workspace supply and refusal before recording, replacement and replay, readable reflected values across handoff, and setup-free learned inputs with the isolated sign-in fixture.
 
 - [Teaching navigation evidence](./workspace.md#teaching-navigation-evidence) proves transitional navigation metadata and each keyframe's capture URL with delayed and immediate destination rendering.
 
@@ -81,8 +81,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 The Workspace recipe includes Session Event waits and opt-in Claude Code channel delivery, cursor replay, and idle-agent wakeup.
 
-- [Interface evaluation model tasks](./workspace.md#interface-evaluation-model-tasks) seeds checkout, Teaching, Dry Run, and Takeover journeys, drives the requested Workspace user actions, and checks the final state with private-value audits.
-- [Devtools observation](./workspace.md#devtools-observation) proves code-tool diagnosis of a fixture request returning 500, request bodies, console errors, redacted HAR files, and the Workspace Network and Console panels.
+- [Interface evaluation model tasks](./workspace.md#interface-evaluation-model-tasks) seeds checkout, Teaching, Dry Run, and Takeover journeys, drives the requested Workspace user actions, and checks the final state with Variable-value evidence.
+- [Devtools observation](./workspace.md#devtools-observation) proves code-tool diagnosis of a fixture request returning 500, request bodies, console errors, HAR files with Variable values, and the Workspace Network and Console panels.
 
 Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoom-and-text-scale) for Workspace controls, code-only agent writes, and fixture screenshots.
 

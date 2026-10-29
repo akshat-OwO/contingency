@@ -2,7 +2,6 @@ import { AgentElementRef, AgentSnapshotId } from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
-import { redactAgentSnapshot } from "../../src/services/agent-browser.ts";
 import {
   diffSnapshotLines,
   isWholePage,
@@ -127,21 +126,4 @@ test("compares only reads that saw the whole document", () => {
       coverage: { ...coverage, nextCursor: "next", truncated: true },
     })
   ).toBe(false);
-});
-
-test("redacts private values from link destinations", () => {
-  const redacted = redactAgentSnapshot(
-    snapshotOf([
-      {
-        depth: 0,
-        interactive: true,
-        name: "Resume",
-        ref: AgentElementRef.make("e1"),
-        role: "link",
-        url: "/resume?account=private-account",
-      },
-    ]),
-    ["private-account"]
-  );
-  expect(JSON.stringify(redacted)).not.toContain("private-account");
 });

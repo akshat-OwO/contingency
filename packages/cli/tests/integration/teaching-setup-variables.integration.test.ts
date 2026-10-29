@@ -40,7 +40,7 @@ const request = (
   });
 
 it.live(
-  "isolates setup credentials, replays operations, and masks replacements through user recording",
+  "scopes setup Variables, replays operations, and retains replacement values",
   () =>
     Effect.gen(function* setupVariableLifecycle() {
       const fs = yield* FileSystem.FileSystem;
@@ -105,7 +105,7 @@ it.live(
           ).toBe("agent_session_conflict");
           const entered = yield* enter("enter");
           expect(entered.entry.outcome).toBe("completed");
-          expect(JSON.stringify(entered)).not.toContain(answer.value);
+          expect(JSON.stringify(entered)).toContain(answer.value);
           expect(yield* enter("enter")).toEqual(entered);
           expect((yield* enter("reuse")).entry.outcome).toBe("completed");
           const compact = compactAgentSession(yield* service.get(sessionId));
@@ -147,7 +147,7 @@ it.live(
           };
           yield* service.answerSetupVariable(fresh);
           const second = yield* enter("enter-fresh");
-          expect(JSON.stringify(second)).not.toContain(fresh.value);
+          expect(JSON.stringify(second)).toContain(fresh.value);
           // Replaying replacement must not invalidate the subsequently supplied value.
           yield* request(sessionId, "replace", true);
           expect((yield* enter("reuse-fresh")).entry.outcome).toBe("completed");
@@ -214,7 +214,7 @@ it.live(
             sessionId,
           });
           expect(JSON.stringify(after)).not.toContain(answer.value);
-          expect(JSON.stringify(after)).not.toContain(fresh.value);
+          expect(JSON.stringify(after)).toContain(fresh.value);
 
           yield* service.startTeachingRecording(
             sessionId,
@@ -371,9 +371,7 @@ it.live("serializes pending supply and entry against setup handoff", () =>
           controller: "user",
           setupVariables: [{ status: "cancelled" }],
         });
-        expect(JSON.stringify(entry)).not.toContain(
-          "concurrent-private-550127"
-        );
+        expect(JSON.stringify(entry)).toContain("concurrent-private-550127");
       }).pipe(Effect.provide(agentProcessLayer(root)))
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

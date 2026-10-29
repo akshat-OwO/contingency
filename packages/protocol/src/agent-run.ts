@@ -9,7 +9,7 @@ import {
   browserCheckResultsField,
 } from "./browser-checks.ts";
 import { BrowserModification } from "./browser-modifications.ts";
-import { DraftEmulation } from "./emulation.ts";
+import { DraftEmulation, IgnoredSecret } from "./emulation.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { RunVideoTimeMap } from "./run-video.ts";
@@ -187,12 +187,14 @@ export const LegacyAgentRunState = Schema.Struct({
   /** The Flow Skill directory name this Run follows. */
   flowSkillName: FlowSkillName,
   /**
-   * The ordinary declared inputs this Run was started with. A secret input is
-   * declared in shouty snake case and supplied as a runtime Variable instead,
-   * so no secret literal ever reaches a tool parameter or this state.
+   * The declared inputs this Run was started with, including their values.
    */
   inputs: Schema.Array(
-    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+    Schema.Struct({
+      name: nonEmptyString,
+      secret: IgnoredSecret,
+      value: nonEmptyString,
+    })
   ),
   /**
    * When the agent last called a tool on this Run's session. It never ends the
@@ -236,9 +238,13 @@ export const LegacyAgentRunSummary = Schema.Struct({
   coverage: AgentRunCoverage,
   endedAt: nonEmptyString,
   flowSkillName: FlowSkillName,
-  /** Ordinary declared inputs. Secret values are runtime Variables, not these. */
+  /** Declared inputs and their values. */
   inputs: Schema.Array(
-    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+    Schema.Struct({
+      name: nonEmptyString,
+      secret: IgnoredSecret,
+      value: nonEmptyString,
+    })
   ),
   outcome: AgentRunOutcome,
   runId: AgentRunId,
@@ -311,6 +317,7 @@ export type AgentRunInputIdentity = typeof AgentRunInputIdentity.Type;
 
 export const AgentRunTaskInput = Schema.Struct({
   ...AgentRunInputIdentity.fields,
+  secret: IgnoredSecret,
   value: nonEmptyString,
 });
 export type AgentRunTaskInput = typeof AgentRunTaskInput.Type;
@@ -447,17 +454,6 @@ const taskInputIdentity = Schema.makeFilter(
         identities.add(identity);
       }
     }
-    const secrets = new Set<string>();
-    for (const variable of run.variables) {
-      if (variable.secret) {
-        secrets.add(JSON.stringify([variable.flowSkillName, variable.name]));
-      }
-    }
-    return run.inputs.some((input) =>
-      secrets.has(JSON.stringify([input.flowSkillName, input.name]))
-    )
-      ? "Secret Variable literals cannot be stored as ordinary inputs."
-      : undefined;
   }
 );
 
@@ -536,12 +532,14 @@ export const FlowSkillRunStart = Schema.Struct({
   clientVersion: optionalNullable(nonEmptyString),
   flowSkillName: FlowSkillName,
   /**
-   * The ordinary declared inputs, supplied again for this Run. A secret input
-   * is declared in shouty snake case and is refused here: Contingency asks the
-   * user for it as a runtime Variable so the literal never enters a tool call.
+   * The declared inputs and their values, supplied again for this Run.
    */
   inputs: Schema.Array(
-    Schema.Struct({ name: nonEmptyString, value: nonEmptyString })
+    Schema.Struct({
+      name: nonEmptyString,
+      secret: IgnoredSecret,
+      value: nonEmptyString,
+    })
   ),
   operationId: OperationId,
   /** Client-asserted, stored unverified. */

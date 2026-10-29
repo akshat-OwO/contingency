@@ -123,7 +123,7 @@ const AgentRunOpenTool = readOnly(
 const AgentTaskRunStartTool = Tool.make("agent_run_start", {
   dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore],
   description:
-    "Start a task in one browser context with user-requested verified skills and ordinary inputs. Follow nextAction. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request private Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
+    "Start a task in one browser context with user-requested verified skills and ordinary inputs. Follow nextAction. The agent owns its route. Use agent_run_update for changed instructions, skills, or inputs; request Variables only when needed. Assessments and findings preserve the browser; agent_run_complete seals evidence. Fulfill applicable scanRequirements with agent_run_scan. Takeover and Execution Boundaries remain exclusive.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     ...AgentTaskRunStart.fields,
@@ -134,7 +134,7 @@ const AgentTaskRunStartTool = Tool.make("agent_run_start", {
 const AgentTaskRunUpdateTool = Tool.make("agent_run_update", {
   dependencies: [AgentSession, FlowSkillCatalog],
   description:
-    "Update the user instruction, requested verified skills, or ordinary inputs in the same Run. Browser state and starting Emulation persist. Inputs are skill-scoped; private inputs use agent_variable_request.",
+    "Update the user instruction, requested verified skills, or ordinary inputs in the same Run. Browser state and starting Emulation persist. Inputs are skill-scoped; on-demand inputs use agent_variable_request.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(AgentRunTaskInput),

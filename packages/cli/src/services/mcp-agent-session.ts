@@ -232,7 +232,7 @@ const AgentSessionStartTool = Tool.make("agent_session_start", {
 const AgentGuidedRunStartTool = Tool.make("agent_guided_run_start", {
   dependencies: [AgentSession],
   description:
-    "Start one browser Guided Run per named Flow Skill. Only you read the Source Document; never send it to Contingency. Skills have no source field. Split several journeys and let the user pick one. Follow nextAction. Prepare setup, call agent_teaching_setup_handoff, then await Workspace Start with agent_session_get. Only post-Start actions are recorded, with actors. Domain Scope starts at the starting host. A new top-level host pauses for a Pending Decision in Workspace or conversation. Allow adds that exact host to this Run and its saved skill; agent_browser_resume resumes the stored attempt. Refuse preserves scope. Irreversible actions need separate Confirmation. Android, Browser Modifications, and Pursuits are refused. Request Takeover during capture; the user takes and returns control in Workspace. User actions retain private Variable references. Questions stay open during Takeover. User input outranks the document. Stop or close finalizes partial recordings; claim, learn, save, and Dry Run.",
+    "Start one browser Guided Run per named Flow Skill. Only you read the Source Document; never send it to Contingency. Skills have no source field. Split several journeys and let the user pick one. Follow nextAction. Prepare setup, call agent_teaching_setup_handoff, then await Workspace Start with agent_session_get. Only post-Start actions are recorded, with actors. Domain Scope starts at the starting host. A new top-level host pauses for a Pending Decision in Workspace or conversation. Allow adds that exact host to this Run and its saved skill; agent_browser_resume resumes the stored attempt. Refuse preserves scope. Irreversible actions need separate Confirmation. Android, Browser Modifications, and Pursuits are refused. Request Takeover during capture; the user takes and returns control in Workspace. User actions retain Variable names and literal values. Questions stay open during Takeover. User input outranks the document. Stop or close finalizes partial recordings; claim, learn, save, and Dry Run.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     emulation: AgentSessionStart.fields.emulation,
@@ -357,7 +357,7 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a supplied private Variable into one element from the latest Browser Snapshot. The literal stays inside Contingency. During agent-held Teaching setup, request it with agent_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_variable_request and follow its Workspace instructions or relay its decision. Dry Run secrets are supplied in Workspace. Setup access ends at handoff.",
+    "Enter a supplied Variable into one element from the latest Browser Snapshot. The value is visible in journey evidence. During agent-held Teaching setup, request it with agent_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_variable_request and follow its Workspace instructions or relay its decision. Dry Run Variables are supplied in Workspace. Setup access ends at handoff.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: AgentVariableEnter.fields.flowSkillName,
@@ -372,7 +372,7 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
 const AgentSetupVariableRequestTool = Tool.make("agent_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a private Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; you never receive the literal. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowSkillName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow Skill.",
+    "Request a Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; Variable values are visible in journey evidence. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowSkillName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow Skill.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     flowSkillName: optionalNullable(FlowSkillName),

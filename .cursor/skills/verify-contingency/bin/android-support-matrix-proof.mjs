@@ -34,17 +34,14 @@ await mkdir(artifacts, { mode: 0o700, recursive: true });
 const execute = promisify(execFile);
 const journal = [];
 const sentinel = `Matrix-${randomUUID()}-Z9!`;
-const markers = [
-  sentinel,
-  Buffer.from(sentinel).toString("base64"),
-  encodeURIComponent(sentinel),
-];
+const observedValues = { encoded: false, literal: false };
 const safe = (value) => {
   const text = JSON.stringify(value);
-  assert.ok(
-    !markers.some((marker) => text.includes(marker)),
-    "Private sentinel escaped into retained evidence."
-  );
+  observedValues.literal ||= text.includes(sentinel);
+  observedValues.encoded ||= [
+    Buffer.from(sentinel).toString("base64"),
+    encodeURIComponent(sentinel),
+  ].some((marker) => text.includes(marker));
   return text;
 };
 const run = async (file, args, options = {}) => {
@@ -334,10 +331,10 @@ const scan = async () => {
   safe(logcat.stdout);
   safe(logcat.stderr);
   safe(await readFile(audit, "utf-8"));
-  receipt.privacy = {
+  receipt.variableEvidence = {
     inspectedFiles: files,
+    literalValueObserved: observedValues.literal,
     logcatChecked: true,
-    sentinelContained: false,
   };
 };
 // Recovery is an explicit same-device Workspace choice, never an agent command.
@@ -542,7 +539,10 @@ try {
     );
   }
   assert.ok(
-    actions.some((event) => event.description.includes("{{PASSWORD}}"))
+    actions.some(
+      (event) =>
+        event.variableName === "PASSWORD" && event.target?.value === sentinel
+    )
   );
   for (const event of actions) {
     for (const key of ["point", "bounds", "frame", "x", "y"]) {

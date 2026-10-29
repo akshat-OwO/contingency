@@ -22,8 +22,8 @@ import { fixtureServer } from "./harness.ts";
 
 const operation = OperationId.make;
 
-const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
-  function* exerciseTargetSecrets(
+const exerciseTargetVariables = Effect.fn("exerciseTargetVariables")(
+  function* exerciseTargetVariables(
     sessionId: AgentSessionId,
     ref: AgentElementRef
   ) {
@@ -112,7 +112,7 @@ const exerciseTargetSecrets = Effect.fn("exerciseTargetSecrets")(
 );
 
 it.live(
-  "fixes Dry Run prerequisites at startup and isolates private values, replacement, and fresh retries",
+  "fixes Dry Run prerequisites at startup and scopes Variables, replacement, and fresh retries",
   () =>
     Effect.gen(function* prerequisiteDryRun() {
       const files = yield* FileSystem.FileSystem;
@@ -228,7 +228,6 @@ it.live(
               },
             ],
             ["target", { prerequisites: [FlowSkillName.make("cart")] }],
-            ["missing-input", { prerequisiteInputs: [] }],
             [
               "undeclared",
               {
@@ -237,18 +236,6 @@ it.live(
                     flowSkillName: FlowSkillName.make("login"),
                     name: "unknown",
                     value: "x",
-                  },
-                ],
-              },
-            ],
-            [
-              "private-literal",
-              {
-                prerequisiteInputs: [
-                  {
-                    flowSkillName: FlowSkillName.make("login"),
-                    name: "PASSWORD",
-                    value: "never-accept",
                   },
                 ],
               },
@@ -383,7 +370,7 @@ it.live(
                 "flowSkillName" in variable ? variable.flowSkillName : ""
               )
           ).toEqual(["login"]);
-          expect(JSON.stringify(supplied)).not.toContain(supply.value);
+          expect(JSON.stringify(supplied)).toContain(supply.value);
           expect(supplied.run).toMatchObject({
             variables: expect.arrayContaining([
               expect.objectContaining({
@@ -436,7 +423,7 @@ it.live(
                 variable.flowSkillName === "location"
             )?.supplied
           ).toBe(false);
-          yield* exerciseTargetSecrets(session.id, password);
+          yield* exerciseTargetVariables(session.id, password);
           const otherScope = yield* sessionTool("agent_variable_request", {
             ...request,
             flowSkillName: FlowSkillName.make("location"),
@@ -459,7 +446,7 @@ it.live(
             ref: password,
             sessionId: session.id,
           });
-          // A replaced secret can still be on the Page, so it stays redacted.
+          // Replaced Variable values remain visible in journey evidence.
           yield* sessionTool("agent_browser_act", {
             action: {
               type: "navigate",
@@ -472,9 +459,7 @@ it.live(
             sessionId: session.id,
           });
           expect(replacedVisible.url).toContain("replaced=");
-          expect(JSON.stringify(replacedVisible)).not.toContain(
-            "private-target"
-          );
+          expect(JSON.stringify(replacedVisible)).toContain("private-target");
           const offscope = yield* sessionTool("agent_browser_act", {
             action: {
               type: "navigate",
@@ -510,14 +495,33 @@ it.live(
           expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
             "dry-run-failed"
           );
-          expect(JSON.stringify(summary)).not.toMatch(
+          expect(JSON.stringify(summary)).toMatch(
             /private-login|private-target/u
           );
           const retried = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
-            { ...start, operationId: operation("prereq-fresh") }
+            {
+              ...start,
+              operationId: operation("prereq-fresh"),
+              prerequisiteInputs: [
+                {
+                  flowSkillName: FlowSkillName.make("login"),
+                  name: "PASSWORD",
+                  value: "startup-password",
+                },
+              ],
+            }
           );
           expect(retried.session.id).not.toBe(session.id);
+          expect(retried.session.run).toMatchObject({
+            inputs: expect.arrayContaining([
+              {
+                flowSkillName: "login",
+                name: "PASSWORD",
+                value: "startup-password",
+              },
+            ]),
+          });
           expect(
             (yield* Effect.flip(
               sessions.answerDryRunVariable(retried.session.id, supply)

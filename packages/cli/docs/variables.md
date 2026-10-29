@@ -15,31 +15,26 @@ inputs:
   - name: order
     description: An order number from Your orders, such as RH-1042.
   - name: DEMO_PASSWORD
-    description: Private. The account password. The user supplies it in Workspace.
+    description: The test account password.
 ---
 ```
 
 Refer to an input in the procedure as `{{order}}`. Saving refuses a Flow Skill that uses a placeholder it does not declare.
 
-## Secret and runtime
+## Runtime values
 
-Each Variable has two independent properties:
+A Variable's `runtime` property controls whether its value is requested when needed. Input names have the same behavior in uppercase or lowercase. Contingency accepts an older `secret: true` declaration, ignores it, and omits it when writing the skill or protocol output.
 
-- **`secret`**: Contingency redacts the value. It never enters the conversation, the Teaching Timeline, or Run artifacts. The user types it in the Workspace, and the agent enters it into the page by name without seeing it.
-- **`runtime`**: The value is asked for when the Run needs it, not fixed when the Run starts.
-
-A one-time passcode is both secret and runtime. A target environment URL is neither.
-
-In an Interactive Run, the input's name decides which kind it is. An input named in uppercase letters, digits, and underscores, such as `DEMO_PASSWORD`, is private: both secret and runtime. Any other name, such as `order`, is an ordinary input that is neither. In a Dry Run, the agent marks each private input with `secret: true` when it starts the Dry Run.
+Values are plain text in Teaching Timelines, MCP responses, Run Summaries, run.json, traces, and logs. Use test accounts for journeys. A saved Flow Skill stores `{{NAME}}` references rather than the demonstrated values.
 
 ## Supply values
 
-- **Ordinary inputs.** The agent passes the value when it starts the Run. For a Dry Run, these values are fixed at startup; change them by starting a fresh Dry Run. In an Interactive Run, the agent changes them with `agent_run_update`.
-- **Private inputs.** The agent requests the Variable by its uppercase name with `agent_variable_request`. The user supplies or refuses the value in the Workspace. The agent then types it with `agent_variable_enter`. To ask for a fresh value, such as a new passcode, the agent requests it again with `replace: true`.
-- **Setup Variables.** During agent-held Teaching setup, the agent can request a private value by name and purpose before any Flow Skill exists. The value lasts until setup hands off to the user.
+Pass a value at Run startup, or request a declared Variable with `agent_variable_request`. The user can supply or refuse it in Workspace. Enter it by name with `agent_variable_enter`. Request it again with `replace: true` to replace a value.
 
-The Variable name the agent uses is the input name in uppercase, with underscores kept: `password` becomes `PASSWORD`.
+For a Dry Run, pass each input's value at startup or omit the value to request it in Workspace. Supplied startup values remain fixed for that Dry Run.
+
+A Setup Variable is an ordinary Variable requested by name and purpose during agent-held Teaching setup. It lasts until handoff and does not become a learned skill input.
 
 ## During Teaching
 
-When you type into a password field while recording, the Teaching Recording keeps a Variable reference such as `DEMO_PASSWORD` in place of the value. The learning agent declares that name under `inputs`.
+Enter named Variables through Workspace while recording. The Timeline shows the value and Variable name. Learning replaces demonstrated Variable values with their references in the saved Flow Skill.

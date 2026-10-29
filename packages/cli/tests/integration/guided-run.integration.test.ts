@@ -19,7 +19,6 @@ import {
   Schema,
   Stream,
 } from "effect";
-import type { PlatformError } from "effect";
 import { RpcTest } from "effect/rpc";
 import { yauzl } from "playwright-core/lib/utilsBundle";
 
@@ -588,7 +587,7 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
 }
 
 it.live(
-  "Guided Run Takeover captures user actions and only Variable references",
+  "Guided Run Takeover captures user actions and literal Variable values for reusable skills",
   () =>
     Effect.gen(function* guidedTakeover() {
       const fs = yield* FileSystem.FileSystem;
@@ -724,46 +723,36 @@ it.live(
           { actor: "user" },
           {
             actor: "user",
-            description: 'Enter Variable EMAIL in textbox "Password"',
+            description: `Enter Variable EMAIL: ${secret} in textbox "Password"`,
             kind: "fill",
           },
           { actor: "agent" },
         ]);
         const directory = path.join(root, ".recordings", recordingId);
-        const inspect = (
-          dir: string
-        ): Effect.Effect<void, PlatformError.PlatformError> =>
-          Effect.gen(function* inspectFiles() {
-            for (const name of yield* fs.readDirectory(dir)) {
-              const file = path.join(dir, name);
-              if ((yield* fs.stat(file)).type === "Directory") {
-                yield* inspect(file);
-              } else {
-                expect(
-                  Buffer.from(yield* fs.readFile(file)).includes(
-                    Buffer.from(secret)
-                  )
-                ).toBe(false);
-              }
-            }
-          });
-        yield* inspect(directory);
+        expect(
+          yield* fs.readFileString(path.join(directory, "events.jsonl"))
+        ).toContain(secret);
         yield* Effect.promise(async () => {
           const archive = await yauzl.openPromise(
             path.join(directory, "trace.zip"),
             { lazyEntries: true }
           );
+          let containsValue = false;
           for await (const entry of archive.eachEntry()) {
             const contents = await buffer(
               await archive.openReadStreamPromise(entry)
             );
-            expect(contents.includes(Buffer.from(secret)), entry.fileName).toBe(
-              false
-            );
+            containsValue ||= contents.includes(Buffer.from(secret));
           }
+          expect(containsValue).toBe(true);
         });
-        expect(JSON.stringify(timeline)).not.toContain(secret);
-        expect(JSON.stringify(timeline)).toContain("{{EMAIL}}");
+        expect(JSON.stringify(timeline)).toContain(secret);
+        expect(timeline.entries).toContainEqual(
+          expect.objectContaining({
+            target: expect.objectContaining({ value: secret }),
+            variableName: "EMAIL",
+          })
+        );
         yield* teachingRecordingTool("agent_flow_skill_save", {
           claimOperationId,
           files: [
@@ -785,6 +774,11 @@ inputs:
           operationId: operation("save"),
           recordingId,
         });
+        const savedSkill = yield* fs.readFileString(
+          path.join(root, "guided-email", "SKILL.md")
+        );
+        expect(savedSkill).toContain("{{EMAIL}}");
+        expect(savedSkill).not.toContain(secret);
         const dry = yield* teachingRecordingTool(
           "agent_flow_skill_dry_run_start",
           {

@@ -340,7 +340,7 @@ it.live(
               script,
             })
           );
-          expect(result.text).not.toContain(secret);
+          expect(result.text).toContain(secret);
         }
         const large = evaluation(
           yield* sessions.devtools(teaching.id, {
@@ -352,7 +352,7 @@ it.live(
         );
         expect(large.truncated).toBe(true);
         expect(Buffer.byteLength(large.text)).toBeLessThanOrEqual(65_536);
-        expect(large.text).not.toContain(secret);
+        expect(large.text).toContain(secret);
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

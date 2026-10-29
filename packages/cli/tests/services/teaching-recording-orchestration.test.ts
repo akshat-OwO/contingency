@@ -279,26 +279,6 @@ it.effect(
           ],
           ["tested skill", { prerequisites: [flowSkillName] }],
           [
-            "unsupplied prerequisite input",
-            {
-              prerequisiteInputs:
-                startInput(recordingId).prerequisiteInputs.slice(1),
-            },
-          ],
-          [
-            "private prerequisite input",
-            {
-              prerequisiteInputs: [
-                ...startInput(recordingId).prerequisiteInputs,
-                {
-                  flowSkillName: FlowSkillName.make("login"),
-                  name: "PASSWORD",
-                  value: "hunter2",
-                },
-              ],
-            },
-          ],
-          [
             "incomplete inputs",
             { inputs: startInput(recordingId).inputs.slice(0, 1) },
           ],
@@ -355,17 +335,27 @@ it.effect(
         ]);
         expect(run.variables).toEqual([
           {
+            flowSkillName: "location",
+            name: "area",
+            runtime: true,
+            supplied: false,
+          },
+          {
+            flowSkillName: "login",
+            name: "area",
+            runtime: true,
+            supplied: false,
+          },
+          {
             flowSkillName: "login",
             name: "PASSWORD",
             runtime: true,
-            secret: true,
             supplied: false,
           },
           {
             flowSkillName: "cart",
             name: "PASSWORD",
             runtime: true,
-            secret: true,
             supplied: false,
           },
         ]);

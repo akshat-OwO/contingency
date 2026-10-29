@@ -1,9 +1,11 @@
 import path from "node:path";
+import { buffer } from "node:stream/consumers";
 
 import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, FileSystem } from "effect";
+import { yauzl } from "playwright-core/lib/utilsBundle";
 import { vi } from "vitest";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
@@ -310,9 +312,39 @@ it.live(
             { claimOperationId, recordingId }
           );
           expect(timeline.nextCursor).toBeNull();
+          const store = yield* TeachingRecordingStore;
+          const manifest = yield* store.read(recordingId);
+          const trace = manifest.artifacts.find(
+            (artifact) => artifact.kind === "trace"
+          );
+          if (trace === undefined) {
+            return yield* Effect.die("Missing Teaching trace");
+          }
+          const traceText = yield* Effect.tryPromise(async () => {
+            const zip = await yauzl.openPromise(
+              path.join(store.directory(recordingId), trace.path),
+              { lazyEntries: true }
+            );
+            const entries: string[] = [];
+            try {
+              for await (const entry of zip.eachEntry()) {
+                if (entry.fileName.endsWith(".trace")) {
+                  const bytes = await buffer(
+                    await zip.openReadStreamPromise(entry)
+                  );
+                  entries.push(bytes.toString("utf-8"));
+                }
+              }
+            } finally {
+              zip.close();
+            }
+            return entries.join("\n");
+          });
+          expect(traceText).toContain(privateFieldValue);
           const serialized = JSON.stringify(timeline);
           expect(serialized).not.toContain(privateQueryValue);
-          expect(serialized).not.toContain(privateFieldValue);
+          expect(serialized).toContain("token=%5Bsensitive%5D");
+          expect(serialized).toContain(privateFieldValue);
           expect(serialized).not.toContain(root);
           expect(serialized).not.toContain("trace.zip");
           expect(serialized).not.toContain("recording.webm");
@@ -390,9 +422,18 @@ it.live(
           const saveInput = {
             claimOperationId,
             files: [
-              { content: LEARN_ANVIL_SKILL, path: "SKILL.md" },
               {
-                content: LEARN_ANVIL_ACCESSIBILITY,
+                content: LEARN_ANVIL_SKILL.replace(
+                  "  - account",
+                  "  - account\n  - name: PASSWORD\n    secret: true"
+                ).replace(
+                  "2. Choose",
+                  `2. Enter ${privateFieldValue}, then choose`
+                ),
+                path: "SKILL.md",
+              },
+              {
+                content: `${LEARN_ANVIL_ACCESSIBILITY}\nExample password: ${privateFieldValue}`,
                 path: "references/accessibility.md",
               },
             ],
@@ -412,6 +453,17 @@ it.live(
               path.join(root, "learn-anvil", "SKILL.md")
             )
           ).toContain("# Learn anvil");
+          const learnedSkill = yield* fileSystem.readFileString(
+            path.join(skillDirectory, "SKILL.md")
+          );
+          const learnedReference = yield* fileSystem.readFileString(
+            path.join(skillDirectory, "references/accessibility.md")
+          );
+          expect(learnedSkill).toContain("{{PASSWORD}}");
+          expect(learnedSkill).not.toContain("secret:");
+          expect(learnedSkill).not.toContain(privateFieldValue);
+          expect(learnedReference).toContain("{{PASSWORD}}");
+          expect(learnedReference).not.toContain(privateFieldValue);
           expect(
             yield* teachingRecordingTool("agent_flow_skill_save", saveInput)
           ).toEqual(saved);

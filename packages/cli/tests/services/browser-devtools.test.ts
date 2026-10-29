@@ -9,7 +9,7 @@ import {
   redactDevtoolsRequest,
 } from "../../src/services/browser-devtools.ts";
 
-it("masks all credential headers and scrubs transport encodings before bounding bodies", () => {
+it("keeps journey credentials and transport encodings while bounding bodies", () => {
   const secret = 'private +"value"';
   const result = redactDevtoolsRequest(
     {
@@ -33,15 +33,13 @@ it("masks all credential headers and scrubs transport encodings before bounding 
     },
     [secret]
   );
-  expect(result.headers.Authorization).toBe("[redacted]");
-  expect(result.headers.Cookie).toBe("[redacted]");
-  expect(result.headers["Proxy-Authorization"]).toBe("[redacted]");
-  expect(result.responseHeaders?.["Set-Cookie"]).toBe("[redacted]");
-  expect(JSON.stringify(result)).not.toContain("opaque");
-  expect(JSON.stringify(result)).not.toContain(encodeURIComponent(secret));
-  expect(result.responseBody).not.toContain(
-    JSON.stringify(secret).slice(1, -1)
-  );
+  expect(result.headers.Authorization).toBe(secret);
+  expect(result.headers.Cookie).toBe("opaque-cookie");
+  expect(result.headers["Proxy-Authorization"]).toBe("opaque-proxy");
+  expect(result.responseHeaders?.["Set-Cookie"]).toBe("opaque-response-cookie");
+  expect(JSON.stringify(result)).toContain("opaque");
+  expect(JSON.stringify(result)).toContain(encodeURIComponent(secret));
+  expect(result.responseBody).toContain(JSON.stringify(secret).slice(1, -1));
   expect(result.bodyTruncated).toBe(true);
   expect(Buffer.byteLength(result.responseBody ?? "")).toBeLessThanOrEqual(
     DEVTOOLS_LIMITS.bodyBytes
@@ -52,7 +50,7 @@ it("masks all credential headers and scrubs transport encodings before bounding 
   });
 });
 
-it("filters requests on redacted metadata and returns projections without headers or bodies", () => {
+it("filters requests on literal metadata and returns projections without headers or bodies", () => {
   const secret = "token-value";
   const request = (
     id: string,
@@ -93,5 +91,5 @@ it("filters requests on redacted metadata and returns projections without header
   expect(projected).not.toHaveProperty("postData");
   expect(projected).not.toHaveProperty("responseBody");
   expect(projected).not.toHaveProperty("responseHeaders");
-  expect(JSON.stringify(result)).not.toContain(secret);
+  expect(JSON.stringify(result)).toContain(secret);
 });

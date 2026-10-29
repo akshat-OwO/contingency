@@ -120,7 +120,7 @@ test("counts Dry Run secrets still to supply", () => {
     key: "secrets:CARD",
     kind: "dry-run-secrets",
     summary: "1 of 2 needed",
-    title: "Dry Run secrets",
+    title: "Dry Run Variables",
   });
 });
 

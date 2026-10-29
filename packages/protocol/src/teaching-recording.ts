@@ -27,7 +27,7 @@ const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
 /** Variable names are shouty snake case, so `{{NAME}}` is unambiguous. */
 const variableName = Schema.String.check(
-  Schema.isPattern(/^[A-Z][A-Z0-9_]*$/u),
+  Schema.isPattern(/^[A-Za-z][A-Za-z0-9_]*$/u),
   Schema.isMinLength(1)
 );
 
@@ -321,7 +321,7 @@ export const TeachingEventTarget = Schema.Struct({
   disabled: Schema.NullOr(Schema.Boolean),
   name: Schema.String,
   role: nonEmptyString,
-  /** Absent when the field was private, so no secret enters the stream. */
+  /** The value read from the demonstrated control. */
   value: Schema.NullOr(Schema.String),
   valueWithheld: Schema.NullOr(Schema.Boolean),
 });
@@ -382,6 +382,7 @@ const TeachingActionEvent = Schema.TaggedStruct("action", {
   kind: nonEmptyString,
   outcome: Schema.Literals(["succeeded", "failed"]),
   target: Schema.NullOr(TeachingEventTarget),
+  variableName: Schema.optional(Schema.String),
 });
 
 /** A top-level navigation, whether the user caused it or the Page did. */
@@ -434,7 +435,7 @@ const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
   text: nonEmptyString,
 });
 
-/** A masked visual observation, stored once under its content address. */
+/** A visual observation, stored once under its content address. */
 const TeachingKeyframeEvent = Schema.TaggedStruct("keyframe", {
   ...teachingEventBase,
   actionId: Schema.NullOr(Schema.String),
@@ -674,11 +675,12 @@ export const CapturedAction = Schema.Struct({
   snapshotBefore: Schema.NullOr(AgentSnapshotId),
   urlAfter: Schema.String,
   urlBefore: Schema.String,
+  variableName: Schema.optional(Schema.String),
 });
 export type CapturedAction = typeof CapturedAction.Type;
 
 /**
- * A reference to one best-effort-masked keyframe. The bytes are stored once
+ * A reference to one keyframe. The bytes are stored once
  * under their content address and fetched on demand, so the capture record
  * stays bounded by how much the user demonstrated rather than by how large
  * the Page's pixels are.
@@ -743,8 +745,8 @@ export const TeachingInstructionRecord = Schema.Struct({
 export type TeachingInstructionRecord = typeof TeachingInstructionRecord.Type;
 
 /**
- * Enter one private value while recording. The value exists only for this
- * browser action. Captured evidence stores `{{name}}` and the declaration.
+ * Enter a named Variable while recording. Evidence retains its value and name;
+ * learning writes the Variable reference into the saved Flow Skill.
  */
 export const TeachingVariableInput = Schema.Struct({
   operationId: OperationId,

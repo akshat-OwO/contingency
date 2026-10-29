@@ -5,14 +5,12 @@ import {
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TEACHING_TIMELINE_MAX_EVENTS,
   TeachingEvent,
-  isWithheldValue,
 } from "@contingency/protocol";
 import type {
   FlowSkillDiagnostic,
   FlowSkillFile,
   FlowSkillSaveResult,
   OperationId,
-  TeachingEventTarget,
   TeachingKeyframeFile,
   TeachingRecordingId,
   TeachingRecordingManifest,
@@ -45,6 +43,60 @@ import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts"
 
 const EVENTS_FILE_KIND = "events";
 const SKILL_FILE = "SKILL.md";
+
+/** Shorter values match ordinary prose too often to rewrite safely. */
+const MIN_PARAMETERIZED_LENGTH = 4;
+
+/** A reusable skill stores the declared Variable reference, never its example value. */
+export const parameterizeVariables = (
+  files: readonly FlowSkillFile[],
+  events: readonly TeachingEvent[]
+): readonly FlowSkillFile[] => {
+  const values = events
+    .flatMap((event) =>
+      event._tag === "action" &&
+      event.variableName !== undefined &&
+      event.target?.value !== undefined &&
+      event.target.value !== null &&
+      event.target.value.length >= MIN_PARAMETERIZED_LENGTH
+        ? [{ name: event.variableName, value: event.target.value }]
+        : []
+    )
+    .toSorted((left, right) => right.value.length - left.value.length);
+  if (values.length === 0) {
+    return files;
+  }
+  const names = new Map(values.map(({ name, value }) => [value, name]));
+  const literals = [...names.keys()].map((value) =>
+    value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+  );
+  // One pass preserves existing references and cannot rewrite a reference it just inserted.
+  // Whole tokens only, so a value inside a longer word is left alone.
+  const pattern = new RegExp(
+    `\\{\\{[^{}]+\\}\\}|(?<![\\p{L}\\p{N}_])(?:${literals.join("|")})(?![\\p{L}\\p{N}_])`,
+    "gu"
+  );
+  return files.map((file) => {
+    if (
+      file.path !== SKILL_FILE &&
+      !(file.path.startsWith("references/") && file.path.endsWith(".md"))
+    ) {
+      return file;
+    }
+    const prefix =
+      file.path === SKILL_FILE
+        ? (/^---\r?\n[\s\S]*?\r?\n---\r?\n?/u.exec(file.content)?.[0] ?? "")
+        : "";
+    const body = file.content.slice(prefix.length).replace(pattern, (match) => {
+      if (match.startsWith("{{")) {
+        return match;
+      }
+      const name = names.get(match);
+      return name === undefined ? match : `{{${name}}}`;
+    });
+    return { ...file, content: prefix + body };
+  });
+};
 const SKILL_LOCK_FILE = ".flow-skill.lock";
 
 interface TeachingRecordingLearningDomainError {
@@ -183,24 +235,7 @@ const validateFiles = (
     : Effect.fail(invalidPackage([missingSkillFile]));
 };
 
-/**
- * What a reader may see of the control an action named. A withheld value that
- * still stands for itself -- a Variable reference, or a redaction placeholder
- * -- is the whole point of the marker and stays, because it is what tells the
- * reader the field held something rather than nothing. Anything else withheld
- * was read off the Page and never belongs on a timeline page.
- */
-const readableTarget = (
-  target: TeachingEventTarget | null
-): TeachingEventTarget | null => {
-  if (target === null || target.valueWithheld !== true) {
-    return target;
-  }
-  return target.value !== null && isWithheldValue(target.value)
-    ? target
-    : { ...target, value: null };
-};
-
+/** Project the durable events into bounded Timeline pages. */
 const eventProjection = (
   event: TeachingEvent,
   manifest: TeachingRecordingManifest
@@ -220,7 +255,7 @@ const eventProjection = (
           ...event.before,
           url: sanitizeTeachingUrl(event.before.url),
         },
-        target: readableTarget(event.target),
+        target: event.target,
       });
     }
     case "url": {
@@ -550,19 +585,23 @@ const makeTeachingRecordingLearning = Effect.fn(
       const manifest = yield* store
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
+      const events = yield* readEvents(manifest);
+      const learnedFiles = parameterizeVariables(files, events);
       // The package contract is checked here, in the same pre-write window as
       // the path rules: an invalid package must never become the live
       // directory, so nothing is staged until every property holds.
-      const validated = validateFlowSkillPackage(manifest.flowSkillName, files);
+      const validated = validateFlowSkillPackage(
+        manifest.flowSkillName,
+        learnedFiles
+      );
       if (Result.isFailure(validated)) {
         return yield* Effect.fail(invalidPackage(validated.failure));
       }
       // A verified Flow Skill outlives its recording, so the demonstrated host
       // ceiling and device are stamped into the package now, while the event
       // stream is still on disk to prove them.
-      const events = yield* readEvents(manifest);
       yield* validateTaughtBrowserChecks(
-        files,
+        learnedFiles,
         events.filter((event) => event._tag === "instruction")
       ).pipe(
         Effect.mapError((cause) =>
@@ -570,7 +609,7 @@ const makeTeachingRecordingLearning = Effect.fn(
         )
       );
       yield* validateTaughtScans(
-        files,
+        learnedFiles,
         events.filter((event) => event._tag === "instruction")
       ).pipe(
         Effect.mapError((cause) =>
@@ -594,7 +633,7 @@ const makeTeachingRecordingLearning = Effect.fn(
         manifest.origin === "guided-run" && manifest.approvedHosts !== undefined
           ? [...new Set(manifest.approvedHosts)].toSorted()
           : [...visited].toSorted();
-      const stamped = files.map((file) =>
+      const stamped = learnedFiles.map((file) =>
         file.path === SKILL_FILE
           ? {
               ...file,

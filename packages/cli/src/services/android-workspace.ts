@@ -59,9 +59,10 @@ const hash = (bytes: string | Uint8Array) =>
 const now = () => new Date().toISOString();
 const observationSummary = (observation: AndroidObservation) => ({
   android: {
-    nodes: observation.nodes.flatMap((node) =>
-      node.password ? [] : [{ name: node.name, role: node.role }]
-    ),
+    nodes: observation.nodes.map((node) => ({
+      name: node.name,
+      role: node.role,
+    })),
     observationId: observation.id,
     screenshotCapturedAt: observation.screenshot.capturedAt,
   },
@@ -71,7 +72,6 @@ const observationSummary = (observation: AndroidObservation) => ({
 });
 const difference = (left: AndroidObservation, right: AndroidObservation) =>
   left.nodes.flatMap((node) =>
-    node.password ||
     right.nodes.some(
       (other) => other.role === node.role && other.name === node.name
     )
@@ -120,15 +120,16 @@ const actionDescription = (
     AndroidWorkspaceCommand,
     { readonly _tag: "input" }
   >["action"],
-  target: AndroidObservation["nodes"][number] | undefined
+  target: AndroidObservation["nodes"][number] | undefined,
+  value: string | null
 ) => {
   // All action variants are handled.
   // oxlint-disable-next-line eslint/default-case
   switch (action._tag) {
     case "variable": {
       return {
-        description: `Enter {{${action.name}}} in ${target?.role} Private field`,
-        detail: `{{${action.name}}}`,
+        description: `Enter Variable ${action.name}: ${value} in ${target?.role} ${target?.name}`,
+        detail: value,
       };
     }
     case "back": {
@@ -1097,13 +1098,20 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
             yield* keyframe(session, before, actionId);
+            let enteredValue: string | null = null;
+            if (action._tag === "fill") {
+              enteredValue = action.text;
+            }
+            if (action._tag === "variable" && variable?.value !== undefined) {
+              enteredValue = Redacted.value(variable.value);
+            }
             yield* emit(session, {
               _tag: "action",
               actor: "user",
               after: observationSummary(after),
               appeared: difference(after, before),
               before: observationSummary(before),
-              ...actionDescription(action, target),
+              ...actionDescription(action, target, enteredValue),
               disappeared: difference(before, after),
               id: actionId,
               kind: action._tag,
@@ -1117,16 +1125,18 @@ export const makeAndroidWorkspaceLayer = (options: {
                       disabled: null,
                       name: target.name,
                       role: target.role,
-                      value: null,
-                      valueWithheld: action._tag === "variable" ? true : null,
+                      value: enteredValue,
+                      valueWithheld: null,
                     },
+              variableName:
+                action._tag === "variable" ? action.name : undefined,
             });
             yield* keyframe(session, after, actionId);
           } else if (summary.kind !== "teaching") {
             yield* io(
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
-                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, variable: action._tag === "variable" ? `{{${action.name}}}` : undefined })}\n`,
+                `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );

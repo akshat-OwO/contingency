@@ -25,12 +25,12 @@ const PrivateVariableForm = ({
   const [state, setState] = useAtom(stateAtom);
   return (
     <section
-      aria-label="Private Takeover Variable"
+      aria-label="Takeover Variable"
       className="space-y-2 border-b p-3 text-sm"
     >
       <p>
-        Focus the browser field first. Enter its secret here so the recording
-        keeps a Variable reference.
+        Focus the browser field first. Enter a Variable here. The Timeline shows
+        its value; the saved skill keeps its reference.
       </p>
       <form
         className="flex flex-wrap items-end gap-2"
@@ -49,7 +49,7 @@ const PrivateVariableForm = ({
                 operationId: OperationId.make(crypto.randomUUID()),
                 sessionId: session.id,
                 value,
-                variable: { name, runtime: true, secret: true },
+                variable: { name, runtime: true },
               },
             });
             setState((current) => ({ ...current, pending: false }));
@@ -80,10 +80,10 @@ const PrivateVariableForm = ({
           />
         </label>
         <label htmlFor={`${id}-value`} className="grid gap-1">
-          Secret value
+          Variable value
           <Input
             id={`${id}-value`}
-            type="password"
+            type="text"
             autoComplete="off"
             value={state.value}
             required

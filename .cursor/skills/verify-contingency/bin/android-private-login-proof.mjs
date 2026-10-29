@@ -27,17 +27,14 @@ await mkdir(artifacts, { mode: 0o700, recursive: true });
 const execute = promisify(execFile);
 const journal = [];
 const sentinel = `Login-${randomUUID()}-Z9!`;
-const markers = [
-  sentinel,
-  Buffer.from(sentinel).toString("base64"),
-  encodeURIComponent(sentinel),
-];
+const observedValues = { encoded: false, literal: false };
 const safe = (value) => {
   const text = JSON.stringify(value);
-  assert.ok(
-    !markers.some((marker) => text.includes(marker)),
-    "Private sentinel escaped into retained evidence."
-  );
+  observedValues.literal ||= text.includes(sentinel);
+  observedValues.encoded ||= [
+    Buffer.from(sentinel).toString("base64"),
+    encodeURIComponent(sentinel),
+  ].some((marker) => text.includes(marker));
   return text;
 };
 const run = async (file, args, options = {}) => {
@@ -323,12 +320,12 @@ const scan = async () => {
     ),
     "Audit must include stock agent-device snapshot instrumentation."
   );
-  receipt.privacy = {
+  receipt.variableEvidence = {
     adbCommands: adbCommands.length,
-    encodedSentinelContained: false,
+    encodedValueObserved: observedValues.encoded,
     inspectedFiles: files,
+    literalValueObserved: observedValues.literal,
     logcatChecked: true,
-    sentinelContained: false,
   };
 };
 try {
@@ -471,7 +468,10 @@ try {
   const actions = timeline.entries.filter((event) => event._tag === "action");
   assert.equal(actions.filter((event) => event.kind === "variable").length, 1);
   assert.ok(
-    actions.some((event) => event.description.includes("{{PASSWORD}}"))
+    actions.some(
+      (event) =>
+        event.variableName === "PASSWORD" && event.target?.value === sentinel
+    )
   );
   assert.equal(actions.filter((event) => event.kind === "activate").length, 1);
   const content = `---\nname: ${flowSkillName}\ndescription: Sign in using a private password. Use when checking the private login fixture.\ninputs:\n  - password\n---\n\n# Sign in privately\n\n1. Enter {{password}} in the private password field. Done when: the password field stays masked.\n2. Activate Sign in privately. Done when: Signed in privately is visible.\n`;

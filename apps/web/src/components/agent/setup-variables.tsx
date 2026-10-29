@@ -105,7 +105,7 @@ export const SetupVariables = ({
         action={
           <>
             <span className="text-muted-foreground hidden text-xs @xl:inline">
-              The agent sees status, never values
+              Values are visible in journey evidence
             </span>
             {collapse}
           </>
@@ -121,8 +121,7 @@ export const SetupVariables = ({
         title="Setup Variables"
       />
       <p className="text-muted-foreground text-xs @xl:hidden">
-        Supply private setup inputs here. The agent sees their status, never
-        their values.
+        Supply setup Variables here. Values are visible in journey evidence.
       </p>
       <div className="space-y-2.5">
         {waiting.map((variable) => (

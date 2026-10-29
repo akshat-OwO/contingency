@@ -350,8 +350,7 @@ export const AndroidVariables = ({
   if (variables.length === 0) {
     return null;
   }
-  let title =
-    session.kind === "dry-run" ? "Dry Run secrets" : "Private Variables";
+  let title = session.kind === "dry-run" ? "Dry Run Variables" : "Variables";
   if (variables.some((variable) => variable.setup)) {
     title = "Setup Variables";
   }

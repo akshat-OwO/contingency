@@ -214,9 +214,6 @@ const publicNodeName = (node: SnapshotNode, targetApp: string) => {
   if (node.bundleId !== targetApp) {
     return "Other window";
   }
-  if (node.password === true) {
-    return "Private field";
-  }
   return node.label ?? "";
 };
 

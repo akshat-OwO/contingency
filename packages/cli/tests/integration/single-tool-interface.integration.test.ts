@@ -355,7 +355,8 @@ it.live(
       expect(cancelSent.status).toBe(202);
       const ended = yield* Fiber.join(cancelled);
       // MCP sends no result for a cancelled request.
-      expect(ended.text).not.toContain('"result"');
+      expect(ended.status).toBe(202);
+      expect(ended.text).toBe("");
       expect(interpreterChildren()).toBe("");
 
       yield* Deferred.succeed(added.release, true);

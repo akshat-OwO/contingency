@@ -35,7 +35,7 @@ export const DOC_TOPICS = [
   },
   {
     description:
-      "Variables: declaring Flow Skill inputs, what secret and runtime mean, and how values are supplied.",
+      "Variables: declaring Flow Skill inputs, what runtime means, how values are supplied, and ignored legacy secret declarations.",
     title: "Variables",
     topic: "variables",
   },

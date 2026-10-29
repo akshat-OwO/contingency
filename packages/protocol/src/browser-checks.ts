@@ -125,9 +125,7 @@ export const browserCheckResultsField = Schema.optionalKey(
 );
 
 export const BrowserDiagnostics = Schema.Struct({
-  console: Schema.Array(
-    Schema.Struct({ level: text, text: Schema.Literal("[content withheld]") })
-  ),
+  console: Schema.Array(Schema.Struct({ level: text, text: Schema.String })),
   network: Schema.Array(
     Schema.Struct({
       method: text,
@@ -140,7 +138,7 @@ export const BrowserDiagnostics = Schema.Struct({
     Schema.Struct({
       kind: Schema.Literals(["cookie", "local", "session"]),
       name: text,
-      value: Schema.Literal("[value withheld]"),
+      value: Schema.String,
     })
   ),
   truncated: Schema.Boolean,

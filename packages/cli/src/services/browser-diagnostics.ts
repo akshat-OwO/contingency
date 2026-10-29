@@ -7,7 +7,6 @@ import { Effect, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import type { ConsoleMessage } from "playwright-core";
 
-import { redactKnownValues } from "./agent-browser.ts";
 import type {
   BrowserTarget,
   CreateBrowserService,
@@ -16,10 +15,10 @@ import type {
 export type BrowserDiagnosticsReader = (
   browser: CreateBrowserService,
   sessionId: SessionId,
-  privateValues: readonly string[]
+  _privateValues: readonly string[]
 ) => Effect.Effect<BrowserDiagnostics, BrowserRpcErrorType>;
 
-/** Console contents and all stored values stay private. No raw request headers or payloads escape. */
+/** Read bounded browser diagnostics with journey values intact. */
 export const makeBrowserDiagnostics = (
   target: BrowserTarget,
   scope: Scope.Scope
@@ -37,7 +36,7 @@ export const makeBrowserDiagnostics = (
         consoleEntries,
         [
           ...entries,
-          { level: message.type(), text: "[content withheld]" as const },
+          { level: message.type(), text: message.text().slice(0, 8192) },
         ].slice(-50)
       );
     };
@@ -52,7 +51,7 @@ export const makeBrowserDiagnostics = (
     return (
       browser: CreateBrowserService,
       sessionId: SessionId,
-      privateValues: readonly string[]
+      _privateValues: readonly string[]
     ) =>
       Effect.gen(function* readDiagnostics() {
         const active = yield* browser.activeTarget(sessionId);
@@ -68,16 +67,18 @@ export const makeBrowserDiagnostics = (
             active.tabId,
             kind
           );
-          const names =
+          const entries =
             snapshot.kind === "cookies"
-              ? snapshot.cookies.map((cookie) => cookie.name)
-              : Object.keys(snapshot.entries);
-          truncated ||= names.length > 50;
+              ? snapshot.cookies.map(
+                  (cookie) => [cookie.name, cookie.value] as const
+                )
+              : Object.entries(snapshot.entries);
+          truncated ||= entries.length > 50;
           storage.push(
-            ...names.slice(0, 50).map((name) => ({
+            ...entries.slice(0, 50).map(([name, value]) => ({
               kind: kind === "cookies" ? ("cookie" as const) : kind,
-              name: redactKnownValues(name, privateValues).slice(0, 256),
-              value: "[value withheld]" as const,
+              name: name.slice(0, 256),
+              value: value.slice(0, 8192),
             }))
           );
         }
@@ -88,10 +89,7 @@ export const makeBrowserDiagnostics = (
             network.push({
               method: request.method,
               origin: url.origin,
-              path: redactKnownValues(url.pathname, privateValues).slice(
-                0,
-                256
-              ),
+              path: url.pathname.slice(0, 256),
               status: request.status ?? null,
             });
           } catch {

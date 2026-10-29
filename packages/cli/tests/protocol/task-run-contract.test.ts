@@ -68,11 +68,10 @@ test("task reports require an explanation and browser evidence", () => {
   ).toThrow();
 });
 
-test("input identities reject unknown skills, duplicates, and secret literals", () => {
+test("input identities reject unknown skills and duplicates", () => {
   for (const inputs of [
     [{ flowSkillName: "unrequested", name: "product", value: "Mug" }],
     [taskRunSummary.inputs[0], taskRunSummary.inputs[0]],
-    [{ flowSkillName: "browse-catalogue", name: "TOKEN", value: "secret" }],
   ]) {
     expect(() => decodeTask({ ...taskRunSummary, inputs })).toThrow();
   }

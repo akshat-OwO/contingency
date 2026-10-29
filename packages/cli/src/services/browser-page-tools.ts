@@ -2,8 +2,6 @@ import { makeBrowserRpcError } from "@contingency/protocol";
 import { Effect, Option, Schema } from "effect";
 import type { CDPSession, Page } from "playwright-core";
 
-import { redactDevtoolsJson } from "./browser-devtools.ts";
-
 const failure = (message: string) =>
   makeBrowserRpcError("agent_browser_failed", message);
 
@@ -132,10 +130,10 @@ export const pageProfile = (
     },
   });
 
-/** Decode first so JSON escapes cannot hide private values in keys or values. */
-export const redactProfile = (data: string, secrets: readonly string[]) =>
+/** Validate captured profile JSON before returning it. */
+export const parseProfile = (data: string, _secrets: readonly string[]) =>
   Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))(data).pipe(
-    Effect.map((value) => JSON.stringify(redactDevtoolsJson(value, secrets))),
+    Effect.map((value) => JSON.stringify(value)),
     Effect.mapError(() =>
       failure("Could not read the captured profile as JSON.")
     )

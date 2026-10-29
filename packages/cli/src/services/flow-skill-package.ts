@@ -556,6 +556,20 @@ const emulationLines = (emulation: FlowSkillEmulation): string[] => {
   return lines;
 };
 
+const legacySecretDeclaration = /^\s+secret:\s*(?:true|false)\s*(?:#.*)?$/u;
+
+const withoutLegacySecretDeclarations = (content: string): string => {
+  const match = FRONTMATTER.exec(content);
+  if (match === null) {
+    return content;
+  }
+  const block = (match.groups?.block ?? "")
+    .split("\n")
+    .filter((line) => !legacySecretDeclaration.test(line))
+    .join("\n");
+  return `---\n${block}\n---${content.slice(match[0].length)}`;
+};
+
 export const stampFlowSkillProvenance = (
   content: string,
   provenance: {
@@ -570,7 +584,9 @@ export const stampFlowSkillProvenance = (
   }
   const [matched] = match;
   const stamped = [
-    ...withoutStampedKeys(match.groups?.block ?? ""),
+    ...withoutStampedKeys(match.groups?.block ?? "").filter(
+      (line) => !legacySecretDeclaration.test(line)
+    ),
     `runtime: ${JSON.stringify(provenance.runtime ?? browserRequirements)}`,
     ...(provenance.runtime?.platform === "android"
       ? []
@@ -698,11 +714,15 @@ const checkResidue = (
       )
     );
   }
+  const literalContent =
+    file.path === "SKILL.md"
+      ? withoutLegacySecretDeclarations(file.content)
+      : file.content;
   SECRET_LITERAL.lastIndex = 0;
   for (
-    let secret = SECRET_LITERAL.exec(file.content);
+    let secret = SECRET_LITERAL.exec(literalContent);
     secret !== null;
-    secret = SECRET_LITERAL.exec(file.content)
+    secret = SECRET_LITERAL.exec(literalContent)
   ) {
     const value = secret.groups?.value ?? "";
     if (PLACEHOLDER.test(value)) {

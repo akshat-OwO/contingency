@@ -150,7 +150,14 @@ const inputsInScope = (
     }
   }
   for (const variable of run.variables) {
-    if (inScope(variable.flowSkillName)) {
+    if (
+      inScope(variable.flowSkillName) &&
+      !run.inputs.some(
+        (input) =>
+          input.flowSkillName === variable.flowSkillName &&
+          input.name === variable.name
+      )
+    ) {
       entries.push({
         flowSkillName: variable.flowSkillName,
         kind: "variable",

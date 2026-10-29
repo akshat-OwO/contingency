@@ -5,8 +5,6 @@ import {
   CircleCheckIcon,
   CircleSlashIcon,
   CopyIcon,
-  EyeIcon,
-  EyeOffIcon,
   MessageSquareReplyIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -141,90 +139,76 @@ export const VariableField = ({
   readonly refuseLabel?: string;
   readonly supplyLabel: string;
   readonly value: string;
-}) => {
-  const [revealedAtom] = useState(() => Atom.make(false));
-  const [revealed, setRevealed] = useAtom(revealedAtom);
-  return (
-    <form
-      className="grid gap-x-2 gap-y-1 @lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] @lg:items-center"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      <div className="min-w-0">
-        <label
-          className="block truncate font-mono text-xs"
-          htmlFor={id}
-          title={label}
+}) => (
+  <form
+    className="grid gap-x-2 gap-y-1 @lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] @lg:items-center"
+    onSubmit={(event) => {
+      event.preventDefault();
+      onSubmit();
+    }}
+  >
+    <div className="min-w-0">
+      <label
+        className="block truncate font-mono text-xs"
+        htmlFor={id}
+        title={label}
+      >
+        {label}
+      </label>
+      {purpose === undefined ? null : (
+        <p
+          className="text-muted-foreground text-xs text-pretty @lg:truncate"
+          id={`${id}-purpose`}
+          title={purpose}
         >
-          {label}
-        </label>
-        {purpose === undefined ? null : (
-          <p
-            className="text-muted-foreground text-xs text-pretty @lg:truncate"
-            id={`${id}-purpose`}
-            title={purpose}
-          >
-            {purpose}
-          </p>
-        )}
-      </div>
-      <div className="flex min-w-0 items-center gap-1.5 @lg:contents">
-        <InputGroup className="bg-background h-8 min-w-0 flex-1">
-          <InputGroupInput
-            aria-describedby={
-              purpose === undefined ? undefined : `${id}-purpose`
-            }
-            autoComplete="off"
-            disabled={disabled || pending}
-            id={id}
-            onChange={(event) => onValueChange(event.target.value)}
-            placeholder="Private value"
-            required
-            type={revealed ? "text" : "password"}
-            value={value}
-          />
-          <InputGroupAddon align="inline-end">
-            <InputGroupButton
-              aria-label={revealed ? "Hide value" : "Show value"}
-              aria-pressed={revealed}
-              onClick={() => setRevealed((current) => !current)}
-              size="icon-xs"
-            >
-              {revealed ? <EyeOffIcon /> : <EyeIcon />}
-            </InputGroupButton>
-            <InputGroupButton
-              aria-label={supplyLabel}
-              disabled={disabled || pending || value.length === 0}
-              type="submit"
-              variant="default"
-            >
-              Supply
-            </InputGroupButton>
-          </InputGroupAddon>
-        </InputGroup>
-        {onRefuse === undefined ? null : (
-          <Button
-            aria-label={refuseLabel}
-            disabled={disabled || pending}
-            onClick={onRefuse}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Refuse
-          </Button>
-        )}
-      </div>
-      {error === undefined ? null : (
-        <p className="text-destructive text-xs @lg:col-span-3" role="alert">
-          {error}
+          {purpose}
         </p>
       )}
-    </form>
-  );
-};
+    </div>
+    <div className="flex min-w-0 items-center gap-1.5 @lg:contents">
+      <InputGroup className="bg-background h-8 min-w-0 flex-1">
+        <InputGroupInput
+          aria-describedby={purpose === undefined ? undefined : `${id}-purpose`}
+          autoComplete="off"
+          disabled={disabled || pending}
+          id={id}
+          onChange={(event) => onValueChange(event.target.value)}
+          placeholder="Value"
+          required
+          type="text"
+          value={value}
+        />
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton
+            aria-label={supplyLabel}
+            disabled={disabled || pending || value.length === 0}
+            type="submit"
+            variant="default"
+          >
+            Supply
+          </InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
+      {onRefuse === undefined ? null : (
+        <Button
+          aria-label={refuseLabel}
+          disabled={disabled || pending}
+          onClick={onRefuse}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          Refuse
+        </Button>
+      )}
+    </div>
+    {error === undefined ? null : (
+      <p className="text-destructive text-xs @lg:col-span-3" role="alert">
+        {error}
+      </p>
+    )}
+  </form>
+);
 
 /** An input that is no longer waiting, collapsed to one quiet line. */
 export const AnsweredVariable = ({

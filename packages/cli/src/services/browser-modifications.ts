@@ -12,7 +12,7 @@ import { Effect, Ref } from "effect";
 import { isTopLevelDocumentRequest } from "./agent-navigation-boundary.ts";
 import { agentSessionError } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
-import { boundedDevtoolsText, redactDevtoolsText } from "./browser-devtools.ts";
+import { boundedDevtoolsText } from "./browser-devtools.ts";
 import type { BrowserTarget } from "./create-browser-contract.ts";
 import { domainScopeCovers, webHost } from "./domain-scope.ts";
 
@@ -119,7 +119,7 @@ export const modificationDescription = (
   let description: string;
   switch (command.action) {
     case "cookie_set": {
-      description = `Set cookie ${command.cookie.name} on ${command.cookie.domain}${command.cookie.path}: [redacted]`;
+      description = `Set cookie ${command.cookie.name} on ${command.cookie.domain}${command.cookie.path}: ${command.cookie.value}`;
       break;
     }
     case "cookie_clear": {
@@ -147,7 +147,7 @@ export const modificationDescription = (
       break;
     }
   }
-  return redactDevtoolsText(description, secrets);
+  return description;
 };
 
 const attempt = <A>(

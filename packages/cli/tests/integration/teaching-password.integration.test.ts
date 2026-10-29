@@ -53,7 +53,7 @@ const typeAsUser = (sessionId: AgentSessionId, text: string) =>
     }
   });
 
-it.live("records typing into a password field as one withheld fill", () =>
+it.live("records typing into a password field as one literal fill", () =>
   Effect.gen(function* recordPasswordFill() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
@@ -118,13 +118,13 @@ it.live("records typing into a password field as one withheld fill", () =>
         expect(password?.target).toMatchObject({
           name: "Password",
           role: "textbox",
-          value: "[sensitive input]",
-          valueWithheld: true,
+          value: PASSWORD,
+          valueWithheld: false,
         });
         expect(password?.before.nodeCount).toBeGreaterThan(0);
         expect(password?.after.nodeCount).toBeGreaterThan(0);
         expect(password?.after.title).toBe("Sign in");
-        expect(JSON.stringify(timeline)).not.toContain(PASSWORD);
+        expect(JSON.stringify(timeline)).toContain(PASSWORD);
       }).pipe(Effect.provide(agentProcessLayer(root)))
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

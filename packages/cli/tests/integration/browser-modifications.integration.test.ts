@@ -338,7 +338,7 @@ it.live(
             }),
           ]),
         });
-        expect(JSON.stringify(summary)).not.toContain("private-cookie");
+        expect(JSON.stringify(summary)).toContain("private-cookie");
         const reopened = yield* runTool("open_run", { runId: summary.runId });
         expect(reopened.summary).toMatchObject({
           browserModifications: summaryModifications(summary),
@@ -453,7 +453,7 @@ it.live(
         for (const command of commands.slice(0, 6)) {
           expect(
             JSON.stringify(yield* sessions.devtools(teaching.id, command))
-          ).not.toContain(secret);
+          ).toContain(secret);
         }
         for (const command of commands.slice(6, 8)) {
           expect(
@@ -684,18 +684,18 @@ it.live(
           operationId: OperationId.make("composed-complete"),
           sessionId: run.id,
         });
-        expect(JSON.stringify(summary)).not.toContain(secret);
+        expect(JSON.stringify(summary)).toContain(secret);
         if (!("schemaVersion" in summary)) {
           return yield* Effect.die("Expected task Run Summary");
         }
         expect(JSON.stringify(summaryModifications(summary))).toContain(
-          "response [sensitive input]"
+          `response ${secret}`
         );
         expect(
           summaryModifications(summary)?.every((entry) => entry.at.length > 0)
         ).toBe(true);
         const reopened = yield* runTool("open_run", { runId: summary.runId });
-        expect(JSON.stringify(reopened.summary)).not.toContain(secret);
+        expect(JSON.stringify(reopened.summary)).toContain(secret);
         expect(reopened.summary).toMatchObject({
           browserModifications: summaryModifications(summary),
         });

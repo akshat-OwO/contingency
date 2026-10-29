@@ -397,11 +397,10 @@ it.live(
             value: secret,
           });
           const redacted = decodeCapture(yield* call(stop));
-          expect(redacted.data).not.toContain(
-            JSON.stringify(secret).slice(1, -1)
-          );
           if (kind === "trace") {
-            expect(redacted.data).toContain("[sensitive input]");
+            expect(redacted.data).toContain(
+              JSON.stringify(secret).slice(1, -1)
+            );
             const trace = Schema.decodeUnknownSync(
               Schema.Struct({
                 traceEvents: Schema.Array(

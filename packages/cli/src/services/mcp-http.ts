@@ -1,5 +1,6 @@
-import { Layer } from "effect";
+import { Cause, Effect, Layer } from "effect";
 import { McpProtocol, McpServer } from "effect/ai";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 
 import { makeHostMiddleware } from "../routes/rpc.ts";
 import type { DemoSiteService } from "./demo-site.ts";
@@ -214,6 +215,18 @@ export const makeMcpHttpLayer = <R = never>(
         McpProtocol.v2026_07_28,
       ],
       version: "0.0.1",
-    }),
+    }).pipe(
+      Layer.provide(
+        // Effect's MCP codec suppresses cancelled results. Its empty response
+        // queue ends with Done, which is successful completion, not an HTTP error.
+        HttpRouter.middleware((httpEffect) =>
+          httpEffect.pipe(
+            Effect.catchIf(Cause.isDone, () =>
+              Effect.succeed(HttpServerResponse.empty({ status: 202 }))
+            )
+          )
+        ).layer
+      )
+    ),
     makeMcpCatalogLayer(options)
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

@@ -1623,13 +1623,13 @@ it.effect(
           cursor: 0,
           recordingId,
         });
-        expect(JSON.stringify(timeline)).toContain("{{PASSWORD}}");
-        expect(JSON.stringify(timeline)).not.toContain(sentinel);
+        expect(JSON.stringify(timeline)).toContain('"variableName":"PASSWORD"');
+        expect(JSON.stringify(timeline)).toContain(sentinel);
         const events = yield* fs.readFileString(
           path.join(store.directory(recordingId), "events.jsonl")
         );
-        expect(events).not.toContain(sentinel);
-        expect(events).toContain('"valueWithheld":true');
+        expect(events).toContain(sentinel);
+        expect(events).toContain('"valueWithheld":null');
         const saved = yield* learning.save({
           claimOperationId: op("private-claim"),
           files: [{ content: privateSkill, path: "SKILL.md" }],

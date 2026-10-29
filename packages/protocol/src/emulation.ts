@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, SchemaGetter } from "effect";
 
 import { BrowserIdentity, UserAgentProfileId } from "./browser-identity.ts";
 import { optionalNullable } from "./optional-field.ts";
@@ -6,16 +6,19 @@ import { Viewport } from "./viewport.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 
-/**
- * A named value a Flow Skill declares but does not contain. `secret`
- * marks sensitive values; `runtime` marks values supplied when running.
- * The two are independent:
- * a 2FA code is both, a target environment URL is neither.
- */
+/** Accepted for old clients, discarded on decode and encode. */
+export const IgnoredSecret = Schema.optionalKey(Schema.Boolean).pipe(
+  Schema.decodeTo(Schema.optionalKey(Schema.Boolean), {
+    decode: SchemaGetter.omit(),
+    encode: SchemaGetter.omit(),
+  })
+);
+
+/** A named journey input. Runtime controls interactive prompting. */
 export const Variable = Schema.Struct({
   name: nonEmptyString,
   runtime: Schema.Boolean,
-  secret: Schema.Boolean,
+  secret: IgnoredSecret,
 });
 export type Variable = typeof Variable.Type;
 

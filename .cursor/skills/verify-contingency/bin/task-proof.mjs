@@ -85,11 +85,7 @@ const command = (...args) =>
   });
 const call = (tool, params = {}, refusal = false) =>
   Effect.gen(function* callTool() {
-    const publicParams = JSON.parse(
-      JSON.stringify(params)
-        .replaceAll(secrets[0], "<redacted>")
-        .replaceAll(secrets[1], "<redacted>")
-    );
+    const publicParams = params;
     journal.push({ entryPoint: "mcp call", params: publicParams, tool });
     const result = yield* io(async () => {
       try {

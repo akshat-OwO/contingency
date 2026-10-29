@@ -13,8 +13,8 @@ import {
   validatePlatformRequirements,
 } from "./platform-requirements.ts";
 
-/** Uppercase declarations use private on-demand Variables instead of ordinary inputs. */
-export const PRIVATE_INPUT_NAME = /^[A-Z][A-Z0-9_]*$/u;
+/** Variable references use uppercase names at the entry boundary. */
+export const VARIABLE_REFERENCE_NAME = /^[A-Z][A-Z0-9_]*$/u;
 
 const invalid = (message: string) => ({
   code: "flow_skill_invalid" as const,
@@ -60,19 +60,12 @@ export const readRequestedSkills = (names: readonly FlowSkillName[]) =>
   });
 
 export const taskVariables = (skill: FlowSkillPackage) =>
-  skill.inputs.flatMap((input) =>
-    PRIVATE_INPUT_NAME.test(input.name)
-      ? [
-          {
-            flowSkillName: skill.name,
-            name: input.name,
-            runtime: true,
-            secret: true,
-            supplied: false,
-          },
-        ]
-      : []
-  );
+  skill.inputs.map((input) => ({
+    flowSkillName: skill.name,
+    name: input.name,
+    runtime: true,
+    supplied: false,
+  }));
 
 export const validateTaskInputs = (
   skills: readonly FlowSkillPackage[],
@@ -87,12 +80,11 @@ export const validateTaskInputs = (
       if (
         skill === undefined ||
         !skill.inputs.some((declared) => declared.name === input.name) ||
-        PRIVATE_INPUT_NAME.test(input.name) ||
         identities.has(identity)
       ) {
         return yield* Effect.fail(
           invalid(
-            `Input ${input.flowSkillName}/${input.name} must be a unique declared ordinary input. Private values use on-demand Variable decisions.`
+            `Input ${input.flowSkillName}/${input.name} must be a unique declared input.`
           )
         );
       }
