@@ -24,6 +24,7 @@ Read [ADR 0066](../adr/0066-ios-simulator-is-the-next-platform-runtime.md), [ADR
 | ScreenCaptureKit on the host Simulator window | Screen Recording preflight false; no capture attempted | Reject as the default backend for this milestone. A human TCC grant and a correctly identified host window would be prerequisites. |
 | agent-device recording or screenshots | Source inspection shows wrappers around the same `simctl` paths | Reject as a distinct streaming backend. Keep stock agent-device for the semantic driver. |
 | Direct CoreSimulator IOSurface helper | 26.98 fps on 27.1; 26.70 fps on 26.5; browser decoded 27.0 fps | Recommend, with the production conditions below. |
+| serve-sim `SimCapture` AVCC, from expo-device-hub 0.19.0 ([#579](https://github.com/akshat-OwO/contingency/issues/579)) | 59.90 fps on 26.5; 1,030 decoded frames, all distinct | Reject for now. Frames carry no sequence, source counter or timestamp, so loss is silent. |
 
 ### Screenshot polling
 
@@ -60,6 +61,42 @@ Inspection of `platform-runtime-screen-recording-apple-transport.js`, `platform-
 - Preferred simulator screenshots call `simctl io screenshot`. The path includes retries and can fall back to the XCTest runner.
 
 Source hashes are in the evidence file. The agent-device command path was not run as a separate benchmark, so no wrapper latency or CPU overhead is claimed. Its packaging and runner costs already belong to the semantic driver. Using its recording lifecycle as Teaching's authority would add a second interval owner without supplying live loss telemetry. A private upstream recorder API is also a less stable integration point than a narrow transport Contingency owns.
+
+### serve-sim through expo-device-hub 0.19.0
+
+[Issue 579](https://github.com/akshat-OwO/contingency/issues/579) asked whether expo-device-hub 0.19.0's serve-sim could replace the shipped helper in `packages/cli/ios/framebuffer/`. It cannot yet. serve-sim meets the interval, slow-consumer and permission criteria and outperforms the helper on cadence. It does not meet the loss-detection criterion. Contingency keeps the helper and its build and hash pinning, still pins expo-device-hub 0.15.3, and ADR 0066 is unchanged.
+
+The check ran on 2026-10-29 on the same host, macOS 27.0.1 and Xcode 27.1 build 27A9275. Both backends ran sequentially against one spike-created iPhone 17 Pro on iOS 26.5, `35E9731F-BB63-4705-AAD5-285ADE1A4394`, showing the public moving fixture. The helper was built from `packages/cli/ios/framebuffer/framebuffer.m`, with the same flags as `build-ios-framebuffer.ts`. serve-sim was loaded in Node 24.22.2 from a fresh extraction of the registry tarball, whose sha512 integrity matched the registry. The harness loaded only the `SimCapture` class from `vendor/serve-sim/dist/native/serve-sim-native.node`. It started no HTTP server, hub, HID client or exec route.
+
+| Measurement | Contingency helper | serve-sim `SimCapture`, AVCC |
+| --- | --- | --- |
+| Delivered cadence, 12 s | 26.51 and 25.21 fps; 318 of 318 JPEGs distinct | 59.90 fps; 1,030 of 1,030 decoded H.264 frames distinct |
+| Output size | 720 × 1566 JPEG, 50 KB base64 mean | 1206 × 2622 H.264, 748 bytes mean per frame for this fixture |
+| Start to first frame | 40.0 and 16.2 ms | `start()` 161.8 ms, then subscribe to first keyframe 830.0 ms |
+| Latency inside the backend | Sample to encode 4.0 / 4.9 ms; callback to encode 13.0 / 20.1 ms, median / p95 | Not observable: frames carry no capture or encode timestamp. Inter-arrival 16.7 / 16.9 ms, median / p95 |
+| Frames before Start | 0 bytes in 300 ms before `start` | 0 callbacks in 300 ms before `start()`, and 0 after `start()` before subscribing |
+| Frames after Stop | 0 after `stop`; exit 0 in 6.5 and 11.4 ms | 0 in 1 s after unsubscribing, and 0 after `stop()` |
+| Loss and gap detection | Output `sequence` contiguous. A 3 s reader stall shows as a 2,870 ms `sampledMs` gap and a 172-callback `sourceSequence` jump | None. A subscriber taking 500 ms per frame got 10 frames in 6 s, with no counter, gap marker or error |
+| Slow consumer | Pipe backpressure blocks the helper at 0.5% CPU and 41.25 MiB. `ios-stream.ts` disconnects a viewer whose queue fills | Bounded per subscriber: one pending frame. The fast subscriber kept 59.98 fps, maximum gap 17.8 ms. RSS grew 1.4 MiB |
+| CPU, one core | 10.9–16.0% while streaming | 6.9–14.0% while streaming, including Node and the harness |
+| Memory | 40.9–41.3 MiB RSS | 92.6–99.0 MiB RSS for the Node process. Node alone was 45.2 MiB; loading the addon added 30.7 MiB |
+| Screen Recording | No prompt; preflight false | No prompt; preflight false; no TCC ScreenCapture log entry |
+| Shipped binary | Built and ad hoc signed per host, arm64 or x64, with source and binary SHA-256 | Prebuilt arm64-only addon and a 12 MB LiveKitWebRTC framework, ad hoc signed. No native source in the package |
+
+Both CPU columns are per-process samples and exclude CoreSimulator and the guest. The serve-sim numbers include the Node runtime, because the addon runs in-process. serve-sim encoded at its native panel size and 60 fps, the hub defaults. The helper samples at 30 fps and scales to 720 pixels wide. The cadence and size columns therefore compare defaults, not equal work.
+
+Source inspection of `serve-sim` 0.1.48, with its Swift sources, and the expo-device-hub 0.19.0 vendor copy found:
+
+- **The hub vendors a fork, not serve-sim 0.1.48.** Its `NOTICE` calls it an Expo fork. Its addon is a different binary, `ea974bc5…` against `733e286a…`, arm64 only rather than universal, and has a wider constructor: `SimCapture(udid, mjpegFps, mjpegQuality, maxDimension, h264Fps, h264Bitrate, screenId)`. The package publishes no Swift source for it, so the 0.1.48 sources describe the fork only by inference. The addon is not a public export; Contingency would load it by path, as the Android worker does with `vendor/serve-emu/dist/scrcpy.js`.
+- **Start and Stop for one UDID.** `new SimCapture(udid, …)` binds one simulator. `start()` registers CoreSimulator frame callbacks on the IOSurface and adds a 60 Hz poll and a 5 fps idle floor. `subscribe(codec, onFrame)` adds a per-subscriber encoder and returns an unsubscribe function. `stop()` drops every consumer. The addon dynamically loads private CoreSimulator, SimulatorKit and CoreDevice frameworks.
+- **Wire format.** Every AVCC chunk is a 4-byte big-endian length, a tag and a payload. Tag 1 is the avcC description, 2 an IDR keyframe, 3 a delta and 4 a JPEG seed. The HTTP route `/stream.avcc` writes the cached latest JPEG as a seed before any H.264, so its first image can predate the request. Input travels on a separate WebSocket, `/ws`, as one type byte and a JSON body.
+- **Loss.** The capture engine and each subscriber hold `AsyncStream` buffers with `bufferingNewest(1)`. They replace frames under backpressure by design and record nothing. Without a counter or timestamp, Contingency cannot distinguish a stalled subscriber, a dropped source frame and a static screen above the 5 fps idle floor.
+- **Authentication.** serve-sim's middleware serves an unauthenticated preview page that embeds a per-process bearer token, and `POST /exec` and an exec WebSocket run host shell commands with that token. The hub CLI binds `127.0.0.1` by default and has `--require-token`, `--single-device <udid>` and CORS and frame-ancestor allowlists, but it also serves device boot, create, remove and shutdown routes. Adopting the HTTP path would need T3's approach: a supervised loopback child behind a route allowlist that never forwards `/exec`, the exec WebSocket, `/grid/api` or `/api/devices`. Loading `SimCapture` in a Contingency-owned worker avoids every route.
+- **Android.** `startScrcpy`'s signature, scrcpy version 4.0 and the frame reader are unchanged between 0.15.3 and 0.19.0. The only change filters server arguments that equal scrcpy's defaults. An upgrade would not require Android code changes, but none was made.
+
+Adopting serve-sim needs, at minimum, a per-frame capture timestamp and a source or drop counter from the native layer, x64 coverage or a decision to drop it, and published source for the vendored addon. Contingency must not patch it. Revisit when upstream ships those. A worker that loads `SimCapture` and maps it onto `ios-stream-integrity.ts` would then keep Contingency's Start and Stop gate, its credentials and its integrity manifest. The slow-consumer bound and lower CPU already favour that design.
+
+No Android or iOS Workspace proof ran, because no product code changed. The spike simulator was shut down and deleted by exact UDID. The cleanup audit found no harness, helper or fixture process and no new listening port, and the executed package extraction was removed. Raw results are in `/tmp/ss579-evidence/` on the measuring host and were not committed.
 
 ## Prototype evidence
 
