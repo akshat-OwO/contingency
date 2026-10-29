@@ -812,22 +812,29 @@ Activity rules: `tabs`, `downloads`, `clipboard_read`, and profiling are observa
 
 ## iOS Workspace (internal)
 
-Feature id: `ios-workspace-runs`. Entry points: the opt-in Workspace **iOS** button, mirrored Teaching, and the internal Workspace RPC used by the verification harness. Public device MCP continues to return `ios_support_matrix_unproven`.
+Feature id: `ios-workspace-runs`. Entry points: the opt-in Workspace **iOS** button, mirrored Teaching, and internal Workspace RPC. Public device MCP continues to return `ios_support_matrix_unproven`.
 
-Preconditions: macOS with Xcode and an available iOS 26.5 iPhone 17 Pro runtime. Check memory and swap before each build or device proof. Build with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force`. Build `fixtures/ios-login` into an owned temporary directory. Create an owned shutdown template using that runtime and device type; never boot, alter, or delete a pre-existing simulator. Export its UDID as `CONTINGENCY_IOS_TEMPLATE` and the fixture app path as `CONTINGENCY_IOS_FIXTURE`.
+Preconditions: macOS with Xcode and an installed iOS 26.5 or 27.1 iPhone runtime. Check memory and swap before each build or device proof. Run one heavy command at a time. Build with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force`. Build `fixtures/ios-login` into an owned temporary directory. Create an owned shutdown template with that runtime and device type; never boot, alter, or delete a pre-existing simulator. Export its exact UDID as `CONTINGENCY_IOS_TEMPLATE` and the fixture path as `CONTINGENCY_IOS_FIXTURE`.
 
-Launch with `CONTINGENCY_IOS_WORKSPACE_INTERNAL=1 CONTINGENCY_MCP_INTERFACE=native`, export the printed `CONTINGENCY_VERIFY_DIR`, run `doctor`, and start MCP with the same environment. On hosts where the shebang cannot resolve nub, invoke `nub bin/control-contingency` from the skill directory.
+Launch with `CONTINGENCY_IOS_WORKSPACE_INTERNAL=1 CONTINGENCY_MCP_INTERFACE=native`, export `CONTINGENCY_VERIFY_DIR`, run `doctor`, and start MCP with the same environment.
 
 ```sh
 nub .cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs
+```
+
+The proof opens **iOS**, completes setup, presses **Prepare Session Simulator**, and teaches through the mirror. `browser ios-pick` waits for a fresh canvas observation and sends a pointer pick. Enter the Login name, request and supply PASSWORD, and choose **Enter PASSWORD** at the Password field. The value is ordinary test text, `fixture-password`. Activate **Sign in privately**, **Open account**, and **Return to account**.
+
+After Stop, public learning MCP must return five actions: `fill`, `variable`, and three `activate` entries. The readable fill is `confirmed`; the secure fill is `unconfirmed`. Variable values appear in runtime evidence. The learned skill stores `{{PASSWORD}}`, never its value. The proof saves the skill, completes a fresh `working` Dry Run, chooses **Verify flow**, reads back `verified` and `purged`, and completes another fresh Run.
+
+On the later Run, two agent attempts mark **Open account** irreversible. Workspace must show the exact action and enabled **Allow** and **Refuse**. Refuse leaves the account visible. Allow opens details once; replaying the operation cannot repeat it. Each attempt has a distinct Pending Decision. Then the agent activates **Request notifications permission**, observes the system alert, and activates **Allow** through internal Workspace RPC. The session stays `running`, and the account is visible after the answer. Untaught controls and other apps are permitted throughout the Session Simulator.
+
+Optional separate limits proofs, after the main journey:
+
+```sh
 nub .cursor/skills/verify-contingency/bin/ios-limits-proof.mjs
 nub .cursor/skills/verify-contingency/bin/ios-slow-consumer-proof.mjs
 ```
 
-The first proof opens **iOS**, completes the setup sheet, presses **Prepare Session Simulator**, and teaches through the mirror. `browser ios-pick` waits for a fresh observation bound to the canvas and sends a real pointer pick. `browser ios-click --name <name>` waits for the actual Workspace command reply. Dock typing enters the public name. Rotation keeps the recording active; an old-size pick must return “The stream size or orientation changed. No input was sent.” A fresh pick then continues the same recording.
+These cover public MCP gating, single binding, Takeover, raw-coordinate and Back refusals, edge swipe, authenticated view-only transport, framebuffer loss, same-simulator recovery, and a stalled viewer. Run them only when requested coverage and available memory permit additional live proofs. Physical selections must return `physical_device_unsupported` before device commands; discovery lists simulators only.
 
-After Stop, the proof claims and reads the Teaching Timeline through public learning MCP. It requires four semantic actions with before/after iOS observations, saves the learned Flow Skill, passes a fresh `working` Dry Run, presses **Verify flow**, reads back `verified` and `purged`, and passes another fresh Run. Run the scripts in the listed order: the limits proof requires the Flow Skill saved by the main journey. The second proof checks public MCP gating, one simulator binding, Takeover authority, raw-coordinate and Back refusals, Private Variables, and real notification-alert and Settings ownership pauses, then returns to the Target App and recovers on the same Session Simulator. It kills only the exact owned framebuffer helper midway through recording, checks failed capture, and recovers the same simulator. The third proof stops reading an authenticated viewer and requires a `slow-consumer` gap with failed capture.
-
-Read `artifacts/ios-workspace-runs/receipt.json`, `timeline.json`, `limits.json`, the command journal, ARIA snapshots, and screenshots. Retain only sanitized public evidence. Each proof closes the sessions it creates on failure as well as success. Run `control-contingency cleanup`, delete the owned template by exact UDID, remove the owned fixture build directory, and audit every recorded process, listener and simulator. Evidence survives cleanup. Developer ID signing, notarization and clean-host qualification belong to #550.
-
-Current #548 status: the read-only Contingency AX authority requires positive Target App ownership on the bound Session Simulator. Settings and system UI pause on `ownership_unknown`; explicit recovery must retain that same device. A fresh main journey still fails at the first public input with `ownership_unknown`, so qualification remains blocked. The entry remains internal. See `docs/reports/ios-workspace-runs.md`; do not treat a passing journey as complete ownership or Support Matrix proof.
+Read `artifacts/ios-workspace-runs/receipt.json`, `timeline.json`, the journal, ARIA snapshots, and screenshots. Each proof closes its sessions on failure and success. Run `control-contingency cleanup`, delete the owned template by exact UDID, remove the owned fixture directory, and audit every recorded process, listener, and simulator. Preserve user simulators and the T3 daemon. Evidence survives cleanup. Rotation, display replacement, Stop races, signing, clean-host qualification, and the full Support Matrix need their own evidence. See `docs/reports/ios-workspace-runs.md` for the current result.

@@ -1,5 +1,5 @@
-# Public iOS login fixture
+# iOS login fixture
 
-Build for the selected simulator SDK with `sh build.sh <owned-output-directory>`. The app contains only public input. It mirrors the Android login journey: enter `Public Shopper`, sign in, open account details, and return to the account.
+Build with `sh build.sh <owned-output-directory>`. Enter a Login name and the ordinary PASSWORD value `fixture-password`, activate **Sign in privately**, open account details, and return. The secure text field cannot confirm exact readback; sign-in establishes whether its value was entered correctly. Saved skills use `{{PASSWORD}}`.
 
-The two extra buttons request the real notification permission and open Settings. Use these only on the fresh Session Simulator created by the proof. They exercise `ownership_unknown`; no permission is granted and no private text is supplied. The app supports portrait and landscape for the rotation proof.
+**Request notifications permission** opens a real system alert. **Open device settings** opens Settings. Use them only on a Session Simulator created by the proof. The app supports portrait and landscape.

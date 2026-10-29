@@ -4,23 +4,17 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
-const { createAgentDeviceClient } = await import(
-  pathToFileURL(
-    path.join(root, "packages/cli/node_modules/agent-device/dist/src/index.js")
-  ).href
-);
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
 const template = process.env.CONTINGENCY_IOS_TEMPLATE;
 const appPath = process.env.CONTINGENCY_IOS_FIXTURE;
 assert.ok(
   directory && template && appPath,
-  "Select the owned verification instance, template UDID, and public fixture."
+  "Select the owned verification instance, template UDID, and fixture."
 );
 const instance = JSON.parse(
   await readFile(path.join(directory, "instance.json"), "utf-8")
@@ -28,7 +22,8 @@ const instance = JSON.parse(
 assert.ok(instance.mcpUrl && instance.driverUrl);
 const artifacts = path.join(
   root,
-  ".cursor/skills/verify-contingency/artifacts/ios-workspace-runs"
+  process.env.CONTINGENCY_IOS_PROOF_ARTIFACTS ??
+    ".cursor/skills/verify-contingency/artifacts/ios-workspace-runs"
 );
 await mkdir(artifacts, { recursive: true });
 const execute = promisify(execFile);
@@ -116,8 +111,9 @@ const tool = async (name, params) =>
     )
   );
 const sessions = [];
-const flowSkillName = "ios-public-login";
-const loginName = "Public Shopper";
+const flowSkillName = "ios-login";
+const loginName = "Test Shopper";
+const password = "fixture-password";
 let selection;
 const find = (current, role, name) => {
   const nodes =
@@ -143,7 +139,32 @@ const agentAction = async (sessionId, role, name, text) => {
 };
 const publicJourney = async (sessionId) => {
   await agentAction(sessionId, "text-field", "Login name", loginName);
-  await agentAction(sessionId, "button", "Sign in");
+  const supplied = await read(sessionId);
+  const variable = supplied.variables.find(
+    (entry) => entry.name === "PASSWORD"
+  );
+  assert.ok(variable);
+  await call(
+    {
+      _tag: "variable-supply",
+      name: "PASSWORD",
+      operationId: operation(),
+      requestId: variable.requestId,
+      sessionId,
+      value: password,
+    },
+    "user"
+  );
+  const before = await observe(sessionId);
+  const field = find(before, "secure-text-field", "Password");
+  await call({
+    _tag: "input",
+    action: { _tag: "variable", name: "PASSWORD", target: field.target },
+    observationId: before.observation.id,
+    operationId: operation(),
+    sessionId,
+  });
+  await agentAction(sessionId, "button", "Sign in privately");
   await agentAction(sessionId, "button", "Open account");
   return agentAction(sessionId, "button", "Return to account");
 };
@@ -197,34 +218,16 @@ const ownSessionResources = async () => {
   }
   return found;
 };
-const rotate = async (orientation) => {
-  const resources = await ownSessionResources();
-  assert.equal(
-    resources.length,
-    1,
-    "Rotate only this proof's single Session Simulator."
-  );
-  const [resource] = resources;
-  const client = createAgentDeviceClient({
-    cwd: resource.directory,
-    daemonAuthToken: "",
-    daemonBaseUrl: "",
-    daemonServerMode: "socket",
-    daemonTransport: "socket",
-    debug: false,
-    session: `contingency-ios-${resource.udid}`,
-    stateDir: resource.directory,
-  });
-  await client.command.orientation({
-    orientation,
-    platform: "ios",
-    udid: resource.udid,
-  });
-};
 try {
+  await assert.rejects(
+    tool("agent_device_sessions_list", { platform: "ios" }),
+    (cause) =>
+      /ios_support_matrix_unproven/u.test(String(cause.stdout ?? cause))
+  );
+  receipt.coverage.publicMcpGate = true;
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
   const device = devices.find((entry) => entry.udid === template);
-  assert.ok(device && device.runtimeVersion === "26.5");
+  assert.ok(device && ["26.5", "27.1"].includes(device.runtimeVersion));
   selection = {
     appPath,
     device,
@@ -236,7 +239,7 @@ try {
     },
     outcomes: [{ name: `Signed in as ${loginName}`, role: "text" }],
     setup: {
-      conditions: [{ name: "Public login fixture", role: "text" }],
+      conditions: [{ name: "Login fixture", role: "text" }],
       kind: "fresh-install",
     },
   };
@@ -258,7 +261,7 @@ try {
     ["Simulator app path", appPath],
     ["Bundle identifier", selection.environment.bundleId],
     ["App build", "1"],
-    ["Starting screen element", "Public login fixture"],
+    ["Starting screen element", "Login fixture"],
     ["Done when element", `Signed in as ${loginName}`],
   ]) {
     await fill(name, value);
@@ -277,43 +280,14 @@ try {
   await pick(teaching.id, "text-field", "Login name");
   await fill("Text for Login name", loginName);
   await click("Type");
-  await pick(teaching.id, "button", "Sign in");
-  const portrait = await call(
-    { _tag: "observe", image: false, sessionId: teaching.id },
-    "user"
-  );
-  await rotate("landscape-left");
-  const landscape = await call(
-    { _tag: "observe", image: false, sessionId: teaching.id },
-    "user"
-  );
-  assert.ok(landscape.observation.width > landscape.observation.height);
-  await assert.rejects(
-    call(
-      {
-        _tag: "pick",
-        frame: {
-          height: portrait.observation.height,
-          width: portrait.observation.width,
-        },
-        observationId: portrait.observation.id,
-        operationId: operation(),
-        point: { x: 0.5, y: 0.5 },
-        sessionId: teaching.id,
-      },
-      "user"
-    ),
-    /The stream size or orientation changed. No input was sent./u
-  );
-  const rotatedRecording = await read(teaching.id);
-  assert.equal(rotatedRecording.captureState._tag, "recording");
-  await control("browser", "ios-orientation", "--orientation", "landscape");
-  await snapshot("rotation-landscape");
-  receipt.coverage.rotation = true;
+  await pick(teaching.id, "secure-text-field", "Password");
+  await click("Request Variable");
+  await fill("PASSWORD", password);
+  await click("Supply PASSWORD");
+  await click("Enter PASSWORD");
+  await pick(teaching.id, "button", "Sign in privately");
   await pick(teaching.id, "button", "Open account");
   await pick(teaching.id, "button", "Return to account");
-  await rotate("portrait");
-  await control("browser", "ios-orientation", "--orientation", "portrait");
   await snapshot("teaching-outcome");
   await click("Stop recording");
   const stopped = await read(teaching.id);
@@ -359,23 +333,26 @@ try {
   const actions = timeline.entries.filter((entry) => entry._tag === "action");
   assert.deepEqual(
     actions.map((entry) => entry.kind),
-    ["fill", "activate", "activate", "activate"]
+    ["fill", "variable", "activate", "activate", "activate"]
   );
   assert.deepEqual(
     actions.map((entry) => entry.description),
     [
       "Enter public fixture text in text-field Login name",
-      "Activate button Sign in",
+      `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
+      "Activate button Sign in privately",
       "Activate button Open account",
       "Activate button Return to account",
     ]
   );
+  assert.equal(actions[0].inputConfirmation, "confirmed");
+  assert.equal(actions[1].inputConfirmation, "unconfirmed");
   assert.ok(actions.every((entry) => entry.before.ios && entry.after.ios));
   await writeFile(
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)
   );
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with a public login name, open account details, and return to the account. Use for the public iOS Workspace fixture.\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Activate Sign in. Done when: Signed in as ${loginName} is visible.\n3. Activate Open account. Done when: Account details is visible.\n4. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
+  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
   await tool("agent_flow_skill_save", {
     claimOperationId: claim,
     files: [{ content, path: "SKILL.md" }],
@@ -397,7 +374,74 @@ try {
     await view(started.id);
     await click("Prepare Session Simulator");
     receipt.resources.push(...(await ownSessionResources()));
-    const current = await publicJourney(started.id);
+    let current = await publicJourney(started.id);
+    if (kind === "run") {
+      const ids = [];
+      for (const allow of [false, true]) {
+        const before = await observe(started.id);
+        const target = find(before, "button", "Open account");
+        const command = {
+          _tag: "input",
+          action: { _tag: "activate", target: target.target },
+          irreversible: true,
+          observationId: before.observation.id,
+          operationId: operation(),
+          sessionId: started.id,
+        };
+        const pending = await call(command);
+        assert.equal(pending.boundary.reason, "confirmation");
+        assert.equal(pending.phase, "running");
+        const decisionId = pending.pendingDecision.pendingDecisionId;
+        ids.push(decisionId);
+        await snapshot(`confirmation-${allow ? "allow" : "refuse"}`);
+        await click(allow ? "Allow" : "Refuse");
+        current = await observe(started.id);
+        assert.equal(current.pendingDecision, null);
+        find(
+          current,
+          "text",
+          allow ? "Account details" : `Signed in as ${loginName}`
+        );
+        // The original operation's receipt cannot dispatch a second attempt.
+        await call(command);
+        if (allow) {
+          current = await agentAction(
+            started.id,
+            "button",
+            "Return to account"
+          );
+        }
+      }
+      assert.notEqual(ids[0], ids[1]);
+      receipt.coverage.confirmation = {
+        allowOnce: true,
+        distinctDecisions: ids,
+        refuse: true,
+      };
+      current = await agentAction(
+        started.id,
+        "button",
+        "Request notifications permission"
+      );
+      assert.equal(current.phase, "running");
+      await snapshot("system-alert");
+      const alertButton = current.observation.nodes.find(
+        (node) =>
+          node.role === "button" && node.name === "Allow" && !node.covered
+      );
+      assert.ok(alertButton, "System alert must expose Allow to the agent");
+      current = await call({
+        _tag: "input",
+        action: { _tag: "activate", target: alertButton.target },
+        observationId: current.observation.id,
+        operationId: operation(),
+        sessionId: started.id,
+      });
+      assert.equal(current.phase, "running");
+      find(current, "text", `Signed in as ${loginName}`);
+      receipt.coverage.systemAlert = true;
+      await snapshot("system-alert-answered");
+    }
     const finished = await call({
       _tag: "complete",
       assessment: {

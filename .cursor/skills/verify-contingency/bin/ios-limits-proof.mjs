@@ -5,7 +5,6 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import { request } from "node:http";
 import { homedir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { iosRpc } from "./ios-workspace-rpc.mjs";
@@ -17,11 +16,6 @@ const template = process.env.CONTINGENCY_IOS_TEMPLATE;
 assert.ok(directory && appPath && template);
 const instance = JSON.parse(
   await readFile(path.join(directory, "instance.json"), "utf-8")
-);
-const { createAgentDeviceClient } = await import(
-  pathToFileURL(
-    path.join(root, "packages/cli/node_modules/agent-device/dist/src/index.js")
-  ).href
 );
 const execute = promisify(execFile);
 const artifacts = path.join(
@@ -75,9 +69,9 @@ const selection = {
     deviceType: device.deviceType,
     runtimeVersion: device.runtimeVersion,
   },
-  outcomes: [{ name: "Signed in as Public Shopper", role: "text" }],
+  outcomes: [{ name: "Signed in as Test Shopper", role: "text" }],
   setup: {
-    conditions: [{ name: "Public login fixture", role: "text" }],
+    conditions: [{ name: "Login fixture", role: "text" }],
     kind: "fresh-install",
   },
 };
@@ -86,7 +80,7 @@ const start = async (kind = "run") => {
   const session = await call(
     {
       _tag: "start",
-      flowSkillName: "ios-public-login",
+      flowSkillName: "ios-login",
       kind,
       operationId: operation(),
       recordingId: null,
@@ -164,25 +158,6 @@ const ownResource = async () => {
   }
   assert.fail("No Session Simulator owned by this MCP process");
 };
-const act = async (sessionId, name, text) => {
-  const before = await observe(sessionId);
-  const target = before.observation.nodes.find(
-    (node) =>
-      node.name === name &&
-      node.role === (text === undefined ? "button" : "text-field")
-  );
-  assert.ok(target);
-  await call({
-    _tag: "input",
-    action:
-      text === undefined
-        ? { _tag: "activate", target: target.target }
-        : { _tag: "fill", target: target.target, text },
-    observationId: before.observation.id,
-    operationId: operation(),
-    sessionId,
-  });
-};
 try {
   try {
     await control(
@@ -204,7 +179,7 @@ try {
   receipt.limits.oneBinding = await refusal(
     {
       _tag: "start",
-      flowSkillName: "ios-public-login",
+      flowSkillName: "ios-login",
       kind: "run",
       operationId: operation(),
       recordingId: null,
@@ -319,15 +294,6 @@ try {
   });
   await screenshot("limit-back");
   await click("Recover selected simulator");
-  receipt.limits.privateVariables = await refusal({
-    _tag: "variable-request",
-    name: "PASSWORD",
-    operationId: operation(),
-    purpose: "Refusal probe; no private value is supplied",
-    replace: false,
-    sessionId: inputSession,
-  });
-  await screenshot("limit-private-variables");
   await call(
     { _tag: "close", operationId: operation(), sessionId: inputSession },
     "user"
@@ -338,96 +304,6 @@ try {
     { headers: authorized },
     401
   );
-  for (const [label, name] of [
-    ["systemAlert", "Request notifications permission"],
-    ["otherApp", "Open device settings"],
-  ]) {
-    const sessionId = await start();
-    const resource = await ownResource();
-    await act(sessionId, "Login name", "Public Shopper");
-    await act(sessionId, "Sign in");
-    const client = createAgentDeviceClient({
-      cwd: resource.directory,
-      daemonAuthToken: "",
-      daemonBaseUrl: "",
-      daemonServerMode: "socket",
-      daemonTransport: "socket",
-      session: `contingency-ios-${resource.udid}`,
-      stateDir: resource.directory,
-    });
-    const snapshot = await client.capture.snapshot({
-      noRecord: true,
-      platform: "ios",
-      udid: resource.udid,
-    });
-    const node = snapshot.nodes.find(
-      (entry) => entry.kind === "button" && entry.label === name
-    );
-    assert.ok(node);
-    await client.interactions.click({
-      platform: "ios",
-      ref: `@${node.ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`,
-      udid: resource.udid,
-    });
-    if (label === "systemAlert") {
-      await client.command.alert({
-        action: "wait",
-        platform: "ios",
-        timeoutMs: 30_000,
-        udid: resource.udid,
-      });
-    }
-    await screenshot(`boundary-${label}`);
-    receipt.limits[label] = await refusal(
-      { _tag: "observe", image: false, sessionId },
-      /ownership_unknown/u
-    );
-    const paused = await read(sessionId);
-    assert.equal(paused.phase, "paused");
-    await screenshot(`limit-${label}`);
-    if (label === "otherApp") {
-      await execute("xcrun", [
-        "simctl",
-        "launch",
-        resource.udid,
-        selection.environment.bundleId,
-      ]);
-      await screenshot("ownership-return-to-target");
-      await click("Recover selected simulator");
-      const recovered = await read(sessionId);
-      assert.equal(recovered.phase, "running");
-      const recoveredResource = await ownResource();
-      assert.equal(recoveredResource.udid, resource.udid);
-      const observation = await observe(sessionId);
-      assert.ok(
-        observation.observation.nodes.some(
-          (entry) => entry.name === "Signed in as Public Shopper"
-        )
-      );
-      const foregroundReply = await execute("xcrun", [
-        "simctl",
-        "spawn",
-        resource.udid,
-        path.join(root, "packages/cli/dist/ios/foreground/foreground"),
-      ]);
-      const foreground = JSON.parse(foregroundReply.stdout);
-      assert.equal(foreground.version, 1);
-      assert.equal(foreground.udid, resource.udid);
-      assert.equal(foreground.owner.bundleId, selection.environment.bundleId);
-      assert.ok(
-        Number.isInteger(foreground.owner.pid) && foreground.owner.pid > 0
-      );
-      receipt.limits.otherAppRecovery = {
-        foreground,
-        observationId: observation.observation.id,
-        phase: recovered.phase,
-        sameDevice: true,
-        targetApp: foreground.owner.bundleId,
-      };
-      await screenshot("ownership-recovered");
-    }
-    await call({ _tag: "close", operationId: operation(), sessionId }, "user");
-  }
   const lossSession = await start("teaching");
   const lossResource = await ownResource();
   await click("Start recording");
@@ -489,9 +365,7 @@ try {
     { _tag: "close", operationId: operation(), sessionId: lossSession },
     "user"
   );
-  process.stdout.write(
-    "iOS live refusals, transport loss, recovery and ownership pauses passed\n"
-  );
+  process.stdout.write("iOS live refusals, transport loss, recovery passed\n");
 } catch (error) {
   await screenshot("limit-blocked").catch((captureError) =>
     receipt.blockers.push(`Evidence capture: ${captureError}`)

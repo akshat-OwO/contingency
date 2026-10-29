@@ -1,4 +1,4 @@
-// Public-only simulator fixture for the iOS Workspace journey.
+// Simulator fixture for the iOS Workspace journey.
 #import <UIKit/UIKit.h>
 #import <UserNotifications/UserNotifications.h>
 @interface App : UIResponder <UIApplicationDelegate>
@@ -9,6 +9,7 @@
 @property(nonatomic, strong) UIWindow *window;
 @property(nonatomic, strong) UITextField *name;
 @property(nonatomic, copy) NSString *login;
+@property(nonatomic, strong) UITextField *password;
 @end
 @implementation Fixture
 - (UIButton *)button:(NSString *)title action:(SEL)action {
@@ -34,6 +35,7 @@
     self.window.rootViewController = controller;
 }
 - (void)signIn {
+    if (![self.password.text isEqualToString:@"fixture-password"]) { [self show:@[[self label:@"Sign in failed"]]]; return; }
     self.login = self.name.text.length ? self.name.text : @"Public shopper";
     [self account];
 }
@@ -52,7 +54,9 @@
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
     self.name = [UITextField new]; self.name.placeholder = @"Login name"; self.name.accessibilityLabel = @"Login name";
     self.name.borderStyle = UITextBorderStyleRoundedRect; self.name.autocorrectionType = UITextAutocorrectionTypeNo;
-    [self show:@[[self label:@"Public login fixture"], self.name, [self button:@"Sign in" action:@selector(signIn)]]];
+    self.password = [UITextField new]; self.password.placeholder = @"Password"; self.password.accessibilityLabel = @"Password"; self.password.secureTextEntry = YES;
+    self.password.borderStyle = UITextBorderStyleRoundedRect;
+    [self show:@[[self label:@"Login fixture"], self.name, self.password, [self button:@"Sign in privately" action:@selector(signIn)]]];
     [self.window makeKeyAndVisible];
 }
 @end
