@@ -37,6 +37,7 @@ const receipt = {
   blockers: [],
   coverage: {},
   resources: [],
+  settingsObservations: [],
   startedAt: new Date().toISOString(),
 };
 const control = async (...args) => {
@@ -168,6 +169,63 @@ const publicJourney = async (sessionId) => {
   await agentAction(sessionId, "button", "Open account");
   return agentAction(sessionId, "button", "Return to account");
 };
+// Each completed product observation is the event; never wait on animation time.
+const settingsRefusal = async (sessionId, stage, tap) => {
+  const started = performance.now();
+  const record = async (kind, index, action) => {
+    const at = new Date().toISOString();
+    const began = performance.now();
+    try {
+      const result = await action();
+      receipt.settingsObservations.push({
+        at,
+        completedAt: new Date().toISOString(),
+        durationMs: performance.now() - began,
+        elapsedMs: performance.now() - started,
+        index,
+        kind,
+        observationId: result?.observation?.id ?? null,
+        outcome: kind === "tap" && !result?.observation ? "accepted" : "tree",
+        stage,
+      });
+      return false;
+    } catch (error) {
+      const refused = /foreign_app_foreground/u.test(
+        String(error.stderr ?? error.stdout ?? error)
+      );
+      receipt.settingsObservations.push({
+        at,
+        completedAt: new Date().toISOString(),
+        durationMs: performance.now() - began,
+        elapsedMs: performance.now() - started,
+        index,
+        kind,
+        outcome: refused ? "foreign_app_foreground" : "error",
+        stage,
+      });
+      if (!refused) {
+        throw error;
+      }
+      return true;
+    }
+  };
+  const tapRefused = await record("tap", 0, tap);
+  let refused = false;
+  for (let index = 1; index <= 40; index += 1) {
+    refused = await record("observe", index, () => observe(sessionId));
+    if (refused) {
+      break;
+    }
+  }
+  assert.ok(refused, `${stage}: no foreign_app_foreground in 40 observations`);
+  for (let index = 1; index <= 3; index += 1) {
+    assert.ok(
+      await record("persistence", index, () => observe(sessionId)),
+      `${stage}: foreign-app refusal must persist`
+    );
+  }
+  return { tapRefused };
+};
 const ownSessionResources = async () => {
   const records = path.join(homedir(), ".contingency/ios-session-simulators");
   const found = [];
@@ -286,12 +344,11 @@ try {
   await click("Supply PASSWORD");
   await click("Enter PASSWORD");
   await pick(teaching.id, "button", "Sign in privately");
-  await assert.rejects(
-    pick(teaching.id, "button", "Open device settings"),
-    (cause) =>
-      /foreign_app_foreground/u.test(
-        String(cause.stderr ?? cause.stdout ?? cause)
-      )
+  const teachingResources = await ownSessionResources();
+  const { tapRefused: teachingTapRefused } = await settingsRefusal(
+    teaching.id,
+    "teaching",
+    () => pick(teaching.id, "button", "Open device settings")
   );
   const teachingRefused = await read(teaching.id);
   assert.equal(teachingRefused.phase, "paused");
@@ -301,8 +358,15 @@ try {
   await click("Return to Target App");
   const teachingRecovered = await observe(teaching.id);
   assert.equal(teachingRecovered.phase, "running");
+  assert.equal(teachingRecovered.refusal, null);
   assert.equal(teachingRecovered.captureState._tag, "recording");
   find(teachingRecovered, "text", `Signed in as ${loginName}`);
+  const teachingRecoveredResources = await ownSessionResources();
+  assert.deepEqual(
+    teachingRecoveredResources.map((resource) => resource.udid).toSorted(),
+    teachingResources.map((resource) => resource.udid).toSorted()
+  );
+  find(teachingRecovered, "button", "Open account");
   receipt.coverage.teachingSettingsRecovery = true;
   await snapshot("teaching-settings-recovered");
   await pick(teaching.id, "button", "Open account");
@@ -352,7 +416,14 @@ try {
   const actions = timeline.entries.filter((entry) => entry._tag === "action");
   assert.deepEqual(
     actions.map((entry) => entry.kind),
-    ["fill", "variable", "activate", "activate", "activate"]
+    [
+      "fill",
+      "variable",
+      "activate",
+      ...(teachingTapRefused ? [] : ["activate"]),
+      "activate",
+      "activate",
+    ]
   );
   assert.deepEqual(
     actions.map((entry) => entry.description),
@@ -360,6 +431,7 @@ try {
       "Enter public fixture text in text-field Login name",
       `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
       "Activate button Sign in privately",
+      ...(teachingTapRefused ? [] : ["Activate button Open device settings"]),
       "Activate button Open account",
       "Activate button Return to account",
     ]
@@ -463,9 +535,8 @@ try {
       const resourcesBeforeSettings = await ownSessionResources();
       const beforeSettings = await observe(started.id);
       find(beforeSettings, "text", `Signed in as ${loginName}`);
-      await assert.rejects(
-        agentAction(started.id, "button", "Open device settings"),
-        /foreign_app_foreground/u
+      await settingsRefusal(started.id, "run", () =>
+        agentAction(started.id, "button", "Open device settings")
       );
       const refused = await read(started.id);
       assert.equal(refused.phase, "paused");
@@ -474,13 +545,13 @@ try {
         code: "foreign_app_foreground",
         recovery: "return-to-target-app",
       });
-      await assert.rejects(observe(started.id), /foreign_app_foreground/u);
       await snapshot("settings-refused");
       await click("Return to Target App");
       current = await observe(started.id);
       assert.equal(current.phase, "running");
       assert.equal(current.refusal, null);
       find(current, "text", `Signed in as ${loginName}`);
+      find(current, "button", "Open account");
       const resourcesAfterSettings = await ownSessionResources();
       assert.deepEqual(
         resourcesAfterSettings.map((resource) => resource.udid).toSorted(),

@@ -11,6 +11,7 @@ import {
   iosSnapshotFailure,
   iosSnapshotProblem,
   iosWindowViewport,
+  observeIosPostAction,
   settleIosCapture,
 } from "../../src/services/ios-runtime.ts";
 import type { PlatformRuntimeError } from "../../src/services/platform-runtime.ts";
@@ -318,3 +319,39 @@ it("refuses a Target App that backgrounds between its tree and screenshot", () =
     iosAppStateProblem(foreground, "session-simulator", "other.bundle")
   ).toBe("target_changed");
 });
+
+it.effect(
+  "withholds a handoff tree when the handoff outlasts one recheck",
+  () =>
+    Effect.gen(function* refusesHandoffTree() {
+      // XCTest first reports the fixture foreground while Settings animates in.
+      const source = sequence([
+        "observed",
+        "observed",
+        "foreign_app_foreground",
+      ]);
+      const failure = yield* Effect.flip(observeIosPostAction(source.capture));
+      expect(failure.code).toBe("foreign_app_foreground");
+      expect(source.calls()).toBe(3);
+    })
+);
+
+it.effect("returns the last post-action observation for subsequent input", () =>
+  Effect.gen(function* keepsLatestPostActionNodes() {
+    let generation = 0;
+    const capture = Effect.sync(() => {
+      generation += 1;
+      return generation;
+    });
+    expect(yield* observeIosPostAction(capture)).toBe(3);
+  })
+);
+
+it.effect("does not capture again after the first post-action refusal", () =>
+  Effect.gen(function* preservesInitialRefusal() {
+    const source = sequence(["foreign_app_foreground", "observed"]);
+    const failure = yield* Effect.flip(observeIosPostAction(source.capture));
+    expect(failure.code).toBe("foreign_app_foreground");
+    expect(source.calls()).toBe(1);
+  })
+);

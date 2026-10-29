@@ -34,6 +34,7 @@ import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   createIosRun,
   iosCapabilities,
+  observeIosPostAction,
   iosRuntimeError as platformRuntimeError,
 } from "./ios-runtime.ts";
 import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
@@ -1010,7 +1011,7 @@ export const makeIosWorkspaceLayer = (options: {
             );
             fillResult = dispatched || undefined;
           }
-          const after = yield* session.run.observe();
+          const after = yield* observeIosPostAction(session.run.observe());
           acceptObservation(session, after);
           if (current.recording) {
             yield* keyframe(session, before, actionId);

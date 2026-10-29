@@ -257,6 +257,13 @@ export const makeIosSessionAccess = <A, B>(input: {
     }),
 });
 
+/** Withhold the two fixture trees seen during the measured Settings handoff.
+ * Any capture failure stops immediately; only the latest nodes reach the caller.
+ */
+export const observeIosPostAction = <A, E, R>(
+  observe: Effect.Effect<A, E, R>
+) => observe.pipe(Effect.andThen(observe), Effect.andThen(observe));
+
 const startIosRuntime = (
   input: IosRunInput
 ): Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError> =>
