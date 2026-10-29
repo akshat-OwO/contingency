@@ -34,7 +34,7 @@ export const DeviceWorkspaceTools = withStrictParameters(
     Tool.make("agent_device_workspace", {
       dependencies: [AndroidWorkspace],
       description:
-        "Android API 30-36; require user authorization for one device and app. Share /?android=<sessionId>. Workspace owns prepare, consent, recording, Takeover, verification. Input needs observationId. Variables use stock agent-device: variable-request, Workspace supply, input variable. A fill with unreadable text is entered but unconfirmed; assess the journey outcome. agentSetup:true starts setup; setup-handoff expires Variables. Learn via Recording claim/Timeline/Flow Skill save; fresh dry-run, verified later Run. Complete with latest observation. Gaps/Takeover cannot pass. Full emulator OS use. Mark high-impact input irreversible:true; decide allows or refuses that exact attempt once. Retries need fresh Confirmation. Cancellation cannot undo input. iOS unavailable until its Support Matrix is proven.",
+        "Android API 30-36 emulators; iOS unavailable. Authorize one device/app; share /?android=<id>. Workspace owns prepare, recording, Takeover, verification. Input: observationId. Variables: stock agent-device, variable-request, Workspace supply, input variable. Unreadable fills are entered but unconfirmed; assess journey outcome. agentSetup:true; setup-handoff expires Variables. Learn: claim/Timeline/save; fresh dry-run, verified later Run. Complete: latest observation; gaps/Takeover cannot pass. Full OS use. High-impact input: irreversible:true; decide allows/refuses one exact attempt. Retries need fresh Confirmation. Cancellation cannot undo input.",
       failure,
       parameters: Schema.Struct({
         command: Schema.Union(
