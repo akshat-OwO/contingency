@@ -4,6 +4,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
   Deferred,
+  Logger,
   Effect,
   Queue,
   Schema,
@@ -128,12 +129,27 @@ export const iosDisplayOrientation = (
   }
 };
 
+export interface IosStreamHost {
+  readonly command: typeof iosCommand;
+  readonly helper: typeof verifyIosFramebufferRelease;
+  readonly spawn: (
+    helper: string,
+    args: readonly string[]
+  ) => ChildProcessWithoutNullStreams;
+}
+const iosStreamHost: IosStreamHost = {
+  command: iosCommand,
+  helper: verifyIosFramebufferRelease,
+  spawn: (helper, args) => spawn(helper, [...args], { stdio: "pipe" }),
+};
+
 export const acquireIosStream = (
   sessionId: string,
   device: () => IosDevice | null,
   scope: Scope.Scope,
   onFault: (code: "capture_incomplete") => Effect.Effect<void>,
-  captureSize?: () => CaptureSize | undefined
+  captureSize?: () => CaptureSize | undefined,
+  host: IosStreamHost = iosStreamHost
 ) =>
   Effect.gen(function* acquireIosMirror() {
     const lock = Semaphore.makeUnsafe(1);
@@ -199,6 +215,12 @@ export const acquireIosStream = (
         return;
       }
       registry.set(transport, "lost");
+      Effect.runSync(
+        Effect.logWarning("iOS framebuffer transport lost", {
+          reason,
+          sessionId,
+        }).pipe(Effect.provideService(Logger.LogToStderr, true))
+      );
       Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
       clearTimeout(silence);
       Deferred.doneUnsafe(
@@ -251,15 +273,12 @@ export const acquireIosStream = (
               );
             }
             registry.set(boundDevice, structuredClone(selected));
-            const helper = yield* verifyIosFramebufferRelease();
-            const inventory = yield* iosCommand("xcrun", [
-              "simctl",
-              "io",
-              selected.udid,
-              "enumerate",
-            ]).pipe(
-              Effect.mapError(() => iosRuntimeError("capture_incomplete"))
-            );
+            const helper = yield* host.helper();
+            const inventory = yield* host
+              .command("xcrun", ["simctl", "io", selected.udid, "enumerate"])
+              .pipe(
+                Effect.mapError(() => iosRuntimeError("capture_incomplete"))
+              );
             const display = activeIosDisplay(inventory, currentCaptureSize());
             const orientation = iosDisplayOrientation(
               inventory,
@@ -269,25 +288,29 @@ export const acquireIosStream = (
               return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
             }
             registry.set(orientationBinding, orientation);
-            const developer = yield* iosCommand("xcode-select", ["-p"]).pipe(
-              Effect.mapError(() => iosRuntimeError("runtime_failed"))
-            );
+            const developer = yield* host
+              .command("xcode-select", ["-p"])
+              .pipe(Effect.mapError(() => iosRuntimeError("runtime_failed")));
             registry.set(displayBinding, display);
             requestedDisplay = null;
             generation = randomUUID();
             yield* integrity.generation(generation);
-            const child = spawn(
-              helper,
-              [developer, selected.udid, display, orientation],
-              {
-                stdio: "pipe",
-              }
-            );
+            const child = host.spawn(helper, [
+              developer,
+              selected.udid,
+              display,
+              orientation,
+            ]);
             worker = child;
+            const childFailed = (reason: IosStreamGap = "helper-exited") => {
+              if (worker === child) {
+                failed("capture_incomplete", reason);
+              }
+            };
             child.stderr.resume();
-            child.stdin.on("error", () => failed());
-            child.once("error", () => failed());
-            child.once("close", () => failed());
+            child.stdin.on("error", () => childFailed());
+            child.once("error", () => childFailed());
+            child.once("close", () => childFailed());
             let pending = "";
             const decode = Schema.decodeUnknownOption(
               Schema.fromJsonString(IosFramebufferPacket)
@@ -295,6 +318,7 @@ export const acquireIosStream = (
             child.stdout.setEncoding("utf-8");
             child.stdout.on("data", (chunk: string) => {
               if (
+                worker !== child ||
                 revoked ||
                 ["lost", "restarting"].includes(registry.get(transport))
               ) {
@@ -302,7 +326,7 @@ export const acquireIosStream = (
               }
               pending += chunk;
               if (pending.length > 4 * 1024 * 1024) {
-                failed();
+                childFailed();
                 child.kill("SIGTERM");
                 return;
               }
@@ -311,13 +335,13 @@ export const acquireIosStream = (
                 const packet = decode(pending.slice(0, newline));
                 pending = pending.slice(newline + 1);
                 if (packet._tag === "None") {
-                  failed();
+                  childFailed();
                   child.kill("SIGTERM");
                   return;
                 }
                 if (packet.value.displayPort !== registry.get(displayBinding)) {
                   if (packet.value.displayPort !== requestedDisplay) {
-                    failed("capture_incomplete");
+                    childFailed();
                     child.kill("SIGTERM");
                     return;
                   }
@@ -327,13 +351,13 @@ export const acquireIosStream = (
                 if (
                   !Effect.runSync(integrity.accept(generation, packet.value))
                 ) {
-                  failed();
+                  childFailed();
                   child.kill("SIGTERM");
                   return;
                 }
                 clearTimeout(silence);
                 silence = setTimeout(() => {
-                  failed("capture_incomplete", "stream-silence");
+                  childFailed("stream-silence");
                   child.kill("SIGTERM");
                 }, 10_000);
                 silence.unref();
@@ -366,13 +390,21 @@ export const acquireIosStream = (
                     return;
                   }
                   const current = yield* Effect.result(
-                    iosCommand("xcrun", [
+                    host.command("xcrun", [
                       "simctl",
                       "io",
                       selected.udid,
                       "enumerate",
                     ])
                   );
+                  // Enumeration can finish after recovery has retired this helper.
+                  if (
+                    worker !== child ||
+                    revoked ||
+                    registry.get(transport) !== "live"
+                  ) {
+                    return;
+                  }
                   const active =
                     current._tag === "Success"
                       ? activeIosDisplay(current.success, currentCaptureSize())
@@ -385,7 +417,7 @@ export const acquireIosStream = (
                         )
                       : null;
                   if (!active || !currentOrientation) {
-                    failed("capture_incomplete");
+                    childFailed();
                     child.kill("SIGTERM");
                   } else if (active !== registry.get(displayBinding)) {
                     requestedDisplay = active;
@@ -426,12 +458,9 @@ export const acquireIosStream = (
           if (!selected || registry.get(transport) !== "live") {
             return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
           }
-          const inventory = yield* iosCommand("xcrun", [
-            "simctl",
-            "io",
-            selected.udid,
-            "enumerate",
-          ]).pipe(Effect.mapError(() => iosRuntimeError("capture_incomplete")));
+          const inventory = yield* host
+            .command("xcrun", ["simctl", "io", selected.udid, "enumerate"])
+            .pipe(Effect.mapError(() => iosRuntimeError("capture_incomplete")));
           const active = activeIosDisplay(inventory, currentCaptureSize());
           if (active !== registry.get(displayBinding)) {
             if (active === null) {

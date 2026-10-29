@@ -33,8 +33,9 @@ export const clickIos = async (page, name) => {
     () => globalThis.__workspaceCommandReplies.length
   );
   await page.getByRole("button", { exact: true, name }).click();
+  const clickedAt = new Date().toISOString();
   await waitReply(page, before);
-  return { action: name };
+  return { action: name, clickedAt };
 };
 /** Aim the real mouse from observation evidence; only Workspace resolves and sends input. */
 export const pickIos = async (page, flags) => {
