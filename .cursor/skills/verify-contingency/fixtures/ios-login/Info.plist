@@ -10,5 +10,6 @@
 <key>LSRequiresIPhoneOS</key><true/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/><key>UISceneConfigurations</key><dict><key>UIWindowSceneSessionRoleApplication</key><array><dict><key>UISceneConfigurationName</key><string>Default</string><key>UISceneDelegateClassName</key><string>Fixture</string></dict></array></dict></dict>
+<key>NSPhotoLibraryUsageDescription</key><string>Shows whether the declared starting state reached the app.</string>
 <key>UILaunchScreen</key><dict/>
 </dict></plist>
