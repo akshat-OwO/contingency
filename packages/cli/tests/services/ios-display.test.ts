@@ -145,3 +145,16 @@ it("refuses foldable panels with indistinguishable capture dimensions", () => {
     null
   );
 });
+it("matches logical SDK captures using the panel's declared UI scale", () => {
+  expect(activeIosDisplay(duo, { height: 678, width: 466 })).toBe(outer);
+  expect(activeIosDisplay(duo, { height: 951, width: 669 })).toBe(inner);
+  expect(iosDisplayOrientation(duo, { height: 678, width: 466 })).toBe(
+    "portrait"
+  );
+  expect(
+    activeIosDisplay(
+      duo.replaceAll("Preferred UI Scale: 3", "Preferred UI Scale: 2"),
+      { height: 678, width: 466 }
+    )
+  ).toBe(null);
+});

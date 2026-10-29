@@ -57,22 +57,35 @@ const integratedDisplay = (inventory: string, capture?: CaptureSize) => {
   const matches = (width: number, height: number) =>
     (width === capture.width && height === capture.height) ||
     (width === capture.height && height === capture.width);
+  const matchingScreens = screens.filter((screen) => {
+    const size = /Pixel Size: \{(?<width>\d+), (?<height>\d+)\}/u.exec(screen);
+    const scale = Number(
+      /Preferred UI Scale: (?<scale>[\d.]+)/u.exec(screen)?.groups?.scale
+    );
+    const width = Number(size?.groups?.width);
+    const height = Number(size?.groups?.height);
+    return (
+      matches(width, height) ||
+      (scale > 0 &&
+        matches(Math.round(width / scale), Math.round(height / scale)))
+    );
+  });
+  if (matchingScreens.length !== 1) {
+    return null;
+  }
+  const screen = matchingScreens[0] ?? "";
+  const size = /Pixel Size: \{(?<width>\d+), (?<height>\d+)\}/u.exec(screen);
   const matchingPorts = ports.filter((port) => {
     const width = /Default width: (?<width>\d+)/u.exec(port)?.groups?.width;
     const height = /Default height: (?<height>\d+)/u.exec(port)?.groups?.height;
     return (
-      /IOSurface port:/u.test(port) && matches(Number(width), Number(height))
+      /IOSurface port:/u.test(port) &&
+      width === size?.groups?.width &&
+      height === size?.groups?.height
     );
   });
-  const matchingScreens = screens.filter((screen) => {
-    const size = /Pixel Size: \{(?<width>\d+), (?<height>\d+)\}/u.exec(screen);
-    return (
-      size !== null &&
-      matches(Number(size.groups?.width), Number(size.groups?.height))
-    );
-  });
-  return matchingPorts.length === 1 && matchingScreens.length === 1
-    ? { port: matchingPorts[0] ?? "", screen: matchingScreens[0] ?? "" }
+  return matchingPorts.length === 1
+    ? { port: matchingPorts[0] ?? "", screen }
     : null;
 };
 
