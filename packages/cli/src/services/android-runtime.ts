@@ -1,5 +1,5 @@
 import type { Effect as EffectType } from "effect";
-import { Effect, Scope, Semaphore } from "effect";
+import { Effect, Redacted, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { preflightAndroidPreparation } from "./android-preparation.ts";
@@ -9,7 +9,7 @@ import { androidCapabilities } from "./android-runtime-contract.ts";
 import type {
   AndroidObservation,
   AndroidPlatformRuntime,
-  AndroidPrivateTextRequest,
+  AndroidVariableFillRequest,
   AndroidRuntimeBackend,
   AndroidRuntimeFactoryService,
   AndroidRuntimeStartInput,
@@ -21,8 +21,6 @@ import type {
   PlatformAction,
   PlatformRuntimeError,
 } from "./platform-runtime.ts";
-
-const publicTextPattern = /^[\u0020-\u007E]*$/u;
 
 export const adaptAndroidRuntime = (input: {
   readonly startup: AndroidRuntimeStartInput;
@@ -121,21 +119,12 @@ export const adaptAndroidRuntime = (input: {
                 node === undefined ||
                 node.packageName !== input.startup.targetApp ||
                 node.covered ||
-                node.password ||
                 (action.type === "fill" && !node.editable)
               ) {
                 return yield* Effect.fail(
                   platformRuntimeError("target_unsupported")
                 );
               }
-            }
-            if (
-              action.type === "fill" &&
-              !publicTextPattern.test(action.text)
-            ) {
-              return yield* Effect.fail(
-                platformRuntimeError("target_unsupported")
-              );
             }
             yield* input.backend.validate();
             registry.update(status, (current) => ({
@@ -147,59 +136,39 @@ export const adaptAndroidRuntime = (input: {
             } else if (action.type === "activate") {
               yield* input.backend.activate(action.target);
             } else {
-              yield* input.backend.fill(action.target, action.text);
+              const result = yield* input.backend.fill(
+                action.target,
+                action.text
+              );
+              yield* input.backend.validate();
+              // agent-device accepts masked text by length alone, which proves nothing.
+              const masked = captured.nodes.some(
+                (candidate) =>
+                  candidate.target === action.target && candidate.password
+              );
+              return masked
+                ? { ...result, confirmation: "unconfirmed" as const }
+                : result;
             }
             yield* input.backend.validate();
             // A successful dispatch is still uncertain until independently observed.
           })
         )
       );
-    const privateText =
-      input.startup.requiredCapabilities.includes("private-input");
-    const enterPrivate = (id: string, request: AndroidPrivateTextRequest) =>
-      lock.withPermits(1)(
-        guarded(
-          Effect.gen(function* enterAndroidPrivate() {
-            yield* requireReady;
-            const captured = registry.get(observation);
-            if (captured === null || captured.id !== id) {
-              return yield* Effect.fail(
-                platformRuntimeError("observation_stale")
-              );
-            }
-            yield* invalidate;
-            if (!privateText) {
-              return yield* Effect.fail(
-                platformRuntimeError("capability_missing")
-              );
-            }
-            const node = captured.nodes.find(
-              (candidate) => candidate.target === request.target
-            );
-            if (
-              node === undefined ||
-              node.packageName !== input.startup.targetApp ||
-              node.covered ||
-              !node.editable ||
-              // Captures redact only password fields; a value elsewhere would be exported.
-              !node.password
-            ) {
-              return yield* Effect.fail(
-                platformRuntimeError("target_unsupported")
-              );
-            }
-            yield* input.backend.validate();
-            registry.update(status, (current) => ({
-              ...current,
-              outcome: "uncertain" as const,
-            }));
-            // The helper resolves the value only after it binds the field.
-            yield* input.backend.enterPrivate(request.target, request.value);
-            yield* input.backend.validate();
-            return { outcome: "verified" as const, variable: request.variable };
-          })
-        )
-      );
+    const enterVariable = (id: string, request: AndroidVariableFillRequest) =>
+      Effect.gen(function* fillVariable() {
+        const text = Redacted.value(yield* request.value);
+        const result = yield* mutate(id, {
+          target: request.target,
+          text,
+          type: "fill",
+        });
+        return {
+          confirmation: result?.confirmation ?? "unconfirmed",
+          outcome: "entered" as const,
+          variable: request.variable,
+        };
+      });
     const close = lock.withPermits(1)(
       Effect.gen(function* closeAndroid() {
         if (state().phase === "closed") {
@@ -221,15 +190,11 @@ export const adaptAndroidRuntime = (input: {
     return {
       back: (id) => mutate(id, { type: "back" }),
       backendSessionId: input.backend.sessionId,
-      capabilities: privateText
-        ? androidCapabilities
-        : androidCapabilities.filter(
-            (capability) => capability !== "private-input"
-          ),
+      capabilities: androidCapabilities,
       close: () => close,
       device: input.startup.device,
       dispatch: mutate,
-      enterPrivate,
+      enterVariable,
       invalidate: () => lock.withPermits(1)(invalidate),
       observe: () =>
         lock.withPermits(1)(

@@ -538,8 +538,6 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
     },
     helperConsent: "none",
     outcomes: [{ name: "Catalog", role: "group" }],
-    privateHelperConsent:
-      process.env.CONTINGENCY_ANDROID_PRIVATE_HELPER_CONSENT ?? "none",
     privateInput: true,
     setup: {
       activity: "dev.contingency.checkout/.MainActivity",

@@ -379,6 +379,9 @@ const TeachingActionEvent = Schema.TaggedStruct("action", {
   detail: Schema.NullOr(Schema.String),
   disappeared: Schema.Array(TeachingTargetSummary),
   id: nonEmptyString,
+  inputConfirmation: Schema.optional(
+    Schema.Literals(["confirmed", "unconfirmed"])
+  ),
   kind: nonEmptyString,
   outcome: Schema.Literals(["succeeded", "failed"]),
   target: Schema.NullOr(TeachingEventTarget),

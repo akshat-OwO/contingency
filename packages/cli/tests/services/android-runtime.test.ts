@@ -121,16 +121,13 @@ const makeFixture = (
         Effect.sync(() => {
           commands.push("close");
         }),
-      enterPrivate: (target, value) =>
-        Effect.gen(function* enterPrivate() {
-          const resolved = yield* value;
-          commands.push(
-            Redacted.isRedacted(resolved) ? `private:${target}` : "exposed"
-          );
-        }),
       fill: (_target, text) =>
         Effect.sync(() => {
           commands.push(`public:${text}`);
+          return {
+            confirmation: "confirmed" as const,
+            outcome: "entered" as const,
+          };
         }),
       recover: () => Effect.void,
       sessionId: "owned-session",
@@ -206,14 +203,13 @@ it.effect(
 );
 
 it.effect(
-  "refuses coordinates, arbitrary keys, private and covered fields before backend input",
+  "refuses coordinates, arbitrary keys and covered fields before backend input",
   () =>
     Effect.gen(function* actionRefusals() {
       const { commands, runtime } = yield* makeFixture();
       const attempts = [
         { type: "coordinate" as const, x: 1, y: 1 },
         { key: "Enter", target: "@e1~s1", type: "press" as const },
-        { target: "@e3~s1", text: "never-dispatched", type: "fill" as const },
         { target: "@e4~s1", type: "activate" as const },
         { target: "missing", type: "activate" as const },
       ];
@@ -465,7 +461,7 @@ it.effect(
 );
 
 it.effect(
-  "refuses foreign window targets and text that would need another helper",
+  "refuses foreign window targets and passes Unicode text to stock input",
   () =>
     Effect.gen(function* unsupportedTargets() {
       const { backend, commands, input } = yield* makeFixture();
@@ -502,146 +498,77 @@ it.effect(
       ).toBe("target_unsupported");
       const next = yield* runtime.recover();
       expect(
-        (yield* Effect.flip(
-          runtime.dispatch(next.id, {
-            target: "@e2~s1",
-            text: "非公开",
-            type: "fill",
-          })
-        )).code
-      ).toBe("target_unsupported");
-      expect(commands).toEqual([]);
+        yield* runtime.dispatch(next.id, {
+          target: "@e2~s1",
+          text: "非公开",
+          type: "fill",
+        })
+      ).toEqual({ confirmation: "confirmed", outcome: "entered" });
+      expect(commands).toEqual(["public:非公开"]);
     })
 );
 
-const privateValue = "sentinel-never-exported";
-const variable = (resolutions: string[]) => ({
-  value: Effect.sync(() => {
-    resolutions.push("resolved");
-    return Redacted.make(privateValue);
-  }),
-  variable: "account.password",
-});
+it.effect("fills ordinary and password fields through the same backend", () =>
+  Effect.gen(function* variableFills() {
+    const { commands, runtime } = yield* makeFixture();
+    // A masked field reads back only its length, so its fill stays unconfirmed.
+    for (const [target, confirmation] of [
+      ["@e2~s1", "confirmed"],
+      ["@e3~s1", "unconfirmed"],
+    ] as const) {
+      const before = yield* runtime.observe();
+      expect(
+        yield* runtime.enterVariable(before.id, {
+          target,
+          value: Effect.succeed(Redacted.make("test-password")),
+          variable: "PASSWORD",
+        })
+      ).toEqual({
+        confirmation,
+        outcome: "entered",
+        variable: "PASSWORD",
+      });
+      expect(runtime.state().phase).toBe("ready");
+    }
+    expect(commands).toEqual(["public:test-password", "public:test-password"]);
+  })
+);
 
 it.effect(
-  "enters a private Variable through the helper without exposing its value",
+  "keeps unconfirmed fills entered and permits the next journey action",
   () =>
-    Effect.gen(function* privateEntry() {
-      const { commands, runtime } = yield* makeFixture([
-        "semantic-actions",
-        "private-input",
-      ]);
-      const resolutions: string[] = [];
-      expect(runtime.capabilities).toContain("private-input");
+    Effect.gen(function* unconfirmedFill() {
+      const { backend, input } = yield* makeFixture();
+      let attempts = 0;
+      const runtime = yield* adaptAndroidRuntime({
+        backend: {
+          ...backend,
+          fill: () =>
+            Effect.sync(() => {
+              attempts += 1;
+              return {
+                confirmation: "unconfirmed" as const,
+                outcome: "entered" as const,
+              };
+            }),
+        },
+        startup: input,
+      });
       const before = yield* runtime.observe();
-      const result = yield* runtime.enterPrivate(before.id, {
-        target: "@e3~s1",
-        ...variable(resolutions),
-      });
-      expect(result).toEqual({
-        outcome: "verified",
-        variable: "account.password",
-      });
-      expect(commands).toEqual(["private:@e3~s1"]);
-      expect(resolutions).toEqual(["resolved"]);
+      expect(
+        yield* runtime.dispatch(before.id, {
+          target: "@e3~s1",
+          text: "test-password",
+          type: "fill",
+        })
+      ).toEqual({ confirmation: "unconfirmed", outcome: "entered" });
       expect(runtime.state()).toMatchObject({
+        failure: null,
         observationId: null,
-        outcome: "uncertain",
         phase: "ready",
       });
-      expect(JSON.stringify([result, runtime.state()])).not.toContain(
-        privateValue
-      );
-      // Agent-device keeps its session: the next semantic action needs only a fresh observation.
       const after = yield* runtime.observe();
       yield* runtime.dispatch(after.id, { target: "@e1~s1", type: "activate" });
-      expect(commands).toEqual(["private:@e3~s1", "activate"]);
+      expect(attempts).toBe(1);
     })
-);
-
-it.effect(
-  "refuses stale, unsupported, and undeclared private input before resolving the value",
-  () =>
-    Effect.gen(function* privateRefusals() {
-      const resolutions: string[] = [];
-      const declared = yield* makeFixture([
-        "semantic-actions",
-        "private-input",
-      ]);
-      const consumed = yield* declared.runtime.observe();
-      yield* declared.runtime.dispatch(consumed.id, {
-        target: "@e1~s1",
-        type: "activate",
-      });
-      expect(
-        (yield* Effect.flip(
-          declared.runtime.enterPrivate(consumed.id, {
-            target: "@e3~s1",
-            ...variable(resolutions),
-          })
-        )).code
-      ).toBe("observation_stale");
-      // @e2 is editable but not a password field: its capture would export the value.
-      for (const target of ["@e1~s1", "@e2~s1", "@e4~s1", "missing"]) {
-        const observation = yield* declared.runtime.recover();
-        expect(
-          (yield* Effect.flip(
-            declared.runtime.enterPrivate(observation.id, {
-              target,
-              ...variable(resolutions),
-            })
-          )).code
-        ).toBe("target_unsupported");
-        expect(declared.runtime.state().observationId).toBeNull();
-      }
-      const undeclared = yield* makeFixture();
-      expect(undeclared.runtime.capabilities).not.toContain("private-input");
-      const observation = yield* undeclared.runtime.observe();
-      expect(
-        (yield* Effect.flip(
-          undeclared.runtime.enterPrivate(observation.id, {
-            target: "@e3~s1",
-            ...variable(resolutions),
-          })
-        )).code
-      ).toBe("capability_missing");
-      expect(resolutions).toEqual([]);
-      expect(declared.commands).toEqual(["activate"]);
-      expect(undeclared.commands).toEqual([]);
-    })
-);
-
-it.effect("pauses after uncertain private input and never retries it", () =>
-  Effect.gen(function* uncertainPrivate() {
-    const { backend, input } = yield* makeFixture([
-      "semantic-actions",
-      "private-input",
-    ]);
-    let attempts = 0;
-    const runtime = yield* adaptAndroidRuntime({
-      backend: {
-        ...backend,
-        enterPrivate: () =>
-          Effect.suspend(() => {
-            attempts += 1;
-            return Effect.fail(platformRuntimeError("private_input_uncertain"));
-          }),
-      },
-      startup: input,
-    });
-    const before = yield* runtime.observe();
-    const request = { target: "@e3~s1", ...variable([]) };
-    expect(
-      (yield* Effect.flip(runtime.enterPrivate(before.id, request))).code
-    ).toBe("private_input_uncertain");
-    expect(runtime.state()).toMatchObject({
-      failure: { code: "private_input_uncertain" },
-      observationId: null,
-      phase: "paused",
-    });
-    expect(
-      (yield* Effect.flip(runtime.enterPrivate(before.id, request))).code
-    ).toBe("runtime_paused");
-    expect(attempts).toBe(1);
-  })
 );

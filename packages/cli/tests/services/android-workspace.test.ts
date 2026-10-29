@@ -20,7 +20,6 @@ import {
   FileSystem,
   Layer,
   Result,
-  Redacted,
   Schema,
 } from "effect";
 import type { Scope } from "effect";
@@ -87,7 +86,7 @@ const fixture = (
   test: (input: {
     readonly root: string;
     readonly calls: string[];
-    readonly resolved: Redacted.Redacted<string>[];
+    readonly resolved: string[];
     readonly secure: () => void;
     readonly disconnect: () => void;
     readonly reconnect: () => void;
@@ -116,7 +115,7 @@ const fixture = (
         prefix: "android-workspace-test-",
       });
       const calls: string[] = [];
-      const resolved: Redacted.Redacted<string>[] = [];
+      const resolved: string[] = [];
       let secure = false;
       let connected = true;
       let generation = 0;
@@ -195,24 +194,21 @@ const fixture = (
             })
           ),
         close: () => Effect.void,
-        enterPrivate: (_target, value) =>
+        fill: (_target, text) =>
           Effect.suspend(() => {
             if (JSON.stringify(boundNodes) !== JSON.stringify(customNodes)) {
               return Effect.fail(platformRuntimeError("target_changed"));
             }
-            return value.pipe(
-              Effect.tap((secret) =>
-                Effect.sync(() => {
-                  resolved.push(secret);
-                  calls.push("private");
-                })
-              ),
-              Effect.asVoid
-            );
-          }),
-        fill: () =>
-          Effect.sync(() => {
-            calls.push("fill");
+            return Effect.sync(() => {
+              resolved.push(text);
+              calls.push(
+                customNodes?.some((node) => node.password) ? "private" : "fill"
+              );
+              return {
+                confirmation: "unconfirmed" as const,
+                outcome: "entered" as const,
+              };
+            });
           }),
         recover: () => Effect.void,
         sessionId: "fixture-session",
@@ -1589,7 +1585,7 @@ it.effect(
         } as const;
         yield* workspace.execute(privateCommand, "user");
         expect(calls).toEqual(["private"]);
-        expect(Redacted.value(required(resolved[0]))).toBe(sentinel);
+        expect(required(resolved[0])).toBe(sentinel);
         yield* workspace.execute(privateCommand, "user");
         expect(calls).toEqual(["private"]);
         const stale = yield* workspace
@@ -1612,7 +1608,7 @@ it.effect(
           { _tag: "close", operationId: op("private-close"), sessionId },
           "user"
         );
-        expect(() => Redacted.value(required(resolved[0]))).toThrow();
+        expect(resolved).toHaveLength(1);
         const { recordingId } = started;
         yield* store.startLearning({
           operationId: op("private-claim"),
@@ -1625,6 +1621,14 @@ it.effect(
         });
         expect(JSON.stringify(timeline)).toContain('"variableName":"PASSWORD"');
         expect(JSON.stringify(timeline)).toContain(sentinel);
+        expect(
+          timeline.entries.find(
+            (entry) => entry._tag === "action" && entry.kind === "variable"
+          )
+        ).toMatchObject({
+          inputConfirmation: "unconfirmed",
+          outcome: "succeeded",
+        });
         const events = yield* fs.readFileString(
           path.join(store.directory(recordingId), "events.jsonl")
         );
@@ -1771,7 +1775,7 @@ it.effect(
           "replacement",
           true
         );
-        expect(() => Redacted.value(required(resolved[0]))).toThrow();
+        expect(resolved).toHaveLength(1);
         expect(
           (yield* supplyPrivate(
             workspace,

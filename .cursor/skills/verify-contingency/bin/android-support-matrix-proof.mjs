@@ -247,7 +247,6 @@ const selection = {
   },
   helperConsent: "install",
   outcomes: [{ name: "Signed in privately", role: "text" }],
-  privateHelperConsent: "install",
   privateInput: true,
   setup: {
     activity: `${appId}/.LoginActivity`,
@@ -259,13 +258,12 @@ assert.ok(
   Object.values(selection.device).every((value) => value !== undefined)
 );
 const helper = "com.callstack.agentdevice.snapshothelper";
-const privateHelper = "dev.contingency.privatetext";
 const baseline = {
   forwards: await adb("forward", "--list"),
   ime: await adb("shell", "settings", "get", "secure", "default_input_method"),
   packages: {},
 };
-for (const name of [appId, helper, privateHelper]) {
+for (const name of [appId, helper]) {
   const installed = await adb("shell", `pm path ${name} || true`);
   baseline.packages[name] = installed.trim();
 }
@@ -541,7 +539,9 @@ try {
   assert.ok(
     actions.some(
       (event) =>
-        event.variableName === "PASSWORD" && event.target?.value === sentinel
+        event.variableName === "PASSWORD" &&
+        event.target?.value === sentinel &&
+        ["confirmed", "unconfirmed"].includes(event.inputConfirmation)
     )
   );
   for (const event of actions) {
@@ -784,7 +784,7 @@ try {
   if (mcpOwned) {
     await control("mcp", "stop");
   }
-  for (const name of [appId, privateHelper, helper]) {
+  for (const name of [appId, helper]) {
     if (!baseline.packages[name]) {
       const installed = await adb("shell", `pm path ${name} || true`);
       if (installed.trim()) {
@@ -802,10 +802,8 @@ try {
       "secure",
       "default_input_method"
     )) === baseline.ime;
-  const helperProcess = await adb("shell", `pidof ${privateHelper} || true`);
-  receipt.cleanup.helperStopped = !helperProcess.trim();
   receipt.cleanup.packagesRestored = true;
-  for (const name of [appId, privateHelper, helper]) {
+  for (const name of [appId, helper]) {
     const installed = await adb("shell", `pm path ${name} || true`);
     if (installed.trim() !== baseline.packages[name]) {
       receipt.cleanup.packagesRestored = false;
