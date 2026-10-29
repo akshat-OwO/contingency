@@ -1121,7 +1121,11 @@ export const CreateBrowserLive = Layer.effect(
                     new Map(current).set(performanceScans, browser)
                   );
                 })
-              )
+              ),
+              // Playwright launch cannot be cancelled. Finish acquiring and
+              // registering its browser before interruption can close the scope,
+              // so the finalizer owns and awaits every launched process.
+              Effect.uninterruptible
             )
           )
         );

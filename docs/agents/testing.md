@@ -10,7 +10,9 @@ Every wait waits on the **event** the next assertion reads.
 - **Integration tests** wait for a signal the code emits: a `Deferred`, a product `Stream` or `PubSub`, a fixture request (`awaitRequest`), a page event, or a session long-poll (`awaitSession`). When the product exposes no such signal, add one to the product; it is a seam other callers need too.
 - **One hang guard per wait**: a single `Effect.timeout` sized for a hung process (tens of seconds), never tuned to how long the work usually takes. It turns a hang into a fast, named failure; it is not part of the test's logic.
 
-The `contingency/no-test-wait` lint rule (`packages/lint-rules`) enforces this in test files: real-time sleeps, delays, timers, and spaced schedules fail lint.
+`nub exec turbo run quality` enforces this in `**/*.test.ts`, `**/*.test.tsx`, and helpers under `tests/`. The `contingency/no-test-wait` rule in `packages/lint-rules` rejects sleeps, delay helpers, timers, Playwright `waitForTimeout`, and timed schedules. Oxlint's `no-restricted-imports` rejects timer imports, including aliases.
+
+For a justified timer, add a rule-specific disable comment explaining the observable behavior it proves. For virtual waits, explain how the call receives `TestClock`. For a browser fixture timer, explain the page behavior it models; assertions still wait on an event.
 
 A busy loop (`Effect.yieldNow`, `Schedule.recurs`, or a `setImmediate` poll) is not a wait on an event, even though the lint rule cannot detect it.
 
@@ -30,4 +32,6 @@ The fix for a CI timing failure is the race, found and removed. A larger timeout
 
 ## Before opening a PR
 
-Run each new or changed integration test file five times in a row; all five pass.
+Run quality and the affected tests. Every wait must observe an event or use virtual time, as enforced by the test wait lint. Keep any timer exception local and explain it in its disable comment.
+
+Repeating a test locally can help investigate a race. Repeats are optional and do not replace a deterministic regression test.

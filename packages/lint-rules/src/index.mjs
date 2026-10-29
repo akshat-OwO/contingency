@@ -14,98 +14,80 @@ const REAL_TIME_SCHEDULES = new Set([
   "windowed",
 ]);
 const TIMERS = new Set(["setInterval", "setTimeout"]);
-const TIMER_MODULES = new Set([
-  "node:timers",
-  "node:timers/promises",
-  "timers",
-  "timers/promises",
-]);
-const REAL_TIME_IMPORTS = new Set(["scheduler", "setInterval", "setTimeout"]);
-/** Callbacks handed to these run inside the browser Page, not the test. */
-const PAGE_CALLS = new Set([
-  "$$eval",
-  "$eval",
-  "addInitScript",
-  "evaluate",
-  "evaluateHandle",
-  "waitForFunction",
-]);
-
-const memberName = (node) =>
-  node.type === "MemberExpression" &&
-  !node.computed &&
-  node.property.type === "Identifier"
-    ? node.property.name
-    : undefined;
+const SLEEP_HELPER = /^(?:sleep|delay)(?:Async|For|Ms|Millis|Milliseconds)?$/u;
+const memberName = (node) => {
+  if (node.type !== "MemberExpression") {
+    return null;
+  }
+  if (!node.computed && node.property.type === "Identifier") {
+    return node.property.name;
+  }
+  return node.computed && node.property.type === "Literal"
+    ? node.property.value
+    : null;
+};
 
 const objectName = (node) =>
   node.type === "MemberExpression" && node.object.type === "Identifier"
     ? node.object.name
-    : undefined;
-
-const isFunction = (node) =>
-  node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression";
-
-/** Whether the node sits in a function the test ships to the Page. */
-const runsInPage = (node) => {
-  for (let child = node; child.parent; child = child.parent) {
-    const { parent } = child;
-    if (
-      isFunction(child) &&
-      parent.type === "CallExpression" &&
-      parent.callee !== child &&
-      PAGE_CALLS.has(memberName(parent.callee))
-    ) {
-      return true;
-    }
-  }
-  return false;
-};
+    : null;
 
 /** The wall-clock wait a call starts, if any. */
-const realTimeWait = (callee) => {
+const realTimeWait = (callee, imports) => {
   if (callee.type === "Identifier") {
-    return TIMERS.has(callee.name) ? callee.name : null;
+    const imported = imports.get(callee.name);
+    return TIMERS.has(callee.name) ||
+      SLEEP_HELPER.test(callee.name) ||
+      imported?.wait
+      ? callee.name
+      : null;
   }
   const name = memberName(callee);
-  const owner = objectName(callee);
+  const owner = imports.get(objectName(callee))?.owner ?? objectName(callee);
   if (owner === "Effect" && REAL_TIME_EFFECTS.has(name)) {
     return `Effect.${name}`;
   }
   if (owner === "Schedule" && REAL_TIME_SCHEDULES.has(name)) {
     return `Schedule.${name}`;
   }
-  if (owner === "globalThis" && TIMERS.has(name)) {
+  if (["globalThis", "window", "self"].includes(owner) && TIMERS.has(name)) {
     return `globalThis.${name}`;
   }
-  return name === "waitForTimeout" ? name : null;
+  return name === "waitForTimeout" || (name !== null && SLEEP_HELPER.test(name))
+    ? name
+    : null;
 };
 
 const noTestWait = {
   create(context) {
+    const imports = new Map();
     return {
       CallExpression(node) {
-        const wait = realTimeWait(node.callee);
-        if (wait !== null && !runsInPage(node)) {
+        const wait = realTimeWait(node.callee, imports);
+        if (wait !== null) {
           context.report({ data: { wait }, messageId: "wait", node });
         }
       },
       ImportDeclaration(node) {
-        if (!TIMER_MODULES.has(node.source.value)) {
-          return;
-        }
+        const source = node.source.value;
+        const owner = new Map([
+          ["effect/Effect", "Effect"],
+          ["effect/Schedule", "Schedule"],
+        ]).get(source);
         for (const specifier of node.specifiers) {
-          // `setImmediate` yields one turn of the event loop; it waits on no clock.
-          const imported =
+          const name =
             specifier.type === "ImportSpecifier"
               ? specifier.imported.name
-              : undefined;
-          if (imported === undefined || REAL_TIME_IMPORTS.has(imported)) {
-            context.report({
-              data: { wait: `${node.source.value} ${imported ?? "*"}` },
-              messageId: "wait",
-              node: specifier,
-            });
+              : null;
+          const wait =
+            (name !== null && SLEEP_HELPER.test(name)) ||
+            (owner === "Schedule" && REAL_TIME_SCHEDULES.has(name));
+          if (
+            wait ||
+            owner !== undefined ||
+            (source === "effect" && ["Effect", "Schedule"].includes(name))
+          ) {
+            imports.set(specifier.local.name, { owner: owner ?? name, wait });
           }
         }
       },

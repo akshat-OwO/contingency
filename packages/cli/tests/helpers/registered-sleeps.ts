@@ -10,6 +10,7 @@ export const registeredSleeps = Effect.gen(function* observeRegisteredSleeps() {
     sleep: (duration) =>
       Effect.gen(function* registerSleep() {
         // Immediate execution without scheduler yields reaches TestClock sleep registration before publishing.
+        // oxlint-disable-next-line contingency/no-test-wait -- This delegates to TestClock, never the live clock.
         const fiber = yield* clock
           .sleep(duration)
           .pipe(

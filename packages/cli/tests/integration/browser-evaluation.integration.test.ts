@@ -126,13 +126,16 @@ const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
       | Payload<"Network.loadingFinished">;
     const held = new Map<string, (() => void)[]>();
     const delivered = new Set<string>();
-    let reordered = 0;
+    // Counts pauses delivered before their announcement, whether this wrapper
+    // reordered them or Chrome already sent the pause first.
+    let pausedFirst = 0;
     const reordering: CDPSession = Object.assign(Object.create(cdp), {
       on: (event: string, listener: (payload: Delivered) => void) => {
         if (event === "Network.requestWillBeSent") {
           cdp.on(event, (announced) => {
             // Chrome itself may already have paused this request first.
             if (delivered.has(announced.requestId)) {
+              pausedFirst += 1;
               listener(announced);
               return;
             }
@@ -153,7 +156,7 @@ const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
                 : held.get(paused.networkId);
             if (paused.networkId !== undefined && announced !== undefined) {
               held.delete(paused.networkId);
-              reordered += 1;
+              pausedFirst += 1;
               for (const deliver of announced) {
                 deliver();
               }
@@ -179,7 +182,7 @@ const expectPausedBeforeAnnouncedStaysBlocked = (page: Page, outside: string) =>
     expect(
       yield* Deferred.await(outcome).pipe(Effect.timeout("30 seconds"))
     ).toBe("net::ERR_BLOCKED_BY_CLIENT.Inspector");
-    expect(reordered).toBeGreaterThan(0);
+    expect(pausedFirst).toBeGreaterThan(0);
   }).pipe(Effect.scoped);
 
 /** Page debugger statements must not freeze the tab once eval has run, and
