@@ -257,12 +257,35 @@ export const makeIosSessionAccess = <A, B>(input: {
     }),
 });
 
-/** Withhold the two fixture trees seen during the measured Settings handoff.
- * Any capture failure stops immediately; only the latest nodes reach the caller.
+interface IosScreen {
+  readonly nodes: readonly Pick<
+    IosObservation["nodes"][number],
+    "role" | "name"
+  >[];
+}
+const screenLabels = (screen: IosScreen) =>
+  screen.nodes.map(({ role, name }) => JSON.stringify([role, name]));
+
+/** A new control or label proves screen progress. Generation, geometry, and
+ * disappearing nodes do not: the measured stale Settings tree lost a label.
+ * Keep the three-capture bound for those suspicious screens, without sleeps.
+ * Any refusal stops immediately; return only the latest observation.
  */
-export const observeIosPostAction = <A, E, R>(
-  observe: Effect.Effect<A, E, R>
-) => observe.pipe(Effect.andThen(observe), Effect.andThen(observe));
+export const observeIosPostAction = <A extends IosScreen, E, R>(
+  observe: Effect.Effect<A, E, R>,
+  before: IosScreen
+) =>
+  Effect.gen(function* observePostAction() {
+    const previous = new Set(screenLabels(before));
+    let after = yield* observe;
+    for (let remaining = 2; remaining > 0; remaining -= 1) {
+      if (screenLabels(after).some((label) => !previous.has(label))) {
+        return after;
+      }
+      after = yield* observe;
+    }
+    return after;
+  });
 
 const startIosRuntime = (
   input: IosRunInput

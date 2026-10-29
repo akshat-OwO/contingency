@@ -320,37 +320,93 @@ it("refuses a Target App that backgrounds between its tree and screenshot", () =
   ).toBe("target_changed");
 });
 
+const screen = (
+  generation: number,
+  names = ["Open account", "Open device settings"]
+) => ({
+  generation,
+  nodes: names.map((name) => ({
+    name,
+    role: "button",
+    target: `${generation}-${name}`,
+  })),
+});
+
+it.effect("accepts a changed post-action screen with one capture", () =>
+  Effect.gen(function* acceptsChangedScreen() {
+    let calls = 0;
+    const capture = Effect.sync(() => {
+      calls += 1;
+      return screen(calls, ["Account details"]);
+    });
+    expect(yield* observeIosPostAction(capture, screen(0))).toEqual(
+      screen(1, ["Account details"])
+    );
+    expect(calls).toBe(1);
+  })
+);
+
 it.effect(
-  "withholds a handoff tree when the handoff outlasts one recheck",
+  "re-observes an unchanged screen within the three-capture bound",
   () =>
-    Effect.gen(function* refusesHandoffTree() {
-      // XCTest first reports the fixture foreground while Settings animates in.
-      const source = sequence([
-        "observed",
-        "observed",
-        "foreign_app_foreground",
-      ]);
-      const failure = yield* Effect.flip(observeIosPostAction(source.capture));
-      expect(failure.code).toBe("foreign_app_foreground");
-      expect(source.calls()).toBe(3);
+    Effect.gen(function* boundsUnchangedScreen() {
+      let calls = 0;
+      const capture = Effect.sync(() => {
+        calls += 1;
+        return screen(calls);
+      });
+      expect(yield* observeIosPostAction(capture, screen(0))).toEqual(
+        screen(3)
+      );
+      expect(calls).toBe(3);
     })
 );
 
-it.effect("returns the last post-action observation for subsequent input", () =>
-  Effect.gen(function* keepsLatestPostActionNodes() {
-    let generation = 0;
-    const capture = Effect.sync(() => {
-      generation += 1;
-      return generation;
+it.effect("withholds unchanged handoff trees until the refusal", () =>
+  Effect.gen(function* refusesHandoffTree() {
+    let calls = 0;
+    const capture = Effect.suspend(() => {
+      calls += 1;
+      return calls < 3
+        ? Effect.succeed(screen(calls))
+        : Effect.fail(iosRuntimeError("foreign_app_foreground"));
     });
-    expect(yield* observeIosPostAction(capture)).toBe(3);
+    const failure = yield* Effect.flip(
+      observeIosPostAction(capture, screen(0))
+    );
+    expect(failure.code).toBe("foreign_app_foreground");
+    expect(calls).toBe(3);
+  })
+);
+
+it.effect("withholds a stale handoff tree that loses a redundant label", () =>
+  Effect.gen(function* refusesPartialHandoffTree() {
+    const before = {
+      nodes: [
+        ...screen(0).nodes,
+        { name: "Open account", role: "text", target: "label" },
+      ],
+    };
+    let calls = 0;
+    const capture = Effect.suspend(() => {
+      calls += 1;
+      return calls < 3
+        ? Effect.succeed(screen(calls))
+        : Effect.fail(iosRuntimeError("foreign_app_foreground"));
+    });
+    const failure = yield* Effect.flip(observeIosPostAction(capture, before));
+    expect(failure.code).toBe("foreign_app_foreground");
+    expect(calls).toBe(3);
   })
 );
 
 it.effect("does not capture again after the first post-action refusal", () =>
   Effect.gen(function* preservesInitialRefusal() {
     const source = sequence(["foreign_app_foreground", "observed"]);
-    const failure = yield* Effect.flip(observeIosPostAction(source.capture));
+    const capture = source.capture.pipe(Effect.as(screen(1)));
+    const failure = yield* Effect.flip(
+      observeIosPostAction(capture, screen(0))
+    );
     expect(failure.code).toBe("foreign_app_foreground");
     expect(source.calls()).toBe(1);
   })

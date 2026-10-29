@@ -6,7 +6,7 @@
 
 The internal Workspace lists stopped simulators but disables them, with instructions to start in Simulator and refresh. This matches Android's stopped-emulator policy. The `.app` path is optional. Naming a build adds a separate App installation decision before preparation, as Android does for an APK. With no path, preparation uses the app already installed on the selection. `restart-app` preparation terminates and launches the Target App, retaining its existing data and permission state. Contingency never creates, clones, resets, boots, shuts down, or deletes simulators. Closing a session stops its private runner and stream and leaves the selected simulator running.
 
-Return to Target App validates the same selected UDID and SDK session and calls `apps.open` with `relaunch: false`. It preserves the signed-in screen and Teaching interval. Observation uses `observeOnly` and refuses Settings or another foreground app with `foreign_app_foreground`. Recovery brings the existing Target App forward. Transport recovery alone restarts the stream. Three post-action captures withhold the two stale fixture trees previously measured during the Settings handoff; any refusal stops immediately.
+Return to Target App validates the same selected UDID and SDK session and calls `apps.open` with `relaunch: false`. It preserves the signed-in screen and Teaching interval. Observation uses `observeOnly` and refuses Settings or another foreground app with `foreign_app_foreground`. Recovery brings the existing Target App forward. Transport recovery alone restarts the stream. Post-action capture accepts a new role/name pair immediately. Otherwise it makes up to three captures, withholding the two stale fixture trees previously measured during the Settings handoff; any refusal stops immediately. Missing nodes, geometry changes, and node generations do not prove screen progress.
 
 A readable fill is `confirmed`; the secure `{{PASSWORD}}` fill is entered but `unconfirmed`. Learning saves the Variable reference. Android and iOS share `native-app-confirmation.ts`: irreversible actions require one-attempt Confirmation, Refuse dispatches nothing, and replay cannot dispatch twice.
 
@@ -39,3 +39,29 @@ Cleanup passed in `attempt15/cleanup-audit.json`: all 17 tracked process identit
 Fresh checks pass: `nub exec turbo run quality`, `nub exec turbo run check-types`, and `nub exec --cwd packages/cli vitest run`, all 818 tests in 105 files. Build and check logs are under `/tmp/ios-selected-sim-proof-checks/`. Type checks used the existing unchanged-source Turbo cache. The earlier integration run passed all 178 tests in 43 files; it was not repeated for these proof-only changes.
 
 The required single live iOS 26.5 receipt is now complete. Separate preparation, limits, and slow-consumer helpers were not run. The broader Support Matrix and qualification limits above remain unproven, so public iOS MCP stays gated.
+
+## Cheaper post-action capture
+
+Attempt 12's stale Settings tree was not exactly equal to the pre-action tree: its redundant `text` node named Open account disappeared, while the button remained. Accepting any tree difference would expose that stale fixture screen. The runtime now accepts early only when a new role/name pair appears. Observation IDs, generations, references, bounds, order, and removals do not qualify. Otherwise it retains the existing three-capture bound and stops immediately on any refusal. No sleeps were added.
+
+The changed-screen regression failed before implementation, returning capture 3 instead of capture 1. Unchanged-screen and handoff safety cases already passed against the previous mitigation. The missing-label case fails if any tree difference is accepted early. All 17 capture tests now pass, including unchanged/unchanged/refused and the missing-label reproduction. Logs are `/tmp/ios-capture-{red,green}.log`.
+
+Attempt 16 stopped after Dry Run sign-in with `capture_incomplete`; its Teaching Settings tap refused correctly. The precise backend cause is unresolved. Attempts 4 and 6 hit the same code before this change, and the new captures are a prefix of the old three, so the change cannot add a capture. Its partial receipt is `artifacts/ios-capture-attempt16/receipt.json`. Attempt 17 passed the complete single-receipt contract on the same final implementation, without relaxing assertions. Its receipt is `.cursor/skills/verify-contingency/artifacts/ios-capture-attempt17/receipt.json`, with no blockers, from 2026-10-29 09:48:50.446 UTC to 09:52:03.242 UTC. It covers Teaching with `{{PASSWORD}}` unconfirmed, learning, a working Dry Run, verification/purge, the later working Run, system alert, Confirmation, and both Settings refusal/recovery/continuation paths. The complete product before/after simulator inventories match and the selected simulator remains Booted after sessions close. No product simulator was created or deleted.
+
+### Timing comparison
+
+The table compares each Teaching action's before/after observation timestamps, in milliseconds. This measures dispatch plus post-action capture after the before screenshot, not complete tap latency. Attempt 15 did not record ordinary command start/end times. These are individual live samples; host and SDK variance remain visible.
+
+| Teaching action      | Attempt 15 | Attempt 16 | Attempt 17 |
+| -------------------- | ---------: | ---------: | ---------: |
+| Readable fill        |       5886 |       3835 |       7599 |
+| Secure PASSWORD fill |       7546 |       5645 |       7187 |
+| Sign in privately    |       3738 |       1925 |       2494 |
+| Open account         |       3647 |       1455 |       2050 |
+| Return to account    |       3855 |       1576 |       2037 |
+
+Attempt 17's navigation intervals decreased 33–47% against attempt 15. Fills are mixed: a fill keeps the field's role and name, so it still pays for three captures. The complete proof took 192.796 seconds versus attempt 15's 186.994 seconds; this is not evidence of a faster whole journey.
+
+The new receipt records all internal input RPC durations, including refused/duplicate attempts; the journal records mirror commands. For attempt 17's ordinary Dry Run actions, input RPC durations were 5640, 5760, 3598, 3040, and 2981 ms in journey order. The later Run's five were 5212, 5515, 3549, 2907, and 2883 ms. Settings taps retained refusal: Teaching was 5133 ms in attempt 15 and 7709 ms in attempt 17; later Run was 2400 ms and 2374 ms. Protection remains bounded, not a guarantee of arbitrary-duration XCTest foreground correctness.
+
+Raw comparison data is `/tmp/ios-capture-timings.json`. Each action interval comes from the retained `timeline.json`; command timings are in attempt 17's `receipt.json` and `journal.json`. Full host evidence is `/tmp/ios-0067-live/attempt{16,17}/`. Both cleanup audits pass, with 18 and 25 tracked process identities exited, all four instance ports closed, no new listeners, exact original simulator inventories restored, and owned fixture/instance removed. Teardown deleted only each launcher's exact proof-owned UDID after product cleanup. The T3 daemon and all pre-existing simulators were preserved.
