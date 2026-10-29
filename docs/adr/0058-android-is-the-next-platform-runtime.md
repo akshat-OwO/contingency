@@ -4,6 +4,8 @@ status: accepted
 
 # Android is the next platform runtime
 
+> Amended by [ADR 0067](./0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): the execution boundary, cross-app authorization, ownership pauses, secret-input evidence rules, and physical devices no longer apply. The agent uses the whole emulator OS, and irreversible actions need Confirmation.
+
 Contingency's current browser runtime limits the journeys users can teach and verify. Extend Contingency to Android through a composable Effect service, with room for a future iOS implementation. The first Android version must support one complete journey through Teaching, Flow Skill creation, Dry Run, and user verification.
 
 Build the internal service contract around the needs of web and Android rather than committing to a public runtime plugin API. This supersedes the browser-only runtime boundary in [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md); the existing browser implementation remains supported.

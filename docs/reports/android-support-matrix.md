@@ -1,5 +1,7 @@
 # Android Support Matrix
 
+> Changed by [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): physical devices, private fills, and the system-dialog and cross-app limits no longer apply. This matrix describes shipped behavior until [issue 567](https://github.com/akshat-OwO/contingency/issues/567) re-proves it on emulators only.
+
 Issue #489 proves the Android Support Matrix for #457. Every cell below passed live on 2026-10-15 through the product entry points: Workspace for Teaching and verification, and the MCP server for Dry Runs and later Runs. Android is supported only within this matrix. Every capability outside it is a documented limit, which the product refuses or pauses on explicitly.
 
 ## Cells

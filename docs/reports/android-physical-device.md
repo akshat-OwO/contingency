@@ -1,5 +1,7 @@
 # User-owned Android devices
 
+> Superseded by [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): only emulators are supported. [issue 565](https://github.com/akshat-OwO/contingency/issues/565) removes physical-device support.
+
 Issue [484](https://github.com/akshat-OwO/contingency/issues/484) extends the experimental runtime to an explicitly selected local API 36 physical device. Emulator selections retain their AVD identity and existing restart recipe. Physical selections record the serial, model, API level, and build fingerprint. Shared read-only identity validation runs before preparation, execution, and recovery. It never invokes emulator commands on a physical device or selects a replacement device.
 
 ## Preparation and consent

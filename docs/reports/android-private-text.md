@@ -1,5 +1,7 @@
 # Android private text beside agent-device
 
+> Superseded by [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md): Variables are no longer private. [issue 564](https://github.com/akshat-OwO/contingency/issues/564) removes the helper this report describes.
+
 For [issue 490](https://github.com/akshat-OwO/contingency/issues/490), the experimental Android runtime enters a private Variable through a Contingency-owned helper while stock agent-device keeps its session. The helper and agent-device take turns: agent-device runs its capture helper as one short instrumentation per command, and the private text helper holds the device only for one fill. The emulator Settings proof passed. The fixture proof now covers stock Material password widgets and preserves native masked-field uncertainty; see [Physical widget proof](#physical-widget-proof). This follows [ADR 0061](../adr/0061-android-private-text-uses-a-contingency-owned-helper.md) and does not wire private Variables into Workspace or Runs.
 
 ## Coexistence: take turns, not share
