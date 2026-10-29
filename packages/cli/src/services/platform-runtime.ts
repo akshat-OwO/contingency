@@ -87,7 +87,6 @@ export interface PlatformRuntimeError {
     | "installation_failed"
     | "helper_incompatible"
     | "helper_owned"
-    | "ownership_unknown"
     | "target_unsupported"
     | "target_changed"
     | "runtime_paused"

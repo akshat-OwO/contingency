@@ -91,7 +91,10 @@ export const AndroidRequests = ({
   session.preparation.pending.length === 0 ? null : (
     <div className="bg-muted-surface space-y-2 border-b px-3 py-2.5">
       {session.preparation.pending.map((decision) => {
-        const title = "Run Environment Permission";
+        const title =
+          decision.kind === "confirmation"
+            ? "Confirmation"
+            : "Run Environment Permission";
         return (
           <section aria-label={title} key={decision.id}>
             <RequestHeader
@@ -106,7 +109,11 @@ export const AndroidRequests = ({
                     Refuse
                   </Button>
                   <Button
-                    disabled={pending}
+                    disabled={
+                      pending ||
+                      (decision.kind === "confirmation" &&
+                        session.controller !== "agent")
+                    }
                     onClick={() => onDecide(decision.id, true)}
                     size="xs"
                   >
@@ -123,7 +130,9 @@ export const AndroidRequests = ({
               title={title}
             />
             <p className="text-muted-foreground text-xs">
-              {`The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`}
+              {decision.kind === "confirmation"
+                ? `${session.boundary?.description ?? "Android action"}. Allow this exact attempt once; retry needs fresh Confirmation.`
+                : `The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`}
             </p>
           </section>
         );

@@ -5662,6 +5662,7 @@ const makeAgentSession = (
           outcome: "interrupted",
         };
         if (
+          inFlight.action.type !== "android" &&
           inFlight.action.type !== "eval" &&
           inFlight.action.type !== "upload"
         ) {

@@ -27,9 +27,9 @@ Every cell produced each refusal or pause below on a live Run.
 | API levels below 30 | Refused at selection: `api_unsupported` in startup, `android_api_unsupported` in app discovery, and the setup sheet disables the device | API 29 start refused before Teaching |
 | Multiple bound devices | One live session binds one device. A second session is refused while another is pending, running, or paused, on the same or another serial | Both refusals while the limits Run was live |
 | Raw coordinates | The MCP schema has no coordinate action. A Workspace point resolves to a fresh semantic element or is refused | MCP `tap` rejected; a blank Workspace point showed **Nothing to activate there. No input was sent.** |
-| System dialogs | A Run refuses the untaught control that opens the dialog. A dialog opened anyway pauses the Run on `ownership_unknown` | Camera permission dialog paused the Run; recovery took a fresh observation after the dialog closed |
+| System dialogs | The agent may open and answer system dialogs; emulator proof pending #567 | Camera permission dialog paused the Run; recovery took a fresh observation after the dialog closed |
 | Secure windows | A secure window pauses the Run on `secure_window`, and a `working` claim is stored as `inconclusive` | `FLAG_SECURE` login window |
-| Cross-app actions | A Run refuses the untaught control that leaves the app. Another app's window pauses the Run on `ownership_unknown` | Settings in the foreground paused the Run; recovery returned to the fixture |
+| Cross-app actions | The agent may use Settings and other apps; emulator proof pending #567 | Settings in the foreground paused the Run; recovery returned to the fixture |
 
 Android 11 has no `pm set-permission-flags`. Permission decisions now require API 31 and are refused on API 30 with `permission_decisions_unsupported` before any device command. Preparation also fails when `pm` prints anything, so an unknown command can no longer pass as success.
 

@@ -259,11 +259,23 @@ export const androidDockPresentation = (
       };
     }
     case "paused": {
+      if (session.boundary?.reason === "confirmation") {
+        return {
+          ...quiet(
+            "Confirmation needed",
+            "Allow or refuse the exact action attempt above."
+          ),
+          action:
+            session.controller === "user"
+              ? action("return-control", "Return control")
+              : action("take-control", "Take control"),
+        };
+      }
       return {
         ...quiet(
           "Paused",
           session.error ??
-            `The emulator disconnected or this session lost ownership. Recover the same emulator to carry on.`,
+            `The emulator disconnected or capture became unavailable. Recover the same emulator to carry on.`,
           "failed"
         ),
         action: action("recover", `Recover same emulator`),

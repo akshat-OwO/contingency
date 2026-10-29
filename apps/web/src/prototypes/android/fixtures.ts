@@ -188,13 +188,6 @@ const screenOf = (snapshot: AndroidWorkspaceSnapshot): ScreenName =>
     (name) => SCREENS[name].image === snapshot.observation?.image
   ) ?? "signin";
 
-const reversibleActions = [
-  { name: "Sign in", role: "button" },
-  { name: "Add Anvil to cart", role: "button" },
-  { name: "Open cart", role: "button" },
-  { name: "Place mock order", role: "button" },
-];
-
 export const FIXTURE_SELECTION = {
   device: {
     api: 36,
@@ -212,7 +205,6 @@ export const FIXTURE_SELECTION = {
   },
   helperConsent: "none",
   outcomes: [{ name: "Order confirmed", role: "group" }],
-  reversibleActions,
   setup: {
     activity: ".MainActivity",
     conditions: [{ name: "Fixture Shop sign in", role: "group" }],
@@ -283,7 +275,6 @@ const teaching: AndroidWorkspaceSnapshot = {
     outcomes: FIXTURE_SELECTION.outcomes,
     platform: "android",
     preparation: FIXTURE_SELECTION.setup,
-    reversibleActions,
   },
   revision: 0,
   selection: FIXTURE_SELECTION,
@@ -503,7 +494,6 @@ export const applyCommand = (
         outcomes: selection.outcomes,
         platform: "android",
         preparation: selection.setup,
-        reversibleActions: selection.reversibleActions ?? [],
       },
       selection,
     };

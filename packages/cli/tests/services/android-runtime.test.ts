@@ -270,7 +270,7 @@ it.effect(
     })
 );
 
-it.effect("pauses on unknown ownership without dispatch", () =>
+it.effect("pauses on secure windows without dispatch", () =>
   Effect.gen(function* refuseOwnership() {
     const { backend, commands, input } = yield* makeFixture();
     let owned = true;
@@ -280,7 +280,7 @@ it.effect("pauses on unknown ownership without dispatch", () =>
         validate: () =>
           owned
             ? Effect.void
-            : Effect.fail(platformRuntimeError("ownership_unknown")),
+            : Effect.fail(platformRuntimeError("secure_window")),
       },
       startup: input,
     });
@@ -290,7 +290,7 @@ it.effect("pauses on unknown ownership without dispatch", () =>
       (yield* Effect.flip(
         runtime.dispatch(before.id, { target: "@e1~s1", type: "activate" })
       )).code
-    ).toBe("ownership_unknown");
+    ).toBe("secure_window");
     expect(commands).toEqual([]);
     expect(runtime.state().outcome).toBe("observed");
   })
@@ -461,7 +461,7 @@ it.effect(
 );
 
 it.effect(
-  "refuses foreign window targets and passes Unicode text to stock input",
+  "allows foreign window targets and passes Unicode text to stock input",
   () =>
     Effect.gen(function* unsupportedTargets() {
       const { backend, commands, input } = yield* makeFixture();
@@ -491,11 +491,7 @@ it.effect(
         startup: input,
       });
       const first = yield* runtime.observe();
-      expect(
-        (yield* Effect.flip(
-          runtime.dispatch(first.id, { target: "@e5~s1", type: "activate" })
-        )).code
-      ).toBe("target_unsupported");
+      yield* runtime.dispatch(first.id, { target: "@e5~s1", type: "activate" });
       const next = yield* runtime.recover();
       expect(
         yield* runtime.dispatch(next.id, {
@@ -504,7 +500,7 @@ it.effect(
           type: "fill",
         })
       ).toEqual({ confirmation: "confirmed", outcome: "entered" });
-      expect(commands).toEqual(["public:非公开"]);
+      expect(commands).toEqual(["activate", "public:非公开"]);
     })
 );
 
@@ -571,4 +567,27 @@ it.effect(
       yield* runtime.dispatch(after.id, { target: "@e1~s1", type: "activate" });
       expect(attempts).toBe(1);
     })
+);
+
+it.effect("allows another app and system permission controls", () =>
+  Effect.gen(function* crossApp() {
+    const { backend, commands, input } = yield* makeFixture();
+    const runtime = yield* adaptAndroidRuntime({
+      backend: {
+        ...backend,
+        capture: () =>
+          Effect.sync(() => ({
+            ...captured("system"),
+            nodes: captured("system").nodes.map((node) => ({
+              ...node,
+              packageName: "com.android.permissioncontroller",
+            })),
+          })),
+      },
+      startup: input,
+    });
+    const before = yield* runtime.observe();
+    yield* runtime.dispatch(before.id, { target: "@e1~s1", type: "activate" });
+    expect(commands).toHaveLength(1);
+  })
 );

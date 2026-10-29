@@ -172,17 +172,6 @@ const SetupSheet = ({
             Build 1 · restarts at .MainActivity
           </p>
         </section>
-        <section className="space-y-2">
-          <h3 className="text-xs font-medium">What the journey may touch</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {FIXTURE_SELECTION.reversibleActions.map((action) => (
-              <Badge key={action.name} variant="secondary">
-                {action.role}: {action.name}
-              </Badge>
-            ))}
-            <Badge variant="outline">+ Add</Badge>
-          </div>
-        </section>
         <section className="space-y-1">
           <h3 className="text-xs font-medium">Starts at · Done when</h3>
           <p className="text-xs">Fixture Shop sign in → Order confirmed</p>

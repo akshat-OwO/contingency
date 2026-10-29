@@ -26,7 +26,6 @@ const request = (scope: Scope.Scope): AndroidRunInput => ({
   },
   platform: "android",
   requiredCapabilities: ["semantic-actions", "screenshots"],
-  reversibleActions: [{ name: "Edit", role: "button" }],
   scope,
   setup: {
     activity: "dev.fixture/.Home",
@@ -51,7 +50,7 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
     const input = request(yield* Scope.Scope);
     const calls: string[] = [];
     let identity = true;
-    let owned = true;
+    let capturable = true;
     let starting = true;
     let generation = 0;
     const backend: AndroidRuntimeBackend = {
@@ -128,9 +127,9 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
       recover: () => Effect.void,
       sessionId: "fixture-session",
       validate: () =>
-        owned
+        capturable
           ? Effect.void
-          : Effect.fail(platformRuntimeError("ownership_unknown")),
+          : Effect.fail(platformRuntimeError("secure_window")),
     };
     const driver = {
       preflight: () =>
@@ -151,12 +150,12 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
       failStarting: () => {
         starting = false;
       },
-      input,
-      leaveApp: () => {
-        owned = false;
+      hideSecureWindow: () => {
+        capturable = true;
       },
-      returnApp: () => {
-        owned = true;
+      input,
+      showSecureWindow: () => {
+        capturable = false;
       },
     };
   });
@@ -236,21 +235,21 @@ it.effect(
 );
 
 it.effect(
-  "unexpected app pauses input and explicit recovery produces new evidence without replay",
+  "secure window pauses input and explicit recovery produces new evidence without replay",
   () =>
     Effect.gen(function* recovery() {
       const f = yield* fixture();
       const run = yield* createAndroidRun(f.input, f.driver);
       yield* run.decide(run.state().pending[0]?.id ?? "", true);
       const before = yield* run.prepare();
-      f.leaveApp();
+      f.showSecureWindow();
       expect(
         (yield* Effect.flip(
           run.dispatch(before.id, { target: "@e1", type: "activate" })
         )).code
-      ).toBe("ownership_unknown");
+      ).toBe("secure_window");
       expect(run.state().phase).toBe("paused");
-      f.returnApp();
+      f.hideSecureWindow();
       const fresh = yield* run.recover();
       expect(fresh.id).not.toBe(before.id);
       expect(f.calls).toEqual(["setup"]);
@@ -294,7 +293,7 @@ it.effect(
 );
 
 it.effect(
-  "installation approval is separate and no undeclared activation is dispatched",
+  "installation approval is separate and untaught activation is allowed",
   () =>
     Effect.gen(function* installDecision() {
       const { calls, driver, input } = yield* fixture();
@@ -302,7 +301,6 @@ it.effect(
         {
           ...input,
           appInstallation: { apk: "/fixture.apk", sha256: "a".repeat(64) },
-          reversibleActions: [],
         },
         driver
       );
@@ -316,12 +314,8 @@ it.effect(
       expect(calls).toEqual([]);
       yield* run.decide(decisions[1]?.id ?? "", true);
       const before = yield* run.prepare();
-      expect(
-        (yield* Effect.flip(
-          run.dispatch(before.id, { target: "@e1", type: "activate" })
-        )).code
-      ).toBe("target_unsupported");
-      expect(calls).toEqual(["setup"]);
+      yield* run.dispatch(before.id, { target: "@e1", type: "activate" });
+      expect(calls).toEqual(["setup", "activate"]);
     })
 );
 
@@ -367,9 +361,9 @@ it.effect(
       }
       const first = yield* run.prepare();
       sourceAvailable = false;
-      f.leaveApp();
+      f.showSecureWindow();
       yield* Effect.flip(run.observe());
-      f.returnApp();
+      f.hideSecureWindow();
       const fresh = yield* run.recover();
       expect(fresh.id).not.toBe(first.id);
       expect(f.calls).toEqual(["setup"]);

@@ -24,13 +24,6 @@ export interface AndroidRunInput extends AndroidRuntimeStartInput {
   readonly taught: PlatformRequirements;
   readonly environment: AndroidEnvironment;
   readonly setup: AndroidSetup;
-  /** Workspace Teaching is user-led; later runs still require taught activations. */
-  readonly teaching?: boolean;
-  /** Only these declared reversible activations are exposed; Confirmation is unavailable. */
-  readonly reversibleActions?: readonly {
-    readonly role: string;
-    readonly name: string;
-  }[];
   readonly appInstallation?: { readonly apk: string; readonly sha256: string };
 }
 

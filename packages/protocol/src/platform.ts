@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 
 export const PlatformIdentity = Schema.Literals(["web", "android"]);
 export type PlatformIdentity = typeof PlatformIdentity.Type;
@@ -55,8 +55,12 @@ export const PlatformRequirements = Schema.Union([
     outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
     platform: Schema.Literal("android"),
     preparation: Schema.optionalKey(AndroidPreparation),
-    reversibleActions: Schema.optionalKey(
-      Schema.Array(AndroidStartingCondition)
+    /** Skills saved before ADR 0067 carry this allowlist; read, then discarded. */
+    reversibleActions: Schema.optionalKey(Schema.Unknown).pipe(
+      Schema.decodeTo(Schema.optionalKey(Schema.Unknown), {
+        decode: SchemaGetter.omit(),
+        encode: SchemaGetter.omit(),
+      })
     ),
   }),
 ]);

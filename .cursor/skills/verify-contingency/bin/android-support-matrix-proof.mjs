@@ -334,10 +334,16 @@ const recoverIfPaused = async (sessionId) => {
   const recovered = await read(sessionId);
   assert.equal(recovered.phase, "running", recovered.error ?? "");
 };
-// Dismisses a system dialog or another app's window from outside the runtime,
-// then recovers the same device with a fresh observation.
+// Return through the runtime after a system dialog or Settings.
 const returnToFixture = async (sessionId) => {
-  await adb("shell", "input", "keyevent", "4");
+  const current = await observe(sessionId);
+  await command({
+    _tag: "input",
+    action: { _tag: "back" },
+    observationId: current.observation.id,
+    operationId: operation(),
+    sessionId,
+  });
   // Window focus moves asynchronously; any display may list first (Android 16 adds the stream's).
   const focused = new RegExp(`mCurrentFocus=Window\\{[^}]*${appId}`, "u");
   const deadline = Date.now() + 15_000;
@@ -347,25 +353,25 @@ const returnToFixture = async (sessionId) => {
   }
   await recoverIfPaused(sessionId);
 };
-/**
- * A Run refuses an untaught probe before input. The same window is then opened
- * from outside the runtime, as an app or person would, and the next
- * observation must pause the Run rather than act in it.
- */
+/** Full OS use permits untaught controls, system dialogs, and Settings. */
+const fullOsProbe = async (sessionId, name) => {
+  const current = await observe(sessionId);
+  const probe = find(current, named(name), name);
+  await command({
+    _tag: "input",
+    action: { _tag: "activate", target: probe.target },
+    observationId: current.observation.id,
+    operationId: operation(),
+    sessionId,
+  });
+  const observed = await observe(sessionId);
+  assert.equal(observed.phase, "running");
+  return { observationId: observed.observation.id, phase: observed.phase };
+};
+/** A secure screen still pauses because evidence cannot be captured. */
 const pausingProbe = async (sessionId, name, trigger, expected) => {
   const current = await observe(sessionId);
   const probe = find(current, named(name), name);
-  const untaught = await refusal(
-    {
-      _tag: "input",
-      action: { _tag: "activate", target: probe.target },
-      observationId: current.observation.id,
-      operationId: operation(),
-      sessionId,
-    },
-    /absent, covered, private, or unsupported/u
-  );
-  await recoverIfPaused(sessionId);
   await trigger(probe);
   const message = await refusal(
     { _tag: "observe", image: false, sessionId },
@@ -373,7 +379,7 @@ const pausingProbe = async (sessionId, name, trigger, expected) => {
   );
   const paused = await read(sessionId);
   assert.equal(paused.phase, "paused");
-  return { error: paused.error, pause: message, untaught };
+  return { error: paused.error, pause: message };
 };
 const tapOutside = async ({ bounds }) => {
   assert.ok(bounds, "The probe needs bounds for an outside tap.");
@@ -716,19 +722,15 @@ try {
   await snapshot("limit-raw-coordinates");
   await click("Return control");
   await androidIdle(control);
-  receipt.limits.systemDialog = await pausingProbe(
+  receipt.limits.systemDialog = await fullOsProbe(
     limits.id,
-    "Request camera permission",
-    tapOutside,
-    /ownership is unknown|outside the selected target app|capture is incomplete/u
+    "Request camera permission"
   );
   await snapshot("limit-system-dialog");
   await returnToFixture(limits.id);
-  receipt.limits.crossApp = await pausingProbe(
+  receipt.limits.crossApp = await fullOsProbe(
     limits.id,
-    "Open device settings",
-    () => adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS"),
-    /ownership is unknown|outside the selected target app/u
+    "Open device settings"
   );
   await snapshot("limit-cross-app");
   await returnToFixture(limits.id);

@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { AgentExecutionBoundary } from "./agent-browser.ts";
+import { AgentPendingDecision } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import {
@@ -62,7 +64,6 @@ export const AndroidWorkspaceSelection = Schema.Struct({
   helperConsent: Schema.Literals(["none", "install", "replace", "auto"]),
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
   privateInput: Schema.optionalKey(Schema.Boolean),
-  reversibleActions: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
   setup: AndroidPreparation,
 });
 export type AndroidWorkspaceSelection = typeof AndroidWorkspaceSelection.Type;
@@ -148,7 +149,11 @@ export const AndroidWorkspacePreparation = Schema.Struct({
   pending: Schema.Array(
     Schema.Struct({
       id: text,
-      kind: Schema.Literals(["run-environment-permission", "app-installation"]),
+      kind: Schema.Literals([
+        "run-environment-permission",
+        "app-installation",
+        "confirmation",
+      ]),
       serial: Schema.optionalKey(text),
       targetApp: text,
     })
@@ -197,6 +202,7 @@ export type AndroidWorkspaceSummary = typeof AndroidWorkspaceSummary.Type;
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSnapshot = Schema.Struct({
   ...AndroidWorkspaceSummary.fields,
+  boundary: Schema.optionalKey(Schema.NullOr(AgentExecutionBoundary)),
   captureState: Schema.NullOr(TeachingCaptureState),
   cleanup: Schema.NullOr(TeachingRecordingCleanupState),
   field: Schema.NullOr(
@@ -209,6 +215,7 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
     })
   ),
   observation: Schema.NullOr(AndroidWorkspaceObservation),
+  pendingDecision: Schema.optionalKey(Schema.NullOr(AgentPendingDecision)),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   variables: Schema.optionalKey(
     Schema.Array(
@@ -296,6 +303,7 @@ export const AndroidWorkspaceCommand = Schema.Union([
       }),
       Schema.TaggedStruct("back", {}),
     ]),
+    irreversible: Schema.optionalKey(Schema.Boolean),
     observationId: text,
   }),
   Schema.TaggedStruct("record", { ...mutation, start: Schema.Boolean }),

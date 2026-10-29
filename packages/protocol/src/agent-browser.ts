@@ -238,6 +238,7 @@ export type AgentActionIntent = typeof AgentActionIntent.Type;
 
 export const AgentExecutionBoundary = Schema.Struct({
   action: Schema.Union([
+    Schema.Struct({ action: Schema.String, type: Schema.Literal("android") }),
     AgentBrowserAction,
     Schema.Struct({
       script: Schema.String,

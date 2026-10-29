@@ -23,7 +23,6 @@ const pending = {
   phase: "pending",
   preparation: { differences: [], evidence: [], pending: [], phase: "pending" },
   recordingId: null,
-  requirements: { platform: "android", reversibleActions: [] },
   revision: 0,
   selection: {
     device: {
@@ -41,7 +40,6 @@ const pending = {
     },
     helperConsent: "none",
     outcomes: [{ name: "Order placed", role: "text" }],
-    reversibleActions: [],
     setup: {
       activity: ".MainActivity",
       conditions: [{ name: "Sign in", role: "button" }],
@@ -139,7 +137,7 @@ test("keeps Verify flow reachable after the Dry Run session closes", () => {
   expect(presentation.rejectable).toBe(true);
 });
 
-test("offers declared reversible controls and editable fields only", () => {
+test("offers uncovered controls and editable fields", () => {
   const node = {
     covered: false,
     editable: false,
@@ -165,11 +163,11 @@ test("offers declared reversible controls and editable fields only", () => {
     },
     requirements: {
       platform: "android",
-      reversibleActions: [{ name: "Sign in", role: "button" }],
     },
   } satisfies AndroidWorkspaceSnapshot;
   expect(actionableNodes(session).map(({ target }) => target)).toEqual([
     "n1",
+    "n2",
     "n3",
   ]);
 });
