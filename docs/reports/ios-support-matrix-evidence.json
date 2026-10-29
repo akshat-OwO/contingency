@@ -1,0 +1,450 @@
+{
+  "checkedAt": "2026-10-29",
+  "issue": 550,
+  "adr": "0066",
+  "proof": ".cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs",
+  "cells": {
+    "iphone17-ios26-5": {
+      "device": {
+        "host": "local",
+        "deviceType": "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        "runtimeVersion": "26.5"
+      },
+      "sourceRevision": "d6a3b0b7618db13d6bef317279775c21afcfe0ba",
+      "proofWorkingTreeModified": true,
+      "fixtureSha256": "c42ad5c3267a52a73a5a63304a2e3259b2bbf7bb1582d2269e323d1e16b11122",
+      "fixtureHashKind": "source-files",
+      "finishedAt": "2026-10-29T10:43:35.122Z",
+      "artifacts": ".cursor/skills/verify-contingency/artifacts/ios-support-matrix/ios26-5-attempt1",
+      "receiptSha256": "efd4fbbfc40492e9869a9f4099602e7c2484057834f420d23c2747ee80ec7129",
+      "attempts": 3,
+      "teaching": {
+        "actionKinds": ["fill", "variable", "activate", "activate", "activate"],
+        "publicInputConfirmation": "confirmed",
+        "inputConfirmation": "unconfirmed",
+        "variableFill": "ordinary"
+      },
+      "dryRun": {
+        "outcome": "working"
+      },
+      "verification": {
+        "cleanup": "purged",
+        "decision": "verify"
+      },
+      "laterRun": {
+        "outcome": "working"
+      },
+      "agentActions": {
+        "fill": ["dry-run", "run"],
+        "variable": ["dry-run", "run"],
+        "activate": ["dry-run", "dry-run", "dry-run", "run", "run", "run"]
+      },
+      "limits": {
+        "physicalDevice": {
+          "refusal": "physical_device_unsupported",
+          "noDeviceCommands": true,
+          "commandAbsenceEvidence": "packages/cli/tests/services/ios-workspace.test.ts"
+        },
+        "osOutsideMatrix": {
+          "25.0": "os_unsupported",
+          "28.0": "os_unsupported"
+        },
+        "sameDeviceBound": "Refused: selected simulator is already bound.",
+        "multipleBoundDevices": "Refused: iOS binds one device at a time.",
+        "rawCoordinates": {
+          "mcp": "Rejected by command schema"
+        },
+        "back": "capability_missing",
+        "systemDialog": {
+          "phase": "running",
+          "answered": true
+        },
+        "crossApp": {
+          "refusal": "foreign_app_foreground",
+          "recovery": "return-to-target-app",
+          "statePreserved": true,
+          "journeyContinued": true
+        },
+        "confirmation": {
+          "allowOnce": true,
+          "distinctDecisions": 2,
+          "refuse": true
+        }
+      },
+      "coverage": {
+        "publicMcpGate": true,
+        "appInstallationDecision": true,
+        "teachingSettingsRecovery": true,
+        "teaching": true,
+        "learning": true,
+        "existingAppData": true,
+        "dry-run": true,
+        "verificationAndPurge": true,
+        "confirmation": {
+          "allowOnce": true,
+          "distinctDecisions": 2,
+          "refuse": true
+        },
+        "systemAlert": true,
+        "settingsRecovery": {
+          "code": "foreign_app_foreground",
+          "journeyContinued": true,
+          "sameSimulator": true,
+          "statePreserved": true
+        },
+        "run": true,
+        "documentedLimits": true,
+        "selectedSimulatorRemainsRunning": true,
+        "noSimulatorCreationOrDeletion": true
+      },
+      "declaredPermissionState": {
+        "appliedBeforeLaunch": "Photos access: denied",
+        "differences": [
+          {
+            "field": "permissions",
+            "selected": "[{\"decision\":\"revoke\",\"service\":\"photos\"}]",
+            "taught": "[]"
+          }
+        ],
+        "settingsVisited": false
+      },
+      "cleanup": {
+        "simulatorInventoryUnchanged": true,
+        "selectedSimulatorRunningAfterProduct": true,
+        "proofSimulatorDeleted": true,
+        "fixtureRemoved": true,
+        "runtimeBuildsRemoved": true,
+        "productProcessesExited": true,
+        "productPortsClosed": true
+      },
+      "blockers": [],
+      "postListing": {
+        "entry": "public",
+        "mode": "full",
+        "sourceRevision": "ba4fbf837a254eb77803670a0131faabb166743f",
+        "productRevision": "1804a3461e6749f85782ffca888e420d1b13df43",
+        "artifacts": ".cursor/skills/verify-contingency/artifacts/ios-support-matrix/ios26-5-public-final",
+        "receiptSha256": "9b17769c9d6c347d8c4cb4e04dd6e75e5da4978d17ca8a0fd5e4dd619052b402",
+        "finishedAt": "2026-10-29T12:50:57.455Z",
+        "envGate": false,
+        "coverage": {
+          "publicListing": true,
+          "appInstallationDecision": true,
+          "teachingSettingsRecovery": true,
+          "teaching": true,
+          "learning": true,
+          "existingAppData": true,
+          "dry-run": true,
+          "verificationAndPurge": true,
+          "systemAlert": true,
+          "settingsRecovery": {
+            "code": "foreign_app_foreground",
+            "journeyContinued": true,
+            "sameSimulator": true,
+            "statePreserved": true
+          },
+          "run": true,
+          "documentedLimits": true,
+          "selectedSimulatorRemainsRunning": true,
+          "noSimulatorCreationOrDeletion": true
+        },
+        "blockers": [],
+        "dryRun": {
+          "outcome": "working"
+        },
+        "verification": {
+          "decision": "verify",
+          "cleanup": "purged"
+        },
+        "laterRun": {
+          "outcome": "working"
+        }
+      },
+      "evidenceLimitations": []
+    },
+    "iphone-duo-ios27-1": {
+      "device": {
+        "host": "local",
+        "deviceType": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
+        "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+        "runtimeVersion": "27.1"
+      },
+      "sourceRevision": "6025fd2a4ff71c96b8be073ec8cf9023c5b8b433",
+      "proofWorkingTreeModified": true,
+      "fixtureSha256": "c42ad5c3267a52a73a5a63304a2e3259b2bbf7bb1582d2269e323d1e16b11122",
+      "fixtureHashKind": "source-files",
+      "finishedAt": "2026-10-29T12:28:32.915Z",
+      "artifacts": ".cursor/skills/verify-contingency/artifacts/ios-support-matrix/ios27-1-attempt3",
+      "receiptSha256": "0bd2b73b879b3745734e8ea9d25a32b6fb4785445b515922c78799b0d0c6c34a",
+      "attempts": 3,
+      "teaching": {
+        "actionKinds": [
+          "fill",
+          "variable",
+          "activate",
+          "activate",
+          "activate",
+          "activate"
+        ],
+        "publicInputConfirmation": "confirmed",
+        "inputConfirmation": "unconfirmed",
+        "variableFill": "ordinary"
+      },
+      "dryRun": {
+        "outcome": "working"
+      },
+      "verification": {
+        "cleanup": "purged",
+        "decision": "verify"
+      },
+      "laterRun": {
+        "outcome": "working"
+      },
+      "agentActions": {
+        "fill": ["dry-run", "run"],
+        "variable": ["dry-run", "run"],
+        "activate": ["dry-run", "dry-run", "dry-run", "run", "run", "run"]
+      },
+      "limits": {
+        "physicalDevice": {
+          "refusal": "physical_device_unsupported",
+          "noDeviceCommands": true,
+          "commandAbsenceEvidence": "packages/cli/tests/services/ios-workspace.test.ts"
+        },
+        "osOutsideMatrix": {
+          "25.0": "os_unsupported",
+          "28.0": "os_unsupported"
+        },
+        "sameDeviceBound": "Refused: selected simulator is already bound.",
+        "multipleBoundDevices": "Refused: iOS binds one device at a time.",
+        "rawCoordinates": {
+          "mcp": "Rejected by command schema"
+        },
+        "back": "capability_missing",
+        "systemDialog": {
+          "phase": "running",
+          "answered": true
+        },
+        "crossApp": {
+          "refusal": "foreign_app_foreground",
+          "recovery": "return-to-target-app",
+          "statePreserved": true,
+          "journeyContinued": true
+        },
+        "confirmation": {
+          "allowOnce": true,
+          "distinctDecisions": 2,
+          "refuse": true
+        }
+      },
+      "coverage": {
+        "publicMcpGate": true,
+        "appInstallationDecision": true,
+        "teachingSettingsRecovery": true,
+        "teaching": true,
+        "learning": true,
+        "existingAppData": true,
+        "dry-run": true,
+        "verificationAndPurge": true,
+        "confirmation": {
+          "allowOnce": true,
+          "distinctDecisions": 2,
+          "refuse": true
+        },
+        "systemAlert": true,
+        "settingsRecovery": {
+          "code": "foreign_app_foreground",
+          "journeyContinued": true,
+          "sameSimulator": true,
+          "statePreserved": true
+        },
+        "run": true,
+        "documentedLimits": true,
+        "selectedSimulatorRemainsRunning": true,
+        "noSimulatorCreationOrDeletion": true
+      },
+      "declaredPermissionState": {
+        "appliedBeforeLaunch": "Photos access: denied",
+        "differences": [
+          {
+            "field": "permissions",
+            "selected": "[{\"decision\":\"revoke\",\"service\":\"photos\"}]",
+            "taught": "[]"
+          }
+        ],
+        "settingsVisited": false
+      },
+      "cleanup": {
+        "simulatorInventoryUnchanged": true,
+        "selectedSimulatorRunningAfterProduct": true,
+        "proofSimulatorDeleted": true,
+        "fixtureRemoved": true,
+        "runtimeBuildsRemoved": true,
+        "productProcessesExited": true,
+        "productPortsClosed": true
+      },
+      "blockers": [],
+      "postListing": {
+        "entry": "public",
+        "mode": "public-entry",
+        "sourceRevision": "b82e477c5748119cd4d768575bc4fb62a8fff88f",
+        "productRevision": "1804a3461e6749f85782ffca888e420d1b13df43",
+        "artifacts": ".cursor/skills/verify-contingency/artifacts/ios-support-matrix/ios27-1-public-entry",
+        "receiptSha256": "fc8a39569c0c6dd8ab3d9e53c4df61874dcfa03d0ac51945673eb78c23bc5c09",
+        "finishedAt": "2026-10-29T12:45:55.777Z",
+        "envGate": false,
+        "coverage": {
+          "publicStart": true,
+          "journey": ["fill", "variable", "activate", "activate", "activate"],
+          "publicListing": true,
+          "noSimulatorCreationOrDeletion": true,
+          "selectedSimulatorRemainsRunning": true
+        },
+        "blockers": []
+      },
+      "evidenceLimitations": [
+        "The post-listing journey is shorter than the complete gated attempt 3; it does not repeat Teaching, learning, Dry Run, or verification."
+      ]
+    }
+  },
+  "attemptHistory": {
+    "ios26-5": [
+      {
+        "attempt": 1,
+        "entry": "internal",
+        "outcome": "passed"
+      },
+      {
+        "attempt": 2,
+        "entry": "public",
+        "outcome": "harness_failure",
+        "cause": "Discovery state was sent as an excess selection property; stopped before Teaching."
+      },
+      {
+        "attempt": 3,
+        "entry": "public",
+        "outcome": "passed"
+      }
+    ],
+    "ios27-1": [
+      {
+        "attempt": 1,
+        "entry": "internal",
+        "outcome": "capture_incomplete",
+        "cause": "Two powered integrated panels were refused."
+      },
+      {
+        "attempt": 2,
+        "entry": "internal",
+        "outcome": "capture_incomplete",
+        "cause": "Native pixels did not match the SDK logical screenshot dimensions."
+      },
+      {
+        "attempt": 3,
+        "entry": "internal",
+        "outcome": "passed"
+      }
+    ]
+  },
+  "remainingGaps": [
+    "No clean Mac was available. The npm install used a fresh prefix and isolated HOME on the development host.",
+    "Live folding, rotation, display replacement, Stop races, x64, and arbitrary-duration foreground ownership were not proven.",
+    "iOS 27.1 received a shorter public-entry journey after listing, with the full gated attempt 3 supplying Teaching and verification evidence."
+  ],
+  "postListingJourneys": {
+    "ios26-5": "Full matrix proof on attempt 3.",
+    "ios27-1": "One shorter public-entry journey, as authorized when a full rerun exceeds the attempt budget."
+  },
+  "releaseArtifact": {
+    "version": "0.0.1",
+    "npm": "12.2.0",
+    "node": "24.18.0",
+    "freshPrefix": true,
+    "isolatedHome": true,
+    "offlineInstall": true,
+    "tarballSha256": "a077b5f4cb58f6293828dc8eeb6aebcc4c66785e2534c1325bb36ac95b986242",
+    "helperSha256": "8e61ff65aa323431d3487a0666f396f388a2a38a0c003977d2357cb3d3453f4d",
+    "quarantineAbsent": true,
+    "codesignValid": true,
+    "ciArtifactVerification": true,
+    "cleanMachine": false,
+    "frames": {
+      "ios26-5": {
+        "startedAt": "2026-10-29T12:41:17.709Z",
+        "completedAt": "2026-10-29T12:41:18.428Z",
+        "frames": 3,
+        "width": 720,
+        "height": 1566,
+        "selectedSimulator": true,
+        "helperExited": true,
+        "isolatedHome": true
+      },
+      "ios27-1": {
+        "startedAt": "2026-10-29T12:44:07.555Z",
+        "completedAt": "2026-10-29T12:44:07.866Z",
+        "frames": 3,
+        "width": 720,
+        "height": 1048,
+        "selectedSimulator": true,
+        "helperExited": true,
+        "isolatedHome": true
+      }
+    },
+    "cleanup": {
+      "prefixRemoved": true,
+      "isolatedHomeRemoved": true,
+      "temporaryNpmRemoved": true,
+      "helpersExited": true
+    },
+    "productRevision": "1804a3461e6749f85782ffca888e420d1b13df43",
+    "architecture": "arm64",
+    "buildIosFramebuffer": true
+  },
+  "catalog": {
+    "catalogBytes": 98439,
+    "deviceBytes": 9747,
+    "feature": "device-mcp-contract",
+    "status": "passed"
+  },
+  "cleanupEvidence": {
+    "root": "/tmp/ios-matrix-live",
+    "audit": "/tmp/ios-matrix-scripts/audit.py",
+    "resourceLedger": "/tmp/ios-matrix-resource-ledger.md",
+    "processTrackingLimitation": "Ownership reconstructed from snapshots and exact markers; short-lived children are not exhaustively recorded.",
+    "unrelatedStatePreserved": true,
+    "t3DaemonAndHubPreserved": true,
+    "finalAudit": "/tmp/ios-matrix-final-cleanup-audit.json",
+    "finalAuditPassed": true,
+    "allAttemptFollowUpAuditsPassed": true
+  },
+  "checks": {
+    "quality": {
+      "command": "nub exec turbo run quality",
+      "status": "passed"
+    },
+    "types": {
+      "command": "nub exec turbo run check-types",
+      "status": "passed"
+    },
+    "cliUnit": {
+      "command": "nub exec --cwd packages/cli vitest run",
+      "files": 106,
+      "tests": 835,
+      "status": "passed"
+    },
+    "productionBuild": {
+      "command": "CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force",
+      "status": "passed"
+    },
+    "integration": {
+      "command": "nub run test:integration",
+      "cwd": "packages/cli",
+      "runs": 1,
+      "alone": true,
+      "files": 43,
+      "tests": 178,
+      "status": "passed"
+    }
+  }
+}
