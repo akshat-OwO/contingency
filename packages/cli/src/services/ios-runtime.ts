@@ -8,7 +8,7 @@ import type {
 } from "@contingency/protocol";
 import { createAgentDeviceClient } from "agent-device";
 import type { AgentDeviceIdentifiers } from "agent-device";
-import { Effect, Exit, Schedule, Scope } from "effect";
+import { Effect, Exit, Ref, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import type { IosDevice } from "./ios-contract.ts";
@@ -90,6 +90,33 @@ export const iosSnapshotProblem = (snapshot: {
   }
   return snapshot.truncated === true ? "observation_stale" : null;
 };
+interface IosViewport {
+  readonly width: number;
+  readonly height: number;
+}
+/** A presented system alert's frame arrives as the viewport while its rects stay in window points; keep the window it sits inside. */
+export const iosWindowViewport = (
+  snapshot: {
+    readonly viewport: IosViewport;
+    readonly nodes: readonly {
+      readonly rect?: IosViewport & { readonly x: number; readonly y: number };
+    }[];
+  },
+  window: IosViewport | null
+): IosViewport => {
+  const root = snapshot.nodes[0]?.rect;
+  const presented =
+    window !== null &&
+    root !== undefined &&
+    root.width === snapshot.viewport.width &&
+    root.height === snapshot.viewport.height &&
+    (root.x !== 0 || root.y !== 0) &&
+    root.x >= 0 &&
+    root.y >= 0 &&
+    root.x + root.width <= window.width &&
+    root.y + root.height <= window.height;
+  return presented ? window : snapshot.viewport;
+};
 /** Re-observe a stale or cut-short capture; never act on mixed coordinate spaces or a partial tree. */
 export const settleIosCapture = <A>(
   captureOnce: Effect.Effect<A, PlatformRuntimeError>
@@ -144,6 +171,7 @@ const startIosRuntime = (
           }
         });
       const fillPublic = client.interactions.fill.bind(client.interactions);
+      const window = yield* Ref.make<IosViewport | null>(null);
       const captureOnce = () =>
         Effect.gen(function* captureIos() {
           yield* validate();
@@ -166,6 +194,10 @@ const startIosRuntime = (
               iosRuntimeError(problem ?? "capture_incomplete")
             );
           }
+          const viewport = iosWindowViewport(
+            { nodes: snapshot.nodes, viewport: snapshot.viewport },
+            yield* Ref.get(window)
+          );
           const id = randomUUID();
           const filename = path.join(
             prepared.directory,
@@ -189,12 +221,13 @@ const startIosRuntime = (
           const height = bytes.readUInt32BE(20);
           if (
             Math.sign(width - height) !==
-            Math.sign(snapshot.viewport.width - snapshot.viewport.height)
+            Math.sign(viewport.width - viewport.height)
           ) {
             return yield* Effect.fail(iosRuntimeError("observation_stale"));
           }
-          const sx = width / snapshot.viewport.width;
-          const sy = height / snapshot.viewport.height;
+          yield* Ref.set(window, viewport);
+          const sx = width / viewport.width;
+          const sy = height / viewport.height;
           const observation: IosObservation = {
             appId: snapshot.appBundleId ?? null,
             backendSessionId: session,

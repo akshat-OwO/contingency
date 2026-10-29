@@ -5,6 +5,7 @@ import { TestClock } from "effect/testing";
 import {
   iosRuntimeError,
   iosSnapshotProblem,
+  iosWindowViewport,
   settleIosCapture,
 } from "../../src/services/ios-runtime.ts";
 import type { PlatformRuntimeError } from "../../src/services/platform-runtime.ts";
@@ -74,4 +75,25 @@ it("observes a truncated system-surface tree again but rejects a missing viewpor
   expect(iosSnapshotProblem({ truncated: false, viewport })).toBe(
     "capture_incomplete"
   );
+});
+
+it("keeps the app window viewport while a system alert is presented", () => {
+  const window = { height: 874, width: 402 };
+  // agent-device 0.21.25 reported the notification alert's frame as the viewport; its rects stay in window points.
+  const alert = {
+    nodes: [{ rect: { height: 236, width: 320, x: 41, y: 333 } }],
+    viewport: { height: 236, width: 320 },
+  };
+  expect(iosWindowViewport(alert, window)).toEqual(window);
+  expect(iosWindowViewport(alert, null)).toEqual(alert.viewport);
+  const app = {
+    nodes: [{ rect: { height: 874, width: 402, x: 0, y: 0 } }],
+    viewport: window,
+  };
+  expect(iosWindowViewport(app, { height: 402, width: 874 })).toEqual(window);
+  const outside = {
+    nodes: [{ rect: { height: 236, width: 320, x: 300, y: 333 } }],
+    viewport: { height: 236, width: 320 },
+  };
+  expect(iosWindowViewport(outside, window)).toEqual(outside.viewport);
 });
