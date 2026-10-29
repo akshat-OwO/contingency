@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing";
 import {
   iosAgentDeviceFailure,
   iosRuntimeError,
+  iosSnapshotFailure,
   iosSnapshotProblem,
   iosWindowViewport,
   settleIosCapture,
@@ -133,3 +134,41 @@ it("names the failed step and agent-device code without its message", () => {
     "iOS runtime_failed during capture. Inspect this session and explicitly recover before input."
   );
 });
+
+it.effect("observes again when one snapshot arrives without a viewport", () =>
+  Effect.gen(function* settlesMissingViewport() {
+    // agent-device 0.21.25 refused one Run capture after sign-in with invalid-viewport.
+    let calls = 0;
+    const capture = Effect.tryPromise({
+      catch: iosSnapshotFailure,
+      try: () => {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(
+              new AppError("COMMAND_FAILED", "viewport", {
+                field: "viewport",
+                reason: "invalid-viewport",
+              })
+            )
+          : Promise.resolve("observed");
+      },
+    });
+    const fiber = yield* Effect.forkChild(settleIosCapture(capture));
+    // settleIosCapture spaces retries with the TestClock this it.effect provides.
+    yield* TestClock.adjust("1 second");
+    expect(yield* Fiber.join(fiber)).toBe("observed");
+    expect(calls).toBe(2);
+    expect(
+      iosSnapshotFailure(
+        new AppError("COMMAND_FAILED", "viewport", {
+          reason: "missing-viewport",
+        })
+      ).code
+    ).toBe("observation_stale");
+    expect(
+      iosSnapshotFailure(
+        new AppError("COMMAND_FAILED", "gone", { reason: "device_not_found" })
+      ).code
+    ).toBe("runtime_failed");
+  })
+);

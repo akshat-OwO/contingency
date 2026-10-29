@@ -99,6 +99,17 @@ export const iosAgentDeviceFailure = (
     ? { ...error, backendReason: reason }
     : error;
 };
+/** agent-device refuses one presentation when the runner reports no usable viewport; observe again as for a cut-short tree. */
+export const iosSnapshotFailure = (cause: unknown): PlatformRuntimeError => {
+  const reason = isAgentDeviceError(cause) ? cause.details?.reason : undefined;
+  return iosAgentDeviceFailure(
+    cause,
+    reason === "invalid-viewport" || reason === "missing-viewport"
+      ? "observation_stale"
+      : "runtime_failed",
+    "capture"
+  );
+};
 const io = <A>(
   run: (signal: AbortSignal) => Promise<A>,
   operation: NonNullable<PlatformRuntimeError["operation"]>,
@@ -214,16 +225,16 @@ const startIosRuntime = (
       const captureOnce = () =>
         Effect.gen(function* captureIos() {
           yield* validate();
-          const snapshot = yield* io(
-            (signal) =>
+          const snapshot = yield* Effect.tryPromise({
+            catch: iosSnapshotFailure,
+            try: (signal) =>
               client.capture.snapshot({
                 ...options(),
                 interactiveOnly: false,
                 noRecord: true,
                 signal,
               }),
-            "capture"
-          );
+          });
           yield* identities(snapshot.identifiers, udid, session);
           const problem = iosSnapshotProblem(snapshot);
           if (
