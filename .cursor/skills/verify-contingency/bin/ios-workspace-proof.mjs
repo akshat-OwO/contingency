@@ -625,6 +625,18 @@ try {
       ).catch((error) => receipt.blockers.push(`Cleanup: ${error}`));
     }
   }
+  const finalDevices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
+  const finalSelected = finalDevices.find((entry) => entry.udid === selected);
+  assert.ok(
+    finalSelected,
+    "Product must retain the selected simulator after closing sessions"
+  );
+  assert.equal(
+    finalSelected.state,
+    "Booted",
+    "Product must leave the selected simulator running"
+  );
+  receipt.coverage.selectedSimulatorRemainsRunning = true;
   receipt.simulatorInventory = {
     after: await simulatorInventory(selected),
     before: inventoryBefore,

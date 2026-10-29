@@ -311,11 +311,11 @@ const IosSetupSheet = ({
         </Button>
         <label>
           Simulator app path
-          <Input name="path" />
-          <span>
-            Optional. A named build requires a separate installation decision.
-          </span>
+          <Input name="path" aria-describedby="ios-app-path-help" />
         </label>
+        <p id="ios-app-path-help">
+          Optional. A named build requires a separate installation decision.
+        </p>
         <label>
           Bundle identifier
           <Input name="bundle" required />
