@@ -1,8 +1,10 @@
 import { expect, it } from "@effect/vitest";
+import { AppError } from "agent-device";
 import { Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  iosAgentDeviceFailure,
   iosRuntimeError,
   iosSnapshotProblem,
   iosWindowViewport,
@@ -96,4 +98,38 @@ it("keeps the app window viewport while a system alert is presented", () => {
     viewport: { height: 236, width: 320 },
   };
   expect(iosWindowViewport(outside, window)).toEqual(outside.viewport);
+});
+
+it("names the failed step and agent-device code without its message", () => {
+  const failure = iosAgentDeviceFailure(
+    new AppError("COMMAND_FAILED", "typed fixture-password into Password", {
+      reason: "stale_ref",
+    }),
+    "runtime_failed",
+    "activate"
+  );
+  expect(failure).toMatchObject({
+    backendReason: "stale_ref",
+    code: "runtime_failed",
+    operation: "activate",
+  });
+  expect(failure.message).toBe(
+    "iOS runtime_failed during activate (COMMAND_FAILED, stale_ref). Inspect this session and explicitly recover before input."
+  );
+  const unsafe = iosAgentDeviceFailure(
+    new AppError("COMMAND_FAILED", "secret", {
+      reason: "fixture-password typed",
+    }),
+    "runtime_failed",
+    "screenshot"
+  );
+  expect(unsafe.message).toBe(
+    "iOS runtime_failed during screenshot (COMMAND_FAILED). Inspect this session and explicitly recover before input."
+  );
+  expect(
+    iosAgentDeviceFailure(new Error("secret"), "runtime_failed", "capture")
+      .message
+  ).toBe(
+    "iOS runtime_failed during capture. Inspect this session and explicitly recover before input."
+  );
 });

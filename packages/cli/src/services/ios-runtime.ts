@@ -6,9 +6,9 @@ import type {
   IosWorkspaceSelection,
   PlatformRequirements,
 } from "@contingency/protocol";
-import { createAgentDeviceClient } from "agent-device";
+import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
 import type { AgentDeviceIdentifiers } from "agent-device";
-import { Effect, Exit, Ref, Schedule, Scope } from "effect";
+import { Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import type { IosDevice } from "./ios-contract.ts";
@@ -66,10 +66,48 @@ export const iosRuntimeError = (
   code,
   message: `iOS ${code}. Inspect this session and explicitly recover before input.`,
 });
+const identifier = /^[\w-]+$/u;
+/** Name the failed step and agent-device's code and reason; never its message, which may carry user data. */
+export const iosAgentDeviceFailure = (
+  cause: unknown,
+  code: PlatformRuntimeError["code"],
+  operation: NonNullable<PlatformRuntimeError["operation"]>
+): PlatformRuntimeError => {
+  const failure = (detail: readonly unknown[]): PlatformRuntimeError => {
+    const named = detail
+      .filter(
+        (part): part is string =>
+          Predicate.isString(part) && identifier.test(part)
+      )
+      .join(", ");
+    return {
+      ...iosRuntimeError(code),
+      message: `iOS ${code} during ${operation}${named === "" ? "" : ` (${named})`}. Inspect this session and explicitly recover before input.`,
+      operation,
+    };
+  };
+  if (!isAgentDeviceError(cause)) {
+    return failure([]);
+  }
+  const reason = cause.details?.reason;
+  const error = failure([cause.code, reason]);
+  return reason === "ref_generation_mismatch" ||
+    reason === "stale_ref" ||
+    reason === "device_not_found" ||
+    reason === "request_canceled" ||
+    reason === "input_unverified"
+    ? { ...error, backendReason: reason }
+    : error;
+};
 const io = <A>(
   run: (signal: AbortSignal) => Promise<A>,
+  operation: NonNullable<PlatformRuntimeError["operation"]>,
   code: PlatformRuntimeError["code"] = "runtime_failed"
-) => Effect.tryPromise({ catch: () => iosRuntimeError(code), try: run });
+) =>
+  Effect.tryPromise({
+    catch: (cause) => iosAgentDeviceFailure(cause, code, operation),
+    try: run,
+  });
 const identities = (
   id: AgentDeviceIdentifiers | undefined,
   udid: string,
@@ -162,8 +200,9 @@ const startIosRuntime = (
       });
       const validate = () =>
         Effect.gen(function* validateIos() {
-          const sessions = yield* io((signal) =>
-            client.sessions.list({ signal })
+          const sessions = yield* io(
+            (signal) => client.sessions.list({ signal }),
+            "session-check"
           );
           const bound = sessions.find((entry) => entry.name === session);
           if (bound?.device.ios?.udid !== udid) {
@@ -175,13 +214,15 @@ const startIosRuntime = (
       const captureOnce = () =>
         Effect.gen(function* captureIos() {
           yield* validate();
-          const snapshot = yield* io((signal) =>
-            client.capture.snapshot({
-              ...options(),
-              interactiveOnly: false,
-              noRecord: true,
-              signal,
-            })
+          const snapshot = yield* io(
+            (signal) =>
+              client.capture.snapshot({
+                ...options(),
+                interactiveOnly: false,
+                noRecord: true,
+                signal,
+              }),
+            "capture"
           );
           yield* identities(snapshot.identifiers, udid, session);
           const problem = iosSnapshotProblem(snapshot);
@@ -203,12 +244,18 @@ const startIosRuntime = (
             prepared.directory,
             `observation-${id}.png`
           );
-          const screenshot = yield* io((signal) =>
-            client.capture.screenshot({ ...options(), path: filename, signal })
+          const screenshot = yield* io(
+            (signal) =>
+              client.capture.screenshot({
+                ...options(),
+                path: filename,
+                signal,
+              }),
+            "screenshot"
           );
           yield* identities(screenshot.identifiers, udid, session);
           yield* validate();
-          const bytes = yield* io(() => readFile(filename));
+          const bytes = yield* io(() => readFile(filename), "host-io");
           if (
             bytes.length < 24 ||
             !bytes
@@ -268,8 +315,14 @@ const startIosRuntime = (
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
-            io((signal) =>
-              client.interactions.click({ ...options(), ref: target, signal })
+            io(
+              (signal) =>
+                client.interactions.click({
+                  ...options(),
+                  ref: target,
+                  signal,
+                }),
+              "activate"
             ).pipe(Effect.asVoid),
           capture,
           close: () => Scope.close(resources, Exit.void),
