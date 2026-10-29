@@ -38,6 +38,27 @@ const RuntimeInventory = Schema.fromJsonString(
   })
 );
 
+const DeviceInventory = Schema.fromJsonString(
+  Schema.Struct({
+    devices: Schema.Record(
+      Schema.String,
+      Schema.Array(Schema.Struct({ state: Schema.String, udid: Schema.String }))
+    ),
+  })
+);
+
+/** True only when this exact simulator reports Booted; unknown UDIDs fail. */
+export const simulatorBooted = (output: string, udid: string) => {
+  const { devices } = Schema.decodeUnknownSync(DeviceInventory)(output);
+  const device = Object.values(devices)
+    .flat()
+    .find((item) => item.udid === udid);
+  if (!device) {
+    throw new Error(`Simulator ${udid} is missing from the inventory`);
+  }
+  return device.state === "Booted";
+};
+
 /** Numeric version ordering, independent of simctl's inventory order. */
 export const selectIosRuntime = (output: string) => {
   const { runtimes } = Schema.decodeUnknownSync(RuntimeInventory)(output);
@@ -372,31 +393,18 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
     })
   );
   yield* simctl(["boot", udid]);
-  yield* Effect.gen(function* boot() {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const child = yield* spawner.spawn(
-      ChildProcess.make("xcrun", ["simctl", "bootstatus", udid, "-b"], {
-        stderr: "inherit",
-        stdout: "inherit",
-      })
-    );
-    yield* Console.log(
-      JSON.stringify({
-        bootstatusPid: child.pid,
-        owner: "verify-ios-helper",
-        ports: [],
-        simulatorUdid: udid,
-        startedAt: new Date().toISOString(),
-        stop: "scoped child termination on failure",
-      })
-    );
-    const exit = yield* child.exitCode;
-    if (exit !== 0) {
-      return yield* Effect.fail(
-        new Error(`Simulator bootstatus exited ${exit}`)
-      );
-    }
-  }).pipe(Effect.scoped, Effect.timeout("5 minutes"));
+  // The helper needs only the display. Waiting for bootstatus can stall on a
+  // slow hosted runner's data migration, so poll the device state instead.
+  yield* simctl(["list", "devices", "--json"]).pipe(
+    Effect.flatMap(({ stdout }) => parse(() => simulatorBooted(stdout, udid))),
+    Effect.flatMap((booted) =>
+      booted
+        ? Effect.void
+        : Effect.fail(new Error(`Simulator ${udid} is not booted yet`))
+    ),
+    Effect.retry({ schedule: Schedule.spaced("5 seconds"), times: 60 })
+  );
+  yield* Console.log(JSON.stringify({ booted: udid }));
   // A fresh hosted runner's first boot can report a terminal status before its
   // display service answers, so enumerate again within a bound.
   const display = yield* run("xcrun", ["simctl", "io", udid, "enumerate"]).pipe(

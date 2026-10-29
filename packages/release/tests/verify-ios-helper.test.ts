@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  simulatorBooted,
   parseIntegratedDisplay,
   selectIosRuntime,
   validateHelperPacket,
@@ -173,5 +174,27 @@ describe("helper executing architecture", () => {
         )
       ).toThrow();
     }
+  });
+});
+
+const bootInventory = (state: string) =>
+  JSON.stringify({
+    devices: {
+      "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+        { state: "Shutdown", udid: "OTHER" },
+        { state, udid: "OWNED" },
+      ],
+    },
+  });
+
+describe("simulator boot state", () => {
+  it("reports only the owned simulator's state", () => {
+    expect(simulatorBooted(bootInventory("Booted"), "OWNED")).toBe(true);
+    expect(simulatorBooted(bootInventory("Booting"), "OWNED")).toBe(false);
+  });
+  it("refuses a simulator missing from the inventory", () => {
+    expect(() => simulatorBooted(bootInventory("Booted"), "MISSING")).toThrow(
+      "missing from the inventory"
+    );
   });
 });
