@@ -42,3 +42,21 @@ it("keeps explicit covered, disabled, and non-hittable UIKit controls refused", 
       .covered
   ).toBe(true);
 });
+
+it("normalizes the pinned SDK securetextfield kind", () => {
+  expect(
+    iosNodeInteraction({
+      enabled: true,
+      hittable: true,
+      kind: "securetextfield",
+      role: "UITextField",
+      type: "SecureTextField",
+    })
+  ).toMatchObject({
+    covered: false,
+    editable: true,
+    hittable: true,
+    password: true,
+    role: "secure-text-field",
+  });
+});

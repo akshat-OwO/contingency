@@ -14,9 +14,10 @@ export const iosNodeInteraction = (
     | "interactionBlocked"
   >
 ) => {
-  // agent-device has no kind for UIKit secure fields, so name them from the element type.
+  // agent-device leaves UIKit secure fields with the unmapped kind `securetextfield`.
   const secure =
     node.kind === "secure-text-field" ||
+    node.kind === "securetextfield" ||
     (node.kind === undefined && (node.type ?? "").endsWith("SecureTextField"));
   const role = secure
     ? "secure-text-field"
