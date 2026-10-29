@@ -9,6 +9,7 @@ import {
   Fiber,
   FileSystem,
   Queue,
+  Schedule,
   Schema,
   Stream,
 } from "effect";
@@ -393,10 +394,13 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
       );
     }
   }).pipe(Effect.scoped, Effect.timeout("5 minutes"));
-  const enumerated = (yield* run("xcrun", ["simctl", "io", udid, "enumerate"]))
-    .stdout;
-  yield* Console.log(enumerated);
-  const display = yield* parse(() => parseIntegratedDisplay(enumerated));
+  // A fresh hosted runner's first boot can report a terminal status before its
+  // display service answers, so enumerate again within a bound.
+  const display = yield* run("xcrun", ["simctl", "io", udid, "enumerate"]).pipe(
+    Effect.tap(({ stdout }) => Console.log(stdout)),
+    Effect.flatMap(({ stdout }) => parse(() => parseIntegratedDisplay(stdout))),
+    Effect.retry({ schedule: Schedule.spaced("5 seconds"), times: 4 })
+  );
   const developer = (yield* run("xcode-select", ["-p"])).stdout.trim();
   yield* streamHelper(
     helper,
