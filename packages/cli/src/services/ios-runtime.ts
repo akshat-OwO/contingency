@@ -290,7 +290,12 @@ const startIosRuntime = (
           fill: (target, text) =>
             io((signal) =>
               fillPublic({ ...options(), ref: target, signal, text })
-            ).pipe(Effect.asVoid),
+            ).pipe(
+              Effect.as({
+                confirmation: "unconfirmed" as const,
+                outcome: "entered" as const,
+              })
+            ),
           recover: validate,
           sessionId: session,
           validate,
@@ -298,8 +303,6 @@ const startIosRuntime = (
         capabilities: iosCapabilities,
         error: iosRuntimeError,
         policy: {
-          privateTarget: () =>
-            Effect.fail(iosRuntimeError("capability_missing")),
           publicAction: (observed, action) => {
             if (
               action.type === "back" ||

@@ -61,7 +61,7 @@ const ReleaseManifest = Schema.Struct({
 /** Never export child output or SDK errors, which may contain user data. */
 const io = <A>(
   operation: (signal: AbortSignal) => Promise<A>,
-  code: PlatformRuntimeError["code"] = "runtime_failed",
+  code: Parameters<typeof platformRuntimeError>[0] = "runtime_failed",
   step: NonNullable<PlatformRuntimeError["operation"]> = "host-io"
 ) =>
   Effect.tryPromise({

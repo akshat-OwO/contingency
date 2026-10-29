@@ -99,14 +99,14 @@ it.effect(
               };
             }),
           close: () => Effect.void,
-          fill: () => Effect.void,
+          fill: () =>
+            Effect.succeed({ confirmation: "unconfirmed", outcome: "entered" }),
           recover: validate,
           sessionId: "bound-ios-session",
           validate,
         },
         capabilities: [],
         policy: {
-          privateTarget: () => Effect.void,
           publicAction: () => Effect.void,
         },
         startup: {

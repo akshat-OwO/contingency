@@ -625,10 +625,6 @@ export const makeIosWorkspaceLayer = (options: {
               environment: selection.environment,
               platform: "ios",
               requiredCapabilities: taught.capabilities,
-              reversibleActions:
-                taught.platform === "ios"
-                  ? (taught.reversibleActions ?? [])
-                  : [],
               scope,
               setup: selection.setup,
               targetApp: selection.environment.bundleId,
@@ -933,15 +929,7 @@ export const makeIosWorkspaceLayer = (options: {
             observation: null,
           }));
           if (action._tag === "variable") {
-            yield* session.run.enterPrivate(before.id, {
-              target: target?.target ?? "",
-              value: Effect.suspend(() =>
-                variable?.value === undefined
-                  ? Effect.fail(platformRuntimeError("target_unsupported"))
-                  : Effect.succeed(variable.value)
-              ),
-              variable: `{{${action.name}}}`,
-            });
+            yield* Effect.fail(platformRuntimeError("capability_missing"));
           } else if (action._tag === "back") {
             yield* session.run.back(before.id);
           } else {

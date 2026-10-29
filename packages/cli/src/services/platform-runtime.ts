@@ -76,6 +76,7 @@ export interface PlatformRuntimeError {
     | "android_text_input_unverified"
     | "input_unverified";
   readonly code:
+    | "ownership_unknown"
     | "host_unsupported"
     | "xcode_missing"
     | "runtime_missing"
