@@ -61,6 +61,8 @@ Release and PR artifact CI now build a universal arm64 + x86_64 framebuffer help
 
 The versioned manifest pins the exact packaged binary SHA-256, since Xcode versions do not produce identical bytes. Runtime checks that digest and both actual Mach-O executable slices. The manifest detects corruption or replacement of the binary alone; it is not an independent publisher identity. npm provenance supplies package origin evidence. Ad hoc signing does not establish Developer ID identity or notarization.
 
+A locally packed universal tarball was installed with npm into a fresh, empty prefix with an isolated HOME. The installed helper reported `x86_64 arm64` from `lipo`, passed `codesign -v --strict --all-architectures`, and had no quarantine attribute. On a proof-owned iOS 26.5 simulator, it streamed five sequential packets from the integrated display at 720×1566 after `start`, then stopped and exited 0. The simulator was deleted by exact UDID. Only CI can prove the macOS-runner build and the artifact transfer to Ubuntu.
+
 ## Cleanup and limits of evidence
 
 Every attempt creates one proof-owned simulator, boots it with `simctl boot <exact UDID>` and `bootstatus -b`, and deletes that exact UDID only after product cleanup. No pre-existing simulator is selected or altered. Completed-attempt audits check the inventory baseline, tracked process identities, listeners, and fixture removal. The follow-up audits also check runner builds outside caches. Product sessions leave the selection running before fixture teardown.
