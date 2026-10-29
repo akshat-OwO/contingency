@@ -39,6 +39,12 @@ export const IosDeviceSelection = Schema.Struct({
     Schema.isPattern(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu)
   ),
 });
+/** Physical iPhones decode so Workspace can refuse them before any device command. */
+export const IosPhysicalDeviceSelection = Schema.Struct({
+  kind: Schema.Literal("physical"),
+  name: Schema.String,
+  udid: Schema.NonEmptyString,
+});
 /** A Target App's starting privacy state; preparation refuses services `simctl privacy` lacks. */
 export const IosPermissionState = Schema.Struct({
   decision: Schema.Literals(["grant", "revoke", "reset"]),

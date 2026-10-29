@@ -636,6 +636,15 @@ export const makeIosWorkspaceLayer = (options: {
               }
             }
             const { selection } = command;
+            const { device } = selection;
+            if (device.kind === "physical") {
+              return yield* Effect.fail(
+                error(
+                  "physical_device_unsupported",
+                  "Physical iPhones are unsupported. Select an iPhone simulator."
+                )
+              );
+            }
             // The Support Matrix binds one device at a time; another live session keeps its binding.
             const bound = [...sessions.values()].find((session) =>
               ["pending", "running", "paused"].includes(
@@ -647,9 +656,9 @@ export const makeIosWorkspaceLayer = (options: {
                 state(bound).summary;
               const { udid: serial } = boundSelection.device;
               return yield* denied(
-                serial === selection.device.udid
-                  ? `Ios session ${boundId} is already bound to ${serial}. Close it before starting another session.`
-                  : `Ios binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+                serial === device.udid
+                  ? `iOS session ${boundId} is already bound to ${serial}. Close it before starting another session.`
+                  : `iOS binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
               );
             }
             const { taught, recordingId, inputs } =
@@ -659,7 +668,7 @@ export const makeIosWorkspaceLayer = (options: {
             );
             const scope = yield* Scope.make();
             const startup: IosRunInput = {
-              device: selection.device,
+              device,
               environment: selection.environment,
               platform: "ios",
               requiredCapabilities: taught.capabilities,

@@ -7,6 +7,7 @@ import {
 } from "./android-workspace.ts";
 import {
   IosDeviceSelection,
+  IosPhysicalDeviceSelection,
   IosPreparation,
   IosRunEnvironment,
   AndroidStartingCondition,
@@ -15,7 +16,7 @@ import {
 // oxlint-disable-next-line eslint/no-redeclare
 export const IosWorkspaceSelection = Schema.Struct({
   appPath: Schema.optionalKey(Schema.NonEmptyString),
-  device: IosDeviceSelection,
+  device: Schema.Union([IosDeviceSelection, IosPhysicalDeviceSelection]),
   environment: IosRunEnvironment,
   outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
   setup: IosPreparation,
