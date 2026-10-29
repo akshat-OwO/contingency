@@ -29,10 +29,33 @@ export default defineConfig({
         "**/*.test.ts",
         "**/*.test.tsx",
         "apps/*/src/test/**",
-        "apps/*/tests/**",
-        "packages/*/tests/**",
+        "**/tests/**",
       ],
-      rules: { "contingency/no-test-wait": "error" },
+      rules: {
+        "contingency/no-test-wait": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            paths: [
+              "node:timers",
+              "node:timers/promises",
+              "timers",
+              "timers/promises",
+            ].map((name) => ({
+              allowTypeImports: true,
+              importNames: [
+                "default",
+                "scheduler",
+                "setInterval",
+                "setTimeout",
+              ],
+              message:
+                "Wait on events or TestClock, not real time. See docs/agents/testing.md.",
+              name,
+            })),
+          },
+        ],
+      },
     },
     {
       files: [
