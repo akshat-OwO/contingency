@@ -68,3 +68,10 @@ runs:
         CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER: "1"
         TARBALL: ${{ steps.pack.outputs.tarball }}
       run: nub packages/release/src/main.ts verify-cli-install "$TARBALL"
+
+    - name: Upload verified CLI tarball
+      uses: actions/upload-artifact@v4
+      with:
+        name: cli-release-tarball
+        path: ${{ steps.pack.outputs.tarball }}
+        if-no-files-found: error

@@ -7,6 +7,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { applyReleaseVersion } from "./apply-version.ts";
 import { resolveReleaseMetadata } from "./release-metadata.ts";
 import { packCli, verifyCliInstall } from "./verify-cli-install.ts";
+import { verifyIosHelper } from "./verify-ios-helper.ts";
 
 /**
  * Appends `key=value` lines to the file GitHub Actions reads step outputs
@@ -92,6 +93,14 @@ const applyCommand = Command.make(
 
 const root = Command.make("release", {}, () => Effect.void).pipe(
   Command.withSubcommands([
+    Command.make(
+      "verify-ios-helper",
+      {
+        architecture: Flag.String("architecture"),
+        tarball: Argument.String("tarball"),
+      },
+      ({ tarball, architecture }) => verifyIosHelper(tarball, architecture)
+    ),
     resolveCommand,
     applyCommand,
     Command.make(

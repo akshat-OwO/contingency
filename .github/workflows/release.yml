@@ -137,9 +137,54 @@ jobs:
 
       - run: nub exec turbo run test:integration
 
+  release-artifact:
+    name: Verify release artifact
+    needs: [preflight, ios-framebuffer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+        with:
+          registry-url: https://registry.npmjs.org
+      - run: nub ci
+      - uses: ./.github/actions/verify-cli-artifact
+        with:
+          version: ${{ needs.preflight.outputs.version }}
+
+  ios-clean-host:
+    name: Clean-host iOS helper (${{ matrix.architecture }})
+    needs: [release-artifact]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            architecture: arm64
+          # Current standard Intel image; macos-13 has been retired.
+          - runner: macos-26-intel
+            architecture: x86_64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+      - run: nub ci
+      - uses: actions/download-artifact@v5
+        with:
+          name: cli-release-tarball
+          path: packed-cli
+      - name: Verify installed helper on a clean Mac
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          tarballs=("$GITHUB_WORKSPACE"/packed-cli/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          nub packages/release/src/main.ts verify-ios-helper "${tarballs[0]}" --architecture "$EXPECTED_ARCHITECTURE"
+
   publish:
     name: Publish to npm
-    needs: [preflight, quality, integration, ios-framebuffer]
+    needs: [preflight, quality, integration, release-artifact, ios-clean-host]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -157,11 +202,21 @@ jobs:
 
       - run: nub ci
 
-      - name: Build and verify the release artifact
-        id: artifact
-        uses: ./.github/actions/verify-cli-artifact
+      - name: Install release npm
+        run: npm install --global npm@12.2.0
+
+      - uses: actions/download-artifact@v5
         with:
-          version: ${{ needs.preflight.outputs.version }}
+          name: cli-release-tarball
+          path: packed-cli
+
+      - name: Resolve the verified release artifact
+        id: artifact
+        run: |
+          tarballs=("$GITHUB_WORKSPACE"/packed-cli/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          test -f "${tarballs[0]}"
+          echo "tarball=${tarballs[0]}" >> "$GITHUB_OUTPUT"
 
       # Authentication is the OIDC exchange configured as npm's trusted
       # publisher for this package: no NPM_TOKEN exists to leak or rotate.
