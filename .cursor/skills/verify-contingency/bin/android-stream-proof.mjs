@@ -29,12 +29,9 @@ const instance = JSON.parse(
   await readFile(path.join(directory, "instance.json"), "utf-8")
 );
 assert.ok(instance.mcpUrl, "Start this instance's MCP broker first.");
-const physical = process.env.CONTINGENCY_ANDROID_MODEL !== undefined;
 const artifacts = path.join(
   root,
-  physical
-    ? ".cursor/skills/verify-contingency/artifacts/android-stream-physical"
-    : ".cursor/skills/verify-contingency/artifacts/android-stream"
+  ".cursor/skills/verify-contingency/artifacts/android-stream"
 );
 await mkdir(artifacts, { mode: 0o700, recursive: true });
 const journal = [];
@@ -116,9 +113,7 @@ const snapshot = async (name) => {
 const selection = {
   device: {
     api: 36,
-    ...(physical
-      ? { kind: "physical", model: process.env.CONTINGENCY_ANDROID_MODEL }
-      : { avd: process.env.CONTINGENCY_ANDROID_AVD }),
+    avd: process.env.CONTINGENCY_ANDROID_AVD,
     fingerprint: process.env.CONTINGENCY_ANDROID_FINGERPRINT,
     host: "local",
     serial: process.env.CONTINGENCY_ANDROID_SERIAL,
@@ -134,25 +129,22 @@ const selection = {
   setup: {
     activity: "dev.contingency.physicalfixture/.StreamActivity",
     conditions: [{ name: "Stream fixture ready", role: "text" }],
-    kind: physical ? "clear-app-data" : "restart-activity",
+    kind: "restart-activity",
   },
 };
 assert.ok(
   Object.values(selection.device).every((value) => value !== undefined),
   "Supply the explicitly authorized device declarations."
 );
-const prepareName =
-  selection.device.kind === "physical"
-    ? "Prepare selected device"
-    : "Prepare selected emulator";
+const prepareName = "Prepare selected emulator";
 const flowSkillName = `android-stream-${process.pid}`;
 const receipt = {
   blockers: [],
   coverage: {},
   device: {
     api: selection.device.api,
-    kind: physical ? "physical" : "emulator",
-    model: physical ? selection.device.model : selection.device.avd,
+    kind: "emulator",
+    model: selection.device.avd,
   },
   entryPoint: "Workspace Android",
   feature: "android-stream",
@@ -242,23 +234,7 @@ try {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  if (physical) {
-    await control(
-      "browser",
-      "wait",
-      "--role",
-      "region",
-      "--name",
-      "Clear Target App data"
-    );
-    await snapshot("fixture-data-consent");
-    await control(
-      "browser",
-      "android-allow-request",
-      "--name",
-      "Clear Target App data"
-    );
-  }
+
   await wait(prepareName);
   await click(prepareName);
   await wait("Start recording");

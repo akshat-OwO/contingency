@@ -246,8 +246,7 @@ const DeviceStep = ({
     ) : null}
     {devices._tag === "loaded" && devices.value.length === 0 ? (
       <p className="text-muted-foreground text-xs">
-        No devices found. Create an emulator in Android Studio or connect a
-        phone with USB debugging on.
+        No devices found. Create an emulator in Android Studio.
       </p>
     ) : null}
     {devices._tag === "loaded" && devices.value.length > 0 ? (
@@ -548,10 +547,7 @@ export const AndroidSetupSheet = ({
               setup: {
                 activity: app.launchActivity,
                 conditions: [start],
-                kind:
-                  device.kind === "physical"
-                    ? "clear-app-data"
-                    : "restart-activity",
+                kind: "restart-activity",
               },
             });
           }}
@@ -584,12 +580,6 @@ export const AndroidSetupSheet = ({
                 }
                 selected={form.device}
               />
-              {device?.kind === "physical" ? (
-                <p className="text-muted-foreground mt-2 text-xs">
-                  Preparing asks before it clears the Target App's data on this
-                  phone. Nothing else on it changes.
-                </p>
-              ) : null}
             </Step>
             <Step
               disabled={device === null}

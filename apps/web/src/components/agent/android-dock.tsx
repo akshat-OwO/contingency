@@ -9,7 +9,6 @@ import {
   CircleAlertIcon,
   CircleIcon,
   CornerDownLeftIcon,
-  EraserIcon,
   KeyRoundIcon,
   ShieldAlertIcon,
   TextCursorInputIcon,
@@ -92,10 +91,7 @@ export const AndroidRequests = ({
   session.preparation.pending.length === 0 ? null : (
     <div className="bg-muted-surface space-y-2 border-b px-3 py-2.5">
       {session.preparation.pending.map((decision) => {
-        const clearing = decision.kind === "clear-app-data";
-        const title = clearing
-          ? "Clear Target App data"
-          : "Run Environment Permission";
+        const title = "Run Environment Permission";
         return (
           <section aria-label={title} key={decision.id}>
             <RequestHeader
@@ -119,24 +115,15 @@ export const AndroidRequests = ({
                 </>
               }
               icon={
-                clearing ? (
-                  <EraserIcon
-                    aria-hidden="true"
-                    className={requestIconClassName}
-                  />
-                ) : (
-                  <ShieldAlertIcon
-                    aria-hidden="true"
-                    className={requestIconClassName}
-                  />
-                )
+                <ShieldAlertIcon
+                  aria-hidden="true"
+                  className={requestIconClassName}
+                />
               }
               title={title}
             />
             <p className="text-muted-foreground text-xs">
-              {clearing
-                ? `Contingency clears ${decision.targetApp}'s data for the owner user on ${decision.serial ?? "this device"}, so the journey starts fresh. Nothing else on the device changes.`
-                : `The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`}
+              {`The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`}
             </p>
           </section>
         );

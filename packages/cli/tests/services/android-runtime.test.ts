@@ -19,7 +19,7 @@ const startup = (scope: Scope.Scope): AndroidRuntimeStartInput => ({
     avd: "selected-avd",
     fingerprint: "selected-build",
     host: "local",
-    serial: "selected-serial",
+    serial: "emulator-5554",
   },
   platform: "android",
   requiredCapabilities: ["semantic-actions", "screenshots"],

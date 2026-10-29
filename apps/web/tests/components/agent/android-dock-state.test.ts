@@ -25,10 +25,9 @@ const pending = {
   selection: {
     device: {
       api: 36,
+      avd: "Pixel_9",
       fingerprint: "Nothing/A059",
       host: "local",
-      kind: "physical",
-      model: "A059",
       serial: "phone",
     },
     environment: {
@@ -42,20 +41,20 @@ const pending = {
     setup: {
       activity: "dev.contingency.checkout/.MainActivity",
       conditions: [{ name: "Sign in", role: "button" }],
-      kind: "clear-app-data",
+      kind: "restart-activity",
     },
   },
   startedAt: "2026-10-15T00:00:00.000Z",
   takeoverOccurred: false,
 } satisfies AndroidWorkspaceSnapshot;
 
-test("names a phone a device, not an emulator", () => {
+test("offers emulator preparation and recovery", () => {
   const presentation = androidDockPresentation(pending);
-  expect(presentation.action?.label).toBe("Prepare device");
-  expect(presentation.nextStep).toContain("Prepare A059");
+  expect(presentation.action?.label).toBe("Prepare emulator");
+  expect(presentation.nextStep).toContain("Prepare Pixel_9");
   expect(
     androidDockPresentation({ ...pending, phase: "paused" }).action?.label
-  ).toBe("Recover same device");
+  ).toBe("Recover same emulator");
 });
 
 test("asks for clicks on the screen while recording", () => {
@@ -64,6 +63,6 @@ test("asks for clicks on the screen while recording", () => {
     captureState: { _tag: "recording", startedAt: pending.startedAt },
     phase: "running",
   });
-  expect(recording.nextStep).toContain("clicking the device screen");
+  expect(recording.nextStep).toContain("clicking the emulator screen");
   expect(recording.action?.accessibleName).toBe("Stop recording");
 });

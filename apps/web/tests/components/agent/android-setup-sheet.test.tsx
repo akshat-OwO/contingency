@@ -84,3 +84,36 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     })
   );
 });
+
+test("disables physical devices with their refusal reason before app discovery", async () => {
+  const apps = vi.fn(discovery.apps);
+  render(
+    <AndroidSetupSheet
+      discovery={{
+        apps,
+        devices: Effect.succeed([
+          {
+            api: 36,
+            avd: null,
+            fingerprint: "phone-build",
+            kind: "physical",
+            model: "Phone",
+            release: "16",
+            serial: "phone",
+            state: "device",
+          },
+        ]),
+      }}
+      open
+      onOpen={vi.fn()}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  const phone = await screen.findByRole("button", {
+    name: /physical_device_unsupported/u,
+  });
+  expect(phone).toBeDisabled();
+  expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
+  expect(apps).not.toHaveBeenCalled();
+});

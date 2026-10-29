@@ -67,9 +67,7 @@ export const validateAndroidRun = (input: AndroidRunInput) =>
       input.environment.appId !== input.targetApp ||
       !input.environment.appBuild ||
       !input.environment.startingState ||
-      (input.device.kind === "physical"
-        ? input.setup.kind !== "clear-app-data"
-        : input.setup.kind !== "restart-activity") ||
+      input.setup.kind !== "restart-activity" ||
       !validPermissions(input) ||
       !activityPattern.test(input.setup.activity) ||
       input.setup.activity.split("/")[0] !== input.targetApp ||
@@ -121,18 +119,6 @@ export const createAndroidRun = (
     const runId = randomUUID();
     const registry = AtomRegistry.make();
     const initialDecisions = [
-      ...(startup.device.kind === "physical"
-        ? [
-            {
-              differences: [],
-              id: randomUUID(),
-              kind: "clear-app-data" as const,
-              runId,
-              serial: startup.device.serial,
-              targetApp: startup.targetApp,
-            },
-          ]
-        : []),
       ...(differences.some((difference) => difference.field !== "startingState")
         ? [
             {
@@ -365,17 +351,7 @@ export const createAndroidRun = (
               }
               // Recheck immediately before setup. A grant cannot waive a changed selected build.
               yield* driver.preflight(startup);
-              let authorized = startup;
-              if (startup.device.kind === "physical") {
-                authorized = {
-                  ...startup,
-                  clearDataGrant: {
-                    serial: startup.device.serial,
-                    targetApp: startup.targetApp,
-                  },
-                };
-              }
-              runtime = yield* driver.start(authorized);
+              runtime = yield* driver.start(startup);
               record({ type: "setup" });
               const observation = yield* runtime.observe();
               if (

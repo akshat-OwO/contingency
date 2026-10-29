@@ -15,6 +15,10 @@ export const androidPrerequisite = () => {
     serial && process.env.CONTINGENCY_ANDROID_FIXTURE_INSTALL === "authorized",
     "Android prerequisite: explicitly authorize an attached checkout device with CONTINGENCY_ANDROID_SERIAL and CONTINGENCY_ANDROID_FIXTURE_INSTALL=authorized. No device or emulator is started."
   );
+  assert.ok(
+    serial.startsWith("emulator-"),
+    "physical_device_unsupported: Select an Android emulator"
+  );
   try {
     execFileSync("lsof", ["-nP", "-iTCP:5037", "-sTCP:LISTEN"], {
       stdio: "pipe",
@@ -54,19 +58,13 @@ export const androidPrerequisite = () => {
     appBuild,
     "Android prerequisite: installed fixture build cannot be read"
   );
-  const emulator = serial.startsWith("emulator-");
   const device = {
     api: Number(adb("shell", "getprop", "ro.build.version.sdk")),
     fingerprint: adb("shell", "getprop", "ro.build.fingerprint"),
     host: "local",
     serial,
   };
-  if (emulator) {
-    device.avd = adb("emu", "avd", "name").split("\n")[0].trim();
-  } else {
-    device.kind = "physical";
-    device.model = adb("shell", "getprop", "ro.product.model");
-  }
+  device.avd = adb("emu", "avd", "name").split("\n")[0].trim();
   return {
     appId,
     authorization: "explicit operator selection; restart fixture only",

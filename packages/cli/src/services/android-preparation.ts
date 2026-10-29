@@ -6,11 +6,7 @@ import { promisify } from "node:util";
 
 import { Effect } from "effect";
 
-import {
-  requireAndroidDeviceIdentity,
-  requireAndroidOwnerUser,
-  runAndroidOwnerCommand,
-} from "./android-device-identity.ts";
+import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
@@ -129,42 +125,14 @@ export const preflightAndroidPreparation = (
     }
   });
 
-/** Checked before any installation or app mutation, including direct backend startup. */
-export const requireAndroidClearDataConsent = (input: AndroidRunInput) =>
-  Effect.gen(function* consent() {
-    if (
-      input.device.kind === "physical" &&
-      (input.setup.kind !== "clear-app-data" ||
-        input.clearDataGrant?.serial !== input.device.serial ||
-        input.clearDataGrant.targetApp !== input.targetApp)
-    ) {
-      return yield* Effect.fail(platformRuntimeError("clear_data_denied"));
-    }
-  });
-
 /** App-scoped preparation. Permission flags prevent a denied choice from prompting again. */
 export const prepareAndroidAppData = (
   input: AndroidRunInput,
   run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
 ) =>
   Effect.gen(function* prepareApp() {
-    yield* requireAndroidClearDataConsent(input);
-    yield* requireAndroidOwnerUser(run);
-    const mutate = (args: readonly string[]) =>
-      runAndroidOwnerCommand(run, args);
-    if (input.setup.kind === "clear-app-data") {
-      const cleared = yield* mutate([
-        "shell",
-        "pm",
-        "clear",
-        "--user",
-        "0",
-        input.targetApp,
-      ]);
-      if (cleared !== "Success") {
-        return yield* Effect.fail(platformRuntimeError("preparation_failed"));
-      }
-    }
+    yield* requireAndroidDeviceIdentity(input.device, run);
+    const mutate = run;
     for (const { permission, decision } of input.environment.permissions ??
       []) {
       for (const args of [
@@ -211,10 +179,8 @@ export const prepareAndroidStartingState = (
         appInstallation: { ...request.appInstallation, apk: ownedApk },
       };
     }
-    yield* requireAndroidClearDataConsent(input);
     yield* preflightAndroidPreparation(input);
-    const mutate = (args: readonly string[]) =>
-      runAndroidOwnerCommand((commandArgs) => adb(input, commandArgs), args);
+    const mutate = (args: readonly string[]) => adb(input, args);
     if (input.appInstallation !== undefined) {
       const result = yield* mutate([
         "install",

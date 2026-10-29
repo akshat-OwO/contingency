@@ -17,10 +17,6 @@ const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
   teaching: "Teaching",
 };
 
-/** What the session's device is called in a sentence: emulator or device. */
-const noun = (session: AndroidWorkspaceSummary) =>
-  session.selection.device.kind === "physical" ? "device" : "emulator";
-
 /**
  * An Android session reads like a browser one in the session picker: the Flow
  * Skill name first, then what the session is doing with it, marked Android so
@@ -147,7 +143,7 @@ const teachingPresentation = (
       return session.controller === "agent"
         ? {
             ...base,
-            nextStep: `The agent is preparing the ${noun(session)}. Start recording appears when it hands you control; nothing is captured before then.`,
+            nextStep: `The agent is preparing the emulator. Start recording appears when it hands you control; nothing is captured before then.`,
           }
         : {
             ...base,
@@ -160,7 +156,7 @@ const teachingPresentation = (
       return {
         ...base,
         action: action("stop-recording", "Stop", "Stop recording"),
-        nextStep: `Do the journey once by clicking the ${noun(session)} screen. Press stop on the screen that proves it worked.`,
+        nextStep: `Do the journey once by clicking the emulator screen. Press stop on the screen that proves it worked.`,
         showsComment: true,
       };
     }
@@ -214,8 +210,8 @@ const controlPresentation = (
       ...quiet(
         `${badge} · You have control`,
         session.kind === "dry-run"
-          ? `You hold the ${noun(session)}. This Dry Run cannot pass after Takeover; return control when you are done.`
-          : `You hold the ${noun(session)}. Return control when you are done.`
+          ? `You hold the emulator. This Dry Run cannot pass after Takeover; return control when you are done.`
+          : `You hold the emulator. Return control when you are done.`
       ),
       action: action("return-control", "Return control"),
     };
@@ -223,7 +219,7 @@ const controlPresentation = (
   return {
     ...quiet(
       badge,
-      `The agent is driving the ${noun(session)}. Take control to act yourself.`
+      `The agent is driving the emulator. Take control to act yourself.`
     ),
     action: action("take-control", "Take control"),
   };
@@ -247,7 +243,7 @@ export const androidDockPresentation = (
       if (session.preparation.pending.length > 0) {
         return quiet(
           "Permission needed",
-          `Answer the request above before the ${noun(session)} is prepared.`
+          `Answer the request above before the emulator is prepared.`
         );
       }
       return {
@@ -257,8 +253,8 @@ export const androidDockPresentation = (
         ),
         action: action(
           "prepare",
-          `Prepare ${noun(session)}`,
-          `Prepare selected ${noun(session)}`
+          `Prepare emulator`,
+          `Prepare selected emulator`
         ),
       };
     }
@@ -267,22 +263,22 @@ export const androidDockPresentation = (
         ...quiet(
           "Paused",
           session.error ??
-            `The ${noun(session)} disconnected or this session lost ownership. Recover the same ${noun(session)} to carry on.`,
+            `The emulator disconnected or this session lost ownership. Recover the same emulator to carry on.`,
           "failed"
         ),
-        action: action("recover", `Recover same ${noun(session)}`),
+        action: action("recover", `Recover same emulator`),
       };
     }
     case "refused": {
       return quiet(
         "Refused",
         session.error ??
-          `The Run Environment Permission was refused, so this session never used the ${noun(session)}.`,
+          `The Run Environment Permission was refused, so this session never used the emulator.`,
         "failed"
       );
     }
     case "closed": {
-      return quiet("Closed", `This session released its ${noun(session)}.`);
+      return quiet("Closed", `This session released its emulator.`);
     }
     case "completed": {
       const { assessment } = session;

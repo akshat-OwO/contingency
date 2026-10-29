@@ -15,7 +15,6 @@ const properties = new Map(
   Object.entries({
     "emu avd name": "Pixel_9\nOK",
     "get-state": "device",
-    "shell am get-current-user": "0",
     "shell getprop ro.build.fingerprint": "build",
     "shell getprop ro.build.version.release": "16",
     "shell getprop ro.build.version.sdk": "36",
@@ -334,7 +333,10 @@ it.effect(
         adb: () =>
           Effect.succeed("List of devices attached\nphone unauthorized\n"),
         avds: () =>
-          Effect.fail({ code: "missing_sdk", message: "No emulator binary" }),
+          Effect.fail({
+            code: "android_discovery_failed",
+            message: "No emulator binary",
+          }),
         readApk: () => Effect.die("Inventory must not read APKs"),
       });
       expect(yield* discovery.devices()).toMatchObject([

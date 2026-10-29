@@ -9,8 +9,6 @@ const messages = {
     "Android capture is incomplete or obscured. Execution is paused.",
   cleanup_failed:
     "Android cleanup is incomplete. Retained owned state requires inspection before recovery.",
-  clear_data_denied:
-    "Authorize clearing the Target App data for owner user 0 on this selected device before preparation.",
   device_disconnected:
     "The selected Android device is disconnected. Execution is paused.",
   device_mismatch:
@@ -36,6 +34,8 @@ const messages = {
   permission_decisions_unsupported:
     "Android permission decisions need API 31 or later, which can keep a denied choice from prompting again. Remove the permission declarations or select an API 31 through 36 device.",
   permission_stale: "This decision is not pending for this Run.",
+  physical_device_unsupported:
+    "Physical Android devices are unsupported. Select an emulator.",
   preparation_failed:
     "The declared Android setup is unsupported or failed. Input is blocked.",
   preparation_required:
@@ -53,8 +53,6 @@ const messages = {
     "The observed Android field or window changed. No input was sent; take a fresh observation.",
   target_unsupported:
     "The Android target is absent, covered, or unsupported for this action.",
-  user_profile_unsupported:
-    "Android preparation and execution support only owner user 0. The active or focused profile is unsupported. Execution is paused.",
 } as const;
 
 export const platformRuntimeError = (

@@ -16,14 +16,10 @@ import type {
 import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
-import {
-  requireAndroidDeviceIdentity,
-  runAndroidOwnerCommand,
-} from "./android-device-identity.ts";
+import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
 import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
-  requireAndroidClearDataConsent,
   requireAndroidPermissionState,
 } from "./android-preparation.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
@@ -132,7 +128,7 @@ const adb = (serial: string, args: readonly string[]) => {
       const { stdout } = await execute("adb", ["-s", serial, ...args], {
         maxBuffer: 8 * 1024 * 1024,
         signal,
-        // Package verification on a physical device can outlast a normal command.
+        // Package verification can outlast a normal command.
         // Wait for the installation process to exit, with a separate hang guard.
         timeout: installing ? 120_000 : 30_000,
       });
@@ -193,11 +189,6 @@ const requireOwnership = (input: AndroidRuntimeStartInput) =>
     const focus = focusPattern.exec(windows)?.groups;
     if (focus?.packageName !== input.targetApp || focus.window === undefined) {
       return yield* Effect.fail(platformRuntimeError("ownership_unknown"));
-    }
-    if (focus.userId !== "0") {
-      return yield* Effect.fail(
-        platformRuntimeError("user_profile_unsupported")
-      );
     }
     if (androidWindowVisibility(windows) === "secure") {
       return yield* Effect.fail(platformRuntimeError("secure_window"));
@@ -290,9 +281,6 @@ export const acquireAndroidBackend = (
     if (createHash("sha256").update(bytes).digest("hex") !== manifest.sha256) {
       return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
     }
-    if (preparation !== undefined) {
-      yield* requireAndroidClearDataConsent(preparation);
-    }
     const resources = yield* Scope.make("sequential");
     const cleanupRegistry = AtomRegistry.make();
     const cleanupFailure = Atom.make(false).pipe(Atom.keepAlive);
@@ -341,10 +329,13 @@ export const acquireAndroidBackend = (
             platformRuntimeError("installation_denied")
           );
         }
-        yield* runAndroidOwnerCommand(
-          (args) => adb(input.device.serial, args),
-          ["install", "--user", "0", ...(installed === null ? [] : ["-r"]), apk]
-        );
+        yield* adb(input.device.serial, [
+          "install",
+          "--user",
+          "0",
+          ...(installed === null ? [] : ["-r"]),
+          apk,
+        ]);
         yield* requireHelper(input.device.serial);
       }
       // The explicitly authorized installation persists. Session cleanup never uninstalls it.

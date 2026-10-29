@@ -21,16 +21,7 @@ export const selectable = (
     return null;
   }
   if (device.kind === "physical") {
-    return device.model === null
-      ? null
-      : {
-          api,
-          fingerprint,
-          host: "local",
-          kind: "physical",
-          model: device.model,
-          serial: device.serial,
-        };
+    return null;
   }
   return device.avd === null
     ? null
@@ -49,6 +40,9 @@ export const deviceRelease = (device: AndroidDiscoveredDevice | undefined) =>
 
 /** Why a reported device cannot be picked, or nothing when it can. */
 export const unavailableReason = (device: AndroidDiscoveredDevice) => {
+  if (device.kind === "physical") {
+    return "physical_device_unsupported: Select an Android emulator";
+  }
   if (device.state === "stopped") {
     return "Stopped. Start in Android Studio, then refresh";
   }

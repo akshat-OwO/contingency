@@ -15,12 +15,18 @@ import {
 import { Effect, Schema } from "effect";
 import { yazl } from "playwright-core/lib/utilsBundle";
 
-import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import {
+  isPhysicalAndroidSelection,
+  requireAndroidDeviceIdentity,
+} from "./android-device-identity.ts";
 import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 
 export interface AndroidDiscoveryError {
-  readonly code: string;
+  readonly code:
+    | keyof typeof messages
+    | "android_discovery_failed"
+    | "android_app_metadata_unavailable";
   readonly message: string;
 }
 const messages = {
@@ -28,6 +34,8 @@ const messages = {
     "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
   android_device_unauthorized:
     "Explicitly select and authorize the same connected Android device before listing apps.",
+  physical_device_unsupported:
+    "Physical Android devices are unsupported. Select an emulator.",
 } as const;
 const failure = (
   code:
@@ -210,6 +218,9 @@ export const makeAndroidDiscovery = (
       )(selection).pipe(
         Effect.mapError(() => failure("android_device_unauthorized"))
       );
+      if (isPhysicalAndroidSelection(device)) {
+        return yield* Effect.fail(failure("physical_device_unsupported"));
+      }
       if (!serialPattern.test(device.serial)) {
         return yield* Effect.fail(failure("android_device_unauthorized"));
       }
@@ -323,6 +334,19 @@ export const makeAndroidDiscovery = (
           rawState === "unauthorized"
             ? rawState
             : "unavailable";
+        if (isPhysicalAndroidSelection({ serial })) {
+          devices.push({
+            api: null,
+            avd: null,
+            fingerprint: null,
+            kind: "physical",
+            model: null,
+            release: null,
+            serial,
+            state,
+          });
+          continue;
+        }
         const read = (property: string) =>
           io.adb(["-s", serial, "shell", "getprop", property]);
         const model =
