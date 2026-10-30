@@ -48,6 +48,7 @@ const fakeHost = () => {
 
   const io: IosSimctlService = {
     apps: () => Effect.succeed([app]),
+    architecture: () => "arm64",
     device: (args) =>
       Effect.sync(() => {
         commands.push([...args]);
@@ -114,6 +115,26 @@ it.effect(
         xcode: () => Effect.die("must not inspect Xcode"),
       };
       expect(yield* failureCode(makeIosDiscovery(host).devices())).toBe(
+        "host_unsupported"
+      );
+      expect(commands).toEqual([]);
+      expect(inventoryReads).toEqual([]);
+    })
+);
+it.effect(
+  "refuses Intel discovery and selection before any host or device command",
+  () =>
+    Effect.gen(function* refuseIntel() {
+      const { io, commands, inventoryReads } = fakeHost();
+      const host = {
+        ...io,
+        architecture: () => "x64" as const,
+        runtimes: () => Effect.die("must not inspect runtimes"),
+        xcode: () => Effect.die("must not inspect Xcode"),
+      };
+      const discovery = makeIosDiscovery(host);
+      expect(yield* failureCode(discovery.devices())).toBe("host_unsupported");
+      expect(yield* failureCode(discovery.resolve(selected))).toBe(
         "host_unsupported"
       );
       expect(commands).toEqual([]);

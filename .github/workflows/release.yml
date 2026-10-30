@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   ios-framebuffer:
-    name: Build universal iOS framebuffer helper
+    name: Build iOS framebuffer helper
     needs: [preflight]
     runs-on: macos-latest
     timeout-minutes: 10
@@ -48,15 +48,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: nubjs/setup-nub@v0
       - run: nub ci
-      - name: Build and verify helper
+      - name: Build and verify arm64 helper
         working-directory: packages/cli
         env:
           CONTINGENCY_BUILD_IOS_FRAMEBUFFER: "1"
         run: |
           nub src/packaging/build-ios-framebuffer.ts
           lipo -info dist/ios/framebuffer/framebuffer
-          lipo dist/ios/framebuffer/framebuffer -verify_arch arm64
-          lipo dist/ios/framebuffer/framebuffer -verify_arch x86_64
+          test "$(lipo -archs dist/ios/framebuffer/framebuffer)" = arm64
           codesign -v --strict --all-architectures dist/ios/framebuffer/framebuffer
       - uses: actions/upload-artifact@v4
         with:
@@ -163,9 +162,6 @@ jobs:
         include:
           - runner: macos-latest
             architecture: arm64
-          # Current standard Intel image; macos-13 has been retired.
-          - runner: macos-26-intel
-            architecture: x86_64
     steps:
       - uses: actions/checkout@v5
       - uses: nubjs/setup-nub@v0
@@ -175,12 +171,10 @@ jobs:
           name: cli-release-tarball
           path: packed-cli
       - name: Verify installed helper on a clean Mac
-        env:
-          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
         run: |
           tarballs=("$GITHUB_WORKSPACE"/packed-cli/*.tgz)
           test "${#tarballs[@]}" -eq 1
-          nub packages/release/src/main.ts verify-ios-helper "${tarballs[0]}" --architecture "$EXPECTED_ARCHITECTURE"
+          nub packages/release/src/main.ts verify-ios-helper "${tarballs[0]}"
 
   publish:
     name: Publish to npm

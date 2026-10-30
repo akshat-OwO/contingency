@@ -68,7 +68,7 @@ const messages = {
   discovery_failed: "Could not read the iOS Simulator inventory.",
   environment_changed:
     "The authorized bundle identifier, build, or runtime changed.",
-  host_unsupported: "iOS Simulator requires a local macOS host.",
+  host_unsupported: "iOS Simulator requires a local Apple Silicon Mac.",
   os_unsupported: "Select an iPhone simulator running iOS 26 through 27.",
   permission_service_unsupported:
     "Declare each permission service once, from those simctl privacy supports. Notifications and camera are unsupported.",

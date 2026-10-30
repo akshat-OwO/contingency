@@ -161,15 +161,12 @@ export const validateHelperArchitecture = (
   const sampledProcess = /Process:\s*(?<name>[^\n]+)/u
     .exec(sample)
     ?.groups?.name?.trim();
-  const nativeType =
-    architecture === "arm64"
-      ? /^(?:ARM64|ARM-64)(?: \(Native\))?$/u
-      : /^(?:X86_64|X86-64)(?: \(Native\))?$/u;
+  const nativeType = /^(?:ARM64|ARM-64)(?: \(Native\))?$/u;
   if (
     !codeType ||
     !nativeType.test(codeType) ||
     sampledProcess !== `framebuffer [${pid}]` ||
-    (architecture !== "arm64" && architecture !== "x86_64")
+    architecture !== "arm64"
   ) {
     throw new Error(
       `Sampled process ${sampledProcess}, architecture ${codeType}; expected native ${architecture} framebuffer [${pid}]`
@@ -189,8 +186,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
   developer: string,
   udid: string,
   display: string,
-  directory: string,
-  architecture: string
+  directory: string
 ) {
   const fs = yield* FileSystem.FileSystem;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -199,7 +195,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
   const child = yield* spawner.spawn(
     ChildProcess.make(
       "/usr/bin/arch",
-      [`-${architecture}`, helper, developer, udid, display, "portrait"],
+      ["-arm64", helper, developer, udid, display, "portrait"],
       { cwd: directory, stderr: "inherit" }
     )
   );
@@ -259,7 +255,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
   );
   const sample = yield* fs.readFileString(sampleFile);
   const { codeType, sampledProcess } = yield* parse(() =>
-    validateHelperArchitecture(sample, child.pid, architecture)
+    validateHelperArchitecture(sample, child.pid, "arm64")
   );
   yield* Console.log(
     JSON.stringify({ codeType, helperPid: child.pid, sampledProcess })
@@ -279,8 +275,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
 
 /** The install is isolated; simctl uses the runner's normal CoreSimulator set. */
 export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
-  tarball: string,
-  architecture: string
+  tarball: string
 ) {
   const fs = yield* FileSystem.FileSystem;
   const directory = yield* fs.makeTempDirectoryScoped({
@@ -302,13 +297,13 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
     (yield* run("sysctl", ["-in", "sysctl.proc_translated"])).stdout.trim() ||
     "0";
   yield* Console.log(
-    JSON.stringify({ expectedArchitecture: architecture, host, translated })
+    JSON.stringify({ expectedArchitecture: "arm64", host, translated })
   );
   if (
     process.platform !== "darwin" ||
-    host !== architecture ||
+    host !== "arm64" ||
     translated !== "0" ||
-    (architecture !== "arm64" && architecture !== "x86_64")
+    process.arch !== "arm64"
   ) {
     return yield* Effect.fail(
       new Error("Proof requires the expected native Mac architecture")
@@ -345,8 +340,11 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
   );
   const helper = yield* verifyIosFramebufferRelease(release);
   yield* Console.log((yield* run("lipo", ["-info", helper])).stdout.trim());
-  for (const slice of ["arm64", "x86_64"]) {
-    yield* run("lipo", [helper, "-verify_arch", slice]);
+  const slices = (yield* run("lipo", ["-archs", helper])).stdout.trim();
+  if (slices !== "arm64") {
+    return yield* Effect.fail(
+      new Error("Installed helper must contain only arm64")
+    );
   }
   yield* run("codesign", ["-v", "--strict", "--all-architectures", helper]);
   const attributes = (yield* run("xattr", [helper])).stdout;
@@ -356,7 +354,7 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
     );
   }
   yield* Console.log(
-    "Installed universal helper passed runtime manifest, codesign, and quarantine checks."
+    "Installed arm64 helper passed runtime manifest, codesign, and quarantine checks."
   );
   const inventory = (yield* simctl(["list", "runtimes", "--json"])).stdout;
   const { runtime, device } = yield* parse(() => selectIosRuntime(inventory));
@@ -415,12 +413,5 @@ export const verifyIosHelper = Effect.fn("verifyIosHelper")(function* verify(
     Effect.retry({ schedule: Schedule.spaced("5 seconds"), times: 4 })
   );
   const developer = (yield* run("xcode-select", ["-p"])).stdout.trim();
-  yield* streamHelper(
-    helper,
-    developer,
-    udid,
-    display,
-    directory,
-    architecture
-  );
+  yield* streamHelper(helper, developer, udid, display, directory);
 }, Effect.scoped);

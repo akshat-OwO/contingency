@@ -15,7 +15,7 @@ const incompatible = (): PlatformRuntimeError => ({
 
 export const iosFramebufferVersion = 2;
 export const IosFramebufferManifest = Schema.Struct({
-  architecture: Schema.Literal("universal"),
+  architecture: Schema.Literal("arm64"),
   executable: Schema.Literal("framebuffer"),
   platform: Schema.Literal("darwin"),
   sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u)),
@@ -29,40 +29,12 @@ export const resolveIosFramebufferRelease = (moduleDirectory: string) =>
     ? path.join(moduleDirectory, "ios/framebuffer")
     : path.resolve(moduleDirectory, "../../dist/ios/framebuffer");
 
-/** Inspect the fat Mach-O and both executable slices without macOS tooling. */
-export const isUniversalIosFramebuffer = (bytes: Buffer): boolean => {
-  if (
-    bytes.length < 48 ||
-    bytes.readUInt32BE(0) !== 0xca_fe_ba_be ||
-    bytes.readUInt32BE(4) !== 2
-  ) {
-    return false;
-  }
-  const architectures = new Set<number>();
-  const ranges: { start: number; end: number }[] = [];
-  for (const entry of [8, 28]) {
-    const cpu = bytes.readUInt32BE(entry);
-    const start = bytes.readUInt32BE(entry + 8);
-    const size = bytes.readUInt32BE(entry + 12);
-    const end = start + size;
-    if (
-      (cpu !== 0x01_00_00_0c && cpu !== 0x01_00_00_07) ||
-      architectures.has(cpu) ||
-      start < 48 ||
-      size < 32 ||
-      end > bytes.length ||
-      ranges.some((range) => start < range.end && end > range.start) ||
-      bytes.readUInt32LE(start) !== 0xfe_ed_fa_cf ||
-      bytes.readUInt32LE(start + 4) !== cpu ||
-      bytes.readUInt32LE(start + 12) !== 2
-    ) {
-      return false;
-    }
-    architectures.add(cpu);
-    ranges.push({ end, start });
-  }
-  return true;
-};
+/** Accept exactly one thin arm64 Mach-O executable, refusing fat containers. */
+export const isArm64IosFramebuffer = (bytes: Buffer): boolean =>
+  bytes.length >= 32 &&
+  bytes.readUInt32LE(0) === 0xfe_ed_fa_cf &&
+  bytes.readUInt32LE(4) === 0x01_00_00_0c &&
+  bytes.readUInt32LE(12) === 2;
 
 const currentHost = { architecture: process.arch, platform: process.platform };
 
@@ -88,15 +60,12 @@ export const verifyIosFramebufferRelease = (
     )((yield* read("manifest.json")).toString("utf-8")).pipe(
       Effect.mapError(() => incompatible())
     );
-    if (
-      manifest.platform !== host.platform ||
-      (host.architecture !== "arm64" && host.architecture !== "x64")
-    ) {
+    if (manifest.platform !== host.platform || host.architecture !== "arm64") {
       return yield* Effect.fail(incompatible());
     }
     const bytes = yield* read("framebuffer");
     if (
-      !isUniversalIosFramebuffer(bytes) ||
+      !isArm64IosFramebuffer(bytes) ||
       createHash("sha256").update(bytes).digest("hex") !== manifest.sha256
     ) {
       return yield* Effect.fail(incompatible());

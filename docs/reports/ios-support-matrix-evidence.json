@@ -349,7 +349,7 @@
   },
   "remainingGaps": [
     "No clean Mac was available. The npm install used a fresh prefix and isolated HOME on the development host.",
-    "Live folding, rotation, display replacement, Stop races, x64, and arbitrary-duration foreground ownership were not proven.",
+    "Live folding, rotation, display replacement, Stop races, and arbitrary-duration foreground ownership were not proven.",
     "iOS 27.1 received a shorter public-entry journey after listing, with the full gated attempt 3 supplying Teaching and verification evidence."
   ],
   "postListingJourneys": {

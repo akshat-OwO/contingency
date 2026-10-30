@@ -23,7 +23,7 @@ const verifyRequiredIosFramebuffer = (directory: string) =>
         Effect.mapError(
           () =>
             new Error(
-              "Release artifact requires the universal iOS framebuffer helper and matching manifest."
+              "Release artifact requires the arm64 iOS framebuffer helper and matching manifest."
             )
         )
       )

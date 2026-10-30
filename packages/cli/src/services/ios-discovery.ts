@@ -36,7 +36,7 @@ const Inventory = Schema.Struct({
 });
 export const requireIosHost = (io: IosSimctlService) =>
   Effect.gen(function* hostPrerequisites() {
-    if (io.platform() !== "darwin") {
+    if (io.platform() !== "darwin" || io.architecture() !== "arm64") {
       return yield* Effect.fail(iosError("host_unsupported"));
     }
     yield* io.xcode().pipe(Effect.mapError(() => iosError("xcode_missing")));

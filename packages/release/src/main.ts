@@ -96,10 +96,9 @@ const root = Command.make("release", {}, () => Effect.void).pipe(
     Command.make(
       "verify-ios-helper",
       {
-        architecture: Flag.String("architecture"),
         tarball: Argument.String("tarball"),
       },
-      ({ tarball, architecture }) => verifyIosHelper(tarball, architecture)
+      ({ tarball }) => verifyIosHelper(tarball)
     ),
     resolveCommand,
     applyCommand,

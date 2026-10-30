@@ -145,7 +145,6 @@ describe("helper executing architecture", () => {
   it("accepts current and older native sample formats", () => {
     for (const [architecture, types] of [
       ["arm64", ["ARM64", "ARM-64 (Native)"]],
-      ["x86_64", ["X86_64", "X86-64 (Native)"]],
     ] as const) {
       for (const codeType of types) {
         expect(
@@ -160,6 +159,8 @@ describe("helper executing architecture", () => {
   });
   it("rejects translation, wrong slices, unknown types, and other processes", () => {
     for (const [name, codeType, architecture] of [
+      ["framebuffer [123]", "X86_64", "x86_64"],
+      ["framebuffer [123]", "X86-64 (Native)", "x86_64"],
       ["framebuffer [123]", "X86-64 (Translated)", "x86_64"],
       ["framebuffer [123]", "ARM64", "x86_64"],
       ["framebuffer [123]", "unknown", "arm64"],

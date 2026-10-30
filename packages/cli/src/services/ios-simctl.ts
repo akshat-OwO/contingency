@@ -82,6 +82,7 @@ export const iosSimctlHost = {
       }
       return apps;
     }),
+  architecture: () => process.arch,
   device: simctl,
   devices: () => simctl(["list", "devices", "--json"]),
   platform: () => process.platform,

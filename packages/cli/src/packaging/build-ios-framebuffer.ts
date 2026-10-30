@@ -31,42 +31,29 @@ await Effect.runPromise(
     }
     yield* io(() => mkdir(output, { recursive: true }));
     const executable = path.join(output, "framebuffer");
-    for (const architecture of ["arm64", "x86_64"]) {
-      yield* command("xcrun", [
-        "clang",
-        "-O2",
-        "-Wall",
-        "-Wextra",
-        "-Wno-unused-parameter",
-        "-fobjc-arc",
-        "-arch",
-        architecture,
-        "-framework",
-        "Foundation",
-        "-framework",
-        "CoreImage",
-        "-framework",
-        "IOSurface",
-        "-framework",
-        "ImageIO",
-        "-framework",
-        "CoreGraphics",
-        source,
-        "-o",
-        path.join(output, architecture),
-      ]);
-    }
     yield* command("xcrun", [
-      "lipo",
-      "-create",
-      path.join(output, "arm64"),
-      path.join(output, "x86_64"),
-      "-output",
+      "clang",
+      "-O2",
+      "-Wall",
+      "-Wextra",
+      "-Wno-unused-parameter",
+      "-fobjc-arc",
+      "-arch",
+      "arm64",
+      "-framework",
+      "Foundation",
+      "-framework",
+      "CoreImage",
+      "-framework",
+      "IOSurface",
+      "-framework",
+      "ImageIO",
+      "-framework",
+      "CoreGraphics",
+      source,
+      "-o",
       executable,
     ]);
-    for (const architecture of ["arm64", "x86_64"]) {
-      yield* io(() => rm(path.join(output, architecture)));
-    }
     yield* command("/usr/bin/codesign", ["--force", "--sign", "-", executable]);
     yield* command("/usr/bin/codesign", ["--verify", "--strict", executable]);
     const bytes = yield* io(() => readFile(executable));
@@ -76,7 +63,7 @@ await Effect.runPromise(
         path.join(output, "manifest.json"),
         `${JSON.stringify(
           {
-            architecture: "universal",
+            architecture: "arm64",
             executable: "framebuffer",
             platform: "darwin",
             sha256: createHash("sha256").update(bytes).digest("hex"),
