@@ -1,0 +1,451 @@
+import { spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+
+import {
+  Deferred,
+  Effect,
+  Queue,
+  Schema,
+  Scope,
+  Stream,
+  Semaphore,
+} from "effect";
+import { Atom, AtomRegistry } from "effect/reactivity";
+
+import { awaitExit } from "./ffmpeg.ts";
+import type { IosDevice } from "./ios-contract.ts";
+import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
+import { iosRuntimeError } from "./ios-runtime.ts";
+import { iosCommand } from "./ios-simctl.ts";
+import {
+  IosFramebufferPacket,
+  makeIosStreamIntegrity,
+} from "./ios-stream-integrity.ts";
+import type { IosStreamGap } from "./ios-stream-integrity.ts";
+
+/** Refuse ambiguous integrated panels, including a foldable with two active surfaces. */
+export const activeIosDisplay = (inventory: string): string | null => {
+  const screens = inventory.match(/Screen Type: Integrated/gu) ?? [];
+  const ports = inventory
+    .split(/(?:^|\n)Port:\n/u)
+    .filter(
+      (port) =>
+        /Port Identifier: com\.apple\.framebuffer\.display\n/u.test(port) &&
+        /Display class: 0\n/u.test(port) &&
+        /Power state: On\n/u.test(port)
+    );
+  if (
+    screens.length !== 1 ||
+    ports.length !== 1 ||
+    !/IOSurface port:/u.test(ports[0] ?? "")
+  ) {
+    return null;
+  }
+  return (
+    /UUID: (?<id>[A-Fa-f\d-]{36})/u.exec(ports[0] ?? "")?.groups?.id ?? null
+  );
+};
+
+export const iosDisplayOrientation = (inventory: string) => {
+  if (activeIosDisplay(inventory) === null) {
+    return null;
+  }
+  const screen = inventory
+    .split(/\n\s*\(\d+\) [^\r\n]+:\n/u)
+    .find((part) => /Screen Type: Integrated\n/u.test(part));
+  const orientation = /UI Orientation: (?<value>[^\r\n]+)/u
+    .exec(screen ?? "")
+    ?.groups?.value?.trim();
+  switch (orientation) {
+    case "Portrait": {
+      return "portrait" as const;
+    }
+    case "Portrait Upside Down": {
+      return "portrait-upside-down" as const;
+    }
+    case "Landscape Left": {
+      return "landscape-left" as const;
+    }
+    case "Landscape Right": {
+      return "landscape-right" as const;
+    }
+    default: {
+      return null;
+    }
+  }
+};
+
+export const acquireIosStream = (
+  sessionId: string,
+  device: () => IosDevice | null,
+  scope: Scope.Scope,
+  onFault: (code: "capture_incomplete") => Effect.Effect<void>
+) =>
+  Effect.gen(function* acquireIosMirror() {
+    const lock = Semaphore.makeUnsafe(1);
+    const integrity = makeIosStreamIntegrity();
+    const registry = AtomRegistry.make();
+    const transport = Atom.make<
+      "connecting" | "live" | "lost" | "closed" | "restarting"
+    >("connecting").pipe(Atom.keepAlive);
+    registry.get(transport);
+    const displayBinding = Atom.make<string | null>(null).pipe(Atom.keepAlive);
+    registry.get(displayBinding);
+    const orientationBinding = Atom.make<
+      ReturnType<typeof iosDisplayOrientation>
+    >(null).pipe(Atom.keepAlive);
+    registry.get(orientationBinding);
+    const boundDevice = Atom.make<IosDevice | null>(null).pipe(Atom.keepAlive);
+    registry.get(boundDevice);
+    const secret = randomBytes(32).toString("base64url");
+
+    let ready = yield* Deferred.make<
+      boolean,
+      ReturnType<typeof iosRuntimeError>
+    >();
+    const viewers = new Set<(bytes: Uint8Array | null) => void>();
+    let worker: ChildProcessWithoutNullStreams | undefined;
+    let revoked = false;
+    let generation = "";
+    let requestedDisplay: string | null = null;
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const publish = (
+      value:
+        | { readonly _tag: "state"; readonly state: "transport_lost" }
+        | {
+            readonly _tag: "jpeg";
+            readonly data: string;
+            readonly height: number;
+            readonly width: number;
+            readonly timestamp: number;
+          }
+    ) => {
+      const bytes = Buffer.from(`${JSON.stringify(value)}\n`);
+      for (const receive of viewers) {
+        receive(bytes);
+      }
+    };
+    const failed = (
+      code = "capture_incomplete" as const,
+      reason: IosStreamGap = "helper-exited"
+    ) => {
+      if (revoked || ["lost", "restarting"].includes(registry.get(transport))) {
+        return;
+      }
+      registry.set(transport, "lost");
+      Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
+      clearTimeout(silence);
+      Deferred.doneUnsafe(
+        ready,
+        Effect.fail(iosRuntimeError("capture_incomplete"))
+      );
+      Effect.runSync(integrity.fail(reason));
+      publish({ _tag: "state", state: "transport_lost" });
+      for (const receive of viewers) {
+        receive(null);
+      }
+      viewers.clear();
+    };
+    const close = lock.withPermits(1)(
+      Effect.gen(function* releaseIosMirror() {
+        if (revoked) {
+          return;
+        }
+        revoked = true;
+        registry.set(transport, "closed");
+        clearTimeout(silence);
+        yield* integrity.stop();
+        for (const receive of viewers) {
+          receive(null);
+        }
+        viewers.clear();
+        if (worker) {
+          const owned = worker;
+          owned.stdin.end("stop\n");
+          owned.kill("SIGTERM");
+          yield* Effect.promise(() => awaitExit(owned));
+        }
+      })
+    );
+    yield* Scope.addFinalizer(scope, close);
+    const start = () =>
+      lock.withPermits(1)(
+        Effect.gen(function* startIosMirror() {
+          if (revoked) {
+            return yield* Effect.fail(iosRuntimeError("runtime_closed"));
+          }
+          if (["lost", "restarting"].includes(registry.get(transport))) {
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+          }
+          if (!worker) {
+            const selected = registry.get(boundDevice) ?? device();
+            if (!selected) {
+              return yield* Effect.fail(
+                iosRuntimeError("preparation_required")
+              );
+            }
+            registry.set(boundDevice, structuredClone(selected));
+            const helper = yield* verifyIosFramebufferRelease();
+            const inventory = yield* iosCommand("xcrun", [
+              "simctl",
+              "io",
+              selected.udid,
+              "enumerate",
+            ]).pipe(
+              Effect.mapError(() => iosRuntimeError("capture_incomplete"))
+            );
+            const display = activeIosDisplay(inventory);
+            const orientation = iosDisplayOrientation(inventory);
+            if (!display || !orientation) {
+              return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+            }
+            registry.set(orientationBinding, orientation);
+            const developer = yield* iosCommand("xcode-select", ["-p"]).pipe(
+              Effect.mapError(() => iosRuntimeError("runtime_failed"))
+            );
+            registry.set(displayBinding, display);
+            requestedDisplay = null;
+            generation = randomUUID();
+            yield* integrity.generation(generation);
+            const child = spawn(
+              helper,
+              [developer, selected.udid, display, orientation],
+              {
+                stdio: "pipe",
+              }
+            );
+            worker = child;
+            child.stderr.resume();
+            child.stdin.on("error", () => failed());
+            child.once("error", () => failed());
+            child.once("close", () => failed());
+            let pending = "";
+            const decode = Schema.decodeUnknownOption(
+              Schema.fromJsonString(IosFramebufferPacket)
+            );
+            child.stdout.setEncoding("utf-8");
+            child.stdout.on("data", (chunk: string) => {
+              if (
+                revoked ||
+                ["lost", "restarting"].includes(registry.get(transport))
+              ) {
+                return;
+              }
+              pending += chunk;
+              if (pending.length > 4 * 1024 * 1024) {
+                failed();
+                child.kill("SIGTERM");
+                return;
+              }
+              let newline = pending.indexOf("\n");
+              while (newline !== -1) {
+                const packet = decode(pending.slice(0, newline));
+                pending = pending.slice(newline + 1);
+                if (packet._tag === "None") {
+                  failed();
+                  child.kill("SIGTERM");
+                  return;
+                }
+                if (packet.value.displayPort !== registry.get(displayBinding)) {
+                  if (packet.value.displayPort !== requestedDisplay) {
+                    failed("capture_incomplete");
+                    child.kill("SIGTERM");
+                    return;
+                  }
+                  registry.set(displayBinding, requestedDisplay);
+                  requestedDisplay = null;
+                }
+                if (
+                  !Effect.runSync(integrity.accept(generation, packet.value))
+                ) {
+                  failed();
+                  child.kill("SIGTERM");
+                  return;
+                }
+                clearTimeout(silence);
+                silence = setTimeout(() => {
+                  failed("capture_incomplete", "stream-silence");
+                  child.kill("SIGTERM");
+                }, 10_000);
+                silence.unref();
+                if (requestedDisplay !== null) {
+                  newline = pending.indexOf("\n");
+                  continue;
+                }
+                publish({
+                  _tag: "jpeg",
+                  data: packet.value.jpeg,
+                  height: packet.value.height,
+                  timestamp: packet.value.sampledMs,
+                  width: packet.value.width,
+                });
+                registry.set(transport, "live");
+                Deferred.doneUnsafe(ready, Effect.succeed(true));
+                newline = pending.indexOf("\n");
+              }
+            });
+            child.stdin.write("start\n");
+            yield* Effect.whileLoop({
+              body: () =>
+                Effect.gen(function* checkBoundDisplay() {
+                  yield* Effect.sleep("1 second");
+                  if (
+                    worker !== child ||
+                    revoked ||
+                    registry.get(transport) !== "live"
+                  ) {
+                    return;
+                  }
+                  const current = yield* Effect.result(
+                    iosCommand("xcrun", [
+                      "simctl",
+                      "io",
+                      selected.udid,
+                      "enumerate",
+                    ])
+                  );
+                  const active =
+                    current._tag === "Success"
+                      ? activeIosDisplay(current.success)
+                      : null;
+                  const currentOrientation =
+                    current._tag === "Success"
+                      ? iosDisplayOrientation(current.success)
+                      : null;
+                  if (!active || !currentOrientation) {
+                    failed("capture_incomplete");
+                    child.kill("SIGTERM");
+                  } else if (active !== registry.get(displayBinding)) {
+                    requestedDisplay = active;
+                    ready = Deferred.makeUnsafe<
+                      boolean,
+                      ReturnType<typeof iosRuntimeError>
+                    >();
+                    registry.set(transport, "connecting");
+                    child.stdin.write(`display ${active}\n`);
+                  }
+                  if (
+                    currentOrientation &&
+                    currentOrientation !== registry.get(orientationBinding)
+                  ) {
+                    registry.set(orientationBinding, currentOrientation);
+                    child.stdin.write(`orientation ${currentOrientation}\n`);
+                  }
+                }),
+              step: () => {
+                // No accumulator: each iteration observes the session atoms.
+              },
+              while: () => worker === child && !revoked,
+            }).pipe(Effect.forkIn(scope));
+          }
+          yield* Effect.whileLoop({
+            body: () => Deferred.await(ready),
+            step: () => {
+              // Completion is observed through the transport atom.
+            },
+            while: () => registry.get(transport) === "connecting",
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: "30 seconds",
+              orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
+            })
+          );
+          const selected = registry.get(boundDevice);
+          if (!selected || registry.get(transport) !== "live") {
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+          }
+          const inventory = yield* iosCommand("xcrun", [
+            "simctl",
+            "io",
+            selected.udid,
+            "enumerate",
+          ]).pipe(Effect.mapError(() => iosRuntimeError("capture_incomplete")));
+          const active = activeIosDisplay(inventory);
+          if (active !== registry.get(displayBinding)) {
+            if (active === null) {
+              failed("capture_incomplete");
+              worker?.kill("SIGTERM");
+            }
+            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+          }
+        })
+      );
+    return {
+      access: {
+        path: `/ios/stream/${encodeURIComponent(sessionId)}`,
+        token: secret,
+      },
+      authorized: (token?: string) =>
+        !revoked &&
+        token !== undefined &&
+        Buffer.byteLength(token) === Buffer.byteLength(secret) &&
+        timingSafeEqual(Buffer.from(token), Buffer.from(secret)),
+      begin: () =>
+        start().pipe(
+          Effect.andThen(
+            Effect.suspend(() =>
+              integrity.start(Number(process.hrtime.bigint()) / 1_000_000)
+            )
+          )
+        ),
+      close: () => close,
+      end: integrity.stop,
+      frames: Stream.callback<Uint8Array>(
+        (queue) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              const receive = (bytes: Uint8Array | null) => {
+                if (bytes === null) {
+                  Queue.endUnsafe(queue);
+                  viewers.delete(receive);
+                } else if (!Queue.offerUnsafe(queue, bytes)) {
+                  Queue.endUnsafe(queue);
+                  viewers.delete(receive);
+                  failed("capture_incomplete", "slow-consumer");
+                  worker?.kill("SIGTERM");
+                }
+              };
+              viewers.add(receive);
+              return receive;
+            }),
+            (receive) =>
+              Effect.sync(() => {
+                viewers.delete(receive);
+              })
+          ).pipe(
+            Effect.andThen(start()),
+            Effect.catchCause(() =>
+              Effect.sync(() => {
+                Queue.endUnsafe(queue);
+              })
+            )
+          ),
+        { bufferSize: 8, strategy: "dropping" }
+      ),
+      integrity: integrity.snapshot,
+      recover: () =>
+        lock
+          .withPermits(1)(
+            Effect.gen(function* reconnectIosMirror() {
+              registry.set(transport, "restarting");
+              if (worker) {
+                const owned = worker;
+                owned.kill("SIGTERM");
+                yield* Effect.promise(() => awaitExit(owned));
+                worker = undefined;
+              }
+              ready = Deferred.makeUnsafe<
+                boolean,
+                ReturnType<typeof iosRuntimeError>
+              >();
+              registry.set(transport, "connecting");
+            })
+          )
+          .pipe(Effect.andThen(start())),
+      start,
+    };
+  });
+export type IosDeviceStream = Effect.Success<
+  ReturnType<typeof acquireIosStream>
+>;

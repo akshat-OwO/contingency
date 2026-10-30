@@ -145,6 +145,8 @@ import {
   WORKSPACE_REFRESH_INTERVAL,
 } from "@/lib/workspace-refresh";
 
+import { IosEntry, IosWorkspace } from "./ios-workspace";
+
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
   { readonly activity: "teaching" }
@@ -284,9 +286,12 @@ const WorkspacePlatformControls = ({
     );
   }, [chrome]);
   const action = (
-    <Button onClick={onAndroid} size="sm" variant="outline">
-      Android
-    </Button>
+    <>
+      <Button onClick={onAndroid} size="sm" variant="outline">
+        Android
+      </Button>
+      <IosEntry />
+    </>
   );
   if (header !== null) {
     return createPortal(action, header);
@@ -2572,6 +2577,12 @@ export const AgentWorkspace = (
   const requestedAndroidSession =
     new URL(globalThis.location.href).searchParams.get("android") ?? undefined;
   const [android, setAndroid] = useState(requestedAndroidSession !== undefined);
+  const requestedIosSession = new URL(
+    globalThis.location.href
+  ).searchParams.get("ios");
+  if (requestedIosSession !== null) {
+    return <IosWorkspace requestedSessionId={requestedIosSession} />;
+  }
   return android ? (
     <AndroidWorkspace
       requestedSessionId={requestedAndroidSession}

@@ -74,6 +74,13 @@ export interface PlatformRuntimeError {
     | "android_text_input_unverified"
     | "input_unverified";
   readonly code:
+    | "host_unsupported"
+    | "xcode_missing"
+    | "runtime_missing"
+    | "os_unsupported"
+    | "device_unsupported"
+    | "discovery_failed"
+    | "foreign_app_foreground"
     | "observation_stale"
     | "runtime_failed"
     | "capability_missing"
@@ -84,6 +91,7 @@ export interface PlatformRuntimeError {
     | "permission_decisions_unsupported"
     | "physical_device_unsupported"
     | "device_mismatch"
+    | "device_stopped"
     | "device_disconnected"
     | "installation_denied"
     | "installation_failed"

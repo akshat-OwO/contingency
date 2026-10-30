@@ -24,9 +24,6 @@ export const makeIosPreparation = (
 ) => ({
   prepare: (input: IosPreparationInput) =>
     Effect.gen(function* prepareSelectedSimulator() {
-      if (input.requiredCapabilities.includes("private-input")) {
-        return yield* Effect.fail(iosError("capability_missing"));
-      }
       const discovery = makeIosDiscovery(io);
       yield* discovery.requireRunning(input.device);
       if (
@@ -89,6 +86,10 @@ export const makeIosPreparation = (
       yield* io.terminate(udid, app.bundleId);
       yield* io.device(["launch", udid, app.bundleId]);
       yield* runner(udid, app.bundleId, directory);
-      return { device: input.device, environment: input.environment };
+      return {
+        device: input.device,
+        directory,
+        environment: input.environment,
+      };
     }),
 });

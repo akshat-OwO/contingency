@@ -6,7 +6,7 @@ import { makeNativeAppTeachingCapture } from "../../src/services/native-app-teac
 import type { NativeAppCaptureState } from "../../src/services/native-app-teaching-capture.ts";
 import type { TeachingRecordingStop } from "../../src/services/teaching-recording-store.ts";
 
-const fixture = () => {
+const fixture = (failSource = false) => {
   let state: NativeAppCaptureState = {
     artifacts: [],
     bytes: 0,
@@ -45,6 +45,15 @@ const fixture = () => {
       effect.pipe(Effect.mapError(() => ({ code: "io_failed" }))),
     messages: { limit: "Capture limit", sizeLimit: "Size limit" },
     state: (_session: string) => state,
+    stopSources: () =>
+      Effect.gen(function* stopOwnedCaptureSources() {
+        if (state.recording) {
+          return yield* Effect.die("Retention was still open");
+        }
+        if (failSource) {
+          return yield* Effect.fail({ code: "manifest_failed" });
+        }
+      }),
     store: {
       stop: (request) =>
         Effect.sync(() => {
@@ -145,6 +154,24 @@ it.effect(
       expect(stopped).toMatchObject([
         { artifacts: [{ id: "native-events", kind: "events" }] },
       ]);
+      yield* capture.finishRecording("session", OperationId.make("retry"));
+      expect(stopped).toHaveLength(1);
+    })
+);
+
+it.effect(
+  "a failed transport manifest still closes retention and cannot pass finalization",
+  () =>
+    Effect.gen(function* failManifest() {
+      const { capture, state, stopped } = fixture(true);
+      yield* Effect.exit(
+        capture.finishRecording("session", OperationId.make("stop"))
+      );
+      expect(state().recording).toBe(false);
+      expect(stopped).toHaveLength(1);
+      expect(stopped[0]?.failure).toBe(
+        "Capture transport finalization lost retained evidence."
+      );
       yield* capture.finishRecording("session", OperationId.make("retry"));
       expect(stopped).toHaveLength(1);
     })

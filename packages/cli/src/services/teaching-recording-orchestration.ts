@@ -258,12 +258,12 @@ export const startDryRun = (input: DryRunStartInput) =>
       .read(input.recordingId)
       .pipe(Effect.mapError(fromCause));
     if (
-      manifest.runtime?.platform === "android" ||
+      (manifest.runtime !== undefined && manifest.runtime.platform !== "web") ||
       manifest.emulation === null
     ) {
       return yield* Effect.fail(
         invalid(
-          "Android Dry Runs require the Android Workspace entry point and explicit device preparation."
+          "Native-app Dry Runs require their Workspace entry point and explicit device preparation."
         )
       );
     }

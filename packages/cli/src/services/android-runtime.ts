@@ -12,6 +12,7 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import { validateAndroidStartup } from "./android-startup.ts";
+import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
@@ -24,31 +25,7 @@ export const adaptAndroidRuntime = (input: {
     ...input,
     capabilities: androidCapabilities,
     error: platformRuntimeError,
-    policy: {
-      publicAction: (captured, action) =>
-        Effect.gen(function* validateAction() {
-          if (
-            action.type !== "back" &&
-            action.type !== "coordinate" &&
-            action.type !== "press"
-          ) {
-            const node = captured.nodes.find(
-              (candidate) => candidate.target === action.target
-            );
-            if (
-              node === undefined ||
-              node.covered ||
-              (action.type === "fill" && !node.editable)
-            ) {
-              return yield* Effect.fail(
-                platformRuntimeError("target_unsupported")
-              );
-            }
-          }
-        }),
-      unconfirmedFill: (captured, target) =>
-        captured.nodes.some((node) => node.target === target && node.password),
-    },
+    policy: nativeAppActionPolicy(platformRuntimeError, true),
   }).pipe(
     Effect.map((runtime) => ({ ...runtime, platform: "android" as const }))
   );

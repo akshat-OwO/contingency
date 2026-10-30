@@ -48,7 +48,13 @@ import {
   TextScale,
   PermissionDecisions,
 } from "./emulation.ts";
+import {
+  IosWorkspaceCommand,
+  IosWorkspaceSnapshot,
+  IosWorkspaceSummary,
+} from "./ios-workspace.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { IosDeviceSelection } from "./platform.ts";
 import { TeachingScan } from "./scans.ts";
 import {
   BrowserCookieWrite,
@@ -984,6 +990,36 @@ const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
   success: CatalogFlowSkillResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
+  Rpc.make("ios.devices.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(
+      Schema.Struct({ ...IosDeviceSelection.fields, state: Schema.String })
+    ),
+  }),
+  Rpc.make("ios.stream.access", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ sessionId: AgentSessionId }),
+    success: Schema.Struct({ path: Schema.String, token: Schema.String }),
+  }),
+  Rpc.make("ios.workspace.enabled", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Boolean,
+  }),
+  Rpc.make("ios.workspace.command", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({
+      command: IosWorkspaceCommand,
+      source: Schema.Literals(["agent", "user"]),
+    }),
+    success: IosWorkspaceSnapshot,
+  }),
+  Rpc.make("ios.workspace.list", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: Schema.Array(IosWorkspaceSummary),
+  }),
   Rpc.make("android.devices.list", {
     error: BrowserRpcError,
     payload: Schema.Struct({}),
@@ -1233,3 +1269,5 @@ export const BrowserDevtoolsInput = Schema.Struct({
 });
 
 export * from "./browser-modifications.ts";
+
+export * from "./ios-workspace.ts";

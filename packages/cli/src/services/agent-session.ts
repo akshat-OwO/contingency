@@ -5663,6 +5663,7 @@ const makeAgentSession = (
         };
         if (
           inFlight.action.type !== "android" &&
+          inFlight.action.type !== "ios" &&
           inFlight.action.type !== "eval" &&
           inFlight.action.type !== "upload"
         ) {

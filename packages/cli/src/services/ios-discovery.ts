@@ -46,13 +46,11 @@ export const requireIosPrerequisites = (
   selected?: IosDevice
 ) =>
   Effect.gen(function* prerequisites() {
+    if (selected !== undefined && selected.kind !== "simulator") {
+      return yield* Effect.fail(iosError("physical_device_unsupported"));
+    }
     yield* requireIosHost(io);
     if (selected !== undefined) {
-      if (
-        Schema.is(Schema.Struct({ kind: Schema.Literal("physical") }))(selected)
-      ) {
-        return yield* Effect.fail(iosError("physical_device_unsupported"));
-      }
       if (!Schema.is(IosDeviceSchema)(selected)) {
         return yield* Effect.fail(iosError("device_unsupported"));
       }
@@ -126,8 +124,11 @@ export const makeIosDiscovery = (io: IosSimctlService = iosSimctlHost) => {
         );
       });
     });
-  const resolve = (selected: IosDevice) =>
+  const resolve = (selected: IosDevice | { readonly kind: "physical" }) =>
     Effect.gen(function* resolveSelection() {
+      if (selected.kind === "physical") {
+        return yield* Effect.fail(iosError("physical_device_unsupported"));
+      }
       const entries = yield* inventory(selected);
       const entry = entries.find(
         ({ device }) =>

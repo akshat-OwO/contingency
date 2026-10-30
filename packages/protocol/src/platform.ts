@@ -27,6 +27,31 @@ export const AndroidPreparation = Schema.Struct({
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
 
+export const IosDeviceSelection = Schema.Struct({
+  deviceType: Schema.String.check(
+    Schema.isPattern(/^com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-/u)
+  ),
+  kind: Schema.Literal("simulator"),
+  name: Schema.String,
+  runtime: Schema.NonEmptyString,
+  runtimeVersion: Schema.NonEmptyString,
+  udid: Schema.String.check(
+    Schema.isPattern(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu)
+  ),
+});
+export const IosRunEnvironment = Schema.Struct({
+  build: Schema.NonEmptyString,
+  bundleId: Schema.NonEmptyString,
+  deviceType: Schema.NonEmptyString,
+  runtimeVersion: Schema.NonEmptyString,
+});
+export const IosPreparation = Schema.Struct({
+  conditions: Schema.Array(AndroidStartingCondition).check(
+    Schema.isMinLength(1)
+  ),
+  kind: Schema.Literal("restart-app"),
+});
+
 /** Internal runtime requirements. Browser Emulation remains a separate typed contract. */
 export const PlatformRequirements = Schema.Union([
   Schema.Struct({
@@ -56,6 +81,20 @@ export const PlatformRequirements = Schema.Union([
     platform: Schema.Literal("android"),
     preparation: Schema.optionalKey(AndroidPreparation),
     /** Skills saved before ADR 0067 carry this allowlist; read, then discarded. */
+    reversibleActions: Schema.optionalKey(Schema.Unknown).pipe(
+      Schema.decodeTo(Schema.optionalKey(Schema.Unknown), {
+        decode: SchemaGetter.omit(),
+        encode: SchemaGetter.omit(),
+      })
+    ),
+  }),
+  Schema.Struct({
+    capabilities: Schema.Array(PlatformCapability),
+    environment: IosRunEnvironment,
+    outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
+    platform: Schema.Literal("ios"),
+    preparation: Schema.optionalKey(IosPreparation),
+    /** Legacy taught controls do not limit native Runs. */
     reversibleActions: Schema.optionalKey(Schema.Unknown).pipe(
       Schema.decodeTo(Schema.optionalKey(Schema.Unknown), {
         decode: SchemaGetter.omit(),

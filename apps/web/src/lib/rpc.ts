@@ -1,10 +1,5 @@
-import {
-  ContingencyRpcs,
-  isBrowserRpcError,
-  RunVideoStatus,
-  runVideoStatusPath,
-} from "@contingency/protocol";
 import type {
+  IosWorkspaceCommand,
   AndroidWorkspaceCommand,
   AndroidWorkspaceSelection,
   AgentRunId,
@@ -13,6 +8,12 @@ import type {
   FlowSkillName,
   AgentSessionSnapshot,
   BrowserStreamEvent,
+} from "@contingency/protocol";
+import {
+  ContingencyRpcs,
+  isBrowserRpcError,
+  RunVideoStatus,
+  runVideoStatusPath,
 } from "@contingency/protocol";
 import { Duration, Effect, Layer, Schedule, Schema, Stream } from "effect";
 import { Atom, AtomRpc } from "effect/reactivity";
@@ -63,6 +64,35 @@ export const agentSessionsAtom = ContingencyRpcClient.query(
   "agent.sessions.get",
   {}
 );
+export const iosEnabledAtom = ContingencyRpcClient.query(
+  "ios.workspace.enabled",
+  {}
+);
+export const iosSessionsAtom = ContingencyRpcClient.query(
+  "ios.workspace.list",
+  {}
+);
+export const iosDevicesAtom = ContingencyRpcClient.query(
+  "ios.devices.list",
+  {}
+);
+export const runIosWorkspaceCommand = (command: IosWorkspaceCommand) =>
+  Effect.scoped(
+    Effect.gen(function* iosCommand() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("ios.workspace.command", {
+        command,
+        source: "user",
+      });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+export const iosStreamAccess = (sessionId: AgentSessionId) =>
+  Effect.scoped(
+    Effect.gen(function* iosAccess() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("ios.stream.access", { sessionId });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 export const androidSessionsAtom = ContingencyRpcClient.query(
   "android.workspace.list",
   {}

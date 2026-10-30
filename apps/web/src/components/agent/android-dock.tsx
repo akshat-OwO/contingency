@@ -334,7 +334,7 @@ export const AndroidVariables = ({
   pending,
   onSupply,
 }: {
-  readonly session: AndroidWorkspaceSnapshot;
+  readonly session: Pick<AndroidWorkspaceSnapshot, "kind" | "variables">;
   readonly pending: boolean;
   readonly onSupply: (
     name: string,

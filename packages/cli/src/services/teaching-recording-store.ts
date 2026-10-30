@@ -1304,7 +1304,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         if (
           runtime === undefined ||
           runtime.diagnostics.length > 0 ||
-          (manifest.runtime?.platform === "android" &&
+          (manifest.runtime !== undefined &&
+            manifest.runtime.platform !== "web" &&
             JSON.stringify(runtime.requirements) !==
               JSON.stringify(manifest.runtime)) ||
           runtime.requirements.platform !==

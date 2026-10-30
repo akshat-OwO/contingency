@@ -244,25 +244,16 @@ it.effect("refuses changed identity and malformed inventory", () =>
     expect(commands).toEqual([]);
   })
 );
-it.effect(
-  "refuses Private Variables before any device command or value resolution",
-  () =>
-    Effect.gen(function* verifyIosBehavior() {
-      const { io, commands, inventoryReads } = fakeHost();
-      expect(
-        yield* failureCode(
-          Effect.scoped(
-            makeIosPreparation(io).prepare({
-              device: selected,
-              environment,
-              requiredCapabilities: ["private-input"],
-            })
-          )
-        )
-      ).toBe("capability_missing");
-      expect(commands).toEqual([]);
-      expect(inventoryReads).toEqual([]);
-    })
+it.effect("refuses physical devices before host or device commands", () =>
+  Effect.gen(function* physicalDevice() {
+    const { io, commands, inventoryReads } = fakeHost();
+    const host = { ...io, xcode: () => Effect.die("must not inspect Xcode") };
+    expect(
+      yield* failureCode(makeIosDiscovery(host).resolve({ kind: "physical" }))
+    ).toBe("physical_device_unsupported");
+    expect(commands).toEqual([]);
+    expect(inventoryReads).toEqual([]);
+  })
 );
 
 for (const field of ["runtimeVersion", "bundleId", "build"] as const) {
