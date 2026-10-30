@@ -6,6 +6,7 @@ import {
 } from "@contingency/protocol";
 import type {
   IosWorkspaceCommand,
+  IosObservationRefusal,
   IosWorkspaceSnapshot,
   IosWorkspaceSelection,
 } from "@contingency/protocol";
@@ -47,6 +48,25 @@ const errorMessage = (cause: unknown) =>
   Schema.is(Schema.Struct({ message: Schema.String }))(cause)
     ? cause.message
     : "The iOS session is unavailable.";
+
+export const IosRecovery = ({
+  refusal,
+  pending,
+  onRecover,
+}: {
+  readonly refusal: IosObservationRefusal | null | undefined;
+  readonly pending: boolean;
+  readonly onRecover: (command: "recover" | "return-to-target-app") => void;
+}) => (
+  <Button
+    disabled={pending}
+    onClick={() => onRecover(refusal?.recovery ?? "recover")}
+  >
+    {refusal?.recovery === "return-to-target-app"
+      ? "Return to Target App"
+      : "Recover selected simulator"}
+  </Button>
+);
 
 export const IosEntry = () => {
   const enabled = useAtomValue(iosEnabledAtom);
@@ -584,19 +604,11 @@ const IosDock = ({
           </Button>
         ) : null}
         {session?.phase === "paused" ? (
-          <Button
-            disabled={gesture.pending}
-            onClick={() =>
-              send({
-                _tag: session.refusal?.recovery ?? "recover",
-                ...fields(),
-              })
-            }
-          >
-            {session.refusal
-              ? "Return to Target App"
-              : "Recover selected simulator"}
-          </Button>
+          <IosRecovery
+            pending={gesture.pending}
+            refusal={session.refusal}
+            onRecover={(_tag) => send({ _tag, ...fields() })}
+          />
         ) : null}
         {session?.phase === "running" &&
         session.kind === "teaching" &&

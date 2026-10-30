@@ -9,6 +9,7 @@ import {
 } from "@contingency/protocol";
 import type {
   IosWorkspaceCommand,
+  IosObservationRefusal,
   IosWorkspaceSnapshot,
   TeachingRecordingArtifact,
   PlatformRequirements,
@@ -58,6 +59,17 @@ const denied = (message: string) =>
   Effect.fail(error("ios_workspace_refused", message));
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
+export const iosWorkspaceRefusal = (
+  code: string
+): IosObservationRefusal | null => {
+  if (code === "foreign_app_foreground") {
+    return { code: "foreign_app_foreground", recovery: "return-to-target-app" };
+  }
+  if (code === "capture_incomplete") {
+    return { code: "capture_incomplete", recovery: "recover" };
+  }
+  return null;
+};
 const now = () => new Date().toISOString();
 const observationSummary = (observation: IosObservation) => ({
   ios: {
@@ -436,13 +448,7 @@ export const makeIosWorkspaceLayer = (options: {
                   : [...current.summary.captureGaps, cause.code],
               error: cause.message,
               phase: "paused",
-              refusal:
-                cause.code === "foreign_app_foreground"
-                  ? {
-                      code: "foreign_app_foreground",
-                      recovery: "return-to-target-app",
-                    }
-                  : null,
+              refusal: iosWorkspaceRefusal(cause.code),
             },
           }));
           if (cause.code !== "foreign_app_foreground") {

@@ -23,10 +23,16 @@ export const IosWorkspaceSelection = Schema.Struct({
 });
 export type IosWorkspaceSelection = typeof IosWorkspaceSelection.Type;
 // oxlint-disable-next-line eslint/no-redeclare
-export const IosObservationRefusal = Schema.Struct({
-  code: Schema.Literal("foreign_app_foreground"),
-  recovery: Schema.Literal("return-to-target-app"),
-});
+export const IosObservationRefusal = Schema.Union([
+  Schema.Struct({
+    code: Schema.Literal("foreign_app_foreground"),
+    recovery: Schema.Literal("return-to-target-app"),
+  }),
+  Schema.Struct({
+    code: Schema.Literal("capture_incomplete"),
+    recovery: Schema.Literal("recover"),
+  }),
+]);
 export type IosObservationRefusal = typeof IosObservationRefusal.Type;
 // oxlint-disable-next-line eslint/no-redeclare
 export const IosWorkspaceSummary = Schema.Struct({

@@ -1,4 +1,7 @@
-import { IosWorkspaceCommand } from "@contingency/protocol";
+import {
+  IosWorkspaceCommand,
+  IosObservationRefusal,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Result, Schema } from "effect";
@@ -6,6 +9,7 @@ import { Effect, FileSystem, Layer, Result, Schema } from "effect";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
   IosWorkspace,
+  iosWorkspaceRefusal,
   makeIosWorkspaceLayer,
 } from "../../src/services/ios-workspace.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
@@ -70,3 +74,29 @@ it.effect(
       expect(yield* service.list()).toEqual([]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it("exposes a typed, recoverable refusal when the display becomes unavailable", () => {
+  expect(iosWorkspaceRefusal("capture_incomplete")).toEqual({
+    code: "capture_incomplete",
+    recovery: "recover",
+  });
+  expect(iosWorkspaceRefusal("foreign_app_foreground")).toEqual({
+    code: "foreign_app_foreground",
+    recovery: "return-to-target-app",
+  });
+  expect(iosWorkspaceRefusal("runtime_failed")).toBe(null);
+});
+
+it("keeps each iOS refusal bound to its recovery command", () => {
+  const decode = Schema.decodeUnknownResult(IosObservationRefusal);
+  expect(decode(iosWorkspaceRefusal("capture_incomplete"))._tag).toBe(
+    "Success"
+  );
+  expect(
+    decode({ code: "capture_incomplete", recovery: "return-to-target-app" })
+      ._tag
+  ).toBe("Failure");
+  expect(
+    decode({ code: "foreign_app_foreground", recovery: "recover" })._tag
+  ).toBe("Failure");
+});
