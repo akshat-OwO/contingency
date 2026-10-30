@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width" />
+  <title>iOS stream prototype</title>
+  <style>
+    body {
+      font: 16px system-ui;
+      max-width: 720px;
+      margin: 2rem auto;
+      padding: 1rem;
+    }
+    canvas {
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #888;
+    }
+  </style>
+  <h1>iOS stream prototype</h1>
+  <p>
+    The owning terminal controls Start and Stop. This viewer sends no device
+    input.
+  </p>
+  <form>
+    <label for="token">Stream credential</label>
+    <input id="token" type="password" required autocomplete="off" />
+    <button>Connect</button>
+  </form>
+  <p role="status" id="status">Disconnected</p>
+  <canvas aria-label="Live simulator display"></canvas>
+  <script type="module">
+    const status = document.querySelector("#status");
+    const canvas = document.querySelector("canvas");
+    const context = canvas.getContext("2d");
+    document.querySelector("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = document.querySelector("button");
+      button.disabled = true;
+      try {
+        const response = await fetch("/frames", {
+          headers: { Authorization: document.querySelector("#token").value },
+          cache: "no-store",
+        });
+        document.querySelector("#token").value = "";
+        if (!response.ok) throw new Error(`Stream refused: ${response.status}`);
+        const reader = response.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
+        let pending = "";
+        let count = 0;
+        let previous = 0;
+        let gaps = 0;
+        const start = performance.now();
+        status.textContent =
+          "Connected. Waiting for the owner to start capture.";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          pending += value;
+          let newline;
+          while ((newline = pending.indexOf("\n")) !== -1) {
+            const frame = JSON.parse(pending.slice(0, newline));
+            pending = pending.slice(newline + 1);
+            if (previous && frame.sequence !== previous + 1) gaps++;
+            previous = frame.sequence;
+            const bytes = Uint8Array.from(atob(frame.jpeg), (char) =>
+              char.charCodeAt(0)
+            );
+            const bitmap = await createImageBitmap(
+              new Blob([bytes], { type: "image/jpeg" })
+            );
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            context.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            count++;
+            status.textContent = `${count} decoded frames; ${((count * 1000) / (performance.now() - start)).toFixed(1)} fps; ${gaps} transport gaps`;
+          }
+        }
+        status.textContent += "; capture ended";
+      } catch (error) {
+        status.textContent = String(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</html>
