@@ -3,7 +3,6 @@ import path from "node:path";
 
 import {
   AgentSessionId,
-  ContentHash,
   OperationId,
   TeachingRecordingId,
   AndroidWorkspaceSummary,
@@ -11,7 +10,6 @@ import {
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
-  TeachingEvent,
   TeachingRecordingArtifact,
   PlatformRequirements,
 } from "@contingency/protocol";
@@ -38,6 +36,7 @@ import type { AndroidDeviceStream } from "./android-stream.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
@@ -254,9 +253,6 @@ interface Session {
   readonly directory: string;
   readonly summaryFile: string;
 }
-type EventPayload<E = TeachingEvent> = E extends TeachingEvent
-  ? Omit<E, "seq" | "at">
-  : never;
 export interface AndroidWorkspaceService {
   readonly stream: (
     sessionId: AgentSessionId
@@ -401,130 +397,21 @@ export const makeAndroidWorkspaceLayer = (options: {
               .map(({ value: _value, ...variable }) => variable),
           } satisfies AndroidWorkspaceSnapshot;
         });
-      const emit = (session: Session, event: EventPayload) =>
-        Effect.gen(function* appendEvent() {
-          const current = state(session);
-          const encoded = `${JSON.stringify({ ...event, at: now(), seq: current.sequence })}\n`;
-          if (
-            current.bytes + Buffer.byteLength(encoded) > 64 * 1024 * 1024 ||
-            current.sequence >= 10_000
-          ) {
-            return yield* Effect.fail(
-              error(
-                "capture_incomplete",
-                "The Android capture limit was reached. Start a new complete recording."
-              )
-            );
-          }
-          yield* io(
-            fs.writeFileString(
-              path.join(session.directory, "events.jsonl"),
-              encoded,
-              { flag: "a", mode: 0o600 }
-            )
-          );
-          update(session, (value) => ({
-            ...value,
-            bytes: value.bytes + Buffer.byteLength(encoded),
-            sequence: value.sequence + 1,
-          }));
-        });
-      const keyframe = (
-        session: Session,
-        observation: AndroidObservation,
-        actionId: string | null
-      ) =>
-        Effect.gen(function* retainKeyframe() {
-          const bytes = Buffer.from(observation.screenshot.image, "base64");
-          const current = state(session);
-          if (current.bytes + bytes.length > 64 * 1024 * 1024) {
-            return yield* Effect.fail(
-              error(
-                "capture_incomplete",
-                "The Android capture size limit was reached."
-              )
-            );
-          }
-          const digest = ContentHash.make(`sha256-${hash(bytes)}`);
-          const relative = `keyframes/${digest}.png`;
-          yield* io(
-            fs.makeDirectory(path.join(session.directory, "keyframes"), {
-              recursive: true,
-            })
-          );
-          yield* io(
-            fs.writeFile(path.join(session.directory, relative), bytes, {
-              mode: 0o600,
-            })
-          );
-          update(session, (value) => ({
-            ...value,
-            artifacts: [
-              ...value.artifacts,
-              {
-                capturedAt: now(),
-                hash: digest,
-                id: observation.id,
-                kind: "keyframe",
-                path: relative,
-              },
-            ],
-            bytes: value.bytes + bytes.length,
-          }));
-          yield* emit(session, {
-            _tag: "keyframe",
-            actionId,
-            hash: digest,
-            path: relative,
-          });
-        });
-      const finishRecording = (
-        session: Session,
-        operationId: OperationId,
-        failure?: string
-      ) =>
-        Effect.gen(function* stopRetainedSources() {
-          const current = state(session);
-          if (!current.recording || current.summary.recordingId === null) {
-            return;
-          }
-          // Close the retention interval before any durable finalization can fail.
-          update(session, (value) => ({ ...value, recording: false }));
-          const emitted = yield* Effect.result(
-            emit(session, {
-              _tag: "stopped",
-              detail: failure ?? null,
-              reason: failure === undefined ? "user" : "capture-failed",
-            })
-          );
-          const contents = yield* Effect.result(
-            io(fs.readFile(path.join(session.directory, "events.jsonl")))
-          );
-          const eventArtifacts: TeachingRecordingArtifact[] = Result.isSuccess(
-            contents
-          )
-            ? [
-                {
-                  capturedAt: now(),
-                  hash: ContentHash.make(`sha256-${hash(contents.success)}`),
-                  id: "android-events",
-                  kind: "events",
-                  path: "events.jsonl",
-                },
-              ]
-            : [];
-          yield* store.stop({
-            artifacts: [...state(session).artifacts, ...eventArtifacts],
-            failure:
-              failure ??
-              (Result.isFailure(contents) || Result.isFailure(emitted)
-                ? "Capture finalization lost retained evidence."
-                : undefined),
-            operationId,
-            recordingId: current.summary.recordingId,
-            runtime: current.summary.requirements,
-          });
-        });
+      const { emit, keyframe, finishRecording } = makeNativeAppTeachingCapture({
+        directory: (session: Session) => session.directory,
+        error,
+        eventArtifactId: "android-events",
+        fs,
+        io,
+        messages: {
+          limit:
+            "The Android capture limit was reached. Start a new complete recording.",
+          sizeLimit: "The Android capture size limit was reached.",
+        },
+        state,
+        store,
+        update,
+      });
       const pause = (session: Session, cause: AndroidWorkspaceError) =>
         Effect.gen(function* pauseInput() {
           update(session, (current) => ({
