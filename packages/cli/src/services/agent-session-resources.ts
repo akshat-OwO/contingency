@@ -23,7 +23,7 @@ export type ProcessIsAlive = (pid: number) => boolean;
 
 const ProcessError = Schema.Struct({ code: Schema.String });
 
-const hostProcessIsAlive: ProcessIsAlive = (pid) => {
+export const hostProcessIsAlive: ProcessIsAlive = (pid) => {
   try {
     process.kill(pid, 0);
     return true;

@@ -49,7 +49,7 @@ A CoreGraphics preflight returned false. The spike did not call `CGRequestScreen
 
 A small Swift helper could select a window, request a frame cadence, consume timestamped sample buffers, encode frames, and report callback or queue gaps. Contingency would still gate output at Start and Stop and own the helper's lifetime. A production helper would need stable code identity for permission decisions and a distribution and signing plan. This spike did not test Developer ID signing, notarization, or TCC behavior after updates.
 
-Window capture also introduces a host-window identity contract. It must bind the exact Session Simulator display, crop host chrome correctly, and handle window replacement, resizing, occlusion, minimization, and window closure. Xcode 27's host presentation must be discovered rather than hard-coded to a `Simulator.app` title. Those behaviors were not tested. ScreenCaptureKit is a public API fallback worth revisiting if private CoreSimulator compatibility becomes too costly, but it has not passed this spike's live proof.
+Window capture also introduces a host-window identity contract. It must bind the exact selected simulator display, crop host chrome correctly, and handle window replacement, resizing, occlusion, minimization, and window closure. Xcode 27's host presentation must be discovered rather than hard-coded to a `Simulator.app` title. Those behaviors were not tested. ScreenCaptureKit is a public API fallback worth revisiting if private CoreSimulator compatibility becomes too costly, but it has not passed this spike's live proof.
 
 ### agent-device 0.21.25
 
@@ -105,7 +105,7 @@ The private selector names were checked against Meta's MIT-licensed [CoreSimulat
 Before #548 ships this backend:
 
 1. Package and hash-check a Contingency-owned helper for supported host architectures. Only local arm64 ad hoc execution was tested here. While iOS stays unlisted, #548 may build and run the helper ad hoc signed. Developer ID signing, notarization, and a clean-host proof are exit criteria for #550, before iOS is listed.
-2. Bind the exact Session Simulator and active integrated display from preparation. The iPhone Duo has two populated integrated surfaces. The default `simctl` display selected an inactive one. Never choose by largest surface or silently fall back to another display. Prove display replacement and orientation changes.
+2. Bind the exact selected simulator and active integrated display from preparation. The iPhone Duo has two populated integrated surfaces. The default `simctl` display selected an inactive one. Never choose by largest surface or silently fall back to another display. Prove display replacement and orientation changes.
 3. Keep the authenticated proxy's existing session credential, Host, Origin, generation, revocation, and bounded-queue contracts. Reuse the Android service's architecture, not its backend or unrestricted hub routes. The prototype rejects all Origin headers; production must admit its validated Workspace origin.
 4. Add an explicit transport state and integrity manifest. Prove mid-recording loss, helper restart, slow consumers, source replacement, static screens, and Stop races. Do not infer complete source capture from contiguous output sequence numbers.
 5. Prove surface consistency during composition and rotation, long-run CPU and memory, macOS and Xcode compatibility, and the actual embedded Workspace viewer. Test the complete Teaching interval and input authority through #548, then qualify both #550 Support Matrix cells.
