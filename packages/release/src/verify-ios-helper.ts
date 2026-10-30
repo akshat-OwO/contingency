@@ -248,10 +248,14 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
     )
   ).pipe(Effect.timeout("60 seconds"));
   const sampleFile = path.join(directory, "helper.sample.txt");
+  // A cold runner's first sample loads symbols for every image, which can take
+  // over a minute for a one-second sample.
   yield* runInstallCheckCommand(
     "/usr/bin/sample",
     [String(child.pid), "1", "1", "-file", sampleFile],
-    directory
+    directory,
+    {},
+    "3 minutes"
   );
   const sample = yield* fs.readFileString(sampleFile);
   const { codeType, sampledProcess } = yield* parse(() =>
