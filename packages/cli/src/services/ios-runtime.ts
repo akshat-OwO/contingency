@@ -12,7 +12,7 @@ import type {
   CaptureSnapshotOptions,
   AppOpenOptions,
 } from "agent-device";
-import { Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
+import { Clock, Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import { supportsIosPermissions } from "./ios-contract.ts";
@@ -71,6 +71,72 @@ export const iosRuntimeError = (
   code,
   message: `iOS ${code}. Inspect this session and explicitly recover before input.`,
 });
+/** Local validation failures have no SDK error; name the exact check instead. */
+export const iosCaptureFailure = (
+  code: PlatformRuntimeError["code"],
+  operation: NonNullable<PlatformRuntimeError["operation"]>,
+  reason:
+    | "snapshot-metadata"
+    | "app-state-unverified"
+    | "png-header"
+    | "settle-deadline"
+): PlatformRuntimeError => ({
+  ...iosRuntimeError(code),
+  message: `iOS ${code} during ${operation} (${reason}). Inspect this session and explicitly recover before input.`,
+  operation,
+});
+
+type IosCaptureStep = <A>(
+  name:
+    | "session-before"
+    | "snapshot"
+    | "screenshot"
+    | "app-state"
+    | "session-after"
+    | "read-png",
+  effect: Effect.Effect<A, PlatformRuntimeError>
+) => Effect.Effect<A, PlatformRuntimeError>;
+
+/** Record only step names and durations, never snapshot nodes, pixels, or SDK messages. */
+export const traceIosCapture = <A>(
+  capture: (step: IosCaptureStep) => Effect.Effect<A, PlatformRuntimeError>,
+  attempt: number
+) =>
+  Effect.gen(function* traceCapture() {
+    const started = yield* Clock.monotonicTimeNanos;
+    const steps: { step: string; durationMs: number; outcome: string }[] = [];
+    const step = <B>(
+      name: string,
+      effect: Effect.Effect<B, PlatformRuntimeError>
+    ) =>
+      Effect.gen(function* traceStep() {
+        const began = yield* Clock.monotonicTimeNanos;
+        const result = yield* Effect.exit(effect);
+        const ended = yield* Clock.monotonicTimeNanos;
+        steps.push({
+          durationMs: Number(ended - began) / 1e6,
+          outcome: Exit.isSuccess(result) ? "ok" : "failed",
+          step: name,
+        });
+        return yield* result;
+      });
+    return yield* capture(step).pipe(
+      Effect.tapError((failure) =>
+        Effect.gen(function* logCaptureFailure() {
+          const ended = yield* Clock.monotonicTimeNanos;
+          yield* Effect.logWarning("iOS capture failed", {
+            attempt,
+            code: failure.code,
+            detail: failure.message,
+            durationMs: Number(ended - started) / 1e6,
+            operation: failure.operation,
+            steps,
+          });
+        })
+      )
+    );
+  });
+
 const identifier = /^[\w-]+$/u;
 /** Name the failed step and agent-device's code and reason; never its message, which may carry user data. */
 export const iosAgentDeviceFailure = (
@@ -189,7 +255,10 @@ export const settleIosCapture = <A>(
     }),
     Effect.timeoutOrElse({
       duration: "30 seconds",
-      orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
+      orElse: () =>
+        Effect.fail(
+          iosCaptureFailure("capture_incomplete", "capture", "settle-deadline")
+        ),
     })
   );
 
@@ -209,8 +278,11 @@ export const iosAppStateProblem = (
   if (state.appBundleId !== bundle) {
     return "target_changed";
   }
+  // appState is passive: the SDK can return session metadata while its live
+  // runner is unavailable. Withhold this capture and reacquire within the
+  // existing settle bound; metadata alone never proves foreground ownership.
   if (state.source !== "runner" || state.state === undefined) {
-    return "capture_incomplete";
+    return "observation_stale";
   }
   if (
     state.state === "runningBackground" ||
@@ -335,10 +407,10 @@ const startIosRuntime = (
       });
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const window = yield* Ref.make<IosViewport | null>(null);
-      const captureOnce = () =>
+      const captureOnce = (step: IosCaptureStep) =>
         Effect.gen(function* captureIos() {
-          yield* validate();
-          const snapshot = yield* access.snapshot();
+          yield* step("session-before", validate());
+          const snapshot = yield* step("snapshot", access.snapshot());
           yield* identities(snapshot.identifiers, udid, session);
           const problem = iosSnapshotProblem(snapshot);
           if (
@@ -347,7 +419,11 @@ const startIosRuntime = (
             snapshot.refsGeneration === undefined
           ) {
             return yield* Effect.fail(
-              iosRuntimeError(problem ?? "capture_incomplete")
+              iosCaptureFailure(
+                problem ?? "capture_incomplete",
+                "capture",
+                "snapshot-metadata"
+              )
             );
           }
           const viewport = iosWindowViewport(
@@ -359,19 +435,25 @@ const startIosRuntime = (
             prepared.directory,
             `observation-${id}.png`
           );
-          const screenshot = yield* io(
-            (signal) =>
-              client.capture.screenshot({
-                ...options(),
-                path: filename,
-                signal,
-              }),
-            "screenshot"
+          const screenshot = yield* step(
+            "screenshot",
+            io(
+              (signal) =>
+                client.capture.screenshot({
+                  ...options(),
+                  path: filename,
+                  signal,
+                }),
+              "screenshot"
+            )
           );
           yield* identities(screenshot.identifiers, udid, session);
-          const appState = yield* io(
-            (signal) => client.command.appState({ ...options(), signal }),
-            "session-check"
+          const appState = yield* step(
+            "app-state",
+            io(
+              (signal) => client.command.appState({ ...options(), signal }),
+              "session-check"
+            )
           );
           const stateProblem = iosAppStateProblem(
             appState,
@@ -379,17 +461,34 @@ const startIosRuntime = (
             input.targetApp
           );
           if (stateProblem !== null) {
-            return yield* Effect.fail(iosRuntimeError(stateProblem));
+            return yield* Effect.fail(
+              stateProblem === "observation_stale"
+                ? iosCaptureFailure(
+                    stateProblem,
+                    "session-check",
+                    "app-state-unverified"
+                  )
+                : iosRuntimeError(stateProblem)
+            );
           }
-          yield* validate();
-          const bytes = yield* io(() => readFile(filename), "host-io");
+          yield* step("session-after", validate());
+          const bytes = yield* step(
+            "read-png",
+            io(() => readFile(filename), "host-io")
+          );
           if (
             bytes.length < 24 ||
             !bytes
               .subarray(0, 8)
               .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
           ) {
-            return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+            return yield* Effect.fail(
+              iosCaptureFailure(
+                "capture_incomplete",
+                "screenshot",
+                "png-header"
+              )
+            );
           }
           const width = bytes.readUInt32BE(16);
           const height = bytes.readUInt32BE(20);
@@ -438,7 +537,14 @@ const startIosRuntime = (
           };
           return observation;
         });
-      const capture = () => settleIosCapture(captureOnce());
+      let captureAttempt = 0;
+      const capture = () =>
+        settleIosCapture(
+          Effect.suspend(() => {
+            captureAttempt += 1;
+            return traceIosCapture(captureOnce, captureAttempt);
+          })
+        );
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
