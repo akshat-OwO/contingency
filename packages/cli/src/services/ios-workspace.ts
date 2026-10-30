@@ -1011,7 +1011,10 @@ export const makeIosWorkspaceLayer = (options: {
             );
             fillResult = dispatched || undefined;
           }
-          const after = yield* observeIosPostAction(session.run.observe());
+          const after = yield* observeIosPostAction(
+            session.run.observe(),
+            before
+          );
           acceptObservation(session, after);
           if (current.recording) {
             yield* keyframe(session, before, actionId);

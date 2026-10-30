@@ -37,6 +37,7 @@ const operation = () => {
 };
 const journal = [];
 const receipt = {
+  actionDurations: [],
   blockers: [],
   coverage: {},
   resources: [],
@@ -44,6 +45,8 @@ const receipt = {
   startedAt: new Date().toISOString(),
 };
 const control = async (...args) => {
+  const began = performance.now();
+  const startedAt = new Date().toISOString();
   const result = await execute(
     "nub",
     [path.join(import.meta.dirname, "control-contingency"), ...args],
@@ -54,12 +57,37 @@ const control = async (...args) => {
     command: args
       .slice(1)
       .map((value) => (value === appPath ? "<fixture.app>" : value)),
+    completedAt: new Date().toISOString(),
+    durationMs: performance.now() - began,
     exitCode: 0,
+    startedAt,
   });
   return result.stdout;
 };
-const call = (command, source = "agent") =>
-  iosRpc(instance.mcpUrl, "ios.workspace.command", { command, source });
+const call = async (command, source = "agent") => {
+  const began = performance.now();
+  const startedAt = new Date().toISOString();
+  try {
+    return await iosRpc(instance.mcpUrl, "ios.workspace.command", {
+      command,
+      source,
+    });
+  } finally {
+    if (
+      ["input", "variable-input", "confirmation-answer"].includes(command._tag)
+    ) {
+      receipt.actionDurations.push({
+        action: command.action?._tag ?? command._tag,
+        completedAt: new Date().toISOString(),
+        durationMs: performance.now() - began,
+        operationId: command.operationId,
+        sessionId: command.sessionId,
+        source,
+        startedAt,
+      });
+    }
+  }
+};
 const read = (sessionId) => call({ _tag: "read", sessionId });
 const observe = (sessionId) =>
   call({ _tag: "observe", image: false, sessionId });
