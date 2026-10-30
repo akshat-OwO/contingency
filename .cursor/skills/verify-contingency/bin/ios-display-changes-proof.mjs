@@ -1,13 +1,16 @@
 /* oxlint-disable eslint/no-await-in-loop -- One owned simulator and its Workspace journey run sequentially. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, watch, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { foldWithPanelReadback } from "./ios-display-proof-device.mjs";
 import {
   awaitProofStage,
   proofCaptureStage,
@@ -39,7 +42,11 @@ const artifacts = path.join(
 );
 await mkdir(artifacts, { recursive: true });
 const execute = promisify(execFile);
-const agentDevice = process.env.CONTINGENCY_IOS_DISPLAY_COMMAND;
+const { createAgentDeviceClient } = await import(
+  pathToFileURL(
+    path.join(root, "packages/cli/node_modules/agent-device/dist/src/index.js")
+  ).href
+);
 const backendSession = `contingency-ios-${selected}`;
 let sequence = 0;
 const operation = () => {
@@ -171,12 +178,34 @@ const productDaemon = async () => {
   }
   return state;
 };
-const deviceCommand = async (...args) => {
-  assert.ok(agentDevice, "Supply the device-bound display command");
-  const result = await execute(agentDevice, [...args, "--json"], {
-    maxBuffer: 16 * 1024 * 1024,
+// Use exactly the socket configuration owned by ios-runtime, never a global daemon.
+// The product has already opened this session. Validate its binding before mutation.
+const deviceCommand = async (command, value) => {
+  const stateDir = await productDaemon();
+  const client = createAgentDeviceClient({
+    cwd: stateDir,
+    daemonAuthToken: "",
+    daemonBaseUrl: "",
+    daemonServerMode: "socket",
+    daemonTransport: "socket",
+    debug: false,
+    responseLevel: "full",
+    session: backendSession,
+    stateDir,
   });
-  return { exit: 0, output: JSON.parse(result.stdout) };
+  const backendSessions = await client.sessions.list();
+  const bound = backendSessions.find((entry) => entry.name === backendSession);
+  assert.equal(bound?.device.ios?.udid, selected);
+  const identifiers = {
+    platform: "ios",
+    requestId: randomUUID(),
+    udid: selected,
+  };
+  const output =
+    command === "orientation"
+      ? await client.command.orientation({ orientation: value, ...identifiers })
+      : await client.command.fold({ pose: value, ...identifiers });
+  return { exit: 0, output, session: backendSession, stateDir };
 };
 let inventorySequence = 0;
 const displayState = async () => {
@@ -249,8 +278,15 @@ const rotate = async (orientation) => {
 };
 const fold = async (pose, panel) => {
   const before = await displayState();
-  const result = await deviceCommand("fold", pose);
-  const after = await awaitActivePanel(panel);
+  assert.notDeepEqual(
+    before.active,
+    [panel],
+    "Fold must change the active panel"
+  );
+  const { result, after } = await foldWithPanelReadback(
+    () => deviceCommand("fold", pose),
+    () => awaitActivePanel(panel)
+  );
   const change = { after, before, kind: "fold", pose, result };
   receipt.displayChanges.push(change);
   return change;
@@ -626,7 +662,8 @@ const foldCase = async () => {
   assert.equal(retained.status, "stopped");
   assert.deepEqual(retained.gaps, []);
   assertStoppedLast(await events(stopped.recordingId));
-  const { entries } = await timeline(stopped.recordingId);
+  await click("Close session");
+  const entries = await learn(stopped.recordingId);
   assert.deepEqual(
     entries
       .filter((entry) => entry._tag === "action")
@@ -645,6 +682,56 @@ const foldCase = async () => {
     streamInterval: retained,
     unfoldedObservation: unfoldedViewport,
   };
+  const { appPath: _installed, ...installedSelection } = selection;
+  for (const kind of ["dry-run", "run"]) {
+    const started = await call({
+      _tag: "start",
+      flowSkillName,
+      kind,
+      operationId: operation(),
+      recordingId: kind === "dry-run" ? stopped.recordingId : null,
+      selection: installedSelection,
+    });
+    sessions.push(started.id);
+    await view(started.id);
+    await click("Prepare selected simulator");
+    await agentSignIn(started.id);
+    await fold("open", inner);
+    let current = await observe(started.id, "agent");
+    const openedViewport = viewport(current);
+    await mirror(openedViewport.landscape ? "landscape" : "portrait");
+    current = await agentAction(started.id, "button", "Open account");
+    find(current, "text", "Account details");
+    await evidence(`${kind}-unfolded`);
+    await fold("closed", outer);
+    current = await observe(started.id, "agent");
+    const closedViewport = viewport(current);
+    await mirror(closedViewport.landscape ? "landscape" : "portrait");
+    current = await agentAction(started.id, "button", "Return to account");
+    find(current, "text", `Signed in as ${loginName}`);
+    await evidence(`${kind}-refolded`);
+    const finished = await call({
+      _tag: "complete",
+      assessment: {
+        explanation: `Signed in as ${loginName} is visible after folding and returning from Account details.`,
+        observationId: current.observation.id,
+        outcome: "working",
+      },
+      operationId: operation(),
+      sessionId: started.id,
+    });
+    assert.equal(finished.assessment.outcome, "working");
+    receipt.coverage[kind] = {
+      outcome: "working",
+      refoldedObservation: closedViewport,
+      unfoldedObservation: openedViewport,
+    };
+    if (kind === "dry-run") {
+      await click("Verify flow");
+      const verified = await read(started.id);
+      assert.equal(verified.captureState._tag, "verified");
+    }
+  }
 };
 
 // simctl exposes display power but no operation that replaces an integrated port UUID.
