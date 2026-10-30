@@ -87,3 +87,5 @@ Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoo
 
 - [Browser evaluation](workspace.md#browser-evaluation) proves computed-style reads without a pause, per-attempt Confirmation, blocked requests, and irreversible Summary evidence.
 - [Browser tools](workspace.md#browser-tools) proves popup tabs, download evidence, Catalog Root and confirmed uploads, the page clipboard, CPU profile replay, and trace files without screenshots.
+
+- [Device MCP contract](./workspace.md#device-mcp-contract) checks platform arguments, retained Android sessions, and typed iOS refusals without a device.

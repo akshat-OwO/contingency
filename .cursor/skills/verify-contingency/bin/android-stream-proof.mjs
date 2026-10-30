@@ -73,7 +73,8 @@ const tool = async (name, params) =>
       JSON.stringify(params)
     )
   );
-const command = (input) => tool("agent_android_workspace", { command: input });
+const command = (input) =>
+  tool("agent_device_workspace", { command: input, platform: "android" });
 const click = (name, partial = false) =>
   control(
     "browser",
@@ -216,7 +217,9 @@ await execute("adb", [
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
   await openAndroidSheet(control, selection, flowSkillName, snapshot);
-  const sessions = await tool("agent_android_sessions_list", {});
+  const sessions = await tool("agent_device_sessions_list", {
+    platform: "android",
+  });
   sessionId = sessions.find(
     (session) => session.flowSkillName === flowSkillName
   )?.id;
@@ -362,7 +365,9 @@ try {
   process.exitCode = 1;
 } finally {
   try {
-    const owned = await tool("agent_android_sessions_list", {});
+    const owned = await tool("agent_device_sessions_list", {
+      platform: "android",
+    });
     for (const session of owned.filter(
       (entry) =>
         entry.flowSkillName === flowSkillName &&

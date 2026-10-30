@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   AgentSessionId,
   AndroidWorkspaceCommand,
+  AndroidWorkspaceSnapshot,
   FlowSkillName,
   OperationId,
 } from "@contingency/protocol";
@@ -21,6 +22,7 @@ import {
   Layer,
   Result,
   Schema,
+  Stream,
 } from "effect";
 import type { Scope } from "effect";
 
@@ -36,7 +38,10 @@ import {
 } from "../../src/services/android-workspace.ts";
 import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
-import { AndroidWorkspaceTools } from "../../src/services/mcp-android-workspace.ts";
+import {
+  DeviceWorkspaceTools,
+  DeviceWorkspaceToolHandlersLive,
+} from "../../src/services/mcp-device-workspace.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -416,6 +421,52 @@ const dryRun = (recordingId: TeachingRecordingId) =>
       "user"
     );
   });
+
+it.effect("starts, reads, and lists Android through the device tools", () =>
+  fixture(() =>
+    Effect.gen(function* deviceTools() {
+      const built = yield* DeviceWorkspaceTools;
+      const started = yield* built
+        .handle("agent_device_workspace", {
+          command: {
+            _tag: "start",
+            agentSetup: true,
+            flowSkillName,
+            kind: "teaching",
+            operationId: op("device-tool-start"),
+            recordingId: null,
+            selection,
+          },
+          platform: "android",
+        })
+        .pipe(Effect.flatMap(Stream.runCollect));
+      expect(started.at(-1)?.isFailure).toBe(false);
+      const session = Schema.decodeUnknownSync(AndroidWorkspaceSnapshot)(
+        started.at(-1)?.result
+      );
+      expect(session.phase).toBe("pending");
+      expect(session.controller).toBe("agent");
+      const read = yield* built
+        .handle("agent_device_workspace", {
+          command: { _tag: "read", sessionId: session.id },
+          platform: "android",
+        })
+        .pipe(Effect.flatMap(Stream.runCollect));
+      const workspace = yield* AndroidWorkspace;
+      expect(read.at(-1)?.result).toEqual(
+        yield* workspace.execute(
+          { _tag: "read", sessionId: session.id },
+          "agent"
+        )
+      );
+      const listed = yield* built
+        .handle("agent_device_sessions_list", { platform: "android" })
+        .pipe(Effect.flatMap(Stream.runCollect));
+      expect(listed.at(-1)?.isFailure).toBe(false);
+      expect(listed.at(-1)?.result).toEqual(yield* workspace.list());
+    }).pipe(Effect.provide(DeviceWorkspaceToolHandlersLive))
+  )
+);
 
 it.effect(
   "binds one device at a time and refuses a second session until the first closes",
@@ -1351,8 +1402,8 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
     );
   }
   const parameters =
-    AndroidWorkspaceTools.tools.agent_android_workspace.parametersSchema;
-  expect(Schema.is(parameters)({ command })).toBe(false);
+    DeviceWorkspaceTools.tools.agent_device_workspace.parametersSchema;
+  expect(Schema.is(parameters)({ command, platform: "android" })).toBe(false);
   expect(
     Schema.is(parameters)({
       command: {
@@ -1363,6 +1414,7 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
         sessionId: command.sessionId,
         value: "private",
       },
+      platform: "android",
     })
   ).toBe(false);
   expect(
@@ -1374,6 +1426,7 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
         operationId: command.operationId,
         sessionId: command.sessionId,
       },
+      platform: "android",
     })
   ).toBe(true);
   expect(
@@ -1386,6 +1439,7 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
         recordingId: null,
         selection,
       },
+      platform: "android",
     })
   ).toBe(true);
 });

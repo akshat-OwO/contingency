@@ -47,3 +47,5 @@ On API 36, the pending-Confirmation screenshots show **Device stream lost** whil
 The proof restores installed-package, input-method, forwarding, and runtime-directory baselines. It stops its MCP server, isolated Workspace, driver browser, and emulator. The parent-owned ADB server remains running. Raw Teaching and Run state is purged with the isolated verification directory.
 
 Secure-window capture, concurrent device Runs, and additional emulator images remain outside this proof.
+
+Device MCP tools require `platform: "android"`: `agent_device_workspace` and `agent_device_sessions_list`.

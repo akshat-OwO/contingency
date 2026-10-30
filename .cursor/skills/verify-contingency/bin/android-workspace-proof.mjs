@@ -78,7 +78,8 @@ const tool = async (name, params) =>
       JSON.stringify(params)
     )
   );
-const command = (input) => tool("agent_android_workspace", { command: input });
+const command = (input) =>
+  tool("agent_device_workspace", { command: input, platform: "android" });
 const click = (name, partial = false) =>
   control(
     "browser",
@@ -220,7 +221,9 @@ try {
   await click("Start recording");
   await wait("Stop recording");
   await snapshot("teaching-started");
-  const listedSessions = await tool("agent_android_sessions_list", {});
+  const listedSessions = await tool("agent_device_sessions_list", {
+    platform: "android",
+  });
   const taughtSession = listedSessions.find(
     (session) =>
       session.flowSkillName === flowSkillName && session.kind === "teaching"
@@ -474,7 +477,9 @@ try {
   process.exitCode = 1;
 } finally {
   try {
-    const owned = await tool("agent_android_sessions_list", {});
+    const owned = await tool("agent_device_sessions_list", {
+      platform: "android",
+    });
     for (const session of owned.filter(
       (entry) =>
         entry.flowSkillName === flowSkillName &&

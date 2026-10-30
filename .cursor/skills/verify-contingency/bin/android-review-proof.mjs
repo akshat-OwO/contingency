@@ -50,11 +50,12 @@ const tool = async (name, params) =>
 let sequence = 0;
 const command = (input) => {
   sequence += 1;
-  return tool("agent_android_workspace", {
+  return tool("agent_device_workspace", {
     command:
       input._tag === "read" || input._tag === "observe"
         ? input
         : { operationId: `review-${process.pid}-${sequence}`, ...input },
+    platform: "android",
   });
 };
 const adb = async (...args) => {
@@ -143,7 +144,9 @@ try {
     await openAndroidSheet(control, selection, flowSkillName, (name) =>
       snapshot(`${decision}-${name}`)
     );
-    const sessions = await tool("agent_android_sessions_list", {});
+    const sessions = await tool("agent_device_sessions_list", {
+      platform: "android",
+    });
     const session = sessions.find(
       (entry) => entry.flowSkillName === flowSkillName
     );
@@ -270,7 +273,9 @@ try {
   process.exitCode = 1;
 } finally {
   try {
-    for (const session of await tool("agent_android_sessions_list", {})) {
+    for (const session of await tool("agent_device_sessions_list", {
+      platform: "android",
+    })) {
       if (
         session.flowSkillName.startsWith(prefix) &&
         ["pending", "running", "paused"].includes(session.phase)

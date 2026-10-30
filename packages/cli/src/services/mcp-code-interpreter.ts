@@ -309,6 +309,7 @@ const AndroidCommand = Schema.Struct({
     name: Schema.optional(Schema.String),
     sessionId: Schema.optional(AgentSessionId),
   }),
+  platform: Schema.Literal("android"),
 });
 const decodeAndroidCommand = Schema.decodeUnknownOption(AndroidCommand);
 const decodeAndroidResult = Schema.decodeUnknownOption(
@@ -441,7 +442,7 @@ export const androidIntervention = (
   return reasons.size === 0
     ? undefined
     : {
-        operation: "agent_android_workspace",
+        operation: "agent_device_workspace",
         pending: preparation.pending,
         reasons: [...reasons],
         sessionId: id,
@@ -585,7 +586,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
               ok: false,
             } satisfies DispatchOutcome;
           }
-          if (name === "agent_android_workspace") {
+          if (name === "agent_device_workspace") {
             return yield* dispatchAndroid(operation, input);
           }
           const named = decodeSessionInput(input).pipe(

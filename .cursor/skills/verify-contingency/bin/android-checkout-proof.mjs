@@ -113,7 +113,11 @@ const refusal = async (name, params) => {
   }
   assert.fail(`${name} was not refused.`);
 };
-const command = (input) => tool("agent_android_workspace", { command: input });
+const command = (input) =>
+  tool("agent_device_workspace", {
+    command: input,
+    platform: "android",
+  });
 const click = (name, partial = false) =>
   control(
     "browser",
@@ -414,7 +418,9 @@ try {
     flowSkillName,
     snapshot
   );
-  const listed = await tool("agent_android_sessions_list", {});
+  const listed = await tool("agent_device_sessions_list", {
+    platform: "android",
+  });
   const taughtSession = listed.find(
     (session) =>
       session.flowSkillName === flowSkillName && session.kind === "teaching"
@@ -688,7 +694,7 @@ try {
   let current = await prepare(dry.id);
   const staleObservationId = current.observation.id;
   current = await observe(dry.id);
-  const stale = await refusal("agent_android_workspace", {
+  const stale = await refusal("agent_device_workspace", {
     command: {
       _tag: "input",
       action: {
@@ -699,9 +705,10 @@ try {
       operationId: operation(),
       sessionId: dry.id,
     },
+    platform: "android",
   });
   assert.match(stale, /stale/u);
-  const privateText = await refusal("agent_android_workspace", {
+  const privateText = await refusal("agent_device_workspace", {
     command: {
       _tag: "input",
       action: {
@@ -713,9 +720,10 @@ try {
       operationId: operation(),
       sessionId: dry.id,
     },
+    platform: "android",
   });
   assert.match(privateText, /Private Variables are unavailable/u);
-  const coordinate = await refusal("agent_android_workspace", {
+  const coordinate = await refusal("agent_device_workspace", {
     command: {
       _tag: "input",
       action: { _tag: "tap", x: 100, y: 100 },
@@ -723,6 +731,7 @@ try {
       operationId: operation(),
       sessionId: dry.id,
     },
+    platform: "android",
   });
   receipt.coverage.refusals = {
     coordinate: coordinate.split("\n").find(Boolean),
@@ -805,8 +814,9 @@ try {
   );
   const refusedRead = await read(refusedRun.id);
   assert.equal(refusedRead.phase, "refused");
-  const refusedInput = await refusal("agent_android_workspace", {
+  const refusedInput = await refusal("agent_device_workspace", {
     command: { _tag: "observe", image: false, sessionId: refusedRun.id },
+    platform: "android",
   });
   await snapshot("changed-refused");
   const changed = await startSession("run", "changed");
@@ -894,8 +904,9 @@ try {
   await click(prepareName);
   await wait("Take control");
   await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  const outside = await refusal("agent_android_workspace", {
+  const outside = await refusal("agent_device_workspace", {
     command: { _tag: "observe", image: false, sessionId: paused.id },
+    platform: "android",
   });
   const pausedRead = await read(paused.id);
   assert.equal(pausedRead.phase, "paused");
@@ -987,19 +998,21 @@ try {
     );
     await adb("emu", "kill");
     // The agent holds control, so its next observation is what detects the loss.
-    const lostDevice = await refusal("agent_android_workspace", {
+    const lostDevice = await refusal("agent_device_workspace", {
       command: { _tag: "observe", image: false, sessionId: disconnected.id },
+      platform: "android",
     });
     await wait(recoverName);
     const pausedByDisconnect = await read(disconnected.id);
     assert.equal(pausedByDisconnect.phase, "paused");
     await snapshot("disconnect-paused");
-    const whileAbsent = await refusal("agent_android_workspace", {
+    const whileAbsent = await refusal("agent_device_workspace", {
       command: {
         _tag: "recover",
         operationId: operation(),
         sessionId: disconnected.id,
       },
+      platform: "android",
     });
     await click(recoverName);
     await wait(recoverName);

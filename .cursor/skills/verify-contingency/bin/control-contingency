@@ -331,7 +331,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
       }
       const call = async (command) => {
         const response = await fetch(`${brokerUrl}call`, {
-          body: JSON.stringify({ params: { command }, tool: "agent_android_workspace" }),
+          body: JSON.stringify({ params: { platform: "android", command }, tool: "agent_device_workspace" }),
           headers: { "content-type": "application/json" },
           method: "POST",
         });
