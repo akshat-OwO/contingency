@@ -8,7 +8,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 ## Language
 
-**Platform Runtime**: The platform-specific environment an Agent Session uses for Teaching and Runs. The supported runtimes are a browser and Android. Native runtimes run only on emulators and simulators; physical devices are refused. Android is supported within its [Support Matrix](./docs/reports/android-support-matrix.md) under [ADR 0060](./docs/adr/0060-use-stock-agent-device-for-an-experimental-android-runtime.md). An iOS Simulator runtime is planned under [ADR 0066](./docs/adr/0066-ios-simulator-is-the-next-platform-runtime.md) and becomes supported only once its own Support Matrix is proven. _Avoid_: Agent Harness, Flow Skill, device profile
+**Platform Runtime**: The browser, Android, or iOS Simulator environment an Agent Session uses for Teaching and Runs. Native runtimes refuse physical devices and support only the devices and actions in their [Android](./docs/reports/android-support-matrix.md) and [iOS](./docs/reports/ios-support-matrix.md) Support Matrices. _Avoid_: Agent Harness, Flow Skill, device profile
 
 **Support Matrix**: The named emulator or simulator images, OS versions, and actions on which a Platform Runtime is supported. A capability outside it is refused explicitly, and a refusal is a documented limit rather than support. A Platform Runtime is supported only after every cell of its matrix is proven. _Avoid_: broad support, compatibility list, best-effort device coverage
 

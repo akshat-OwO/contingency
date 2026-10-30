@@ -1,6 +1,6 @@
 # iOS Workspace journeys on the selected simulator
 
-[ADR 0066](../adr/0066-ios-simulator-is-the-next-platform-runtime.md) binds Teaching and Runs to the selected running iPhone simulator. [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md) defines Variable input and Confirmation. Public iOS MCP remains gated with `ios_support_matrix_unproven`.
+[ADR 0066](../adr/0066-ios-simulator-is-the-next-platform-runtime.md) binds Teaching and Runs to the selected running iPhone simulator. [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md) defines Variable input and Confirmation. These historical receipts used the internal gate. iOS is now listed after the [Support Matrix proof](ios-support-matrix.md).
 
 ## Runtime and Workspace
 

@@ -24,9 +24,14 @@ import {
 } from "./ios-stream-integrity.ts";
 import type { IosStreamGap } from "./ios-stream-integrity.ts";
 
-/** Refuse ambiguous integrated panels, including a foldable with two active surfaces. */
-export const activeIosDisplay = (inventory: string): string | null => {
-  const screens = inventory.match(/Screen Type: Integrated/gu) ?? [];
+interface CaptureSize {
+  readonly width: number;
+  readonly height: number;
+}
+const integratedDisplay = (inventory: string, capture?: CaptureSize) => {
+  const screens = inventory
+    .split(/\n\s*\(\d+\) [^\r\n]+:\n/u)
+    .filter((part) => /Screen Type: Integrated\n/u.test(part));
   const ports = inventory
     .split(/(?:^|\n)Port:\n/u)
     .filter(
@@ -36,24 +41,71 @@ export const activeIosDisplay = (inventory: string): string | null => {
         /Power state: On\n/u.test(port)
     );
   if (
-    screens.length !== 1 ||
-    ports.length !== 1 ||
-    !/IOSurface port:/u.test(ports[0] ?? "")
+    (inventory.match(/Screen Type: Integrated/gu) ?? []).length === 1 &&
+    screens.length === 1 &&
+    ports.length === 1
   ) {
+    return /IOSurface port:/u.test(ports[0] ?? "")
+      ? { port: ports[0] ?? "", screen: screens[0] ?? "" }
+      : null;
+  }
+  if (!capture) {
     return null;
   }
+  // A foldable can power both panels. Bind only a unique panel matching the
+  // validated Target App screenshot, independent of its current orientation.
+  const matches = (width: number, height: number) =>
+    (width === capture.width && height === capture.height) ||
+    (width === capture.height && height === capture.width);
+  const matchingScreens = screens.filter((screen) => {
+    const size = /Pixel Size: \{(?<width>\d+), (?<height>\d+)\}/u.exec(screen);
+    const scale = Number(
+      /Preferred UI Scale: (?<scale>[\d.]+)/u.exec(screen)?.groups?.scale
+    );
+    const width = Number(size?.groups?.width);
+    const height = Number(size?.groups?.height);
+    return (
+      matches(width, height) ||
+      (scale > 0 &&
+        matches(Math.round(width / scale), Math.round(height / scale)))
+    );
+  });
+  if (matchingScreens.length !== 1) {
+    return null;
+  }
+  const screen = matchingScreens[0] ?? "";
+  const size = /Pixel Size: \{(?<width>\d+), (?<height>\d+)\}/u.exec(screen);
+  const matchingPorts = ports.filter((port) => {
+    const width = /Default width: (?<width>\d+)/u.exec(port)?.groups?.width;
+    const height = /Default height: (?<height>\d+)/u.exec(port)?.groups?.height;
+    return (
+      /IOSurface port:/u.test(port) &&
+      width === size?.groups?.width &&
+      height === size?.groups?.height
+    );
+  });
+  return matchingPorts.length === 1
+    ? { port: matchingPorts[0] ?? "", screen }
+    : null;
+};
+
+/** Refuse ambiguity unless the Target App capture identifies one integrated panel. */
+export const activeIosDisplay = (
+  inventory: string,
+  capture?: CaptureSize
+): string | null => {
+  const display = integratedDisplay(inventory, capture);
   return (
-    /UUID: (?<id>[A-Fa-f\d-]{36})/u.exec(ports[0] ?? "")?.groups?.id ?? null
+    /UUID: (?<id>[A-Fa-f\d-]{36})/u.exec(display?.port ?? "")?.groups?.id ??
+    null
   );
 };
 
-export const iosDisplayOrientation = (inventory: string) => {
-  if (activeIosDisplay(inventory) === null) {
-    return null;
-  }
-  const screen = inventory
-    .split(/\n\s*\(\d+\) [^\r\n]+:\n/u)
-    .find((part) => /Screen Type: Integrated\n/u.test(part));
+export const iosDisplayOrientation = (
+  inventory: string,
+  capture?: CaptureSize
+) => {
+  const screen = integratedDisplay(inventory, capture)?.screen;
   const orientation = /UI Orientation: (?<value>[^\r\n]+)/u
     .exec(screen ?? "")
     ?.groups?.value?.trim();
@@ -80,7 +132,8 @@ export const acquireIosStream = (
   sessionId: string,
   device: () => IosDevice | null,
   scope: Scope.Scope,
-  onFault: (code: "capture_incomplete") => Effect.Effect<void>
+  onFault: (code: "capture_incomplete") => Effect.Effect<void>,
+  captureSize?: () => CaptureSize | undefined
 ) =>
   Effect.gen(function* acquireIosMirror() {
     const lock = Semaphore.makeUnsafe(1);
@@ -98,6 +151,18 @@ export const acquireIosStream = (
     registry.get(orientationBinding);
     const boundDevice = Atom.make<IosDevice | null>(null).pipe(Atom.keepAlive);
     registry.get(boundDevice);
+    const captureBinding = Atom.make<CaptureSize | null>(null).pipe(
+      Atom.keepAlive
+    );
+    registry.get(captureBinding);
+    const currentCaptureSize = () => {
+      const current = captureSize?.();
+      if (current) {
+        registry.set(captureBinding, current);
+      }
+      // A foreground refusal clears the observation, not the established panel binding.
+      return current ?? registry.get(captureBinding) ?? undefined;
+    };
     const secret = randomBytes(32).toString("base64url");
 
     let ready = yield* Deferred.make<
@@ -195,8 +260,11 @@ export const acquireIosStream = (
             ]).pipe(
               Effect.mapError(() => iosRuntimeError("capture_incomplete"))
             );
-            const display = activeIosDisplay(inventory);
-            const orientation = iosDisplayOrientation(inventory);
+            const display = activeIosDisplay(inventory, currentCaptureSize());
+            const orientation = iosDisplayOrientation(
+              inventory,
+              captureSize?.()
+            );
             if (!display || !orientation) {
               return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
             }
@@ -307,11 +375,14 @@ export const acquireIosStream = (
                   );
                   const active =
                     current._tag === "Success"
-                      ? activeIosDisplay(current.success)
+                      ? activeIosDisplay(current.success, currentCaptureSize())
                       : null;
                   const currentOrientation =
                     current._tag === "Success"
-                      ? iosDisplayOrientation(current.success)
+                      ? iosDisplayOrientation(
+                          current.success,
+                          currentCaptureSize()
+                        )
                       : null;
                   if (!active || !currentOrientation) {
                     failed("capture_incomplete");
@@ -361,7 +432,7 @@ export const acquireIosStream = (
             selected.udid,
             "enumerate",
           ]).pipe(Effect.mapError(() => iosRuntimeError("capture_incomplete")));
-          const active = activeIosDisplay(inventory);
+          const active = activeIosDisplay(inventory, currentCaptureSize());
           if (active !== registry.get(displayBinding)) {
             if (active === null) {
               failed("capture_incomplete");

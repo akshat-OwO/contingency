@@ -35,9 +35,9 @@ const Tools = Schema.fromJsonString(
     ),
   })
 );
-const Unavailable = Schema.fromJsonString(
+const MissingSession = Schema.fromJsonString(
   Schema.Struct({
-    code: Schema.Literal("ios_support_matrix_unproven"),
+    code: Schema.Literal("ios_session_not_found"),
     message: Schema.String,
   })
 );
@@ -98,20 +98,19 @@ try {
     const input = Schema.decodeUnknownSync(Input)(tool.inputSchema);
     assert.ok(input.required.includes("platform"));
     assert.deepEqual(input.properties.platform.enum, ["android", "ios"]);
-    const params =
-      tool.name === "agent_device_workspace"
-        ? {
-            command: { _tag: "read", sessionId: "agent-ios-unavailable" },
-            platform: "ios",
-          }
-        : { platform: "ios" };
-    const refusal = await call(tool.name, params);
-    assert.equal(refusal.code, 2);
-    assert.deepEqual(Schema.decodeUnknownSync(Unavailable)(refusal.stdout), {
-      code: "ios_support_matrix_unproven",
-      message: "iOS is unavailable until its Support Matrix is proven.",
-    });
   }
+  const iosListed = await call("agent_device_sessions_list", {
+    platform: "ios",
+  });
+  assert.equal(iosListed.code, 0);
+  Schema.decodeUnknownSync(Sessions)(iosListed.stdout);
+  const missing = await call("agent_device_workspace", {
+    command: { _tag: "read", sessionId: "agent-ios-absent" },
+    platform: "ios",
+  });
+  assert.equal(missing.code, 2);
+  Schema.decodeUnknownSync(MissingSession)(missing.stdout);
+
   const sessions = await call("agent_device_sessions_list", {
     platform: "android",
   });

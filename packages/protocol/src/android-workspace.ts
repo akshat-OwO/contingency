@@ -6,7 +6,7 @@ import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
 import { FlowSkillName } from "./flow-skill-identifiers.ts";
 import {
   AndroidPreparation,
-  AndroidStartingCondition,
+  AndroidStartingConditions,
   PlatformRequirements,
 } from "./platform.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
@@ -18,7 +18,7 @@ import {
 const text = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(4096)
-);
+).annotate({ identifier: "Text" });
 
 /** The API levels in the Android Support Matrix. Selection refuses every other level. */
 export const androidSupportedApi = { maximum: 36, minimum: 30 } as const;
@@ -62,7 +62,7 @@ export const AndroidWorkspaceSelection = Schema.Struct({
     startingState: text,
   }),
   helperConsent: Schema.Literals(["none", "install", "replace", "auto"]),
-  outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
+  outcomes: AndroidStartingConditions,
   privateInput: Schema.optionalKey(Schema.Boolean),
   setup: AndroidPreparation,
 });
@@ -231,8 +231,10 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
 });
 export type AndroidWorkspaceSnapshot = typeof AndroidWorkspaceSnapshot.Type;
 
-const session = { sessionId: AgentSessionId };
-const mutation = { ...session, operationId: OperationId };
+const deviceSessionId = AgentSessionId.annotate({ identifier: "Id" });
+const deviceOperationId = OperationId.annotate({ identifier: "Op" });
+const session = { sessionId: deviceSessionId };
+const mutation = { ...session, operationId: deviceOperationId };
 
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceCommand = Schema.Union([
@@ -240,7 +242,7 @@ export const AndroidWorkspaceCommand = Schema.Union([
     agentSetup: Schema.optionalKey(Schema.Boolean),
     flowSkillName: FlowSkillName,
     kind: Schema.Literals(["teaching", "dry-run", "run"]),
-    operationId: OperationId,
+    operationId: deviceOperationId,
     recordingId: Schema.NullOr(TeachingRecordingId),
     selection: AndroidWorkspaceSelection,
   }),

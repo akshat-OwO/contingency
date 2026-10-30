@@ -339,18 +339,13 @@ export const mcpCommand = Command.make(
             )
           )
         );
-        const iosWorkspace =
-          process.env.CONTINGENCY_IOS_WORKSPACE_INTERNAL === "1"
-            ? Layer.succeedContext(
-                yield* Layer.build(
-                  makeIosWorkspaceLayer({
-                    root: () => selectedCatalogRoot,
-                  }).pipe(
-                    Layer.provide(Layer.merge(teachingRecordingStore, catalog))
-                  )
-                )
-              )
-            : Layer.empty;
+        const iosWorkspace = Layer.succeedContext(
+          yield* Layer.build(
+            makeIosWorkspaceLayer({
+              root: () => selectedCatalogRoot,
+            }).pipe(Layer.provide(Layer.merge(teachingRecordingStore, catalog)))
+          )
+        );
         const agentSession = Layer.mergeAll(
           browserSession,
           androidWorkspace,

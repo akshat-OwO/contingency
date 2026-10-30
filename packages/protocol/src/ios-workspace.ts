@@ -7,17 +7,18 @@ import {
 } from "./android-workspace.ts";
 import {
   IosDeviceSelection,
+  IosPhysicalDeviceSelection,
   IosPreparation,
   IosRunEnvironment,
-  AndroidStartingCondition,
+  AndroidStartingConditions,
 } from "./platform.ts";
 
 // oxlint-disable-next-line eslint/no-redeclare
 export const IosWorkspaceSelection = Schema.Struct({
   appPath: Schema.optionalKey(Schema.NonEmptyString),
-  device: IosDeviceSelection,
+  device: Schema.Union([IosDeviceSelection, IosPhysicalDeviceSelection]),
   environment: IosRunEnvironment,
-  outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
+  outcomes: AndroidStartingConditions,
   setup: IosPreparation,
 });
 export type IosWorkspaceSelection = typeof IosWorkspaceSelection.Type;
@@ -46,7 +47,7 @@ export const IosReturnToTargetAppCommand = Schema.TaggedStruct(
   "return-to-target-app",
   {
     operationId: AndroidWorkspaceCommand.members[0].fields.operationId,
-    sessionId: AndroidWorkspaceSummary.fields.id,
+    sessionId: AndroidWorkspaceCommand.members[1].fields.sessionId,
   }
 );
 const [_androidStart, ...sharedCommands] = AndroidWorkspaceCommand.members;

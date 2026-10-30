@@ -121,20 +121,16 @@ const ownResource = async () => {
 const inventoryBefore = await simulatorInventory(selected);
 
 try {
-  try {
-    await control(
-      "mcp",
-      "call",
-      "--tool",
-      "agent_device_sessions_list",
-      "--params",
-      '{"platform":"ios"}'
-    );
-    assert.fail("Public MCP listed iOS");
-  } catch (error) {
-    assert.match(String(error.stdout ?? error), /ios_support_matrix_unproven/u);
-    receipt.limits.publicMcpGate = true;
-  }
+  const publicSessions = await control(
+    "mcp",
+    "call",
+    "--tool",
+    "agent_device_sessions_list",
+    "--params",
+    '{"platform":"ios"}'
+  );
+  assert.ok(Array.isArray(JSON.parse(publicSessions)));
+  receipt.limits.publicMcpListing = true;
 
   const inputSession = await start();
   await ownResource();

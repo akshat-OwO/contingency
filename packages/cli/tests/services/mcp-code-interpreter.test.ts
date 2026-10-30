@@ -90,21 +90,24 @@ const start = {
 };
 
 describe("Android interventions", () => {
-  it("ends a program at a start that needs preparation and private inputs", () => {
-    const intervention = androidIntervention(
-      start,
-      androidSession({
-        phase: "pending",
-        variables: [{ name: "PIN", status: "requested" }],
-      }),
-      Option.none()
-    );
-    expect(intervention?.reasons.toSorted()).toEqual([
-      "device_preparation",
-      "variable_requested",
-    ]);
-    expect(intervention?.sessionId).toBe(sessionId);
-  });
+  it.each(["android", "ios"])(
+    "ends a %s start at preparation and Variable requests",
+    (platform) => {
+      const intervention = androidIntervention(
+        { ...start, platform },
+        androidSession({
+          phase: "pending",
+          variables: [{ name: "PIN", status: "requested" }],
+        }),
+        Option.none()
+      );
+      expect(intervention?.reasons.toSorted()).toEqual([
+        "device_preparation",
+        "variable_requested",
+      ]);
+      expect(intervention?.sessionId).toBe(sessionId);
+    }
+  );
 
   it("lets a running session continue when nothing new waits on the user", () => {
     expect(

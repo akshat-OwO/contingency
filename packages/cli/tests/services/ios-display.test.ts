@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import {
   IosWorkspaceCommand,
   PlatformRequirements,
@@ -103,4 +106,55 @@ it("reads orientation only from the positively identified integrated display", (
   expect(iosDisplayOrientation(`${inventory}UI Orientation: Ambiguous\n`)).toBe(
     null
   );
+});
+
+// `simctl io enumerate` from a folded iPhone Duo on iOS 27.1: both panels report power and pixels.
+const duo = readFileSync(
+  path.join(import.meta.dirname, "../fixtures/ios-duo-enumerate.txt"),
+  "utf-8"
+);
+const outer = "44A74E88-6794-4B60-B71F-4BE4B58B2313";
+const inner = "057AE729-6F94-48BB-9AC8-DF470CDE885A";
+it("identifies a foldable's panel only by the Target App capture size", () => {
+  expect(activeIosDisplay(duo)).toBe(null);
+  expect(activeIosDisplay(duo, { height: 2034, width: 1398 })).toBe(outer);
+  expect(activeIosDisplay(duo, { height: 1398, width: 2034 })).toBe(outer);
+  expect(activeIosDisplay(duo, { height: 2853, width: 2007 })).toBe(inner);
+  expect(activeIosDisplay(duo, { height: 2622, width: 1206 })).toBe(null);
+  expect(iosDisplayOrientation(duo, { height: 2034, width: 1398 })).toBe(
+    "portrait"
+  );
+  expect(
+    iosDisplayOrientation(
+      duo.replace(
+        /(?<prefix>Pixel Size: \{1398, 2034\}[\s\S]*?UI Orientation: )Portrait/u,
+        "$<prefix>Landscape Left"
+      ),
+      { height: 1398, width: 2034 }
+    )
+  ).toBe("landscape-left");
+});
+it("keeps single-panel selection independent of the capture size", () => {
+  expect(activeIosDisplay(inventory, { height: 1, width: 1 })).toBe(integrated);
+});
+
+it("refuses foldable panels with indistinguishable capture dimensions", () => {
+  const ambiguous = duo.replaceAll("2007", "1398").replaceAll("2853", "2034");
+  expect(activeIosDisplay(ambiguous, { height: 2034, width: 1398 })).toBe(null);
+  expect(iosDisplayOrientation(ambiguous, { height: 2034, width: 1398 })).toBe(
+    null
+  );
+});
+it("matches logical SDK captures using the panel's declared UI scale", () => {
+  expect(activeIosDisplay(duo, { height: 678, width: 466 })).toBe(outer);
+  expect(activeIosDisplay(duo, { height: 951, width: 669 })).toBe(inner);
+  expect(iosDisplayOrientation(duo, { height: 678, width: 466 })).toBe(
+    "portrait"
+  );
+  expect(
+    activeIosDisplay(
+      duo.replaceAll("Preferred UI Scale: 3", "Preferred UI Scale: 2"),
+      { height: 678, width: 466 }
+    )
+  ).toBe(null);
 });

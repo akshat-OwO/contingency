@@ -20,6 +20,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ios-framebuffer:
+    name: Build universal iOS framebuffer helper
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+      - run: nub ci
+      - name: Build and verify helper
+        working-directory: packages/cli
+        env:
+          CONTINGENCY_BUILD_IOS_FRAMEBUFFER: "1"
+        run: |
+          nub src/packaging/build-ios-framebuffer.ts
+          lipo -info dist/ios/framebuffer/framebuffer
+          lipo dist/ios/framebuffer/framebuffer -verify_arch arm64
+          lipo dist/ios/framebuffer/framebuffer -verify_arch x86_64
+          codesign -v --strict --all-architectures dist/ios/framebuffer/framebuffer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-framebuffer
+          path: packages/cli/dist/ios/framebuffer/
+          if-no-files-found: error
+
   quality:
     name: Quality, types, and unit tests
     runs-on: ubuntu-latest
@@ -38,6 +62,7 @@ jobs:
 
   release-artifact:
     name: Verify release artifact
+    needs: [ios-framebuffer]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

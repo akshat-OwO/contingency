@@ -11,6 +11,23 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import { verifyIosFramebufferRelease } from "../../cli/src/services/ios-framebuffer-release.ts";
+
+const verifyRequiredIosFramebuffer = (directory: string) =>
+  process.env.CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER === "1"
+    ? verifyIosFramebufferRelease(directory, {
+        architecture: "arm64",
+        platform: "darwin",
+      }).pipe(
+        Effect.mapError(
+          () =>
+            new Error(
+              "Release artifact requires the universal iOS framebuffer helper and matching manifest."
+            )
+        )
+      )
+    : Effect.void;
+
 const PackEntry = Schema.Struct({
   filename: Schema.String,
   name: Schema.Literal("@contingencyhq/cli"),
@@ -321,6 +338,9 @@ export const packCli = Effect.fn("packCli")(function* pack(
 ) {
   const fs = yield* FileSystem.FileSystem;
   const directory = path.join(root, "packages/cli");
+  yield* verifyRequiredIosFramebuffer(
+    path.join(directory, "dist/ios/framebuffer")
+  );
   const packed = yield* runInstallCheckCommand(
     "npm",
     ["pack", "--ignore-scripts", "--json"],
@@ -364,6 +384,9 @@ export const verifyCliInstall = Effect.fn("verifyCliInstall")(function* verify(
   const installed = path.join(
     directory,
     "node_modules/@contingencyhq/cli/dist/index.js"
+  );
+  yield* verifyRequiredIosFramebuffer(
+    path.join(path.dirname(installed), "ios/framebuffer")
   );
   const version = yield* runInstallCheckCommand(
     process.execPath,

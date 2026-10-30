@@ -32,6 +32,7 @@ import {
   ExecutionValues,
   ExecutionValuesLive,
 } from "./execution-values.ts";
+import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /**
@@ -309,7 +310,7 @@ const AndroidCommand = Schema.Struct({
     name: Schema.optional(Schema.String),
     sessionId: Schema.optional(AgentSessionId),
   }),
-  platform: Schema.Literal("android"),
+  platform: Schema.Literals(["android", "ios"]),
 });
 const decodeAndroidCommand = Schema.decodeUnknownOption(AndroidCommand);
 const decodeAndroidResult = Schema.decodeUnknownOption(
@@ -385,9 +386,9 @@ export const newBrowserWaits = (
 };
 
 /**
- * Whether an Android command left its session waiting on the user. A
+ * Whether a native device command left its session waiting on the user. A
  * Variable request, preparation consent, or the user holding control all
- * end the program; Android has no Confirmation.
+ * end the program.
  */
 export const androidIntervention = (
   input: Schema.Json,
@@ -507,9 +508,9 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
   Effect.gen(function* makeHandlers() {
     const catalog = yield* InterpreterOperations;
     const sessions = yield* AgentSession;
-    // Present wherever Android is configured; the native catalog does not
-    // require it either until an Android tool is called.
+    // Each native platform is optional until a command selects it.
     const android = yield* Effect.serviceOption(AndroidWorkspace);
+    const ios = yield* Effect.serviceOption(IosWorkspace);
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const values = yield* ExecutionValues;
 
@@ -535,7 +536,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
       };
     };
 
-    /** Android commands report their own waits; none is a browser session. */
+    /** Native device commands report their own waits. */
     const dispatchAndroid = (
       operation: InterpreterOperationEntry,
       input: Schema.Json
@@ -546,17 +547,19 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
             Option.fromNullishOr(command.sessionId)
           )
         );
-        const before =
-          Option.isSome(sessionId) && Option.isSome(android)
-            ? yield* android.value.list().pipe(
-                Effect.map((summaries) =>
-                  Option.fromNullishOr(
-                    summaries.find(({ id }) => id === sessionId.value)
-                  )
-                ),
-                Effect.orElseSucceed(() => Option.none())
-              )
-            : Option.none();
+        const selected =
+          Option.getOrUndefined(decodeAndroidCommand(input))?.platform === "ios"
+            ? Option.getOrUndefined(ios)
+            : Option.getOrUndefined(android);
+        const before = yield* Effect.gen(function* readDeviceSummary() {
+          if (Option.isNone(sessionId) || selected === undefined) {
+            return Option.none();
+          }
+          const summaries = yield* selected.list();
+          return Option.fromNullishOr(
+            summaries.find(({ id }) => id === sessionId.value)
+          );
+        }).pipe(Effect.orElseSucceed(() => Option.none()));
         const outcome = yield* operation.run(input);
         if (!outcome.ok) {
           return outcome;
