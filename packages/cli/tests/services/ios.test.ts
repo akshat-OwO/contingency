@@ -515,3 +515,115 @@ for (const install of [false, true]) {
     );
   }
 }
+
+for (const install of [false, true]) {
+  it.effect(
+    `applies declared permission states before launch with install=${install}`,
+    () =>
+      withDirectory((directory) =>
+        Effect.gen(function* permissionPreparation() {
+          const { io, commands } = fakeHost();
+          const source = path.join(directory, "Target.app");
+          yield* Effect.promise(() => mkdir(source));
+          const host = {
+            ...io,
+            readApp: (bundle: string) =>
+              Effect.succeed({ ...app, path: bundle }),
+          };
+          const base: IosPreparationInput = {
+            device: selected,
+            environment: {
+              ...environment,
+              permissions: [
+                { decision: "revoke", service: "location" },
+                { decision: "grant", service: "photos" },
+                { decision: "reset", service: "contacts" },
+              ],
+            },
+            requiredCapabilities: [],
+          };
+          yield* Effect.scoped(
+            makeIosPreparation(
+              host,
+              () => Effect.void,
+              () => Effect.void
+            ).prepare(install ? { ...base, appPath: source } : base)
+          );
+          const { udid } = selected;
+          const { bundleId } = environment;
+          expect(commands.filter(([command]) => command !== "install")).toEqual(
+            [
+              ["terminate", udid, bundleId],
+              ["privacy", udid, "revoke", "location", bundleId],
+              ["privacy", udid, "grant", "photos", bundleId],
+              ["privacy", udid, "reset", "contacts", bundleId],
+              ["launch", udid, bundleId],
+            ]
+          );
+          expect(commands.map(([command]) => command)).toEqual([
+            ...(install ? ["install"] : []),
+            "terminate",
+            "privacy",
+            "privacy",
+            "privacy",
+            "launch",
+          ]);
+        })
+      )
+  );
+}
+
+for (const permissions of [
+  [{ decision: "revoke", service: "notifications" }],
+  [{ decision: "grant", service: "all" }],
+  [
+    { decision: "grant", service: "photos" },
+    { decision: "revoke", service: "photos" },
+  ],
+] as const) {
+  it.effect(
+    `refuses ${JSON.stringify(permissions)} before inventory or device commands`,
+    () =>
+      Effect.gen(function* unsupportedPermission() {
+        const { io, commands, inventoryReads } = fakeHost();
+        expect(
+          yield* failureCode(
+            Effect.scoped(
+              makeIosPreparation(io).prepare({
+                device: selected,
+                environment: { ...environment, permissions },
+                requiredCapabilities: [],
+              })
+            )
+          )
+        ).toBe("permission_service_unsupported");
+        expect(commands).toEqual([]);
+        expect(inventoryReads).toEqual([]);
+      })
+  );
+}
+
+it.effect("declared permission states are part of the taught environment", () =>
+  Effect.sync(() => {
+    const declared = {
+      ...environment,
+      permissions: [{ decision: "revoke", service: "location" }] as const,
+    };
+    expect(compareIosEnvironments(environment, declared)).toEqual([
+      {
+        field: "permissions",
+        selected: JSON.stringify(declared.permissions),
+        taught: "[]",
+      },
+    ]);
+    expect(
+      iosEnvironmentPermission("run", environment, declared)
+    ).toMatchObject([
+      {
+        differences: [{ field: "permissions" }],
+        kind: "run-environment-permission",
+      },
+    ]);
+    expect(compareIosEnvironments(declared, declared)).toEqual([]);
+  })
+);

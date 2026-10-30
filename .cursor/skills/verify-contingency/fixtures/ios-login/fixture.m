@@ -1,5 +1,6 @@
 // Simulator fixture for the iOS Workspace journey.
 #import <UIKit/UIKit.h>
+#import <Photos/Photos.h>
 #import <UserNotifications/UserNotifications.h>
 @interface App : UIResponder <UIApplicationDelegate>
 @end
@@ -34,6 +35,15 @@
     ]];
     self.window.rootViewController = controller;
 }
+- (NSString *)photosAccess {
+    switch ([PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite]) {
+        case PHAuthorizationStatusAuthorized: return @"Photos access: allowed";
+        case PHAuthorizationStatusLimited: return @"Photos access: limited";
+        case PHAuthorizationStatusDenied: return @"Photos access: denied";
+        case PHAuthorizationStatusRestricted: return @"Photos access: restricted";
+        default: return @"Photos access: not determined";
+    }
+}
 - (void)signIn {
     if (![self.password.text isEqualToString:@"fixture-password"]) { [self show:@[[self label:@"Sign in failed"]]]; return; }
     self.login = self.name.text.length ? self.name.text : @"Public shopper";
@@ -56,7 +66,7 @@
     self.name.borderStyle = UITextBorderStyleRoundedRect; self.name.autocorrectionType = UITextAutocorrectionTypeNo;
     self.password = [UITextField new]; self.password.placeholder = @"Password"; self.password.accessibilityLabel = @"Password"; self.password.secureTextEntry = YES;
     self.password.borderStyle = UITextBorderStyleRoundedRect;
-    [self show:@[[self label:@"Login fixture"], self.name, self.password, [self button:@"Sign in privately" action:@selector(signIn)]]];
+    [self show:@[[self label:@"Login fixture"], [self label:[self photosAccess]], self.name, self.password, [self button:@"Sign in privately" action:@selector(signIn)]]];
     [self.window makeKeyAndVisible];
 }
 @end

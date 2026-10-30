@@ -1,6 +1,6 @@
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowSkillName, IosWorkspaceSelection } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   readFlowSkillFrontmatter,
@@ -202,3 +202,61 @@ it("discards the retired iOS activation allowlist", () => {
     },
   });
 });
+
+it.effect("round-trips declared iOS starting permission states", () =>
+  Effect.gen(function* iosPermissionDeclaration() {
+    const environment = {
+      build: "1",
+      bundleId: "fixture.app",
+      deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+      permissions: [
+        { decision: "revoke", service: "location" },
+        { decision: "grant", service: "photos" },
+        { decision: "reset", service: "contacts" },
+      ],
+      runtimeVersion: "26.5",
+    } as const;
+    const requirements = {
+      capabilities: ["semantic-actions"],
+      environment,
+      platform: "ios",
+    };
+    expect(readPlatformRequirements([JSON.stringify(requirements)])).toEqual({
+      diagnostics: [],
+      requirements,
+    });
+    const selection = {
+      device: {
+        deviceType: environment.deviceType,
+        kind: "simulator",
+        name: "Selected",
+        runtime: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        runtimeVersion: "26.5",
+        udid: "11111111-1111-1111-1111-111111111111",
+      },
+      environment,
+      outcomes: [{ name: "Signed in", role: "text" }],
+      setup: {
+        conditions: [{ name: "Sign in", role: "button" }],
+        kind: "restart-app",
+      },
+    };
+    const decoded = yield* Schema.decodeUnknownEffect(IosWorkspaceSelection)(
+      selection
+    );
+    expect(yield* Schema.encodeEffect(IosWorkspaceSelection)(decoded)).toEqual(
+      selection
+    );
+    expect(
+      readPlatformRequirements([
+        JSON.stringify({
+          ...requirements,
+          environment: {
+            ...environment,
+            permissions: [{ decision: "allow", service: "photos" }],
+          },
+        }),
+      ]).diagnostics
+    ).toHaveLength(1);
+  })
+);

@@ -320,6 +320,7 @@ try {
   receipt.coverage.appInstallationDecision = true;
   await click("Prepare selected simulator");
   receipt.resources.push(...(await ownSessionResources()));
+  find(await read(teaching.id), "text", "Photos access: not determined");
   await snapshot("teaching-prepared");
   process.stdout.write("iOS Workspace preparation passed\n");
   await click("Start recording");
@@ -454,6 +455,8 @@ try {
   );
   await writeFile(sentinel, "selected simulator data survives sessions");
   const { appPath: _installedPath, ...installedSelection } = selection;
+  // The later Run declares a starting permission state Teaching never had.
+  const permissions = [{ decision: "revoke", service: "photos" }];
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
@@ -461,12 +464,55 @@ try {
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? recordingId : null,
-      selection: installedSelection,
+      selection:
+        kind === "run"
+          ? {
+              ...installedSelection,
+              environment: { ...installedSelection.environment, permissions },
+            }
+          : installedSelection,
     });
     sessions.push(started.id);
     await view(started.id);
+    if (kind === "run") {
+      const declared = await read(started.id);
+      assert.deepEqual(declared.preparation.differences, [
+        {
+          field: "permissions",
+          selected: JSON.stringify(permissions),
+          taught: "[]",
+        },
+      ]);
+      assert.deepEqual(
+        declared.preparation.pending.map((decision) => decision.kind),
+        ["run-environment-permission"]
+      );
+      await snapshot("permission-states-declared");
+      await click("Allow");
+    }
     await click("Prepare selected simulator");
     receipt.resources.push(...(await ownSessionResources()));
+    const prepared = await read(started.id);
+    assert.equal(prepared.refusal ?? null, null);
+    find(
+      prepared,
+      "text",
+      kind === "run" ? "Photos access: denied" : "Photos access: not determined"
+    );
+    if (kind === "run") {
+      assert.equal(
+        receipt.settingsObservations.filter((entry) => entry.stage === "run")
+          .length,
+        0
+      );
+      receipt.coverage.declaredPermissionState = {
+        appliedBeforeLaunch: "Photos access: denied",
+        differences: prepared.preparation.differences,
+        observationId: prepared.observation.id,
+        settingsVisited: false,
+      };
+      await snapshot("permission-state-applied");
+    }
     assert.equal(
       await readFile(sentinel, "utf-8"),
       "selected simulator data survives sessions"

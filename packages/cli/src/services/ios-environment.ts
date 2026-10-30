@@ -9,8 +9,17 @@ export const compareIosEnvironments = (
   selected: IosEnvironment
 ) =>
   compareNativeAppEnvironments({
-    display: (_field, value) => value ?? "missing",
-    fields: ["deviceType", "runtimeVersion", "bundleId", "build"],
+    display: (field, value) =>
+      field === "permissions"
+        ? JSON.stringify(value ?? [])
+        : String(value ?? "missing"),
+    fields: [
+      "deviceType",
+      "runtimeVersion",
+      "bundleId",
+      "build",
+      "permissions",
+    ],
     selected,
     taught,
   });

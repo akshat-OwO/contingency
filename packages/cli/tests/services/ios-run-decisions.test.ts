@@ -1,7 +1,10 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { iosRunDecisions } from "../../src/services/ios-runtime.ts";
+import {
+  createIosRun,
+  iosRunDecisions,
+} from "../../src/services/ios-runtime.ts";
 import type { IosRunInput } from "../../src/services/ios-runtime.ts";
 
 const environment = {
@@ -61,4 +64,28 @@ it.effect(
         expect(new Set(changed.map((decision) => decision.id)).size).toBe(2);
       })
     )
+);
+
+it.effect("refuses an unsupported permission service before preflight", () =>
+  Effect.scoped(
+    Effect.gen(function* unsupportedService() {
+      const input = request(yield* Effect.scope);
+      const declared = {
+        ...environment,
+        permissions: [
+          { decision: "revoke", service: "notifications" },
+        ] as const,
+      };
+      const result = yield* Effect.result(
+        createIosRun({
+          ...input,
+          environment: declared,
+          taught: { capabilities: [], environment: declared, platform: "ios" },
+        })
+      );
+      expect(result._tag === "Failure" ? result.failure.code : "success").toBe(
+        "permission_service_unsupported"
+      );
+    })
+  )
 );

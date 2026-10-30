@@ -15,6 +15,7 @@ import type {
 import { Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
+import { supportsIosPermissions } from "./ios-contract.ts";
 import type { IosDevice } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
 import {
@@ -531,12 +532,16 @@ export const createIosRun = (
             node.name === condition.name
         )
       ),
-    validate: (request) =>
-      request.taught.platform === "ios" &&
-      request.requiredCapabilities.every((capability) =>
-        iosCapabilities.some((supported) => supported === capability)
-      ) &&
-      request.environment.bundleId === request.targetApp
+    validate: (request) => {
+      if (!supportsIosPermissions(request.environment)) {
+        return Effect.fail(iosRuntimeError("permission_service_unsupported"));
+      }
+      return request.taught.platform === "ios" &&
+        request.requiredCapabilities.every((capability) =>
+          iosCapabilities.some((supported) => supported === capability)
+        ) &&
+        request.environment.bundleId === request.targetApp
         ? Effect.void
-        : Effect.fail(iosRuntimeError("capability_missing")),
+        : Effect.fail(iosRuntimeError("capability_missing"));
+    },
   });

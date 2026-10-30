@@ -518,8 +518,7 @@ const IosDock = ({
               {
                 "app-installation": `Install build ${session.selection.environment.build} of ${session.selection.environment.bundleId} on the selected simulator?`,
                 confirmation: "Allow this action attempt once?",
-                "run-environment-permission":
-                  "Allow this Run to use the selected environment?",
+                "run-environment-permission": `Allow this Run to use the selected environment${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}?`,
               }[decision.kind]
             }
           </p>
