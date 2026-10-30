@@ -20,7 +20,7 @@ Attempts 9 and 13 passed earlier implementations. Attempt 14 stopped at fixture 
 
 ## Limits
 
-The Support Matrix remains unproven. This one-host iOS 26.5 proof cannot establish iOS 27.1, rotation, display replacement, Stop races, x64, signing, notarization, clean-host qualification, or an arbitrary-duration foreground-ownership guarantee. Other-app observation remains a documented SDK limit.
+The Support Matrix remains unproven. This one-host iOS 26.5 proof cannot establish iOS 27.1, rotation, display replacement, Stop races, signing, notarization, clean-host qualification, or an arbitrary-duration foreground-ownership guarantee. Other-app observation remains a documented SDK limit.
 
 ## Selected-device verification results
 
@@ -85,6 +85,8 @@ The virtual-time regression failed before this change and passes after it. It co
 The fixed production drive ran on iOS 26.5 with iPhone 17 from 2026-10-29 13:41:46 UTC to 13:55:41 UTC. All 30 fresh Dry Run sign-ins passed, followed by the complete proof in the same receipt with no blockers. It includes Teaching and learning, a working Dry Run, verification and purge, a working later Run, notification Allow, Confirmation Refuse and Allow with replay protection, declared Photos permission readback, Settings refusal and recovery in Teaching and Run, and all documented-limit checks. Evidence is in `artifacts/ios-581-fixed/receipt.json`, `sign-ins.json`, `timeline.json`, the journal, and screenshots. The fixed run did not encounter another passive app-state fallback; direct recovery evidence is the deterministic regression.
 
 Both runs restored their original simulator inventory and closed all four instance ports. The fixed-run audit checked 156 recorded process identities, private daemon directory removal, and owned fixture removal; the event-driven resource observer also exited. Exact proof-owned UDIDs alone authorized teardown. No pre-existing simulator or T3 daemon was changed. Detailed local evidence and remaining limits are recorded in `/tmp/ios-581-report.md`.
+
+The current iOS host policy requires Apple Silicon. Intel Macs are refused with `host_unsupported`; Intel coverage is outside the iOS scope.
 
 ## Display changes and Stop follow-up
 

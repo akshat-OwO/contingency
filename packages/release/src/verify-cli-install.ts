@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { Duration } from "effect";
 import {
   Console,
   Effect,
@@ -22,7 +23,7 @@ const verifyRequiredIosFramebuffer = (directory: string) =>
         Effect.mapError(
           () =>
             new Error(
-              "Release artifact requires the universal iOS framebuffer helper and matching manifest."
+              "Release artifact requires the arm64 iOS framebuffer helper and matching manifest."
             )
         )
       )
@@ -297,7 +298,8 @@ export const runInstallCheckCommand = Effect.fn("runInstallCheckCommand")(
     command: string,
     args: readonly string[],
     cwd: string,
-    env: Readonly<Record<string, string>> = {}
+    env: Readonly<Record<string, string>> = {},
+    timeout: Duration.Input = "60 seconds"
   ) {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     return yield* Effect.gen(function* collectCommand() {
@@ -327,7 +329,7 @@ export const runInstallCheckCommand = Effect.fn("runInstallCheckCommand")(
         );
       }
       return { stderr, stdout };
-    }).pipe(Effect.scoped, Effect.timeout("60 seconds"));
+    }).pipe(Effect.scoped, Effect.timeout(timeout));
   }
 );
 

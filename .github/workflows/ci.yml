@@ -21,22 +21,21 @@ concurrency:
 
 jobs:
   ios-framebuffer:
-    name: Build universal iOS framebuffer helper
+    name: Build iOS framebuffer helper
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: nubjs/setup-nub@v0
       - run: nub ci
-      - name: Build and verify helper
+      - name: Build and verify arm64 helper
         working-directory: packages/cli
         env:
           CONTINGENCY_BUILD_IOS_FRAMEBUFFER: "1"
         run: |
           nub src/packaging/build-ios-framebuffer.ts
           lipo -info dist/ios/framebuffer/framebuffer
-          lipo dist/ios/framebuffer/framebuffer -verify_arch arm64
-          lipo dist/ios/framebuffer/framebuffer -verify_arch x86_64
+          test "$(lipo -archs dist/ios/framebuffer/framebuffer)" = arm64
           codesign -v --strict --all-architectures dist/ios/framebuffer/framebuffer
       - uses: actions/upload-artifact@v4
         with:
@@ -74,6 +73,32 @@ jobs:
       - uses: ./.github/actions/verify-cli-artifact
         with:
           version: 0.0.0-ci
+
+  # No existing path-filter convention: run this proof on every PR and main push.
+  ios-clean-host:
+    name: Clean-host iOS helper (${{ matrix.architecture }})
+    needs: [release-artifact]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            architecture: arm64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: nubjs/setup-nub@v0
+      - run: nub ci
+      - uses: actions/download-artifact@v5
+        with:
+          name: cli-release-tarball
+          path: packed-cli
+      - name: Verify installed helper on a clean Mac
+        run: |
+          tarballs=("$GITHUB_WORKSPACE"/packed-cli/*.tgz)
+          test "${#tarballs[@]}" -eq 1
+          nub packages/release/src/main.ts verify-ios-helper "${tarballs[0]}"
 
   # Integration runs alongside quality rather than after it, so a green PR
   # waits for the slower job only once. When quality fails, the PR cannot

@@ -6,7 +6,11 @@ import path from "node:path";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { verifyIosFramebufferRelease } from "../../src/services/ios-framebuffer-release.ts";
+import {
+  isArm64IosFramebuffer,
+  IosFramebufferManifest,
+  verifyIosFramebufferRelease,
+} from "../../src/services/ios-framebuffer-release.ts";
 import {
   IosFramebufferPacket,
   makeIosStreamIntegrity,
@@ -143,22 +147,23 @@ for (const [executable, verify] of [
           (owned) =>
             Effect.promise(() => rm(owned, { force: true, recursive: true }))
         );
-        const bytes = Buffer.alloc(112);
-        bytes.writeUInt32BE(0xca_fe_ba_be, 0);
-        bytes.writeUInt32BE(2, 4);
+        const universal = Buffer.alloc(112);
+        universal.writeUInt32BE(0xca_fe_ba_be, 0);
+        universal.writeUInt32BE(2, 4);
         for (const [entry, cpu, offset] of [
           [8, 0x01_00_00_0c, 48],
           [28, 0x01_00_00_07, 80],
         ] as const) {
-          bytes.writeUInt32BE(cpu, entry);
-          bytes.writeUInt32BE(offset, entry + 8);
-          bytes.writeUInt32BE(32, entry + 12);
-          bytes.writeUInt32LE(0xfe_ed_fa_cf, offset);
-          bytes.writeUInt32LE(cpu, offset + 4);
-          bytes.writeUInt32LE(2, offset + 12);
+          universal.writeUInt32BE(cpu, entry);
+          universal.writeUInt32BE(offset, entry + 8);
+          universal.writeUInt32BE(32, entry + 12);
+          universal.writeUInt32LE(0xfe_ed_fa_cf, offset);
+          universal.writeUInt32LE(cpu, offset + 4);
+          universal.writeUInt32LE(2, offset + 12);
         }
+        const bytes = universal.subarray(48, 80);
         const manifest = {
-          architecture: "universal",
+          architecture: "arm64",
           executable,
           platform: "darwin",
           sha256: createHash("sha256").update(bytes).digest("hex"),
@@ -182,31 +187,42 @@ for (const [executable, verify] of [
         expect(yield* verify(directory, host)).toBe(
           path.join(directory, executable)
         );
-        expect(yield* verify(directory, { ...host, architecture: "x64" })).toBe(
-          path.join(directory, executable)
-        );
+        expect(
+          (yield* Effect.result(
+            verify(directory, { ...host, architecture: "x64" })
+          ))._tag
+        ).toBe("Failure");
         expect(
           (yield* Effect.result(
             verify(directory, { ...host, platform: "linux" })
           ))._tag
         ).toBe("Failure");
-        // A matching digest cannot make a thin binary a universal release.
-        const thin = bytes.subarray(48, 80);
-        yield* Effect.promise(() =>
-          writeFile(path.join(directory, executable), thin)
-        );
-        yield* Effect.promise(() =>
-          writeFile(
-            path.join(directory, "manifest.json"),
-            JSON.stringify({
-              ...manifest,
-              sha256: createHash("sha256").update(thin).digest("hex"),
-            })
-          )
-        );
-        expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
-          "Failure"
-        );
+        // Matching digests must not admit Intel, universal, or non-executable files.
+        const intel = universal.subarray(80, 112);
+        const nonExecutable = Buffer.from(bytes);
+        nonExecutable.writeUInt32LE(6, 12);
+        for (const invalid of [
+          intel,
+          universal,
+          nonExecutable,
+          bytes.subarray(0, 16),
+        ]) {
+          yield* Effect.promise(() =>
+            writeFile(path.join(directory, executable), invalid)
+          );
+          yield* Effect.promise(() =>
+            writeFile(
+              path.join(directory, "manifest.json"),
+              JSON.stringify({
+                ...manifest,
+                sha256: createHash("sha256").update(invalid).digest("hex"),
+              })
+            )
+          );
+          expect((yield* Effect.result(verify(directory, host)))._tag).toBe(
+            "Failure"
+          );
+        }
         yield* Effect.promise(() =>
           writeFile(
             path.join(directory, "manifest.json"),
@@ -301,3 +317,39 @@ it.effect("keeps continuity across a positively rebound display port", () =>
     });
   })
 );
+
+it("requires an arm64-only manifest", () => {
+  const manifest = {
+    architecture: "arm64",
+    executable: "framebuffer",
+    platform: "darwin",
+    sha256: "a".repeat(64),
+    signing: "ad-hoc",
+    sourceSha256: "b".repeat(64),
+    version: 2,
+  };
+  expect(Schema.is(IosFramebufferManifest)(manifest)).toBe(true);
+  for (const architecture of ["universal", "x86_64"]) {
+    expect(
+      Schema.is(IosFramebufferManifest)({ ...manifest, architecture })
+    ).toBe(false);
+  }
+});
+
+it("refuses universal framebuffer executables", () => {
+  const bytes = Buffer.alloc(112);
+  bytes.writeUInt32BE(0xca_fe_ba_be, 0);
+  bytes.writeUInt32BE(2, 4);
+  for (const [entry, cpu, offset] of [
+    [8, 0x01_00_00_0c, 48],
+    [28, 0x01_00_00_07, 80],
+  ] as const) {
+    bytes.writeUInt32BE(cpu, entry);
+    bytes.writeUInt32BE(offset, entry + 8);
+    bytes.writeUInt32BE(32, entry + 12);
+    bytes.writeUInt32LE(0xfe_ed_fa_cf, offset);
+    bytes.writeUInt32LE(cpu, offset + 4);
+    bytes.writeUInt32LE(2, offset + 12);
+  }
+  expect(isArm64IosFramebuffer(bytes)).toBe(false);
+});
