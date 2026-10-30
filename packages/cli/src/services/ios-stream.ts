@@ -307,10 +307,38 @@ export const acquireIosStream = (
                 failed("capture_incomplete", reason);
               }
             };
-            child.stderr.resume();
+            let helperFailure: string | undefined;
+            child.stderr.setEncoding("utf-8");
+            child.stderr.on("data", (chunk: string) => {
+              // The shipped helper emits fixed diagnostics, never capture data.
+              // Retain only a known message, never arbitrary subprocess stderr.
+              for (const message of [
+                "Selected display lost its framebuffer",
+                "JPEG encoding failed",
+                "Framebuffer capture failed",
+                "Active integrated display unavailable",
+                "Active integrated display rebind failed",
+              ]) {
+                if (chunk.split("\n").includes(message)) {
+                  helperFailure = message;
+                }
+              }
+            });
             child.stdin.on("error", () => childFailed());
             child.once("error", () => childFailed());
-            child.once("close", () => childFailed());
+            child.once("close", (exitCode, signal) => {
+              if (worker === child) {
+                Effect.runSync(
+                  Effect.logWarning("iOS framebuffer helper closed", {
+                    exitCode,
+                    helperFailure,
+                    sessionId,
+                    signal,
+                  }).pipe(Effect.provideService(Logger.LogToStderr, true))
+                );
+              }
+              childFailed();
+            });
             let pending = "";
             const decode = Schema.decodeUnknownOption(
               Schema.fromJsonString(IosFramebufferPacket)
@@ -335,13 +363,13 @@ export const acquireIosStream = (
                 const packet = decode(pending.slice(0, newline));
                 pending = pending.slice(newline + 1);
                 if (packet._tag === "None") {
-                  childFailed();
+                  childFailed("invalid-packet");
                   child.kill("SIGTERM");
                   return;
                 }
                 if (packet.value.displayPort !== registry.get(displayBinding)) {
                   if (packet.value.displayPort !== requestedDisplay) {
-                    childFailed();
+                    childFailed("display-mismatch");
                     child.kill("SIGTERM");
                     return;
                   }
@@ -351,7 +379,7 @@ export const acquireIosStream = (
                 if (
                   !Effect.runSync(integrity.accept(generation, packet.value))
                 ) {
-                  childFailed();
+                  childFailed(integrity.failure() ?? "invalid-packet");
                   child.kill("SIGTERM");
                   return;
                 }
@@ -417,7 +445,7 @@ export const acquireIosStream = (
                         )
                       : null;
                   if (!active || !currentOrientation) {
-                    childFailed();
+                    childFailed("display-unavailable");
                     child.kill("SIGTERM");
                   } else if (active !== registry.get(displayBinding)) {
                     requestedDisplay = active;

@@ -29,7 +29,9 @@ export type IosStreamGap =
   | "source-reset"
   | "stream-silence"
   | "slow-consumer"
-  | "no-frames";
+  | "no-frames"
+  | "display-mismatch"
+  | "display-unavailable";
 export interface IosStreamInterval {
   readonly generation: string;
   readonly sampledAfterMs: number;
@@ -42,6 +44,7 @@ export interface IosStreamInterval {
 }
 interface IntegrityState {
   readonly generation: string | null;
+  readonly failure: IosStreamGap | null;
   readonly retaining: boolean;
   readonly latest: IosFramebufferPacket | null;
   readonly interval: IosStreamInterval | null;
@@ -51,6 +54,7 @@ interface IntegrityState {
 export const makeIosStreamIntegrity = () => {
   const registry = AtomRegistry.make();
   const state = Atom.make<IntegrityState>({
+    failure: null,
     generation: null,
     interval: null,
     latest: null,
@@ -60,6 +64,7 @@ export const makeIosStreamIntegrity = () => {
   const gap = (reason: IosStreamGap) => {
     registry.update(state, (current) => ({
       ...current,
+      failure: reason,
       interval:
         current.interval?.status === "recording"
           ? {
@@ -120,12 +125,14 @@ export const makeIosStreamIntegrity = () => {
         return true;
       }),
     fail: (reason: IosStreamGap) => Effect.sync(() => gap(reason)),
+    failure: () => registry.get(state).failure,
     generation: (generation: string) =>
       Effect.sync(() => {
         // Reconnection can restore the mirror, never repair an interrupted recording.
         gap("source-reset");
         registry.update(state, (current) => ({
           ...current,
+          failure: null,
           generation,
           latest: null,
         }));

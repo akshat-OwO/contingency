@@ -91,6 +91,7 @@ it.effect("refuses output loss, callback resets, and invalid times", () =>
       });
       yield* capture.start(0);
       expect(yield* capture.accept("one", changed)).toBe(false);
+      expect(capture.failure()).toBe(gap);
       expect(yield* capture.stop()).toMatchObject({
         gaps: [gap],
         status: "incomplete",
