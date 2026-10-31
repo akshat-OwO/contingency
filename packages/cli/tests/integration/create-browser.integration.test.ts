@@ -9,6 +9,10 @@ import {
   CreateBrowserLive,
 } from "../../src/services/create-browser.ts";
 import type { CreateBrowserService } from "../../src/services/create-browser.ts";
+import {
+  LIGHTHOUSE_FCP_WAIT_MS,
+  LIGHTHOUSE_LOAD_WAIT_MS,
+} from "../../src/services/scan-budgets.ts";
 import { beginScanCollection } from "../../src/services/scan-engine.ts";
 import {
   CLOUDFLARE_BLOCK,
@@ -966,5 +970,13 @@ it.live(
         (collection) => Effect.promise(collection.cancel)
       );
       expect(measured.report).toHaveProperty("steps.0.lhr.lighthouseVersion");
+      expect(measured.report).toHaveProperty(
+        "steps.0.lhr.configSettings.maxWaitForLoad",
+        LIGHTHOUSE_LOAD_WAIT_MS
+      );
+      expect(measured.report).toHaveProperty(
+        "steps.0.lhr.configSettings.maxWaitForFcp",
+        LIGHTHOUSE_FCP_WAIT_MS
+      );
     }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );

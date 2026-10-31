@@ -14,6 +14,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { agentSessionError } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
+import { SCAN_GUARD_MS } from "./scan-budgets.ts";
 import type {
   ScanCollection,
   ScanEngineReport,
@@ -200,7 +201,7 @@ export const makeRunScans = (
             try: () => scan.collection.finish(),
           }).pipe(
             Effect.timeoutOrElse({
-              duration: "45 seconds",
+              duration: SCAN_GUARD_MS,
               orElse: () =>
                 Effect.fail(
                   failed(
@@ -332,7 +333,7 @@ export const makeRunScans = (
             ),
         }).pipe(
           Effect.timeoutOrElse({
-            duration: "45 seconds",
+            duration: SCAN_GUARD_MS,
             orElse: () =>
               Effect.fail(failed(`Timed out after 45s during ${phase}.`)),
           })

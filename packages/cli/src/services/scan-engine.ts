@@ -6,6 +6,12 @@ import type { CliFlags, Flags } from "lighthouse";
 import type { Page } from "playwright-core";
 import { connect } from "puppeteer-core";
 
+import {
+  LIGHTHOUSE_FCP_WAIT_MS,
+  LIGHTHOUSE_LOAD_WAIT_MS,
+  SCAN_RELOAD_COMMIT_WAIT_MS,
+} from "./scan-budgets.ts";
+
 export type ScanEngineReport =
   | Awaited<
       ReturnType<Awaited<ReturnType<typeof startFlow>>["createFlowResult"]>
@@ -181,6 +187,8 @@ export const beginScanCollection = async (
       formFactor: mobile ? "mobile" : "desktop",
       locale: "en-US",
       logLevel: "silent",
+      maxWaitForFcp: LIGHTHOUSE_FCP_WAIT_MS,
+      maxWaitForLoad: LIGHTHOUSE_LOAD_WAIT_MS,
       onlyCategories: ["performance"],
       screenEmulation: { disabled: true },
       throttlingMethod: "provided",
@@ -202,7 +210,10 @@ export const beginScanCollection = async (
       await flow.startNavigation();
       if (mode === "reload") {
         setPhase("navigation/load");
-        await page.reload();
+        await page.reload({
+          timeout: SCAN_RELOAD_COMMIT_WAIT_MS,
+          waitUntil: "commit",
+        });
       }
     }
     return {
@@ -222,20 +233,23 @@ export const beginScanCollection = async (
         setPhase("Lighthouse audit/trace processing");
         const report = await flow.createFlowResult();
         const lhr = report.steps[0]?.lhr;
+        const warnings = (lhr?.runWarnings ?? []).join(" ");
         if (lhr?.runtimeError !== undefined) {
           return {
             report,
             status: "failed",
-            summary: `Lighthouse runtime error ${lhr.runtimeError.code}: ${lhr.runtimeError.message}`,
+            summary:
+              `Lighthouse runtime error ${lhr.runtimeError.code}: ${lhr.runtimeError.message} ${warnings}`.trim(),
           };
         }
         const score = lhr?.categories.performance?.score;
         return {
           report,
-          summary:
+          summary: `${
             score === null || score === undefined
               ? "Performance metrics collected. This mode has no aggregate score."
-              : `Performance score ${Math.round(score * 100)}. Measured with the Run's settings and no extra throttling.`,
+              : `Performance score ${Math.round(score * 100)}. Measured with the Run's settings and no extra throttling.`
+          } ${warnings}`.trim(),
         };
       },
       phase: () => phase,
