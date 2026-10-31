@@ -67,24 +67,24 @@ export const describeSystemOne = (
 };
 
 export const describeSettings = (
-  started: LoadedSettings | undefined,
-  current: LoadedSettings | undefined,
-  active: McpInterface
+  started?: LoadedSettings,
+  current?: LoadedSettings
 ): typeof McpProcessInfo.Type.settings => {
   const changed =
     started !== undefined &&
     current !== undefined &&
     started.snapshot !== current.snapshot;
-  const mismatch =
-    current?.fileInterface !== undefined && current.fileInterface !== active;
   const unreadable = started !== undefined && current === undefined;
-  const restartRequired = changed || mismatch || unreadable;
+  // The file's interface alone proves nothing: an environment variable or flag
+  // may override it, so only an edit since startup requires a restart.
+  const restartRequired = changed || unreadable;
   let diagnostic: string | null = null;
   if (unreadable) {
     diagnostic =
       "Settings could not be read. Fix config.json and restart the agent and any background service.";
   } else if (restartRequired) {
-    diagnostic = `${changed ? "Settings changed since the server started. " : "The active MCP interface differs from config.json. "}Restart the agent and any background service to reload Settings.`;
+    diagnostic =
+      "Settings changed since the server started. Restart the agent and any background service to reload Settings.";
   }
   return {
     changedSinceStart: changed,
@@ -118,7 +118,7 @@ export const defaultProcessInfo = (
     Effect.map((platforms) => ({
       mcpInterface,
       platforms,
-      settings: describeSettings(undefined, undefined, mcpInterface),
+      settings: describeSettings(),
       systemOne: describeSystemOne(systemOne),
     }))
   );

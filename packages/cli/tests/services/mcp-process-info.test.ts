@@ -100,7 +100,7 @@ it.each(["starting", "ready", "crashed"] as const)(
 );
 
 it.effect(
-  "reports loaded paths, defaults, disk edits and interface mismatches without reloading the active interface",
+  "reports loaded paths, defaults, disk edits and overridden file interfaces without reloading the active interface",
   () =>
     Effect.gen(function* settingsDiagnostics() {
       const fs = yield* FileSystem.FileSystem;
@@ -111,7 +111,7 @@ it.effect(
         home: path.join(root, "home"),
       };
       const defaults = yield* loadSettings(input);
-      expect(describeSettings(defaults, defaults, "native")).toMatchObject({
+      expect(describeSettings(defaults, defaults)).toMatchObject({
         changedSinceStart: false,
         restartRequired: false,
         sources: ["defaults"],
@@ -123,14 +123,14 @@ it.effect(
       yield* fs.writeFileString(project, '{"mcp":{"interface":"native"}}');
       yield* fs.writeFileString(user, '{"mcp":{"interface":"single-tool"}}');
       const started = yield* loadSettings(input);
-      expect(describeSettings(started, started, "native")).toMatchObject({
+      expect(describeSettings(started, started)).toMatchObject({
         fileInterface: "native",
         restartRequired: false,
         sources: [project, user],
       });
       yield* fs.writeFileString(project, '{"mcp":{"interface":"single-tool"}}');
       const current = yield* loadSettings(input);
-      expect(describeSettings(started, current, "native")).toMatchObject({
+      expect(describeSettings(started, current)).toMatchObject({
         changedSinceStart: true,
         diagnostic: expect.stringContaining(
           "Settings changed since the server started"
@@ -138,19 +138,18 @@ it.effect(
         fileInterface: "single-tool",
         restartRequired: true,
       });
-      expect(describeSettings(current, current, "native")).toMatchObject({
+      // CONTINGENCY_MCP_INTERFACE overrides the file, so no restart is needed.
+      expect(describeSettings(current, current)).toMatchObject({
         changedSinceStart: false,
-        restartRequired: true,
+        restartRequired: false,
       });
-      expect(describeSettings(started, undefined, "native")).toMatchObject({
+      expect(describeSettings(started)).toMatchObject({
         diagnostic: expect.stringContaining("could not be read"),
         restartRequired: true,
       });
       yield* fs.remove(project);
       const removed = yield* loadSettings(input);
-      expect(
-        describeSettings(started, removed, "native").changedSinceStart
-      ).toBe(true);
+      expect(describeSettings(started, removed).changedSinceStart).toBe(true);
       const deduplicated = yield* loadSettings({
         ...input,
         catalogRoot: path.dirname(user),

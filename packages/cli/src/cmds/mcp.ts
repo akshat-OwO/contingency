@@ -304,7 +304,7 @@ export const mcpCommand = Command.make(
       return {
         mcpInterface,
         platforms: yield* availablePlatforms,
-        settings: describeSettings(settings, current, mcpInterface),
+        settings: describeSettings(settings, current),
         systemOne: describeSystemOne(systemOne, local),
       };
     }).pipe(
