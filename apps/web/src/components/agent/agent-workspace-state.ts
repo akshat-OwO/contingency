@@ -167,6 +167,22 @@ export interface AgentControlPresentation {
   readonly reason: string | undefined;
 }
 
+/** The same control gestures on browser, Android, and iOS docks. */
+export const controlState = (
+  controller: "agent" | "user",
+  requested = false
+): Pick<AgentControlPresentation, "action" | "holder"> => {
+  if (controller === "user") {
+    return { action: "Return control", holder: "You have control" };
+  }
+  return requested
+    ? {
+        action: "Take over",
+        holder: "The agent is asking you to take over",
+      }
+    : { action: "Take control", holder: "The agent has control" };
+};
+
 const takeoverReason = (
   takeover: AgentSessionSnapshot["takeover"]
 ): string | undefined => {
@@ -217,7 +233,10 @@ export const agentControlPresentation = (
     };
   }
   if (session.controller === "user") {
-    return { action: "Return control", holder: "You have control", reason };
+    return { ...controlState(session.controller), reason };
+  }
+  if (session.phase === "takeover") {
+    return { ...controlState(session.controller, true), reason };
   }
   if (session.boundary !== undefined && session.boundary !== null) {
     return {
@@ -227,11 +246,7 @@ export const agentControlPresentation = (
     };
   }
   return {
-    action: "Take control",
-    holder:
-      session.phase === "takeover"
-        ? "The agent is waiting for you"
-        : "The agent has control",
+    ...controlState(session.controller),
     reason,
   };
 };
@@ -247,7 +262,9 @@ export const agentStatusLabel = (
     return "No session selected";
   }
   if (session.phase === "takeover") {
-    return "Waiting for your control";
+    return session.controller === "agent"
+      ? "Takeover requested"
+      : "You have control";
   }
   if (session.boundary !== undefined && session.boundary !== null) {
     return "Waiting for confirmation";
