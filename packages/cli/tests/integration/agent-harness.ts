@@ -41,6 +41,10 @@ import {
   AgentCatalogTools,
 } from "../../src/services/mcp-catalog.ts";
 import {
+  McpProcessDiagnostics,
+  defaultProcessInfo,
+} from "../../src/services/mcp-process-info.ts";
+import {
   TeachingRecordingToolHandlersLive,
   TeachingRecordingTools,
 } from "../../src/services/mcp-teaching-recording.ts";
@@ -447,6 +451,9 @@ export const agentProcessLayer = (
               }
             : catalogOptions
         ),
+        Layer.succeed(McpProcessDiagnostics, {
+          read: defaultProcessInfo("native"),
+        }),
         runStore,
         recordingStore,
         RunVideoRendererLive

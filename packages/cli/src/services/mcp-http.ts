@@ -43,6 +43,11 @@ import {
   OnboardingTools,
   makeMcpStartLayer,
 } from "./mcp-onboarding.ts";
+import type { McpProcessInfo } from "./mcp-process-info.ts";
+import {
+  McpProcessDiagnostics,
+  defaultProcessInfo,
+} from "./mcp-process-info.ts";
 import {
   McpPursuitLayer,
   PursuitToolHandlersLive,
@@ -68,6 +73,7 @@ export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
     : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
 export interface McpCatalogOptions<R> {
+  readonly processInfo?: Effect.Effect<typeof McpProcessInfo.Type> | undefined;
   readonly launchContext?: string | undefined;
   readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
   readonly interface?: McpInterface | undefined;
@@ -78,9 +84,7 @@ export interface McpCatalogOptions<R> {
  * Every tool, resource, and prompt one server registers, shared by the stdio
  * and HTTP adapters so both offer the same catalog.
  */
-export const makeMcpCatalogLayer = <R = never>(
-  options: McpCatalogOptions<R> = {}
-) => {
+const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
   if ((options.interface ?? DEFAULT_MCP_INTERFACE) === "native") {
     return Layer.mergeAll(
       McpAgentSessionLayer,
@@ -130,6 +134,20 @@ export const makeMcpCatalogLayer = <R = never>(
     )
   );
 };
+
+/** Both interfaces receive the same process-owned diagnostics. */
+export const makeMcpCatalogLayer = <R = never>(
+  options: McpCatalogOptions<R> = {}
+) =>
+  makeCatalogLayer(options).pipe(
+    Layer.provide(
+      Layer.succeed(McpProcessDiagnostics, {
+        read:
+          options.processInfo ??
+          defaultProcessInfo(options.interface, options.systemOne),
+      })
+    )
+  );
 
 /** Streamable HTTP path Cursor and other URL MCP clients POST to. */
 export const MCP_HTTP_PATH = "/mcp";

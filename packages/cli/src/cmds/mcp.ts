@@ -54,6 +54,10 @@ import { LocalSystemOneLifecycleLive } from "../services/local-system-one-lifecy
 import { LocalSystemOneLifecycle } from "../services/local-system-one-lifecycle.ts";
 import { LocalSystemOneLive } from "../services/local-system-one-live.ts";
 import {
+  processAlive,
+  supervisorAlive,
+} from "../services/local-system-one-process.ts";
+import {
   readLocalSystemOneUpdateCache,
   refreshLocalSystemOneUpdateCache,
   localSystemOneUpdateNotice,
@@ -65,6 +69,11 @@ import {
   makeMcpInstructions,
   makeMcpHttpLayer,
 } from "../services/mcp-http.ts";
+import {
+  availablePlatforms,
+  describeSettings,
+  describeSystemOne,
+} from "../services/mcp-process-info.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
   DEFAULT_MCP_INTERFACE,
@@ -272,6 +281,35 @@ export const mcpCommand = Command.make(
       );
       return { lifecycle, local, systemOne: resolvedSystemOne };
     }).pipe(Effect.provide(localServices));
+    // Keep startup Settings and interface fixed; reread only for diagnostics.
+    const settingsInput = {
+      catalogRoot: catalogDirectory.root,
+      env: { ...process.env },
+    };
+    const diagnosticsFileSystem = yield* FileSystem.FileSystem;
+    const processInfo = Effect.gen(function* readProcessInfo() {
+      const current = yield* loadSettings(settingsInput).pipe(
+        Effect.orElseSucceed(constUndefined)
+      );
+      const local = yield* Effect.gen(function* readLocalStatus() {
+        const state = yield* localInstallation.status;
+        const server = state?.server;
+        const running =
+          server !== undefined &&
+          server !== null &&
+          (yield* supervisorAlive(server)) &&
+          (yield* processAlive(server.kevPid, server.kevStartIdentity));
+        return { running, state };
+      }).pipe(Effect.orElseSucceed(constUndefined));
+      return {
+        mcpInterface,
+        platforms: yield* availablePlatforms,
+        settings: describeSettings(settings, current, mcpInterface),
+        systemOne: describeSystemOne(systemOne, local),
+      };
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, diagnosticsFileSystem)
+    );
     const boundOrigin = { url: new URL(`http://${host}:${port}`).origin };
     return yield* Effect.scoped(
       Effect.gen(function* runMcpServer() {
@@ -427,6 +465,7 @@ export const mcpCommand = Command.make(
                   demoSite,
                   interface: mcpInterface,
                   launchContext,
+                  processInfo,
                   systemOne,
                 })
               ).pipe(
@@ -474,6 +513,7 @@ export const mcpCommand = Command.make(
               demoSite,
               interface: mcpInterface,
               launchContext,
+              processInfo,
               systemOne,
             }).pipe(Layer.provide(shared)),
             port: address.port,

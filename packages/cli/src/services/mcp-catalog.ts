@@ -15,6 +15,7 @@ import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
+import { McpProcessDiagnostics, McpProcessInfo } from "./mcp-process-info.ts";
 import {
   SessionResult,
   inView,
@@ -58,13 +59,14 @@ const NoParameters = Schema.Record(Schema.String, Schema.Unknown);
 
 const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
-    dependencies: [AgentSession, FlowSkillCatalog],
+    dependencies: [AgentSession, FlowSkillCatalog, McpProcessDiagnostics],
     description:
       "Read the Workspace URL, Catalog Root, and Flow Skill count. It defaults to the workspace's .contingency directory; no tool reads a user-global catalog.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
       ...AgentCatalogInfo.fields,
+      process: McpProcessInfo,
       workspaceUrl: Schema.String,
     }),
   })
@@ -168,7 +170,9 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const workspaceUrl = yield* session.workspaceUrl.pipe(
         Effect.mapError(failure)
       );
+      const diagnostics = yield* McpProcessDiagnostics;
       return {
+        process: yield* diagnostics.read,
         ...(yield* catalog.info().pipe(Effect.mapError(failure))),
         workspaceUrl,
       };

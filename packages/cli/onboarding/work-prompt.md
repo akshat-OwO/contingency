@@ -18,9 +18,11 @@ Do not run `contingency register` or edit agent configuration unless the user as
 - **Use an Android or iOS device:** start a device session with `agent_device_workspace` and the requested platform. Follow its contract and the available platform's support limits.
 - **Learn and verify:** read `contingency://prompt/learn-flow-skill` and follow it. It covers saving, the Dry Run, and the user's verification.
 
-For browser work, inspect network, console, and storage when useful. In an Interactive Run, you may change Emulation, write cookies and storage, and use routes, headers, or mutating evaluation; these Browser Modifications are recorded. During Teaching setup, you may change Emulation and write cookies and storage, but not use routes, headers, or mutating evaluation. A Dry Run permits observation and read-only evaluation, but no modifications. Mutating evaluation requires Confirmation. Guided Runs do not permit Browser Modifications. These devtools operations are available through the code interface.
+For browser work, inspect network, console, and storage when useful. Every Run, including Guided Runs and Dry Runs, permits Emulation changes, cookie and storage writes, routes, headers, and mutating evaluation. These Browser Modifications are recorded; Guided Run modifications become required state in the learned Flow Skill. During Teaching setup, you may change Emulation and write cookies and storage, but not use routes, headers, or mutating evaluation. Mutating evaluation requires Confirmation. These devtools operations are available through the code interface.
 
-When the System One status in `agent_catalog_get` reports it available, try `agent_browser_pursue` for a delegated sub-goal in an Interactive Run or Dry Run. You still own the plan and assessment. Do not use Pursuits in Teaching or Guided Runs.
+Read `process.platforms`, `process.mcpInterface`, `process.settings`, and `process.systemOne` in `agent_catalog_get`. Offer only available platforms. In single-tool mode, search signatures and call the named operations through the code tool. If `process.settings.restartRequired` is true, relay its diagnostic and ask the user to restart the agent and any background service.
+
+When `process.systemOne.available` is true, try `agent_browser_pursue` for a delegated sub-goal in an Interactive Run, Guided Run, or Dry Run. You still own the plan and assessment. Do not use Pursuits in Teaching. A configured remote endpoint has unknown reachability until used; a Local System One may need to warm up.
 
 ## Rules
 

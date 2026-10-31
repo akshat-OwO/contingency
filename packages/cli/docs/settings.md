@@ -21,6 +21,8 @@ Both files use one schema. For each Setting, the first source that names it wins
 
 `contingency start` and agents registered with `contingency register` start the MCP server with `CONTINGENCY_MCP_PORT=0`, so concurrent sessions never compete for one port. A file's `mcp.port` applies only when you run `contingency mcp` yourself.
 
+Settings load when `contingency mcp` starts; after changing Settings such as `mcp.interface`, restart the agent and any background service.
+
 ## Create a file
 
 Run `contingency config init`. It writes a project file that holds only `$schema`, pinned to the installed CLI version, so an editor completes and checks each key. It never overwrites an existing file.
