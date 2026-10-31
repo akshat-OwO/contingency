@@ -401,9 +401,8 @@ const OPENCODE_UNRELATED = `{
 }
 `;
 
-it("writes OpenCode's local entry with native tools and a cold-start timeout", () => {
+it("writes OpenCode's local entry with a cold-start timeout", () => {
   expect(opencodeEntry(OPENCODE_SPEC)).toEqual({
-    codemode: false,
     command: [
       "/usr/bin/node",
       "/opt/contingency/index.js",
@@ -429,7 +428,7 @@ it.effect("edits one JSONC entry and keeps every other byte", () =>
     expect(next.startsWith(head ?? "")).toBe(true);
     expect(next.endsWith(`\t\t},\n${tail ?? ""}`)).toBe(true);
     // The new entry follows the file's tab indentation.
-    expect(next).toContain('\t\t\t"contingency": {\n\t\t\t\t"codemode": false');
+    expect(next).toContain('\t\t\t"contingency": {\n\t\t\t\t"command": [');
     const entry = yield* opencodeEntryFromJsonc(next, "opencode.jsonc");
     expect(Option.getOrThrow(entry)).toEqual({
       extras: [],
@@ -445,7 +444,6 @@ it.effect("edits one JSONC entry and keeps every other byte", () =>
 /** The Contingency entry as `withOpencodeEntry` writes it with tabs. */
 const entryLines = (indent: string, closing = "}") => [
   `${indent}"contingency": {`,
-  `${indent}\t"codemode": false,`,
   `${indent}\t"command": [`,
   `${indent}\t\t"node"`,
   `${indent}\t],`,
@@ -488,7 +486,7 @@ it("adds the entry on its own line, after a comment and with CRLF", () => {
   ]);
 });
 
-it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
+it.effect("names what differs in an OpenCode entry", () =>
   Effect.gen(function* opencodeDiffers() {
     const written = `{ "mcp": { "servers": { "contingency": ${JSON.stringify({
       command: ["/usr/bin/node", "old.js"],
@@ -507,7 +505,6 @@ it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
       'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
       "disabled is set to true",
       'cwd is set to "/elsewhere"',
-      "codemode is unset; Contingency would set it to false so its tools stay native",
     ]);
     const remote = Option.getOrThrow(
       yield* opencodeEntryFromJsonc(
@@ -525,6 +522,50 @@ it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
     expect(Result.isFailure(malformed)).toBe(true);
   })
 );
+
+for (const codemode of [true, false, undefined]) {
+  it.effect(
+    `keeps an equivalent OpenCode entry with codemode ${String(codemode)}`,
+    () =>
+      Effect.gen(function* keepCodemode() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const project = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-opencode-codemode-",
+        });
+        const config = path.join(project, "opencode.jsonc");
+        const original = `// Keep the user's choice and formatting.\n${JSON.stringify(
+          {
+            mcp: {
+              servers: {
+                contingency: { ...opencodeEntry(OPENCODE_SPEC), codemode },
+              },
+            },
+          }
+        )}\n`;
+        yield* fileSystem.writeFileString(config, original);
+        for (const replace of [false, true]) {
+          const outcome = yield* register({
+            env: {},
+            harness: "opencode",
+            home: project,
+            projectDirectory: project,
+            replace,
+            scope: "project",
+            spec: OPENCODE_SPEC,
+          });
+          expect(outcome).toEqual({
+            _tag: "kept",
+            location: config,
+            notes: [],
+          });
+          expect(yield* fileSystem.readFileString(config)).toBe(original);
+        }
+      }).pipe(
+        Effect.provide(AgentHarnessesLive),
+        Effect.provide(NodeServices.layer)
+      )
+  );
+}
 
 it.effect(
   "registers, keeps, reports, and replaces an OpenCode project entry",
@@ -568,6 +609,7 @@ it.effect(
         notes: [],
       });
       const afterFirst = yield* fileSystem.readFileString(projectConfig);
+      expect(afterFirst).not.toContain('"codemode"');
       expect(afterFirst).toContain(
         "// Personal settings stay exactly as written."
       );
