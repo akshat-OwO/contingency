@@ -133,3 +133,39 @@ it("assigns stable names, reserves collisions, and reuses Variables", () => {
   expect(reference("second", "COOKIE_qa")).toBe("{{COOKIE_QA_3}}");
   expect(reference("first", "HEADER_other")).toBe("{{COOKIE_QA_2}}");
 });
+
+it.effect(
+  "keeps a reused Variable reference that the procedure also uses",
+  () =>
+    Effect.gen(function* reusedReference() {
+      const events: TeachingEvent[] = [
+        {
+          _tag: "browser-modification",
+          actor: "agent",
+          at: "2026-01-01T00:00:00.000Z",
+          command: JSON.stringify({
+            action: "headers_set",
+            headers: { "x-auth": "{{ACCOUNT_TOKEN}}" },
+            operationId: "headers",
+          }),
+          description: "headers",
+          id: "headers",
+          seq: 1,
+          url: "https://example.com",
+          variableNames: { "HEADER_x-auth": "ACCOUNT_TOKEN" },
+        },
+      ];
+      const skill =
+        "---\nname: test\ndescription: Test\ninputs:\n  - name: ACCOUNT_TOKEN\n    description: Account token\n---\n\n1. Sign in with {{ACCOUNT_TOKEN}}. Done when: the account page is visible.";
+      const files = yield* stampBrowserState(
+        [{ content: skill, path: "SKILL.md" }],
+        events
+      );
+      const stamped = files.find((file) => file.path === "SKILL.md")?.content;
+      expect(stamped?.startsWith(skill)).toBe(true);
+      const state = yield* readBrowserState(files);
+      expect(state[0]?.command).toMatchObject({
+        headers: { "x-auth": "{{ACCOUNT_TOKEN}}" },
+      });
+    })
+);

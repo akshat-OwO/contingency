@@ -12,6 +12,7 @@ import { Effect, Schema } from "effect";
 import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 
 export const BROWSER_STATE_FILE = "references/browser-state.json";
+const VARIABLE_SLOT = /^\{\{[A-Za-z_][A-Za-z0-9_]*\}\}$/u;
 const requiredModification = Schema.Struct({
   command: BrowserDevtoolsCommand,
   id: Schema.String,
@@ -88,7 +89,12 @@ const literalValidationError = (
     const reject = (name: string) =>
       `Replace the recorded value in ${file.path} with Variable {{${name}}} before saving.`;
     for (const [value, name] of replacements) {
-      if (value.length >= 8 && file.content.includes(value)) {
+      // A reference is the safe form; only recorded literals are refused.
+      if (
+        value.length >= 8 &&
+        !VARIABLE_SLOT.test(value) &&
+        file.content.includes(value)
+      ) {
         return reject(name);
       }
     }
@@ -161,7 +167,7 @@ export const stampBrowserState = (
         modifications.push({
           command: parameterizeBrowserCommand(command, (value, hint) => {
             const existing = event.variableNames?.[hint];
-            if (existing !== undefined) {
+            if (existing !== undefined && !VARIABLE_SLOT.test(value)) {
               replacements.set(value, existing);
             }
             return reference(value, hint);
