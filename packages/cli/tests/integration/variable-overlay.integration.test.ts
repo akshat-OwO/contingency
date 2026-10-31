@@ -90,3 +90,74 @@ it.live(
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live(
+  "refuses a field hidden by an opaque sheet with a transparent child",
+  () =>
+    Effect.gen(function* refuseBehindOpaqueSheet() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "variable-opaque-",
+      });
+      const fixtures = yield* fixtureServer;
+      yield* Effect.scoped(
+        Effect.gen(function* driveRefusedEntry() {
+          const service = yield* AgentSession;
+          const started = yield* sessionTool("agent_session_start", {
+            activity: "teaching",
+            clientName: "overlay-test",
+            clientVersion: "1",
+            name: "variable-opaque",
+            operationId: OperationId.make("start"),
+            url: fixtures.url("variable-opaque-sheet.html"),
+            viewport: agentViewport,
+          });
+          const sessionId = started.id;
+          const requested = yield* sessionTool("agent_variable_request", {
+            name: "MOBILE_NUMBER",
+            operationId: OperationId.make("request"),
+            purpose: "Sign in",
+            replace: false,
+            sessionId,
+          });
+          const request = requested.setupVariables?.[0];
+          if (request === undefined) {
+            return yield* Effect.die("Missing Variable request");
+          }
+          yield* service.answerSetupVariable({
+            operationId: OperationId.make("supply"),
+            requestId: request.requestId,
+            sessionId,
+            value: "5559876543",
+          });
+          const before = yield* sessionTool("agent_browser_snapshot", {
+            sessionId,
+          });
+          const field = findNode(before.nodes, "textbox", "Mobile number");
+          expect(field.blockedBy).toBeDefined();
+          const ordinary = yield* Effect.flip(
+            sessionTool("agent_browser_act", {
+              action: { ref: field.ref, text: "5551234567", type: "fill" },
+              operationId: OperationId.make("ordinary-fill"),
+              sessionId,
+            })
+          );
+          expect(ordinary.reason).toBe("intercepted");
+          yield* Effect.flip(
+            sessionTool("agent_variable_enter", {
+              name: "MOBILE_NUMBER",
+              operationId: OperationId.make("variable-fill"),
+              ref: field.ref,
+              sessionId,
+            })
+          );
+          const after = yield* sessionTool("agent_browser_snapshot", {
+            sessionId,
+          });
+          expect(
+            findNode(after.nodes, "textbox", "Mobile number").value ?? ""
+          ).toBe("");
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

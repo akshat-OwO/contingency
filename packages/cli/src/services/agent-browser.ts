@@ -447,14 +447,24 @@ const PAGE_READING_PRELUDE = `
     if (keyboard && !hit) return { blocker: null, point: null };
     // Playwright fills use keyboard focus, so an unnamed transparent backdrop
     // does not prevent entry. Semantic foreground controls still intercept it.
-    if (filling && hit && ROLE_BY_TAG[hit.tagName] === "generic" && !accessibleName(hit) &&
-      !hit.closest('[role],dialog,[aria-modal="true"]')) {
-      const backdrop = getComputedStyle(hit);
-      if (backdrop.opacity === "0" ||
-        (backdrop.backgroundColor === "rgba(0, 0, 0, 0)" &&
-          backdrop.backgroundImage === "none")) {
-        return { blocker: null, point: { x: rect.width / 2, y: rect.height / 2 } };
+    // Every layer between the hit node and the target's own ancestors must be
+    // unnamed, non-modal, and unpainted: a transparent child inside an opaque
+    // sheet still hides the field. Fully transparent layers hide their subtree.
+    const seeThrough = (layer) => {
+      for (let node = layer; node && !node.contains(element); node = node.parentElement) {
+        const paint = getComputedStyle(node);
+        if (paint.opacity === "0") continue;
+        if (ROLE_BY_TAG[node.tagName] !== "generic" || accessibleName(node) ||
+          node.matches('[role],dialog,[aria-modal="true"]') ||
+          paint.backgroundColor !== "rgba(0, 0, 0, 0)" || paint.backgroundImage !== "none" ||
+          paint.backdropFilter !== "none" || paint.filter !== "none") {
+          return false;
+        }
       }
+      return true;
+    };
+    if (filling && hit && seeThrough(hit)) {
+      return { blocker: null, point: { x: rect.width / 2, y: rect.height / 2 } };
     }
     const owner = hit?.closest('[role="dialog"],dialog,[aria-modal="true"]') ?? hit;
     return {
