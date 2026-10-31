@@ -50,6 +50,7 @@ const onFirstSignal = (): void => {
     return;
   }
   shutdownStartedAt = performance.now();
+  console.error("Closing Contingency… press Ctrl+C again to force stop.");
   // The runtime's own listener was copied into this emit and still runs, so
   // the fiber is interrupted exactly once. Every signal after this one
   // reaches only the insistence guard above.
