@@ -2,9 +2,9 @@
 status: accepted
 ---
 
-# Guided Runs and Dry Runs use browser devtools
+# Every Run has the full browser devtools surface
 
-Source Documents such as QA runbooks ask for checks that need browser devtools: cookie and storage writes, request routing, headers, and evaluation. ADR 0062 refused every Browser Modification in Guided Runs and Dry Runs, so the agent could see the problem but could not carry out the documented check. This amends [ADR 0062](./0062-agents-get-a-devtools-surface-on-the-playwright-runtime.md) so that Guided Runs and Dry Runs get the same devtools as an Interactive Run. It also amends [ADR 0065](./0065-guided-runs-learn-flow-skills-from-source-documents.md) to allow Browser Modifications and Pursuits in Guided Runs.
+Source Documents such as QA runbooks ask for checks that need browser devtools: cookie and storage writes, request routing, headers, and evaluation. ADR 0062 refused every Browser Modification in Guided Runs and Dry Runs, so the agent could see the problem but could not carry out the documented check. This amends [ADR 0062](./0062-agents-get-a-devtools-surface-on-the-playwright-runtime.md) so that every Run, whether Interactive, Guided, or Dry, has the same full devtools surface. It also amends [ADR 0065](./0065-guided-runs-learn-flow-skills-from-source-documents.md) to allow Browser Modifications and Pursuits in Guided Runs.
 
 ## Authority by activity
 
@@ -15,7 +15,7 @@ This replaces ADR 0062's authority table.
 | Interactive Run | Yes | Yes | Yes | Yes | Yes |
 | Teaching setup | Yes | Yes | Yes | No | No |
 | Guided Run setup | Yes | Yes | Yes | Yes | Yes |
-| Guided Run capture | Yes | No | Yes | Yes | Yes |
+| Guided Run capture | Yes | Yes | Yes | Yes | Yes |
 | Dry Run | Yes | Yes | Yes | Yes | Yes |
 
 ## Rules
@@ -25,8 +25,8 @@ This replaces ADR 0062's authority table.
 - **Dry Runs have the full devtools surface.** The agent may also make its own Browser Modifications during a Dry Run, with the same authority as in an Interactive Run.
 - **Every modification is visible.** Run evidence records each modification as saved or agent-initiated. Workspace shows them next to the Agent Assessment, so a pass can be read alongside what was mocked or changed.
 - **Pursuits are recorded.** Guided Runs may use Pursuits. Guided Run evidence and the learned Flow Skill mark them as delegated.
-- **Emulation stays fixed during capture.** The Teaching Recording stores one Emulation, so Guided Run capture refuses Emulation changes. Make them during setup.
-- **Existing boundaries remain.** Domain Scope and Confirmation apply to every modification and Pursuit. Teaching stays user-led, and its setup authority does not change.
+- **Mid-capture Emulation changes are modifications.** The Teaching Recording stores the Emulation at Start. A later Emulation change during Guided Run capture is a Browser Modification and is saved as required state like any other.
+- **Existing boundaries remain.** Domain Scope and Confirmation apply to every modification and Pursuit. Teaching is not a Run: it stays user-led, and its setup authority does not change.
 
 ## Consequences
 

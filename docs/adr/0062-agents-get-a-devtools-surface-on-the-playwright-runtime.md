@@ -4,7 +4,7 @@ status: proposed
 
 # Agents get a devtools surface on the Playwright runtime
 
-Amended by [ADR 0068](./0068-guided-runs-use-browser-devtools.md).
+Amended by [ADR 0068](./0068-every-run-has-the-full-devtools-surface.md).
 
 An agent can act, take Browser Snapshots and screenshots, and run scans, but it cannot see network traffic, console output, cookies, or storage, and it cannot change them. Contingency will give agents the observation and modification capabilities a browser's developer tools offer, built on the existing Playwright runtime from [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md). agent-browser 0.39.1 now covers most of the gaps ADR 0012 recorded, but it still has no in-process library. Adopting it would reintroduce a command boundary between processes: a 30-second IPC read limit, `outcome_unknown` for page-changing commands, and private input crossing a process boundary. Its command list serves as the feature checklist instead.
 

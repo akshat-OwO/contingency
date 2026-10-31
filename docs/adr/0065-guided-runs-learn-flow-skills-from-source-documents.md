@@ -4,7 +4,7 @@ status: accepted
 
 # Guided Runs learn Flow Skills from Source Documents
 
-Amended by [ADR 0068](./0068-guided-runs-use-browser-devtools.md).
+Amended by [ADR 0068](./0068-every-run-has-the-full-devtools-surface.md).
 
 Users arrive with journeys already written down as runbooks, markdown notes, or skills for other tools. Re-demonstrating each one by hand in Teaching wastes that work, but a Flow Skill drafted straight from the document has no demonstrated hosts or Emulation, so its Dry Run would run inside a boundary nobody approved. A Guided Run closes that gap: the external agent follows the user's Source Document in the browser, asks the user when the document is ambiguous or wrong, and lets the user take over. The run produces a Teaching Recording, and learning, Dry Run, verification, and Cleanup then proceed unchanged.
 
