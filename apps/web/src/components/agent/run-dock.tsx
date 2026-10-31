@@ -26,6 +26,7 @@ import {
 } from "@/components/agent/run-provenance";
 import type { RunProvenance } from "@/components/agent/run-provenance";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
+import type { SessionDeletion } from "@/components/agent/workspace-dock";
 import {
   DockSessionSelect,
   DockShell,
@@ -225,6 +226,7 @@ export const RunDock = ({
   onControl,
   onDismiss,
   onSelectSession,
+  deletion,
   requests,
   selectedSessionId,
   session,
@@ -241,6 +243,7 @@ export const RunDock = ({
    * there is nothing to leave.
    */
   readonly onDismiss?: (() => void) | undefined;
+  readonly deletion?: SessionDeletion;
   readonly onSelectSession: (sessionId: string) => void;
   /** The Execution Boundary and input requests, as the dock's first tier. */
   readonly requests?: React.ReactNode;
@@ -294,6 +297,7 @@ export const RunDock = ({
     >
       <DockWordmark />
       <DockSessionSelect
+        deletion={deletion}
         onSelect={onSelectSession}
         selectedSessionId={selectedSessionId}
         sessions={sessions}

@@ -22,8 +22,6 @@ import {
   currentInvocation,
   demoInitialMessage,
   persistentInvocation,
-  reconnectCommand,
-  registrationCommand,
   sessionServerSpec,
   shellQuote,
   workInitialMessage,
@@ -50,6 +48,7 @@ it("supplies a session-only server on an available port for this directory", () 
       "claude",
       "--fallback-directory",
       "/work/my app",
+      "--session-only",
     ],
     command: "/usr/local/bin/node",
     env: {
@@ -74,6 +73,7 @@ it("serves the demo store only to a session started with --demo", () => {
     "claude",
     "--fallback-directory",
     "/work/my app",
+    "--session-only",
     "--demo",
   ]);
 });
@@ -102,6 +102,7 @@ it.each(HARNESS_IDS)(
         agent,
         "--fallback-directory",
         "/work/my app",
+        "--session-only",
       ],
       command: "/usr/local/bin/node",
     });
@@ -118,6 +119,66 @@ it("keeps permanent npx registrations and reconnects portable", () => {
       version: "1.2.3",
     })
   ).toEqual({ args: ["-y", "@contingencyhq/cli@1.2.3"], command: "npx" });
+});
+
+it.each([
+  [
+    "pnpm",
+    "/Users/a/Library/Caches/pnpm/dlx/hash/run/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "pnpm on Windows",
+    String.raw`C:\Users\a\AppData\Local\pnpm-cache\dlx\hash\node_modules\@contingencyhq\cli\dist\index.js`,
+  ],
+  [
+    "pnpm with a custom cache directory",
+    "/custom/cache/dlx/hash/run/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "vpx",
+    "/Users/a/Library/Caches/pnpm/dlx/cd0a22a4dee239a15242cd9754118cd3/mvvwrb44-18yk/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "bunx",
+    "/private/tmp/bunx-501-@contingencyhq/cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn PnP dlx",
+    "/Users/a/.yarn/berry/cache/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn PnP dlx with a custom cache folder",
+    "/var/tmp/yarn-packages/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn dlx",
+    "/private/tmp/xfs-123/dlx-456/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+])("keeps permanent %s registrations portable", (_, script) => {
+  expect(
+    persistentInvocation({
+      execPath: "/runtime/node/26/bin/node",
+      packageName: "@contingencyhq/cli",
+      script: script ?? "",
+      version: "1.2.3",
+    })
+  ).toEqual({ args: ["-y", "@contingencyhq/cli@1.2.3"], command: "npx" });
+});
+
+it.each([
+  "/usr/local/lib/node_modules/@contingencyhq/cli/dist/index.js",
+  "/Users/a/.local/share/pnpm/global/5/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  "/Users/a/.bun/install/global/node_modules/@contingencyhq/cli/dist/index.js",
+  "/work/dlx/node_modules/@contingencyhq/cli/dist/index.js",
+])("keeps the absolute installed path %s", (script) => {
+  expect(
+    persistentInvocation({
+      execPath: "/usr/bin/node",
+      packageName: "@contingencyhq/cli",
+      script,
+      version: "1.2.3",
+    })
+  ).toEqual({ args: [script], command: "/usr/bin/node" });
 });
 
 /** The launch plan the real harness builds. */
@@ -183,7 +244,7 @@ it.effect("passes Codex TOML overrides and keeps the prompt last", () =>
         "-c",
         'mcp_servers.contingency.command="/usr/local/bin/node"',
         "-c",
-        'mcp_servers.contingency.args=["/opt/contingency/dist/index.js", "mcp", "--agent", "codex", "--fallback-directory", "/work/app"]',
+        'mcp_servers.contingency.args=["/opt/contingency/dist/index.js", "mcp", "--agent", "codex", "--fallback-directory", "/work/app", "--session-only"]',
         "-c",
         'mcp_servers.contingency.env={ CONTINGENCY_CATALOG_ROOT = "/work/app/.contingency", CONTINGENCY_MCP_PORT = "0" }',
         "-c",
@@ -227,7 +288,6 @@ it.effect(
         mcp: {
           servers: {
             contingency: {
-              codemode: false,
               command: [opencodeSpec.command, ...opencodeSpec.args],
               environment: opencodeSpec.env,
               timeout: { startup: 60_000 },
@@ -265,7 +325,7 @@ it.effect("adds the server to the user's own OPENCODE_CONFIG_CONTENT", () =>
     expect(content).toContain(
       '"other": { "type": "local", "command": ["other"] }'
     );
-    expect(content).toContain('"codemode": false');
+    expect(content).not.toContain('"codemode"');
   })
 );
 
@@ -309,37 +369,15 @@ it.effect(
     })
 );
 
-it("points the first message at the bundled prompt and the launch context", () => {
-  const message = demoInitialMessage({
-    agent: { label: "Claude Code" },
-    catalogRoot: "/work/my app/.contingency",
-    directory: "/work/my app",
-    registrationCommand: registrationCommand({
-      agent: "claude",
-      directory: "/work/my app",
-      invocation,
-    }),
-  });
-  expect(message).toContain("contingency://onboarding/starter-prompt");
-  expect(message).toContain("- Catalog Root: /work/my app/.contingency");
-  expect(message).toContain(
-    "/usr/local/bin/node /opt/contingency/dist/index.js register --agent claude --fallback-directory '/work/my app'"
+it("uses only the starter resource instruction for a demo launch", () => {
+  expect(demoInitialMessage()).toBe(
+    "Read the MCP resource contingency://onboarding/starter-prompt from the contingency server and follow it."
   );
 });
 
-it("points a work session at the work prompt and how to reconnect", () => {
-  const message = workInitialMessage({
-    agent: { label: "Codex" },
-    catalogRoot: "/work/my app/.contingency",
-    directory: "/work/my app",
-    reconnectCommand: reconnectCommand({ agent: "codex", invocation }),
-  });
-  expect(message).toContain("contingency://start/work-prompt");
-  expect(message).not.toContain("contingency://onboarding/starter-prompt");
-  expect(message).not.toContain("register");
-  expect(message).toContain("- Catalog Root: /work/my app/.contingency");
-  expect(message).toContain(
-    "/usr/local/bin/node /opt/contingency/dist/index.js start --agent codex"
+it("uses only the work resource instruction for a work launch", () => {
+  expect(workInitialMessage()).toBe(
+    "Read the MCP resource contingency://start/work-prompt from the contingency server and follow it."
   );
 });
 

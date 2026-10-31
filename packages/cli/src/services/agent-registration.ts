@@ -55,6 +55,42 @@ export const baseRegistrationServerSpec = (input: {
   env: { CONTINGENCY_MCP_PORT: "0" },
 });
 
+/** Keep shared context out of the way and bound each terminal value. */
+const fieldDifference = (
+  field: string,
+  oldValue: string | undefined,
+  newValue: string | undefined
+): string => {
+  let prefix = 0;
+  let suffix = 0;
+  if (oldValue !== undefined && newValue !== undefined) {
+    while (
+      prefix < Math.min(oldValue.length, newValue.length) &&
+      oldValue[prefix] === newValue[prefix]
+    ) {
+      prefix += 1;
+    }
+    while (
+      suffix < Math.min(oldValue.length, newValue.length) - prefix &&
+      oldValue.at(-suffix - 1) === newValue.at(-suffix - 1)
+    ) {
+      suffix += 1;
+    }
+  }
+  const short = (value: string | undefined): string => {
+    if (value === undefined) {
+      return "unset";
+    }
+    const start = prefix > 16 ? prefix : 0;
+    const end = suffix > 16 ? value.length - suffix : value.length;
+    const text = `${start > 0 ? "…" : ""}${value.slice(start, end)}${end < value.length ? "…" : ""}`;
+    return JSON.stringify(
+      text.length > 100 ? `${text.slice(0, 48)}…${text.slice(-48)}` : text
+    );
+  };
+  return `${field}: ${short(oldValue)} -> ${short(newValue)}`;
+};
+
 /** What differs between an existing entry and the wanted one, in words. */
 export const describeDifferences = (
   existing: ServerSpec,
@@ -69,13 +105,27 @@ export const describeDifferences = (
   }
   if (existing.command !== wanted.command) {
     differences.push(
-      `command is ${JSON.stringify(existing.command)}; Contingency would use ${JSON.stringify(wanted.command)}`
+      fieldDifference("command", existing.command, wanted.command)
     );
   }
-  if (JSON.stringify(existing.args) !== JSON.stringify(wanted.args)) {
-    differences.push(
-      `args are ${JSON.stringify(existing.args)}; Contingency would use ${JSON.stringify(wanted.args)}`
-    );
+  // Align the shared tail first, so a launcher that gains or loses an
+  // argument (`node script` -> `npx -y pkg`) does not shift every later one.
+  let shared = 0;
+  while (
+    shared < Math.min(existing.args.length, wanted.args.length) &&
+    existing.args.at(-shared - 1) === wanted.args.at(-shared - 1)
+  ) {
+    shared += 1;
+  }
+  const changed = Math.max(existing.args.length, wanted.args.length) - shared;
+  for (let index = 0; index < changed; index += 1) {
+    const before =
+      index < existing.args.length - shared ? existing.args[index] : undefined;
+    const after =
+      index < wanted.args.length - shared ? wanted.args[index] : undefined;
+    if (before !== after) {
+      differences.push(fieldDifference(`args[${index}]`, before, after));
+    }
   }
   const keys = new Set([
     ...Object.keys(existing.env),
@@ -84,7 +134,7 @@ export const describeDifferences = (
   for (const key of [...keys].toSorted()) {
     if (existing.env[key] !== wanted.env[key]) {
       differences.push(
-        `env ${key} is ${existing.env[key] === undefined ? "unset" : JSON.stringify(existing.env[key])}; Contingency would use ${wanted.env[key] === undefined ? "unset" : JSON.stringify(wanted.env[key])}`
+        fieldDifference(`env ${key}`, existing.env[key], wanted.env[key])
       );
     }
   }

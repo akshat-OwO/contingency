@@ -64,6 +64,7 @@ export const makeMcpHttpLayer = <R = never>(
   options: {
     readonly codeMode?: boolean | undefined;
     readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
+    readonly launchContext?: string | undefined;
     readonly systemOne?: SystemOneConfig | undefined;
   } = {}
 ) =>
@@ -87,7 +88,9 @@ export const makeMcpHttpLayer = <R = never>(
     McpAgentRunLayer,
     McpTeachingRecordingLayer,
     McpAuthoringSkillsLayer,
-    makeMcpStartLayer(options.demoSite),
+    makeMcpStartLayer(options.demoSite, {
+      launchContext: options.launchContext,
+    }),
     options.codeMode === true ? McpCodeModeLayer : Layer.empty,
     makeMcpPursuitLayer(options.systemOne)
   ).pipe(Layer.provide(makeHostMiddleware(allowedOrigins)));

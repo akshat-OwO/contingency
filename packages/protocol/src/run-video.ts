@@ -43,16 +43,20 @@ export type RunVideoTimeMap = typeof RunVideoTimeMap.Type;
 /**
  * Where a finished Run's video stands. The video is encoded after the Run
  * ends, so a Run Summary can exist before its video does. A video that could
- * not be condensed is still served, in real time, with the reason.
+ * not be condensed is still served, in real time, with the reason. A ready
+ * video names its absolute `path` on this machine, so a person can open the
+ * file itself; the Summary's `videoPath` is relative to the Run's directory.
  */
 export const RunVideoStatus = Schema.Union([
   Schema.Struct({ state: Schema.Literal("preparing") }),
   Schema.Struct({
     condensed: Schema.Literal(true),
+    path: nonEmptyString,
     state: Schema.Literal("ready"),
   }),
   Schema.Struct({
     condensed: Schema.Literal(false),
+    path: nonEmptyString,
     reason: nonEmptyString,
     state: Schema.Literal("ready"),
   }),

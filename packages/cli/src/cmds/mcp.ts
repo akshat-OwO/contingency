@@ -20,7 +20,13 @@ import { HttpServer } from "effect/http";
 import type { HttpServerError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
 
+import packageJson from "../../package.json" with { type: "json" };
 import { AgentHarnesses, HARNESS_IDS } from "../services/agent-harness.ts";
+import {
+  persistentInvocation,
+  reconnectCommand,
+  registrationCommand,
+} from "../services/agent-launch.ts";
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
@@ -156,8 +162,19 @@ export const mcpCommand = Command.make(
       ),
       Flag.optional
     ),
+    sessionOnly: Flag.Boolean("session-only").pipe(
+      Flag.withDescription(
+        "Identify a session-only server launched by contingency start."
+      ),
+      Flag.withDefault(false)
+    ),
   },
-  Effect.fnUntraced(function* runMcp({ agent, demo, fallbackDirectory }) {
+  Effect.fnUntraced(function* runMcp({
+    agent,
+    demo,
+    fallbackDirectory,
+    sessionOnly,
+  }) {
     const config = yield* Config.all({
       // Claude Code channels are opt-in and stdio-only (ADR 0055).
       channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
@@ -200,6 +217,36 @@ export const mcpCommand = Command.make(
           home: defaultHomeDirectory(),
           projectDirectory,
         });
+        const invocation = persistentInvocation({
+          execPath: process.execPath,
+          packageName: packageJson.name,
+          script: process.argv[1] ?? "",
+          version: packageJson.version,
+        });
+        const onboardingDirectory = Option.getOrElse(
+          fallbackDirectory,
+          () => projectDirectory
+        );
+        const launchContext = [
+          "## Launch context",
+          "",
+          `- Agent: ${Option.isSome(agent) ? harnesses[agent.value].label : "Unspecified Agent Harness"}`,
+          `- Working directory: ${projectDirectory}`,
+          `- Catalog Root: ${catalogDirectory.root}`,
+          `- Connection: ${sessionOnly ? "session-only; the user's agent configuration is unchanged." : "configured MCP connection; registration is managed by the Agent Harness."}`,
+          ...(catalogDirectory.fallback === undefined
+            ? []
+            : [
+                `- Catalog fallback: ${catalogDirectory.fallback.directory}. ${catalogDirectory.fallback.reason}`,
+              ]),
+          ...(Option.isSome(agent)
+            ? [
+                `- Reconnect command (run from the working directory; add --demo for the guided demo): ${reconnectCommand({ agent: agent.value, invocation })}`,
+                `- Original onboarding directory (fallback for registration across projects): ${onboardingDirectory}`,
+                `- Registration command (add --scope project or --scope user, and --replace only after the user chooses replacement): ${registrationCommand({ agent: agent.value, directory: onboardingDirectory, invocation })}`,
+              ]
+            : []),
+        ].join("\n");
         const ownerMarker = yield* prepareAgentResourceDirectory(
           defaultAgentResourceDirectory()
         );
@@ -297,7 +344,7 @@ export const mcpCommand = Command.make(
                   version: "0.0.1",
                 }),
                 mcpTools,
-                makeMcpStartLayer(demoSite),
+                makeMcpStartLayer(demoSite, { launchContext }),
                 codeMode ? McpCodeModeLayer : Layer.empty,
                 makeMcpPursuitLayer(systemOne)
               ).pipe(
@@ -344,6 +391,7 @@ export const mcpCommand = Command.make(
             mcp: makeMcpHttpLayer(allowedOrigins, {
               codeMode,
               demoSite,
+              launchContext,
               systemOne,
             }).pipe(Layer.provide(shared)),
             port: address.port,

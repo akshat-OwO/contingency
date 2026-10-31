@@ -12,12 +12,7 @@ import { AgentLaunchError } from "./agent-launch-error.ts";
 import type { ServerSpec } from "./agent-registration.ts";
 import { SERVER_NAME } from "./agent-registration.ts";
 import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
-import {
-  STARTER_PROMPT_URI,
-  WORK_PROMPT_URI,
-  starterPromptPath,
-  workPromptPath,
-} from "./mcp-onboarding.ts";
+import { STARTER_PROMPT_URI, WORK_PROMPT_URI } from "./mcp-onboarding.ts";
 
 /**
  * Launching an installed Agent Harness with Contingency connected for one
@@ -156,6 +151,19 @@ export const currentInvocation = (input: {
   command: input.execPath,
 });
 
+// vpx uses pnpm's dlx cache. Yarn can expose either its temporary project
+// or a PnP zip path, and its cache folder can have any name. Only a package
+// cache serves code from inside a zip. Match runner directories, not
+// ordinary global installs.
+const isRunnerCache = (script: string): boolean => {
+  const normalized = script.replaceAll("\\", "/");
+  return (
+    /(?:^|\/)(?:_npx\/|dlx\/[^/]+\/(?:[^/]+\/)?node_modules\/|bunx-[^/]+\/|dlx-[^/]+\/)/u.test(
+      normalized
+    ) || /\.zip\/node_modules\//u.test(normalized)
+  );
+};
+
 /** A cache path is unsuitable for permanent registration or later reconnects. */
 export const persistentInvocation = (input: {
   readonly execPath: string;
@@ -163,7 +171,7 @@ export const persistentInvocation = (input: {
   readonly script: string;
   readonly version: string;
 }): CliInvocation =>
-  input.script.split(path.sep).includes("_npx")
+  isRunnerCache(input.script)
     ? {
         args: ["-y", `${input.packageName}@${input.version}`],
         command: "npx",
@@ -184,6 +192,7 @@ export const sessionServerSpec = (input: {
     input.agent,
     "--fallback-directory",
     input.directory,
+    "--session-only",
     ...(input.demo ? ["--demo"] : []),
   ],
   command: input.invocation.command,
@@ -196,20 +205,6 @@ export const sessionServerSpec = (input: {
 /** A POSIX shell word, so a launch-context command can be pasted as-is. */
 export const shellQuote = (word: string): string =>
   /^[\w@%+=:,./-]+$/u.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-
-export interface LaunchContext {
-  readonly agent: Pick<AgentHarness, "label">;
-  readonly catalogRoot: string;
-  readonly directory: string;
-}
-
-export interface DemoLaunchContext extends LaunchContext {
-  readonly registrationCommand: string;
-}
-
-export interface WorkLaunchContext extends LaunchContext {
-  readonly reconnectCommand: string;
-}
 
 /** The command that starts this session-only connection again. */
 export const reconnectCommand = (input: {
@@ -243,42 +238,9 @@ export const registrationCommand = (input: {
     .map(shellQuote)
     .join(" ");
 
-/**
- * The first message of a `--demo` launch. It is short on purpose: the
- * procedure is the bundled starter prompt, served by the same server version
- * as an MCP resource and present on disk beside the CLI.
- */
-export const demoInitialMessage = (context: DemoLaunchContext): string =>
-  [
-    "Start Contingency onboarding.",
-    "Call agent_catalog_get, then include its workspaceUrl as a clickable Open Workspace link in your introduction before asking the user to choose a task. This base link works before a session starts; invite the user to keep it open to watch the Example and Teaching.",
-    "After starting or switching a session, send its returned viewUrl as a clickable Workspace link in a user-visible message before your next browser action. Share the new link for each Example, Teaching session, Dry Run, and Run.",
-    `Read the MCP resource ${STARTER_PROMPT_URI} from the ${SERVER_NAME} server and follow it. The same prompt is in ${starterPromptPath}.`,
-    "",
-    "Launch context:",
-    `- Agent: ${context.agent.label}`,
-    `- Working directory: ${context.directory}`,
-    `- Catalog Root: ${context.catalogRoot}`,
-    `- Original onboarding directory (fallback for registration across projects): ${context.directory}`,
-    `- Registration command (add --scope project or --scope user, and --replace only after the user chooses replacement): ${context.registrationCommand}`,
-  ].join("\n");
+/** The server resource owns the procedure and this process's launch context. */
+export const demoInitialMessage = (): string =>
+  `Read the MCP resource ${STARTER_PROMPT_URI} from the ${SERVER_NAME} server and follow it.`;
 
-/**
- * The first message of a launch without `--demo`. Like the demo message, the
- * procedure is the bundled work prompt; this message carries only the habits
- * that must hold before the agent reads it, and the launch context.
- */
-export const workInitialMessage = (context: WorkLaunchContext): string =>
-  [
-    "Start a Contingency session.",
-    "Call agent_catalog_get, then include its workspaceUrl as a clickable Open Workspace link in your introduction before asking the user to choose a task.",
-    "After starting or switching a session, send its returned viewUrl as a clickable Workspace link in a user-visible message before your next browser action. Share the new link for each Teaching session, Dry Run, and Run.",
-    `Read the MCP resource ${WORK_PROMPT_URI} from the ${SERVER_NAME} server and follow it. The same prompt is in ${workPromptPath}.`,
-    "",
-    "Launch context:",
-    `- Agent: ${context.agent.label}`,
-    `- Working directory: ${context.directory}`,
-    `- Catalog Root: ${context.catalogRoot}`,
-    "- Connection: session-only; the user's agent configuration is unchanged.",
-    `- Reconnect command (run from the working directory; add --demo for the guided demo): ${context.reconnectCommand}`,
-  ].join("\n");
+export const workInitialMessage = (): string =>
+  `Read the MCP resource ${WORK_PROMPT_URI} from the ${SERVER_NAME} server and follow it.`;

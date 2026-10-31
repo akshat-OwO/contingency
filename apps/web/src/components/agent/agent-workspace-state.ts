@@ -165,6 +165,22 @@ export interface AgentControlPresentation {
   readonly reason: string | undefined;
 }
 
+/** The same control gestures on browser, Android, and iOS docks. */
+export const controlState = (
+  controller: "agent" | "user",
+  requested = false
+): Pick<AgentControlPresentation, "action" | "holder"> => {
+  if (controller === "user") {
+    return { action: "Return control", holder: "You have control" };
+  }
+  return requested
+    ? {
+        action: "Take over",
+        holder: "The agent is asking you to take over",
+      }
+    : { action: "Take control", holder: "The agent has control" };
+};
+
 const takeoverReason = (
   takeover: AgentSessionSnapshot["takeover"]
 ): string | undefined => {
@@ -209,7 +225,10 @@ export const agentControlPresentation = (
     };
   }
   if (session.controller === "user") {
-    return { action: "Return control", holder: "You have control", reason };
+    return { ...controlState(session.controller), reason };
+  }
+  if (session.phase === "takeover") {
+    return { ...controlState(session.controller, true), reason };
   }
   if (session.boundary !== undefined && session.boundary !== null) {
     return {
@@ -219,11 +238,7 @@ export const agentControlPresentation = (
     };
   }
   return {
-    action: "Take control",
-    holder:
-      session.phase === "takeover"
-        ? "The agent is waiting for you"
-        : "The agent has control",
+    ...controlState(session.controller),
     reason,
   };
 };
@@ -239,7 +254,9 @@ export const agentStatusLabel = (
     return "No session selected";
   }
   if (session.phase === "takeover") {
-    return "Waiting for your control";
+    return session.controller === "agent"
+      ? "Takeover requested"
+      : "You have control";
   }
   if (session.boundary !== undefined && session.boundary !== null) {
     return "Waiting for confirmation";
@@ -284,4 +301,40 @@ export const adoptSessionSnapshot = (
     return polled;
   }
   return polled.updatedAt > held.updatedAt ? polled : held;
+};
+
+/** Follow a rehearsal by recording identity, regardless of session list order. */
+export const relatedWorkspaceSession = (
+  held: AgentSessionSnapshot | undefined,
+  sessions: readonly AgentSessionSnapshot[]
+): AgentSessionSnapshot | undefined => {
+  if (held?.activity === "teaching") {
+    const teaching = sessions.find((session) => session.id === held.id) ?? held;
+    if (
+      teaching.activity === "teaching" &&
+      teaching.captureState._tag === "dry-running"
+    ) {
+      const { dryRunSessionId } = teaching.captureState;
+      return sessions.find((session) => session.id === dryRunSessionId);
+    }
+  }
+  if (held?.activity === "run" && held.dryRun !== null) {
+    const { recordingId } = held.dryRun;
+    const teaching = sessions.find(
+      (session) =>
+        session.activity === "teaching" && session.recordingId === recordingId
+    );
+    if (
+      teaching?.activity === "teaching" &&
+      (!sessions.some(
+        (session) =>
+          session.id === held.id && isLiveAgentSessionPhase(session.phase)
+      ) ||
+        teaching.captureState._tag === "dry-run-passed" ||
+        teaching.captureState._tag === "dry-run-failed")
+    ) {
+      return teaching;
+    }
+  }
+  return undefined;
 };

@@ -110,7 +110,7 @@ export const readClaudeEntries = (input: {
     return {
       project: optionalEntry(
         config.projects?.[input.projectDirectory]?.mcpServers?.[SERVER_NAME],
-        `Claude Code local scope for ${input.projectDirectory}`
+        `${input.configPath} (Claude Code project scope for ${input.projectDirectory})`
       ),
       shared: optionalEntry(
         Option.getOrUndefined(shared)?.mcpServers?.[SERVER_NAME],
@@ -118,7 +118,7 @@ export const readClaudeEntries = (input: {
       ),
       user: optionalEntry(
         config.mcpServers?.[SERVER_NAME],
-        "Claude Code user scope"
+        `${input.configPath} (Claude Code user scope)`
       ),
     } satisfies ClaudeEntries;
   });
@@ -187,8 +187,8 @@ const registerClaude = (request: RegistrationRequest) =>
     const claudeScope = request.scope === "user" ? "user" : "local";
     const location =
       request.scope === "user"
-        ? "Claude Code user scope"
-        : `Claude Code local scope for ${request.projectDirectory}`;
+        ? `${configPath} (Claude Code user scope)`
+        : `${configPath} (Claude Code project scope for ${request.projectDirectory})`;
     const notes = precedenceNotes(request.scope, entries, request.spec);
     const commandOptions = { cwd: request.projectDirectory, env: request.env };
     if (existing !== undefined) {
