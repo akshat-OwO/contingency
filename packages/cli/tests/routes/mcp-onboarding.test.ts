@@ -2,7 +2,7 @@ import { request as httpRequest } from "node:http";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { LEARN_FLOW_SKILL_URI } from "../../src/services/mcp-authoring-skills.ts";
 import {
@@ -10,6 +10,7 @@ import {
   STARTER_PROMPT_URI,
   WORK_PROMPT_URI,
 } from "../../src/services/mcp-onboarding.ts";
+import { McpProcessInfo } from "../../src/services/mcp-process-info.ts";
 import { ONBOARDING_EXAMPLES } from "../../src/services/onboarding-examples.ts";
 import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
 
@@ -213,4 +214,116 @@ it.live.each(["native", "single-tool"] as const)(
       expect(other).toContain("- Connection: registered");
       expect(other).not.toContain("/work/first");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+const SearchResult = Schema.Struct({
+  result: Schema.Struct({
+    structuredContent: Schema.Struct({ value: Schema.Array(Schema.String) }),
+  }),
+});
+
+it.live.each(["native", "single-tool"] as const)(
+  "keeps every onboarding prompt tool name in the live %s catalog",
+  (mcpInterface) =>
+    Effect.gen(function* promptToolContract() {
+      const { request } = yield* connectMcp(
+        yield* servingMcpHttp({
+          demo: true,
+          interface: mcpInterface,
+          systemOne: {
+            apiKey: Option.none(),
+            first: false,
+            model: "test",
+            url: "http://127.0.0.1:9",
+          },
+        })
+      );
+      const names =
+        mcpInterface === "native"
+          ? Schema.decodeUnknownSync(ToolList)(
+              yield* request("tools/list", {})
+            ).result.tools.map(({ name }) => name)
+          : Schema.decodeUnknownSync(SearchResult)(
+              yield* request("tools/call", {
+                name: "agent_code_execute",
+                arguments: {
+                  code: 'return search({ query: "", limit: 100 }).items.map(item => item.path.replace("tools.", ""))',
+                },
+              })
+            ).result.structuredContent.value;
+      const catalog = new Set(names);
+      const uris = Schema.decodeUnknownSync(ResourceList)(
+        yield* request("resources/list", {})
+      ).result.resources.map(({ uri }) => uri);
+      for (const uri of uris.filter(
+        (value) =>
+          value.startsWith("contingency://onboarding/") ||
+          value === WORK_PROMPT_URI ||
+          value.startsWith("contingency://prompt/")
+      )) {
+        const prompt = yield* read(request, uri);
+        const mentioned = [...prompt.matchAll(/\bagent_[A-Za-z0-9_]+\b/gu)].map(
+          ([name]) => name
+        );
+        expect(mentioned.length, uri).toBeGreaterThan(0);
+        for (const name of mentioned) {
+          expect(catalog.has(name), `${uri}: ${name}`).toBe(true);
+        }
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.timeout("60 seconds"),
+      Effect.provide(NodeServices.layer)
+    ),
+  60_000
+);
+
+const CatalogProcessResult = Schema.Struct({
+  result: Schema.Struct({
+    structuredContent: Schema.Struct({ process: McpProcessInfo }),
+  }),
+});
+const CodeProcessResult = Schema.Struct({
+  result: Schema.Struct({
+    structuredContent: Schema.Struct({
+      value: Schema.Struct({ process: McpProcessInfo }),
+    }),
+  }),
+});
+it.live.each(["native", "single-tool"] as const)(
+  "reports the actual %s interface through agent_catalog_get",
+  (mcpInterface) =>
+    Effect.gen(function* catalogProcess() {
+      const { request } = yield* connectMcp(
+        yield* servingMcpHttp({ interface: mcpInterface })
+      );
+      const process =
+        mcpInterface === "native"
+          ? Schema.decodeUnknownSync(CatalogProcessResult)(
+              yield* request("tools/call", {
+                name: "agent_catalog_get",
+                arguments: {},
+              })
+            ).result.structuredContent.process
+          : Schema.decodeUnknownSync(CodeProcessResult)(
+              yield* request("tools/call", {
+                name: "agent_code_execute",
+                arguments: { code: "return await tools.agent_catalog_get({})" },
+              })
+            ).result.structuredContent.value.process;
+      expect(process.mcpInterface).toBe(mcpInterface);
+      expect(process.platforms).toEqual(["browser"]);
+      expect(process.settings.sources).toEqual(["defaults"]);
+      expect(process.settings.restartRequired).toBe(false);
+      expect(process.systemOne).toMatchObject({
+        kind: "not-configured",
+        available: false,
+        reachable: null,
+      });
+    }).pipe(
+      Effect.scoped,
+      Effect.timeout("60 seconds"),
+      Effect.provide(NodeServices.layer)
+    ),
+  60_000
 );

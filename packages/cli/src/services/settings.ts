@@ -436,6 +436,10 @@ const readSettingsFile = (file: string, scope: SettingsScope) =>
 export interface LoadedSettings {
   readonly provider: ConfigProvider.ConfigProvider;
   readonly warnings: readonly string[];
+  readonly sources: readonly string[];
+  readonly fileInterface: McpInterface | undefined;
+  /** Decoded files only, retained internally to detect edits without exposing values. */
+  readonly snapshot: string;
 }
 
 /**
@@ -464,12 +468,18 @@ export const loadSettings = (input: {
       user === undefined ? undefined : schemaVersionWarning(userFile, user),
     ].filter((warning) => warning !== undefined);
     return {
+      fileInterface: project?.mcp?.interface ?? user?.mcp?.interface,
       provider: makeSettingsProvider({
         env: input.env,
         flags: input.flags,
         project,
         user,
       }),
+      snapshot: JSON.stringify([project ?? null, user ?? null]),
+      sources: [
+        project === undefined ? undefined : projectFile,
+        user === undefined ? undefined : userFile,
+      ].filter((file) => file !== undefined),
       warnings,
     } satisfies LoadedSettings;
   });

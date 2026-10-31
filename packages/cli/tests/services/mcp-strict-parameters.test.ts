@@ -17,6 +17,10 @@ import {
   AgentCatalogToolHandlersLive,
   AgentCatalogTools,
 } from "../../src/services/mcp-catalog.ts";
+import {
+  McpProcessDiagnostics,
+  defaultProcessInfo,
+} from "../../src/services/mcp-process-info.ts";
 import { withStrictParameters } from "../../src/services/mcp-strict-parameters.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 
@@ -31,6 +35,7 @@ it("omits the superseded Dry Run report tool", () => {
  * it is touched.
  */
 const untouchedServices = Layer.mergeAll(
+  Layer.succeed(McpProcessDiagnostics, { read: defaultProcessInfo("native") }),
   Layer.mock(AgentSession, {}),
   Layer.mock(AgentRunStore, {}),
   Layer.mock(FlowSkillCatalog, {
