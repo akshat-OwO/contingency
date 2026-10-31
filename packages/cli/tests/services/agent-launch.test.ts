@@ -287,7 +287,6 @@ it.effect(
         mcp: {
           servers: {
             contingency: {
-              codemode: false,
               command: [opencodeSpec.command, ...opencodeSpec.args],
               environment: opencodeSpec.env,
               timeout: { startup: 60_000 },
@@ -325,7 +324,7 @@ it.effect("adds the server to the user's own OPENCODE_CONFIG_CONTENT", () =>
     expect(content).toContain(
       '"other": { "type": "local", "command": ["other"] }'
     );
-    expect(content).toContain('"codemode": false');
+    expect(content).not.toContain('"codemode"');
   })
 );
 

@@ -43,7 +43,7 @@ contingency register --agent codex --scope user
 contingency register --agent opencode --scope user
 ```
 
-Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. OpenCode registration edits `opencode.json` or `opencode.jsonc` in place, keeping comments and unrelated settings, and sets `codemode: false` so Contingency's tools stay native. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
+Project registration applies to the current project. User registration applies across projects, with a separate `.contingency` catalog in each project. Equivalent entries stay unchanged. A different entry is reported without changes; use `--replace` only after choosing replacement. OpenCode registration edits `opencode.json` or `opencode.jsonc` in place, keeping comments and unrelated settings, and leaves `codemode` at OpenCode's default. Existing equivalent entries keep their `codemode` setting. If an agent cannot report a usable project directory, Contingency names and uses the original onboarding directory as its fallback.
 
 Registrations created through `npx` pin the installed Contingency version. To upgrade one, run `npx -y @contingencyhq/cli@latest register --agent codex --scope user --replace`, choosing the agent and scope of your existing registration.
 
