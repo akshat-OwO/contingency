@@ -42,7 +42,7 @@ import type {
  * Contingency process.
  *
  * Registration edits the JSONC configuration directly. `opencode mcp add`
- * cannot write `codemode` or a startup timeout, and it reformats sibling
+ * cannot write a startup timeout, and it reformats sibling
  * entries; a single JSONC edit leaves every other byte, comments included, as
  * written. OpenCode starts stdio servers in the session's directory, even from
  * the background service, so that directory names the current project.
@@ -119,7 +119,6 @@ const OpencodeConfig = Schema.Struct({
 
 /** The entry Contingency writes, for a session or a registration. */
 export interface OpencodeServerEntry {
-  readonly codemode: false;
   readonly command: readonly string[];
   readonly environment: Readonly<Record<string, string>>;
   readonly timeout?: { readonly startup: number };
@@ -128,7 +127,6 @@ export interface OpencodeServerEntry {
 
 export const opencodeEntry = (spec: ServerSpec): OpencodeServerEntry => {
   const entry: OpencodeServerEntry = {
-    codemode: false,
     command: [spec.command, ...spec.args],
     environment: spec.env,
     type: "local",
@@ -200,11 +198,6 @@ export const opencodeEntryFromJsonc = (text: string, location: string) =>
       ...(entry.cwd === undefined
         ? []
         : [`cwd is set to ${JSON.stringify(entry.cwd)}`]),
-      ...(entry.codemode === false
-        ? []
-        : [
-            `codemode is ${entry.codemode === undefined ? "unset" : "true"}; Contingency would set it to false so its tools stay native`,
-          ]),
     ];
     const startup = entry.timeout?.startup;
     return Option.some({
