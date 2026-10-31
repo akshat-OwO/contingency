@@ -7375,9 +7375,9 @@ const makeAgentSession = (
                               kind: "eval",
                               operationId: command.operationId,
                             },
-                          ]),
-                          command
+                          ])
                         );
+                        // Saved state is recorded once, on successful completion.
                         // Register before releasing the mutation gate. Takeover must
                         // always find the dispatched evaluation, including at startup.
                         const fiber = yield* Effect.forkChild(

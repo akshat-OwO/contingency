@@ -424,6 +424,8 @@ it.live(
         );
         expect(saved).toContain("guided-setup");
         expect(saved).toContain("guided-capture");
+        // One saved command per successful evaluation, none at dispatch.
+        expect(saved.match(/"operationId":/gu)).toHaveLength(2);
         const request = yield* sessionTool("agent_variable_request", {
           name: "SECRET",
           operationId: OperationId.make("secret-request"),
