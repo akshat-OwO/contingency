@@ -148,7 +148,7 @@ it.effect("reports the removed Claude entry when replacement fails", () =>
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.failure.message).toContain(
-        "The previous Claude Code user scope registration was removed."
+        `The previous ${path.join(home, ".claude.json")} (Claude Code user scope) registration was removed.`
       );
       expect(result.failure.message).not.toContain(
         "No other configuration was changed"
@@ -257,8 +257,54 @@ it("names every difference a user must decide on", () => {
     )
   ).toEqual([
     "the startup timeout is unset; Contingency would use 60 seconds",
-    `args are ["old.js","mcp"]; Contingency would use ${JSON.stringify(SPEC.args)}`,
-    'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
+    'args[0]: "old.js" -> "/opt/contingency/index.js"',
+    'args[2]: unset -> "--agent"',
+    'args[3]: unset -> "codex"',
+    'args[4]: unset -> "--fallback-directory"',
+    'args[5]: unset -> "/work/onboarding"',
+    'env CONTINGENCY_MCP_PORT: unset -> "0"',
+  ]);
+});
+
+it("reports changed arguments separately and abbreviates shared path text", () => {
+  expect(
+    describeDifferences(
+      {
+        args: ["/same/very/long/path/old/index.js", "mcp", "removed"],
+        command: "node",
+        env: {},
+      },
+      {
+        args: ["/same/very/long/path/new/index.js", "mcp"],
+        command: "node",
+        env: {},
+      }
+    )
+  ).toEqual([
+    'args[0]: "…old/index.js" -> "…new/index.js"',
+    'args[2]: "removed" -> unset',
+  ]);
+});
+
+it("aligns shared trailing arguments when the launcher changes", () => {
+  const tail = ["mcp", "--agent", "claude", "--fallback-directory", "/work"];
+  expect(
+    describeDifferences(
+      {
+        args: ["/cache/dlx/hash/cli/dist/index.js", ...tail],
+        command: "/runtime/node",
+        env: {},
+      },
+      {
+        args: ["-y", "@contingencyhq/cli@1.2.3", ...tail],
+        command: "npx",
+        env: {},
+      }
+    )
+  ).toEqual([
+    'command: "/runtime/node" -> "npx"',
+    'args[0]: "/cache/dlx/hash/cli/dist/index.js" -> "-y"',
+    'args[1]: unset -> "@contingencyhq/cli@1.2.3"',
   ]);
 });
 
@@ -375,6 +421,13 @@ it.effect("reads Claude Code scopes from its configuration files", () =>
       command: "node",
       env: {},
     });
+    expect(entries.user?.location).toBe(
+      `${configPath} (Claude Code user scope)`
+    );
+    expect(entries.project?.location).toBe(
+      `${configPath} (Claude Code project scope for ${project})`
+    );
+    expect(entries.shared?.location).toBe(path.join(project, ".mcp.json"));
     expect(entries.project?.extras).toEqual(["type is http, not stdio"]);
     expect(entries.shared?.spec.command).toBe("shared");
   }).pipe(Effect.provide(NodeServices.layer))
@@ -401,9 +454,8 @@ const OPENCODE_UNRELATED = `{
 }
 `;
 
-it("writes OpenCode's local entry with native tools and a cold-start timeout", () => {
+it("writes OpenCode's local entry with a cold-start timeout", () => {
   expect(opencodeEntry(OPENCODE_SPEC)).toEqual({
-    codemode: false,
     command: [
       "/usr/bin/node",
       "/opt/contingency/index.js",
@@ -429,7 +481,7 @@ it.effect("edits one JSONC entry and keeps every other byte", () =>
     expect(next.startsWith(head ?? "")).toBe(true);
     expect(next.endsWith(`\t\t},\n${tail ?? ""}`)).toBe(true);
     // The new entry follows the file's tab indentation.
-    expect(next).toContain('\t\t\t"contingency": {\n\t\t\t\t"codemode": false');
+    expect(next).toContain('\t\t\t"contingency": {\n\t\t\t\t"command": [');
     const entry = yield* opencodeEntryFromJsonc(next, "opencode.jsonc");
     expect(Option.getOrThrow(entry)).toEqual({
       extras: [],
@@ -445,7 +497,6 @@ it.effect("edits one JSONC entry and keeps every other byte", () =>
 /** The Contingency entry as `withOpencodeEntry` writes it with tabs. */
 const entryLines = (indent: string, closing = "}") => [
   `${indent}"contingency": {`,
-  `${indent}\t"codemode": false,`,
   `${indent}\t"command": [`,
   `${indent}\t\t"node"`,
   `${indent}\t],`,
@@ -488,7 +539,7 @@ it("adds the entry on its own line, after a comment and with CRLF", () => {
   ]);
 });
 
-it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
+it.effect("names what differs in an OpenCode entry", () =>
   Effect.gen(function* opencodeDiffers() {
     const written = `{ "mcp": { "servers": { "contingency": ${JSON.stringify({
       command: ["/usr/bin/node", "old.js"],
@@ -503,11 +554,15 @@ it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
       describeDifferences(entry.spec, OPENCODE_SPEC, entry.extras)
     ).toEqual([
       "the startup timeout is unset; Contingency would use 60 seconds",
-      `args are ["old.js"]; Contingency would use ${JSON.stringify(OPENCODE_SPEC.args)}`,
-      'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
+      'args[0]: "old.js" -> "/opt/contingency/index.js"',
+      'args[1]: unset -> "mcp"',
+      'args[2]: unset -> "--agent"',
+      'args[3]: unset -> "opencode"',
+      'args[4]: unset -> "--fallback-directory"',
+      'args[5]: unset -> "/work/onboarding"',
+      'env CONTINGENCY_MCP_PORT: unset -> "0"',
       "disabled is set to true",
       'cwd is set to "/elsewhere"',
-      "codemode is unset; Contingency would set it to false so its tools stay native",
     ]);
     const remote = Option.getOrThrow(
       yield* opencodeEntryFromJsonc(
@@ -525,6 +580,50 @@ it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
     expect(Result.isFailure(malformed)).toBe(true);
   })
 );
+
+for (const codemode of [true, false, undefined]) {
+  it.effect(
+    `keeps an equivalent OpenCode entry with codemode ${String(codemode)}`,
+    () =>
+      Effect.gen(function* keepCodemode() {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const project = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "contingency-opencode-codemode-",
+        });
+        const config = path.join(project, "opencode.jsonc");
+        const original = `// Keep the user's choice and formatting.\n${JSON.stringify(
+          {
+            mcp: {
+              servers: {
+                contingency: { ...opencodeEntry(OPENCODE_SPEC), codemode },
+              },
+            },
+          }
+        )}\n`;
+        yield* fileSystem.writeFileString(config, original);
+        for (const replace of [false, true]) {
+          const outcome = yield* register({
+            env: {},
+            harness: "opencode",
+            home: project,
+            projectDirectory: project,
+            replace,
+            scope: "project",
+            spec: OPENCODE_SPEC,
+          });
+          expect(outcome).toEqual({
+            _tag: "kept",
+            location: config,
+            notes: [],
+          });
+          expect(yield* fileSystem.readFileString(config)).toBe(original);
+        }
+      }).pipe(
+        Effect.provide(AgentHarnessesLive),
+        Effect.provide(NodeServices.layer)
+      )
+  );
+}
 
 it.effect(
   "registers, keeps, reports, and replaces an OpenCode project entry",
@@ -568,6 +667,7 @@ it.effect(
         notes: [],
       });
       const afterFirst = yield* fileSystem.readFileString(projectConfig);
+      expect(afterFirst).not.toContain('"codemode"');
       expect(afterFirst).toContain(
         "// Personal settings stay exactly as written."
       );

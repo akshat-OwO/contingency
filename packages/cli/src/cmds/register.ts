@@ -43,7 +43,7 @@ const report = (outcome: RegistrationOutcome): string[] => {
       lines.push(
         `Differs: ${outcome.location} already has a different Contingency registration. Nothing changed.`,
         ...outcome.differences.map((difference) => `- ${difference}`),
-        "Ask the user whether to keep it or replace it. To replace it, run this command again with --replace."
+        "Keep the existing registration, or run this command again with --replace to replace it. Agents must ask the user before replacing it."
       );
       break;
     }

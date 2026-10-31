@@ -121,6 +121,66 @@ it("keeps permanent npx registrations and reconnects portable", () => {
   ).toEqual({ args: ["-y", "@contingencyhq/cli@1.2.3"], command: "npx" });
 });
 
+it.each([
+  [
+    "pnpm",
+    "/Users/a/Library/Caches/pnpm/dlx/hash/run/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "pnpm on Windows",
+    String.raw`C:\Users\a\AppData\Local\pnpm-cache\dlx\hash\node_modules\@contingencyhq\cli\dist\index.js`,
+  ],
+  [
+    "pnpm with a custom cache directory",
+    "/custom/cache/dlx/hash/run/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "vpx",
+    "/Users/a/Library/Caches/pnpm/dlx/cd0a22a4dee239a15242cd9754118cd3/mvvwrb44-18yk/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "bunx",
+    "/private/tmp/bunx-501-@contingencyhq/cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn PnP dlx",
+    "/Users/a/.yarn/berry/cache/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn PnP dlx with a custom cache folder",
+    "/var/tmp/yarn-packages/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
+    "yarn dlx",
+    "/private/tmp/xfs-123/dlx-456/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+])("keeps permanent %s registrations portable", (_, script) => {
+  expect(
+    persistentInvocation({
+      execPath: "/runtime/node/26/bin/node",
+      packageName: "@contingencyhq/cli",
+      script: script ?? "",
+      version: "1.2.3",
+    })
+  ).toEqual({ args: ["-y", "@contingencyhq/cli@1.2.3"], command: "npx" });
+});
+
+it.each([
+  "/usr/local/lib/node_modules/@contingencyhq/cli/dist/index.js",
+  "/Users/a/.local/share/pnpm/global/5/node_modules/.pnpm/@contingencyhq+cli@1.2.3/node_modules/@contingencyhq/cli/dist/index.js",
+  "/Users/a/.bun/install/global/node_modules/@contingencyhq/cli/dist/index.js",
+  "/work/dlx/node_modules/@contingencyhq/cli/dist/index.js",
+])("keeps the absolute installed path %s", (script) => {
+  expect(
+    persistentInvocation({
+      execPath: "/usr/bin/node",
+      packageName: "@contingencyhq/cli",
+      script,
+      version: "1.2.3",
+    })
+  ).toEqual({ args: [script], command: "/usr/bin/node" });
+});
+
 /** The launch plan the real harness builds. */
 const launchPlan = (harness: HarnessId, request: LaunchRequest) =>
   Effect.gen(function* buildPlan() {
@@ -228,7 +288,6 @@ it.effect(
         mcp: {
           servers: {
             contingency: {
-              codemode: false,
               command: [opencodeSpec.command, ...opencodeSpec.args],
               environment: opencodeSpec.env,
               timeout: { startup: 60_000 },
@@ -266,7 +325,7 @@ it.effect("adds the server to the user's own OPENCODE_CONFIG_CONTENT", () =>
     expect(content).toContain(
       '"other": { "type": "local", "command": ["other"] }'
     );
-    expect(content).toContain('"codemode": false');
+    expect(content).not.toContain('"codemode"');
   })
 );
 

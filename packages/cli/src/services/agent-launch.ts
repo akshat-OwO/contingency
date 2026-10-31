@@ -151,6 +151,19 @@ export const currentInvocation = (input: {
   command: input.execPath,
 });
 
+// vpx uses pnpm's dlx cache. Yarn can expose either its temporary project
+// or a PnP zip path, and its cache folder can have any name. Only a package
+// cache serves code from inside a zip. Match runner directories, not
+// ordinary global installs.
+const isRunnerCache = (script: string): boolean => {
+  const normalized = script.replaceAll("\\", "/");
+  return (
+    /(?:^|\/)(?:_npx\/|dlx\/[^/]+\/(?:[^/]+\/)?node_modules\/|bunx-[^/]+\/|dlx-[^/]+\/)/u.test(
+      normalized
+    ) || /\.zip\/node_modules\//u.test(normalized)
+  );
+};
+
 /** A cache path is unsuitable for permanent registration or later reconnects. */
 export const persistentInvocation = (input: {
   readonly execPath: string;
@@ -158,7 +171,7 @@ export const persistentInvocation = (input: {
   readonly script: string;
   readonly version: string;
 }): CliInvocation =>
-  input.script.split(path.sep).includes("_npx")
+  isRunnerCache(input.script)
     ? {
         args: ["-y", `${input.packageName}@${input.version}`],
         command: "npx",
