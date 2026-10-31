@@ -141,7 +141,7 @@ export const describeElement = (
 
 /**
  * Which operation an element accepts, if any. A field whose value the Snapshot
- * withholds is fillable only when private Variables are in scope, so training
+ * withholds is fillable only when Variables are in scope, so training
  * requests, which carry none, never offer it.
  */
 export const operationFor = (

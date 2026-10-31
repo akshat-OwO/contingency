@@ -1278,7 +1278,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               (setup && source !== "agent")
             ) {
               return yield* denied(
-                "Request private Variables during agent-held setup, user-led recording, or a Run with private input enabled."
+                "Request Variables during agent-held setup, user-led recording, or a Run with private input enabled."
               );
             }
             const variables = registry.get(session.variables);
@@ -1321,7 +1321,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               existing.status !== "requested"
             ) {
               return yield* denied(
-                "Only Workspace can answer the current private Variable request."
+                "Only Workspace can answer the current Variable request."
               );
             }
             registry.set(

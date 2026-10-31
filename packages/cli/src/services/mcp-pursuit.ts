@@ -107,7 +107,7 @@ type PursueParameters = typeof AgentBrowserPursueParameters.Type;
 
 const AgentBrowserPursueTool = Tool.make("agent_browser_pursue", {
   dependencies: [AgentSession, SystemOne],
-  description: `Delegate Run or Dry Run steps to the configured System One model. steps: ordered {goal, doneWhen}; goal is one Flow Skill step, doneWhen what the Page shows once it holds. Double-quoted text in doneWhen must appear verbatim. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; private Variables by name only. Same operationId replays.`,
+  description: `Delegate Run or Dry Run steps to the configured System One model. steps: ordered {goal, doneWhen}; goal is one Flow Skill step, doneWhen what the Page shows once it holds. Double-quoted text in doneWhen must appear verbatim. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; Variables by name only. Same operationId replays.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserPursueParameters,
   success: UnpublishedPursuitResult,
@@ -181,9 +181,7 @@ const inputsInScope = (
     if (!inputs.has(key)) {
       inputs.set(key, input);
       criteria[key] =
-        input.kind === "value"
-          ? input.value
-          : `the private Variable ${input.name}`;
+        input.kind === "value" ? input.value : `the Variable ${input.name}`;
     }
   }
   return { criteria, inputs };
@@ -655,7 +653,7 @@ const decide = (
     return stop(
       end(
         "unsure",
-        `System One chose private Variable ${input.name} for a list, which a Pursuit cannot select.`
+        `System One chose Variable ${input.name} for a list, which a Pursuit cannot select.`
       )
     );
   }
@@ -917,7 +915,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
         if (input?.kind === "variable" && params.irreversible === true) {
           return end(
             "unsure",
-            `System One chose private Variable ${input.name}; enter it with agent_variable_enter.`
+            `System One chose Variable ${input.name}; enter it with agent_variable_enter.`
           );
         }
         const attempt = yield* Effect.result(dispatch(decision, operationId));

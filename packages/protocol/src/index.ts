@@ -583,7 +583,7 @@ export const AgentBrowserInputSend = Schema.Struct({
 });
 export const AgentBrowserInputSent = Schema.Struct({});
 
-/** Agent View enters one private Variable into the currently focused field. */
+/** Agent View enters one Variable into the currently focused field. */
 export const AgentTeachingVariableInput = TeachingVariableInput;
 export const AgentTeachingVariableInputResult = Schema.Struct({
   action: AgentActionResult,

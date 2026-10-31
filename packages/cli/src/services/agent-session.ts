@@ -1218,7 +1218,7 @@ const sanitizeFailureDetail = (
 };
 
 /**
- * Whether the capture can take one more private Variable at this target.
+ * Whether the capture can take one more Variable at this target.
  * Both the typed-into controls and the boxes a page may spread the value
  * across are checked, since the entry records whichever accepted it.
  */
@@ -4977,7 +4977,11 @@ const makeAgentSession = (
               yield* record.agentBrowser.currentRef(action.ref);
             }
             const sensitive = false;
-            const capturedAction = sanitizeTeachingAction(action);
+            const capturedAction = sanitizeTeachingAction(
+              privateCapture !== undefined && action.type === "fill"
+                ? { ...action, text: `{{${privateCapture.variable.name}}}` }
+                : action
+            );
             const privateValues =
               privateCapture === undefined ? [] : [privateCapture.value];
             const description = describeCapturedAction(
@@ -4990,8 +4994,8 @@ const makeAgentSession = (
               privateCapture === undefined
                 ? description
                 : describeCapturedAction(
-                    actionSubject(record.agentBrowser, action),
-                    action,
+                    actionSubject(record.agentBrowser, capturedAction),
+                    capturedAction,
                     intent,
                     privateValues
                   );
@@ -5472,7 +5476,7 @@ const makeAgentSession = (
 
     const enterUserVariableUnlocked = Effect.fn(
       "AgentSession.enterUserVariable"
-    )(function* enterPrivateVariableAsUser(
+    )(function* enterVariableAsUser(
       sessionId: AgentSessionId,
       input: Omit<PrivateVariableInput, "ref"> & { readonly ref?: string },
       operationId?: OperationId | string
@@ -5496,7 +5500,7 @@ const makeAgentSession = (
             return yield* Effect.fail(
               makeBrowserRpcError(
                 "agent_control_unavailable",
-                "The agent holds the browser. Take control before entering a private Variable."
+                "The agent holds the browser. Take control before entering a Variable."
               )
             );
           }
@@ -5521,7 +5525,7 @@ const makeAgentSession = (
           const urlBefore = page.url();
           const snapshotBefore = capture.latestSnapshotId();
           const executed = yield* record.control.lock.withPermit(
-            Effect.gen(function* fillPrivateValue() {
+            Effect.gen(function* fillVariableValue() {
               const privateTarget = yield* record.agentBrowser.privateSelector(
                 ref,
                 [...input.value].length
@@ -5618,10 +5622,7 @@ const makeAgentSession = (
       }
       const safeFailure =
         outcome.failure._tag === "BrowserRpcError"
-          ? sensitiveFailure(
-              outcome.failure,
-              "Could not enter the private Variable"
-            )
+          ? sensitiveFailure(outcome.failure, "Could not enter the Variable")
           : outcome.failure;
       yield* ledger.remember(
         operationId,

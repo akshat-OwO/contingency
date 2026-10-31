@@ -15,7 +15,7 @@ import type { Effect, Scope } from "effect";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 
 /**
- * Where one private Variable is entered. `selector` names the controls the
+ * Where one Variable is entered. `selector` names the controls the
  * value is typed into: one field, or every box of a split input such as six
  * OTP boxes. `spread` names associated controls in the same widget, which
  * the page may distribute the value across. It is read as evidence that the

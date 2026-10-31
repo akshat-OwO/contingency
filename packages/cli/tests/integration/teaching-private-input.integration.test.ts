@@ -39,7 +39,7 @@ const clickAsUser = (
   });
 
 it.live(
-  "accepts a private Variable the page spread across one-character boxes",
+  "accepts a Variable that the page distributes across one-character input boxes",
   () =>
     Effect.gen(function* enterSpreadCode() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -104,7 +104,7 @@ it.live(
             )
           );
           expect(refused.message).toBe(
-            "Could not enter the private Variable (value_mismatch)."
+            "Could not enter the Variable (value_mismatch)."
           );
 
           yield* clickAsUser(started.id, REMOVE_BACKUP);
@@ -120,7 +120,7 @@ it.live(
             )
           );
           expect(detached.message).toBe(
-            "Could not enter the private Variable (detached)."
+            "Could not enter the Variable (detached)."
           );
           expect(JSON.stringify([refused, detached])).not.toMatch(
             /731904|550127/u
@@ -291,9 +291,15 @@ for (const variant of [
           )) {
             expect(node.valueWithheld).not.toBe(true);
           }
-          expect(JSON.stringify([first, replay, after, history])).toContain(
-            OTP
-          );
+          expect(history.timeline.at(-1)?.description).toContain("{{OTP}}");
+          expect(JSON.stringify(history.timeline)).not.toContain(OTP);
+          if (succeeds && !variant.startsWith("editable")) {
+            const values = after.nodes
+              .filter((node) => node.name.startsWith("otp-input"))
+              .map((node) => node.value ?? "")
+              .join("");
+            expect(values).toBe(OTP);
+          }
           if (succeeds && !variant.startsWith("editable")) {
             const submitted = yield* sessionTool("agent_browser_act", {
               action: {

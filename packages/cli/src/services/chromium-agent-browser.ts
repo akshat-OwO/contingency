@@ -15,7 +15,7 @@ import {
   makeAgentElementRegistry,
   observeAfterAction,
   performAgentAction,
-  performPrivateVariableInput,
+  performVariableInput,
   settledSnapshot,
   snapshotAfterAction,
 } from "./agent-browser.ts";
@@ -69,7 +69,7 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
                   }))
                 ),
               enterPrivate: (target, value, pointer) =>
-                performPrivateVariableInput(page, target, value, pointer),
+                performVariableInput(page, target, value, pointer),
               inspect: (x, y) => registry.inspect(page, x, y),
               perform: (action, pointer) =>
                 Effect.gen(function* performBrowserAction() {
