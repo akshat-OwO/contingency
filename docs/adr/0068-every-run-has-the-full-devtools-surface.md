@@ -23,6 +23,7 @@ This replaces ADR 0062's authority table.
 - **Guided Run modifications become required state.** A Browser Modification made in Guided Run setup that is still active at Start, or made during capture, is saved in the learned Flow Skill as required state. It keeps its order and the point in the journey where it was applied.
 - **Dry Runs reproduce saved state.** A Dry Run applies the saved modifications at the same points in the journey. If one cannot be applied, the Dry Run cannot pass.
 - **Dry Runs have the full devtools surface.** The agent may also make its own Browser Modifications during a Dry Run, with the same authority as in an Interactive Run.
+- **The user decides what a pass means.** Unsaved agent-initiated modifications do not cap a Dry Run's Agent Assessment. Workspace flags them, and the user's verification decides whether the Flow Skill is accepted.
 - **Every modification is visible.** Run evidence records each modification as saved or agent-initiated. Workspace shows them next to the Agent Assessment, so a pass can be read alongside what was mocked or changed.
 - **Pursuits are recorded.** Guided Runs may use Pursuits. Guided Run evidence and the learned Flow Skill mark them as delegated.
 - **Mid-capture Emulation changes are modifications.** The Teaching Recording stores the Emulation at Start. A later Emulation change during Guided Run capture is a Browser Modification and is saved as required state like any other.
@@ -35,7 +36,6 @@ A Dry Run no longer proves that a Flow Skill works without help. A mocked respon
 ## Open questions
 
 - How are saved modifications represented in the Flow Skill: their order, anchor point, and lifetime?
-- Can a Dry Run pass when the agent made Browser Modifications that the Flow Skill did not save, or should its Agent Assessment be capped, for example at `inconclusive`?
 - How does a Pursuit appear in the learned Flow Skill?
 
 ## Considered options
