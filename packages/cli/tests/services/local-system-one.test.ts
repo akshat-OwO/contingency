@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Option, Result } from "effect";
+import { Deferred, Effect, Fiber, Option, Result, Stream } from "effect";
 
 import {
   kevServeArguments,
@@ -325,6 +325,54 @@ describe("installation transaction", () => {
       expect([...test.files.keys()]).toEqual([statePath]);
     })
   );
+  for (const installed of [false, true]) {
+    it.effect(
+      `interrupts a held download during ${installed ? "update" : "setup"} and removes staging`,
+      () =>
+        Effect.gen(function* interruptedDownload() {
+          const entered = yield* Deferred.make<boolean>();
+          const release = yield* Deferred.make<boolean>();
+          const stages: string[] = [];
+          const test = fixture({
+            download: (_url, file) =>
+              Stream.make(new Uint8Array([1, 2, 3])).pipe(
+                Stream.tap(() =>
+                  Effect.sync(() => {
+                    test.files.set(file, "partial");
+                  })
+                ),
+                Stream.tap(() => Deferred.succeed(entered, true)),
+                Stream.tap(() => Deferred.await(release)),
+                Stream.runDrain
+              ),
+            stage: (stage) =>
+              Effect.sync(() => {
+                stages.push(stage);
+              }),
+          });
+          if (installed) {
+            test.files.set(statePath, JSON.stringify(prior));
+          }
+          const running = yield* test.service
+            .setup(() => Effect.succeed(true))
+            .pipe(Effect.forkChild);
+          yield* Deferred.await(entered);
+          expect([...test.files.values()]).toContain("partial");
+          yield* Fiber.interrupt(running);
+          expect(yield* test.service.status).toEqual(
+            installed ? prior : undefined
+          );
+          expect([...test.files.keys()]).toEqual(installed ? [statePath] : []);
+          expect(
+            [...test.directories].filter(
+              (directory) =>
+                directory.includes("install-") || directory.endsWith(".lock")
+            )
+          ).toEqual([]);
+          expect(stages).toEqual(["Environment"]);
+        })
+    );
+  }
   it.effect("stops the recorded server before deleting its installation", () =>
     Effect.gen(function* remove() {
       const test = fixture();

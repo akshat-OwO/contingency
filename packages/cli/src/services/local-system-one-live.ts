@@ -1,9 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { promisify } from "node:util";
 
 import {
   Effect,
@@ -25,6 +24,10 @@ import {
   stopLocalSystemOneProcesses,
   unusedLocalPort,
 } from "./local-system-one-process.ts";
+import {
+  makeLocalSystemOneProgress,
+  modelDownloadScript,
+} from "./local-system-one-progress.ts";
 import { LOCAL_SYSTEM_ONE_RELEASE } from "./local-system-one-release.ts";
 import {
   LocalSystemOne,
@@ -103,11 +106,24 @@ const smokeRequest: SystemOneRequest = {
 const promise = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ catch: localSystemOneError, try: run });
 
-export const LocalSystemOneLive = Layer.effect(
-  LocalSystemOne,
-  Effect.gen(function* localSystemOneLive() {
+export const makeLocalSystemOneLive = (
+  options: {
+    readonly root?: string;
+    readonly archiveUrl?: string;
+    readonly progress?: ReturnType<
+      typeof makeLocalSystemOneProgress<LocalSystemOneError>
+    >;
+  } = {}
+) => {
+  const service = Effect.gen(function* localSystemOneLive() {
     const fs = yield* FileSystem.FileSystem;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const writeProgress = promisify(process.stderr.write.bind(process.stderr));
+    const progress =
+      options.progress ??
+      makeLocalSystemOneProgress(Boolean(process.stderr.isTTY), (text) =>
+        promise(() => writeProgress(text)).pipe(Effect.asVoid)
+      );
     const output = (command: string, args: readonly string[]) =>
       spawner
         .string(
@@ -145,25 +161,47 @@ export const LocalSystemOneLive = Layer.effect(
           });
         }
       }).pipe(Effect.mapError(localSystemOneError));
-    const root = localSystemOneDirectory(
-      process.platform,
-      os.homedir(),
-      process.env.XDG_DATA_HOME
-    );
+    const root =
+      options.root ??
+      localSystemOneDirectory(
+        process.platform,
+        os.homedir(),
+        process.env.XDG_DATA_HOME
+      );
     const local: ReturnType<typeof makeLocalSystemOne> = makeLocalSystemOne({
       arch: process.arch,
       download: (url, file) =>
-        promise(async (signal) => {
-          const response = await fetch(url, { signal });
-          if (!response.ok || response.body === null) {
-            throw new Error(`Kev download failed: HTTP ${response.status}`);
-          }
-          await pipeline(
-            Readable.from(response.body),
-            createWriteStream(file, { flags: "wx", mode: 0o600 }),
-            { signal }
+        Effect.gen(function* downloadArchive() {
+          const controller = yield* Effect.acquireRelease(
+            Effect.sync(() => new AbortController()),
+            (value) => Effect.sync(() => value.abort())
           );
-        }),
+          const response = yield* promise(() =>
+            fetch(options.archiveUrl ?? url, { signal: controller.signal })
+          );
+          if (!response.ok || response.body === null) {
+            return yield* new LocalSystemOneError({
+              message: `Kev download failed: HTTP ${response.status}`,
+            });
+          }
+          const { body } = response;
+          const total =
+            Number(response.headers.get("content-length")) || undefined;
+          const bar = yield* progress.download("Kev archive", total);
+          yield* Effect.addFinalizer(() => bar.finish.pipe(Effect.orDie));
+          let received = 0;
+          yield* Stream.fromReadableStream({
+            evaluate: () => body,
+            onError: localSystemOneError,
+          }).pipe(
+            Stream.tap((chunk) => {
+              received += chunk.byteLength;
+              return bar.update(received);
+            }),
+            Stream.run(fs.sink(file, { flag: "wx", mode: 0o600 }))
+          );
+          yield* bar.update(received, total, true);
+        }).pipe(Effect.scoped, Effect.mapError(localSystemOneError)),
       id: randomUUID,
       install: (directory, python, selectedModel, version) =>
         Effect.gen(function* installKev() {
@@ -181,6 +219,7 @@ export const LocalSystemOneLive = Layer.effect(
             directory,
             python
           );
+          yield* progress.stage("Packages");
           yield* run(
             "uv",
             [
@@ -196,17 +235,56 @@ export const LocalSystemOneLive = Layer.effect(
             python
           );
           const model = LOCAL_SYSTEM_ONE_RELEASE.models[selectedModel];
-          yield* run(
-            path.join(directory, "kev", ".venv", "bin", "python"),
-            [
-              "-c",
-              "from kev.checkpoint import resolve_run; import sys; resolve_run(sys.argv[1])",
-              `${model.id}@${version.nevRevision}`,
-            ],
-            directory,
-            python
+          yield* progress.stage("Model weights");
+          const bar = yield* progress.download("Model weights");
+          yield* Effect.addFinalizer(() => bar.finish.pipe(Effect.orDie));
+          let received = 0;
+          let total: number | undefined;
+          const child = yield* spawner.spawn(
+            ChildProcess.make(
+              path.join(directory, "kev", ".venv", "bin", "python"),
+              ["-c", modelDownloadScript, `${model.id}@${version.nevRevision}`],
+              {
+                cwd: path.join(directory, "kev"),
+                env: localSystemOneEnvironment(directory, python),
+                extendEnv: false,
+                stderr: "inherit",
+                stdin: "ignore",
+                stdout: "pipe",
+              }
+            )
           );
-        }).pipe(Effect.mapError(localSystemOneError)),
+          const Progress = Schema.Struct({
+            received: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+            total: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+          });
+          yield* child.stdout.pipe(
+            Stream.decodeText(),
+            Stream.splitLines,
+            Stream.runForEach((line) => {
+              const prefix = "CONTINGENCY_PROGRESS ";
+              if (!line.startsWith(prefix)) {
+                return Effect.void;
+              }
+              return Schema.decodeUnknownEffect(
+                Schema.fromJsonString(Progress)
+              )(line.slice(prefix.length)).pipe(
+                Effect.flatMap((value) => {
+                  ({ received } = value);
+                  total = value.total || undefined;
+                  return bar.update(received, total);
+                })
+              );
+            })
+          );
+          const code = yield* child.exitCode;
+          if (code !== 0) {
+            return yield* new LocalSystemOneError({
+              message: `Model download exited with ${code}.`,
+            });
+          }
+          yield* bar.update(received, total, true);
+        }).pipe(Effect.scoped, Effect.mapError(localSystemOneError)),
       lock: (body) =>
         Effect.gen(function* mutationLock() {
           yield* prepareLocalSystemOneLock(root);
@@ -256,11 +334,7 @@ export const LocalSystemOneLive = Layer.effect(
           .pipe(Effect.mapError(localSystemOneError)),
       rename: (from, to) =>
         fs.rename(from, to).pipe(Effect.mapError(localSystemOneError)),
-      root: localSystemOneDirectory(
-        process.platform,
-        os.homedir(),
-        process.env.XDG_DATA_HOME
-      ),
+      root,
       sha256: (file) =>
         promise(async (signal) => {
           const hash = createHash("sha256");
@@ -305,7 +379,10 @@ export const LocalSystemOneLive = Layer.effect(
             }
             await response.arrayBuffer();
           }).pipe(
-            Effect.retry({ schedule: Schedule.spaced("1 second"), times: 180 })
+            Effect.retry({
+              schedule: Schedule.spaced("1 second"),
+              times: 180,
+            })
           );
           yield* Effect.raceFirst(
             ready,
@@ -345,6 +422,7 @@ export const LocalSystemOneLive = Layer.effect(
           Effect.scoped,
           Effect.mapError(localSystemOneError)
         ),
+      stage: progress.stage,
       stop: (server) => stopLocalSystemOneProcesses(server),
       write: (file, content) =>
         fs
@@ -352,5 +430,8 @@ export const LocalSystemOneLive = Layer.effect(
           .pipe(Effect.mapError(localSystemOneError)),
     });
     return local;
-  })
-);
+  });
+  return Layer.effect(LocalSystemOne, service);
+};
+
+export const LocalSystemOneLive = makeLocalSystemOneLive();
