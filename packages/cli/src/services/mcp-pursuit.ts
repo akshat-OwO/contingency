@@ -33,6 +33,7 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { pursuitRefusal } from "./browser-modifications.ts";
 import {
   AgentSessionFailure,
   failure,
@@ -138,7 +139,7 @@ type ScopeInput =
  * Contingency substitutes the value when it acts.
  */
 const inputsInScope = (
-  run: TaskAgentRunState,
+  run: Pick<TaskAgentRunState, "inputs" | "variables">,
   flowSkillName: FlowSkillName | undefined
 ) => {
   const inScope = (owner: FlowSkillName) =>
@@ -783,13 +784,24 @@ interface PursuitProgress {
 }
 
 /** The Run a Pursuit belongs to, refusing Teaching and ordered Runs. */
-const requireTaskRun = (session: AgentSessionSnapshot) => {
-  if (session.activity !== "run") {
+export const requirePursuitRun = (session: AgentSessionSnapshot) => {
+  if (
+    session.activity === "teaching" &&
+    session.origin === "guided-run" &&
+    (session.captureState._tag === "setup" ||
+      session.captureState._tag === "recording")
+  ) {
+    return Effect.succeed({ inputs: [], variables: [] } satisfies Pick<
+      TaskAgentRunState,
+      "inputs" | "variables"
+    >);
+  }
+  const refusal = pursuitRefusal(session);
+  if (refusal !== undefined) {
     return Effect.fail(
       new AgentSessionFailure({
         code: "agent_session_invalid",
-        message:
-          "Pursuits run only in Interactive Runs and Dry Runs, never during Teaching or a Guided Run. (agent_session_invalid)",
+        message: refusal,
       })
     );
   }
@@ -844,7 +856,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
     const service = yield* AgentSession;
     const systemOne = yield* SystemOne;
     const { sessionId } = params;
-    const run = yield* requireTaskRun(yield* service.get(sessionId));
+    const run = yield* requirePursuitRun(yield* service.get(sessionId));
     const { criteria, inputs } = inputsInScope(run, params.flowSkillName);
     const withheld = [...inputs.values()].some(
       (input) => input.kind === "variable"

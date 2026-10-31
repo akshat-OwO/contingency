@@ -20,6 +20,7 @@ import {
   agentViewport,
   runTool,
   sessionTool,
+  teachingRecordingTool,
 } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -237,6 +238,7 @@ it.live(
         });
         const dry = yield* sessions.start({
           activity: "run",
+          domainScope: { hosts: ["127.0.0.1"] },
           dryRun: {
             flowSkillName: FlowSkillName.make("dry"),
             inputs: [],
@@ -253,7 +255,13 @@ it.live(
           requestedTask: "Inspect computed style",
           url: fixture.url("devtools.html"),
         });
-        for (const session of [teaching, dry, run]) {
+        const guided = yield* sessionTool("agent_guided_run_start", {
+          name: FlowSkillName.make("eval-guided"),
+          operationId: OperationId.make("guided"),
+          url: fixture.url("devtools.html"),
+          viewport: agentViewport,
+        });
+        for (const session of [teaching, dry, run, guided]) {
           const result = evaluation(
             yield* sessions.devtools(session.id, {
               action: "eval",
@@ -292,7 +300,7 @@ it.live(
               })
             ).text
           ).toBe("null");
-          if (session.id !== run.id) {
+          if (session.id === teaching.id) {
             expect(
               yield* Effect.flip(
                 sessions.devtools(session.id, {
@@ -304,12 +312,120 @@ it.live(
               )
             ).toMatchObject({
               code: "agent_session_conflict",
-              message: expect.stringContaining(
-                session.id === dry.id ? "Dry Run" : "Interactive Run"
-              ),
+              message: expect.stringContaining("Teaching setup"),
             });
           }
         }
+        const confirmMutation = (sessionId: AgentSessionId, id: string) =>
+          Effect.gen(function* confirmAttempt() {
+            const command = {
+              action: "eval",
+              mode: "mutating",
+              operationId: id,
+              script:
+                "document.body.dataset.evalCount = String(Number(document.body.dataset.evalCount ?? 0) + 1)",
+            } as const;
+            const paused = actionResult(
+              yield* sessions.devtools(sessionId, command)
+            );
+            expect(paused.intervention?.reason).toBe("confirmation");
+            const [pending] = (yield* sessions.get(sessionId)).pendingDecisions;
+            if (
+              pending === undefined ||
+              paused.intervention === null ||
+              paused.intervention === undefined
+            ) {
+              return yield* Effect.die("Missing Confirmation");
+            }
+            yield* sessions.resolvePendingDecision({
+              decision: "allow",
+              operationId: OperationId.make(`allow-${id}`),
+              pendingDecisionId: pending.pendingDecisionId,
+            });
+            const completed = yield* sessions.resumeBoundary(
+              sessionId,
+              paused.intervention.id
+            );
+            expect(completed.evaluation?.failed).toBe(false);
+            expect(
+              yield* sessions.resumeBoundary(sessionId, paused.intervention.id)
+            ).toEqual(completed);
+            expect(
+              actionResult(yield* sessions.devtools(sessionId, command))
+            ).toEqual(completed);
+            expect(
+              evaluation(
+                yield* sessions.devtools(sessionId, {
+                  action: "eval",
+                  mode: "read_only",
+                  operationId: `count-${id}`,
+                  script: "document.body.dataset.evalCount",
+                })
+              ).text
+            ).toBe(id === "guided-capture" ? '"2"' : '"1"');
+            expect(
+              modifications(
+                yield* sessions.devtools(sessionId, {
+                  action: "modifications_list",
+                })
+              ).modifications
+            ).toContainEqual(
+              expect.objectContaining({
+                kind: "eval",
+                operationId: id,
+                source: sessionId === dry.id ? "agent-initiated" : "saved",
+              })
+            );
+          });
+        yield* confirmMutation(dry.id, "dry-eval");
+        yield* confirmMutation(guided.id, "guided-setup");
+        yield* sessionTool("agent_teaching_setup_handoff", {
+          operationId: OperationId.make("guided-handoff"),
+          sessionId: guided.id,
+        });
+        yield* sessions.startTeachingRecording(
+          guided.id,
+          OperationId.make("guided-record")
+        );
+        yield* confirmMutation(guided.id, "guided-capture");
+        yield* sessions.stopTeachingRecording(
+          guided.id,
+          OperationId.make("guided-stop")
+        );
+        const events = yield* fs.readFileString(
+          `${root}/.recordings/${guided.recordingId}/events.jsonl`
+        );
+        expect(events).toContain('"browser-modification"');
+        expect(events).toContain("guided-setup");
+        expect(events).toContain("guided-capture");
+        if (guided.recordingId === null) {
+          return yield* Effect.die("Missing Guided Run recording");
+        }
+        const claimOperationId = OperationId.make("claim-guided-eval");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId: guided.recordingId,
+        });
+        yield* teachingRecordingTool("agent_flow_skill_save", {
+          claimOperationId,
+          files: [
+            {
+              content:
+                "---\nname: eval-guided\ndescription: Check confirmed evaluation on the fixture.\ninputs:\n---\n\n1. Evaluate the recorded scripts. Done when: the fixture count is two.\n",
+              path: "SKILL.md",
+            },
+          ],
+          operationId: OperationId.make("save-guided-eval"),
+          recordingId: guided.recordingId,
+        });
+        const saved = yield* fs.readFileString(
+          `${root}/eval-guided/references/browser-state.json`
+        );
+        expect(saved).toContain("guided-setup");
+        expect(saved).toContain("guided-capture");
+        // One saved command per successful evaluation, none at dispatch.
+        expect(saved.match(/"operationId":/gu)).toHaveLength(2);
         const request = yield* sessionTool("agent_variable_request", {
           name: "SECRET",
           operationId: OperationId.make("secret-request"),
@@ -353,6 +469,27 @@ it.live(
         expect(large.truncated).toBe(true);
         expect(Buffer.byteLength(large.text)).toBeLessThanOrEqual(65_536);
         expect(large.text).toContain(secret);
+        yield* sessionTool("agent_teaching_setup_handoff", {
+          operationId: OperationId.make("teaching-handoff"),
+          sessionId: teaching.id,
+        });
+        yield* sessions.startTeachingRecording(
+          teaching.id,
+          OperationId.make("teaching-record")
+        );
+        expect(
+          yield* Effect.flip(
+            sessions.devtools(teaching.id, {
+              action: "eval",
+              mode: "mutating",
+              operationId: "user-led-eval",
+              script: "document.body.click()",
+            })
+          )
+        ).toMatchObject({
+          code: "agent_session_conflict",
+          message: expect.stringContaining("during Teaching"),
+        });
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

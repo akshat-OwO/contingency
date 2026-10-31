@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  BrowserDevtoolsCommand,
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TEACHING_TIMELINE_MAX_EVENTS,
   TeachingEvent,
@@ -35,6 +36,10 @@ import {
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
+import {
+  parameterizeBrowserCommand,
+  stampBrowserState,
+} from "./saved-browser-state.ts";
 import { validateTaughtScans } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { teachingRecordingSummary } from "./teaching-recording-orchestration.ts";
@@ -241,6 +246,28 @@ const eventProjection = (
   manifest: TeachingRecordingManifest
 ): Effect.Effect<TeachingTimelineEntry, TeachingRecordingLearningError> => {
   switch (event._tag) {
+    case "browser-modification": {
+      return Schema.decodeUnknownEffect(
+        Schema.fromJsonString(BrowserDevtoolsCommand)
+      )(event.command).pipe(
+        Effect.map((command) => ({
+          ...event,
+          command: JSON.stringify(
+            parameterizeBrowserCommand(command, (value, hint) =>
+              value.startsWith("{{")
+                ? value
+                : `{{${event.variableNames?.[hint] ?? hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
+            )
+          ),
+          description: "Apply saved browser state",
+          valueDigests: [],
+          variableNames: {},
+        })),
+        Effect.mapError(() =>
+          learningError("teaching_recording_invalid", "Invalid browser state")
+        )
+      );
+    }
     case "started": {
       return Effect.succeed({
         ...event,
@@ -586,7 +613,14 @@ const makeTeachingRecordingLearning = Effect.fn(
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
       const events = yield* readEvents(manifest);
-      const learnedFiles = parameterizeVariables(files, events);
+      const learnedFiles = yield* stampBrowserState(
+        parameterizeVariables(files, events),
+        events
+      ).pipe(
+        Effect.mapError((error) =>
+          learningError("teaching_recording_invalid", error.message)
+        )
+      );
       // The package contract is checked here, in the same pre-write window as
       // the path rules: an invalid package must never become the live
       // directory, so nothing is staged until every property holds.
@@ -762,7 +796,7 @@ const makeTeachingRecordingLearning = Effect.fn(
           const recorded = yield* Effect.result(
             store.saveSkill({
               claimOperationId: input.claimOperationId,
-              files: files.map((file) => file.path),
+              files: stamped.map((file) => file.path),
               operationId: input.operationId,
               recordingId: input.recordingId,
               skillPath: `${manifest.flowSkillName}/${SKILL_FILE}`,
@@ -793,7 +827,7 @@ const makeTeachingRecordingLearning = Effect.fn(
               .pipe(Effect.ignore);
           }
           return {
-            files: files.map((file) => file.path),
+            files: stamped.map((file) => file.path),
             flowSkillName: manifest.flowSkillName,
             recordingId: manifest.recordingId,
           } satisfies FlowSkillSaveResult;

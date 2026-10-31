@@ -23,6 +23,8 @@ export const BrowserModification = Schema.Struct({
   pageZoom: Schema.optionalKey(PageZoom),
   removedAt: Schema.optionalKey(text),
   routeAction: Schema.optionalKey(Schema.Literals(["mock", "block"])),
+  savedId: Schema.optionalKey(text),
+  source: Schema.optionalKey(Schema.Literals(["saved", "agent-initiated"])),
   textScale: Schema.optionalKey(TextScale),
 });
 export type BrowserModification = typeof BrowserModification.Type;

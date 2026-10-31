@@ -31,6 +31,7 @@ import {
   taskVariables,
   validateTaskInputs,
 } from "./requested-flow-skills.ts";
+import { readBrowserState } from "./saved-browser-state.ts";
 import { requestedScans } from "./scan-requirements.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingMutation } from "./teaching-recording-store.ts";
@@ -481,6 +482,13 @@ export const startDryRun = (input: DryRunStartInput) =>
           })),
         },
         emulation,
+        requiredBrowserState: yield* readBrowserState(skill.files).pipe(
+          Effect.mapError(() =>
+            invalid(
+              "The saved required browser state is invalid. Repair the Flow Skill before starting a Dry Run."
+            )
+          )
+        ),
         run,
         runtimeRequirements: {
           ...runtime,

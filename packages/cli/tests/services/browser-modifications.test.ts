@@ -13,6 +13,7 @@ import {
   makeBrowserModifications,
   modificationDescription,
   modificationRefusal,
+  pursuitRefusal,
   storageWriteAllowed,
 } from "../../src/services/browser-modifications.ts";
 
@@ -28,6 +29,19 @@ it("enforces the activity by modification kind authority matrix", () => {
     "upload",
   ] as const;
   for (const kind of kinds) {
+    for (const state of ["setup", "recording"]) {
+      expect(
+        modificationRefusal(
+          {
+            activity: "teaching",
+            captureState: { _tag: state },
+            dryRun: null,
+            origin: "guided-run",
+          },
+          kind
+        )
+      ).toBeUndefined();
+    }
     expect(
       modificationRefusal({ activity: "run", dryRun: null }, kind)
     ).toBeUndefined();
@@ -61,7 +75,7 @@ it("enforces the activity by modification kind authority matrix", () => {
         },
         kind
       )
-    ).toContain("Dry Run");
+    ).toBeUndefined();
   }
 });
 
@@ -194,3 +208,33 @@ it.effect(
       yield* modifications.dispose(session);
     })
 );
+
+it("allows Pursuits in every Run while preserving Teaching authority", () => {
+  expect(pursuitRefusal({ activity: "run", dryRun: null })).toBeUndefined();
+  for (const state of ["setup", "recording"]) {
+    expect(
+      pursuitRefusal({
+        activity: "teaching",
+        captureState: { _tag: state },
+        dryRun: null,
+        origin: "guided-run",
+      })
+    ).toBeUndefined();
+    expect(
+      pursuitRefusal({
+        activity: "teaching",
+        captureState: { _tag: state },
+        dryRun: null,
+        origin: "teaching",
+      })
+    ).toContain("Teaching");
+  }
+  expect(
+    pursuitRefusal({
+      activity: "teaching",
+      captureState: { _tag: "ready" },
+      dryRun: null,
+      origin: "guided-run",
+    })
+  ).toContain("Teaching");
+});

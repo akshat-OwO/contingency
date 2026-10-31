@@ -17,6 +17,7 @@ const changes: readonly BrowserModification[] = [
     kind: "route",
     operationId: "route",
     routeAction: "mock",
+    source: "saved",
   },
   {
     actor: "agent",
@@ -62,6 +63,8 @@ test("Summary retains redacted descriptions, activity times, and removal times",
   const region = screen.getByRole("region", { name: "Browser Modifications" });
   expect(within(region).getAllByRole("listitem")).toHaveLength(3);
   expect(region).toHaveTextContent("[redacted]");
+  expect(region).toHaveTextContent("Agent · Saved");
+  expect(region).toHaveTextContent("Agent · Agent-initiated");
   expect(region).toHaveTextContent("2026-10-18T12:00:00.000Z");
   expect(region).toHaveTextContent("Removed 2026-10-18T12:03:00.000Z");
 });
@@ -84,7 +87,9 @@ test("dock and Summary retain irreversible evaluation evidence", () => {
   expect(
     screen.getByLabelText("Active Browser Modifications")
   ).toHaveTextContent("1 evaluation");
-  expect(
-    screen.getByRole("region", { name: "Browser Modifications" })
-  ).toHaveTextContent(evaluated.description);
+  for (const region of screen.getAllByRole("region", {
+    name: "Browser Modifications",
+  })) {
+    expect(region).toHaveTextContent(evaluated.description);
+  }
 });

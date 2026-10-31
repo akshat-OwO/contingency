@@ -33,10 +33,15 @@ This replaces ADR 0062's authority table.
 
 A Dry Run no longer proves that a Flow Skill works without help. A mocked response can make any outcome pass, so verification now depends on the user reading which modifications were applied. Saved modifications are part of the Flow Skill the user verifies. Agent-initiated ones are not.
 
-## Open questions
+## Saved state and delegation
 
-- How are saved modifications represented in the Flow Skill: their order, anchor point, and lifetime?
-- How does a Pursuit appear in the learned Flow Skill?
+- Saved cookie and header values are `{{NAME}}` Variable references. Reuse an existing session Variable name when available; otherwise derive a stable, unique upper snake case name from the cookie or header name. Declare these inputs in `SKILL.md` and request fresh values through the existing Dry Run Variable flow. Matching requires the supplied value; evidence and timelines show the reference. URL patterns, mocked responses, header names, and eval scripts remain verbatim.
+
+- Cookie and header commands are parameterized before recording, including retained setup commands. Only their known value fields are parameterized in generated browser state. Author-written files are never scrubbed. Saving refuses a recorded literal of at least eight characters in an author-written file and names the Variable to use instead. Recordings retain only the length and SHA-256 digest of long values for this validation after reopening; timelines omit that metadata. Shorter literals are ignored during validation to preserve ordinary text and syntax.
+
+- Contingency stamps ordered commands into `references/browser-state.json` and links it from `SKILL.md`. Each command names the preceding recorded action and URL as its journey anchor. Active setup commands are anchored at Start. The learning agent places these requirements at observable outcomes in the procedure; the external agent applies them there using fresh operation IDs. Contingency recognizes matching commands in order and refuses a working Dry Run assessment until every saved command succeeds.
+- A modification lasts until its recorded removal or Run end. Removals are ordered commands, with original modification IDs resolved to the fresh context's IDs. Setup modifications removed before Start are excluded. Mid-capture Emulation is required state; it never replaces the Emulation stamped at Start.
+- A Pursuit becomes a `Delegated` entry in `SKILL.md` with its sub-goal, `Done when:` condition, and recorded ending and reason. The learning agent places its work at the corresponding journey outcome. Delegation records how the journey was learned; it does not require a later machine to have System One configured. The later agent may carry out that work itself.
 
 ## Considered options
 

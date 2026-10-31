@@ -11,6 +11,7 @@ import {
   AgentSessionId,
   OperationId,
 } from "./agent-identifiers.ts";
+import { AgentPursuitRecord } from "./agent-pursuit.ts";
 import { AgentRunSummary } from "./agent-run.ts";
 import { BrowserCheck, browserAttachmentsField } from "./browser-checks.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
@@ -472,11 +473,41 @@ const TeachingStoppedEvent = Schema.TaggedStruct("stopped", {
   reason: TeachingStopReason,
 });
 
+/** Devtools state and delegated work share the ordered learning timeline. */
+export const TeachingRunEvidence = Schema.Union([
+  Schema.TaggedStruct("browser-modification", {
+    ...teachingEventBase,
+    actor: Schema.Literal("agent"),
+    command: nonEmptyString,
+    description: nonEmptyString,
+    id: nonEmptyString,
+    url: Schema.String,
+    valueDigests: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          digest: Schema.String,
+          length: Schema.Number,
+          name: Schema.String,
+        })
+      )
+    ),
+    variableNames: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  }),
+  Schema.TaggedStruct("pursuit", {
+    ...teachingEventBase,
+    actor: Schema.Literal("agent"),
+    delegated: Schema.Literal(true),
+    pursuit: AgentPursuitRecord,
+  }),
+]);
+export type TeachingRunEvidence = typeof TeachingRunEvidence.Type;
+
 /**
  * One line of `events.jsonl`. The stream is append-only and written only while
  * Teaching is in `recording`, so setup activity cannot reach it.
  */
 export const TeachingEvent = Schema.Union([
+  TeachingRunEvidence,
   TeachingStartedEvent,
   TeachingActionEvent,
   TeachingUrlEvent,
@@ -561,6 +592,7 @@ export const TeachingTimelineKeyframe = Schema.TaggedStruct("keyframe", {
 });
 
 export const TeachingTimelineEntry = Schema.Union([
+  TeachingRunEvidence,
   TeachingStartedEvent,
   TeachingActionEvent,
   TeachingUrlEvent,
