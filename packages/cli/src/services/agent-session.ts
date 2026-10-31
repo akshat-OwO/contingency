@@ -8341,12 +8341,13 @@ const makeAgentSession = (
                 } else {
                   yield* runScans.start(
                     {
-                      collect: (mode, signal) =>
+                      collect: (mode, signal, onPhase) =>
                         beginScanCollection(
                           target.page,
                           mode,
                           signal,
-                          target.performanceEndpoint
+                          target.performanceEndpoint,
+                          onPhase
                         ),
                       directory: record.artifactDirectory,
                       emulation: yield* browser.getEmulation(

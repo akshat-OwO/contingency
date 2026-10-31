@@ -20,10 +20,21 @@ export type ScanEngineReport =
       };
     };
 
+export type ScanPhase =
+  | "scanner setup"
+  | "accessibility audit"
+  | "Lighthouse instrumentation"
+  | "navigation/load"
+  | "Lighthouse navigation/load and trace collection"
+  | "Lighthouse trace collection"
+  | "Lighthouse audit/trace processing";
+
 export interface ScanCollection {
+  readonly phase?: () => ScanPhase;
   readonly finish: () => Promise<{
     readonly report: ScanEngineReport;
     readonly summary: string;
+    readonly status?: "failed";
   }>;
   readonly cancel: () => Promise<void>;
 }
@@ -74,8 +85,14 @@ export const beginScanCollection = async (
   page: Page,
   mode: ScanMode,
   signal: AbortSignal,
-  performanceEndpoint?: string
+  performanceEndpoint?: string,
+  onPhase?: (phase: ScanPhase) => void
 ): Promise<ScanCollection> => {
+  let phase: ScanPhase = "scanner setup";
+  const setPhase = (next: ScanPhase) => {
+    phase = next;
+    onPhase?.(next);
+  };
   if (mode === "accessibility") {
     // Evaluate in an isolated CDP world so page scripts cannot replace axe or its result.
     const session = await page.context().newCDPSession(page);
@@ -105,6 +122,7 @@ export const beginScanCollection = async (
           return session.detach();
         },
         finish: async () => {
+          setPhase("accessibility audit");
           const response = await session.send("Runtime.evaluate", {
             awaitPromise: true,
             contextId: executionContextId,
@@ -134,6 +152,7 @@ export const beginScanCollection = async (
             summary: `${results.violations.length} rule violations; ${results.incomplete.length} rules need review. Frame and closed-shadow coverage may be incomplete.`,
           };
         },
+        phase: () => phase,
       };
     } catch (error) {
       await session.detach();
@@ -176,11 +195,13 @@ export const beginScanCollection = async (
     };
     signal.addEventListener("abort", cancel, { once: true });
     signal.throwIfAborted();
+    setPhase("Lighthouse instrumentation");
     if (mode === "timespan") {
       await flow.startTimespan();
     } else {
       await flow.startNavigation();
       if (mode === "reload") {
+        setPhase("navigation/load");
         await page.reload();
       }
     }
@@ -192,11 +213,21 @@ export const beginScanCollection = async (
         await target.browser.disconnect();
       },
       finish: async () => {
+        setPhase(
+          mode === "timespan"
+            ? "Lighthouse trace collection"
+            : "Lighthouse navigation/load and trace collection"
+        );
         await (mode === "timespan" ? flow.endTimespan() : flow.endNavigation());
+        setPhase("Lighthouse audit/trace processing");
         const report = await flow.createFlowResult();
         const lhr = report.steps[0]?.lhr;
         if (lhr?.runtimeError !== undefined) {
-          throw new Error(lhr.runtimeError.message);
+          return {
+            report,
+            status: "failed",
+            summary: `Lighthouse runtime error ${lhr.runtimeError.code}: ${lhr.runtimeError.message}`,
+          };
         }
         const score = lhr?.categories.performance?.score;
         return {
@@ -207,6 +238,7 @@ export const beginScanCollection = async (
               : `Performance score ${Math.round(score * 100)}. Measured with the Run's settings and no extra throttling.`,
         };
       },
+      phase: () => phase,
     };
   } catch (error) {
     signal.removeEventListener("abort", disconnect);

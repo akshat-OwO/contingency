@@ -14,7 +14,11 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { agentSessionError } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
-import type { ScanCollection, ScanEngineReport } from "./scan-engine.ts";
+import type {
+  ScanCollection,
+  ScanEngineReport,
+  ScanPhase,
+} from "./scan-engine.ts";
 
 interface ScanOwner {
   readonly sessionId: string;
@@ -28,7 +32,8 @@ interface ScanOwner {
   };
   readonly collect: (
     mode: ScanMode,
-    signal: AbortSignal
+    signal: AbortSignal,
+    onPhase: (phase: ScanPhase) => void
   ) => Promise<ScanCollection>;
   readonly tabId: string;
   readonly publish: (
@@ -157,7 +162,6 @@ export const makeRunScans = (
         return;
       }
       scan.owner.page.off("close", scan.closed);
-      const endedAt = now().toISOString();
       const wrongDestination =
         scan.requirement.mode === "navigation" &&
         (scan.requirement.expectedUrl === undefined ||
@@ -175,6 +179,7 @@ export const makeRunScans = (
       yield* Effect.gen(function* finishAndPersist() {
         if (partialReason !== undefined) {
           yield* cancel;
+          const endedAt = now().toISOString();
           yield* persist(
             scan.owner,
             {
@@ -193,8 +198,19 @@ export const makeRunScans = (
           Effect.tryPromise({
             catch: failed,
             try: () => scan.collection.finish(),
-          }).pipe(Effect.timeout("45 seconds"))
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: "45 seconds",
+              orElse: () =>
+                Effect.fail(
+                  failed(
+                    `Timed out after 45s during ${scan.collection.phase?.() ?? "scan finalization"}.`
+                  )
+                ),
+            })
+          )
         );
+        const endedAt = now().toISOString();
         const interrupted = registry.get(collecting).get(sessionId)?.reason;
         if (interrupted !== undefined) {
           yield* persist(
@@ -215,9 +231,11 @@ export const makeRunScans = (
           ...scan.report,
           durationMs: Date.parse(endedAt) - Date.parse(scan.report.startedAt),
           endedAt,
-          status: Result.isFailure(result) ? "failed" : "completed",
+          status: Result.isFailure(result)
+            ? "failed"
+            : (result.success.status ?? "completed"),
           summary: Result.isFailure(result)
-            ? `Scanner failure: ${result.failure.message}`
+            ? result.failure.message
             : result.success.summary,
         };
         yield* persist(
@@ -300,24 +318,36 @@ export const makeRunScans = (
         Effect.runFork(stop(owner.sessionId, "The measured tab closed."));
       };
       owner.page.once("close", closed);
+      let phase: ScanPhase = "scanner setup";
       const collected = yield* Effect.result(
         Effect.tryPromise({
           catch: failed,
           try: (signal) =>
             owner.collect(
               requirement.mode,
-              AbortSignal.any([signal, controller.signal])
+              AbortSignal.any([signal, controller.signal]),
+              (next) => {
+                phase = next;
+              }
             ),
-        }).pipe(Effect.timeout("45 seconds"))
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: "45 seconds",
+            orElse: () =>
+              Effect.fail(failed(`Timed out after 45s during ${phase}.`)),
+          })
+        )
       );
       if (Result.isFailure(collected)) {
         owner.page.off("close", closed);
         const reason = registry.get(collecting).get(owner.sessionId)?.reason;
+        const endedAt = now().toISOString();
         yield* persist(
           owner,
           {
             ...report,
-            endedAt: now().toISOString(),
+            durationMs: Date.parse(endedAt) - Date.parse(report.startedAt),
+            endedAt,
             status: reason === undefined ? "failed" : "partial",
             summary: reason ?? collected.failure.message,
           },
