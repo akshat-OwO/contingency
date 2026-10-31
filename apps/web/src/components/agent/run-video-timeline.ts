@@ -160,7 +160,11 @@ export const runVideoChapters = ({
     const span = toMs - fromMs;
     // Two actions at the same moment: the later one names the chapter.
     if (span > 0) {
-      const count = Math.max(1, Math.round((barCount * span) / durationMs));
+      // Allocate from cumulative boundaries so short chapters do not each
+      // force an extra bar beyond the measured track budget.
+      const count =
+        Math.round((barCount * toMs) / durationMs) -
+        Math.round((barCount * fromMs) / durationMs);
       chapters.push({
         action: stop.action,
         bars: Array.from({ length: count }, (_, bar) => {

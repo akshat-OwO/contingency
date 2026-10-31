@@ -157,3 +157,22 @@ test("has nothing to draw before the duration is known", () => {
     })
   ).toEqual([]);
 });
+
+test("bounds dense bars without losing action chapters", () => {
+  const chapters = runVideoChapters({
+    barCount: 70,
+    condensed: false,
+    durationMs: 200_000,
+    timeMap,
+    timeline: Array.from({ length: 200 }, (_, index) =>
+      entry(index * 1000, `Action ${index + 1}`)
+    ),
+  });
+  expect(chapters).toHaveLength(200);
+  expect(chapters.flatMap(({ bars }) => bars)).toHaveLength(70);
+  expect(chapters.at(-1)).toMatchObject({
+    action: 200,
+    fromMs: 199_000,
+    toMs: 200_000,
+  });
+});
