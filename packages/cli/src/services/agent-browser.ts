@@ -397,7 +397,7 @@ const PAGE_READING_PRELUDE = `
   // The same viewport hit test drives observations and input preflight.
   // A control can be partly covered: choose a reachable point, never force
   // input through the foreground element.
-  const pointerAccess = (element, keyboard = false) => {
+  const pointerAccess = (element, keyboard = false, filling = false) => {
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     if (keyboard && (rect.width <= 1 || rect.height <= 1 || style.opacity === "0" ||
@@ -437,6 +437,17 @@ const PAGE_READING_PRELUDE = `
       }
     }
     if (keyboard && !hit) return { blocker: null, point: null };
+    // Playwright fills use keyboard focus, so an unnamed transparent backdrop
+    // does not prevent entry. Semantic foreground controls still intercept it.
+    if (filling && hit && ROLE_BY_TAG[hit.tagName] === "generic" && !accessibleName(hit) &&
+      !hit.closest('[role],dialog,[aria-modal="true"]')) {
+      const backdrop = getComputedStyle(hit);
+      if (backdrop.opacity === "0" ||
+        (backdrop.backgroundColor === "rgba(0, 0, 0, 0)" &&
+          backdrop.backgroundImage === "none")) {
+        return { blocker: null, point: { x: rect.width / 2, y: rect.height / 2 } };
+      }
+    }
     const owner = hit?.closest('[role="dialog"],dialog,[aria-modal="true"]') ?? hit;
     return {
       blocker: owner ? {
@@ -2368,10 +2379,14 @@ const PointerAccess = Schema.Struct({
   point: Schema.NullOr(Schema.Struct({ x: Schema.Finite, y: Schema.Finite })),
 });
 const decodePointerAccess = Schema.decodeUnknownSync(PointerAccess);
-const POINTER_ACCESS_SCRIPT = `((input) => {${PAGE_READING_PRELUDE} return pointerAccess(input.element, input.keyboard); })`;
+const POINTER_ACCESS_SCRIPT = `((input) => {${PAGE_READING_PRELUDE} return pointerAccess(input.element, input.keyboard, input.filling); })`;
 
 /** Bring a target into view without focusing it through a covering sheet. */
-const reachablePosition = async (element: ElementHandle, keyboard = false) => {
+const reachablePosition = async (
+  element: ElementHandle,
+  keyboard = false,
+  filling = false
+) => {
   if (!keyboard) {
     await element.scrollIntoViewIfNeeded({ timeout: ACTION_TIMEOUT_MS });
   }
@@ -2379,6 +2394,7 @@ const reachablePosition = async (element: ElementHandle, keyboard = false) => {
     (input: {
       readonly element: { readonly nodeType: number };
       readonly keyboard: boolean;
+      readonly filling: boolean;
     }) => typeof PointerAccess.Encoded
   >(POINTER_ACCESS_SCRIPT);
   let access: typeof PointerAccess.Type;
@@ -2386,6 +2402,7 @@ const reachablePosition = async (element: ElementHandle, keyboard = false) => {
     access = decodePointerAccess(
       await read.evaluate((collect, input) => collect(input), {
         element,
+        filling,
         keyboard,
       })
     );
@@ -2404,21 +2421,16 @@ const reachablePosition = async (element: ElementHandle, keyboard = false) => {
   return access.point;
 };
 
-const reachableLocator = async (locator: Locator): Promise<void> => {
-  const element = await locator.elementHandle({ timeout: POINTER_TIMEOUT_MS });
-  if (element === null) {
-    throw new BrowserInputRefusedError(
-      "detached",
-      "The control left the document."
-    );
-  }
-  try {
-    await reachablePosition(element);
-    await element.focus();
-    await reachablePosition(element);
-  } finally {
-    await element.dispose();
-  }
+/** Shared fill preflight, including the popup that focus itself can open. */
+const fillControl = async (
+  element: ElementHandle,
+  value: string,
+  timeout: number
+): Promise<void> => {
+  await reachablePosition(element, false, true);
+  await element.focus();
+  await reachablePosition(element, false, true);
+  await element.fill(value, { timeout });
 };
 
 const pointerActionOptions = (
@@ -2549,7 +2561,7 @@ const pointAt = (
 /**
  * Point at an element the action names by something other than a Snapshot
  * reference — the focused control a bare key press types into, or the first
- * box of a private Variable — and release the handle afterwards.
+ * box of a Variable — and release the handle afterwards.
  */
 const pointAtHandle = (
   page: Page,
@@ -2705,14 +2717,15 @@ export const performAgentAction = (
       );
     }
     case "fill": {
-      return onElement(
-        page,
-        registry,
-        action.ref,
-        `Could not fill ${action.ref}`,
-        types,
-        (element) => element.fill(action.text, { timeout: ACTION_TIMEOUT_MS })
-      );
+      return Effect.gen(function* fillSnapshotControl() {
+        const element = yield* registry.resolve(action.ref);
+        if (pointer !== undefined) {
+          yield* pointAt(page, element, { ...types, reveal: "none" }, pointer);
+        }
+        yield* attempt(`Could not fill ${action.ref}`, () =>
+          fillControl(element, action.text, ACTION_TIMEOUT_MS)
+        );
+      });
     }
     case "select": {
       return onElement(
@@ -2791,7 +2804,7 @@ export const performAgentAction = (
 };
 
 /** What the controls hold together, or nothing once they left the document. */
-const readPrivateValue = async (
+const readVariableValue = async (
   controls: Locator
 ): Promise<string | undefined> => {
   if ((await controls.count()) === 0) {
@@ -2805,14 +2818,14 @@ const readPrivateValue = async (
   return values.join("");
 };
 
-const decodePrivateSelector = Schema.decodeUnknownSync(Schema.String);
+const decodeVariableSelector = Schema.decodeUnknownSync(Schema.String);
 
-const enterPrivateVariable = (
+const enterVariable = (
   page: Page,
   target: PrivateInputTarget,
   value: string
 ): Effect.Effect<string, BrowserRpcErrorType> =>
-  attempt("Could not enter the private Variable", async () => {
+  attempt("Could not enter the Variable", async () => {
     const deadline = Date.now() + ACTION_TIMEOUT_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
     const controls = page.locator(target.selector);
@@ -2821,16 +2834,30 @@ const enterPrivateVariable = (
     if (count === 0) {
       throw new BrowserInputRefusedError(
         "detached",
-        "The private control is no longer available."
+        "The Variable control is no longer available."
       );
     }
     if (count > 1 && count !== characters.length) {
       throw new BrowserInputRefusedError(
         "length_mismatch",
-        "The split private control does not match the Variable length."
+        "The split Variable control does not match the Variable length."
       );
     }
 
+    const fillLocatedControl = async (control: Locator, text: string) => {
+      const element = await control.elementHandle({ timeout: remaining() });
+      if (element === null) {
+        throw new BrowserInputRefusedError(
+          "detached",
+          "The control left the document."
+        );
+      }
+      try {
+        await fillControl(element, text, remaining());
+      } finally {
+        await element.dispose();
+      }
+    };
     const fillEach = async (
       values: readonly string[],
       index = 0
@@ -2839,13 +2866,11 @@ const enterPrivateVariable = (
       if (next === undefined) {
         return;
       }
-      await reachableLocator(controls.nth(index));
-      await controls.nth(index).fill(next, { timeout: remaining() });
+      await fillLocatedControl(controls.nth(index), next);
       await fillEach(values, index + 1);
     };
-    await reachableLocator(controls.first());
-    await controls.first().fill(value, { timeout: remaining() });
-    const initiallyAccepted = await readPrivateValue(controls);
+    await fillLocatedControl(controls.first(), value);
+    const initiallyAccepted = await readVariableValue(controls);
     if (count === 1 && initiallyAccepted === value) {
       return target.selector;
     }
@@ -2912,7 +2937,7 @@ const enterPrivateVariable = (
         { timeout: remaining() }
       );
       try {
-        return decodePrivateSelector(await accepted.jsonValue());
+        return decodeVariableSelector(await accepted.jsonValue());
       } finally {
         await accepted.dispose();
       }
@@ -2925,17 +2950,17 @@ const enterPrivateVariable = (
     }
     throw new BrowserInputRefusedError(
       "value_mismatch",
-      "The split private control did not accept the value."
+      "The split Variable control did not accept the value."
     );
   });
 
 /**
- * Enter one private Variable and prove that the target controls accepted it.
+ * Enter one Variable and prove that the target controls accepted it.
  * A comma-separated selector represents a split input such as six OTP boxes.
  * Succeeds with the selector of the controls that hold the value, so replay
  * covers every box a page spread the value across.
  */
-export const performPrivateVariableInput = (
+export const performVariableInput = (
   page: Page,
   target: PrivateInputTarget,
   value: string,
@@ -2950,7 +2975,7 @@ export const performPrivateVariableInput = (
         .first()
         .elementHandle({ timeout: POINTER_TIMEOUT_MS }),
     pointer
-  ).pipe(Effect.andThen(enterPrivateVariable(page, target, value)));
+  ).pipe(Effect.andThen(enterVariable(page, target, value)));
 
 /** Strip private literals from every free-text field an action carries. */
 export const redactActionText = (

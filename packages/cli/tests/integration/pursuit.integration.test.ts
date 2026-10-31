@@ -414,7 +414,7 @@ it.live(
           expect(JSON.stringify(entered)).toContain(secret);
           const sent = JSON.stringify(systemOne.requests);
           expect(sent).toContain(secret);
-          expect(sent).toContain("the private Variable DEMO_PASSWORD");
+          expect(sent).toContain("the Variable DEMO_PASSWORD");
           expect(sent).toContain('"order":"RH-1057"');
         }).pipe(
           Effect.provide(
