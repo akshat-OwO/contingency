@@ -38,8 +38,8 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
       HttpRouter.serve(
         makeMcpHttpLayer(allowedOrigins, {
           codeMode: options.codeMode,
-          launchContext: options.launchContext,
           demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
+          launchContext: options.launchContext,
           systemOne: options.systemOne,
         })
       ).pipe(

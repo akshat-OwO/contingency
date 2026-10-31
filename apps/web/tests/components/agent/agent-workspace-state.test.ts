@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 
 import {
   adoptSessionSnapshot,
+  agentControlPresentation,
   agentSessionActivityLabel,
   agentSessionLabel,
 } from "@/components/agent/agent-workspace-state";

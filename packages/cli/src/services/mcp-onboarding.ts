@@ -145,30 +145,30 @@ const makeWorkPromptLayer = (launchContext?: string) =>
 /** The demo store's onboarding surface, served only by a demo server. */
 const makeOnboardingLayer = (launchContext?: string) =>
   Layer.mergeAll(
-  McpServer.toolkit(OnboardingTools).pipe(
-    Layer.provide(OnboardingToolHandlersLive)
-  ),
-  McpServer.resource({
-    audience: ["assistant"],
-    content: readPrompt(starterPromptPath, launchContext),
-    description:
-      "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
-    mimeType: "text/markdown",
-    name: "onboarding/starter-prompt",
-    uri: STARTER_PROMPT_URI,
-  }),
-  McpServer.resource({
-    audience: ["assistant"],
-    content: Effect.gen(function* describeExamples() {
-      const demo = yield* DemoSite;
-      return describeOnboardingExamples(demo.origin);
+    McpServer.toolkit(OnboardingTools).pipe(
+      Layer.provide(OnboardingToolHandlersLive)
+    ),
+    McpServer.resource({
+      audience: ["assistant"],
+      content: readPrompt(starterPromptPath, launchContext),
+      description:
+        "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
+      mimeType: "text/markdown",
+      name: "onboarding/starter-prompt",
+      uri: STARTER_PROMPT_URI,
     }),
-    description:
-      "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
-    mimeType: "text/markdown",
-    name: "onboarding/examples",
-    uri: EXAMPLES_URI,
-  })
+    McpServer.resource({
+      audience: ["assistant"],
+      content: Effect.gen(function* describeExamples() {
+        const demo = yield* DemoSite;
+        return describeOnboardingExamples(demo.origin);
+      }),
+      description:
+        "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
+      mimeType: "text/markdown",
+      name: "onboarding/examples",
+      uri: EXAMPLES_URI,
+    })
   );
 
 /**
@@ -184,7 +184,5 @@ export const makeMcpStartLayer = <R = never>(
     ? makeWorkPromptLayer(options.launchContext)
     : Layer.mergeAll(
         makeWorkPromptLayer(options.launchContext),
-        makeOnboardingLayer(options.launchContext).pipe(
-          Layer.provide(demoSite)
-        )
+        makeOnboardingLayer(options.launchContext).pipe(Layer.provide(demoSite))
       );
