@@ -29,6 +29,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
       readonly demo?: boolean;
+      readonly launchContext?: string;
       readonly interface?: McpInterface | "default";
       readonly systemOne?: SystemOneConfig;
     } = {}
@@ -44,6 +45,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
             options.interface === "default"
               ? undefined
               : (options.interface ?? "native"),
+          launchContext: options.launchContext,
           systemOne: options.systemOne,
         })
       ).pipe(

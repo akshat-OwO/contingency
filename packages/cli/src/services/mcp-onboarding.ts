@@ -120,58 +120,57 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
     }),
 });
 
-const readPrompt = (promptPath: string) =>
+const readPrompt = (promptPath: string, launchContext?: string) =>
   Effect.gen(function* readPromptFile() {
     const fileSystem = yield* FileSystem.FileSystem;
-    return yield* fileSystem.readFileString(promptPath).pipe(Effect.orDie);
+    const prompt = yield* fileSystem
+      .readFileString(promptPath)
+      .pipe(Effect.orDie);
+    return launchContext === undefined
+      ? prompt
+      : `${launchContext}\n\n${prompt}`;
   });
 
-export const McpWorkPromptLayer = McpServer.resource({
-  audience: ["assistant"],
-  content: readPrompt(workPromptPath),
-  description:
-    "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flow Skills, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
-  mimeType: "text/markdown",
-  name: "start/work-prompt",
-  uri: WORK_PROMPT_URI,
-});
+const makeWorkPromptLayer = (launchContext?: string) =>
+  McpServer.resource({
+    audience: ["assistant"],
+    content: readPrompt(workPromptPath, launchContext),
+    description:
+      "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flow Skills, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
+    mimeType: "text/markdown",
+    name: "start/work-prompt",
+    uri: WORK_PROMPT_URI,
+  });
 
 /**
  * The demo store's onboarding prompt and examples, served only by a demo
  * server. The single-tool interface serves these without the Example tool,
  * whose operation it offers inside programs instead (ADR 0059).
  */
-export const McpOnboardingResourcesLayer = Layer.mergeAll(
-  McpServer.resource({
-    audience: ["assistant"],
-    content: readPrompt(starterPromptPath),
-    description:
-      "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
-    mimeType: "text/markdown",
-    name: "onboarding/starter-prompt",
-    uri: STARTER_PROMPT_URI,
-  }),
-  McpServer.resource({
-    audience: ["assistant"],
-    content: Effect.gen(function* describeExamples() {
-      const demo = yield* DemoSite;
-      return describeOnboardingExamples(demo.origin);
+const makeOnboardingResourcesLayer = (launchContext?: string) =>
+  Layer.mergeAll(
+    McpServer.resource({
+      audience: ["assistant"],
+      content: readPrompt(starterPromptPath, launchContext),
+      description:
+        "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
+      mimeType: "text/markdown",
+      name: "onboarding/starter-prompt",
+      uri: STARTER_PROMPT_URI,
     }),
-    description:
-      "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
-    mimeType: "text/markdown",
-    name: "onboarding/examples",
-    uri: EXAMPLES_URI,
-  })
-);
-
-/** The demo store's onboarding surface, served only by a demo server. */
-export const McpOnboardingLayer = Layer.merge(
-  McpServer.toolkit(OnboardingTools).pipe(
-    Layer.provide(OnboardingToolHandlersLive)
-  ),
-  McpOnboardingResourcesLayer
-);
+    McpServer.resource({
+      audience: ["assistant"],
+      content: Effect.gen(function* describeExamples() {
+        const demo = yield* DemoSite;
+        return describeOnboardingExamples(demo.origin);
+      }),
+      description:
+        "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
+      mimeType: "text/markdown",
+      name: "onboarding/examples",
+      uri: EXAMPLES_URI,
+    })
+  );
 
 /**
  * The `start` surface for one server. A demo store, when supplied, adds the
@@ -180,14 +179,21 @@ export const McpOnboardingLayer = Layer.merge(
  */
 export const makeMcpStartLayer = <R = never>(
   demoSite: Layer.Layer<DemoSiteService, never, R> | undefined,
-  options: { readonly exampleTool?: boolean } = {}
+  options: {
+    readonly exampleTool?: boolean;
+    readonly launchContext?: string | undefined;
+  } = {}
 ) =>
   demoSite === undefined
-    ? McpWorkPromptLayer
+    ? makeWorkPromptLayer(options.launchContext)
     : Layer.mergeAll(
-        McpWorkPromptLayer,
-        (options.exampleTool === false
-          ? McpOnboardingResourcesLayer
-          : McpOnboardingLayer
+        makeWorkPromptLayer(options.launchContext),
+        Layer.merge(
+          makeOnboardingResourcesLayer(options.launchContext),
+          options.exampleTool === false
+            ? Layer.empty
+            : McpServer.toolkit(OnboardingTools).pipe(
+                Layer.provide(OnboardingToolHandlersLive)
+              )
         ).pipe(Layer.provide(demoSite))
       );
