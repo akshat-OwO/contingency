@@ -178,3 +178,37 @@ it.live(
       expect(work).not.toContain("agent_teaching_recording_claim");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.live(
+  "delivers process-local launch context through prompt resources",
+  () =>
+    Effect.gen(function* processContext() {
+      const first = yield* connectMcp(
+        yield* servingMcpHttp({
+          demo: true,
+          launchContext:
+            "## Launch context\n\n- Agent: Codex\n- Working directory: /work/first\n- Catalog Root: /work/first/.contingency\n- Connection: session-only\n- Reconnect command: contingency start --agent codex",
+        })
+      );
+      const second = yield* connectMcp(
+        yield* servingMcpHttp({
+          launchContext:
+            "## Launch context\n\n- Agent: Claude Code\n- Working directory: /work/second\n- Catalog Root: /work/second/.contingency\n- Connection: registered",
+        })
+      );
+      for (const uri of [WORK_PROMPT_URI, STARTER_PROMPT_URI]) {
+        const prompt = yield* read(first.request, uri);
+        expect(prompt).toContain("- Agent: Codex");
+        expect(prompt).toContain("/work/first/.contingency");
+        expect(prompt).toContain("contingency start --agent codex");
+        expect(prompt).toContain("workspaceUrl");
+        expect(prompt).toContain("viewUrl");
+        expect(prompt).not.toContain("/work/second");
+      }
+      const other = yield* read(second.request, WORK_PROMPT_URI);
+      expect(other).toContain("- Agent: Claude Code");
+      expect(other).toContain("/work/second/.contingency");
+      expect(other).toContain("- Connection: registered");
+      expect(other).not.toContain("/work/first");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
