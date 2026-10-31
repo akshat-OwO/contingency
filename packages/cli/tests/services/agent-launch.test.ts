@@ -22,8 +22,6 @@ import {
   currentInvocation,
   demoInitialMessage,
   persistentInvocation,
-  reconnectCommand,
-  registrationCommand,
   sessionServerSpec,
   shellQuote,
   workInitialMessage,
@@ -50,6 +48,7 @@ it("supplies a session-only server on an available port for this directory", () 
       "claude",
       "--fallback-directory",
       "/work/my app",
+      "--session-only",
     ],
     command: "/usr/local/bin/node",
     env: {
@@ -74,6 +73,7 @@ it("serves the demo store only to a session started with --demo", () => {
     "claude",
     "--fallback-directory",
     "/work/my app",
+    "--session-only",
     "--demo",
   ]);
 });
@@ -102,6 +102,7 @@ it.each(HARNESS_IDS)(
         agent,
         "--fallback-directory",
         "/work/my app",
+        "--session-only",
       ],
       command: "/usr/local/bin/node",
     });
@@ -183,7 +184,7 @@ it.effect("passes Codex TOML overrides and keeps the prompt last", () =>
         "-c",
         'mcp_servers.contingency.command="/usr/local/bin/node"',
         "-c",
-        'mcp_servers.contingency.args=["/opt/contingency/dist/index.js", "mcp", "--agent", "codex", "--fallback-directory", "/work/app"]',
+        'mcp_servers.contingency.args=["/opt/contingency/dist/index.js", "mcp", "--agent", "codex", "--fallback-directory", "/work/app", "--session-only"]',
         "-c",
         'mcp_servers.contingency.env={ CONTINGENCY_CATALOG_ROOT = "/work/app/.contingency", CONTINGENCY_MCP_PORT = "0" }',
         "-c",
@@ -309,37 +310,15 @@ it.effect(
     })
 );
 
-it("points the first message at the bundled prompt and the launch context", () => {
-  const message = demoInitialMessage({
-    agent: { label: "Claude Code" },
-    catalogRoot: "/work/my app/.contingency",
-    directory: "/work/my app",
-    registrationCommand: registrationCommand({
-      agent: "claude",
-      directory: "/work/my app",
-      invocation,
-    }),
-  });
-  expect(message).toContain("contingency://onboarding/starter-prompt");
-  expect(message).toContain("- Catalog Root: /work/my app/.contingency");
-  expect(message).toContain(
-    "/usr/local/bin/node /opt/contingency/dist/index.js register --agent claude --fallback-directory '/work/my app'"
+it("uses only the starter resource instruction for a demo launch", () => {
+  expect(demoInitialMessage()).toBe(
+    "Read the MCP resource contingency://onboarding/starter-prompt from the contingency server and follow it."
   );
 });
 
-it("points a work session at the work prompt and how to reconnect", () => {
-  const message = workInitialMessage({
-    agent: { label: "Codex" },
-    catalogRoot: "/work/my app/.contingency",
-    directory: "/work/my app",
-    reconnectCommand: reconnectCommand({ agent: "codex", invocation }),
-  });
-  expect(message).toContain("contingency://start/work-prompt");
-  expect(message).not.toContain("contingency://onboarding/starter-prompt");
-  expect(message).not.toContain("register");
-  expect(message).toContain("- Catalog Root: /work/my app/.contingency");
-  expect(message).toContain(
-    "/usr/local/bin/node /opt/contingency/dist/index.js start --agent codex"
+it("uses only the work resource instruction for a work launch", () => {
+  expect(workInitialMessage()).toBe(
+    "Read the MCP resource contingency://start/work-prompt from the contingency server and follow it."
   );
 });
 

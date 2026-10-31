@@ -4,16 +4,12 @@ import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import packageJson from "../../package.json" with { type: "json" };
 import { HARNESS_IDS, olderThan } from "../services/agent-harness.ts";
 import { AgentLaunchError } from "../services/agent-launch-error.ts";
 import {
   chooseHarness,
   currentInvocation,
-  persistentInvocation,
   demoInitialMessage,
-  reconnectCommand,
-  registrationCommand,
   sessionServerSpec,
   workInitialMessage,
 } from "../services/agent-launch.ts";
@@ -104,38 +100,13 @@ export const startCommand = Command.make(
       execPath: process.execPath,
       script: process.argv[1] ?? "",
     });
-    const persistent = persistentInvocation({
-      execPath: process.execPath,
-      packageName: packageJson.name,
-      script: process.argv[1] ?? "",
-      version: packageJson.version,
-    });
     const spec = sessionServerSpec({
       agent: chosen.harness.id,
       demo,
       directory,
       invocation,
     });
-    const message = demo
-      ? demoInitialMessage({
-          agent: chosen.harness,
-          catalogRoot,
-          directory,
-          registrationCommand: registrationCommand({
-            agent: chosen.harness.id,
-            directory,
-            invocation: persistent,
-          }),
-        })
-      : workInitialMessage({
-          agent: chosen.harness,
-          catalogRoot,
-          directory,
-          reconnectCommand: reconnectCommand({
-            agent: chosen.harness.id,
-            invocation: persistent,
-          }),
-        });
+    const message = demo ? demoInitialMessage() : workInitialMessage();
     const plan = yield* chosen.harness.launchPlan({
       env: process.env,
       executable: chosen.executable,

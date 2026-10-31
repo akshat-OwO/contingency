@@ -6,7 +6,7 @@ Contingency owns a local browser, its Workspace, and the Flow Skills in the Cata
 
 1. Call `agent_catalog_get`. If its Catalog Root differs from the launch context, select the launch context's root with `agent_catalog_select`.
 2. Call `agent_flow_skills_list` and `agent_teaching_recordings_list`.
-3. Introduce yourself with a clickable **Open Workspace** link to its `workspaceUrl`. Say that Contingency is connected for this session only and that the user reconnects by running the launch context's reconnect command. Summarize the catalog, then ask the user to choose: run verified Flow Skills, continue unfinished work, or teach a new journey on their website.
+3. Introduce yourself with a clickable **Open Workspace** link to its `workspaceUrl`. Name the agent, working directory, and Catalog Root from the launch context. For a session-only connection, say so and give its reconnect command. For a configured connection, describe it as configured. Summarize the catalog, then ask the user to choose: run verified Flow Skills, continue unfinished work, or teach a new journey on their website.
 
 Do not run `contingency register` or edit agent configuration unless the user asks. This session has no demo store; for the guided tour or demo work (`demo: ridgeline`), the user reruns the reconnect command with `--demo`.
 
@@ -18,7 +18,7 @@ Do not run `contingency register` or edit agent configuration unless the user as
 
 ## Rules
 
-- After a session starts, send its `viewUrl` as a clickable Workspace link before your next browser action.
+- After starting or switching a Teaching session, Dry Run, or Interactive Run, send its returned `viewUrl` as a clickable **Open Workspace** link in a user-visible message before your next browser action. Share each new session's link.
 - Private values are entered in the Workspace, never in this conversation.
 - For a Pending Decision, describe the action and ask the user to reply "allow" or "refuse", then call `agent_pending_decision_resolve`.
 - When the website itself is broken, report the evidence and ask before changing application code.

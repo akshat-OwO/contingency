@@ -68,6 +68,7 @@ export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
     : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
 export interface McpCatalogOptions<R> {
+  readonly launchContext?: string | undefined;
   readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
   readonly interface?: McpInterface | undefined;
   readonly systemOne?: SystemOneConfig | undefined;
@@ -89,7 +90,9 @@ export const makeMcpCatalogLayer = <R = never>(
       McpTeachingRecordingLayer,
       McpAuthoringSkillsLayer,
       McpDocsResourcesLayer,
-      makeMcpStartLayer(options.demoSite),
+      makeMcpStartLayer(options.demoSite, {
+        launchContext: options.launchContext,
+      }),
       makeMcpPursuitLayer(options.systemOne)
     );
   }
@@ -97,7 +100,10 @@ export const makeMcpCatalogLayer = <R = never>(
   return Layer.mergeAll(
     McpAuthoringSkillsLayer,
     McpDocsResourcesLayer,
-    makeMcpStartLayer(demoSite, { exampleTool: false }),
+    makeMcpStartLayer(demoSite, {
+      exampleTool: false,
+      launchContext: options.launchContext,
+    }),
     makeMcpCodeInterpreterLayer(
       Layer.mergeAll(
         operationSource(DocsTools, DocsToolHandlersLive),
