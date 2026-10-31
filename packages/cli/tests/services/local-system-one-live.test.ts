@@ -65,6 +65,12 @@ esac
 `,
         { mode: 0o700 }
       );
+      // Linux preflight requires a GPU; the fixture reports one on every host.
+      yield* fs.writeFileString(
+        path.join(bin, "nvidia-smi"),
+        "#!/bin/sh\necho 'NVIDIA fixture GPU'\n",
+        { mode: 0o700 }
+      );
       const previousPath = process.env.PATH;
       yield* Effect.acquireRelease(
         Effect.sync(() => {
