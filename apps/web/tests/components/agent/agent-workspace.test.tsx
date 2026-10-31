@@ -2092,6 +2092,30 @@ test("preserves a manual choice of Teaching while its Dry Run remains live", asy
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
 });
 
+test("preserves Teaching selected from an unrelated session across fresh polls", async () => {
+  const rehearsal = { ...dryRunSession, id: "agent-rehearsal" };
+  const teaching = {
+    ...teachingDrafted,
+    captureState: {
+      ...teachingDrafted.captureState,
+      _tag: "dry-running",
+      dryRunInputs: [],
+      dryRunSessionId: rehearsal.id,
+      dryRunStartedAt: rehearsal.dryRun.startedAt,
+    },
+    recordingId: "recording-add-anvil",
+  };
+  const unrelated = { ...teachingSetup, id: "agent-unrelated" };
+  renderWorkspace(resultFor([unrelated, teaching, rehearsal]), unrelated.id);
+  await screen.findByRole("combobox", { name: "Agent Session" });
+  const user = userEvent.setup();
+  await chooseSessionAt(user, 1);
+  rpc.sessionsResult = resultFor([unrelated, teaching, rehearsal]);
+  await refreshWorkspace();
+  expect(sessionPicker()).toHaveTextContent(teaching.flowSkillName);
+  expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
+});
+
 test("deletes another session from its picker row without selecting it", async () => {
   const other = {
     ...teachingSetup,
