@@ -2099,6 +2099,15 @@ const useAgentView = (
     if (nextSession === undefined) {
       return;
     }
+    // Choosing Teaching acknowledges its current Dry Run, even if unvisited.
+    // A later Dry Run has a new id and can still be followed automatically.
+    const related =
+      nextSession.activity === "teaching"
+        ? relatedWorkspaceSession(nextSession, sessions)
+        : undefined;
+    if (related?.activity === "run") {
+      followedDryRunIdsRef.current.add(related.id);
+    }
     onSelectSession?.(nextSession.id);
     addressEditingRef.current = false;
     setState((current) => ({
