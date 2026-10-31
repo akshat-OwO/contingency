@@ -494,7 +494,7 @@ it.live(
             ...command,
             ...(command.action === "modification_remove"
               ? { id: "modification-dry-cookie" }
-              : {}),
+              : command),
             operationId: `dry-${command.operationId}`,
           });
         }

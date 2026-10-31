@@ -1,4 +1,3 @@
-import { pursuitRefusal } from "./browser-modifications.ts";
 import {
   AgentBrowserPursue,
   AgentActionSnapshotFormat,
@@ -34,6 +33,7 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { pursuitRefusal } from "./browser-modifications.ts";
 import {
   AgentSessionFailure,
   failure,
@@ -791,14 +791,19 @@ export const requirePursuitRun = (session: AgentSessionSnapshot) => {
     (session.captureState._tag === "setup" ||
       session.captureState._tag === "recording")
   ) {
-    return Effect.succeed({ inputs: [], variables: [] } as Pick<
+    return Effect.succeed({ inputs: [], variables: [] } satisfies Pick<
       TaskAgentRunState,
       "inputs" | "variables"
     >);
   }
-  const refusal = pursuitRefusal({ ...session, ...(session.activity === "teaching" ? { origin: session.origin } : {}) });
+  const refusal = pursuitRefusal(session);
   if (refusal !== undefined) {
-    return Effect.fail(new AgentSessionFailure({ code: "agent_session_invalid", message: refusal }));
+    return Effect.fail(
+      new AgentSessionFailure({
+        code: "agent_session_invalid",
+        message: refusal,
+      })
+    );
   }
   const { run } = session;
   if (run === null || !isTaskRun(run)) {

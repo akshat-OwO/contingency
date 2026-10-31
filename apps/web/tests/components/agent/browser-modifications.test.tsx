@@ -87,7 +87,9 @@ test("dock and Summary retain irreversible evaluation evidence", () => {
   expect(
     screen.getByLabelText("Active Browser Modifications")
   ).toHaveTextContent("1 evaluation");
-  expect(
-    screen.getByRole("region", { name: "Browser Modifications" })
-  ).toHaveTextContent(evaluated.description);
+  for (const region of screen.getAllByRole("region", {
+    name: "Browser Modifications",
+  })) {
+    expect(region).toHaveTextContent(evaluated.description);
+  }
 });

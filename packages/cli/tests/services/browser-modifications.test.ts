@@ -34,9 +34,9 @@ it("enforces the activity by modification kind authority matrix", () => {
         modificationRefusal(
           {
             activity: "teaching",
-            origin: "guided-run",
             captureState: { _tag: state },
             dryRun: null,
+            origin: "guided-run",
           },
           kind
         )
@@ -212,8 +212,29 @@ it.effect(
 it("allows Pursuits in every Run while preserving Teaching authority", () => {
   expect(pursuitRefusal({ activity: "run", dryRun: null })).toBeUndefined();
   for (const state of ["setup", "recording"]) {
-    expect(pursuitRefusal({ activity: "teaching", origin: "guided-run", captureState: { _tag: state }, dryRun: null })).toBeUndefined();
-    expect(pursuitRefusal({ activity: "teaching", origin: "teaching", captureState: { _tag: state }, dryRun: null })).toContain("Teaching");
+    expect(
+      pursuitRefusal({
+        activity: "teaching",
+        captureState: { _tag: state },
+        dryRun: null,
+        origin: "guided-run",
+      })
+    ).toBeUndefined();
+    expect(
+      pursuitRefusal({
+        activity: "teaching",
+        captureState: { _tag: state },
+        dryRun: null,
+        origin: "teaching",
+      })
+    ).toContain("Teaching");
   }
-  expect(pursuitRefusal({ activity: "teaching", origin: "guided-run", captureState: { _tag: "ready" }, dryRun: null })).toContain("Teaching");
+  expect(
+    pursuitRefusal({
+      activity: "teaching",
+      captureState: { _tag: "ready" },
+      dryRun: null,
+      origin: "guided-run",
+    })
+  ).toContain("Teaching");
 });

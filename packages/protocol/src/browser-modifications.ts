@@ -6,8 +6,6 @@ const text = Schema.String.check(Schema.isMinLength(1));
 /** Public evidence only. Values needed for restoration never enter this record. */
 export const BrowserModification = Schema.Struct({
   actor: Schema.Literal("agent"),
-  source: Schema.optionalKey(Schema.Literals(["saved", "agent-initiated"])),
-  savedId: Schema.optionalKey(text),
   at: text,
   description: text,
   id: text,
@@ -25,6 +23,8 @@ export const BrowserModification = Schema.Struct({
   pageZoom: Schema.optionalKey(PageZoom),
   removedAt: Schema.optionalKey(text),
   routeAction: Schema.optionalKey(Schema.Literals(["mock", "block"])),
+  savedId: Schema.optionalKey(text),
+  source: Schema.optionalKey(Schema.Literals(["saved", "agent-initiated"])),
   textScale: Schema.optionalKey(TextScale),
 });
 export type BrowserModification = typeof BrowserModification.Type;

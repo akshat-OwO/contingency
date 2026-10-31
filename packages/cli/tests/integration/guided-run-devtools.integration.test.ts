@@ -37,18 +37,18 @@ it.live(
         if (started.recordingId === null) {
           return yield* Effect.die("Missing recording");
         }
-        const recordingId = started.recordingId;
+        const { recordingId } = started;
         const cookie = {
           action: "cookie_set",
-          operationId: "setup-cookie",
           cookie: {
             domain: "127.0.0.1",
+            httpOnly: false,
             name: "qa",
             path: "/",
-            value: "fixture",
-            httpOnly: false,
             secure: false,
+            value: "fixture",
           },
+          operationId: "setup-cookie",
         } as const;
         yield* sessions.devtools(started.id, cookie);
         yield* sessions.devtools(started.id, {
@@ -62,8 +62,8 @@ it.live(
           operationId: "discard",
         });
         yield* sessionTool("agent_teaching_setup_handoff", {
-          sessionId: started.id,
           operationId: operation("handoff"),
+          sessionId: started.id,
         });
         yield* sessions.startTeachingRecording(started.id, operation("record"));
         const route = {
@@ -80,8 +80,8 @@ it.live(
         yield* sessions.devtools(started.id, route);
         yield* sessions.devtools(started.id, {
           action: "emulation_set",
-          textScale: 150,
           operationId: "capture-scale",
+          textScale: 150,
         });
         yield* sessions.recordPursuit(
           started.id,
@@ -101,12 +101,12 @@ it.live(
         const claimOperationId = operation("claim");
         yield* teachingRecordingTool("agent_teaching_recording_claim", {
           action: "take",
-          recordingId,
           operationId: claimOperationId,
+          recordingId,
         });
         const timeline = yield* teachingRecordingTool(
           "agent_teaching_timeline_get",
-          { recordingId, claimOperationId }
+          { claimOperationId, recordingId }
         );
         expect(
           timeline.entries.filter(
@@ -121,18 +121,19 @@ it.live(
           })
         );
         expect(JSON.stringify(timeline)).not.toContain("x-discarded");
-        yield* teachingRecordingTool("agent_flow_skill_save", {
-          recordingId,
+        const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
           claimOperationId,
-          operationId: operation("save"),
           files: [
             {
-              path: "SKILL.md",
               content:
-                "---\nname: guided-state\ndescription: Inspect the QA fixture when testing saved browser state.\ninputs: []\n---\n\n1. Apply the recorded state and inspect the fixture. Done when: the required mock responds with learned response.\n",
+                "---\nname: guided-state\ndescription: Inspect the QA fixture when testing saved browser state.\ninputs:\n---\n\n1. Apply the recorded state and inspect the fixture. Done when: the required mock responds with learned response.\n",
+              path: "SKILL.md",
             },
           ],
+          operationId: operation("save"),
+          recordingId,
         });
+        expect(saved.files).toContain("references/browser-state.json");
         const skill = yield* fs.readFileString(`${root}/guided-state/SKILL.md`);
         expect(skill).toContain("Delegated: Inspect fixture");
         expect(skill).toContain("references/browser-state.json");
@@ -145,9 +146,9 @@ it.live(
         const dry = yield* teachingRecordingTool(
           "agent_flow_skill_dry_run_start",
           {
-            recordingId,
-            operationId: operation("dry"),
             inputs: [],
+            operationId: operation("dry"),
+            recordingId,
             url: fixture.url("devtools.html"),
           }
         );
@@ -155,11 +156,11 @@ it.live(
           sessionId: dry.session.id,
         });
         const assessment = {
-          sessionId: dry.session.id,
+          evidence: [{ id: snapshot.snapshotId, kind: "snapshot" as const }],
+          explanation: "The required response was observed",
           outcome: "working" as const,
           outcomeComplete: true,
-          explanation: "The required response was observed",
-          evidence: [{ kind: "snapshot" as const, id: snapshot.snapshotId }],
+          sessionId: dry.session.id,
         };
         expect(
           yield* Effect.flip(
@@ -181,8 +182,8 @@ it.live(
         });
         yield* sessions.devtools(dry.session.id, {
           action: "emulation_set",
-          textScale: 150,
           operationId: "dry-scale",
+          textScale: 150,
         });
         const browser = yield* CreateBrowser;
         const ids = yield* browser.list();
@@ -193,7 +194,10 @@ it.live(
         const { page, context } = yield* browser.activeTarget(browserId);
         expect(
           yield* Effect.tryPromise(() =>
-            page.evaluate(async () => (await fetch("/required-mock")).text())
+            page.evaluate(async () => {
+              const response = await fetch("/required-mock");
+              return response.text();
+            })
           )
         ).toBe("learned response");
         expect(
@@ -214,18 +218,18 @@ it.live(
           assessment: { outcome: "working" },
         });
         const summary = yield* runTool("agent_run_complete", {
-          sessionId: dry.session.id,
           operationId: operation("complete"),
+          sessionId: dry.session.id,
         });
         expect(summary).toMatchObject({
           assessment: { outcome: "working" },
           browserModifications: [
-            expect.objectContaining({ source: "saved", kind: "cookie" }),
-            expect.objectContaining({ source: "saved", kind: "route" }),
-            expect.objectContaining({ source: "saved", kind: "emulation" }),
+            expect.objectContaining({ kind: "cookie", source: "saved" }),
+            expect.objectContaining({ kind: "route", source: "saved" }),
+            expect.objectContaining({ kind: "emulation", source: "saved" }),
             expect.objectContaining({
-              source: "agent-initiated",
               kind: "headers",
+              source: "agent-initiated",
             }),
           ],
         });

@@ -24,17 +24,13 @@ import { yauzl } from "playwright-core/lib/utilsBundle";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-browser.ts";
-import {
-  PursuitToolHandlersLive,
-  PursuitTools,
-} from "../../src/services/mcp-pursuit.ts";
+import { PursuitToolHandlersLive } from "../../src/services/mcp-pursuit.ts";
 import { SystemOne } from "../../src/services/system-one.ts";
 import {
   agentProcessLayer,
   agentViewport,
   catalogTool,
   findNode,
-  makeCall,
   requireBoundaryDecision,
   sessionTool,
   runTool,
@@ -44,7 +40,6 @@ import {
 import { fixtureServer } from "./harness.ts";
 
 const operation = OperationId.make;
-const pursue = makeCall(PursuitTools);
 
 it.live(
   "Guided Runs keep setup out, record agent actions, refuse unsupported platforms, and learn partial journeys",

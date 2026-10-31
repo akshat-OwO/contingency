@@ -292,7 +292,7 @@ it.live(
 );
 
 it.live(
-  "stamps Teaching scale, locks recording, and restores an immutable Dry Run",
+  "stamps Teaching scale, locks recording, and restores Teaching scale and allows Dry Run changes",
   () =>
     Effect.gen(function* teachScale() {
       const fs = yield* FileSystem.FileSystem;
@@ -384,15 +384,14 @@ it.live(
         expect(
           yield* service.devtools(dry.session.id, { action: "emulation_get" })
         ).toMatchObject({ pageZoom: 400, textScale: 200 });
+        yield* service.devtools(dry.session.id, {
+          action: "emulation_set",
+          operationId: "scale-dry-change",
+          pageZoom: 100,
+        });
         expect(
-          yield* Effect.flip(
-            service.devtools(dry.session.id, {
-              action: "emulation_set",
-              operationId: "scale-dry-deny",
-              pageZoom: 100,
-            })
-          )
-        ).toMatchObject({ code: "agent_session_conflict" });
+          yield* service.devtools(dry.session.id, { action: "emulation_get" })
+        ).toMatchObject({ pageZoom: 100, textScale: 200 });
         yield* service.closeAll();
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

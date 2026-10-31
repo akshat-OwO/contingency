@@ -773,7 +773,7 @@ const makeTeachingRecordingLearning = Effect.fn(
           const recorded = yield* Effect.result(
             store.saveSkill({
               claimOperationId: input.claimOperationId,
-              files: files.map((file) => file.path),
+              files: stamped.map((file) => file.path),
               operationId: input.operationId,
               recordingId: input.recordingId,
               skillPath: `${manifest.flowSkillName}/${SKILL_FILE}`,
@@ -804,7 +804,7 @@ const makeTeachingRecordingLearning = Effect.fn(
               .pipe(Effect.ignore);
           }
           return {
-            files: files.map((file) => file.path),
+            files: stamped.map((file) => file.path),
             flowSkillName: manifest.flowSkillName,
             recordingId: manifest.recordingId,
           } satisfies FlowSkillSaveResult;

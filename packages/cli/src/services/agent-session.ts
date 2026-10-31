@@ -1629,6 +1629,9 @@ interface TeachingArtifacts {
   readonly traceFile: string | undefined;
 }
 
+const requiredBrowserState = (input: AgentSessionStartInput) =>
+  input.requiredBrowserState ?? [];
+
 const makeAgentSession = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions,
@@ -2764,12 +2767,13 @@ const makeAgentSession = (
               .map((item) => item.id)
           );
           const captureStartedAt = manifest.lifecycle.startedAt;
-          record.browserState.events = record.browserState.events
-            .filter(
-              (event) =>
-                event._tag === "browser-modification" && active.has(event.id)
-            )
-            .map((event) => ({ ...event, at: captureStartedAt }));
+          record.browserState.events = record.browserState.events.flatMap(
+            (event) =>
+              event._tag === "pursuit" ||
+              (event._tag === "browser-modification" && active.has(event.id))
+                ? [{ ...event, at: captureStartedAt }]
+                : []
+          );
           const recorderScope = yield* Scope.make("sequential");
           yield* Scope.addFinalizer(
             record.scope,
@@ -2786,8 +2790,8 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 fileSystem,
                 limits: options.captureLimits,
-                sensitiveValues: capture.sensitiveValues,
                 runEvidence: () => record.browserState.events,
+                sensitiveValues: capture.sensitiveValues,
                 startedAt: manifest.lifecycle.startedAt,
               })
             )
@@ -3092,6 +3096,82 @@ const makeAgentSession = (
           : new Map(current).set(sessionId, { ...record, emulation });
       });
 
+    const recordBrowserState = (
+      record: SessionRecord,
+      rawEntry: AgentTimelineEntry,
+      originalPatch: AgentSessionPatch,
+      command: BrowserDevtoolsCommand
+    ): AgentSessionPatch => {
+      let patch = originalPatch;
+
+      const expected = record.browserState.required.find(
+        (item) => !record.browserState.applied.has(item.id)
+      );
+      const saved =
+        expected !== undefined &&
+        matchesRequiredModification(
+          expected,
+          command,
+          modificationRecords(record)
+        );
+      if (saved && expected !== undefined) {
+        record.browserState.applied.add(expected.id);
+      }
+      const entries =
+        patch.run !== undefined && patch.run !== null && isTaskRun(patch.run)
+          ? patch.run.browserModifications
+          : patch.browserModifications;
+      if (entries !== undefined) {
+        const enriched = entries.map((item): BrowserModification => {
+          if (
+            item.operationId !==
+            ("operationId" in command ? command.operationId : undefined)
+          ) {
+            return item;
+          }
+          const enrichedItem: BrowserModification = {
+            ...item,
+            source:
+              saved ||
+              (record.snapshot.activity === "teaching" &&
+                record.snapshot.origin === "guided-run")
+                ? "saved"
+                : "agent-initiated",
+          };
+          if (saved && expected !== undefined) {
+            return { ...enrichedItem, savedId: expected.id };
+          }
+          return enrichedItem;
+        });
+        patch =
+          patch.run !== undefined && patch.run !== null && isTaskRun(patch.run)
+            ? {
+                ...patch,
+                run: { ...patch.run, browserModifications: enriched },
+              }
+            : { ...patch, browserModifications: enriched };
+      }
+      if (
+        record.snapshot.activity === "teaching" &&
+        record.snapshot.origin === "guided-run"
+      ) {
+        record.browserState.events.push({
+          _tag: "browser-modification",
+          actor: "agent",
+          at: rawEntry.at,
+          command: JSON.stringify(command),
+          description: rawEntry.description,
+          id:
+            command.action === "modification_remove"
+              ? `remove-${command.operationId}`
+              : `${command.action === "emulation_set" ? "emulation" : "modification"}-${"operationId" in command ? command.operationId : rawEntry.id}`,
+          seq: record.browserState.events.length,
+          url: record.snapshot.currentUrl,
+        });
+      }
+      return patch;
+    };
+
     /** Append one attempt to the timeline and publish the new state. */
     const recordEntry = (
       sessionId: AgentSessionId,
@@ -3101,73 +3181,10 @@ const makeAgentSession = (
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
         const record = Ref.getUnsafe(sessions).get(sessionId);
-        if (record !== undefined && command !== undefined) {
-          const expected = record.browserState.required.find(
-            (item) => !record.browserState.applied.has(item.id)
-          );
-          const saved =
-            expected !== undefined &&
-            matchesRequiredModification(
-              expected,
-              command,
-              modificationRecords(record)
-            );
-          if (saved && expected !== undefined) {
-            record.browserState.applied.add(expected.id);
-          }
-          const entries =
-            patch.run !== undefined &&
-            patch.run !== null &&
-            isTaskRun(patch.run)
-              ? patch.run.browserModifications
-              : patch.browserModifications;
-          if (entries !== undefined) {
-            const enriched = entries.map((item): BrowserModification =>
-              item.operationId ===
-              ("operationId" in command ? command.operationId : undefined)
-                ? {
-                    ...item,
-                    source:
-                      saved ||
-                      (record.snapshot.activity === "teaching" &&
-                        record.snapshot.origin === "guided-run")
-                        ? "saved"
-                        : "agent-initiated",
-                    ...(saved && expected !== undefined
-                      ? { savedId: expected.id }
-                      : {}),
-                  }
-                : item
-            );
-            patch =
-              patch.run !== undefined &&
-              patch.run !== null &&
-              isTaskRun(patch.run)
-                ? {
-                    ...patch,
-                    run: { ...patch.run, browserModifications: enriched },
-                  }
-                : { ...patch, browserModifications: enriched };
-          }
-          if (
-            record.snapshot.activity === "teaching" &&
-            record.snapshot.origin === "guided-run"
-          ) {
-            record.browserState.events.push({
-              _tag: "browser-modification",
-              actor: "agent",
-              at: rawEntry.at,
-              command: JSON.stringify(command),
-              description: rawEntry.description,
-              id:
-                command.action === "modification_remove"
-                  ? `remove-${command.operationId}`
-                  : `${command.action === "emulation_set" ? "emulation" : "modification"}-${"operationId" in command ? command.operationId : rawEntry.id}`,
-              seq: record.browserState.events.length,
-              url: record.snapshot.currentUrl,
-            });
-          }
-        }
+        const enrichedPatch =
+          record !== undefined && command !== undefined
+            ? recordBrowserState(record, rawEntry, patch, command)
+            : patch;
         const entry = {
           ...rawEntry,
           description: rawEntry.description,
@@ -3179,11 +3196,11 @@ const makeAgentSession = (
         // while control changed hands records what it did without undoing the
         // change it raced.
         const safePatch =
-          patch.currentUrl === undefined
-            ? patch
+          enrichedPatch.currentUrl === undefined
+            ? enrichedPatch
             : {
-                ...patch,
-                currentUrl: sanitizeTeachingUrl(patch.currentUrl),
+                ...enrichedPatch,
+                currentUrl: sanitizeTeachingUrl(enrichedPatch.currentUrl),
               };
         if (record !== undefined && entry.dispatched) {
           noteRunEvidence(record, "attempt", entry.id);
@@ -3865,14 +3882,14 @@ const makeAgentSession = (
                     };
                     const agentBrowser = runtime.browser;
                     const record: SessionRecord = {
-                      browserState: {
-                        required: input.requiredBrowserState ?? [],
-                        applied: new Set(),
-                        events: [],
-                      },
                       agentBrowser,
                       artifactDirectory,
                       browserSessionId: acquired,
+                      browserState: {
+                        applied: new Set(),
+                        events: [],
+                        required: requiredBrowserState(input),
+                      },
                       capture:
                         activity === "teaching"
                           ? makeDemonstrationCapture(base.currentUrl)
@@ -8091,10 +8108,10 @@ const makeAgentSession = (
                         record.browserState.events.push({
                           _tag: "pursuit",
                           actor: "agent",
-                          delegated: true,
                           at: pursuit.endedAt,
-                          seq: record.browserState.events.length,
+                          delegated: true,
                           pursuit,
+                          seq: record.browserState.events.length,
                         });
                         const next = yield* recordEntry(sessionId, {
                           actor: "agent",

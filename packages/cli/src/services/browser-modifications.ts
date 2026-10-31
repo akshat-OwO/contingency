@@ -84,7 +84,8 @@ export const pursuitRefusal = (
 ): string | undefined =>
   snapshot.activity === "run" ||
   (snapshot.origin === "guided-run" &&
-    (snapshot.captureState?._tag === "setup" || snapshot.captureState?._tag === "recording"))
+    (snapshot.captureState?._tag === "setup" ||
+      snapshot.captureState?._tag === "recording"))
     ? undefined
     : "Pursuits run in Interactive Runs, Guided Run setup and capture, and Dry Runs. Teaching does not allow Pursuits.";
 

@@ -466,13 +466,6 @@ export const startDryRun = (input: DryRunStartInput) =>
           );
       }
       return {
-        requiredBrowserState: yield* readBrowserState(skill.files).pipe(
-          Effect.mapError(() =>
-            invalid(
-              "The saved required browser state is invalid. Repair the Flow Skill before starting a Dry Run."
-            )
-          )
-        ),
         activity: "run" as const,
         artifactDirectory: evidenceDirectory,
         clientName: "flow-skill-dry-run",
@@ -489,6 +482,13 @@ export const startDryRun = (input: DryRunStartInput) =>
           })),
         },
         emulation,
+        requiredBrowserState: yield* readBrowserState(skill.files).pipe(
+          Effect.mapError(() =>
+            invalid(
+              "The saved required browser state is invalid. Repair the Flow Skill before starting a Dry Run."
+            )
+          )
+        ),
         run,
         runtimeRequirements: {
           ...runtime,

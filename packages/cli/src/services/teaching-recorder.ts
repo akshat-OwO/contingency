@@ -260,6 +260,9 @@ const instructionEventFor = (
  * The semantic timeline one Demonstration becomes, in capture order. Pure, so
  * the evidence a learning agent will trust can be asserted on directly.
  */
+const recordedRunEvidence = (events?: readonly TeachingRunEvidence[]) =>
+  events ?? [];
+
 export const teachingEventsFor = (
   demonstration: Demonstration,
   emulation: DraftEmulation,
@@ -267,7 +270,7 @@ export const teachingEventsFor = (
   stoppedAt: string,
   reason: TeachingStopReason,
   detail?: string,
-  runEvidence: readonly TeachingRunEvidence[] = []
+  runEvidence?: readonly TeachingRunEvidence[]
 ): readonly TeachingEvent[] => {
   const pending: TeachingEventWithoutSequence[] = [
     {
@@ -348,7 +351,7 @@ export const teachingEventsFor = (
       )
     );
   }
-  pending.push(...runEvidence);
+  pending.push(...recordedRunEvidence(runEvidence));
   pending.sort((left, right) => left.at.localeCompare(right.at));
   pending.push({
     _tag: "stopped",
@@ -579,7 +582,7 @@ export const makeTeachingRecorder = (
             stoppedAt,
             stopReason,
             captureFailure,
-            options.runEvidence?.()
+            options.runEvidence?.() ?? []
           );
           let boundedEvents = events.slice(1);
           if (events.length > limits.events) {

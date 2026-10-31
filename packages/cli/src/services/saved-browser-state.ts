@@ -57,21 +57,21 @@ export const stampBrowserState = (
       ...delegation,
     ].join("\n");
     return [
-      ...files
-        .filter((file) => file.path !== BROWSER_STATE_FILE)
-        .map((file) =>
-          file.path === "SKILL.md"
-            ? { ...file, content: file.content + instructions }
-            : file
-        ),
+      ...files.flatMap((file) =>
+        file.path === BROWSER_STATE_FILE
+          ? []
+          : [
+              file.path === "SKILL.md"
+                ? { ...file, content: file.content + instructions }
+                : file,
+            ]
+      ),
       ...(modifications.length === 0
         ? []
         : [
             {
+              content: `${JSON.stringify({ modifications, schemaVersion: 1 }, null, 2)}\n`,
               path: BROWSER_STATE_FILE,
-              content:
-                JSON.stringify({ modifications, schemaVersion: 1 }, null, 2) +
-                "\n",
             },
           ]),
     ];
@@ -80,7 +80,7 @@ export const stampBrowserState = (
 export const readBrowserState = (files: readonly FlowSkillFile[]) => {
   const file = files.find((entry) => entry.path === BROWSER_STATE_FILE);
   return file === undefined
-    ? Effect.succeed([] as readonly RequiredBrowserModification[])
+    ? Effect.succeed<readonly RequiredBrowserModification[]>([])
     : Schema.decodeUnknownEffect(Schema.fromJsonString(savedState))(
         file.content
       ).pipe(Effect.map((value) => value.modifications));
