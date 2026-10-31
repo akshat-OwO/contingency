@@ -6,6 +6,12 @@ import type { CliFlags, Flags } from "lighthouse";
 import type { Page } from "playwright-core";
 import { connect } from "puppeteer-core";
 
+import {
+  LIGHTHOUSE_FCP_WAIT_MS,
+  LIGHTHOUSE_LOAD_WAIT_MS,
+  SCAN_RELOAD_COMMIT_WAIT_MS,
+} from "./scan-budgets.ts";
+
 export type ScanEngineReport =
   | Awaited<
       ReturnType<Awaited<ReturnType<typeof startFlow>>["createFlowResult"]>
@@ -20,10 +26,21 @@ export type ScanEngineReport =
       };
     };
 
+export type ScanPhase =
+  | "scanner setup"
+  | "accessibility audit"
+  | "Lighthouse instrumentation"
+  | "navigation/load"
+  | "Lighthouse navigation/load and trace collection"
+  | "Lighthouse trace collection"
+  | "Lighthouse audit/trace processing";
+
 export interface ScanCollection {
+  readonly phase?: () => ScanPhase;
   readonly finish: () => Promise<{
     readonly report: ScanEngineReport;
     readonly summary: string;
+    readonly status?: "failed";
   }>;
   readonly cancel: () => Promise<void>;
 }
@@ -74,8 +91,14 @@ export const beginScanCollection = async (
   page: Page,
   mode: ScanMode,
   signal: AbortSignal,
-  performanceEndpoint?: string
+  performanceEndpoint?: string,
+  onPhase?: (phase: ScanPhase) => void
 ): Promise<ScanCollection> => {
+  let phase: ScanPhase = "scanner setup";
+  const setPhase = (next: ScanPhase) => {
+    phase = next;
+    onPhase?.(next);
+  };
   if (mode === "accessibility") {
     // Evaluate in an isolated CDP world so page scripts cannot replace axe or its result.
     const session = await page.context().newCDPSession(page);
@@ -105,6 +128,7 @@ export const beginScanCollection = async (
           return session.detach();
         },
         finish: async () => {
+          setPhase("accessibility audit");
           const response = await session.send("Runtime.evaluate", {
             awaitPromise: true,
             contextId: executionContextId,
@@ -134,6 +158,7 @@ export const beginScanCollection = async (
             summary: `${results.violations.length} rule violations; ${results.incomplete.length} rules need review. Frame and closed-shadow coverage may be incomplete.`,
           };
         },
+        phase: () => phase,
       };
     } catch (error) {
       await session.detach();
@@ -162,6 +187,8 @@ export const beginScanCollection = async (
       formFactor: mobile ? "mobile" : "desktop",
       locale: "en-US",
       logLevel: "silent",
+      maxWaitForFcp: LIGHTHOUSE_FCP_WAIT_MS,
+      maxWaitForLoad: LIGHTHOUSE_LOAD_WAIT_MS,
       onlyCategories: ["performance"],
       screenEmulation: { disabled: true },
       throttlingMethod: "provided",
@@ -176,12 +203,17 @@ export const beginScanCollection = async (
     };
     signal.addEventListener("abort", cancel, { once: true });
     signal.throwIfAborted();
+    setPhase("Lighthouse instrumentation");
     if (mode === "timespan") {
       await flow.startTimespan();
     } else {
       await flow.startNavigation();
       if (mode === "reload") {
-        await page.reload();
+        setPhase("navigation/load");
+        await page.reload({
+          timeout: SCAN_RELOAD_COMMIT_WAIT_MS,
+          waitUntil: "commit",
+        });
       }
     }
     return {
@@ -192,21 +224,35 @@ export const beginScanCollection = async (
         await target.browser.disconnect();
       },
       finish: async () => {
+        setPhase(
+          mode === "timespan"
+            ? "Lighthouse trace collection"
+            : "Lighthouse navigation/load and trace collection"
+        );
         await (mode === "timespan" ? flow.endTimespan() : flow.endNavigation());
+        setPhase("Lighthouse audit/trace processing");
         const report = await flow.createFlowResult();
         const lhr = report.steps[0]?.lhr;
+        const warnings = (lhr?.runWarnings ?? []).join(" ");
         if (lhr?.runtimeError !== undefined) {
-          throw new Error(lhr.runtimeError.message);
+          return {
+            report,
+            status: "failed",
+            summary:
+              `Lighthouse runtime error ${lhr.runtimeError.code}: ${lhr.runtimeError.message} ${warnings}`.trim(),
+          };
         }
         const score = lhr?.categories.performance?.score;
         return {
           report,
-          summary:
+          summary: `${
             score === null || score === undefined
               ? "Performance metrics collected. This mode has no aggregate score."
-              : `Performance score ${Math.round(score * 100)}. Measured with the Run's settings and no extra throttling.`,
+              : `Performance score ${Math.round(score * 100)}. Measured with the Run's settings and no extra throttling.`
+          } ${warnings}`.trim(),
         };
       },
+      phase: () => phase,
     };
   } catch (error) {
     signal.removeEventListener("abort", disconnect);
