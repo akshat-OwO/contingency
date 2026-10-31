@@ -247,6 +247,14 @@ const PAGE_READING_PRELUDE = `
     interactiveAriaRoots.set(root, usable);
     return usable;
   };
+  // Text entry focuses without a pointer, so fill and Snapshot reachability
+  // share the transparent-backdrop allowance in pointerAccess.
+  const NON_TEXT_INPUT_TYPES = new Set([
+    "button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit",
+  ]);
+  const takesText = (element) =>
+    element.isContentEditable || element.tagName === "TEXTAREA" ||
+    (element.tagName === "INPUT" && !NON_TEXT_INPUT_TYPES.has(element.type));
   const visible = new Map();
   const isVisible = (element) => {
     const cached = visible.get(element);
@@ -682,7 +690,7 @@ const SNAPSHOT_SCRIPT = ({
       continue;
     }
     if (isControl) {
-      access.set(element, pointerAccess(element));
+      access.set(element, pointerAccess(element, false, takesText(element)));
       controls.push(element);
       continue;
     }

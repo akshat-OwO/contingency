@@ -54,7 +54,10 @@ it.live(
           const before = yield* sessionTool("agent_browser_snapshot", {
             sessionId,
           });
-          const { ref } = findNode(before.nodes, "textbox", "Mobile number");
+          const field = findNode(before.nodes, "textbox", "Mobile number");
+          // The Snapshot offers the field, so the agent can reach it at all.
+          expect(field.blockedBy).toBeUndefined();
+          const { ref } = field;
           // Ordinary fill establishes the same observable acceptance contract.
           const ordinary = yield* sessionTool("agent_browser_act", {
             action: { ref, text: "5551234567", type: "fill" },
