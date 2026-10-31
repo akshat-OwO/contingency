@@ -23,6 +23,8 @@ import type {
   RefObject,
 } from "react";
 
+import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
+import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import { runVideoChapters } from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
@@ -400,25 +402,44 @@ const usePlayback = () => {
   const [rateIndex, setRateIndex] = useState(0);
 
   /** Tints the glass with the frame on screen, a few pixels wide. */
-  const paintAmbient = () => {
-    const video = videoRef.current;
-    const context = ambientRef.current?.getContext("2d");
-    if (
-      video === null ||
-      context === null ||
-      context === undefined ||
-      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
-    ) {
-      return;
-    }
-    context.drawImage(video, 0, 0, context.canvas.width, context.canvas.height);
-  };
+  const ambientBlend = useRef<AmbientBlend>(null);
+  ambientBlend.current ??= makeAmbientBlend({
+    draw: (alpha) => {
+      const video = videoRef.current;
+      const context = ambientRef.current?.getContext("2d");
+      if (
+        video === null ||
+        context === null ||
+        context === undefined ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
+        return;
+      }
+      context.globalAlpha = alpha;
+      context.drawImage(
+        video,
+        0,
+        0,
+        context.canvas.width,
+        context.canvas.height
+      );
+      context.globalAlpha = 1;
+    },
+    playing: () =>
+      videoRef.current !== null &&
+      !videoRef.current.paused &&
+      !videoRef.current.ended,
+    reducedMotion: () =>
+      globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+      true,
+  });
+  useEffect(() => () => ambientBlend.current?.stop(), []);
 
   const syncTime = () => {
     const video = videoRef.current;
     if (video !== null) {
       setCurrentMs(video.currentTime * 1000);
-      paintAmbient();
+      ambientBlend.current?.frameChanged();
     }
   };
 
@@ -488,10 +509,13 @@ const usePlayback = () => {
     videoEvents: {
       onDurationChange: syncDuration,
       onEnded: () => setPlaying(false),
-      onLoadedData: paintAmbient,
+      onLoadedData: () => ambientBlend.current?.frameChanged(true),
       onLoadedMetadata: syncDuration,
       onPause: () => setPlaying(false),
-      onPlay: () => setPlaying(true),
+      onPlay: () => {
+        setPlaying(true);
+        ambientBlend.current?.frameChanged();
+      },
       onSeeked: syncTime,
       onTimeUpdate: syncTime,
     },
