@@ -87,9 +87,10 @@ export const stampBrowserState = (
       if (name === undefined) {
         const base = hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_");
         name = base;
-        let suffix = 2;
+        let suffix = 1;
         while (names.has(name)) {
-          name = `${base}_${(suffix += 1)}`;
+          suffix += 1;
+          name = `${base}_${suffix}`;
         }
         replacements.set(value, name);
       }
