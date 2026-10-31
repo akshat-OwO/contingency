@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { Context, Data, Effect, Option, Schema } from "effect";
 
+import type { LocalSystemOneStage } from "./local-system-one-progress.ts";
 import { LOCAL_SYSTEM_ONE_RELEASE } from "./local-system-one-release.ts";
 
 export class LocalSystemOneError extends Data.TaggedError(
@@ -88,6 +89,7 @@ export const localSystemOneDirectory = (
 /** All machine effects are injectable. No setup operation belongs to an MCP toolkit. */
 export interface LocalSystemOneIO {
   readonly lock?: (<A>(body: Task<A>) => Task<A>) | undefined;
+  readonly stage?: ((stage: LocalSystemOneStage) => Task<void>) | undefined;
   readonly root: string;
   readonly platform: string;
   readonly arch: string;
@@ -242,6 +244,7 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
           yield* Effect.acquireRelease(io.mkdir(owned), () =>
             promoted ? Effect.void : io.remove(owned).pipe(Effect.orDie)
           );
+          yield* io.stage?.("Environment") ?? Effect.void;
           const archive = path.join(owned, "kev.tar.gz");
           const release = LOCAL_SYSTEM_ONE_RELEASE;
           yield* io.download(
@@ -258,6 +261,7 @@ export const makeLocalSystemOne = (io: LocalSystemOneIO) => {
             });
           }
           yield* io.install(owned, python, model, version);
+          yield* io.stage?.("Smoke test") ?? Effect.void;
           yield* io.smoke(owned, model, version);
           if (prior?.server !== undefined && prior.server !== null) {
             yield* io.stop(
