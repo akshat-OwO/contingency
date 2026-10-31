@@ -14,6 +14,8 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 
 - `agent-session-events` wakes a cursor wait for Workspace Teaching, private Variable, verification, Cleanup, and Takeover changes, with replayable events and a compact snapshot.
 
+- `agent-shutdown` announces the first shutdown signal and closes connected Workspace transports without interruption or 503 logs.
+
 - `agent-onboarding` launches an installed, signed-in Claude Code, Codex, or OpenCode V2 with session-only MCP configuration and a project-local catalog. Bundled Examples run on Ridgeline Hardware with demo-only authority; a user-taught variation requires a fresh Dry Run and explicit verification.
 
 - `workspace-nav` opens the sole Workspace route at `/`; Create, Audit, and Agent mode links are absent. The header band appears on a Run Summary and an unknown route, and steps aside for every Workspace that owns the viewport.
@@ -99,6 +101,16 @@ Preconditions:
 - **Proof (web empty).** Capture the empty web state. Run `control-contingency browser goto --path /`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-web.aria.txt` and `control-contingency browser screenshot --path workspace/empty-web.png`. Both show the `Workspace dock` with `Contingency`, the badge `No session`, and `No browser session` on the canvas.
 - **Proof (390px).** Run `control-contingency browser resize --width 390 --height 844`, then `control-contingency browser screenshot --path workspace/empty-web-390.png` and `control-contingency browser snapshot --aria --path workspace/empty-web-390.aria.txt`. `Open browser session` is still on screen and the next-step sentence is hidden rather than ellipsized. Return to desktop with `control-contingency browser resize --width 1440 --height 900`.
 - **Proof (MCP empty).** After `mcp start`, capture the empty MCP state. Run `control-contingency browser goto --url "$mcpUrl"`, wait for the empty heading, then `control-contingency browser snapshot --aria --path workspace/empty-mcp.aria.txt` and `control-contingency browser screenshot --path workspace/empty-mcp.png`.
+
+### CLI shutdown
+
+Preconditions: build the current CLI and pack that build with the release npm version. Use isolated Catalog Roots and record every process and port. Retain terminal transcripts under `artifacts/agent-shutdown/`.
+
+- Launch with `control-contingency launch`, run `control-contingency doctor`, then open `/` with `control-contingency browser goto --path /`. Wait for `region` named `Workspace dock`; keep that tab open through shutdown.
+- Send `kill -INT <pid>` to the CLI PID from launch. Require `Closing Contingency… press Ctrl+C again to force stop.` on stderr, once. Measure signal-to-exit time from the process exit event. Require the listener to close and no interrupted request or 503 logs in `server.log`. Run `control-contingency cleanup` to close the driver.
+- Repeat with `node packages/cli/dist/index.js mcp` and its advertised Workspace URL. Keep stdin open until the signal so EOF does not end the process first.
+- Repeat from a disposable directory through `npx --yes --package <tarball> contingency web --no-browser` and `pnpm --package <tarball> dlx contingency web --no-browser`. With Workspace connected, press Ctrl+C in the foreground terminal. Require the notice before the runner returns, no output afterward, and no surviving CLI children or listener. Record the runner version and signal-to-exit time.
+- For `start --agent <agent>`, press Ctrl+C while the agent owns the terminal. Require the agent to handle it. Send SIGTERM to the launcher in a separate run; require the shutdown notice and child cleanup. The launcher's SIGINT listeners must resume when the agent exits.
 
 ### Agent onboarding
 
