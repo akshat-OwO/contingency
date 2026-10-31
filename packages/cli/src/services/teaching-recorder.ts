@@ -7,6 +7,7 @@ import type {
   DraftEmulation,
   TeachingCaptureLimits,
   TeachingEvent,
+  TeachingRunEvidence,
   TeachingEventTarget,
   TeachingInstruction,
   TeachingStopReason,
@@ -96,6 +97,7 @@ export interface TeachingRecorderBrowser {
 }
 
 export interface TeachingRecorderOptions {
+  readonly runEvidence?: () => readonly TeachingRunEvidence[];
   readonly browser: TeachingRecorderBrowser;
   /** O(1) capture sizes, read by the watchdog on every tick. */
   readonly counts: () => DemonstrationCounts;
@@ -264,7 +266,8 @@ export const teachingEventsFor = (
   startedAt: string,
   stoppedAt: string,
   reason: TeachingStopReason,
-  detail?: string
+  detail?: string,
+  runEvidence: readonly TeachingRunEvidence[] = []
 ): readonly TeachingEvent[] => {
   const pending: TeachingEventWithoutSequence[] = [
     {
@@ -345,6 +348,7 @@ export const teachingEventsFor = (
       )
     );
   }
+  pending.push(...runEvidence);
   pending.sort((left, right) => left.at.localeCompare(right.at));
   pending.push({
     _tag: "stopped",
@@ -467,7 +471,8 @@ export const makeTeachingRecorder = (
         counts.actions +
         counts.instructions +
         counts.keyframes +
-        counts.urlTransitions;
+        counts.urlTransitions +
+        (options.runEvidence?.().length ?? 0);
       if (events > limits.events) {
         return "Teaching stopped because the recording reached its event limit.";
       }
@@ -573,7 +578,8 @@ export const makeTeachingRecorder = (
             options.startedAt,
             stoppedAt,
             stopReason,
-            captureFailure
+            captureFailure,
+            options.runEvidence?.()
           );
           let boundedEvents = events.slice(1);
           if (events.length > limits.events) {

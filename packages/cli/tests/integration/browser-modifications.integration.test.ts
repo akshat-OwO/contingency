@@ -348,7 +348,7 @@ it.live(
 );
 
 it.live(
-  "allows scoped Teaching state, refuses network setup and every Dry Run write, and scrubs secrets",
+  "allows scoped Teaching state, refuses Teaching network setup and allows Dry Run writes, and scrubs secrets",
   () =>
     Effect.gen(function* authorityAndSecrets() {
       const fs = yield* FileSystem.FileSystem;
@@ -490,23 +490,19 @@ it.live(
           viewport: agentViewport,
         });
         for (const command of commands) {
-          expect(
-            yield* Effect.flip(
-              sessions.devtools(dry.id, {
-                ...command,
-                operationId: `dry-${command.operationId}`,
-              })
-            )
-          ).toMatchObject({
-            code: "agent_session_conflict",
-            message: expect.stringContaining("Dry Run"),
+          yield* sessions.devtools(dry.id, {
+            ...command,
+            ...(command.action === "modification_remove"
+              ? { id: "modification-dry-cookie" }
+              : {}),
+            operationId: `dry-${command.operationId}`,
           });
         }
         expect(
           decodeModifications(
             yield* sessions.devtools(dry.id, { action: "modifications_list" })
           ).modifications
-        ).toEqual([]);
+        ).toHaveLength(8);
         // Routes may match hosts outside the navigation scope.
         const run = yield* runTool("agent_run_start", {
           inputs: [],

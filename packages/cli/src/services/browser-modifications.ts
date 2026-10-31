@@ -65,10 +65,7 @@ export const modificationRefusal = (
   kind: BrowserModification["kind"]
 ): string | undefined => {
   if (snapshot.origin === "guided-run") {
-    return "Browser Modifications are unavailable during a Guided Run, including setup.";
-  }
-  if (snapshot.dryRun !== null) {
-    return "A Dry Run must reproduce its saved browser state. Use an Interactive Run to modify the browser.";
+    return undefined;
   }
   if (snapshot.activity === "teaching") {
     if (snapshot.captureState?._tag !== "setup") {
@@ -80,6 +77,16 @@ export const modificationRefusal = (
   }
   return undefined;
 };
+
+/** Pursuits share Run authority; Teaching remains user-led. */
+export const pursuitRefusal = (
+  snapshot: Parameters<typeof modificationRefusal>[0]
+): string | undefined =>
+  snapshot.activity === "run" ||
+  (snapshot.origin === "guided-run" &&
+    (snapshot.captureState?._tag === "setup" || snapshot.captureState?._tag === "recording"))
+    ? undefined
+    : "Pursuits run in Interactive Runs, Guided Run setup and capture, and Dry Runs. Teaching does not allow Pursuits.";
 
 /** Cookie domains are bare hosts, optionally prefixed by the cookie domain dot. */
 export const cookieWriteAllowed = (

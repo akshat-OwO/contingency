@@ -47,7 +47,7 @@ const operation = OperationId.make;
 const pursue = makeCall(PursuitTools);
 
 it.live(
-  "Guided Runs keep setup out, record agent actions, refuse unsupported authority, and learn partial journeys",
+  "Guided Runs keep setup out, record agent actions, refuse unsupported platforms, and learn partial journeys",
   () =>
     Effect.gen(function* guidedRun() {
       const fs = yield* FileSystem.FileSystem;
@@ -97,41 +97,6 @@ it.live(
           sessionId: started.id,
         });
         expect(yield* fs.readDirectory(directory)).toEqual(["manifest.json"]);
-        const modification = yield* Effect.flip(
-          sessions.devtools(started.id, {
-            action: "storage_set",
-            key: "probe",
-            kind: "local",
-            operationId: "mod",
-            value: "changed",
-          })
-        );
-        expect(modification.message).toContain("Guided Run");
-        const emulation = yield* Effect.flip(
-          sessions.devtools(started.id, {
-            action: "emulation_set",
-            operationId: "emulation-mod",
-            pageZoom: 125,
-          })
-        );
-        expect(emulation.message).toContain("Guided Run");
-        expect(
-          yield* sessions.devtools(started.id, { action: "emulation_get" })
-        ).toMatchObject({ pageZoom: 100 });
-        expect(
-          yield* sessions.devtools(started.id, { action: "modifications_list" })
-        ).toMatchObject({ modifications: [] });
-        const pursuit = yield* Effect.flip(
-          pursue("agent_browser_pursue", {
-            operationId: operation("pursue"),
-            sessionId: started.id,
-            steps: [{ doneWhen: "Delivery is set", goal: "Choose delivery" }],
-          })
-        );
-        expect(pursuit).toMatchObject({
-          code: "agent_session_invalid",
-          message: expect.stringContaining("Guided Run"),
-        });
         yield* sessionTool("agent_teaching_setup_handoff", {
           operationId: operation("handoff"),
           sessionId: started.id,

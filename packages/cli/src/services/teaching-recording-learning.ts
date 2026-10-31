@@ -35,6 +35,7 @@ import {
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
+import { stampBrowserState } from "./saved-browser-state.ts";
 import { validateTaughtScans } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { teachingRecordingSummary } from "./teaching-recording-orchestration.ts";
@@ -586,7 +587,17 @@ const makeTeachingRecordingLearning = Effect.fn(
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
       const events = yield* readEvents(manifest);
-      const learnedFiles = parameterizeVariables(files, events);
+      const learnedFiles = yield* stampBrowserState(
+        parameterizeVariables(files, events),
+        events
+      ).pipe(
+        Effect.mapError(() =>
+          learningError(
+            "teaching_recording_invalid",
+            "The recording contains an invalid Browser Modification command."
+          )
+        )
+      );
       // The package contract is checked here, in the same pre-write window as
       // the path rules: an invalid package must never become the live
       // directory, so nothing is staged until every property holds.

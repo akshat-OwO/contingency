@@ -10,9 +10,16 @@ export const BrowserModificationBadge = ({
 }) => {
   const summary = browserModificationSummary(modifications);
   return summary ? (
-    <Badge aria-label="Active Browser Modifications" variant="secondary">
-      {summary}
-    </Badge>
+    <details className="relative">
+      <summary className="cursor-pointer list-none">
+        <Badge aria-label="Active Browser Modifications" variant="secondary">
+          {summary}
+        </Badge>
+      </summary>
+      <div className="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 max-h-80 w-80 overflow-auto rounded-md border p-3 shadow-md">
+        <BrowserModifications modifications={modifications} />
+      </div>
+    </details>
   ) : null;
 };
 
@@ -33,6 +40,8 @@ export const BrowserModifications = ({
             <time dateTime={modification.at}>{modification.at}</time>
             {" · "}
             {modification.description}
+            {" · Agent · "}
+            {modification.source === "saved" ? "Saved" : "Agent-initiated"}
             {modification.removedAt === undefined ? null : (
               <>
                 {" "}

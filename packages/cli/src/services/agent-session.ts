@@ -68,6 +68,7 @@ import type {
   SessionId,
   StorageKind,
   TeachingInstruction,
+  TeachingRunEvidence,
   TeachingVariableInput,
   Variable,
   TeachingCaptureLimits,
@@ -190,6 +191,8 @@ import type { RunEvidence } from "./run-lifecycle.ts";
 import { makeRunScans } from "./run-scans.ts";
 import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
+import { matchesRequiredModification } from "./saved-browser-state.ts";
+import type { RequiredBrowserModification } from "./saved-browser-state.ts";
 import { beginScanCollection } from "./scan-engine.ts";
 import { validateTeachingScan } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
@@ -239,6 +242,7 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  readonly requiredBrowserState?: readonly RequiredBrowserModification[];
   /** Set only by the MCP Guided Run entry point. */
   readonly origin?: TeachingRecordingManifest["origin"];
   readonly runtimeRequirements?: SavedPlatformRequirements;
@@ -1306,6 +1310,11 @@ type SnapshotWrite = readonly [
 ];
 
 interface SessionRecord {
+  readonly browserState: {
+    readonly required: readonly RequiredBrowserModification[];
+    readonly applied: Set<string>;
+    events: TeachingRunEvidence[];
+  };
   readonly runtime: BrowserPlatformRuntime;
   readonly diagnostics: { reader: BrowserDiagnosticsReader | undefined };
   readonly dryRunControl: { hadTakeover: boolean };
@@ -2398,7 +2407,8 @@ const makeAgentSession = (
           };
           const manifest = yield* teachingRecordingStore
             .stop(
-              record.snapshot.origin === "guided-run" &&
+              record.snapshot.activity === "teaching" &&
+                record.snapshot.origin === "guided-run" &&
                 record.executionBoundary !== undefined
                 ? {
                     ...stopInput,
@@ -2747,6 +2757,19 @@ const makeAgentSession = (
             record.snapshot.currentUrl,
             () => []
           );
+          // Setup remains outside capture. Only state still active at Start travels.
+          const active = new Set(
+            modificationRecords(record)
+              .filter((item) => item.removedAt === undefined)
+              .map((item) => item.id)
+          );
+          const captureStartedAt = manifest.lifecycle.startedAt;
+          record.browserState.events = record.browserState.events
+            .filter(
+              (event) =>
+                event._tag === "browser-modification" && active.has(event.id)
+            )
+            .map((event) => ({ ...event, at: captureStartedAt }));
           const recorderScope = yield* Scope.make("sequential");
           yield* Scope.addFinalizer(
             record.scope,
@@ -2764,6 +2787,7 @@ const makeAgentSession = (
                 fileSystem,
                 limits: options.captureLimits,
                 sensitiveValues: capture.sensitiveValues,
+                runEvidence: () => record.browserState.events,
                 startedAt: manifest.lifecycle.startedAt,
               })
             )
@@ -2832,7 +2856,10 @@ const makeAgentSession = (
               startedAt: manifest.lifecycle.startedAt,
             },
             controller:
-              record.snapshot.origin === "guided-run" ? "agent" : "user",
+              record.snapshot.activity === "teaching" &&
+              record.snapshot.origin === "guided-run"
+                ? "agent"
+                : "user",
             recordingId,
             teaching: capture.progress(),
             updatedAt: manifest.lifecycle.startedAt,
@@ -3069,10 +3096,78 @@ const makeAgentSession = (
     const recordEntry = (
       sessionId: AgentSessionId,
       rawEntry: AgentTimelineEntry,
-      patch: AgentSessionPatch = {}
+      patch: AgentSessionPatch = {},
+      command?: BrowserDevtoolsCommand
     ): Effect.Effect<AgentSessionSnapshot, AgentSessionError> =>
       Effect.gen(function* appendTimelineEntry() {
         const record = Ref.getUnsafe(sessions).get(sessionId);
+        if (record !== undefined && command !== undefined) {
+          const expected = record.browserState.required.find(
+            (item) => !record.browserState.applied.has(item.id)
+          );
+          const saved =
+            expected !== undefined &&
+            matchesRequiredModification(
+              expected,
+              command,
+              modificationRecords(record)
+            );
+          if (saved && expected !== undefined) {
+            record.browserState.applied.add(expected.id);
+          }
+          const entries =
+            patch.run !== undefined &&
+            patch.run !== null &&
+            isTaskRun(patch.run)
+              ? patch.run.browserModifications
+              : patch.browserModifications;
+          if (entries !== undefined) {
+            const enriched = entries.map((item): BrowserModification =>
+              item.operationId ===
+              ("operationId" in command ? command.operationId : undefined)
+                ? {
+                    ...item,
+                    source:
+                      saved ||
+                      (record.snapshot.activity === "teaching" &&
+                        record.snapshot.origin === "guided-run")
+                        ? "saved"
+                        : "agent-initiated",
+                    ...(saved && expected !== undefined
+                      ? { savedId: expected.id }
+                      : {}),
+                  }
+                : item
+            );
+            patch =
+              patch.run !== undefined &&
+              patch.run !== null &&
+              isTaskRun(patch.run)
+                ? {
+                    ...patch,
+                    run: { ...patch.run, browserModifications: enriched },
+                  }
+                : { ...patch, browserModifications: enriched };
+          }
+          if (
+            record.snapshot.activity === "teaching" &&
+            record.snapshot.origin === "guided-run"
+          ) {
+            record.browserState.events.push({
+              _tag: "browser-modification",
+              actor: "agent",
+              at: rawEntry.at,
+              command: JSON.stringify(command),
+              description: rawEntry.description,
+              id:
+                command.action === "modification_remove"
+                  ? `remove-${command.operationId}`
+                  : `${command.action === "emulation_set" ? "emulation" : "modification"}-${"operationId" in command ? command.operationId : rawEntry.id}`,
+              seq: record.browserState.events.length,
+              url: record.snapshot.currentUrl,
+            });
+          }
+        }
         const entry = {
           ...rawEntry,
           description: rawEntry.description,
@@ -3770,6 +3865,11 @@ const makeAgentSession = (
                     };
                     const agentBrowser = runtime.browser;
                     const record: SessionRecord = {
+                      browserState: {
+                        required: input.requiredBrowserState ?? [],
+                        applied: new Set(),
+                        events: [],
+                      },
                       agentBrowser,
                       artifactDirectory,
                       browserSessionId: acquired,
@@ -6012,7 +6112,9 @@ const makeAgentSession = (
           const authorship = yield* teachingInstructionAuthorship({
             asking,
             decision,
-            guided: record.snapshot.origin === "guided-run",
+            guided:
+              record.snapshot.activity === "teaching" &&
+              record.snapshot.origin === "guided-run",
             hasAttachment:
               scan !== undefined ||
               (attachments?.length ?? 0) > 0 ||
@@ -6535,7 +6637,8 @@ const makeAgentSession = (
                     kind: "upload",
                     operationId: command.operationId,
                   },
-                ])
+                ]),
+                command
               );
               const result: AgentActionResult = {
                 entry,
@@ -6828,6 +6931,20 @@ const makeAgentSession = (
                   error(
                     "agent_session_conflict",
                     "Return control and resolve the Execution Boundary before assessing the task."
+                  )
+                );
+              }
+              if (
+                !finding &&
+                input.outcome === "working" &&
+                record.browserState.required.some(
+                  (item) => !record.browserState.applied.has(item.id)
+                )
+              ) {
+                return yield* Effect.fail(
+                  error(
+                    "agent_session_conflict",
+                    "Apply every saved Browser Modification in order at its recorded journey outcome before assessing the Dry Run as working."
                   )
                 );
               }
@@ -7200,7 +7317,18 @@ const makeAgentSession = (
                             return yield* Effect.fail(failure);
                           }
                           const result: AgentActionResult = exit.value;
-                          yield* recordEntry(sessionId, result.entry);
+                          const current = yield* read(sessionId);
+                          yield* recordEntry(
+                            sessionId,
+                            result.entry,
+                            result.evaluation?.failed
+                              ? {}
+                              : modificationPatch(
+                                  current,
+                                  modificationRecords(current)
+                                ),
+                            result.evaluation?.failed ? undefined : command
+                          );
                           yield* ledger.remember(
                             command.operationId,
                             "eval",
@@ -7407,7 +7535,8 @@ const makeAgentSession = (
                     id: command.operationId,
                     outcome: "completed",
                   },
-                  modificationPatch(record, next)
+                  modificationPatch(record, next),
+                  command
                 );
                 yield* ledger.rememberSession(
                   command.operationId,
@@ -7449,14 +7578,11 @@ const makeAgentSession = (
                       )
                     );
                   }
-                  if (
-                    runIsOver(record.snapshot) ||
-                    record.snapshot.dryRun !== null
-                  ) {
+                  if (runIsOver(record.snapshot)) {
                     return yield* Effect.fail(
                       error(
                         "agent_session_conflict",
-                        "A Dry Run reproduces its saved Emulation and cannot change it. Ended Runs cannot change Emulation."
+                        "Ended Runs cannot change Emulation."
                       )
                     );
                   }
@@ -7559,7 +7685,8 @@ const makeAgentSession = (
                             ],
                           },
                         }
-                      : patch
+                      : patch,
+                    command
                   );
                   yield* ledger.rememberSession(
                     command.operationId,
@@ -7937,26 +8064,86 @@ const makeAgentSession = (
           return next ?? record.snapshot;
         }),
       recordPursuit: (sessionId, pursuit, operationId) =>
-        taskMutation(
-          sessionId,
-          operationId,
-          "task-pursuit",
-          JSON.stringify(pursuit),
-          (_record, run) =>
-            recordEntry(
-              sessionId,
-              {
-                actor: "agent",
-                at: pursuit.endedAt,
-                description: `Pursuit ended ${pursuit.ending}: ${pursuit.goal}`,
-                detail: pursuit.reason,
-                dispatched: false,
-                id: `pursuit-${randomUUID()}`,
-                outcome: "completed",
-              },
-              { run: { ...run, pursuits: [...(run.pursuits ?? []), pursuit] } }
-            )
-        ).pipe(Effect.asVoid),
+        read(sessionId).pipe(
+          Effect.flatMap((record) =>
+            record.snapshot.activity === "teaching" &&
+            record.snapshot.origin === "guided-run"
+              ? ledger
+                  .serializeMutation(
+                    ledger.session(
+                      operationId,
+                      "task-pursuit",
+                      sessionId,
+                      JSON.stringify(pursuit),
+                      Effect.gen(function* recordDelegation() {
+                        if (
+                          record.snapshot.activity !== "teaching" ||
+                          (record.snapshot.captureState._tag !== "setup" &&
+                            record.snapshot.captureState._tag !== "recording")
+                        ) {
+                          return yield* Effect.fail(
+                            error(
+                              "agent_session_conflict",
+                              "Pursuits need Guided Run setup or capture."
+                            )
+                          );
+                        }
+                        record.browserState.events.push({
+                          _tag: "pursuit",
+                          actor: "agent",
+                          delegated: true,
+                          at: pursuit.endedAt,
+                          seq: record.browserState.events.length,
+                          pursuit,
+                        });
+                        const next = yield* recordEntry(sessionId, {
+                          actor: "agent",
+                          at: pursuit.endedAt,
+                          description: `Delegated Pursuit ended ${pursuit.ending}: ${pursuit.goal}`,
+                          detail: pursuit.reason,
+                          dispatched: false,
+                          id: `pursuit-${operationId}`,
+                          outcome: "completed",
+                        });
+                        yield* ledger.rememberSession(
+                          operationId,
+                          "task-pursuit",
+                          sessionId,
+                          JSON.stringify(pursuit),
+                          next
+                        );
+                        return next;
+                      })
+                    )
+                  )
+                  .pipe(Effect.asVoid)
+              : taskMutation(
+                  sessionId,
+                  operationId,
+                  "task-pursuit",
+                  JSON.stringify(pursuit),
+                  (_record, run) =>
+                    recordEntry(
+                      sessionId,
+                      {
+                        actor: "agent",
+                        at: pursuit.endedAt,
+                        description: `Pursuit ended ${pursuit.ending}: ${pursuit.goal}`,
+                        detail: pursuit.reason,
+                        dispatched: false,
+                        id: `pursuit-${randomUUID()}`,
+                        outcome: "completed",
+                      },
+                      {
+                        run: {
+                          ...run,
+                          pursuits: [...(run.pursuits ?? []), pursuit],
+                        },
+                      }
+                    )
+                ).pipe(Effect.asVoid)
+          )
+        ),
       renameFlowSkill: (sessionId, name, operationId) =>
         ledger.serializeMutation(
           renameFlowSkillUnlocked(
