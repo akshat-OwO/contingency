@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  BrowserDevtoolsCommand,
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TEACHING_TIMELINE_MAX_EVENTS,
   TeachingEvent,
@@ -35,7 +36,10 @@ import {
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
-import { stampBrowserState } from "./saved-browser-state.ts";
+import {
+  parameterizeBrowserCommand,
+  stampBrowserState,
+} from "./saved-browser-state.ts";
 import { validateTaughtScans } from "./scan-requirements.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import { teachingRecordingSummary } from "./teaching-recording-orchestration.ts";
@@ -242,6 +246,27 @@ const eventProjection = (
   manifest: TeachingRecordingManifest
 ): Effect.Effect<TeachingTimelineEntry, TeachingRecordingLearningError> => {
   switch (event._tag) {
+    case "browser-modification": {
+      return Schema.decodeUnknownEffect(
+        Schema.fromJsonString(BrowserDevtoolsCommand)
+      )(event.command).pipe(
+        Effect.map((command) => ({
+          ...event,
+          command: JSON.stringify(
+            parameterizeBrowserCommand(
+              command,
+              (_value, hint) =>
+                `{{${event.variableNames?.[hint] ?? hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
+            )
+          ),
+          description: "Apply saved browser state",
+          variableNames: {},
+        })),
+        Effect.mapError(() =>
+          learningError("teaching_recording_invalid", "Invalid browser state")
+        )
+      );
+    }
     case "started": {
       return Effect.succeed({
         ...event,

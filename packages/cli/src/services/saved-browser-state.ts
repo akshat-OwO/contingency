@@ -8,6 +8,8 @@ import type {
 } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 
+import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+
 export const BROWSER_STATE_FILE = "references/browser-state.json";
 const requiredModification = Schema.Struct({
   command: BrowserDevtoolsCommand,
@@ -20,6 +22,33 @@ const savedState = Schema.Struct({
 });
 export type RequiredBrowserModification = typeof requiredModification.Type;
 
+export const parameterizeBrowserCommand = (
+  command: BrowserDevtoolsCommand,
+  variable: (value: string, hint: string) => string
+): BrowserDevtoolsCommand => {
+  if (command.action === "cookie_set") {
+    return {
+      ...command,
+      cookie: {
+        ...command.cookie,
+        value: variable(command.cookie.value, `COOKIE_${command.cookie.name}`),
+      },
+    };
+  }
+  if (command.action === "headers_set") {
+    return {
+      ...command,
+      headers: Object.fromEntries(
+        Object.entries(command.headers).map(([name, value]) => [
+          name,
+          variable(value, `HEADER_${name}`),
+        ])
+      ),
+    };
+  }
+  return command;
+};
+
 /** State is stamped from evidence; an author cannot silently omit a mock. */
 export const stampBrowserState = (
   files: readonly FlowSkillFile[],
@@ -28,6 +57,46 @@ export const stampBrowserState = (
   Effect.gen(function* stampRequiredState() {
     const modifications: RequiredBrowserModification[] = [];
     const delegation: string[] = [];
+    const names = new Set(
+      files.flatMap((file) =>
+        file.path === "SKILL.md"
+          ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
+              (input) => input.name
+            )
+          : []
+      )
+    );
+    const replacements = new Map<string, string>();
+    for (const event of events) {
+      const value = event._tag === "action" ? event.target?.value : undefined;
+      if (
+        event._tag === "action" &&
+        event.variableName !== undefined &&
+        value !== undefined &&
+        value !== null
+      ) {
+        replacements.set(value, event.variableName);
+        names.add(event.variableName);
+      }
+    }
+    const requiredNames = new Set<string>();
+    const reference = (value: string, hint: string): string => {
+      const slot = /^\{\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}\}$/u.exec(value)
+        ?.groups?.name;
+      let name = slot ?? replacements.get(value);
+      if (name === undefined) {
+        const base = hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_");
+        name = base;
+        let suffix = 2;
+        while (names.has(name)) {
+          name = `${base}_${(suffix += 1)}`;
+        }
+        replacements.set(value, name);
+      }
+      names.add(name);
+      requiredNames.add(name);
+      return `{{${name}}}`;
+    };
     let when = "At Start, before the first journey action";
     for (const event of events) {
       if (event._tag === "action") {
@@ -36,7 +105,17 @@ export const stampBrowserState = (
         const command = yield* Schema.decodeUnknownEffect(
           Schema.fromJsonString(BrowserDevtoolsCommand)
         )(event.command);
-        modifications.push({ command, id: event.id, when });
+        modifications.push({
+          command: parameterizeBrowserCommand(command, (value, hint) => {
+            const existing = event.variableNames?.[hint];
+            if (existing !== undefined) {
+              replacements.set(value, existing);
+            }
+            return reference(value, hint);
+          }),
+          id: event.id,
+          when,
+        });
       } else if (event._tag === "pursuit") {
         const { pursuit } = event;
         delegation.push(
@@ -54,18 +133,56 @@ export const stampBrowserState = (
         : [
             "Apply the [required browser state](references/browser-state.json) in order at its recorded journey outcomes. Active setup state applies at Start. Keep each modification until its recorded removal or Run end. Use fresh operation IDs; resolve removal IDs from the Dry Run's modification list. A failed application prevents a passing Dry Run.\n",
           ]),
+      ...Array.from(
+        requiredNames,
+        (name) =>
+          `- Required Variable: {{${name}}}. Supply it fresh through the Dry Run Variable request.`
+      ),
       ...delegation,
     ].join("\n");
+    const scrub = (original: string): string => {
+      let content = original;
+      for (const [value, name] of [...replacements].toSorted(
+        (a, b) => b[0].length - a[0].length
+      )) {
+        if (value.length > 0) {
+          content = content.replaceAll(value, `{{${name}}}`);
+        }
+      }
+      return content;
+    };
+    const declared = new Set(
+      files.flatMap((file) =>
+        file.path === "SKILL.md"
+          ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
+              (input) => input.name
+            )
+          : []
+      )
+    );
+    const declarations = [...requiredNames]
+      .flatMap((name) => (declared.has(name) ? [] : [`  - ${name}`]))
+      .join("\n");
     return [
-      ...files.flatMap((file) =>
-        file.path === BROWSER_STATE_FILE
+      ...files.flatMap((original) => {
+        const file = { ...original, content: scrub(original.content) };
+        return file.path === BROWSER_STATE_FILE
           ? []
           : [
               file.path === "SKILL.md"
-                ? { ...file, content: file.content + instructions }
+                ? {
+                    ...file,
+                    content:
+                      (declarations.length === 0
+                        ? file.content
+                        : file.content.replace(
+                            /^inputs:[^\n]*$/mu,
+                            (match) => `${match}\n${declarations}`
+                          )) + instructions,
+                  }
                 : file,
-            ]
-      ),
+            ];
+      }),
       ...(modifications.length === 0
         ? []
         : [
@@ -90,9 +207,25 @@ export const readBrowserState = (files: readonly FlowSkillFile[]) => {
 export const matchesRequiredModification = (
   required: RequiredBrowserModification,
   command: BrowserDevtoolsCommand,
-  applied: readonly BrowserModification[]
+  applied: readonly BrowserModification[],
+  supplied: (name: string) => string | undefined = () => {
+    /* empty */
+  }
 ): boolean => {
-  const expected = { ...required.command };
+  let missing = false;
+  const expected = {
+    ...parameterizeBrowserCommand(required.command, (value) => {
+      const name = /^\{\{(?<name>[^{}]+)\}\}$/u.exec(value)?.groups?.name;
+      if (name === undefined) {
+        return value;
+      }
+      const resolved = supplied(name);
+      if (resolved === undefined) {
+        missing = true;
+      }
+      return resolved ?? value;
+    }),
+  };
   const actual = { ...command };
   if ("operationId" in expected) {
     expected.operationId = "saved";
@@ -112,5 +245,5 @@ export const matchesRequiredModification = (
     expected.ref = "target";
     actual.ref = "target";
   }
-  return isDeepStrictEqual(expected, actual);
+  return !missing && isDeepStrictEqual(expected, actual);
 };

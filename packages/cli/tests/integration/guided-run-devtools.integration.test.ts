@@ -146,7 +146,7 @@ it.live(
         const dry = yield* teachingRecordingTool(
           "agent_flow_skill_dry_run_start",
           {
-            inputs: [],
+            inputs: [{ changed: true, name: "COOKIE_QA" }],
             operationId: operation("dry"),
             recordingId,
             url: fixture.url("devtools.html"),
@@ -172,8 +172,34 @@ it.live(
         ).toMatchObject({
           message: expect.stringContaining("every saved Browser Modification"),
         });
+        yield* sessionTool("agent_variable_request", {
+          flowSkillName: FlowSkillName.make("guided-state"),
+          name: "COOKIE_QA",
+          operationId: operation("request-cookie"),
+          sessionId: dry.session.id,
+        });
+        yield* sessions.supplyDryRunVariable(
+          dry.session.id,
+          "COOKIE_QA",
+          "fresh-cookie"
+        );
         yield* sessions.devtools(dry.session.id, {
           ...cookie,
+          operationId: "wrong-cookie",
+        });
+        expect(
+          yield* Effect.flip(
+            runTool("agent_run_assess", {
+              ...assessment,
+              operationId: operation("wrong-value"),
+            })
+          )
+        ).toMatchObject({
+          message: expect.stringContaining("every saved Browser Modification"),
+        });
+        yield* sessions.devtools(dry.session.id, {
+          ...cookie,
+          cookie: { ...cookie.cookie, value: "fresh-cookie" },
           operationId: "dry-cookie",
         });
         yield* sessions.devtools(dry.session.id, {
@@ -203,7 +229,7 @@ it.live(
         expect(
           yield* Effect.tryPromise(() => context.cookies())
         ).toContainEqual(
-          expect.objectContaining({ name: "qa", value: "fixture" })
+          expect.objectContaining({ name: "qa", value: "fresh-cookie" })
         );
         yield* sessions.devtools(dry.session.id, {
           action: "headers_set",
@@ -224,6 +250,10 @@ it.live(
         expect(summary).toMatchObject({
           assessment: { outcome: "working" },
           browserModifications: [
+            expect.objectContaining({
+              kind: "cookie",
+              source: "agent-initiated",
+            }),
             expect.objectContaining({ kind: "cookie", source: "saved" }),
             expect.objectContaining({ kind: "route", source: "saved" }),
             expect.objectContaining({ kind: "emulation", source: "saved" }),

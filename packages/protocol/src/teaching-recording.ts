@@ -482,6 +482,7 @@ export const TeachingRunEvidence = Schema.Union([
     description: nonEmptyString,
     id: nonEmptyString,
     url: Schema.String,
+    variableNames: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   }),
   Schema.TaggedStruct("pursuit", {
     ...teachingEventBase,

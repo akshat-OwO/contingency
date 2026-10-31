@@ -191,7 +191,10 @@ import type { RunEvidence } from "./run-lifecycle.ts";
 import { makeRunScans } from "./run-scans.ts";
 import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
-import { matchesRequiredModification } from "./saved-browser-state.ts";
+import {
+  matchesRequiredModification,
+  parameterizeBrowserCommand,
+} from "./saved-browser-state.ts";
 import type { RequiredBrowserModification } from "./saved-browser-state.ts";
 import { beginScanCollection } from "./scan-engine.ts";
 import { validateTeachingScan } from "./scan-requirements.ts";
@@ -1241,6 +1244,49 @@ const canRecordPrivateInput = (
 // ---------------------------------------------------------------------------
 // Interactive Run bookkeeping
 // ---------------------------------------------------------------------------
+
+const browserEvidenceScrubber = (
+  record: SessionRecord | undefined,
+  command: BrowserDevtoolsCommand | undefined
+) => {
+  const replacements = new Map<string, string>();
+  if (
+    command !== undefined &&
+    record !== undefined &&
+    (record.snapshot.dryRun !== null ||
+      (record.snapshot.activity === "teaching" &&
+        record.snapshot.origin === "guided-run"))
+  ) {
+    parameterizeBrowserCommand(command, (value, hint) => {
+      let reference = `{{${hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`;
+      if (record !== undefined) {
+        const required = record.browserState.required.find(
+          (item) => item.command.action === command.action
+        );
+        if (required !== undefined) {
+          parameterizeBrowserCommand(required.command, (slot, slotHint) => {
+            if (slotHint === hint) {
+              reference = slot;
+            }
+            return slot;
+          });
+        }
+      }
+      if (value.length > 0) {
+        replacements.set(value, reference);
+      }
+      return reference;
+    });
+  }
+  const scrub = (original: string): string => {
+    let value = original;
+    for (const [literal, reference] of replacements) {
+      value = value.replaceAll(literal, reference);
+    }
+    return value;
+  };
+  return scrub;
+};
 
 const variableKey = (name: string, flowSkillName?: string | null): string =>
   flowSkillName === undefined || flowSkillName === null
@@ -3112,7 +3158,11 @@ const makeAgentSession = (
         matchesRequiredModification(
           expected,
           command,
-          modificationRecords(record)
+          modificationRecords(record),
+          (name) =>
+            record.supplied.get(
+              variableKey(name, record.snapshot.dryRun?.flowSkillName)
+            )
         );
       if (saved && expected !== undefined) {
         record.browserState.applied.add(expected.id);
@@ -3131,6 +3181,18 @@ const makeAgentSession = (
           }
           const enrichedItem: BrowserModification = {
             ...item,
+            description:
+              command.action === "cookie_set" &&
+              (record.snapshot.dryRun !== null ||
+                (record.snapshot.activity === "teaching" &&
+                  record.snapshot.origin === "guided-run"))
+                ? item.description.replaceAll(
+                    command.cookie.value,
+                    expected?.command.action === "cookie_set"
+                      ? expected.command.cookie.value
+                      : `{{COOKIE_${command.cookie.name.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
+                  )
+                : item.description,
             source:
               saved ||
               (record.snapshot.activity === "teaching" &&
@@ -3167,6 +3229,31 @@ const makeAgentSession = (
               : `${command.action === "emulation_set" ? "emulation" : "modification"}-${"operationId" in command ? command.operationId : rawEntry.id}`,
           seq: record.browserState.events.length,
           url: record.snapshot.currentUrl,
+          variableNames: Object.fromEntries(
+            Object.entries(
+              (() => {
+                if (command.action === "cookie_set") {
+                  return { [command.cookie.name]: command.cookie.value };
+                }
+                if (command.action === "headers_set") {
+                  return command.headers;
+                }
+                return {};
+              })()
+            ).flatMap(([name, value]) => {
+              const match = [...record.supplied].find(
+                ([key, supplied]) => !key.startsWith("[") && supplied === value
+              );
+              return match === undefined
+                ? []
+                : [
+                    [
+                      `${command.action === "cookie_set" ? "COOKIE" : "HEADER"}_${name}`,
+                      match[0],
+                    ],
+                  ];
+            })
+          ),
         });
       }
       return patch;
@@ -3185,12 +3272,13 @@ const makeAgentSession = (
           record !== undefined && command !== undefined
             ? recordBrowserState(record, rawEntry, patch, command)
             : patch;
+        const scrub = browserEvidenceScrubber(record, command);
         const entry = {
           ...rawEntry,
-          description: rawEntry.description,
+          description: scrub(rawEntry.description),
         };
         if (rawEntry.detail !== undefined) {
-          entry.detail = rawEntry.detail;
+          entry.detail = scrub(rawEntry.detail);
         }
         // The entry joins the timeline as it stands now: an action that ran
         // while control changed hands records what it did without undoing the
