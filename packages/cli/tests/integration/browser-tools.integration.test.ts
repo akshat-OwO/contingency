@@ -525,19 +525,14 @@ it.live(
             upload(teaching.id, "teach-outside", [outsideFile])
           )
         ).toMatchObject({ message: expect.stringContaining("Catalog Root") });
-        // Dry Runs refuse uploads and clipboard writes.
-        for (const attempt of [
-          upload(dry.id, "dry-upload", [inside]),
-          sessions.devtools(dry.id, {
-            action: "clipboard_write",
-            operationId: "dry-clipboard",
-            text: "nope",
-          }),
-        ]) {
-          expect(yield* Effect.flip(attempt)).toMatchObject({
-            message: expect.stringContaining("Dry Run"),
-          });
-        }
+        // Dry Runs have the full devtools surface (ADR 0068).
+        const dryUpload = yield* upload(dry.id, "dry-upload", [inside]);
+        expect(dryUpload.entry.dispatched).toBe(true);
+        yield* sessions.devtools(dry.id, {
+          action: "clipboard_write",
+          operationId: "dry-clipboard",
+          text: "dry",
+        });
 
         const insideUpload = yield* upload(run.id, "run-inside", [inside]);
         expect(insideUpload.entry.dispatched).toBe(true);
