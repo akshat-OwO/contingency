@@ -140,3 +140,26 @@ test("labels an Interactive Run without its raw session id", () => {
   expect(agentSessionLabel(run(null))).toBe("Test agent · Interactive Run");
   expect(agentSessionLabel(run(null))).not.toContain("agent-run");
 });
+
+test("offers acceptance of an agent-requested Takeover before control transfers", () => {
+  const session: RunSnapshot = {
+    ...run(null),
+    phase: "takeover",
+    takeover: {
+      reason: "Sign in privately to continue.",
+      requestedAt: "2026-10-31T00:00:00.000Z",
+      requestedBy: "agent",
+    },
+  };
+  expect(agentControlPresentation(session)).toEqual({
+    action: "Take over",
+    holder: "The agent is asking you to take over",
+    reason: "The agent asked for help: Sign in privately to continue.",
+  });
+  expect(agentControlPresentation(run(null)).action).toBe("Take control");
+  expect(agentControlPresentation({ ...session, controller: "user" })).toEqual({
+    action: "Return control",
+    holder: "You have control",
+    reason: "The agent asked for help: Sign in privately to continue.",
+  });
+});
