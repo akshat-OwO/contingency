@@ -15,7 +15,7 @@ This extends ADR 0062's authority table. Pursuits remain unavailable during Teac
 | Interactive Run | Yes | Yes | Yes | Yes | Yes |
 | Teaching setup | Yes | Yes | Yes | No | No |
 | Guided Run setup | Yes | Yes | Yes | Yes | Yes |
-| Guided Run capture | Yes | No | No | Yes | Yes |
+| Guided Run capture | Yes | No | Open | Yes | Yes |
 | Dry Run | Yes | No; uses saved Emulation | No | Reproduces only saved Guided-Run-learned modifications; refuses agent-initiated modifications | Yes |
 
 ## Rules
@@ -33,6 +33,7 @@ This extends ADR 0062's authority table. Pursuits remain unavailable during Teac
 - How does a Pursuit and its actor marker appear in the learned Flow Skill?
 - How does Workspace present saved modifications and their Dry Run evidence?
 - What happens to a modification made during setup that remains active at Start?
+- Are direct cookie and storage writes allowed during capture? Mutating eval can already write them, so refusing them alone would not hold.
 
 ## Considered options
 
