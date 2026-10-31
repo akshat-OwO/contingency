@@ -60,7 +60,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Idle Gap**: Any span of an Interactive Run or a Dry Run outside every Action Window and every Takeover, such as agent thinking or a wait on a Pending Decision. The Run's video fast-forwards Idle Gaps and marks each one as fast-forwarded on screen. _Avoid_: pause, dead time, thinking time (as the domain term)
 
-**Browser Modification**: An agent-initiated change to browser state, network behaviour, or page script that a user could not make through ordinary interaction, such as a mocked route, an injected cookie, a mutating script, or a mid-Run change to zoom or text scale. Each one is recorded as Run evidence, persists until removed or the Run ends, and is never allowed in a Dry Run. _Avoid_: override, tampering, intervention
+**Browser Modification**: An agent-initiated change to browser state, network behaviour, or page script that a user could not make through ordinary interaction, such as a mocked route, an injected cookie, a mutating script, or a mid-Run change to zoom or text scale. Each one is recorded as Run evidence and persists until removed or the Run ends. Modifications made in a Guided Run are saved as required Flow Skill state and reproduced by its Dry Run, and Workspace shows every modification next to the Agent Assessment. See [ADR 0068](./docs/adr/0068-every-run-has-the-full-devtools-surface.md). _Avoid_: override, tampering, intervention
 
 **Browser Snapshot**: A compact accessibility representation of the current Page with short-lived element references for agent actions. References expire after navigation or meaningful page mutation; screenshots remain a separate visual observation. _Avoid_: screenshot, Trace, DOM dump
 
@@ -68,7 +68,7 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Local System One**: A System One that Contingency installs and runs on the user's machine at the user's request, and can update or remove. Contingency ships no model; a Local System One exists only after the user sets one up. See [ADR 0064](./docs/adr/0064-contingency-manages-an-opt-in-local-system-one.md). _Avoid_: bundled model, Nev (as the domain term), local model
 
-**Pursuit**: One delegated attempt, in an Interactive Run or a Dry Run, to reach a sub-goal the external agent hands down by acting on System One's answers. It ends as done, blocked, unsure, paused, or needing an input, and control returns to the external agent, which still owns the plan and the Agent Assessment. Every action in a Pursuit stays within the Execution Boundary. _Avoid_: autonomous Run, Agent Step, sub-task
+**Pursuit**: One delegated attempt, in an Interactive Run, a Guided Run, or a Dry Run, to reach a sub-goal the external agent hands down by acting on System One's answers. It ends as done, blocked, unsure, paused, or needing an input, and control returns to the external agent, which still owns the plan and the Agent Assessment. Every action in a Pursuit stays within the Execution Boundary. _Avoid_: autonomous Run, Agent Step, sub-task
 
 **Interactive Run**: An agent-controlled attempt at a user-requested task, connected to a live MCP conversation, with optional verified Flow Skills sharing one browser context and its starting Emulation. The user may redirect the task, and failures leave the browser available for investigation until explicit completion, user closure, or process exit; required intervention still pauses execution. _Avoid_: one Flow Skill execution, live Teaching, autonomous Run
 
