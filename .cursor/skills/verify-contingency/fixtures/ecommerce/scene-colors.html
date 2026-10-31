@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Scene colours</title>
+    <style>
+      body {
+        margin: 0;
+        font:
+          600 24px system-ui,
+          sans-serif;
+        color: #fff;
+      }
+      main {
+        min-height: 100vh;
+        display: grid;
+        place-content: center;
+        gap: 16px;
+        background: #c2185b;
+      }
+      button {
+        font: inherit;
+        padding: 12px 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Full-bleed colour scenes for the Run video's ambient backdrop (#595). -->
+    <main>
+      <h1 id="scene">Magenta scene</h1>
+      <button type="button" data-colour="#1565c0" data-name="Blue">
+        Show blue scene
+      </button>
+      <button type="button" data-colour="#2e7d32" data-name="Green">
+        Show green scene
+      </button>
+      <button type="button" data-colour="#ef6c00" data-name="Orange">
+        Show orange scene
+      </button>
+    </main>
+    <script>
+      for (const button of document.querySelectorAll("button")) {
+        button.addEventListener("click", () => {
+          document.querySelector("main").style.background =
+            button.dataset.colour;
+          document.querySelector("#scene").textContent =
+            `${button.dataset.name} scene`;
+        });
+      }
+    </script>
+  </body>
+</html>
