@@ -76,9 +76,12 @@ const chapterLineTone = (hovered: boolean, current: boolean): string => {
 };
 
 /** Fewer, wider gaps when there are few chapters to tell apart. */
-const chapterGapPx = (count: number): number => {
+const chapterGapPx = (count: number, barCount: number): number => {
+  if (count > barCount) {
+    return 0;
+  }
   if (count <= 12) {
-    return 6;
+    return Math.min(6, (barCount * BAR_PITCH_PX) / (2 * count));
   }
   return count <= 40 ? 2 : 1;
 };
@@ -165,6 +168,7 @@ const Scrubber = ({
   readonly videoRef: RefObject<HTMLVideoElement | null>;
 }) => {
   const trackRef = useRef<HTMLDivElement>(null);
+  const [barCount, setBarCount] = useState(0);
   const draggingRef = useRef(false);
   const resumeRef = useRef(false);
   const [hover, setHover] = useState<{ ms: number; x: number } | undefined>();
@@ -174,10 +178,13 @@ const Scrubber = ({
     if (track === null) {
       return;
     }
-    const measure = () =>
-      onBarCount(
-        Math.floor(track.getBoundingClientRect().width / BAR_PITCH_PX)
+    const measure = () => {
+      const count = Math.floor(
+        track.getBoundingClientRect().width / BAR_PITCH_PX
       );
+      setBarCount(count);
+      onBarCount(count);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(track);
@@ -289,18 +296,18 @@ const Scrubber = ({
       <div
         className="flex size-full"
         ref={trackRef}
-        style={{ gap: chapterGapPx(chapters.length) }}
+        style={{ gap: chapterGapPx(chapters.length, barCount) }}
       >
         {chapters.map((chapter) => (
           <div
-            className="relative flex h-full items-end gap-0.5"
+            className="relative flex h-full min-w-0 items-end gap-0.5"
             key={chapter.fromMs}
             style={{ flexBasis: 0, flexGrow: chapter.toMs - chapter.fromMs }}
           >
             {chapter.bars.map((bar) => (
               <i
                 className={cn(
-                  "min-w-px flex-1 rounded-[1.5px] transition-colors duration-100",
+                  "min-w-0 flex-1 rounded-[1.5px] transition-colors duration-100",
                   barTone(bar.atMs, currentMs, hover?.ms)
                 )}
                 key={bar.atMs}
