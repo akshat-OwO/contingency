@@ -148,7 +148,7 @@ it.effect("reports the removed Claude entry when replacement fails", () =>
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.failure.message).toContain(
-        "The previous Claude Code user scope registration was removed."
+        `The previous ${path.join(home, ".claude.json")} (Claude Code user scope) registration was removed.`
       );
       expect(result.failure.message).not.toContain(
         "No other configuration was changed"
@@ -257,8 +257,32 @@ it("names every difference a user must decide on", () => {
     )
   ).toEqual([
     "the startup timeout is unset; Contingency would use 60 seconds",
-    `args are ["old.js","mcp"]; Contingency would use ${JSON.stringify(SPEC.args)}`,
-    'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
+    'args[0]: "old.js" -> "/opt/contingency/index.js"',
+    'args[2]: unset -> "--agent"',
+    'args[3]: unset -> "codex"',
+    'args[4]: unset -> "--fallback-directory"',
+    'args[5]: unset -> "/work/onboarding"',
+    'env CONTINGENCY_MCP_PORT: unset -> "0"',
+  ]);
+});
+
+it("reports changed arguments separately and abbreviates shared path text", () => {
+  expect(
+    describeDifferences(
+      {
+        args: ["/same/very/long/path/old/index.js", "mcp", "removed"],
+        command: "node",
+        env: {},
+      },
+      {
+        args: ["/same/very/long/path/new/index.js", "mcp"],
+        command: "node",
+        env: {},
+      }
+    )
+  ).toEqual([
+    'args[0]: "…old/index.js" -> "…new/index.js"',
+    'args[2]: "removed" -> unset',
   ]);
 });
 
@@ -375,6 +399,13 @@ it.effect("reads Claude Code scopes from its configuration files", () =>
       command: "node",
       env: {},
     });
+    expect(entries.user?.location).toBe(
+      `${configPath} (Claude Code user scope)`
+    );
+    expect(entries.project?.location).toBe(
+      `${configPath} (Claude Code project scope for ${project})`
+    );
+    expect(entries.shared?.location).toBe(path.join(project, ".mcp.json"));
     expect(entries.project?.extras).toEqual(["type is http, not stdio"]);
     expect(entries.shared?.spec.command).toBe("shared");
   }).pipe(Effect.provide(NodeServices.layer))
@@ -503,8 +534,13 @@ it.effect("names what differs in an OpenCode entry, including Code Mode", () =>
       describeDifferences(entry.spec, OPENCODE_SPEC, entry.extras)
     ).toEqual([
       "the startup timeout is unset; Contingency would use 60 seconds",
-      `args are ["old.js"]; Contingency would use ${JSON.stringify(OPENCODE_SPEC.args)}`,
-      'env CONTINGENCY_MCP_PORT is unset; Contingency would use "0"',
+      'args[0]: "old.js" -> "/opt/contingency/index.js"',
+      'args[1]: unset -> "mcp"',
+      'args[2]: unset -> "--agent"',
+      'args[3]: unset -> "opencode"',
+      'args[4]: unset -> "--fallback-directory"',
+      'args[5]: unset -> "/work/onboarding"',
+      'env CONTINGENCY_MCP_PORT: unset -> "0"',
       "disabled is set to true",
       'cwd is set to "/elsewhere"',
       "codemode is unset; Contingency would set it to false so its tools stay native",
