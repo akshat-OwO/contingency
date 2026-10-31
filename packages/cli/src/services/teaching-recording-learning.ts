@@ -253,13 +253,14 @@ const eventProjection = (
         Effect.map((command) => ({
           ...event,
           command: JSON.stringify(
-            parameterizeBrowserCommand(
-              command,
-              (_value, hint) =>
-                `{{${event.variableNames?.[hint] ?? hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
+            parameterizeBrowserCommand(command, (value, hint) =>
+              value.startsWith("{{")
+                ? value
+                : `{{${event.variableNames?.[hint] ?? hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
             )
           ),
           description: "Apply saved browser state",
+          valueDigests: [],
           variableNames: {},
         })),
         Effect.mapError(() =>
@@ -616,11 +617,8 @@ const makeTeachingRecordingLearning = Effect.fn(
         parameterizeVariables(files, events),
         events
       ).pipe(
-        Effect.mapError(() =>
-          learningError(
-            "teaching_recording_invalid",
-            "The recording contains an invalid Browser Modification command."
-          )
+        Effect.mapError((error) =>
+          learningError("teaching_recording_invalid", error.message)
         )
       );
       // The package contract is checked here, in the same pre-write window as

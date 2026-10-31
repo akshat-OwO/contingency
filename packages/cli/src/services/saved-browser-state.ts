@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import { BrowserDevtoolsCommand } from "@contingency/protocol";
@@ -49,6 +50,69 @@ export const parameterizeBrowserCommand = (
   return command;
 };
 
+export const browserVariableReference =
+  (names: Set<string>, replacements: Map<string, string>) =>
+  (value: string, hint: string): string => {
+    const slot = /^\{\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}\}$/u.exec(value)
+      ?.groups?.name;
+    let name = slot ?? replacements.get(value);
+    if (name === undefined) {
+      const base = hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_");
+      name = base;
+      let suffix = 1;
+      while (names.has(name)) {
+        suffix += 1;
+        name = `${base}_${suffix}`;
+      }
+      replacements.set(value, name);
+    }
+    names.add(name);
+    return `{{${name}}}`;
+  };
+
+export const browserValueDigest = (value: string): string =>
+  createHash("sha256").update(value).digest("hex");
+
+const literalValidationError = (
+  files: readonly FlowSkillFile[],
+  replacements: ReadonlyMap<string, string>,
+  events: readonly TeachingEvent[]
+): string | undefined => {
+  const digests = events.flatMap((event) =>
+    event._tag === "browser-modification" ? (event.valueDigests ?? []) : []
+  );
+  for (const file of files) {
+    if (file.path === BROWSER_STATE_FILE) {
+      continue;
+    }
+    const reject = (name: string) =>
+      `Replace the recorded value in ${file.path} with Variable {{${name}}} before saving.`;
+    for (const [value, name] of replacements) {
+      if (value.length >= 8 && file.content.includes(value)) {
+        return reject(name);
+      }
+    }
+    for (const { length, digest, name } of digests) {
+      if (length < 8) {
+        continue;
+      }
+      for (
+        let offset = 0;
+        offset + length <= file.content.length;
+        offset += 1
+      ) {
+        if (
+          browserValueDigest(file.content.slice(offset, offset + length)) ===
+          digest
+        ) {
+          return reject(name);
+        }
+      }
+    }
+  }
+  return undefined;
+};
+
 /** State is stamped from evidence; an author cannot silently omit a mock. */
 export const stampBrowserState = (
   files: readonly FlowSkillFile[],
@@ -80,23 +144,11 @@ export const stampBrowserState = (
       }
     }
     const requiredNames = new Set<string>();
+    const assign = browserVariableReference(names, replacements);
     const reference = (value: string, hint: string): string => {
-      const slot = /^\{\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}\}$/u.exec(value)
-        ?.groups?.name;
-      let name = slot ?? replacements.get(value);
-      if (name === undefined) {
-        const base = hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_");
-        name = base;
-        let suffix = 1;
-        while (names.has(name)) {
-          suffix += 1;
-          name = `${base}_${suffix}`;
-        }
-        replacements.set(value, name);
-      }
-      names.add(name);
-      requiredNames.add(name);
-      return `{{${name}}}`;
+      const slot = assign(value, hint);
+      requiredNames.add(slot.slice(2, -2));
+      return slot;
     };
     let when = "At Start, before the first journey action";
     for (const event of events) {
@@ -141,17 +193,10 @@ export const stampBrowserState = (
       ),
       ...delegation,
     ].join("\n");
-    const scrub = (original: string): string => {
-      let content = original;
-      for (const [value, name] of [...replacements].toSorted(
-        (a, b) => b[0].length - a[0].length
-      )) {
-        if (value.length > 0) {
-          content = content.replaceAll(value, `{{${name}}}`);
-        }
-      }
-      return content;
-    };
+    const validationError = literalValidationError(files, replacements, events);
+    if (validationError !== undefined) {
+      return yield* Effect.fail({ message: validationError });
+    }
     const declared = new Set(
       files.flatMap((file) =>
         file.path === "SKILL.md"
@@ -166,7 +211,7 @@ export const stampBrowserState = (
       .join("\n");
     return [
       ...files.flatMap((original) => {
-        const file = { ...original, content: scrub(original.content) };
+        const file = original;
         return file.path === BROWSER_STATE_FILE
           ? []
           : [

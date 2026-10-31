@@ -193,6 +193,8 @@ import { RunVideoRenderer } from "./run-video-renderer.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import {
   matchesRequiredModification,
+  browserVariableReference,
+  browserValueDigest,
   parameterizeBrowserCommand,
 } from "./saved-browser-state.ts";
 import type { RequiredBrowserModification } from "./saved-browser-state.ts";
@@ -1258,7 +1260,16 @@ const browserEvidenceScrubber = (
         record.snapshot.origin === "guided-run"))
   ) {
     parameterizeBrowserCommand(command, (value, hint) => {
-      let reference = `{{${hint.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`;
+      for (const [key, supplied] of record.supplied) {
+        if (!key.startsWith("[")) {
+          record.browserState.names.add(key);
+          record.browserState.replacements.set(supplied, key);
+        }
+      }
+      let reference = browserVariableReference(
+        record.browserState.names,
+        record.browserState.replacements
+      )(value, hint);
       if (record !== undefined) {
         const required = record.browserState.required.find(
           (item) => item.command.action === command.action
@@ -1360,6 +1371,8 @@ interface SessionRecord {
     readonly required: readonly RequiredBrowserModification[];
     readonly applied: Set<string>;
     events: TeachingRunEvidence[];
+    readonly names: Set<string>;
+    readonly replacements: Map<string, string>;
   };
   readonly runtime: BrowserPlatformRuntime;
   readonly diagnostics: { reader: BrowserDiagnosticsReader | undefined };
@@ -3181,18 +3194,10 @@ const makeAgentSession = (
           }
           const enrichedItem: BrowserModification = {
             ...item,
-            description:
-              command.action === "cookie_set" &&
-              (record.snapshot.dryRun !== null ||
-                (record.snapshot.activity === "teaching" &&
-                  record.snapshot.origin === "guided-run"))
-                ? item.description.replaceAll(
-                    command.cookie.value,
-                    expected?.command.action === "cookie_set"
-                      ? expected.command.cookie.value
-                      : `{{COOKIE_${command.cookie.name.toUpperCase().replaceAll(/[^A-Z0-9_]+/gu, "_")}}}`
-                  )
-                : item.description,
+            description: browserEvidenceScrubber(
+              record,
+              command
+            )(item.description),
             source:
               saved ||
               (record.snapshot.activity === "teaching" &&
@@ -3217,18 +3222,42 @@ const makeAgentSession = (
         record.snapshot.activity === "teaching" &&
         record.snapshot.origin === "guided-run"
       ) {
+        browserEvidenceScrubber(record, command);
+        const valueDigests: { length: number; digest: string; name: string }[] =
+          [];
+        const recordedCommand = parameterizeBrowserCommand(
+          command,
+          (value, hint) => {
+            const reference = browserVariableReference(
+              record.browserState.names,
+              record.browserState.replacements
+            )(value, hint);
+            if (value.length >= 8) {
+              valueDigests.push({
+                digest: browserValueDigest(value),
+                length: value.length,
+                name: reference.slice(2, -2),
+              });
+            }
+            return reference;
+          }
+        );
         record.browserState.events.push({
           _tag: "browser-modification",
           actor: "agent",
           at: rawEntry.at,
-          command: JSON.stringify(command),
-          description: rawEntry.description,
+          command: JSON.stringify(recordedCommand),
+          description: browserEvidenceScrubber(
+            record,
+            command
+          )(rawEntry.description),
           id:
             command.action === "modification_remove"
               ? `remove-${command.operationId}`
               : `${command.action === "emulation_set" ? "emulation" : "modification"}-${"operationId" in command ? command.operationId : rawEntry.id}`,
           seq: record.browserState.events.length,
           url: record.snapshot.currentUrl,
+          valueDigests,
           variableNames: Object.fromEntries(
             Object.entries(
               (() => {
@@ -3976,6 +4005,8 @@ const makeAgentSession = (
                       browserState: {
                         applied: new Set(),
                         events: [],
+                        names: new Set(),
+                        replacements: new Map(),
                         required: requiredBrowserState(input),
                       },
                       capture:

@@ -46,7 +46,7 @@ it.live(
             name: "qa",
             path: "/",
             secure: false,
-            value: "fixture",
+            value: "setup-cookie-literal",
           },
           operationId: "setup-cookie",
         } as const;
@@ -83,6 +83,11 @@ it.live(
           operationId: "capture-scale",
           textScale: 150,
         });
+        yield* sessions.devtools(started.id, {
+          action: "headers_set",
+          headers: { "x-capture": "capture-header-literal" },
+          operationId: "capture-header",
+        });
         yield* sessions.recordPursuit(
           started.id,
           {
@@ -97,7 +102,19 @@ it.live(
           },
           operation("record-pursuit")
         );
+        const evidence = yield* sessions.get(started.id);
+        expect(JSON.stringify(evidence)).not.toContain("setup-cookie-literal");
+        expect(JSON.stringify(evidence)).not.toContain(
+          "capture-header-literal"
+        );
         yield* sessions.stopTeachingRecording(started.id, operation("stop"));
+        const recorded = yield* fs.readFileString(
+          `${root}/.recordings/${recordingId}/events.jsonl`
+        );
+        expect(recorded).not.toContain("setup-cookie-literal");
+        expect(recorded).not.toContain("capture-header-literal");
+        expect(recorded).toContain("{{COOKIE_QA}}");
+        expect(recorded).toContain("{{HEADER_X_CAPTURE}}");
         const claimOperationId = operation("claim");
         yield* teachingRecordingTool("agent_teaching_recording_claim", {
           action: "take",
@@ -112,7 +129,7 @@ it.live(
           timeline.entries.filter(
             (entry) => entry._tag === "browser-modification"
           )
-        ).toHaveLength(3);
+        ).toHaveLength(4);
         expect(timeline.entries).toContainEqual(
           expect.objectContaining({
             _tag: "pursuit",
@@ -121,6 +138,21 @@ it.live(
           })
         );
         expect(JSON.stringify(timeline)).not.toContain("x-discarded");
+        const refused = yield* Effect.flip(
+          teachingRecordingTool("agent_flow_skill_save", {
+            claimOperationId,
+            files: [
+              {
+                content:
+                  "---\nname: guided-state\ndescription: Inspect the fixture.\ninputs:\n---\n\n1. Use capture-header-literal. Done when: fixture is visible.\n",
+                path: "SKILL.md",
+              },
+            ],
+            operationId: operation("refused-save"),
+            recordingId,
+          })
+        );
+        expect(refused.message).toContain("HEADER_X_CAPTURE");
         const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
           claimOperationId,
           files: [
@@ -146,7 +178,10 @@ it.live(
         const dry = yield* teachingRecordingTool(
           "agent_flow_skill_dry_run_start",
           {
-            inputs: [{ changed: true, name: "COOKIE_QA" }],
+            inputs: [
+              { changed: true, name: "COOKIE_QA" },
+              { changed: true, name: "HEADER_X_CAPTURE" },
+            ],
             operationId: operation("dry"),
             recordingId,
             url: fixture.url("devtools.html"),
@@ -211,6 +246,22 @@ it.live(
           operationId: "dry-scale",
           textScale: 150,
         });
+        yield* sessionTool("agent_variable_request", {
+          flowSkillName: FlowSkillName.make("guided-state"),
+          name: "HEADER_X_CAPTURE",
+          operationId: operation("request-header"),
+          sessionId: dry.session.id,
+        });
+        yield* sessions.supplyDryRunVariable(
+          dry.session.id,
+          "HEADER_X_CAPTURE",
+          "fresh-header"
+        );
+        yield* sessions.devtools(dry.session.id, {
+          action: "headers_set",
+          headers: { "x-capture": "fresh-header" },
+          operationId: "dry-header",
+        });
         const browser = yield* CreateBrowser;
         const ids = yield* browser.list();
         const browserId = ids.at(-1);
@@ -257,6 +308,7 @@ it.live(
             expect.objectContaining({ kind: "cookie", source: "saved" }),
             expect.objectContaining({ kind: "route", source: "saved" }),
             expect.objectContaining({ kind: "emulation", source: "saved" }),
+            expect.objectContaining({ kind: "headers", source: "saved" }),
             expect.objectContaining({
               kind: "headers",
               source: "agent-initiated",
