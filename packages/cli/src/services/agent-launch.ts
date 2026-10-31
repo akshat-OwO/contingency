@@ -157,13 +157,15 @@ export const currentInvocation = (input: {
 });
 
 // vpx uses pnpm's dlx cache. Yarn can expose either its temporary project
-// or a PnP zip path. Match runner directories, not ordinary global installs.
+// or a PnP zip path, and its cache folder can have any name. Only a package
+// cache serves code from inside a zip. Match runner directories, not
+// ordinary global installs.
 const isRunnerCache = (script: string): boolean => {
   const normalized = script.replaceAll("\\", "/");
   return (
     /(?:^|\/)(?:_npx\/|dlx\/[^/]+\/(?:[^/]+\/)?node_modules\/|bunx-[^/]+\/|dlx-[^/]+\/)/u.test(
       normalized
-    ) || /\/cache\/[^/]+\.zip\/node_modules\//u.test(normalized)
+    ) || /\.zip\/node_modules\//u.test(normalized)
   );
 };
 

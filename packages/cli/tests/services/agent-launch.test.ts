@@ -146,6 +146,10 @@ it.each([
     "/Users/a/.yarn/berry/cache/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
   ],
   [
+    "yarn PnP dlx with a custom cache folder",
+    "/var/tmp/yarn-packages/@contingencyhq-cli-npm-1.2.3-hash.zip/node_modules/@contingencyhq/cli/dist/index.js",
+  ],
+  [
     "yarn dlx",
     "/private/tmp/xfs-123/dlx-456/node_modules/@contingencyhq/cli/dist/index.js",
   ],

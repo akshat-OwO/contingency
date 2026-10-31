@@ -286,6 +286,28 @@ it("reports changed arguments separately and abbreviates shared path text", () =
   ]);
 });
 
+it("aligns shared trailing arguments when the launcher changes", () => {
+  const tail = ["mcp", "--agent", "claude", "--fallback-directory", "/work"];
+  expect(
+    describeDifferences(
+      {
+        args: ["/cache/dlx/hash/cli/dist/index.js", ...tail],
+        command: "/runtime/node",
+        env: {},
+      },
+      {
+        args: ["-y", "@contingencyhq/cli@1.2.3", ...tail],
+        command: "npx",
+        env: {},
+      }
+    )
+  ).toEqual([
+    'command: "/runtime/node" -> "npx"',
+    'args[0]: "/cache/dlx/hash/cli/dist/index.js" -> "-y"',
+    'args[1]: unset -> "@contingencyhq/cli@1.2.3"',
+  ]);
+});
+
 it("reads Codex project trust from the user configuration", () => {
   expect(codexTrustsProject(Option.some(UNRELATED), "/work/app")).toBe(true);
   expect(codexTrustsProject(Option.some(UNRELATED), "/work/other")).toBe(false);

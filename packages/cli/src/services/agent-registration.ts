@@ -108,19 +108,23 @@ export const describeDifferences = (
       fieldDifference("command", existing.command, wanted.command)
     );
   }
-  for (
-    let index = 0;
-    index < Math.max(existing.args.length, wanted.args.length);
-    index += 1
+  // Align the shared tail first, so a launcher that gains or loses an
+  // argument (`node script` -> `npx -y pkg`) does not shift every later one.
+  let shared = 0;
+  while (
+    shared < Math.min(existing.args.length, wanted.args.length) &&
+    existing.args.at(-shared - 1) === wanted.args.at(-shared - 1)
   ) {
-    if (existing.args[index] !== wanted.args[index]) {
-      differences.push(
-        fieldDifference(
-          `args[${index}]`,
-          existing.args[index],
-          wanted.args[index]
-        )
-      );
+    shared += 1;
+  }
+  const changed = Math.max(existing.args.length, wanted.args.length) - shared;
+  for (let index = 0; index < changed; index += 1) {
+    const before =
+      index < existing.args.length - shared ? existing.args[index] : undefined;
+    const after =
+      index < wanted.args.length - shared ? wanted.args[index] : undefined;
+    if (before !== after) {
+      differences.push(fieldDifference(`args[${index}]`, before, after));
     }
   }
   const keys = new Set([
