@@ -7256,6 +7256,15 @@ const makeAgentSession = (
                     .serializeMutation(
                       Effect.gen(function* prepareEvaluation() {
                         const record = yield* requireLiveRecord(sessionId);
+                        const reason = modificationRefusal(
+                          record.snapshot,
+                          "eval"
+                        );
+                        if (reason !== undefined) {
+                          return yield* Effect.fail(
+                            error("agent_session_conflict", reason)
+                          );
+                        }
                         if (
                           userLedTeaching(record.snapshot) ||
                           agentIsPaused(record.snapshot)
@@ -7274,21 +7283,12 @@ const makeAgentSession = (
                             )
                           );
                         }
-                        const reason = modificationRefusal(
-                          record.snapshot,
-                          "eval"
-                        );
-                        if (reason !== undefined) {
-                          return yield* Effect.fail(
-                            error("agent_session_conflict", reason)
-                          );
-                        }
                         const boundary = record.executionBoundary;
                         if (boundary === undefined) {
                           return yield* Effect.fail(
                             error(
                               "agent_session_conflict",
-                              "Mutating evaluation requires an Interactive Run with an Execution Boundary."
+                              "Mutating evaluation requires a Run with an Execution Boundary."
                             )
                           );
                         }
@@ -7375,7 +7375,8 @@ const makeAgentSession = (
                               kind: "eval",
                               operationId: command.operationId,
                             },
-                          ])
+                          ]),
+                          command
                         );
                         // Register before releasing the mutation gate. Takeover must
                         // always find the dispatched evaluation, including at startup.
