@@ -4,7 +4,7 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 
-import { LEARN_FLOW_SKILL_URI } from "../../src/services/mcp-authoring-skills.ts";
+import { LEARN_FLOW_URI } from "../../src/services/mcp-authoring-resources.ts";
 import {
   EXAMPLES_URI,
   STARTER_PROMPT_URI,
@@ -83,18 +83,18 @@ it.live(
         expect.arrayContaining([
           STARTER_PROMPT_URI,
           EXAMPLES_URI,
-          LEARN_FLOW_SKILL_URI,
+          LEARN_FLOW_URI,
         ])
       );
 
       const starter = yield* read(request, STARTER_PROMPT_URI);
       expect(starter).toContain("agent_catalog_get");
       expect(starter).toContain("agent_example_run_start");
-      expect(starter).toContain(LEARN_FLOW_SKILL_URI);
+      expect(starter).toContain(LEARN_FLOW_URI);
       // One authoritative learning procedure: the starter prompt points to it.
       expect(starter).not.toContain("agent_teaching_recording_claim");
 
-      const learn = yield* read(request, LEARN_FLOW_SKILL_URI);
+      const learn = yield* read(request, LEARN_FLOW_URI);
       expect(learn).toContain("agent_flow_skill_save");
       expect(learn).toContain("agent_session_get");
       expect(learn).toContain("afterCursor:eventCursor");
@@ -159,7 +159,7 @@ it.live(
         yield* request("resources/list", {})
       ).result.resources.map((resource) => resource.uri);
       expect(uris).toEqual(
-        expect.arrayContaining([WORK_PROMPT_URI, LEARN_FLOW_SKILL_URI])
+        expect.arrayContaining([WORK_PROMPT_URI, LEARN_FLOW_URI])
       );
       expect(uris).not.toContain(STARTER_PROMPT_URI);
       expect(uris).not.toContain(EXAMPLES_URI);
@@ -172,7 +172,7 @@ it.live(
 
       const work = yield* read(request, WORK_PROMPT_URI);
       expect(work).toContain("agent_catalog_get");
-      expect(work).toContain(LEARN_FLOW_SKILL_URI);
+      expect(work).toContain(LEARN_FLOW_URI);
       expect(work).toContain("--demo");
       expect(work).not.toContain("agent_example_run_start");
       // One authoritative learning procedure: the work prompt points to it.

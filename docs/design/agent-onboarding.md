@@ -58,7 +58,7 @@ The [MCP command](../../packages/cli/src/cmds/mcp.ts) owns the Workspace and ser
 
 The [Catalog Root](../../packages/cli/src/services/flow-skill-catalog.ts) defaults to `.contingency` under the process's current directory. The launch directory determines where Flow Skills and local evidence live.
 
-The server already supplies [authoring resources and the learning prompt](../../packages/cli/src/services/mcp-authoring-skills.ts). These include writing-for-agents, technical-writing, unslop, and `learn-flow-skill`. The starter prompt can introduce the task and refer to the learning procedure without maintaining another copy of it.
+The server already supplies [authoring resources and the learning prompt](../../packages/cli/src/services/mcp-authoring-resources.ts). These include the combined writing reference and `learn-flow`. The starter prompt can introduce the task and refer to the learning procedure without maintaining another copy of it.
 
 ## Proposed implementation approach
 
@@ -74,7 +74,7 @@ Directory discovery identifies the selected agent explicitly. For Claude, the MC
 
 Directory discovery and catalog access are separate operations. Missing `.contingency` initializes a catalog in the selected directory. A permission failure reports an error there; it does not silently switch to the fallback.
 
-The learning procedure must be readable by both agents without requiring a user to invoke an MCP prompt manually. If a client cannot retrieve `learn-flow-skill`, expose the same text through an MCP resource or focused read-only tool. Keep one authoritative procedure behind those access methods.
+The learning procedure must be readable by both agents without requiring a user to invoke an MCP prompt manually. If a client cannot retrieve `learn-flow`, expose the same text through an MCP resource or focused read-only tool. Keep one authoritative procedure behind those access methods.
 
 Shutdown closes process-owned resources and preserves durable Flow Skills, ready Teaching Recordings, and Run evidence under their existing lifecycle contracts. A return visit reads persisted state rather than pretending to resume a live browser that has closed. Failures identify the operation and recovery action. Configuration injection alone never counts as a working connection.
 

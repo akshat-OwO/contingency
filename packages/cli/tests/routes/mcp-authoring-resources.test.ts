@@ -12,10 +12,10 @@ import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
-  AUTHORING_SKILL_FILES,
-  authoringSkillUri,
-  resolveAuthoringSkillRoot,
-} from "../../src/services/mcp-authoring-skills.ts";
+  LEARN_FLOW_URI,
+  WRITING_RESOURCE_URI,
+  resolveAuthoringResourceRoot,
+} from "../../src/services/mcp-authoring-resources.ts";
 import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
@@ -152,45 +152,64 @@ const connect = (origin: string) =>
   });
 
 it.live(
-  "serves the three authoring skills as MCP resources, and never skill-creator",
+  "serves one combined writing reference and points the learning prompt to it",
   () =>
     Effect.gen(function* listAuthoringSkillResources() {
       const call = yield* connect(yield* serving());
       const listed = yield* call(ResourceList, 2, "resources/list", {});
       const { resources } = listed.result;
       const uris = resources.map((resource) => resource.uri);
-      for (const entry of AUTHORING_SKILL_FILES) {
-        expect(uris).toContain(authoringSkillUri(entry));
-      }
-      expect(JSON.stringify(resources)).not.toContain("skill-creator");
       expect(
-        resources
-          .filter((resource) => resource.uri.startsWith("contingency://skill/"))
-          .every((resource) => resource.mimeType === "text/markdown")
-      ).toBe(true);
-
-      const read = yield* call(ResourceRead, 3, "resources/read", {
-        uri: "contingency://skill/writing-for-agents",
-      });
-      expect(read.result.contents[0]?.text).toContain(
-        "name: writing-for-agents"
+        resources.filter((resource) => resource.uri === WRITING_RESOURCE_URI)
+      ).toEqual([
+        {
+          uri: WRITING_RESOURCE_URI,
+          name: "Writing",
+          mimeType: "text/markdown",
+        },
+      ]);
+      expect(uris.some((uri) => uri.startsWith("contingency://skill/"))).toBe(
+        false
       );
-
-      const mechanics = yield* call(ResourceRead, 4, "resources/read", {
-        uri: "contingency://skill/writing-for-agents/SKILL-MECHANICS.md",
+      expect(JSON.stringify(resources)).not.toContain("skill-creator");
+      const read = yield* call(ResourceRead, 3, "resources/read", {
+        uri: WRITING_RESOURCE_URI,
       });
-      expect(mechanics.result.contents[0]?.text).toContain("# Skill mechanics");
+      const text = read.result.contents[0]?.text;
+      const fileSystem = yield* FileSystem.FileSystem;
+      expect(text).toBe(
+        yield* fileSystem.readFileString(
+          path.resolve(import.meta.dirname, "../../resources/writing.md")
+        )
+      );
+      expect(text).toMatch(/^# Writing\n/u);
+      expect(text).toContain("Diátaxis");
+      expect(text).toContain("## Edit for natural voice");
+      expect(text).toContain("## Write for agents");
+      expect(text).not.toContain("name: unslop");
 
       const prompts = yield* call(PromptList, 5, "prompts/list", {});
       expect(prompts.result.prompts.map((prompt) => prompt.name)).toContain(
-        "learn-flow-skill"
+        "learn-flow"
       );
       const prompt = yield* call(PromptGet, 6, "prompts/get", {
-        name: "learn-flow-skill",
+        name: "learn-flow",
       });
       const instructions = prompt.result.messages
         .map((message) => message.content.text)
         .join("\n");
+      const procedure = yield* fileSystem.readFileString(
+        path.resolve(import.meta.dirname, "../../resources/learn-flow.md")
+      );
+      const learningResource = yield* call(ResourceRead, 7, "resources/read", {
+        uri: LEARN_FLOW_URI,
+      });
+      expect(instructions).toBe(procedure);
+      expect(learningResource.result.contents[0]?.text).toBe(procedure);
+      expect(uris).toContain(LEARN_FLOW_URI);
+      expect(uris).not.toContain("contingency://prompt/learn-flow-skill");
+      expect(instructions).toContain(WRITING_RESOURCE_URI);
+      expect(instructions).not.toContain("contingency://skill/");
       expect(instructions).toContain("agent_run_assess");
       expect(instructions).toContain("outcomeComplete");
       expect(instructions).toContain("agent_run_complete");
@@ -205,7 +224,7 @@ it.live(
 );
 
 it.live(
-  "reads the vendored skills from the CLI install even when HOME holds no skills",
+  "reads the packaged writing reference even when HOME holds no skills",
   () =>
     Effect.gen(function* readWithoutHostSkills() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -221,42 +240,45 @@ it.live(
       );
       const call = yield* connect(origin);
       const read = yield* call(ResourceRead, 2, "resources/read", {
-        uri: "contingency://skill/unslop",
+        uri: WRITING_RESOURCE_URI,
       });
-      expect(read.result.contents[0]?.text).toContain("name: unslop");
+      expect(read.result.contents[0]?.text).toMatch(/^# Writing\n/u);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.live("keeps the vendored skills inside the published package", () =>
-  Effect.gen(function* checkVendoredFiles() {
+it.live("keeps authoring references inside the published package", () =>
+  Effect.gen(function* checkPackagedReference() {
     const fileSystem = yield* FileSystem.FileSystem;
     const packageRoot = path.resolve(import.meta.dirname, "../..");
-    for (const entry of AUTHORING_SKILL_FILES) {
+    for (const file of ["writing.md", "learn-flow.md"]) {
       expect(
-        yield* fileSystem.exists(
-          path.join(packageRoot, "skills", entry.skill, entry.file)
-        ),
-        `${entry.skill}/${entry.file}`
+        yield* fileSystem.exists(path.join(packageRoot, "resources", file))
       ).toBe(true);
-    }
-    expect(
-      yield* fileSystem.exists(
-        path.join(packageRoot, "skills", "skill-creator")
-      )
-    ).toBe(false);
-    // The built CLI resolves them beside the bundle, the same shape the web UI
-    // uses. A build that forgets the copy ships empty resources to npm.
-    expect(resolveAuthoringSkillRoot("/opt/contingency/dist")).toBe(
-      "/opt/contingency/dist/skills"
-    );
-    const built = path.join(packageRoot, "dist", "skills");
-    if (yield* fileSystem.exists(path.join(packageRoot, "dist"))) {
-      for (const entry of AUTHORING_SKILL_FILES) {
+      if (yield* fileSystem.exists(path.join(packageRoot, "dist"))) {
         expect(
-          yield* fileSystem.exists(path.join(built, entry.skill, entry.file)),
-          `dist/skills/${entry.skill}/${entry.file}`
-        ).toBe(true);
+          yield* fileSystem.readFileString(
+            path.join(packageRoot, "dist", "resources", file)
+          )
+        ).toBe(
+          yield* fileSystem.readFileString(
+            path.join(packageRoot, "resources", file)
+          )
+        );
       }
     }
+    expect(yield* fileSystem.exists(path.join(packageRoot, "skills"))).toBe(
+      false
+    );
+    expect(resolveAuthoringResourceRoot("/opt/contingency/dist")).toBe(
+      "/opt/contingency/dist/resources"
+    );
+    expect(
+      resolveAuthoringResourceRoot(path.join(packageRoot, "src", "services"))
+    ).toBe(path.join(packageRoot, "resources"));
+    const manifest = yield* fileSystem.readFileString(
+      path.join(packageRoot, "package.json")
+    );
+    expect(manifest).toContain('"resources"');
+    expect(manifest).toContain("['resources','dist/resources']");
   }).pipe(Effect.provide(NodeServices.layer))
 );

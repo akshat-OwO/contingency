@@ -8,8 +8,7 @@ Checked on 2026-10-04 against [mattpocock/skills v1.3.0](https://github.com/matt
 
 | Location | Skill | Difference from Matt's v1.3.0 |
 | --- | --- | --- |
-| `packages/cli/skills/` | `writing-for-agents` | Same body and `SKILL-MECHANICS.md`. Description targets Contingency Flow Skills. Omits upstream `agents/openai.yaml`. |
-| `packages/cli/skills/` | `technical-writing`, `unslop` | Absent from Matt's release. Both match the globally installed bodies, with descriptions scoped to Contingency Flow Skills. |
+| `packages/cli/resources/writing.md` | Combined writing reference | Replaces the vendored writing skills with one MCP-readable document. |
 | `.agents/skills/` | `ultracite` | Absent from Matt's release. `skills-lock.json` records `haydenbleasel/ultracite` as its source. |
 | `.cursor/skills/` | `verify-contingency`, `maintain-verification-skill` | Project-specific skills absent from Matt's release. `.agents/skills/` and `.claude/skills/` expose these through symlinks. |
 | `packages/cli/examples/` | `example-broken-cart`, `example-cart-scan`, `example-delivery-cart`, `example-signed-in-return` | Product Flow Skills absent from Matt's release. |
@@ -74,7 +73,6 @@ The release also graduates `implement-spec`, `pr`, and `retro` into Engineering 
 
 ```sh
 git clone --depth 1 --branch v1.3.0 https://github.com/mattpocock/skills.git /tmp/matt-skills-v1.3.0
-diff -ru /tmp/matt-skills-v1.3.0/skills/productivity/writing-for-agents packages/cli/skills/writing-for-agents
 diff -ru /tmp/matt-skills-v1.3.0/skills/engineering/setup-matt-pocock-skills "$HOME/.agents/skills/setup-matt-pocock-skills"
 diff -u /tmp/matt-skills-v1.3.0/skills/engineering/setup-matt-pocock-skills/domain.md docs/agents/domain.md
 ```

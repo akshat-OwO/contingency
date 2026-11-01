@@ -27,12 +27,9 @@ If the user chooses to run a saved Flow Skill, use its declared inputs and Conti
 
 ## Learn and verify
 
-7. Read the shared `learn-flow-skill` procedure through the MCP access method named in the launch context. Follow its learning procedure. Save the user's variation in the current catalog and clearly identify it as demo work. Before writing the Flow Skill, read the server's authoring resources:
+7. Read the shared `learn-flow` procedure through the MCP access method named in the launch context. Follow its learning procedure. Save the user's variation in the current catalog and clearly identify it as demo work. Before writing the Flow Skill, read the server's authoring resources:
 
-   - `contingency://skill/writing-for-agents`
-   - `contingency://skill/writing-for-agents/SKILL-MECHANICS.md`
-   - `contingency://skill/technical-writing`
-   - `contingency://skill/unslop`
+   - `contingency://reference/writing`
 
    Done when `agent_flow_skill_save` accepts the drafted package.
 
