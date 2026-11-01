@@ -12,6 +12,7 @@ import type {
   AgentPursuitConfidence,
   AgentPursuitEnding,
   AgentPursuitResult,
+  AgentPursuitStep,
   AgentSessionId,
   AgentSessionSnapshot,
   FlowSkillName,
@@ -73,7 +74,11 @@ import type { SystemOneError } from "./system-one.ts";
  * calibrated endpoint; System One's confidence never authorizes anything.
  */
 export const PURSUIT_THRESHOLDS = {
-  doneAfterAction: 0.5,
+  /**
+   * When no quoted text confirms the step. Measured models call a step done
+   * early: Nev at 0.53 on 1mg's location page before its Confirm control.
+   */
+  doneAfterAction: 0.8,
   /** A literal `Done when:` can hold before the work is done. */
   doneBeforeAction: 0.9,
   /** The chosen answer must beat every alternative combined. */
@@ -108,7 +113,7 @@ type PursueParameters = typeof AgentBrowserPursueParameters.Type;
 
 const AgentBrowserPursueTool = Tool.make("agent_browser_pursue", {
   dependencies: [AgentSession, SystemOne],
-  description: `Delegate Run or Dry Run steps to the configured System One model. steps: ordered {goal, doneWhen}; goal is one Flow Skill step, doneWhen what the Page shows once it holds. Double-quoted text in doneWhen must appear verbatim. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; Variables by name only. Same operationId replays.`,
+  description: `Delegate Run or Dry Run steps to the configured System One model. steps: the Flow Skill's remaining numbered steps in one call, each {goal: the step's text, doneWhen: its Done when: line}; {{input}} placeholders are filled. doneWhen must double-quote text the Page shows once the step holds, or say a popup is gone; steps code cannot check fail with pursuit_steps_invalid before acting. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; Variables by name only. Same operationId replays.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserPursueParameters,
   success: UnpublishedPursuitResult,
@@ -119,7 +124,7 @@ export const PursuitTools = withStrictParameters(
 );
 
 /** One value System One may choose for a field. */
-type ScopeInput =
+export type ScopeInput =
   | {
       readonly flowSkillName: FlowSkillName;
       readonly kind: "value";
@@ -529,6 +534,12 @@ const dismissSpace = (space: ActionSpace): ActionSpace => {
 const OVERLAY =
   /\b(?:popups?|pop-ups?|overlays?|dialogs?|modals?|advertisements?|ads?|sheets?)\b/iu;
 
+/** Whether a clause of `doneWhen` asks for a popup or overlay to be gone. */
+const asksOverlayGone = (doneWhen: string) =>
+  clauses(doneWhen).some(
+    (clause) => OVERLAY.test(clause) && NEGATED.test(clause)
+  );
+
 /**
  * Whether nothing covers the Page, for a `doneWhen` with a clause that asks
  * for a popup or overlay to be gone; `undefined` for any other outcome. One
@@ -538,9 +549,7 @@ export const overlayOutcome = (
   doneWhen: string,
   snapshot: AgentBrowserSnapshot
 ): boolean | undefined =>
-  clauses(doneWhen).some(
-    (clause) => OVERLAY.test(clause) && NEGATED.test(clause)
-  )
+  asksOverlayGone(doneWhen)
     ? !snapshot.nodes.some(
         (node) => isCovered(node) && node.blockedBy?.role !== "img"
       )
@@ -558,6 +567,174 @@ const codeOutcome = (
   quotedPhrases(doneWhen) === undefined
     ? overlayOutcome(doneWhen, snapshot)
     : quotedOutcome(doneWhen, snapshot, start);
+
+/** A Flow Skill input placeholder, as Flow Skills write them. */
+const PLACEHOLDER = /\{\{\s*(?<name>[A-Za-z][\w-]*)\s*\}\}/gu;
+/** A Browser Snapshot reference, which System One never sees. */
+const ELEMENT_REF = /(?<![\w-])@?e\d+(?![\w-])/u;
+
+/** How to write steps System One can pursue, for every refusal. */
+const STEP_GUIDANCE =
+  "Pass each remaining Flow Skill step as goal and its Done when: line as doneWhen, and quote text the Page shows once the step holds.";
+
+/** Quotation marks that open or close a quoted phrase. */
+const QUOTE_MARKS = /["\u201C\u201D]/gu;
+/** A double prime stands in for a quotation mark outside a quoted phrase. */
+const DOUBLE_PRIME = "\u2033";
+
+/**
+ * Fill a step's `{{input}}` placeholders from the inputs in scope. An
+ * ordinary value is written in; a Variable is named, since System One
+ * receives Variables by name only and quoted text cannot be checked against
+ * a value it never sees.
+ *
+ * In `doneWhen`, quoted phrases are matched literally after filling, so a
+ * value must not move their boundaries: a phrase whose value holds its own
+ * quotation mark switches to the other style, one whose value holds both is
+ * refused, and outside a phrase a value's quotation marks become double
+ * primes, which open no phrase.
+ */
+const fillPlaceholders = (
+  text: string,
+  field: string,
+  inputs: ReadonlyMap<string, ScopeInput>,
+  problems: string[],
+  quotes: boolean
+) => {
+  const fill = (segment: string, quoted: boolean) =>
+    segment.replaceAll(PLACEHOLDER, (whole: string, name: string) => {
+      const matches = [...inputs.values()].filter(
+        (input) => input.name.toLowerCase() === name.toLowerCase()
+      );
+      const [input] = matches;
+      if (input === undefined) {
+        problems.push(
+          `${field} uses ${whole}, which names no input in scope; supply it with agent_run_start or agent_run_update, or write the value`
+        );
+        return whole;
+      }
+      if (matches.length > 1) {
+        problems.push(
+          `${field} uses ${whole}, which several referenced Flow Skills declare; pass flowSkillName`
+        );
+        return whole;
+      }
+      if (input.kind === "value") {
+        return quotes && !quoted
+          ? input.value.replaceAll(QUOTE_MARKS, DOUBLE_PRIME)
+          : input.value;
+      }
+      if (quoted) {
+        problems.push(
+          `${field} quotes Variable ${whole}, whose value code cannot read on the Page; quote other text the Page shows`
+        );
+        return whole;
+      }
+      return `the Variable ${input.name}`;
+    });
+  if (!quotes) {
+    return fill(text, false);
+  }
+  let filled = "";
+  let from = 0;
+  for (const match of text.matchAll(QUOTED)) {
+    filled += fill(text.slice(from, match.index), false);
+    from = match.index + match[0].length;
+    const inner = fill(
+      match.groups?.["straight"] ?? match.groups?.["curly"] ?? "",
+      true
+    );
+    const straight = inner.includes('"');
+    const curly = /[\u201C\u201D]/u.test(inner);
+    if (straight && curly) {
+      problems.push(
+        `${field} quotes ${match[0]}, whose filled value holds both straight and curly quotation marks; quote text around the value instead`
+      );
+      filled += match[0];
+    } else {
+      filled += straight ? `\u201C${inner}\u201D` : `"${inner}"`;
+    }
+  }
+  return filled + fill(text.slice(from), false);
+};
+
+/** Why code cannot read `doneWhen` on the Page, if it cannot. */
+const unreadableOutcome = (doneWhen: string): string | undefined => {
+  const phrases = quotedPhrases(doneWhen);
+  if (phrases === undefined) {
+    return asksOverlayGone(doneWhen)
+      ? undefined
+      : 'quotes no text; quote what the Page shows once the step holds, such as the status line reads "Added to cart", or say that a popup or dialog is gone';
+  }
+  return phrases.some(({ reading }) => reading === "unclear")
+    ? "puts a negation beside several quoted phrases; give each phrase that must be shown or gone its own clause"
+    : undefined;
+};
+
+/** Steps ready for System One, and what the agent must fix first. */
+export interface PreparedSteps {
+  readonly problems: readonly string[];
+  readonly steps: readonly AgentPursuitStep[];
+}
+
+/**
+ * The steps as System One receives them, or what the agent must fix first.
+ * A step System One cannot act on or code cannot check fails the call
+ * before any action, so the agent rewrites it instead of learning from an
+ * early `done` or a stalled Pursuit.
+ */
+export const preparePursuitSteps = (
+  steps: readonly AgentPursuitStep[],
+  inputs: ReadonlyMap<string, ScopeInput>
+): PreparedSteps => {
+  const problems: string[] = [];
+  const goals = new Map<string, number>();
+  const prepared = steps.map((step, index) => {
+    const at = `steps[${index + 1}]`;
+    const fields = { doneWhen: step.doneWhen.trim(), goal: step.goal.trim() };
+    for (const [field, text] of Object.entries(fields)) {
+      if (text === "") {
+        problems.push(`${at}.${field} is blank`);
+      } else if (ELEMENT_REF.test(text)) {
+        problems.push(
+          `${at}.${field} names an element reference, which System One never sees; name the control by its visible text`
+        );
+      }
+    }
+    const goal = fillPlaceholders(
+      fields.goal,
+      `${at}.goal`,
+      inputs,
+      problems,
+      false
+    );
+    const doneWhen = fillPlaceholders(
+      fields.doneWhen,
+      `${at}.doneWhen`,
+      inputs,
+      problems,
+      true
+    );
+    if (doneWhen !== "") {
+      const unreadable = unreadableOutcome(doneWhen);
+      if (unreadable !== undefined) {
+        problems.push(`${at}.doneWhen ${unreadable}`);
+      }
+    }
+    if (goal !== "" && normalized(goal) === normalized(doneWhen)) {
+      problems.push(
+        `${at}.goal repeats doneWhen; goal says what to do, doneWhen what the Page then shows`
+      );
+    }
+    const earlier = goals.get(normalized(goal));
+    if (goal !== "" && earlier !== undefined) {
+      problems.push(`${at}.goal repeats steps[${earlier}].goal`);
+    }
+    goals.set(normalized(goal), index + 1);
+    return { doneWhen, goal };
+  });
+  return { problems, steps: prepared };
+};
 
 /** What System One is asked to do while a popup covers the outcome. */
 const UNCOVER_INSTRUCTION =
@@ -584,7 +761,7 @@ const doneEnding = (
   return done >= threshold
     ? end(
         "done",
-        `System One judged the Page to satisfy doneWhen (${confidenceText(done)}).`
+        `System One judged the Page to satisfy doneWhen (${confidenceText(done)}); code did not confirm it from Page text, so check the Snapshot.`
       )
     : undefined;
 };
@@ -858,6 +1035,27 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
     const { sessionId } = params;
     const run = yield* requirePursuitRun(yield* service.get(sessionId));
     const { criteria, inputs } = inputsInScope(run, params.flowSkillName);
+    const prepared = preparePursuitSteps(params.steps, inputs);
+    const problems = [...prepared.problems];
+    const { flowSkillName } = params;
+    if (
+      flowSkillName !== undefined &&
+      flowSkillName !== null &&
+      "referencedSkills" in run &&
+      !run.referencedSkills.some(
+        (skill) => skill.flowSkillName === flowSkillName
+      )
+    ) {
+      problems.unshift(
+        `flowSkillName ${flowSkillName} is not referenced by this Run; use one of ${run.referencedSkills.map((skill) => skill.flowSkillName).join(", ") || "none"}, or add it with agent_run_update`
+      );
+    }
+    if (problems.length > 0) {
+      return yield* new AgentSessionFailure({
+        code: "pursuit_steps_invalid",
+        message: `No action was taken. ${problems.join("; ")}. ${STEP_GUIDANCE} (pursuit_steps_invalid)`,
+      });
+    }
     const withheld = [...inputs.values()].some(
       (input) => input.kind === "variable"
     );
@@ -877,7 +1075,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
           : undefined
       )
     );
-    const cues = params.steps.map((step, index) => ({
+    const cues = prepared.steps.map((step, index) => ({
       doneWhen: step.doneWhen,
       inputs: criteria,
       instruction: step.goal,

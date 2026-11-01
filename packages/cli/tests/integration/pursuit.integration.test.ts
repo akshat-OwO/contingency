@@ -114,7 +114,7 @@ const pursue = (
   sessionId: AgentSessionId,
   id: string,
   {
-    doneWhen = "The status line reads that Trail Hammer was added to cart.",
+    doneWhen = 'The status line reads "Trail Hammer added to cart".',
     goal = 'In "Products", select "Add Trail Hammer to cart".',
     steps,
     ...rest
@@ -299,7 +299,7 @@ it.live(
               operation: choice("CLICK"),
             });
           const confirmed = yield* pursue(sessionId, "pursuit-confirm", {
-            doneWhen: "The status line reads that Cedar Pull Saw was added.",
+            doneWhen: 'The status line reads "Cedar Pull Saw added to cart".',
             goal: 'Select "Add Cedar Pull Saw to cart".',
             irreversible: true,
           });
@@ -380,7 +380,7 @@ it.live(
             });
           };
           const goal = {
-            doneWhen: "The Password field holds the password.",
+            doneWhen: 'The "Password" field holds the password.',
             flowSkillName,
             goal: "Enter the demo password in Password.",
           };
@@ -457,6 +457,24 @@ it.live("confirms quoted text only when the step brought it about", () =>
               done: noul(0.1),
               operation: choice("CLICK"),
             });
+
+        // Steps code cannot check fail the call before anything is asked
+        // or done, and the error says what to fix.
+        systemOne.state.answer = clicking("Add Trail Hammer to cart");
+        const refused = yield* Effect.flip(
+          pursue(started.id, "quoted-refused", {
+            doneWhen: "The hammer is in the cart.",
+            flowSkillName: FlowSkillName.make("1mg mweb login"),
+            goal: "Add {{product}} to the cart, then click e21.",
+          })
+        );
+        expect(refused.code).toBe("pursuit_steps_invalid");
+        expect(refused.message).toMatch(
+          /^No action was taken\. flowSkillName 1mg mweb login is not referenced by this Run; use one of example-delivery-cart/u
+        );
+        expect(refused.message).toContain("steps[1].goal names an element");
+        expect(refused.message).toContain("steps[1].doneWhen quotes no text");
+        expect(systemOne.requests).toHaveLength(0);
 
         // "Trail Hammer" is a product name from the start, so a wrong
         // click does not make the step done.
@@ -561,7 +579,10 @@ it.live(
           const result = yield* pursue(started.id, "steps-both", {
             steps: [
               {
-                doneWhen: "The status line says the hammer was added.",
+                // "Products" shows from the start, so System One judges this
+                // step and its answer also chooses step 2's first action.
+                doneWhen:
+                  'Below "Products", the status line says the hammer was added.',
                 goal: 'Select "Add Trail Hammer to cart".',
               },
               {
@@ -686,7 +707,9 @@ it.live(
           });
           const sessionId = started.id;
           const options = {
-            doneWhen: "The status line reads that a product was added.",
+            // "Products" shows from the start, so System One judges the step.
+            doneWhen:
+              'Below "Products", the status line says a product was added.',
             goal: "Add a product to the cart.",
           };
 
@@ -782,7 +805,9 @@ it.live("records a step that acted when its call fails or is interrupted", () =>
         });
         const sessionId = started.id;
         const options = {
-          doneWhen: "The status line reads that a product was added.",
+          // "Products" shows from the start, so System One judges the step.
+          doneWhen:
+            'Below "Products", the status line says a product was added.',
           goal: "Add a product to the cart.",
         };
 
