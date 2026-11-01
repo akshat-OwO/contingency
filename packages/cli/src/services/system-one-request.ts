@@ -184,6 +184,24 @@ export const isCovered = (node: AgentSnapshotNode): boolean =>
   node.blockedBy !== null &&
   node.blockedBy.role !== "viewport";
 
+/**
+ * Whether a control gives System One nothing to choose it by: clickable only
+ * through a handler while it has no name or value, such as a backdrop or a
+ * layout wrapper, or laid out with no area to act on. Offering these splits
+ * System One's answer between the real control and noise.
+ */
+export const isAnonymousTarget = (
+  node: AgentSnapshotNode,
+  operation: Operation
+): boolean =>
+  (operation === "CLICK" &&
+    !CLICK_ROLES.has(node.role) &&
+    node.name.trim() === "" &&
+    (node.value ?? "").trim() === "") ||
+  (node.bounds !== undefined &&
+    node.bounds !== null &&
+    (node.bounds.width <= 0 || node.bounds.height <= 0));
+
 export const actionSpace = (
   snapshot: AgentBrowserSnapshot,
   options: {
@@ -214,6 +232,9 @@ export const actionSpace = (
       if (node.name.trim() !== "" && page.length < PAGE_LINE_LIMIT) {
         page.push(`${node.role}: ${node.name}`);
       }
+      continue;
+    }
+    if (isAnonymousTarget(node, operation)) {
       continue;
     }
     const index = String(elements.length + 1);

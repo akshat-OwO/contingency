@@ -22,7 +22,7 @@ Browser devtools exist only when `process.mcpInterface` is `single-tool`; call t
 
 Read `process.platforms`, `process.mcpInterface`, `process.settings`, and `process.systemOne` in `agent_catalog_get`. Offer only available platforms. In single-tool mode, search signatures and call the named operations through the code tool. If `process.settings.restartRequired` is true, relay its diagnostic and ask the user to restart the agent and any background service.
 
-When `process.systemOne.available` is true, try `agent_browser_pursue` for a delegated sub-goal in an Interactive Run, a Guided Run, or a Dry Run. You still own the plan and assessment. A Guided Run's learned Flow Skill marks Pursuits as delegated; a later agent may do that work itself. Do not use Pursuits in Teaching. A configured remote endpoint has unknown reachability until used; a Local System One may need to warm up.
+When `process.systemOne.available` is true, try `agent_browser_pursue` in an Interactive Run, a Guided Run, or a Dry Run. Run a Flow Skill's preconditions first, then pass its remaining numbered steps in one call: each step's text as `goal` and its Done when: line as `doneWhen`. Quote in `doneWhen` text the Page shows once the step holds. Do not merge steps or rephrase them as a bare task. You still own the plan and assessment. A Guided Run's learned Flow Skill marks Pursuits as delegated; a later agent may do that work itself. Do not use Pursuits in Teaching. A configured remote endpoint has unknown reachability until used; a Local System One may need to warm up.
 
 ## Rules
 
