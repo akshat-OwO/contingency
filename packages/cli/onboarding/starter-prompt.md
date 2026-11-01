@@ -16,7 +16,12 @@ Permanent registrations use the current project's `.contingency` catalog, create
 ## Show and teach
 
 1. Explain the chosen example's intended result and invite the user to watch. Start it with `agent_example_run_start` and its sample inputs. Identify it as a bundled Example limited to the demo store.
-2. Follow the Run guide and cite any required Scan Report. For broken cart, identify the fault as a demo condition, prove failure from the cart rather than the banner, and restore the healthy store.
+2. Carry out the Example in the session it returned; do not call `agent_run_start`. Use the Run guide for System One and evidence only.
+   - For a private input, call `agent_variable_request` and have the user supply it in Workspace, not this conversation. Type it with `agent_variable_enter`.
+   - For a required scan, start it with `agent_run_scan` when the taught condition is reached, and cite its Scan Report.
+   - Mark an irreversible action as irreversible. Relay the boundary Pending Decision as getting-started describes.
+   - For broken cart, identify the fault as a demo condition, prove failure from the cart rather than the banner, and restore the healthy store.
+   - Report the result with `agent_run_assess`, then call `agent_run_complete`.
 3. Explain the result and ask the user to choose a variation. The prepared Run is a demonstration, not their Teaching Recording.
 4. Establish the starting page, journey, and observable result. Use the current demo origin for an example; for a broad website request, help choose a small journey. Ask about device or environment settings when relevant.
 5. Follow `contingency://docs/teach` to prepare and record the variation. For a signed-in return, leave Sign in ready with an empty password and include sign-in in the recording so the fresh Dry Run can sign in.

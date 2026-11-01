@@ -4,7 +4,7 @@ Run a requested task and report its outcome with evidence.
 
 ## Run
 
-1. Start an Interactive Run with `agent_run_start`. When the user requests skills, use only verified Flow Skills.
+1. Start an Interactive Run with `agent_run_start`. When the user requests skills, use only verified Flow Skills. Skip this step when a tool already started the Run, such as an Example or a Dry Run.
 2. Carry out the task and report the outcome and evidence with `agent_run_assess`.
 3. Call `agent_run_complete` to finish the Run.
 
