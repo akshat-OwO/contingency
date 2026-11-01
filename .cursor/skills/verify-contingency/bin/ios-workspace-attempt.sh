@@ -30,8 +30,8 @@ fi
 SELECTED=$(cat $A/selected)
 cleanup() {
   set +e
-  vpx $CONTROL mcp stop > $A/cleanup.log 2>&1
-  vpx $CONTROL cleanup >> $A/cleanup.log 2>&1
+  node $CONTROL mcp stop > $A/cleanup.log 2>&1
+  node $CONTROL cleanup >> $A/cleanup.log 2>&1
   echo "cleanup exit=$?" >> $A/cleanup.log
   # Only this script's exact recorded UDID authorizes fixture teardown.
   xcrun simctl shutdown "$SELECTED" >> $A/cleanup.log 2>&1
@@ -50,9 +50,9 @@ unset CONTINGENCY_IOS_WORKSPACE_INTERNAL
 export CONTINGENCY_MCP_INTERFACE=native
 export CONTINGENCY_VERIFY_DIR=$A/verify
 export CONTINGENCY_IOS_PROOF_ARTIFACTS=.cursor/skills/verify-contingency/artifacts/$ART
-vpx $CONTROL launch > $A/launch.log 2>&1 || exit 5
-vpx $CONTROL doctor > $A/doctor.log 2>&1 || exit 6
-vpx $CONTROL mcp start > $A/mcp.log 2>&1 || exit 7
+node $CONTROL launch > $A/launch.log 2>&1 || exit 5
+node $CONTROL doctor > $A/doctor.log 2>&1 || exit 6
+node $CONTROL mcp start > $A/mcp.log 2>&1 || exit 7
 cp $A/verify/instance.json $A/instance.json
 ps -axo pid=,ppid=,lstart=,comm= > $A/processes-launched.txt
 lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-launched.txt

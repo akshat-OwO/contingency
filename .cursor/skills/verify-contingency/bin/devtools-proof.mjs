@@ -28,9 +28,13 @@ assert.ok(
 const journal = [];
 const command = (...args) =>
   io(async () => {
-    const { stdout, stderr } = await execute("vpx", [control, ...args], {
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const { stdout, stderr } = await execute(
+      process.execPath,
+      [control, ...args],
+      {
+        maxBuffer: 8 * 1024 * 1024,
+      }
+    );
     journal.push({ args, exitCode: 0, stderr, stdout });
     return stdout.trim();
   });

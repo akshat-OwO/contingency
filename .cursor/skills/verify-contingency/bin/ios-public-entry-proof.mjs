@@ -29,7 +29,7 @@ const receipt = {
 };
 const control = async (...args) => {
   const result = await execute(
-    "vpx",
+    process.execPath,
     [path.join(import.meta.dirname, "control-contingency"), ...args],
     { env: process.env, maxBuffer: 16 * 1024 * 1024 }
   );

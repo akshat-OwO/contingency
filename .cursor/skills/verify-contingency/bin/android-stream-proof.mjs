@@ -41,7 +41,7 @@ const control = (...args) =>
       catch: (cause) => cause,
       try: () =>
         execute(
-          "vpx",
+          process.execPath,
           [
             path.join(
               root,

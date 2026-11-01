@@ -53,7 +53,7 @@ const control = async (...args) => {
   const began = performance.now();
   const startedAt = new Date().toISOString();
   const result = await execute(
-    "vpx",
+    process.execPath,
     [path.join(import.meta.dirname, "control-contingency"), ...args],
     { cwd: root, env: process.env, maxBuffer: 16 * 1024 * 1024 }
   );

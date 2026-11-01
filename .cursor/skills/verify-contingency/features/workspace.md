@@ -489,7 +489,7 @@ Preconditions: the current CLI build, an isolated `control-contingency launch`, 
 - **Return control.** Run `takeover` and open its printed Run URL. Start `wait run takeover-started` before clicking **Take control**. Start `wait run takeover-returned` before clicking **Return control**.
 - **Retain proof.** Run `finish`. Keep `artifacts/session-events/` with every MCP response, event latency, replay assertion, catalog reread, result, and per-tool calls and bytes. Capture the Workspace screenshot and ARIA state. If preview capture fails, retain the exact blocker and available canvas and DOM evidence.
 - **Compare bytes.** `metrics.json` compares average `agent_session_get` bytes with the published ADR 0045 full-view task proof. The two scenarios differ; the comparison does not measure token use or task success.
-- **Clean up.** Run `vpx .cursor/skills/verify-contingency/bin/control-contingency cleanup`. Require `doctor` to report that the owned processes stopped. Artifacts survive cleanup.
+- **Clean up.** Run `node .cursor/skills/verify-contingency/bin/control-contingency cleanup`. Require `doctor` to report that the owned processes stopped. Artifacts survive cleanup.
 
 #### Retained Teaching instruction edits
 
@@ -548,7 +548,7 @@ Uppercase input names are Variables, so they cannot be passed as ordinary `input
 
 ### Claude Code channels
 
-Launch and run `doctor`, then start the ecommerce fixture. Start the broker with `CONTINGENCY_MCP_CHANNEL=true vpx .cursor/skills/verify-contingency/bin/control-contingency mcp start`. Run `mcp channels` and require `capabilities.experimental["claude/channel"]` to be `{}`. Follow the Session Events recipe through `start`, `handoff`, recording, `learn`, and `pass`. Use the shared preview for the Workspace actions.
+Launch and run `doctor`, then start the ecommerce fixture. Start the broker with `CONTINGENCY_MCP_CHANNEL=true node .cursor/skills/verify-contingency/bin/control-contingency mcp start`. Run `mcp channels` and require `capabilities.experimental["claude/channel"]` to be `{}`. Follow the Session Events recipe through `start`, `handoff`, recording, `learn`, and `pass`. Use the shared preview for the Workspace actions.
 
 Choose **Verify flow** in Workspace with no pending MCP wait. After the 250 ms batch delay, run `vpx .cursor/skills/verify-contingency/bin/channel-proof.mjs`. Require one frame per affected session containing `flow-skill-verified` and `cleanup-completed`, with only `content` and `meta`. The metadata has only `sessionId` and `eventCursor`. The helper reads `agent_session_get` with the channel cursor as `afterCursor` and proves that a retry returns identical events. Capture the Workspace screenshot and ARIA state under `artifacts/claude-channels/`. Read the catalog to confirm verification and recording removal.
 

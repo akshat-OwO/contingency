@@ -72,7 +72,7 @@ const run = async (file, args, options = {}) => {
   return result.stdout;
 };
 const controlPath = path.join(import.meta.dirname, "control-contingency");
-const control = (...args) => run("vpx", [controlPath, ...args]);
+const control = (...args) => run(process.execPath, [controlPath, ...args]);
 const adb = (...args) => run("adb", ["-s", serial, ...args]);
 const prop = async (name) => {
   const value = await adb("shell", "getprop", name);
@@ -422,7 +422,7 @@ try {
     .update(await readFile(apk))
     .digest("hex");
   await adb("install", apk);
-  await run("vpx", [controlPath, "mcp", "start"], {
+  await run(process.execPath, [controlPath, "mcp", "start"], {
     env: {
       ...process.env,
       CONTINGENCY_MCP_INTERFACE: "native",

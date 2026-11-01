@@ -33,7 +33,7 @@ const call = (tool, params) =>
   io(async () => {
     const startedAt = Date.now();
     const { stdout, stderr } = await execute(
-      "vpx",
+      process.execPath,
       [
         control,
         "mcp",

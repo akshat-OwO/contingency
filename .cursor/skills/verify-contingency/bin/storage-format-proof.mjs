@@ -33,7 +33,7 @@ const call = (tool, params, refusal = false) =>
     let exitCode = 0;
     try {
       ({ stdout } = await execute(
-        "vpx",
+        process.execPath,
         [
           control,
           "mcp",

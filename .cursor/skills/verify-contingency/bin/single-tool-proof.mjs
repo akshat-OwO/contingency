@@ -41,7 +41,7 @@ const save = (name, value) =>
 const command = (...args) =>
   io(async () => {
     journal.push({ args, entryPoint: "control-contingency" });
-    const { stdout } = await execute("vpx", [control, ...args], {
+    const { stdout } = await execute(process.execPath, [control, ...args], {
       maxBuffer: 8 * 1024 * 1024,
     });
     return stdout.trim();
@@ -418,7 +418,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     entryPoint: "agent_code_execute",
   });
   const cancelling = execute(
-    "vpx",
+    process.execPath,
     [
       control,
       "mcp",

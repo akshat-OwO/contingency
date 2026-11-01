@@ -32,7 +32,7 @@ const save = (name, value) =>
   writeFile(path.join(artifacts, name), `${JSON.stringify(value, null, 2)}\n`);
 const command = async (...args) => {
   try {
-    const pending = execute("vpx", [control, ...args], {
+    const pending = execute(process.execPath, [control, ...args], {
       maxBuffer: 8 * 1024 * 1024,
     });
     resources.roots.add(pending.child.pid);
