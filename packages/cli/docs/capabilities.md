@@ -20,7 +20,11 @@ What it can't do:
 
 ## Teaching
 
-In Teaching, you perform a journey in the Workspace while Contingency records it. The agent may prepare the browser during setup, then hands control to you before **Start recording**. During recording, the agent only observes. You can relay Instructions, such as why to skip an optional popup, and attach a request, response, cookie, or storage value to an Instruction. Teaching produces a Teaching Recording. The agent then learns a Flow Skill from it.
+In Teaching, you perform a journey in the Workspace while Contingency records it. The agent may prepare the browser during setup, then hands control to you before **Start recording**.
+
+During recording, the agent only observes. You can relay Instructions, such as why to skip an optional popup, and attach a request, response, cookie, or storage value to an Instruction.
+
+Teaching produces a Teaching Recording. The agent then learns a Flow Skill from it.
 
 What it can't do:
 
@@ -31,19 +35,61 @@ What it can't do:
 
 ## Guided Run
 
-The external agent can follow your Source Document in a browser with `agent_guided_run_start`, producing a Teaching Recording for one named Flow Skill. For a document containing several journeys, the agent proposes a split and you pick one before starting. Start one Guided Run per Flow Skill. Only the external agent reads the document. Contingency neither receives, parses, stores, nor links it, and a saved Flow Skill has no `source:` frontmatter.
+The external agent can follow your Source Document in a browser with `agent_guided_run_start`, producing a Teaching Recording for one named Flow Skill. For a document containing several journeys, the agent proposes a split and you pick one before starting.
 
-Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`. You can finish setup in Workspace and press **Start recording**. Setup actions stay outside the evidence. Start returns browser control to the agent, and its existing action tools record actor-marked actions. Workspace labels the session **Guided Run**. Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it. Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
+Start one Guided Run per Flow Skill. Only the external agent reads the document.
 
-During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**. Capture continues with `actor: "user"` actions. Use the Variable input to enter secrets, whose values remain visible in the Timeline; saved skills store `{{name}}` references. Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt. Your Takeover actions and answers outrank the agent's reading of the Source Document wherever they disagree. A question stays open if you Takeover instead of answering. A later fresh Dry Run can pass even though the Guided Run had a Takeover.
+Contingency neither receives, parses, stores, nor links it, and a saved Flow Skill has no `source:` frontmatter.
 
-During capture, the agent asks through `agent_guided_run_question_ask`. The **Guided Run questions** region keeps the question visible until you answer with **Send answer**, then reads back the pair. You can also answer in the agent conversation. The agent relays your words through `agent_teaching_instruction_record` with the question's `questionId`. A fresh second answer is refused. Replaying the same operation returns the first result.
+Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`.
 
-The Teaching Timeline keeps both Instructions in capture order. Each carries an `id` and `actor`; `dialogue._tag` identifies a question or answer, and an answer's `dialogue.questionId` links it to the question. A user answer has `actor: "user"`; an answer relayed by the agent has `actor: "agent"`. Older Instructions omit this metadata and remain user Instructions. A question with no linked answer remains unanswered evidence after Stop. `agent_session_get` with `afterCursor` waits for `question-answered`; its `name` is the question id. Up to 50 questions are retained per recording.
+You can finish setup in Workspace and press **Start recording**. Setup actions stay outside the evidence.
 
-The agent proposes a document check through the question tool's `proposal`, naming the outcome in `text` and giving a short `reason`. Review its scan mode or typed Browser Check in Workspace, then choose **Confirm check** or **Reject check**. The agent can relay your explicit choice with `agent_teaching_instruction_record`, `questionId`, and `decision: "confirm"` or `"reject"`. Confirmation creates the same scan or Browser Attachment requirement as Teaching. Rejected and unanswered proposals create no requirement. After Stop, pending proposals read **Unconfirmed when recording stopped**. The learned Flow Skill preserves only confirmed checks; a later Run tracks their scan and Browser Check results. Confirmation does not establish that a Browser Check was observed. Unobserved expectations stay Not demonstrated.
+Start returns browser control to the agent, and its existing action tools record actor-marked actions. Workspace labels the session **Guided Run**.
 
-Domain Scope starts at the starting host. A new top-level host pauses for **Allow** or **Refuse** in Workspace, or a user decision relayed over MCP. Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow Skill for its Dry Run. Embedded subframes do not grow this scope. Irreversible actions still require separate Confirmation.
+Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it.
+
+Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
+
+During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**.
+
+Capture continues with `actor: "user"` actions. Use the Variable input to enter secrets, whose values remain visible in the Timeline; saved skills store `{{name}}` references.
+
+Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt.
+
+Your Takeover actions and answers outrank the agent's reading of the Source Document wherever they disagree. A question stays open if you Takeover instead of answering.
+
+A later fresh Dry Run can pass even though the Guided Run had a Takeover.
+
+During capture, the agent asks through `agent_guided_run_question_ask`. The **Guided Run questions** region keeps the question visible until you answer with **Send answer**, then reads back the pair.
+
+You can also answer in the agent conversation. The agent relays your words through `agent_teaching_instruction_record` with the question's `questionId`.
+
+A fresh second answer is refused. Replaying the same operation returns the first result.
+
+The Teaching Timeline keeps both Instructions in capture order. Each carries an `id` and `actor`; `dialogue._tag` identifies a question or answer, and an answer's `dialogue.questionId` links it to the question.
+
+A user answer has `actor: "user"`; an answer relayed by the agent has `actor: "agent"`. Older Instructions omit this metadata and remain user Instructions.
+
+A question with no linked answer remains unanswered evidence after Stop. `agent_session_get` with `afterCursor` waits for `question-answered`; its `name` is the question id.
+
+Up to 50 questions are retained per recording.
+
+The agent proposes a document check through the question tool's `proposal`, naming the outcome in `text` and giving a short `reason`. Review its scan mode or typed Browser Check in Workspace, then choose **Confirm check** or **Reject check**.
+
+The agent can relay your explicit choice with `agent_teaching_instruction_record`, `questionId`, and `decision: "confirm"` or `"reject"`. Confirmation creates the same scan or Browser Attachment requirement as Teaching.
+
+Rejected and unanswered proposals create no requirement. After Stop, pending proposals read **Unconfirmed when recording stopped**.
+
+The learned Flow Skill preserves only confirmed checks; a later Run tracks their scan and Browser Check results. Confirmation does not establish that a Browser Check was observed.
+
+Unobserved expectations stay Not demonstrated.
+
+Domain Scope starts at the starting host. A new top-level host pauses for **Allow** or **Refuse** in Workspace, or a user decision relayed over MCP.
+
+Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow Skill for its Dry Run.
+
+Embedded subframes do not grow this scope. Irreversible actions still require separate Confirmation.
 
 Current limits:
 
@@ -52,7 +98,9 @@ Current limits:
 
 ## Dry Run
 
-A Dry Run proves a drafted Flow Skill. The agent attempts the skill's complete outcome in a fresh browser context, under the Emulation it was taught with, with fresh inputs. The agent chooses its own route and reports an evidence-backed Agent Assessment. After a passing Dry Run, you verify or reject the Flow Skill in the Workspace or in the conversation.
+A Dry Run proves a drafted Flow Skill. The agent attempts the skill's complete outcome in a fresh browser context, under the Emulation it was taught with, with fresh inputs.
+
+The agent chooses its own route and reports an evidence-backed Agent Assessment. After a passing Dry Run, you verify or reject the Flow Skill in the Workspace or in the conversation.
 
 What it can't do:
 
@@ -64,7 +112,9 @@ What it can't do:
 
 ## Interactive Run
 
-An Interactive Run is an agent-controlled attempt at a task you ask for in a live MCP conversation. It can use several Verified Flow Skills in one browser context. You can redirect the task, and you can take over the browser in the Workspace. A failure leaves the browser open for investigation until the agent completes the Run, you close it, or the process exits.
+An Interactive Run is an agent-controlled attempt at a task you ask for in a live MCP conversation. It can use several Verified Flow Skills in one browser context.
+
+You can redirect the task, and you can take over the browser in the Workspace. A failure leaves the browser open for investigation until the agent completes the Run, you close it, or the process exits.
 
 What it can't do:
 
@@ -75,7 +125,9 @@ What it can't do:
 
 ## Scan Requirements
 
-A Scan Requirement is a performance or accessibility scan you ask for during Teaching, at a named point in the journey. A later Run performs it when the agent reaches that point, and Contingency tracks whether it happened. The modes are:
+A Scan Requirement is a performance or accessibility scan you ask for during Teaching, at a named point in the journey. A later Run performs it when the agent reaches that point, and Contingency tracks whether it happened.
+
+The modes are:
 
 - `accessibility`: one axe-core accessibility evaluation of the page as it is.
 - `reload`: a Lighthouse performance report of a page reload.
@@ -91,7 +143,9 @@ What it can't do:
 
 ## Browser Checks
 
-A Browser Check is a saved requirement about a network response or a storage value, with typed predicates, timing, and a deadline. You create one during Teaching by attaching browser evidence to an Instruction and choosing **Must happen**. A later Run evaluates the check at the action that triggers it.
+A Browser Check is a saved requirement about a network response or a storage value, with typed predicates, timing, and a deadline. You create one during Teaching by attaching browser evidence to an Instruction and choosing **Must happen**.
+
+A later Run evaluates the check at the action that triggers it.
 
 What it can't do:
 
@@ -113,10 +167,15 @@ What it can't do:
 
 The Execution Boundary limits what an agent may do in an Interactive Run, a Guided Run, or a Dry Run:
 
-- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is its saved Flow Skill's stamped hosts. A Guided Run starts at its starting host and adds exact hosts you approve. An Interactive Run's scope is the hosts of the Flow Skills you asked for, or the starting host.
+- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is its saved Flow Skill's stamped hosts.
+
+  A Guided Run starts at its starting host and adds exact hosts you approve. An Interactive Run's scope is the hosts of the Flow Skills you asked for, or the starting host.
+
 - **Confirmation.** An irreversible or high-impact browser action, such as placing an order, pauses for your approval every time.
 
-A pause appears as a Pending Decision. You allow or refuse it in the Workspace or in the conversation. One approval permits one exact action attempt.
+A pause appears as a Pending Decision. You allow or refuse it in the Workspace or in the conversation.
+
+One approval permits one exact action attempt.
 
 What it can't do:
 

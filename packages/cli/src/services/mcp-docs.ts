@@ -10,11 +10,50 @@ import { readOnly } from "./mcp-tool-annotations.ts";
  * The documentation topics that ship in the package (ADR 0063). A developer
  * reads them on npm or GitHub; an agent reads the same files as MCP resources
  * or through the `docs_get` operation, so there is one source for both.
+ *
+ * Every agent reads `getting-started` first, whatever launched it; the
+ * workflow guides after it are read only when their work begins (ADR 0069).
  */
 
 export const DOCS_URI_PREFIX = "contingency://docs/";
 
 export const DOC_TOPICS = [
+  {
+    description:
+      "Read first in every session: what Contingency is, the start steps, the rules that always apply, and which guide to read for each kind of work.",
+    title: "Getting started",
+    topic: "getting-started",
+  },
+  {
+    description:
+      "Guide: run Flow Skills in an Interactive Run, assess with evidence, complete the Run, and delegate steps to System One Pursuits.",
+    title: "Run Flow Skills",
+    topic: "run",
+  },
+  {
+    description:
+      "Guide: prepare and hand off Teaching so the user records a journey, then learn it.",
+    title: "Teach a journey",
+    topic: "teach",
+  },
+  {
+    description:
+      "Guide: learn a Flow Skill from the user's Source Document in a Guided Run.",
+    title: "Guided Run",
+    topic: "guided-run",
+  },
+  {
+    description:
+      "Guide: start an Android or iOS device session and work within its support limits.",
+    title: "Device sessions",
+    topic: "device",
+  },
+  {
+    description:
+      "Guide: browser devtools and the browser state each Run kind may change: Emulation, cookies, storage, routes, headers, and mutating evaluation.",
+    title: "Browser state",
+    topic: "browser-state",
+  },
   {
     description:
       "System One and Nev: how the user installs a Local System One with contingency system-one setup, endpoint precedence, startup, updates, rollback, and removal.",
@@ -49,7 +88,11 @@ export const DOC_TOPICS = [
 
 export type DocTopic = (typeof DOC_TOPICS)[number]["topic"];
 
-export const docUri = (topic: DocTopic) => `${DOCS_URI_PREFIX}${topic}`;
+export const docUri = <Topic extends DocTopic>(topic: Topic) =>
+  `${DOCS_URI_PREFIX}${topic}` as const;
+
+/** The one document every agent reads before acting. */
+export const GETTING_STARTED_URI = docUri("getting-started");
 
 /**
  * Built output keeps the topics under `dist/docs`; a source checkout reads

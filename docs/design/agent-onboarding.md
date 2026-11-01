@@ -22,7 +22,7 @@ The agent prepares the browser before recording. It may navigate and request pri
 
 Users launch onboarding with `npx @contingencyhq/cli start --demo`. The first version supported Claude Code and Codex; OpenCode V2 followed (see [OpenCode V2](#opencode-v2)). The existing `mcp` command remains available for direct server use.
 
-Without `--demo`, `start` is the everyday session-only entry point. The agent follows the bundled work prompt (`contingency://start/work-prompt`) on the user's own website, and the server runs `mcp` without `--demo`, so neither the demo store nor its Example tools exist in that session. The agent does not offer permanent registration; it tells the user that running `start` again reconnects Contingency.
+Without `--demo`, `start` is the everyday session-only entry point. The bundled work prompt (`contingency://start/work-prompt`) carries only launch facts and sends the agent to `contingency://docs/getting-started` ([ADR 0069](../adr/0069-agents-read-getting-started-before-acting.md)) for work on the user's own website, and the server runs `mcp` without `--demo`, so neither the demo store nor its Example tools exist in that session. The agent does not offer permanent registration; it tells the user that running `start` again reconnects Contingency.
 
 The demo surface is off by default everywhere. `contingency mcp`, and the registrations that run it, serve the demo store, its Examples, and the onboarding prompt only with `--demo`, which `start --demo` passes.
 

@@ -27,7 +27,7 @@ npx @contingencyhq/cli start --demo
 
 Install Claude Code, Codex, or OpenCode V2 (`npm install -g @opencode/cli`; verified with 2.0.26) first. OpenCode V1 is not supported. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `.contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports. OpenCode starts with `--standalone`, a private server for that launch, because its shared background service never sees a session-only connection; `start` refuses `--server`.
 
-Without `--demo`, the agent follows a bundled work prompt on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
+Without `--demo`, the agent reads the [Getting started](./docs/getting-started.md) guide and works on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
 
 ### Guided demo
 
@@ -99,6 +99,18 @@ The [Settings reference](./docs/settings.md) lists every key, its environment va
 | [Capabilities](./docs/capabilities.md) | Platform Runtimes, Teaching, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, the Execution Boundary, and what each one can't do |
 | [Variables](./docs/variables.md) | Declaring Flow Skill inputs, `secret` and `runtime`, and how values are supplied |
 | [Limits](./docs/limits.md) | Fixed limits on sessions, recordings, observation, and programs |
+
+### Agent guides
+
+Every connected agent reads [Getting started](./docs/getting-started.md) before acting, whether `start` launched it or not. It then reads a workflow guide only when that work begins:
+
+| Guide | Read when |
+| --- | --- |
+| [Run Flow Skills](./docs/run.md) | Checking a feature with saved Flow Skills |
+| [Teach a journey](./docs/teach.md) | The user demonstrates a new journey |
+| [Guided Run](./docs/guided-run.md) | Learning from the user's Source Document |
+| [Device sessions](./docs/device.md) | Working on Android or iOS |
+| [Browser state](./docs/browser-state.md) | Using devtools or changing cookies, storage, routes, or headers |
 
 An agent connected over MCP reads the same topics as `contingency://docs/<topic>` resources, or with the `docs_get` operation inside `agent_code_execute`.
 

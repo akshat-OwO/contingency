@@ -172,7 +172,8 @@ it("tells the agent to try a Pursuit first only under the experimental flag", ()
     "native"
   );
   expect(first).toContain("Try agent_browser_pursue for each Flow Skill step");
-  expect(first.length).toBeLessThan(800);
+  // The experimental line rides on top of the getting-started pointer.
+  expect(first.length).toBeLessThan(850);
   const program = makeMcpInstructions(false, { ...systemOne, first: true });
   expect(program).toContain("Try tools.agent_browser_pursue for each");
   expect(makeMcpInstructions(false, systemOne)).not.toContain("pursue");
@@ -222,8 +223,9 @@ it.live("sends the context-saving habits as server instructions", () =>
       makeMcpInstructions(false, undefined, "single-tool")
     );
     // The single tool carries the habits its one schema cannot, and the #461
-    // evaluation measured this text; its catalog is a tenth of native's.
-    expect(MCP_INSTRUCTIONS.length).toBeLessThan(1100);
+    // evaluation measured this text; its catalog is a tenth of native's. The
+    // getting-started pointer (ADR 0069) adds one sentence to that text.
+    expect(MCP_INSTRUCTIONS.length).toBeLessThan(1150);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
