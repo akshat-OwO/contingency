@@ -78,7 +78,7 @@ const record = (name, value) =>
 const command = (...args) =>
   io(async () => {
     journal.push({ args, entryPoint: "control-contingency" });
-    const result = await execute("nub", [control, ...args], {
+    const result = await execute("vpx", [control, ...args], {
       maxBuffer: 8 * 1024 * 1024,
     });
     return result.stdout.trim();
@@ -90,7 +90,7 @@ const call = (tool, params = {}, refusal = false) =>
     const result = yield* io(async () => {
       try {
         const { stdout } = await execute(
-          "nub",
+          "vpx",
           [
             control,
             "mcp",

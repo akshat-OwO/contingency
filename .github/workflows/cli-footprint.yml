@@ -26,30 +26,36 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .footprint-base
           persist-credentials: false
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
       # Match the publishing action's pack implementation and npm version.
       - run: npm install --global npm@12.2.0
-      - run: nub ci
+      - run: vp install --frozen-lockfile
+      - name: Adapt older base package-manager metadata
+        run: vpx .github/scripts/prepare-footprint-base.mjs .footprint-base
       - name: Build and measure main
         working-directory: .footprint-base
         run: |
-          nub ci
-          nub packages/release/src/main.ts apply-version 0.0.0-ci
-          nub exec turbo run build --filter @contingencyhq/cli
-      - run: nub packages/release/src/footprint-main.ts measure --root .footprint-base --output "$RUNNER_TEMP/base.json"
+          vp install --no-frozen-lockfile
+          vpx packages/release/src/main.ts apply-version 0.0.0-ci
+          vp exec turbo run build --filter @contingencyhq/cli
+      - run: vpx packages/release/src/footprint-main.ts measure --root .footprint-base --output "$RUNNER_TEMP/base.json"
       - name: Build and measure PR
         run: |
-          nub packages/release/src/main.ts apply-version 0.0.0-ci
-          nub exec turbo run build --filter @contingencyhq/cli
-          nub packages/release/src/footprint-main.ts measure --output "$RUNNER_TEMP/head.json"
+          vpx packages/release/src/main.ts apply-version 0.0.0-ci
+          vp exec turbo run build --filter @contingencyhq/cli
+          vpx packages/release/src/footprint-main.ts measure --output "$RUNNER_TEMP/head.json"
       - name: Measure published latest and alpha tarballs
-        run: nub packages/release/src/footprint-main.ts registry --output "$RUNNER_TEMP/registry.json"
+        run: vpx packages/release/src/footprint-main.ts registry --output "$RUNNER_TEMP/registry.json"
       - name: Compare footprints
         env:
           WARN_BYTES: ${{ vars.CLI_FOOTPRINT_WARN_BYTES || '51200' }}
           WARN_PERCENT: ${{ vars.CLI_FOOTPRINT_WARN_PERCENT || '1' }}
         run: |
-          nub packages/release/src/footprint-main.ts compare \
+          vpx packages/release/src/footprint-main.ts compare \
             "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/registry.json" \
             --warn-bytes "$WARN_BYTES" --warn-percent "$WARN_PERCENT" \
             --output "$RUNNER_TEMP/footprint.md"

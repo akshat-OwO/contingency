@@ -46,14 +46,18 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
-      - uses: nubjs/setup-nub@v0
-      - run: nub ci
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
+      - run: vp install --frozen-lockfile
       - name: Build and verify arm64 helper
         working-directory: packages/cli
         env:
           CONTINGENCY_BUILD_IOS_FRAMEBUFFER: "1"
         run: |
-          nub src/packaging/build-ios-framebuffer.ts
+          vpx src/packaging/build-ios-framebuffer.ts
           lipo -info dist/ios/framebuffer/framebuffer
           test "$(lipo -archs dist/ios/framebuffer/framebuffer)" = arm64
           codesign -v --strict --all-architectures dist/ios/framebuffer/framebuffer
@@ -76,9 +80,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
 
-      - run: nub ci
+      - run: vp install --frozen-lockfile
 
       # Rejects anything that is not a semantic version before a build runs,
       # so a typo in a tag fails in seconds rather than after the matrix.
@@ -107,11 +115,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
 
-      - run: nub ci
+      - run: vp install --frozen-lockfile
 
-      - run: nub exec turbo run quality check-types test
+      - run: vp exec turbo run quality check-types test
 
   integration:
     name: Integration (real browser)
@@ -121,12 +133,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
 
-      - run: nub ci
+      - run: vp install --frozen-lockfile
 
       - name: Install Chromium
-        run: nub exec --cwd packages/cli playwright-core install chromium
+        run: vp exec --filter ./packages/cli playwright-core install chromium
 
       # Skip apt-get update: the runner's cached Ubuntu index is enough for
       # ffmpeg, and update also refreshes Google's Chrome repo, which has
@@ -134,7 +150,7 @@ jobs:
       - name: Install ffmpeg (ffprobe for the video assertions)
         run: sudo apt-get install -y ffmpeg
 
-      - run: nub exec turbo run test:integration
+      - run: vp exec turbo run test:integration
 
   release-artifact:
     name: Verify release artifact
@@ -143,10 +159,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
+          version: 1.4.0
+          run-install: false
+          cache: true
           registry-url: https://registry.npmjs.org
-      - run: nub ci
+      - run: vp install --frozen-lockfile
       - uses: ./.github/actions/verify-cli-artifact
         with:
           version: ${{ needs.preflight.outputs.version }}
@@ -164,8 +183,12 @@ jobs:
             architecture: arm64
     steps:
       - uses: actions/checkout@v5
-      - uses: nubjs/setup-nub@v0
-      - run: nub ci
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          version: 1.4.0
+          run-install: false
+          cache: true
+      - run: vp install --frozen-lockfile
       - uses: actions/download-artifact@v5
         with:
           name: cli-release-tarball
@@ -174,7 +197,7 @@ jobs:
         run: |
           tarballs=("$GITHUB_WORKSPACE"/packed-cli/*.tgz)
           test "${#tarballs[@]}" -eq 1
-          nub packages/release/src/main.ts verify-ios-helper "${tarballs[0]}"
+          vpx packages/release/src/main.ts verify-ios-helper "${tarballs[0]}"
 
   publish:
     name: Publish to npm
@@ -190,11 +213,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: nubjs/setup-nub@v0
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
+          version: 1.4.0
+          run-install: false
+          cache: true
           registry-url: https://registry.npmjs.org
 
-      - run: nub ci
+      - run: vp install --frozen-lockfile
 
       - name: Install release npm
         run: npm install --global npm@12.2.0

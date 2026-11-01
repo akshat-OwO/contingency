@@ -19,11 +19,11 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "nub src/packaging/generate-settings.ts && tsdown && nub src/packaging/vendor-runtime.ts && nub src/packaging/build-ios-framebuffer.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['resources','dist/resources'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['docs','dist/docs']])fs.cpSync(from,to,{recursive:true})\" && nub run --cwd ../../apps/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
+    "build": "vpx src/packaging/generate-settings.ts && tsdown && vpx src/packaging/vendor-runtime.ts && vpx src/packaging/build-ios-framebuffer.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['resources','dist/resources'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['docs','dist/docs']])fs.cpSync(from,to,{recursive:true})\" && vp run --filter @contingency/web build --outDir ../../packages/cli/dist/web --emptyOutDir",
     "check-types": "tsc --noEmit",
-    "dev": "nub watch src/index.ts web --no-browser",
-    "prepack": "nub run build",
-    "test": "nub run build && vitest run",
+    "dev": "vpx --watch src/index.ts web --no-browser",
+    "prepack": "vp run build",
+    "test": "vp run build && vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "devDependencies": {
@@ -31,7 +31,6 @@
     "@effect/platform-node": "4.0.1",
     "@effect/platform-node-shared": "4.0.1",
     "@effect/vitest": "catalog:effect",
-    "@nubjs/types": "catalog:types",
     "@opencode/codemode": "2.0.27",
     "@types/node": "catalog:types",
     "agent-device": "0.21.25",
@@ -47,8 +46,5 @@
     "tsdown": "^0.22.14",
     "typescript": "catalog:",
     "vitest": "catalog:effect"
-  },
-  "allowScripts": {
-    "node-datachannel": false
   }
 }

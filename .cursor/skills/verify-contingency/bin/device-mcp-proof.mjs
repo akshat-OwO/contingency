@@ -65,7 +65,7 @@ const control = async (...args) => {
       catch: (cause) => cause,
       try: () =>
         execute(
-          "nub",
+          "vpx",
           [path.join(import.meta.dirname, "control-contingency"), ...args],
           {
             cwd: root,

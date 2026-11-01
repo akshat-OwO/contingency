@@ -19,7 +19,7 @@ const committed = (file: string) =>
   readFileSync(path.join(packageRoot, file), "utf-8");
 
 const REGENERATE =
-  "Run `nub src/packaging/generate-settings.ts` in packages/cli.";
+  "Run `vpx src/packaging/generate-settings.ts` in packages/cli.";
 
 it("keeps the committed JSON Schema current", () => {
   expect(committed(SETTINGS_SCHEMA_FILE), REGENERATE).toBe(

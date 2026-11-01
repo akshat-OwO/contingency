@@ -41,7 +41,7 @@ const control = (...args) =>
       catch: (cause) => cause,
       try: () =>
         execute(
-          "nub",
+          "vpx",
           [
             path.join(
               root,

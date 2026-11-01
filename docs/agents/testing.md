@@ -10,7 +10,7 @@ Every wait waits on the **event** the next assertion reads.
 - **Integration tests** wait for a signal the code emits: a `Deferred`, a product `Stream` or `PubSub`, a fixture request (`awaitRequest`), a page event, or a session long-poll (`awaitSession`). When the product exposes no such signal, add one to the product; it is a seam other callers need too.
 - **One hang guard per wait**: a single `Effect.timeout` sized for a hung process (tens of seconds), never tuned to how long the work usually takes. It turns a hang into a fast, named failure; it is not part of the test's logic.
 
-`nub exec turbo run quality` enforces this in `**/*.test.ts`, `**/*.test.tsx`, and helpers under `tests/`. The `contingency/no-test-wait` rule in `packages/lint-rules` rejects sleeps, delay helpers, timers, Playwright `waitForTimeout`, and timed schedules. Oxlint's `no-restricted-imports` rejects timer imports, including aliases.
+`vp exec turbo run quality` enforces this in `**/*.test.ts`, `**/*.test.tsx`, and helpers under `tests/`. The `contingency/no-test-wait` rule in `packages/lint-rules` rejects sleeps, delay helpers, timers, Playwright `waitForTimeout`, and timed schedules. Oxlint's `no-restricted-imports` rejects timer imports, including aliases.
 
 For a justified timer, add a rule-specific disable comment explaining the observable behavior it proves. For virtual waits, explain how the call receives `TestClock`. For a browser fixture timer, explain the page behavior it models; assertions still wait on an event.
 

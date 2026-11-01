@@ -31,7 +31,7 @@ Set `IOS_STREAM_TOKEN` in your environment to a random credential. Enter that sa
 ```sh
 export IOS_STREAM_TOKEN
 DISPLAY=<display-port-uuid>
-nub packages/cli/prototypes/ios/stream.ts \
+vpx packages/cli/prototypes/ios/stream.ts \
 	"$SPIKE/framebuffer" "$(xcode-select -p)" "$SIM" "$DISPLAY"
 ```
 
@@ -58,6 +58,6 @@ The fixture is public test content. Its install and launch commands are measurem
 The shipped CLI has explicit entry points under `src/`, and its package includes `dist/`, not `prototypes/`. No shipped module imports this directory. The existing CLI TypeScript include excludes prototypes. Root quality checks still lint and format `stream.ts` and the documentation. To type-check the prototype separately, run from `packages/cli`:
 
 ```sh
-nub exec tsc --ignoreConfig --noEmit --strict --module nodenext \
+vp exec tsc --ignoreConfig --noEmit --strict --module nodenext \
 	--target es2024 --skipLibCheck --types node prototypes/ios/stream.ts
 ```

@@ -219,7 +219,7 @@ const playwrightModule = () => {
       return require(candidate);
     }
   }
-  fail("playwright-core is not installed. From the repo root run: nub install");
+  fail("playwright-core is not installed. From the repo root run: vp install");
 };
 
 const loadPlaywright = () => playwrightModule();
@@ -1072,7 +1072,7 @@ const ensureBuiltCli = () => {
   const web = path.join(repoRoot, "packages/cli/dist/web/index.html");
   if (!existsSync(cli) || !existsSync(web)) {
     fail(
-      "The CLI production build is missing. From the repo root run: nub exec turbo run build --filter=@contingencyhq/cli"
+      "The CLI production build is missing. From the repo root run: vp exec turbo run build --filter=@contingencyhq/cli"
     );
   }
   return cli;
@@ -1349,7 +1349,7 @@ const cmdLaunch = async () => {
   } catch (error) {
     child.kill("SIGTERM");
     fail(
-      `Started Contingency but could not open a driver browser: ${error instanceof Error ? error.message : String(error)}\nInstall Chromium with: nub exec --cwd packages/cli playwright-core install chromium`
+      `Started Contingency but could not open a driver browser: ${error instanceof Error ? error.message : String(error)}\nInstall Chromium with: vp exec --filter ./packages/cli playwright-core install chromium`
     );
   }
   writeInstance(directory, {

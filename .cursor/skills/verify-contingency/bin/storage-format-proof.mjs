@@ -33,7 +33,7 @@ const call = (tool, params, refusal = false) =>
     let exitCode = 0;
     try {
       ({ stdout } = await execute(
-        "nub",
+        "vpx",
         [
           control,
           "mcp",

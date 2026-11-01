@@ -7,7 +7,7 @@ Published CLI tarballs include a prebuilt arm64-only helper. Release and PR arti
 For source development on an Apple Silicon Mac, build the same artifact with:
 
 ```sh
-CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 nub exec turbo run build --filter=@contingencyhq/cli --force
+CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 vp exec turbo run build --filter=@contingencyhq/cli --force
 ```
 
 The build compiles arm64 with `xcrun clang -arch arm64`, ad hoc signs and verifies the executable, and writes a versioned manifest with source and binary SHA-256 digests under `packages/cli/dist/ios/framebuffer`. Runtime checks the manifest version, supported host, single arm64 Mach-O executable slice, and binary digest before execution. The digest pins the exact packaged build despite Xcode-dependent compiler output. It detects corruption or replacement of the binary alone; an adjacent manifest does not authenticate the publisher. npm provenance supplies package origin evidence. Ad hoc signing is not Developer ID signing or notarization. `Clean-host iOS helper` proves native arm64 execution in CI. Ordinary source builds omit the backend unless explicitly enabled.
@@ -29,7 +29,7 @@ Logs include the runtime, simulator UDID, `uname -m`, `sysctl.proc_translated`, 
 To repeat the proof on an Apple Silicon Mac with Xcode and an installed iOS runtime:
 
 ```sh
-nub packages/release/src/main.ts verify-ios-helper /absolute/path/cli.tgz
+vpx packages/release/src/main.ts verify-ios-helper /absolute/path/cli.tgz
 ```
 
 No existing path-filter convention exists, so CI runs this proof on every PR and main push. The release workflow always runs it before publishing.

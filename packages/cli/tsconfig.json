@@ -5,7 +5,7 @@
     "moduleResolution": "bundler",
     "target": "es2024",
     "lib": ["es2024"],
-    "types": ["node", "@nubjs/types"],
+    "types": ["node"],
     "moduleDetection": "force",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,

@@ -28,7 +28,7 @@ assert.ok(
 const journal = [];
 const command = (...args) =>
   io(async () => {
-    const { stdout, stderr } = await execute("nub", [control, ...args], {
+    const { stdout, stderr } = await execute("vpx", [control, ...args], {
       maxBuffer: 8 * 1024 * 1024,
     });
     journal.push({ args, exitCode: 0, stderr, stdout });

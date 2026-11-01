@@ -8,7 +8,7 @@
  * fast loop would send, plus the action the walk took from it and that
  * action's effect. Labelled requests are generated from these lines offline.
  *
- *   KEV_CRAWL_SITES=sites.txt KEV_CRAWL_OUT=pages.jsonl nub …/kev-crawl.ts
+ *   KEV_CRAWL_SITES=sites.txt KEV_CRAWL_OUT=pages.jsonl vpx …/kev-crawl.ts
  *
  * Environment:
  *   KEV_CRAWL_SITES  a file with one start URL per line; `#` starts a comment

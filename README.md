@@ -10,7 +10,7 @@ Usage lives in [`packages/cli/README.md`](./packages/cli/README.md), which is al
 
 ## Repository
 
-A Turborepo workspace managed by [`nub`](https://github.com/nubjs/nub). One package publishes; the rest are private and ship inside it.
+A Turborepo workspace managed by [Vite+](https://viteplus.dev/) with pnpm 12.16.1. One package publishes; the rest are private and ship inside it.
 
 | Path | What it is |
 | --- | --- |
@@ -21,26 +21,28 @@ A Turborepo workspace managed by [`nub`](https://github.com/nubjs/nub). One pack
 
 ## Development
 
+Install Vite+ 1.4.0 with the [global CLI installer](https://viteplus.dev/guide/global-cli). Use `vp run <script>` for package scripts and `vpx <file>` for TS/JS files. Built-in commands such as `vp test` do not run this repository's scripts.
+
 ```sh
-nub install
-nub run dev
+vp install
+vp run dev
 ```
 
-`nub run dev` starts `contingency web` and the Vite dev server together. Vite proxies `/ws` to the CLI, so open the Vite URL and changes on either side reload. That loop serves the Workspace over the local catalog; it owns no Agent Sessions, so run `nub exec contingency mcp` in its own terminal to teach a journey or drive an Interactive Run.
+`vp run dev` starts `contingency web` and the Vite dev server together. Vite proxies `/ws` to the CLI, so open the Vite URL and changes on either side reload. That loop serves the Workspace over the local catalog; it owns no Agent Sessions, so run `vp exec --filter @contingencyhq/cli contingency mcp` in its own terminal to teach a journey or drive an Interactive Run.
 
 ## Checks
 
 ```sh
-nub exec turbo run quality          # lint and formatting, read-only
-nub exec turbo run quality:fix      # apply the safe fixes
-nub exec turbo run check-types test # types and unit tests
-nub exec turbo run test:integration # real Chromium, slower by an order of magnitude
+vp exec turbo run quality          # lint and formatting, read-only
+vp exec turbo run quality:fix      # apply the safe fixes
+vp exec turbo run check-types test # types and unit tests
+vp exec turbo run test:integration # real Chromium, slower by an order of magnitude
 ```
 
 The integration suite launches a browser per test file and needs Chromium plus `ffprobe`:
 
 ```sh
-nub exec --cwd packages/cli playwright-core install chromium
+vp exec --filter ./packages/cli playwright-core install chromium
 ```
 
 ## Documentation

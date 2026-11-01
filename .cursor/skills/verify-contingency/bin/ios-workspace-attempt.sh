@@ -30,8 +30,8 @@ fi
 SELECTED=$(cat $A/selected)
 cleanup() {
   set +e
-  nub $CONTROL mcp stop > $A/cleanup.log 2>&1
-  nub $CONTROL cleanup >> $A/cleanup.log 2>&1
+  vpx $CONTROL mcp stop > $A/cleanup.log 2>&1
+  vpx $CONTROL cleanup >> $A/cleanup.log 2>&1
   echo "cleanup exit=$?" >> $A/cleanup.log
   # Only this script's exact recorded UDID authorizes fixture teardown.
   xcrun simctl shutdown "$SELECTED" >> $A/cleanup.log 2>&1
@@ -50,15 +50,15 @@ unset CONTINGENCY_IOS_WORKSPACE_INTERNAL
 export CONTINGENCY_MCP_INTERFACE=native
 export CONTINGENCY_VERIFY_DIR=$A/verify
 export CONTINGENCY_IOS_PROOF_ARTIFACTS=.cursor/skills/verify-contingency/artifacts/$ART
-nub $CONTROL launch > $A/launch.log 2>&1 || exit 5
-nub $CONTROL doctor > $A/doctor.log 2>&1 || exit 6
-nub $CONTROL mcp start > $A/mcp.log 2>&1 || exit 7
+vpx $CONTROL launch > $A/launch.log 2>&1 || exit 5
+vpx $CONTROL doctor > $A/doctor.log 2>&1 || exit 6
+vpx $CONTROL mcp start > $A/mcp.log 2>&1 || exit 7
 cp $A/verify/instance.json $A/instance.json
 ps -axo pid=,ppid=,lstart=,comm= > $A/processes-launched.txt
 lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-launched.txt
 date -u +%FT%TZ > $A/proof-start
 set +e
-nub ${CONTINGENCY_IOS_PROOF_SCRIPT:-.cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs} > $A/proof.log 2>&1
+vpx ${CONTINGENCY_IOS_PROOF_SCRIPT:-.cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs} > $A/proof.log 2>&1
 echo $? > $A/proof-exit
 set -e
 date -u +%FT%TZ > $A/proof-end

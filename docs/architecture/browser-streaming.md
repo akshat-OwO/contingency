@@ -97,10 +97,10 @@ Storage reads and writes use Playwright's context cookie APIs and Page evaluatio
 
 ```sh
 # Teaching and Interactive Runs — the MCP server owns Agent Sessions
-nub exec contingency mcp
+vp exec --filter @contingencyhq/cli contingency mcp
 
 # the Workspace alone, without MCP
-nub exec contingency web
+vp exec --filter @contingencyhq/cli contingency web
 ```
 
 Production builds can serve the SPA from the CLI (`serveWebUi`). Dev typically uses the Vite app against the CLI WebSocket origin allowlist.

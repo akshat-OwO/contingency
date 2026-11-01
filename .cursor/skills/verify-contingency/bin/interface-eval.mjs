@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* oxlint-disable no-await-in-loop -- Copy each evidence file after owned processes stop. */
-// nub .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native
+// vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import {
