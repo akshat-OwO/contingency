@@ -119,7 +119,7 @@ For the combined task, authority, input, Dry Run, and restart proof, follow [the
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Workspace available at http://127.0.0.1:<port>/` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
-`mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Workspace. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits nonzero. The same broker answers `mcp resources` and `mcp resource --uri <uri>`, which is how a drive reads the authoring skills Contingency serves to a learning agent.
+`mcp start` runs that server under a broker that holds one MCP stdio conversation open, so `mcp call --tool <name> --params <json>` reaches the same process that serves Workspace. That is the only way a drive can create an Agent Session: sessions live inside their owning process. A tool refusal prints its reason and exits nonzero. The same broker answers `mcp resources` and `mcp resource --uri <uri>`, which is how a drive reads the writing reference Contingency serves to a learning agent.
 
 `mcp start` passes the shell's environment to the server. Run `contingency system-one setup` for local discovery, or set `CONTINGENCY_SYSTEM_ONE_URL`, and for a hosted endpoint `CONTINGENCY_SYSTEM_ONE_API_KEY`, on that command to expose `agent_browser_pursue`; follow the System One Pursuits recipe in `features/workspace.md`.
 

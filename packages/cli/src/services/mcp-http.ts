@@ -14,7 +14,7 @@ import {
   AgentSessionTools,
   McpAgentSessionLayer,
 } from "./mcp-agent-session.ts";
-import { McpAuthoringSkillsLayer } from "./mcp-authoring-skills.ts";
+import { McpAuthoringResourcesLayer } from "./mcp-authoring-resources.ts";
 import {
   BrowserDevtoolsTools,
   BrowserDevtoolsToolHandlersLive,
@@ -92,7 +92,7 @@ const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
       McpAgentCatalogLayer,
       McpAgentRunLayer,
       McpTeachingRecordingLayer,
-      McpAuthoringSkillsLayer,
+      McpAuthoringResourcesLayer,
       McpDocsResourcesLayer,
       makeMcpStartLayer(options.demoSite, {
         launchContext: options.launchContext,
@@ -102,7 +102,7 @@ const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
   }
   const { demoSite, systemOne } = options;
   return Layer.mergeAll(
-    McpAuthoringSkillsLayer,
+    McpAuthoringResourcesLayer,
     McpDocsResourcesLayer,
     makeMcpStartLayer(demoSite, {
       exampleTool: false,
