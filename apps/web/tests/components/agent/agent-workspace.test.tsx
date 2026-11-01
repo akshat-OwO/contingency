@@ -1,4 +1,8 @@
-import { AgentSessionSnapshot } from "@contingency/protocol";
+import {
+  AgentSessionSnapshot,
+  BrowserStreamId,
+  FrameSequence,
+} from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
 import {
   createMemoryHistory,
@@ -22,7 +26,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { GuidedRunQuestions } from "@/components/agent/guided-run-questions";
+import * as browserInput from "@/components/browser/browser-input";
 import { ModeToggle } from "@/components/mode-toggle";
+import type { runAgentBrowserStream } from "@/lib/rpc";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 import { routeTree } from "@/routeTree.gen";
@@ -218,7 +224,9 @@ const rpcOverrides = {
         }
       );
     }),
-  runAgentBrowserStream: () => Effect.never,
+  runAgentBrowserStream: (
+    ..._args: Parameters<typeof runAgentBrowserStream>
+  ): ReturnType<typeof runAgentBrowserStream> => Effect.never,
   runAgentSessionStream: () =>
     rpc.agentStreamFailureMessage === undefined
       ? Effect.never
@@ -1458,6 +1466,26 @@ test("reopens the composer on the unsent draft when a save fails after it was cl
 
 test("keeps single-key shortcuts for the Page while the browser holds focus", async () => {
   const user = userEvent.setup();
+  // The canvas is hidden until a frame renders; hidden elements cannot focus.
+  vi.spyOn(browserInput, "renderFrame").mockReturnValue(Effect.succeed(true));
+  vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(
+    (_sessionId, onEvent) =>
+      onEvent({
+        data: new Uint8Array(),
+        metadata: {
+          deviceHeight: 480,
+          deviceWidth: 640,
+          offsetTop: 0,
+          pageScaleFactor: 1,
+          scrollOffsetX: 0,
+          scrollOffsetY: 0,
+          timestamp: 0,
+        },
+        seq: FrameSequence.make(1),
+        streamId: BrowserStreamId.make("shortcut-test"),
+        type: "frame",
+      }).pipe(Effect.andThen(Effect.never))
+  );
   renderWorkspace(resultFor([teachingRecording]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   const trigger = within(dock).getByRole("button", { name: "Comment" });
@@ -1465,7 +1493,11 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   expect(trigger).toHaveTextContent("/");
 
   const canvas = screen.getByLabelText("Live browser viewport");
-  canvas.focus();
+  await waitFor(() => {
+    expect(canvas).toBeVisible();
+  });
+  act(() => canvas.focus());
+  expect(canvas).toHaveFocus();
   await waitFor(() => {
     expect(trigger).toHaveTextContent("Ctrl");
   });
