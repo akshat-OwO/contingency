@@ -46,7 +46,7 @@ const control = (...args) =>
       catch: (cause) => cause,
       try: () =>
         execute(
-          "nub",
+          process.execPath,
           [
             path.join(
               root,

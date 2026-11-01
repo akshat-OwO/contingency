@@ -21,18 +21,18 @@ agent-device reports these roles and names. Declare them exactly in Workspace.
 
 ## Build
 
-Prerequisites: Node 24, nub 0.9.0, JDK 17 (`JAVA_HOME`), and an Android SDK (`ANDROID_HOME`) with build-tools 36.0.0, platform 36, and NDK 27.1.12297006.
+Prerequisites: Node 24, Vite+ 1.4.0 with pnpm 12.16.1, JDK 17 (`JAVA_HOME`), and an Android SDK (`ANDROID_HOME`) with build-tools 36.0.0, platform 36, and NDK 27.1.12297006.
 
 ```sh
 JAVA_HOME=/path/to/jdk-17 ANDROID_HOME=$HOME/Library/Android/sdk \
-  nub .cursor/skills/verify-contingency/fixtures/android-checkout/scripts/build.mjs
+  vpx .cursor/skills/verify-contingency/fixtures/android-checkout/scripts/build.mjs
 ```
 
-The script copies these sources to a temporary directory named after the `nub.lock` hash. nub resolves any package inside this repository to the root workspace, so the fixture installs outside it. The script then runs `nub install --frozen-lockfile --node-linker hoisted`, `expo prebuild --clean`, and `gradlew assembleRelease` for `arm64-v8a` once per variant. It writes `working.apk`, `changed.apk`, `broken.apk`, and `builds.json` to `artifacts/android-checkout/builds/`. Pass `--variant <name>` to build one variant, or `--out <dir>` to change the output directory.
+The script copies these sources to a temporary directory named after the `pnpm-lock.yaml` hash. The fixture installs outside the repository to isolate its Expo and Gradle dependencies. The script then runs `vp install --frozen-lockfile`, `expo prebuild --clean`, and `gradlew assembleRelease` for `arm64-v8a` once per variant. It writes `working.apk`, `changed.apk`, `broken.apk`, and `builds.json` to `artifacts/android-checkout/builds/`. Pass `--variant <name>` to build one variant, or `--out <dir>` to change the output directory.
 
 `builds.json` records each APK's package, versionCode, versionName, and SHA-256, together with the JDK version and lockfile hash. The proof refuses an APK whose hash no longer matches. Builds are not byte-for-byte reproducible: the Hermes bundle differs between builds of the same source. Rebuilding therefore produces new hashes, and the proof uses whichever `builds.json` is current. Release builds use the React Native debug key. They are fixture builds, not releases.
 
-Pinned versions: Expo SDK 57.0.27, React Native 0.86.3, and React 19.2.3. nub's `no-downgrade` trust policy rejects the Expo SDK 57 backports, which were published before Expo adopted trusted publishing. `.npmrc` exempts only those exact versions.
+Pinned versions: Expo SDK 57.0.27, React Native 0.86.3, and React 19.2.3. pnpm's `no-downgrade` trust policy rejects the Expo SDK 57 backports, which were published before Expo adopted trusted publishing. `pnpm-workspace.yaml` selects hoisted dependencies and exempts only those exact versions and the already-locked `semver@6.3.1`, which pnpm also flags as a trust downgrade.
 
 ## Install and reset
 

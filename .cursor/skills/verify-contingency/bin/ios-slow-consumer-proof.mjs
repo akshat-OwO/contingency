@@ -26,7 +26,7 @@ const artifacts = path.join(
 const execute = promisify(execFile);
 const control = (...args) =>
   execute(
-    "nub",
+    process.execPath,
     [path.join(import.meta.dirname, "control-contingency"), ...args],
     { cwd: root, env: process.env }
   );

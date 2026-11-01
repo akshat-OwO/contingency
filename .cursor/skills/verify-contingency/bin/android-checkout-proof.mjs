@@ -91,7 +91,10 @@ const run = (file, args, options = {}) =>
     )
   );
 const control = (...args) =>
-  run("nub", [path.join(skillRoot, "bin/control-contingency"), ...args]);
+  run(process.execPath, [
+    path.join(skillRoot, "bin/control-contingency"),
+    ...args,
+  ]);
 const adb = (...args) => run("adb", ["-s", serial, ...args]);
 const tool = async (name, params) =>
   JSON.parse(

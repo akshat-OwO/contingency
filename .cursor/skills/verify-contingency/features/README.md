@@ -4,7 +4,7 @@ This directory is the maintained source for verifying Contingency's user-facing 
 
 ## Baseline preconditions
 
-- Build the current source with `nub exec turbo run build --filter=@contingencyhq/cli --force`. The CLI embeds Workspace; an existing or cached CLI bundle alone does not prove current web source.
+- Build the current source with `vp exec turbo run build --filter=@contingencyhq/cli --force`. The CLI embeds Workspace; an existing or cached CLI bundle alone does not prove current web source.
 - Launch with `control-contingency launch` so the UI is the production SPA on an ephemeral `127.0.0.1` port, not Vite `:5173` and not a borrowed `:7777`.
 - Export `CONTINGENCY_VERIFY_DIR` from launch stdout.
 - Run `control-contingency doctor` and require `ok`, the printed URL, and a `stateDir` under that verify directory.

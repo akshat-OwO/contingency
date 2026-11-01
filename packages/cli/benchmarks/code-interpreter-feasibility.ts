@@ -12,7 +12,7 @@ import type { InterpreterRunOptions } from "../src/services/code-interpreter.ts"
 /**
  * Evidence for the OpenCode interpreter feasibility report (#459). Runs each
  * scenario against the built interpreter entry, the one the package ships,
- * and prints one JSON line per scenario. Build first with `nub run build`.
+ * and prints one JSON line per scenario. Build first with `vp run build`.
  * Pass `--long-wait` to add a 45-second server-side operation wait.
  */
 

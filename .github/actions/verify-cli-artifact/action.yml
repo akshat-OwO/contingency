@@ -21,17 +21,17 @@ runs:
       run: |
         node --version
         npm --version
-        nub --version
+        vp --version
 
     - name: Stamp the release version into the manifest
       shell: bash
       env:
         RELEASE_VERSION: ${{ inputs.version }}
-      run: nub packages/release/src/main.ts apply-version "$RELEASE_VERSION"
+      run: vpx packages/release/src/main.ts apply-version "$RELEASE_VERSION"
 
     - name: Build
       shell: bash
-      run: nub exec turbo run build --filter @contingencyhq/cli
+      run: vp exec turbo run build --filter @contingencyhq/cli
 
     - name: Verify the binary reports the release version
       shell: bash
@@ -60,14 +60,14 @@ runs:
       shell: bash
       env:
         CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER: "1"
-      run: nub packages/release/src/main.ts pack-cli --output "$GITHUB_OUTPUT"
+      run: vpx packages/release/src/main.ts pack-cli --output "$GITHUB_OUTPUT"
 
     - name: Verify a clean packed CLI install
       shell: bash
       env:
         CONTINGENCY_REQUIRE_IOS_FRAMEBUFFER: "1"
         TARBALL: ${{ steps.pack.outputs.tarball }}
-      run: nub packages/release/src/main.ts verify-cli-install "$TARBALL"
+      run: vpx packages/release/src/main.ts verify-cli-install "$TARBALL"
 
     - name: Upload verified CLI tarball
       uses: actions/upload-artifact@v4

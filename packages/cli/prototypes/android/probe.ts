@@ -63,7 +63,7 @@ const program = Effect.gen(function* probe() {
   ) {
     return yield* Effect.fail(
       new ProbeError(
-        "usage: nub probe.ts SERIAL TARGET ARTIFACT_SUBDIRECTORY [SCENARIO ARGUMENT SECOND]"
+        "usage: vpx probe.ts SERIAL TARGET ARTIFACT_SUBDIRECTORY [SCENARIO ARGUMENT SECOND]"
       )
     );
   }

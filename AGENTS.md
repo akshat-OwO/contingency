@@ -2,7 +2,7 @@
 
 ## Engineering
 
-- Use `nub` for packages and scripts. Check with `nub exec turbo run quality`; apply safe fixes with `nub exec turbo run quality:fix`. Oxlint and Oxfmt define mechanical standards.
+- Use Vite+ (`vp`) for packages and scripts, and `vpx` for TS/JS files. Check with `vp exec turbo run quality`; apply safe fixes with `vp exec turbo run quality:fix`. Oxlint and Oxfmt define mechanical standards.
 - Use Effect throughout and Effect atom for atomic state. Inspect the installed Effect source in `node_modules` before changing Effect code.
 - Own the result: define observable acceptance criteria, inspect the owning module and callers, and read relevant `GLOSSARY.md` terms and `docs/adr/` decisions.
 - Fix causes in the owning module. Prefer performance, reliability, existing conventions, and reusable services. Preserve existing work and keep changes focused.

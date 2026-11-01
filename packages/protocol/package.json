@@ -13,7 +13,7 @@
     "effect": "catalog:effect"
   },
   "devDependencies": {
-    "@nubjs/types": "catalog:types",
+    "@types/node": "catalog:types",
     "typescript": "catalog:"
   }
 }

@@ -9,9 +9,9 @@
  * agent calls. Nothing here is product code, and every outcome is checked in
  * code, never taken from Jev.
  *
- *   OPENCODE_API_KEY=… nub packages/cli/benchmarks/jev-fast-loop.ts
- *   TYPESAFE_API_KEY=… JEV_PROVIDER=typesafe nub …/jev-fast-loop.ts
- *   nub …/jev-fast-loop.ts --dry   # prints the first request; no model call
+ *   OPENCODE_API_KEY=… vpx packages/cli/benchmarks/jev-fast-loop.ts
+ *   TYPESAFE_API_KEY=… JEV_PROVIDER=typesafe vpx …/jev-fast-loop.ts
+ *   vpx …/jev-fast-loop.ts --dry   # prints the first request; no model call
  *
  * Environment:
  *   JEV_BENCHMARK_REPEATS  repeats of every scenario (default 1)

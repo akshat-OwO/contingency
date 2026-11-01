@@ -1,6 +1,6 @@
 // Builds the working, changed, and broken fixture APKs from the committed lockfile.
-// Sources are copied to an owned directory outside the repository, because nub
-// resolves any package under the repository to the root workspace.
+// Sources are copied to an owned directory outside the repository so Expo and
+// Gradle use an isolated, hoisted dependency tree.
 /* oxlint-disable eslint/no-await-in-loop */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -61,7 +61,7 @@ const javaVersion = /^JAVA_VERSION="(?<version>[^"]+)"/mu.exec(
 if (!javaVersion?.startsWith("17.")) {
   throw new Error(`JAVA_HOME must be JDK 17; found ${javaVersion}.`);
 }
-const lockfile = await readFile(path.join(fixture, "nub.lock"));
+const lockfile = await readFile(path.join(fixture, "pnpm-lock.yaml"));
 const lockHash = createHash("sha256").update(lockfile).digest("hex");
 const work = path.join(
   tmpdir(),
@@ -69,10 +69,10 @@ const work = path.join(
 );
 await mkdir(work, { recursive: true });
 for (const entry of [
-  ".npmrc",
+  "pnpm-workspace.yaml",
   "app.config.js",
   "index.js",
-  "nub.lock",
+  "pnpm-lock.yaml",
   "package.json",
   "src",
 ]) {
@@ -82,7 +82,7 @@ for (const entry of [
   });
 }
 // React Native and Expo Gradle scripts resolve packages from a hoisted node_modules.
-await run("nub", ["install", "--frozen-lockfile", "--node-linker", "hoisted"], {
+await run("vp", ["install", "--frozen-lockfile"], {
   cwd: work,
 });
 await mkdir(values.out, { recursive: true });
@@ -92,22 +92,19 @@ await mkdir(values.out, { recursive: true });
 const nodeEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(
     ([key]) =>
-      !key.startsWith("__NUB_") &&
       !["NODE_COMPILE_CACHE", "NODE_OPTIONS", "NODE_PATH"].includes(key)
   )
 );
 nodeEnvironment.PATH = [
   path.dirname(process.execPath),
-  ...(process.env.PATH ?? "")
-    .split(path.delimiter)
-    .filter((entry) => !path.basename(entry).startsWith("nub-node-shim")),
+  ...(process.env.PATH ?? "").split(path.delimiter),
 ].join(path.delimiter);
 
 const builds = [];
 for (const variant of selected) {
   const env = { ...nodeEnvironment, CI: "1", FIXTURE_VARIANT: variant };
   await run(
-    "nub",
+    "vp",
     [
       "exec",
       "expo",

@@ -1,6 +1,6 @@
 # CLI footprint CI
 
-The CLI footprint workflow builds the PR head and its exact base commit sequentially with the same Node, Nub, npm 12.2.0, and placeholder release version. It uses the release build command and `npm pack --ignore-scripts --json`, then installs each tarball offline with lifecycle scripts disabled. It does not alter publication.
+The CLI footprint workflow builds the PR head and its exact base commit sequentially with the same Node, Vite+ 1.4.0, pnpm 12.16.1, npm 12.2.0, and placeholder release version. It uses the release build command and `npm pack --ignore-scripts --json`, then installs each tarball offline with lifecycle scripts disabled. It does not alter publication. When the base predates the package-manager migration, `.github/scripts/prepare-footprint-base.mjs` adapts only its package-manager metadata and script commands, retaining its locked dependencies and product sources.
 
 The report compares packed tarball bytes, installed regular file bytes, and installed file count against main, npm latest, and npm alpha. Published baselines come from `npm pack @contingencyhq/cli@latest` and `@alpha`; each column labels the version in the installed tarball. Missing tags and registry failures become `n/a`. Logical file lengths exclude filesystem block allocation, npm cache, lockfiles, and bin links. The CLI bundles its runtime dependencies, so an offline install also preserves the release check's no-registry-dependencies invariant.
 
@@ -11,9 +11,9 @@ Measurement runs with read-only permissions and checkout credentials disabled. T
 To measure an already built tree locally:
 
 ```sh
-nub packages/release/src/footprint-main.ts measure --output /tmp/head.json
-nub packages/release/src/footprint-main.ts registry --output /tmp/registry.json
-nub packages/release/src/footprint-main.ts compare /tmp/base.json /tmp/head.json /tmp/registry.json --output /tmp/footprint.md
+vpx packages/release/src/footprint-main.ts measure --output /tmp/head.json
+vpx packages/release/src/footprint-main.ts registry --output /tmp/registry.json
+vpx packages/release/src/footprint-main.ts compare /tmp/base.json /tmp/head.json /tmp/registry.json --output /tmp/footprint.md
 ```
 
 Use a separately measured base snapshot for `/tmp/base.json`. The comparison command prints the Markdown report and warning annotations. JSON snapshots and the Markdown report remain available as CI artifacts for seven days.

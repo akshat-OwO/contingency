@@ -7,7 +7,7 @@
  * checked in code from the final Page, never taken from System One.
  *
  *   CONTINGENCY_SYSTEM_ONE_URL=https://api.typesafe.ai \
- *   CONTINGENCY_SYSTEM_ONE_API_KEY=… nub packages/cli/benchmarks/pursuit-loop.ts
+ *   CONTINGENCY_SYSTEM_ONE_API_KEY=… vpx packages/cli/benchmarks/pursuit-loop.ts
  *
  * Environment:
  *   CONTINGENCY_SYSTEM_ONE_*  the endpoint, as `contingency mcp` reads it

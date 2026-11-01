@@ -1,0 +1,22 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalog:
+  typescript: ^7.0.2
+
+catalogs:
+  types:
+    "@types/node": ^26.2.0
+  effect:
+    effect: 4.0.1
+    "@effect/atom-react": 4.0.1
+    "@effect/platform-node": 4.0.1
+    "@effect/platform-node-shared": 4.0.1
+    "@effect/vitest": 4.0.1
+    vitest: ^5.0.3
+
+allowBuilds:
+  esbuild: true
+  # Preserve the existing refusal to build this optional native dependency.
+  node-datachannel: false

@@ -29,7 +29,7 @@ const DEPENDENCY_FIELDS = [
 /**
  * Specifier prefixes that only mean something inside this repository.
  * `workspace:` names a sibling package and `catalog:` names a version from the
- * root catalog; nub resolves both, and npm resolves neither.
+ * root catalog; pnpm resolves both, and npm resolves neither.
  */
 const LOCAL_ONLY_PREFIXES = ["workspace:", "catalog:"];
 

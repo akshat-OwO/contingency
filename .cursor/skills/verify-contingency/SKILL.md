@@ -20,7 +20,7 @@ To change recipes, fixtures, or harness behavior, follow `.cursor/skills/maintai
 Build the current source before proof. The CLI build also bundles the web app, so bypass a cached CLI build after Workspace changes:
 
 ```sh
-nub exec turbo run build --filter=@contingencyhq/cli --force
+vp exec turbo run build --filter=@contingencyhq/cli --force
 ```
 
 Start an isolated instance. Do not set `CONTINGENCY_WEB_PORT` to 7777 unless `lsof` shows that port free and you created it for this run.
@@ -36,9 +36,9 @@ Ready when stdout prints `CONTINGENCY_VERIFY_DIR=...` and `url=http://127.0.0.1:
 export CONTINGENCY_VERIFY_DIR=...
 ```
 
-Chromium for the driver (and for Agent Sessions and Runs) comes from `playwright-core` in `packages/cli`. If launch fails on the driver, install it with `nub exec --cwd packages/cli playwright-core install chromium` and retry.
+Chromium for the driver (and for Agent Sessions and Runs) comes from `playwright-core` in `packages/cli`. If launch fails on the driver, install it with `vp exec --filter ./packages/cli playwright-core install chromium` and retry.
 
-Default developer `nub exec contingency web` is a different mode: Vite on 5173 plus CLI on 7777, and it opens a real browser. Verification never uses that pair. It runs `NODE_ENV=production node packages/cli/dist/index.js web --no-browser` on a private port with `CONTINGENCY_CATALOG_ROOT` under the verify directory.
+Default developer `vp exec --filter @contingencyhq/cli contingency web` is a different mode: Vite on 5173 plus CLI on 7777, and it opens a real browser. Verification never uses that pair. It runs `NODE_ENV=production node packages/cli/dist/index.js web --no-browser` on a private port with `CONTINGENCY_CATALOG_ROOT` under the verify directory.
 
 ## Doctor
 
@@ -115,7 +115,7 @@ Stable handles in this repo:
 - A finished task Run's Summary records its execution outcome, original task, changed instructions, referenced skills, task assessment, findings with evidence IDs, and browser video. Dry Run summaries stack below the browser at 390px. Historical Summaries retain their original Step assessments. A finished Dry Run shows the same Summary in the Teaching Workspace beside **Verify flow** and **Reject flow**, or beside its failed state. When an Interactive Run ends while the Workspace watches it (completed, closed, or interrupted), the Workspace keeps its last frame and docks `complementary` named `Run Summary` in the Dry Run layout: the verdict is the Agent Assessment and the checks are `list` named `Run checks`. The dock badge reads `Closed` and offers `Done`, which returns to the next live session or the empty Workspace.
 - A saved `SKILL.md` carries Contingency-stamped `hosts` and `emulation` frontmatter beside the agent's `name`, `description`, and `inputs`. A Run refuses a start URL outside those hosts and reopens the demonstrated viewport.
 
-For the combined task, authority, input, Dry Run, and restart proof, follow [the combined task recipe](features/workspace.md#combined-task-proof). `nub .cursor/skills/verify-contingency/bin/task-proof.mjs` drives only the instance named by `CONTINGENCY_VERIFY_DIR`. Read `artifacts/task-proof/result.json` before reporting success. A recorded blocker means that entry point remains unverified even when the independent assertions pass.
+For the combined task, authority, input, Dry Run, and restart proof, follow [the combined task recipe](features/workspace.md#combined-task-proof). `vpx .cursor/skills/verify-contingency/bin/task-proof.mjs` drives only the instance named by `CONTINGENCY_VERIFY_DIR`. Read `artifacts/task-proof/result.json` before reporting success. A recorded blocker means that entry point remains unverified even when the independent assertions pass.
 
 `contingency mcp` binds `127.0.0.1` only (`CONTINGENCY_MCP_PORT`, default 7777) and prints `Contingency MCP Workspace available at http://127.0.0.1:<port>/` on stderr. This verification launch path does not start MCP. To prove a live Agent Session you must start `mcp` in its own isolated port and state dir; do not attach to an MCP process you did not start.
 
@@ -175,7 +175,7 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" mcp start
 "$CONTROL" mcp tools --name agent_run_assess
 "$CONTROL" mcp call --tool agent_sessions_get
-nub .cursor/skills/verify-contingency/bin/task-proof.mjs
+vpx .cursor/skills/verify-contingency/bin/task-proof.mjs
 "$CONTROL" mcp stop
 "$CONTROL" cleanup
 ```
@@ -184,8 +184,8 @@ nub .cursor/skills/verify-contingency/bin/task-proof.mjs
 
 ## Interface evaluation
 
-Run one isolated model probe with `nub .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native`, selecting `cart`, `checkout`, `refuse`, `learn`, `dry-run`, `takeover`, `android`, or `calibration`, `haiku` or `sol`, and `native` or `single-tool`. The runner owns its production MCP server, fixture, driver, Catalog Root, and cleanup. It refuses low memory or swap use. Do not combine it with `launch` or another model stack.
+Run one isolated model probe with `vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native`, selecting `cart`, `checkout`, `refuse`, `learn`, `dry-run`, `takeover`, `android`, or `calibration`, `haiku` or `sol`, and `native` or `single-tool`. The runner owns its production MCP server, fixture, driver, Catalog Root, and cleanup. It refuses low memory or swap use. Do not combine it with `launch` or another model stack.
 
-Run `nub .cursor/skills/verify-contingency/bin/interface-overhead.mjs` separately, with no model stack. This benchmark owns two production processes, uses matched fixture sessions, and alternates 20 pairs of reads and actions. Raw results remain under `artifacts/interface-eval/`. Use `nub .cursor/skills/verify-contingency/bin/interface-eval/check.mjs` for metric checks and `nub .cursor/skills/verify-contingency/bin/interface-eval/summarize.mjs` to reprocess logs without launching models. The five browser journeys seed disposable state and drive their scripted user through the Workspace command dispatcher. Read [the model-task recipe](features/workspace.md#interface-evaluation-model-tasks) for seeds, evidence, and Android prerequisites.
+Run `vpx .cursor/skills/verify-contingency/bin/interface-overhead.mjs` separately, with no model stack. This benchmark owns two production processes, uses matched fixture sessions, and alternates 20 pairs of reads and actions. Raw results remain under `artifacts/interface-eval/`. Use `vpx .cursor/skills/verify-contingency/bin/interface-eval/check.mjs` for metric checks and `vpx .cursor/skills/verify-contingency/bin/interface-eval/summarize.mjs` to reprocess logs without launching models. The five browser journeys seed disposable state and drive their scripted user through the Workspace command dispatcher. Read [the model-task recipe](features/workspace.md#interface-evaluation-model-tasks) for seeds, evidence, and Android prerequisites.
 
 Follow the [evaluation plan](reports/interface-evaluation-plan.md) before authorizing model runs. Read the [round 3 report](reports/interface-evaluation-round-3.md) for driver isolation evidence and the round 4 report for later driver corrections and smoke evidence. A passing task result does not establish valid evaluation context.

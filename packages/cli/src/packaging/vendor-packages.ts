@@ -70,7 +70,7 @@ export const shouldVendorFile = (
   !relative.endsWith(".map") &&
   (preserveTypeScript || !typeScriptFile.test(relative));
 
-/** Preserve asset paths without shipping Nub's external store symlinks. */
+/** Preserve asset paths without shipping pnpm's external store symlinks. */
 export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
   names: readonly string[],
   sourceRoot: string,

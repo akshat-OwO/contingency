@@ -103,7 +103,7 @@ describe("applyReleaseVersion", () => {
     expect(stamped).not.toHaveProperty("dependencies");
   });
 
-  it("removes catalog ranges, which only nub resolves", async () => {
+  it("removes catalog ranges, which pnpm resolves locally", async () => {
     const root = await makeRepo({
       devDependencies: { typescript: "catalog:", vitest: "catalog:effect" },
       name: "@contingencyhq/cli",

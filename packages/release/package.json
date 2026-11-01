@@ -13,7 +13,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect",
-    "@nubjs/types": "catalog:types",
     "@types/node": "catalog:types",
     "typescript": "catalog:",
     "vitest": "catalog:effect"

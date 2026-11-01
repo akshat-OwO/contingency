@@ -6,7 +6,7 @@ Build with JDK 17 and Android SDK platform/build-tools 36:
 
 ```sh
 JAVA_HOME=/path/to/jdk-17 ANDROID_HOME=/path/to/android-sdk \
-  nub .cursor/skills/verify-contingency/fixtures/android-physical/build.mjs
+  vpx .cursor/skills/verify-contingency/fixtures/android-physical/build.mjs
 ```
 
 The builder uses its own pinned Gradle wrapper, Android Gradle plugin 8.12.0, and Material 1.13.0. It builds in a temporary directory with a 1 GB Gradle heap and no persistent daemon, then writes `fixture.apk` and its SHA-256 receipt under `artifacts/android-physical/build/`. It generates a disposable signing key and deletes it with the temporary build. A later build cannot update an installed fixture signed with an earlier key. The proof refuses an existing fixture installation and removes the fixture only if it installed it.

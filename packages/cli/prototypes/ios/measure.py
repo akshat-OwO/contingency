@@ -15,7 +15,7 @@ if len(sys.argv) != 6:
     raise SystemExit("Usage: measure.py HELPER DEVELOPER_DIR SIMULATOR DISPLAY OUTPUT_JSON")
 helper, developer, simulator, display, output = sys.argv[1:]
 env = {**os.environ, "IOS_STREAM_TOKEN": secrets.token_hex(32)}
-command = ["nub", "packages/cli/prototypes/ios/stream.ts", helper, developer, simulator, display]
+command = ["vpx", "packages/cli/prototypes/ios/stream.ts", helper, developer, simulator, display]
 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
 receipt = {"ownerPid": process.pid, "startUnix": time.time(), "frames": [], "psSamples": []}
