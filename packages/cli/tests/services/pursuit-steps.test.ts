@@ -6,7 +6,10 @@ import {
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { expect, it } from "vitest";
 
-import { preparePursuitSteps } from "../../src/services/mcp-pursuit.ts";
+import {
+  preparePursuitSteps,
+  quotedOutcome,
+} from "../../src/services/mcp-pursuit.ts";
 import type { ScopeInput } from "../../src/services/mcp-pursuit.ts";
 import { actionSpace } from "../../src/services/system-one-request.ts";
 
@@ -154,6 +157,94 @@ it("names a Variable rather than quoting it, and needs flowSkillName for shared 
       /several referenced Flow Skills declare; pass flowSkillName/u
     ),
   ]);
+});
+
+const statusPage = (name: string) => ({
+  browserCheckResults: [],
+  capturedAt: "2026-11-01T05:10:37.788Z",
+  nodes: [
+    {
+      depth: 0,
+      name,
+      ref: AgentElementRef.make("e1"),
+      role: "status",
+    },
+  ],
+  snapshotId: AgentSnapshotId.make("snapshot-status"),
+  title: "Shop",
+  url: "http://ridgeline.localhost/",
+});
+
+it("keeps a value's quotation marks inside its quoted phrase", () => {
+  const { problems, steps } = preparePursuitSteps(
+    [
+      {
+        doneWhen: 'The status reads "{{product}} added to cart".',
+        goal: "Add {{product}} to cart.",
+      },
+    ],
+    scope(value("product", '12" ruler'))
+  );
+  expect(problems).toEqual([]);
+  const doneWhen = steps[0]?.doneWhen ?? "";
+  expect(doneWhen).toBe(
+    'The status reads \u201C12" ruler added to cart\u201D.'
+  );
+  expect(steps[0]?.goal).toBe('Add 12" ruler to cart.');
+  // The whole value stays the literal, so "12" alone confirms nothing.
+  const start = statusPage("Products");
+  expect(quotedOutcome(doneWhen, statusPage("12 items found"), start)).toBe(
+    false
+  );
+  expect(
+    quotedOutcome(doneWhen, statusPage('12" ruler added to cart'), start)
+  ).toBe(true);
+});
+
+it("switches a curly phrase whose value holds a curly quotation mark", () => {
+  const { problems, steps } = preparePursuitSteps(
+    [
+      {
+        doneWhen: "The status reads \u201C{{product}} added\u201D.",
+        goal: "Add the product.",
+      },
+    ],
+    scope(value("product", "The \u201CBest\u201D saw"))
+  );
+  expect(problems).toEqual([]);
+  expect(steps[0]?.doneWhen).toBe(
+    'The status reads "The \u201CBest\u201D saw added".'
+  );
+});
+
+it("refuses a quoted value with both quotation styles and defuses unquoted ones", () => {
+  const both = preparePursuitSteps(
+    [
+      {
+        doneWhen: 'The status reads "{{product}} added".',
+        goal: "Add the product.",
+      },
+    ],
+    scope(value("product", '12" \u201Cpro\u201D ruler'))
+  );
+  expect(both.problems).toEqual([
+    expect.stringMatching(
+      /^steps\[1\]\.doneWhen quotes .* both straight and curly quotation marks/u
+    ),
+  ]);
+  const outside = preparePursuitSteps(
+    [
+      {
+        doneWhen: 'The "Your cart" page lists {{product}} and shows "Total".',
+        goal: "Open the cart.",
+      },
+    ],
+    scope(value("product", '12" ruler'))
+  );
+  expect(outside.problems).toEqual([]);
+  expect(outside.steps[0]?.doneWhen).toBe(
+    'The "Your cart" page lists 12\u2033 ruler and shows "Total".'
+  );
 });
 
 const node = (

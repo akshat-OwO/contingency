@@ -577,24 +577,32 @@ const ELEMENT_REF = /(?<![\w-])@?e\d+(?![\w-])/u;
 const STEP_GUIDANCE =
   "Pass each remaining Flow Skill step as goal and its Done when: line as doneWhen, and quote text the Page shows once the step holds.";
 
+/** Quotation marks that open or close a quoted phrase. */
+const QUOTE_MARKS = /["\u201C\u201D]/gu;
+/** A double prime stands in for a quotation mark outside a quoted phrase. */
+const DOUBLE_PRIME = "\u2033";
+
 /**
  * Fill a step's `{{input}}` placeholders from the inputs in scope. An
  * ordinary value is written in; a Variable is named, since System One
  * receives Variables by name only and quoted text cannot be checked against
  * a value it never sees.
+ *
+ * In `doneWhen`, quoted phrases are matched literally after filling, so a
+ * value must not move their boundaries: a phrase whose value holds its own
+ * quotation mark switches to the other style, one whose value holds both is
+ * refused, and outside a phrase a value's quotation marks become double
+ * primes, which open no phrase.
  */
 const fillPlaceholders = (
   text: string,
   field: string,
   inputs: ReadonlyMap<string, ScopeInput>,
-  problems: string[]
+  problems: string[],
+  quotes: boolean
 ) => {
-  const quoted = [...text.matchAll(QUOTED)].map(
-    (match) => [match.index, match.index + match[0].length] as const
-  );
-  return text.replaceAll(
-    PLACEHOLDER,
-    (whole: string, name: string, offset: number) => {
+  const fill = (segment: string, quoted: boolean) =>
+    segment.replaceAll(PLACEHOLDER, (whole: string, name: string) => {
       const matches = [...inputs.values()].filter(
         (input) => input.name.toLowerCase() === name.toLowerCase()
       );
@@ -612,17 +620,42 @@ const fillPlaceholders = (
         return whole;
       }
       if (input.kind === "value") {
-        return input.value;
+        return quotes && !quoted
+          ? input.value.replaceAll(QUOTE_MARKS, DOUBLE_PRIME)
+          : input.value;
       }
-      if (quoted.some(([from, to]) => offset >= from && offset < to)) {
+      if (quoted) {
         problems.push(
           `${field} quotes Variable ${whole}, whose value code cannot read on the Page; quote other text the Page shows`
         );
         return whole;
       }
       return `the Variable ${input.name}`;
+    });
+  if (!quotes) {
+    return fill(text, false);
+  }
+  let filled = "";
+  let from = 0;
+  for (const match of text.matchAll(QUOTED)) {
+    filled += fill(text.slice(from, match.index), false);
+    from = match.index + match[0].length;
+    const inner = fill(
+      match.groups?.["straight"] ?? match.groups?.["curly"] ?? "",
+      true
+    );
+    const straight = inner.includes('"');
+    const curly = /[\u201C\u201D]/u.test(inner);
+    if (straight && curly) {
+      problems.push(
+        `${field} quotes ${match[0]}, whose filled value holds both straight and curly quotation marks; quote text around the value instead`
+      );
+      filled += match[0];
+    } else {
+      filled += straight ? `\u201C${inner}\u201D` : `"${inner}"`;
     }
-  );
+  }
+  return filled + fill(text.slice(from), false);
 };
 
 /** Why code cannot read `doneWhen` on the Page, if it cannot. */
@@ -668,12 +701,19 @@ export const preparePursuitSteps = (
         );
       }
     }
-    const goal = fillPlaceholders(fields.goal, `${at}.goal`, inputs, problems);
+    const goal = fillPlaceholders(
+      fields.goal,
+      `${at}.goal`,
+      inputs,
+      problems,
+      false
+    );
     const doneWhen = fillPlaceholders(
       fields.doneWhen,
       `${at}.doneWhen`,
       inputs,
-      problems
+      problems,
+      true
     );
     if (doneWhen !== "") {
       const unreadable = unreadableOutcome(doneWhen);
