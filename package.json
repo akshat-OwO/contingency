@@ -28,7 +28,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
-    "lint": "oxlint .",
+    "lint": "oxlint . && nub packages/lint-rules/src/check-prose.mjs",
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",

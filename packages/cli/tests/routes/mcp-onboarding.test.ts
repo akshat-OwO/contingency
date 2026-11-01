@@ -5,6 +5,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 
 import { LEARN_FLOW_URI } from "../../src/services/mcp-authoring-resources.ts";
+import { DOCS_URI_PREFIX } from "../../src/services/mcp-docs.ts";
 import {
   EXAMPLES_URI,
   STARTER_PROMPT_URI,
@@ -222,8 +223,14 @@ const SearchResult = Schema.Struct({
   }),
 });
 
+/** Launch and procedure prompts, which must each name at least one tool. */
+const isPrompt = (value: string) =>
+  value.startsWith("contingency://onboarding/") ||
+  value === WORK_PROMPT_URI ||
+  value.startsWith("contingency://prompt/");
+
 it.live.each(["native", "single-tool"] as const)(
-  "keeps every onboarding prompt tool name in the live %s catalog",
+  "keeps every prompt and docs reference resolvable in the live %s catalog",
   (mcpInterface) =>
     Effect.gen(function* promptToolContract() {
       const { request } = yield* connectMcp(
@@ -251,23 +258,31 @@ it.live.each(["native", "single-tool"] as const)(
                 },
               })
             ).result.structuredContent.value;
-      const catalog = new Set(names);
+      // Docs topics serve both interfaces, so they may name the single tool.
+      const catalog = new Set([...names, "agent_code_execute"]);
       const uris = Schema.decodeUnknownSync(ResourceList)(
         yield* request("resources/list", {})
       ).result.resources.map(({ uri }) => uri);
+      const served = new Set(uris);
       for (const uri of uris.filter(
-        (value) =>
-          value.startsWith("contingency://onboarding/") ||
-          value === WORK_PROMPT_URI ||
-          value.startsWith("contingency://prompt/")
+        (value) => isPrompt(value) || value.startsWith(DOCS_URI_PREFIX)
       )) {
-        const prompt = yield* read(request, uri);
-        const mentioned = [...prompt.matchAll(/\bagent_[A-Za-z0-9_]+\b/gu)].map(
+        const text = yield* read(request, uri);
+        const mentioned = [...text.matchAll(/\bagent_[A-Za-z0-9_]+\b/gu)].map(
           ([name]) => name
         );
-        expect(mentioned.length, uri).toBeGreaterThan(0);
+        if (isPrompt(uri)) {
+          expect(mentioned.length, uri).toBeGreaterThan(0);
+        }
         for (const name of mentioned) {
           expect(catalog.has(name), `${uri}: ${name}`).toBe(true);
+        }
+        // A guide that names a resource this server does not serve sends the
+        // agent to a dead end, so every reference must resolve.
+        for (const [reference] of text.matchAll(
+          /contingency:\/\/[a-z-]+(?:\/[a-z-]+)+/gu
+        )) {
+          expect(served.has(reference), `${uri}: ${reference}`).toBe(true);
         }
       }
     }).pipe(

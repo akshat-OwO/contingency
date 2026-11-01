@@ -36,6 +36,7 @@ import {
 import {
   DocsToolHandlersLive,
   DocsTools,
+  GETTING_STARTED_URI,
   McpDocsResourcesLayer,
 } from "./mcp-docs.ts";
 import {
@@ -163,6 +164,7 @@ const makeSingleToolInstructions = (
   [
     "Contingency drives a local browser and Android device for Teaching, Runs, and Dry Runs through one tool, agent_code_execute.",
     'Each program runs fresh; Agent Sessions and Runs persist. Search signatures first in their own program, e.g. return search({ query: "session" }), then call operations as await tools.<name>(input).',
+    `Read ${GETTING_STARTED_URI} first, or tools.docs_get({ topic: "getting-started" }).`,
     "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
     'Pass view:"compact" to operations that answer with a session; page older attempts and decisions with tools.agent_session_history_get.',
     "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
@@ -191,6 +193,7 @@ export const makeMcpInstructions = (
     ? makeSingleToolInstructions(channel, systemOne)
     : [
         "Contingency drives a browser for Teaching, Runs, and Dry Runs.",
+        `Read ${GETTING_STARTED_URI} first.`,
         "Native devtools unavailable.",
         "Share viewUrl as a Workspace link before acting in a new session or requesting user input.",
         'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
