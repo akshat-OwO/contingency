@@ -1,6 +1,4 @@
 ---
-
-> Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
 status: accepted
 ---
 
