@@ -819,7 +819,9 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         );
         const existingFlow = flows.get(input.flowSkillName);
         if (
-          (existingFlow !== undefined && existingFlow.directory !== target) ||
+          (input.group !== undefined &&
+            existingFlow !== undefined &&
+            existingFlow.directory !== target) ||
           [...flows.values()].some((flow) =>
             target.startsWith(`${flow.directory}${path.sep}`)
           )

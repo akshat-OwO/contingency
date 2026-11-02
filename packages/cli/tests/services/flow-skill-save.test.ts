@@ -164,6 +164,7 @@ for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
           const beginInput = {
             emulation: null,
             flowSkillName: FlowSkillName.make(name),
+            group: "",
             operationId: OperationId.make("layout-begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-layout-session"),

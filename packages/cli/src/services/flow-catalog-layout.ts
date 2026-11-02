@@ -30,15 +30,20 @@ const isDraft = (
         .pipe(Effect.map((stat) => stat.type === "Directory"))
     : Effect.succeed(false);
 
+export type DiscoveredFlow =
+  | {
+      readonly kind: "flow";
+      readonly content: string;
+      readonly directory: string;
+    }
+  | { readonly kind: "draft"; readonly directory: string };
+
 /** Enumerate once for listing, name lookup, and pre-save collision checks. */
 export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
   root: string,
   fs: FileSystem.FileSystem
 ) {
-  const found = new Map<
-    string,
-    { readonly content: string; readonly directory: string }
-  >();
+  const found = new Map<string, DiscoveredFlow>();
   if (!(yield* fs.exists(root))) {
     return found;
   }
@@ -90,8 +95,16 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
           )
         );
       }
-      const content = hasFlow ? yield* fs.readFileString(entry) : "";
-      found.set(name, { content, directory });
+      found.set(
+        name,
+        hasFlow
+          ? {
+              content: yield* fs.readFileString(entry),
+              directory,
+              kind: "flow",
+            }
+          : { directory, kind: "draft" }
+      );
       owner = directory;
     }
     for (const name of names.toReversed()) {

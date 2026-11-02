@@ -84,7 +84,7 @@ const manifest = (recordingId: string, flowSkillName: string) => ({
 
 const encodeSummary = Schema.encodeSync(TaskAgentRunSummary);
 
-/** A passing Dry Run Summary, kept beside its Teaching Recording. */
+/** A passing Dry Run Summary, kept in its Flow runs directory. */
 const dryRunSummary = (recordingId: string) =>
   encodeSummary(
     Schema.decodeUnknownSync(TaskAgentRunSummary)({
@@ -159,14 +159,7 @@ const seedLocal = (root: string) =>
       JSON.stringify(manifest(recordingId, "draft-cart"))
     );
     yield* writeJson(
-      path.join(
-        root,
-        "draft-cart",
-        "recordings",
-        recordingId,
-        "dry-run",
-        "summary.json"
-      ),
+      path.join(root, "draft-cart", "runs", "agentrun-dry-run", "summary.json"),
       JSON.stringify(dryRunSummary(recordingId))
     );
   });
@@ -207,7 +200,7 @@ it.effect("lists the local root first and the global root after it", () =>
       hosts: ["shop.example.com"],
       stepCount: 2,
     });
-    // Newest first, with the Dry Run read from beside its recording.
+    // Newest first, with the Dry Run read from the Flow.
     expect(
       localView?.runs.map((run) => [run.runId, run.kind, run.recordingId])
     ).toEqual([
@@ -453,14 +446,7 @@ const extraDocuments = (root: string) =>
       "recording-extra",
       "manifest.json"
     ),
-    path.join(
-      root,
-      "draft-cart",
-      "recordings",
-      "recording-extra",
-      "dry-run",
-      "summary.json"
-    ),
+    path.join(root, "draft-cart", "runs", "agentrun-extra-dry", "summary.json"),
   ] as const;
 
 const seedExtraDocuments = (root: string) =>
@@ -631,3 +617,47 @@ for (const scope of ["local", "global"] as const) {
     }).pipe(Effect.provide(NodeServices.layer))
   );
 }
+
+it.effect("finds task Runs in a grouped Flow alongside root history", () =>
+  Effect.gen(function* groupedRunHistory() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    yield* writeSkill(path.join(root, "shop"), "checkout", true);
+    const flowRun = {
+      ...encodeSummary(taskRunSummary),
+      runId: "agentrun-flow-local",
+    };
+    yield* writeJson(
+      path.join(
+        root,
+        "shop",
+        "checkout",
+        "runs",
+        flowRun.runId,
+        "summary.json"
+      ),
+      JSON.stringify(flowRun)
+    );
+    yield* writeJson(
+      path.join(root, "runs", taskRunSummary.runId, "summary.json"),
+      JSON.stringify(encodeSummary(taskRunSummary))
+    );
+    yield* writeJson(
+      path.join(root, "shop", "checkout", "runs", "broken", "summary.json"),
+      "{}"
+    );
+    const result = yield* Effect.gen(function* browse() {
+      return yield* (yield* CatalogBrowser).browse();
+    }).pipe(Effect.provide(browserFor(root)));
+    expect(
+      result.roots[0]?.runs.map((run) => [run.runId, run.kind, run.recordingId])
+    ).toEqual(
+      expect.arrayContaining([
+        ["agentrun-flow-local", "interactive", null],
+        [taskRunSummary.runId, "interactive", null],
+      ])
+    );
+    expect(result.roots[0]?.runs).toHaveLength(2);
+    expect(result.roots[0]?.unreadable).toBe(1);
+  }).pipe(Effect.provide(NodeServices.layer))
+);

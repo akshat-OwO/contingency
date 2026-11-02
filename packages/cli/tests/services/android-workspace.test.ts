@@ -25,6 +25,7 @@ import {
   Stream,
 } from "effect";
 import type { Scope } from "effect";
+import type { Mutable } from "effect/Types";
 
 import { createAndroidRun } from "../../src/services/android-run.ts";
 import type {
@@ -2211,3 +2212,58 @@ it.effect("Workspace Teaching can pick another app", () =>
     })
   )
 );
+
+for (const existing of [false, true]) {
+  it.effect(
+    `starts native Teaching in the ${existing ? "existing" : "selected"} Group without a root draft`,
+    () =>
+      fixture(({ root }) =>
+        Effect.gen(function* groupedTeaching() {
+          const fs = yield* FileSystem.FileSystem;
+          const owner = path.join(root, "shop", "checkout");
+          if (existing) {
+            yield* fs.makeDirectory(owner, { recursive: true });
+            yield* fs.writeFileString(
+              path.join(owner, "flow.md"),
+              skill.replaceAll("android-edit", "checkout")
+            );
+          }
+          const workspace = yield* AndroidWorkspace;
+          const command: Mutable<
+            Extract<AndroidWorkspaceCommand, { _tag: "start" }>
+          > = {
+            _tag: "start",
+            flowSkillName: FlowSkillName.make("checkout"),
+            kind: "teaching",
+            operationId: op("grouped-start"),
+            recordingId: null,
+            selection,
+          };
+          if (!existing) {
+            command.group = "shop";
+          }
+          const started = yield* workspace.execute(command, "user");
+          expect(started.recordingId).not.toBeNull();
+          const store = yield* TeachingRecordingStore;
+          if (started.recordingId === null) {
+            return yield* Effect.die("Teaching must own a recording");
+          }
+          expect(store.directory(started.recordingId)).toBe(
+            path.join(owner, "recordings", started.recordingId)
+          );
+          expect(yield* fs.exists(path.join(root, "checkout"))).toBe(false);
+          expect((yield* store.read(started.recordingId)).flowSkillName).toBe(
+            "checkout"
+          );
+          yield* workspace.execute(
+            {
+              _tag: "close",
+              operationId: op("grouped-close"),
+              sessionId: started.id,
+            },
+            "user"
+          );
+        })
+      )
+  );
+}

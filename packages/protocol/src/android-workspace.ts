@@ -241,6 +241,7 @@ export const AndroidWorkspaceCommand = Schema.Union([
   Schema.TaggedStruct("start", {
     agentSetup: Schema.optionalKey(Schema.Boolean),
     flowSkillName: FlowSkillName,
+    group: Schema.optionalKey(Schema.String),
     kind: Schema.Literals(["teaching", "dry-run", "run"]),
     operationId: deviceOperationId,
     recordingId: Schema.NullOr(TeachingRecordingId),
