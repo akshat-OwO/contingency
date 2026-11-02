@@ -1,3 +1,5 @@
+import nodePath from "node:path";
+
 import type {
   FlowSkillDiagnostic,
   FlowSkillFile,
@@ -28,7 +30,7 @@ import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
  */
 
 export const SKILL_FILE = "flow.md";
-export const ACCESSIBILITY_FILE = "references/accessibility.md";
+export const TARGETS_FILE = "targets.md";
 
 /** The marker that ends one procedure step with a checkable outcome. */
 export const COMPLETION_MARKER = "Done when:";
@@ -820,10 +822,13 @@ const checkLinks = (
     if (!target.endsWith(".md")) {
       continue;
     }
-    const resolved = target.startsWith("references/")
-      ? target
-      : `references/${target.replace(/^\.\//u, "")}`;
-    if (!(known.has(target) || known.has(resolved))) {
+    if (
+      !known.has(
+        nodePath.posix.normalize(
+          nodePath.posix.join(nodePath.posix.dirname(file.path), target)
+        )
+      )
+    ) {
       report(
         diagnostic(
           "flow_skill_missing_reference",
@@ -887,7 +892,7 @@ const checkAccessibility = (
     report(
       diagnostic(
         "flow_skill_missing_stability_rationale",
-        `${ACCESSIBILITY_FILE} must carry the heading "${STABILITY_HEADING}" and say why each target outlives the page.`,
+        `${TARGETS_FILE} must carry the heading "${STABILITY_HEADING}" and say why each target outlives the page.`,
         [file.path, STABILITY_HEADING]
       )
     );
@@ -899,7 +904,7 @@ const checkAccessibility = (
     report(
       diagnostic(
         "flow_skill_missing_target",
-        `${ACCESSIBILITY_FILE} must list every target as \`- role=<role> name="<name>" context="<context>"\`.`,
+        `${TARGETS_FILE} must list every target as \`- role=<role> name="<name>" context="<context>"\`.`,
         [file.path]
       )
     );
@@ -910,7 +915,7 @@ const checkAccessibility = (
       report(
         diagnostic(
           "flow_skill_incomplete_target",
-          `${ACCESSIBILITY_FILE} target \`${entry.trim()}\` needs a role, an accessible name, and the nearby context that disambiguates it.`,
+          `${TARGETS_FILE} target \`${entry.trim()}\` needs a role, an accessible name, and the nearby context that disambiguates it.`,
           [file.path, entry.trim()]
         )
       );
@@ -1057,7 +1062,7 @@ export const validateFlowSkillPackage = (
     checkResidue(file, report);
     checkLinks(file, known, report);
   }
-  const accessibility = files.find((file) => file.path === ACCESSIBILITY_FILE);
+  const accessibility = files.find((file) => file.path === TARGETS_FILE);
   if (accessibility !== undefined) {
     checkAccessibility(accessibility, report);
   }

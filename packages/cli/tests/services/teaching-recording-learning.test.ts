@@ -428,6 +428,15 @@ for (const value of ["login", "anvil"]) {
                 content: `---\nname: login\ndescription: Sign in to login.\ninputs:\n  - USER\n---\n\nRequire product from [checks](checks.json) and [notes](references/notes.md).\n\n1. Enter ${value} as {{USER}}. Done when: signed in.\n`,
                 path: "flow.md",
               },
+              { content: "# Setup\nUse {{USER}}.", path: "setup.md" },
+              {
+                content: `# Inputs\nUse ${value} as {{USER}}.`,
+                path: "knowledge/deep/inputs.md",
+              },
+              { content: "{{undeclared}}", path: "ignored.txt" },
+              { content: "", path: "empty.bin" },
+              { content: "ignored", path: "runs/ignored.txt" },
+              { content: "ignored", path: "../ignored.txt" },
               { content: structured, path: "checks.json" },
               {
                 content: `Use ${value} as {{USER}}.`,
@@ -442,6 +451,17 @@ for (const value of ["login", "anvil"]) {
           );
           expect(saved).toContain(
             "name: login\ndescription: Sign in to login."
+          );
+          expect(
+            yield* fs.readFileString(
+              path.join(root, "login", "knowledge/deep/inputs.md")
+            )
+          ).toBe("# Inputs\nUse {{USER}} as {{USER}}.");
+          expect(
+            yield* fs.exists(path.join(root, "login", "ignored.txt"))
+          ).toBe(false);
+          expect(yield* fs.exists(path.join(root, "login", "empty.bin"))).toBe(
+            false
           );
           expect(saved).toContain("Enter {{USER}} as {{USER}}");
           expect(
@@ -558,6 +578,17 @@ for (const failure of ["none", "document", "receipt"] as const) {
             path.join(target, "flow.md"),
             "old document"
           );
+          yield* fs.makeDirectory(path.join(target, "knowledge", "deep"), {
+            recursive: true,
+          });
+          yield* fs.writeFileString(
+            path.join(target, "knowledge/deep/old.md"),
+            "old nested support"
+          );
+          yield* fs.writeFileString(
+            path.join(target, "notes.txt"),
+            "keep this file"
+          );
           yield* fs.makeDirectory(path.join(target, "references"));
           yield* fs.writeFileString(
             path.join(target, "references", "old.md"),
@@ -571,6 +602,10 @@ for (const failure of ["none", "document", "receipt"] as const) {
                   content:
                     "---\nname: scope\ndescription: Inspect the shop.\ninputs:\n---\n\n1. Open the shop. Done when: the shop appears.\n",
                   path: "flow.md",
+                },
+                {
+                  content: "new nested support",
+                  path: "knowledge/deep/new.md",
                 },
                 { content: "new support", path: "references/new.md" },
               ],
@@ -622,6 +657,15 @@ for (const failure of ["none", "document", "receipt"] as const) {
           expect(
             yield* fs.exists(path.join(target, "references", "new.md"))
           ).toBe(!refuse);
+          expect(
+            yield* fs.exists(path.join(target, "knowledge/deep/old.md"))
+          ).toBe(refuse);
+          expect(
+            yield* fs.exists(path.join(target, "knowledge/deep/new.md"))
+          ).toBe(!refuse);
+          expect(yield* fs.readFileString(path.join(target, "notes.txt"))).toBe(
+            "keep this file"
+          );
         }).pipe(
           Effect.provide(layer),
           Effect.provideService(FileSystem.FileSystem, adapted)

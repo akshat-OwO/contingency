@@ -51,7 +51,8 @@ const bytes = (value: ListedTool | readonly ListedTool[]) =>
 // Guided Run start adds its strict input schema and lifecycle guidance (#528).
 // Guided Run questions add one tool and a questionId on the Instruction relay (#529).
 // Confirmed checks reuse the typed BrowserCheck proposal schema (+6 KB, #532).
-const CATALOG_BUDGET_BYTES = 102_000;
+// Flow supporting documents add a read-only fetch tool and Run document indexes (#625).
+const CATALOG_BUDGET_BYTES = 104_000;
 const TOOL_BUDGET_BYTES = 12_000;
 
 const READ_ONLY_TOOLS = new Set([
@@ -60,6 +61,7 @@ const READ_ONLY_TOOLS = new Set([
   "agent_browser_snapshot",
   "agent_catalog_get",
   "agent_flow_skills_list",
+  "agent_flow_document_get",
   "agent_session_get",
   "agent_session_history_get",
   "agent_sessions_get",
@@ -100,7 +102,7 @@ it.live("keeps the emitted tool catalog inside its byte budget", () =>
       yield* request("tools/list", {})
     ).result;
 
-    expect(tools).toHaveLength(39);
+    expect(tools).toHaveLength(40);
     expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
     expect(tools.map((tool) => tool.name)).toContain("agent_guided_run_start");
     expect(tools.map((tool) => tool.name)).toContain(

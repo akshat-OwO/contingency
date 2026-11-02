@@ -33,6 +33,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
+import type { FlowDocumentDelivery } from "./flow-documents.ts";
 import type { RunFootage, FootageManifest } from "./run-footage.ts";
 import { planRunVideo } from "./run-video-plan.ts";
 import { RUN_VIDEO_FILE } from "./run-video-renderer.ts";
@@ -272,7 +273,7 @@ export interface RunFinalizationRecord {
   readonly supplied: Map<string, string>;
   readonly finalized: ReturnType<typeof makeRunFinalizationState>;
 }
-export interface TaskRunUpdate {
+export interface TaskRunUpdate extends FlowDocumentDelivery {
   readonly emulationConflicts?: readonly RunEmulationConflict[];
   readonly instruction?: string | undefined;
   readonly skills: readonly {

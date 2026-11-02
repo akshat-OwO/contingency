@@ -176,7 +176,7 @@ inputs:
 
 # Set the delivery area
 
-Read [the accessibility targets](references/accessibility.md) when a control is hard to find.
+Read [the accessibility targets](targets.md) when a control is hard to find.
 
 1. Choose the button named "Choose delivery area". Done when: a heading named "Delivery area" is on the page.
 2. Choose the button named "Select manually". Done when: a textbox named "Search for your delivery area" is on the page.
@@ -322,7 +322,7 @@ it.live(
               { content: DELIVERY_SKILL, path: "flow.md" },
               {
                 content: DELIVERY_ACCESSIBILITY,
-                path: "references/accessibility.md",
+                path: "targets.md",
               },
             ],
             operationId: OperationId.make("delivery-save"),
@@ -335,7 +335,7 @@ it.live(
             path.join(skillDirectory, "flow.md")
           );
           const accessibility = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "references", "accessibility.md")
+            path.join(skillDirectory, "targets.md")
           );
           // The package must be followable once the recording is deleted: it
           // carries no element reference, no artifact path, and no demonstrated
@@ -430,7 +430,11 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          expect(failedRun.files.map((file) => file.path)).toContain("flow.md");
+          expect(failedRun.files.map((file) => file.path)).toEqual(["flow.md"]);
+          expect(failedRun.supportingDocuments).toContainEqual({
+            heading: "Accessibility targets",
+            path: "targets.md",
+          });
           const beforeNavigation = yield* sessionTool("agent_browser_act", {
             action: { type: "navigate", url: fixtures.url("settle.html") },
             operationId: OperationId.make("delivery-dry-navigate-later"),
@@ -652,7 +656,7 @@ it.live(
                 { content: DELIVERY_SKILL, path: "flow.md" },
                 {
                   content: DELIVERY_ACCESSIBILITY,
-                  path: "references/accessibility.md",
+                  path: "targets.md",
                 },
               ],
               operationId: OperationId.make("delivery-save-after-failure"),
@@ -955,6 +959,18 @@ it.live(
             operationId: OperationId.make("delivery-run-start"),
             url: fixtures.url("delivery.html"),
           });
+          expect(run.flowDocuments).toEqual([
+            {
+              files: [expect.objectContaining({ path: "flow.md" })],
+              flowSkillName: "set-delivery-area",
+              supportingDocuments: [
+                {
+                  heading: "Accessibility targets",
+                  path: "targets.md",
+                },
+              ],
+            },
+          ]);
           expect(run.run).toHaveProperty("schemaVersion", 3);
           expect(run.run).not.toHaveProperty("steps");
           // The Run reproduces the device the journey was demonstrated on, so

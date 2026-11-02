@@ -19,6 +19,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { flowDocuments, SupportingDocument } from "./flow-documents.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   UnpublishedEmulation,
@@ -181,7 +182,7 @@ const TeachingKeyframeGetTool = readOnly(
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
   dependencies: [TeachingRecordingLearning],
   description:
-    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. A save is refused while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Optional files under references/ must be reachable from a link. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
+    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. A save is refused while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
@@ -233,11 +234,13 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
       Schema.Struct({
         files: Schema.Array(FlowSkillFile),
         flowSkillName: FlowSkillName,
+        supportingDocuments: Schema.Array(SupportingDocument),
       })
     ),
     recordingId: TeachingRecordingId,
     session: UnpublishedSession,
     skillPath: Schema.String.check(Schema.isMinLength(1)),
+    supportingDocuments: Schema.Array(SupportingDocument),
   }),
 });
 
@@ -286,9 +289,12 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         }).pipe(Effect.mapError(failure));
         return {
           ...workspaceLinkGuidance(started.session.viewUrl),
-          files: started.files,
+          ...flowDocuments(started.files),
           flowSkillName: started.manifest.flowSkillName,
-          prerequisites: started.prerequisites,
+          prerequisites: started.prerequisites.map((skill) => ({
+            flowSkillName: skill.flowSkillName,
+            ...flowDocuments(skill.files),
+          })),
           recordingId: started.manifest.recordingId,
           session: yield* encodeUnpublishedSession(
             params.view === "compact"

@@ -1,9 +1,12 @@
 import {
   GuidedRunCheckProposal,
   AgentCatalogInfo,
+  AgentSessionId,
   AgentCatalogSelect,
   AgentPendingDecisionResolve,
   FlowSkillList,
+  FlowSkillName,
+  FlowSkillFile,
   TeachingInstructionRecord,
   TeachingScan,
   optionalNullable,
@@ -24,6 +27,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { readExampleDocument } from "./onboarding-examples.ts";
 import { fromAgent } from "./session-events.ts";
 
 /**
@@ -97,6 +101,21 @@ const FlowSkillsListTool = readOnly(
   })
 );
 
+const FlowDocumentGetTool = readOnly(
+  Tool.make("agent_flow_document_get", {
+    dependencies: [FlowSkillCatalog, AgentSession],
+    description:
+      "Read one supporting Markdown document. Pass sessionId when following a Run to resolve the referenced Flow from its original catalog or bundled Example origin. Without sessionId, read the selected catalog. Use the supportingDocuments index returned at Run start or update. Evidence and paths outside the document area are refused.",
+    failure: AgentCatalogFailure,
+    parameters: Schema.Struct({
+      flowSkillName: FlowSkillName,
+      path: Schema.String,
+      sessionId: optionalNullable(AgentSessionId),
+    }),
+    success: FlowSkillFile,
+  })
+);
+
 const GuidedRunQuestionAskTool = Tool.make("agent_guided_run_question_ask", {
   dependencies: [AgentSession],
   description:
@@ -158,6 +177,7 @@ export const AgentCatalogTools = withStrictParameters(
     AgentCatalogGetTool,
     AgentCatalogSelectTool,
     FlowSkillsListTool,
+    FlowDocumentGetTool,
     TeachingInstructionRecordTool,
     GuidedRunQuestionAskTool,
     AgentPendingDecisionResolveTool
@@ -185,6 +205,48 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const catalog = yield* FlowSkillCatalog;
       return yield* catalog
         .select(params.root, params.operationId)
+        .pipe(Effect.mapError(failure));
+    }),
+  agent_flow_document_get: (params) =>
+    Effect.gen(function* readDocument() {
+      const catalog = yield* FlowSkillCatalog;
+      if (params.sessionId !== undefined) {
+        const session = yield* AgentSession;
+        const snapshot = yield* session
+          .get(params.sessionId)
+          .pipe(Effect.mapError(failure));
+        const { run } = snapshot;
+        const reference =
+          run !== null && "schemaVersion" in run
+            ? run.referencedSkills.find(
+                (skill) => skill.flowSkillName === params.flowSkillName
+              )
+            : undefined;
+        if (reference === undefined) {
+          return yield* Effect.fail(
+            new AgentCatalogFailure({
+              code: "agent_catalog_invalid",
+              message: `Flow ${params.flowSkillName} is not referenced by this Run.`,
+            })
+          );
+        }
+        if (reference.origin === "example") {
+          return yield* readExampleDocument(
+            params.flowSkillName,
+            params.path
+          ).pipe(
+            Effect.mapError(
+              (cause) =>
+                new AgentCatalogFailure({
+                  code: cause.code,
+                  message: cause.message,
+                })
+            )
+          );
+        }
+      }
+      return yield* catalog
+        .readDocument(params.flowSkillName, params.path)
         .pipe(Effect.mapError(failure));
     }),
   agent_flow_skills_list: () =>

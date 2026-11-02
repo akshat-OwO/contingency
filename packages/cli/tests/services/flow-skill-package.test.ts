@@ -29,7 +29,7 @@ inputs:
 
 # Set the delivery area
 
-Read [the accessibility targets](references/accessibility.md) when a control is hard to find.
+Read [the accessibility targets](targets.md) when a control is hard to find.
 
 1. Choose the button named "Choose delivery area". Done when: a heading named "Delivery area" is on the page.
 2. Choose the button named "Select manually". Done when: a textbox named "Search for your delivery area" is on the page.
@@ -55,17 +55,17 @@ the same name elsewhere on the page.
 
 export const goldenFlowSkillFiles = (): readonly FlowSkillFile[] => [
   { content: GOLDEN_SKILL, path: "flow.md" },
-  { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
+  { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
 const withSkill = (content: string): readonly FlowSkillFile[] => [
   { content, path: "flow.md" },
-  { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
+  { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
 const withAccessibility = (content: string): readonly FlowSkillFile[] => [
   { content: GOLDEN_SKILL, path: "flow.md" },
-  { content, path: "references/accessibility.md" },
+  { content, path: "targets.md" },
 ];
 
 const codesFor = (files: readonly FlowSkillFile[]): readonly string[] => {
@@ -99,9 +99,7 @@ test("accepts a parameterized package and returns the submitted bytes unchanged"
 
 test("refuses a package with no flow.md", () => {
   expect(
-    codesFor([
-      { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
-    ])
+    codesFor([{ content: GOLDEN_ACCESSIBILITY, path: "targets.md" }])
   ).toEqual(["flow_skill_missing_skill_file"]);
 });
 
@@ -155,7 +153,7 @@ test("refuses an undeclared placeholder that only a reference file uses", () => 
   );
   expect(codesFor(files)).toContain("flow_skill_undeclared_input");
   expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
-    "references/accessibility.md",
+    "targets.md",
     "inputs",
     "postcode",
   ]);
@@ -253,18 +251,15 @@ test("refuses a captured credential literal", () => {
 test("refuses a link to a reference file the package does not carry", () => {
   const files = [
     {
-      content: GOLDEN_SKILL.replace(
-        "references/accessibility.md",
-        "references/targets.md"
-      ),
+      content: GOLDEN_SKILL.replace("targets.md", "missing-targets.md"),
       path: "flow.md",
     },
-    { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
+    { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
   ];
   expect(codesFor(files)).toContain("flow_skill_missing_reference");
   expect(pathFor(files, "flow_skill_missing_reference")).toEqual([
     "flow.md",
-    "references/targets.md",
+    "missing-targets.md",
   ]);
 });
 
@@ -543,4 +538,29 @@ test("round-trips every Contingency stamp in flow.md and clears verification on 
       stampFlowSkillProvenance(content, { emulation: null, hosts: [] })
     )?.verification
   ).toBeUndefined();
+});
+
+test("resolves supporting links relative to their document, including references directories", () => {
+  const files = [
+    ...goldenFlowSkillFiles(),
+    {
+      content: "Read [setup](../setup.md) and [notes](notes.md).",
+      path: "references/index.md",
+    },
+    {
+      content: "# Notes\nUse the visible labels.",
+      path: "references/notes.md",
+    },
+    { content: "# Setup\nStart at the shop.", path: "setup.md" },
+  ];
+  expect(codesFor(files)).toEqual([]);
+  expect(
+    codesFor(
+      files.map((file) =>
+        file.path === "references/index.md"
+          ? { ...file, content: "Read [setup](setup.md)." }
+          : file
+      )
+    )
+  ).toContain("flow_skill_missing_reference");
 });

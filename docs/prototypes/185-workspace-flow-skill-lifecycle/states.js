@@ -80,10 +80,7 @@ export const STATES = [
   },
   {
     badge: { text: "Flow skill drafted", tone: "ok" },
-    files: [
-      ".contingency/reorder-pantry-staples/SKILL.md",
-      "references/targets.md",
-    ],
+    files: [".contingency/reorder-pantry-staples/SKILL.md", "targets.md"],
     id: "skill-drafted",
     inspect: true,
     next: "Dry-run it with different inputs to see whether it reuses the journey.",
@@ -104,10 +101,7 @@ export const STATES = [
   },
   {
     badge: { text: "Dry run failed", tone: "alert" },
-    files: [
-      ".contingency/reorder-pantry-staples/SKILL.md",
-      "references/targets.md",
-    ],
+    files: [".contingency/reorder-pantry-staples/SKILL.md", "targets.md"],
     id: "dry-run-failed",
     inspect: true,
     next: "Step 4 could not find the place order button. Comment on the page, then learn again or dry-run once more.",
@@ -118,10 +112,7 @@ export const STATES = [
   },
   {
     badge: { text: "Dry run passed", tone: "ok" },
-    files: [
-      ".contingency/reorder-pantry-staples/SKILL.md",
-      "references/targets.md",
-    ],
+    files: [".contingency/reorder-pantry-staples/SKILL.md", "targets.md"],
     id: "dry-run-passed",
     inspect: true,
     next: "Verify the flow to keep it and delete the recording. Reject to keep the recording.",
@@ -136,10 +127,7 @@ export const STATES = [
   },
   {
     badge: { text: "Recording deleted", tone: "ok" },
-    files: [
-      ".contingency/reorder-pantry-staples/SKILL.md",
-      "references/targets.md",
-    ],
+    files: [".contingency/reorder-pantry-staples/SKILL.md", "targets.md"],
     id: "verified",
     next: "The flow skill and its references are all that is left. Run it any time.",
     primary: { label: "Run flow", tone: "default" },
@@ -153,10 +141,7 @@ export const STATES = [
   },
   {
     badge: { text: "Video and trace still on disk", tone: "alert" },
-    files: [
-      ".contingency/reorder-pantry-staples/SKILL.md",
-      "references/targets.md",
-    ],
+    files: [".contingency/reorder-pantry-staples/SKILL.md", "targets.md"],
     id: "cleanup-failed",
     next: "recording.webm and trace.zip are still in .contingency/.recordings/r-48219. Retry the deletion.",
     primary: { label: "Retry cleanup", tone: "destructive" },

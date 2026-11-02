@@ -73,7 +73,7 @@ const writeSkill = (
         )}hosts:\n  - localhost\n---\n\n1. Use ${placeholders}. Done when: ${name} is ready.\n`
     );
     yield* files.writeFileString(
-      path.join(root, name, "references/notes.txt"),
+      path.join(root, name, "references/notes.md"),
       "Shelf notes."
     );
     // Bytes that are not UTF-8 text are not part of the package an agent reads.
@@ -331,10 +331,10 @@ it.effect(
         const started = yield* startDryRun(startInput(recordingId));
         expect(started.manifest.lifecycle._tag).toBe("dry-running");
         expect(started.skillPath).toBe("shop/cart/flow.md");
-        // The package is read through the catalog, text references included.
+        // The package is read through the catalog, supporting Markdown included.
         expect(started.files.map((file) => file.path)).toEqual([
           "flow.md",
-          "references/notes.txt",
+          "references/notes.md",
         ]);
         expect(
           started.prerequisites.map((skill) => skill.flowSkillName)

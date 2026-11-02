@@ -168,11 +168,11 @@ test("learning-agent contracts use recording ids and bounded references", () => 
   ).toBe("png");
   expect(
     decodeSkillSave({
-      files: ["flow.md", "references/accessibility.md"],
+      files: ["flow.md", "targets.md"],
       flowSkillName: "checkout-flow",
       recordingId: "recording-checkout",
     }).files
-  ).toEqual(["flow.md", "references/accessibility.md"]);
+  ).toEqual(["flow.md", "targets.md"]);
 });
 
 test("a completed cleanup requires a verified recording", () => {

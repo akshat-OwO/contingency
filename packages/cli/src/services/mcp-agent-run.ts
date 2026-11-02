@@ -16,6 +16,7 @@ import {
 } from "@contingency/protocol";
 import type {
   AgentRunSkillReference,
+  AgentSessionSnapshot,
   TaskAgentRunState,
 } from "@contingency/protocol";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -27,6 +28,8 @@ import { AgentSession } from "./agent-session.ts";
 import { requestedBrowserChecks } from "./browser-check-requirements.ts";
 import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
+import { flowDocuments } from "./flow-documents.ts";
+import type { FlowDocumentDelivery } from "./flow-documents.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
 import {
@@ -367,6 +370,10 @@ export const startTaskRun = (
             clientVersion: params.clientVersion,
             domainScope: { hosts },
             emulation,
+            flowDocuments: skills.map((skill) => ({
+              flowSkillName: skill.name,
+              ...flowDocuments(skill.files),
+            })),
             run,
             runtimeRequirements,
             url: params.url,
@@ -380,6 +387,26 @@ export const startTaskRun = (
         )
       );
   });
+
+const withDocumentView =
+  <A, E2, R2>(
+    present: (
+      effect: Effect.Effect<AgentSessionSnapshot>
+    ) => Effect.Effect<A, E2, R2>
+  ) =>
+  <E, R>(
+    effect: Effect.Effect<AgentSessionSnapshot & FlowDocumentDelivery, E, R>
+  ) =>
+    effect.pipe(
+      Effect.flatMap((snapshot) =>
+        present(Effect.succeed(snapshot)).pipe(
+          Effect.map((result) => ({
+            ...result,
+            flowDocuments: snapshot.flowDocuments ?? [],
+          }))
+        )
+      )
+    );
 
 const offerVerification = makeVerificationElicitation();
 
@@ -396,7 +423,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         requestedTask: `Run Flow Skill ${params.flowSkillName}`,
       },
       { origin: "catalog" }
-    ).pipe(inStartView(view)),
+    ).pipe(withDocumentView(inStartView(view))),
   agent_run_assess: (params) =>
     Effect.gen(function* assessTaskRun() {
       const session = yield* AgentSession;
@@ -475,7 +502,9 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .pipe(Effect.mapError(failure), inView(params.view));
     }),
   agent_run_start: ({ view, ...params }) =>
-    startTaskRun(params, { origin: "catalog" }).pipe(inStartView(view)),
+    startTaskRun(params, { origin: "catalog" }).pipe(
+      withDocumentView(inStartView(view))
+    ),
   agent_run_update: ({ view, ...params }) =>
     Effect.gen(function* updateTaskRun() {
       const session = yield* AgentSession;
@@ -552,6 +581,11 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         }
         return {
           emulationConflicts,
+          flowDocuments: skills.flatMap((skill) =>
+            requested.has(skill.name)
+              ? [{ flowSkillName: skill.name, ...flowDocuments(skill.files) }]
+              : []
+          ),
           inputs: params.inputs,
           instruction: params.instruction,
           skills: skills.flatMap((skill) =>
@@ -584,7 +618,7 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           Effect.mapError((cause) =>
             cause instanceof AgentRunFailure ? cause : failure(cause)
           ),
-          inView(view)
+          withDocumentView(inView(view))
         );
     }),
   open_run: (params) =>

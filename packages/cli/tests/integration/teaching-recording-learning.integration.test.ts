@@ -34,7 +34,7 @@ inputs:
 
 # Learn anvil
 
-Read [the accessibility targets](references/accessibility.md) before choosing a control.
+Read [starting state](setup.md) before the procedure and [the accessibility targets](targets.md) before choosing a control.
 
 1. Fill the textbox named "Username" with {{account}}. Done when: the textbox holds {{account}}.
 2. Choose the button named "Sign in". Done when: the page names the signed-in account.
@@ -425,6 +425,10 @@ it.live(
             claimOperationId,
             files: [
               {
+                content: "# Setup\nStart at the shop with an empty cart.\n",
+                path: "setup.md",
+              },
+              {
                 content: LEARN_ANVIL_SKILL.replace(
                   "  - account",
                   "  - account\n  - name: PASSWORD\n    secret: true"
@@ -436,7 +440,7 @@ it.live(
               },
               {
                 content: `${LEARN_ANVIL_ACCESSIBILITY}\nExample password: ${privateFieldValue}`,
-                path: "references/accessibility.md",
+                path: "targets.md",
               },
             ],
             operationId: OperationId.make("learning-save-skill"),
@@ -446,9 +450,10 @@ it.live(
             "agent_flow_skill_save",
             saveInput
           );
-          expect(saved.files).toEqual([
+          expect(saved.files.toSorted()).toEqual([
             "flow.md",
-            "references/accessibility.md",
+            "setup.md",
+            "targets.md",
           ]);
           expect(
             yield* fileSystem.readFileString(
@@ -459,8 +464,17 @@ it.live(
             path.join(skillDirectory, "flow.md")
           );
           const learnedReference = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "references/accessibility.md")
+            path.join(skillDirectory, "targets.md")
           );
+          expect(learnedSkill).toContain("[starting state](setup.md)");
+          expect(learnedSkill).toContain(
+            "[the accessibility targets](targets.md)"
+          );
+          expect(
+            yield* fileSystem.readFileString(
+              path.join(skillDirectory, "setup.md")
+            )
+          ).toBe("# Setup\nStart at the shop with an empty cart.\n");
           expect(learnedSkill).toContain("{{PASSWORD}}");
           expect(learnedSkill).not.toContain("secret:");
           expect(learnedSkill).not.toContain(privateFieldValue);

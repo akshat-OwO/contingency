@@ -157,6 +157,18 @@ export const readExampleSkills = (
     return skills;
   });
 
+/** Fetch only registered bundled Examples, using the same document boundary as the catalog. */
+export const readExampleDocument = (name: string, documentPath: string) =>
+  Effect.gen(function* readDocument() {
+    if (findOnboardingExample(name) === undefined) {
+      return yield* Effect.fail(
+        exampleError(`${name} is not a bundled Example Flow Skill.`)
+      );
+    }
+    const catalog = yield* FlowSkillCatalog;
+    return yield* catalog.readDocument(name, documentPath, exampleRoot);
+  });
+
 const inputLine = (name: string, value: string) => `${name}=${value}`;
 
 /**
