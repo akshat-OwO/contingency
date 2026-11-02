@@ -69,7 +69,7 @@ it.effect(
       });
       yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
       yield* fileSystem.writeFileString(
-        path.join(directory, "references", "accessibility.md"),
+        path.join(directory, "targets.md"),
         "# Accessibility\n"
       );
       const outside = path.join(root, "outside.md");
@@ -86,7 +86,7 @@ it.effect(
 
       expect(skill.files.map((file) => file.path)).toEqual([
         "flow.md",
-        "references/accessibility.md",
+        "targets.md",
       ]);
     }).pipe(Effect.provide(NodeServices.layer))
 );

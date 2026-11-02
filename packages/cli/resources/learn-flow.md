@@ -1,6 +1,6 @@
 # Learn flow
 
-Learn one Contingency Teaching Recording and write its Flow Skill. The agent chooses its Flow name and Group before Start. Recording evidence lives in `<flow>/recordings/<recordingId>/`, including while the Flow is still a draft.
+Learn one Contingency Teaching Recording and write its Flow. The agent chooses its Flow name and Group before Start. Recording evidence lives in `<flow>/recordings/<recordingId>/`, including while the Flow is still a draft.
 
 Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one Flow also lives there; zero or several starting Flows use `contingency/runs/<runId>/`.
 
@@ -15,18 +15,31 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Missing capture metadata is not proof of readiness.
    - Use later evidence to establish destination content, and give the Flow Skill an observable completion condition beyond the URL.
 
-4. Write flow.md: YAML frontmatter with name equal to the Flow Skill name, a description that states the task and its trigger, and an inputs list naming every value a later run may change.
+4. Write flow.md: YAML frontmatter with name equal to the Flow name, a description that states the task and its trigger, and an inputs list naming every value a later run may change.
 
    Declare each input either as a bare name (`- sku`) or as a mapping that opens with `- name: sku` and carries an indented `description:` line saying what the value is. Use {{placeholder}} for each declared input and end every numbered step with a "Done when:" line.
 
    - Declare Variables needed later in the journey, including OTPs, under inputs before starting the Dry Run.
    - Their names are known at startup; their values can be supplied when needed.
-   - Preserve required setup in a Preconditions section before the numbered steps: state the observable prepared state and, for each user-requested verified setup skill, its exact name and required inputs.
+   - Keep the starting-state requirement before the numbered steps. Link setup.md when supporting setup detail exists.
    - Keep setup actions outside the recorded procedure.
    - A Dry Run's prerequisites are execution settings; they are not automatically added to the saved skill.
    - Ask the user to authorize a named setup skill when it is needed in a later Run.
 
-5. Put conditional target detail in references/accessibility.md, as `- role=<role> name="<name>" context="<context>"` entries, plus a "Why these targets are stable" heading. Link every reference file from flow.md.
+5. Write supporting documents only when the Teaching evidence supports their content. Omit documents with no supported knowledge. Resolve ambiguities with the user before turning them into requirements.
+
+   - `setup.md`: Describe the observable starting state, prerequisite Flows by exact name, and how this Flow's inputs map to prerequisite inputs. Include demonstrated reset procedures and required app or build dependencies. Setup stays outside the recorded procedure; a prerequisite still needs the user's authorization.
+   - `rules.md`: Preserve resolved Instructions and confirmed Guided Run answers as reusable rules. State invariants, acceptable variations, and the evidence that separates `not-working` from `blocked` and `inconclusive`. Record journey-specific distinctions only when taught, using `not-working` for demonstrated product failure, `blocked` for an unmet prerequisite or denied permission, and `inconclusive` for insufficient or conflicting evidence.
+   - `inputs.md`: Describe input constraints and how to obtain and refresh inputs, never their values. Declare every `{{input}}` in flow.md, including inputs used only in supporting documents.
+   - `targets.md`: Put conditional target detail in `- role=<role> name="<name>" context="<context>"` entries. Include a `## Why these targets are stable` heading with the evidence for choosing those targets. Use accessible names and nearby context that a later Run can observe again.
+   - `recovery.md`: Describe taught failure signatures, safe recovery, and stop conditions. Identify non-idempotent actions and when repeating an action could duplicate its effects. When safe recovery is unknown, require a stop and clarification.
+
+   Link every supporting document that exists from flow.md using a relative Markdown link, such as `[Starting state and setup](setup.md)` or `[Control targets](targets.md)`. Put each link where a Run needs that knowledge. Supporting Markdown may live at any depth outside runs/ and recordings/; resolve links relative to the containing document.
+
+   Store reusable knowledge, not captured evidence. Summarize confirmed meaning instead of copying Instructions or dialogue.
+
+   - Never store secrets or input values, copied timelines, screenshots, traces, coordinates, or transient element references.
+   - Do not duplicate stamped facts such as hosts, Emulation, runtime, verification, or the browser-state contract. Contingency writes those facts from the recording; link the authoritative contract when needed.
 
    Browser Checks and Guided Run proposals:
 

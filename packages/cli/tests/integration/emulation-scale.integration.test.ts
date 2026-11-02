@@ -357,13 +357,13 @@ it.live(
           files: [
             {
               content:
-                "---\nname: scale\ndescription: Inspect relative text and layout.\n---\n\nRead [targets](references/accessibility.md).\n\n1. Inspect the layout. Done when: Relative text is visible.\n",
+                "---\nname: scale\ndescription: Inspect relative text and layout.\n---\n\nRead [targets](targets.md).\n\n1. Inspect the layout. Done when: Relative text is visible.\n",
               path: "flow.md",
             },
             {
               content:
                 '# Targets\n\n- role=button name="Check input" context="Page zoom and text scale"\n\n## Why these targets are stable\n\nThe button has a visible label.\n',
-              path: "references/accessibility.md",
+              path: "targets.md",
             },
           ],
           operationId: OperationId.make("scale-save"),

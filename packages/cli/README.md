@@ -120,7 +120,7 @@ A Teaching session keeps a local video and Playwright Trace, and a Run keeps its
 
 ## Teaching Recording cleanup
 
-A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow Skill learned from it deletes its video, Trace, events, and keyframes; the Flow Skill directory and its `references/` are all that remain.
+A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow Skill learned from it deletes its video, Trace, events, and keyframes; the Flow directory and its supporting documents remain.
 
 Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the verified Flow Skill stands and the Workspace names the retained sensitive files and offers a retry. Rejecting a drafted Flow Skill keeps every Teaching artifact so the agent can try again.
 

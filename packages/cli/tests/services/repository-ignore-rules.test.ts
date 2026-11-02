@@ -27,7 +27,7 @@ const isIgnored = (candidate: string): boolean => {
 test("tracks Flow Skill files under the Catalog Root", () => {
   for (const tracked of [
     "contingency/set-delivery-area/flow.md",
-    "contingency/set-delivery-area/references/accessibility.md",
+    "contingency/set-delivery-area/targets.md",
   ]) {
     expect(isIgnored(tracked), tracked).toBe(false);
   }
