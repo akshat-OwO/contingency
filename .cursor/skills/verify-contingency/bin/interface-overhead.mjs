@@ -48,7 +48,7 @@ await Effect.runPromise(
         const session = await mcp.operation("agent_run_start", {
           inputs: [],
           operationId: "overhead-start",
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask:
             "Add twenty Giant anvils for a disposable latency measurement",
           url: site.url,

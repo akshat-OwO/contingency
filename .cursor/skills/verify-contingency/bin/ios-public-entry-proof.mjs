@@ -92,7 +92,7 @@ try {
   const started = await call({
     _tag: "start",
     agentSetup: true,
-    flowSkillName: "ios-public-entry",
+    flowName: "ios-public-entry",
     kind: "teaching",
     operationId: operation(),
     recordingId: null,

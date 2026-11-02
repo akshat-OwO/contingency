@@ -197,7 +197,7 @@ export const prepareJourney = async (options) => {
         "Seed Timeline lacks demonstrated inputs or confirmation"
       );
       await (task === "dry-run"
-        ? mcp.operation("agent_flow_skill_save", {
+        ? mcp.operation("agent_flow_save", {
             claimOperationId,
             files: [{ content: deliverySkill, path: "flow.md" }],
             operationId: op(),
@@ -275,8 +275,7 @@ export const prepareJourney = async (options) => {
         sessionId: session.id,
       });
       const variable = suppliedState.run.variables.find(
-        (item) =>
-          item.name === "PASSWORD" && item.flowSkillName === "eval-checkout"
+        (item) => item.name === "PASSWORD" && item.flowName === "eval-checkout"
       );
       assert.ok(
         variable?.secret && variable.runtime && variable.supplied,

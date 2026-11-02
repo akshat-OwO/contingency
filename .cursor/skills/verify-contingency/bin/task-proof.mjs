@@ -5,6 +5,7 @@ import {
   chmod,
   copyFile,
   mkdir,
+  readdir,
   readFile,
   rename,
   stat,
@@ -21,6 +22,10 @@ const { Effect } = await import(
   pathToFileURL(
     createRequire(import.meta.url).resolve("effect", { paths: [cliRoot] })
   ).href
+);
+// Seed verification through the CLI's own stamp so its digests match (ADR 0071).
+const { stampFlowVerification } = await import(
+  pathToFileURL(path.join(cliRoot, "src/services/flow-package.ts")).href
 );
 const { NodeSocket } = await import(
   pathToFileURL(
@@ -85,7 +90,12 @@ const command = (...args) =>
   });
 const call = (tool, params = {}, refusal = false) =>
   Effect.gen(function* callTool() {
-    const publicParams = params;
+    // The proof supplies secrets itself; journal them redacted so the leak
+    // check below still covers every server response.
+    const publicParams =
+      typeof params.value === "string" && secrets.includes(params.value)
+        ? { ...params, value: "[redacted]" }
+        : params;
     journal.push({ entryPoint: "mcp call", params: publicParams, tool });
     const result = yield* io(async () => {
       try {
@@ -281,6 +291,16 @@ const verifyCleanupFailure = (manifest, teachingUrl) =>
     });
     yield* capture("cleanup-pending", teachingUrl);
   });
+/** ADR 0071: a Run lives under its one Flow's runs/, otherwise the root runs/. */
+const runDirectory = async (catalog, runId) => {
+  const entries = await readdir(catalog, { recursive: true });
+  const match = entries.find(
+    (entry) => entry.split(path.sep).slice(-2).join("/") === `runs/${runId}`
+  );
+  assert.ok(match, `Run ${runId} is stored in the catalog`);
+  return path.join(catalog, match);
+};
+
 const dryProof = (catalog, url) =>
   Effect.gen(function* proveDryRuns() {
     const teaching = yield* call("agent_session_start", {
@@ -329,14 +349,19 @@ const dryProof = (catalog, url) =>
       },
     ];
     const save = () =>
-      call("agent_flow_skill_save", {
+      call("agent_flow_save", {
         claimOperationId,
         files,
         operationId: operation(),
         recordingId,
       });
     yield* save();
-    const recordingDir = path.join(catalog, ".recordings", recordingId);
+    const recordingDir = path.join(
+      catalog,
+      "dry-proof",
+      "recordings",
+      recordingId
+    );
     const manifest = () =>
       io(async () =>
         JSON.parse(
@@ -351,7 +376,7 @@ const dryProof = (catalog, url) =>
       "complete",
       "rejected-then-complete",
     ]) {
-      const started = yield* call("agent_flow_skill_dry_run_start", {
+      const started = yield* call("agent_flow_dry_run_start", {
         inputs: [
           { changed: true, name: "area", secret: false, value: "South" },
         ],
@@ -410,7 +435,7 @@ const dryProof = (catalog, url) =>
         // Exercise the user's Workspace choice rather than relaying an invented conversation.
         yield* click("Reject flow");
         const rejected = yield* manifest();
-        assert.equal(rejected.lifecycle._tag, "skill-drafted");
+        assert.equal(rejected.lifecycle._tag, "flow-drafted");
         assert.ok(rejected.artifacts.length > 0);
         yield* capture("dry-rejected");
       } else if (kind === "rejected-then-complete") {
@@ -455,16 +480,16 @@ const dryProof = (catalog, url) =>
             readFile(path.join(catalog, "dry-proof", "flow.md"), "utf-8")
           )).includes('"verifiedAt":')
         );
-        const listing = yield* call("agent_flow_skills_list", {}, null);
+        const listing = yield* call("agent_flows_list", {}, null);
         if (listing.exitCode === 0) {
           assert.ok(
-            JSON.parse(listing.stdout).flowSkills.some(
+            JSON.parse(listing.stdout).flows.some(
               (skill) => skill.name === "dry-proof"
             )
           );
         } else {
           blockers.push({
-            attemptedTool: "agent_flow_skills_list",
+            attemptedTool: "agent_flows_list",
             blocker: listing.stdout.trim(),
             featureId: "agent-teaching-flow-skill-learning",
             owningPhase: "#323",
@@ -491,6 +516,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
       ceilings: { extensions: 0, runMs: 120_000, stepMs: 60_000 },
       coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
       endedAt: summary.endedAt,
+      // Version 2 files predate ADR 0071 and keep their on-disk key.
       flowSkillName: "flow1",
       inputs: [],
       outcome: "timed-out",
@@ -541,7 +567,8 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
       tracePath: "run.trace.zip",
       videoPath: "run.webm",
     };
-    const legacyDir = path.join(catalog, "agent-runs", legacyId);
+    const legacyDir = path.join(catalog, "runs", legacyId);
+    const currentDir = yield* io(() => runDirectory(catalog, summary.runId));
     yield* io(async () => {
       await mkdir(legacyDir);
       await writeFile(
@@ -553,10 +580,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
           [summary.videoPath, "run.webm"],
           [summary.tracePath, "run.trace.zip"],
         ].map(([source, file]) =>
-          copyFile(
-            path.join(catalog, "agent-runs", summary.runId, source),
-            path.join(legacyDir, file)
-          )
+          copyFile(path.join(currentDir, source), path.join(legacyDir, file))
         )
       );
     });
@@ -566,11 +590,13 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
       summary: legacy,
     });
     const beforeRestart = yield* call("open_run", { runId: legacy.runId });
-    assert.deepEqual(beforeRestart.summary, legacy);
+    const { flowSkillName: legacyFlow, ...legacyFields } = legacy;
+    const decodedLegacy = { ...legacyFields, flowName: legacyFlow };
+    assert.deepEqual(beforeRestart.summary, decodedLegacy);
     const exiting = yield* call("agent_run_start", {
       inputs: [],
       operationId: operation(),
-      referencedSkills: [],
+      referencedFlows: [],
       requestedTask: "Leave this task unassessed at process exit",
       url: fixtureUrl,
     });
@@ -579,7 +605,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
     const exitSummary = JSON.parse(
       yield* io(() =>
         readFile(
-          path.join(catalog, "agent-runs", exiting.run.runId, "summary.json"),
+          path.join(catalog, "runs", exiting.run.runId, "summary.json"),
           "utf-8"
         )
       )
@@ -589,7 +615,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
     yield* record("process-exit-summary.json", exitSummary);
     for (const [name, expected] of [
       ["task", summary],
-      ["historical", legacy],
+      ["historical", decodedLegacy],
     ]) {
       const viewer = yield* call("open_run", { runId: expected.runId });
       assert.deepEqual(viewer.summary, expected);
@@ -689,18 +715,22 @@ const main = Effect.gen(function* main() {
       );
       await writeFile(
         path.join(skill, "flow.md"),
-        unverifiedContent.replace(
-          /^---\n/u,
-          '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"web"}\n'
-        )
+        stampFlowVerification(unverifiedContent, {
+          completedAt: "2026-11-02",
+          inputs: [],
+          observableOutcome: "Ready",
+          outcome: "passed",
+          platform: "web",
+          verifiedAt: "2026-11-02",
+        })
       );
     });
   }
-  const start = (requestedTask, referencedSkills) =>
+  const start = (requestedTask, referencedFlows) =>
     call("agent_run_start", {
       inputs: [],
       operationId: operation(),
-      referencedSkills,
+      referencedFlows,
       requestedTask,
       url,
     });
@@ -721,7 +751,7 @@ const main = Effect.gen(function* main() {
   state = yield* call("agent_run_update", {
     inputs: [],
     operationId: operation(),
-    referencedSkills: ["flow2"],
+    referencedFlows: ["flow2"],
     sessionId: zero.id,
   });
   assert.equal(state.id, zero.id);
@@ -769,12 +799,12 @@ const main = Effect.gen(function* main() {
   yield* record("continuity-before.json", before);
   const updated = yield* call("agent_run_update", {
     inputs: [
-      { flowSkillName: "flow1", name: "area", value: "North" },
-      { flowSkillName: "flow2", name: "area", value: "South" },
+      { flowName: "flow1", name: "area", value: "North" },
+      { flowName: "flow2", name: "area", value: "South" },
     ],
     instruction: "Keep the cart and use flow2 help, then recover and stop",
     operationId: operation(),
-    referencedSkills: ["flow2"],
+    referencedFlows: ["flow2"],
     sessionId: session.id,
   });
   assert.equal(updated.id, session.id);
@@ -819,14 +849,14 @@ const main = Effect.gen(function* main() {
     },
     true
   );
-  for (const [index, flowSkillName] of ["flow1", "flow2"].entries()) {
+  for (const [index, flowName] of ["flow1", "flow2"].entries()) {
     state = yield* call("agent_variable_request", {
-      flowSkillName,
+      flowName,
       name: "PASSWORD",
       operationId: operation(),
       sessionId: session.id,
     });
-    yield* capture(`${flowSkillName}-pending`);
+    yield* capture(`${flowName}-pending`);
     if (index === 0) {
       yield* call("agent_pending_decision_resolve", {
         decision: "refuse",
@@ -835,7 +865,7 @@ const main = Effect.gen(function* main() {
       });
       yield* capture("flow1-refused");
       state = yield* call("agent_variable_request", {
-        flowSkillName,
+        flowName,
         name: "PASSWORD",
         operationId: operation(),
         sessionId: session.id,
@@ -854,7 +884,7 @@ const main = Effect.gen(function* main() {
     );
     observed = yield* snapshot(session.id);
     yield* call("agent_variable_enter", {
-      flowSkillName,
+      flowName,
       name: "PASSWORD",
       operationId: operation(),
       ref: observed.nodes.find((node) => node.name === "Password").ref,
@@ -951,9 +981,9 @@ const main = Effect.gen(function* main() {
   const summary = yield* call("agent_run_complete", completion);
   assert.deepEqual(yield* call("agent_run_complete", completion), summary);
   const persisted = JSON.parse(
-    yield* io(() =>
+    yield* io(async () =>
       readFile(
-        path.join(catalog, "agent-runs", summary.runId, "summary.json"),
+        path.join(await runDirectory(catalog, summary.runId), "summary.json"),
         "utf-8"
       )
     )

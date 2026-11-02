@@ -55,7 +55,7 @@ export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
     });
   };
   if (task === "dry-run") {
-    const started = await operation("agent_flow_skill_dry_run_start", {
+    const started = await operation("agent_flow_dry_run_start", {
       inputs: [
         { changed: true, name: "city", secret: false, value: "Mumbai" },
         { changed: true, name: "area", secret: false, value: "South" },
@@ -94,7 +94,7 @@ export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
   const started = await operation("agent_run_start", {
     inputs: [],
     operationId: op(),
-    referencedSkills: task === "takeover" ? [] : ["eval-checkout"],
+    referencedFlows: task === "takeover" ? [] : ["eval-checkout"],
     requestedTask:
       task === "takeover"
         ? "Add anvil, user changes cart, add workbench"
@@ -118,7 +118,7 @@ export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
     return "Cart contains Safety goggles and Workbench";
   }
   await operation("agent_variable_request", {
-    flowSkillName: "eval-checkout",
+    flowName: "eval-checkout",
     name: "PASSWORD",
     operationId: op(),
     sessionId: started.id,
@@ -126,7 +126,7 @@ export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
   await operation("agent_session_get", { sessionId: started.id });
   const observed = await snap(started.id);
   await operation("agent_variable_enter", {
-    flowSkillName: "eval-checkout",
+    flowName: "eval-checkout",
     name: "PASSWORD",
     operationId: op(),
     ref: observed.nodes.find((node) => node.name === "Payment password").ref,

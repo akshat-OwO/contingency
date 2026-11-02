@@ -178,7 +178,7 @@ await Effect.runPromise(
       );
       const run = yield* program(
         "run-start",
-        `const session = await tools.agent_run_start({inputs:[], referencedSkills:[], requestedTask:"Check text and zoom reflow", url:${JSON.stringify(url)}, operationId:"scale-run-start",view:"compact"}); return {id:session.id,viewUrl:session.viewUrl};`
+        `const session = await tools.agent_run_start({inputs:[], referencedFlows:[], requestedTask:"Check text and zoom reflow", url:${JSON.stringify(url)}, operationId:"scale-run-start",view:"compact"}); return {id:session.id,viewUrl:session.viewUrl};`
       );
       const changed = yield* program(
         "agent-change",

@@ -157,9 +157,12 @@ it.effect(
       const current = summaryFor(root);
       // Written the way a Runner with ceilings wrote it: a `ceilings` block,
       // a `timed-out` outcome, and the interrupted Step marked `timed-out`.
+      const { flowName, ...versionTwo } = current;
       const legacy = {
-        ...current,
+        ...versionTwo,
         ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
+        // Version 2 files predate ADR 0071 and keep their on-disk key.
+        flowSkillName: flowName,
         outcome: "timed-out",
         steps: current.steps.map((step) =>
           step.index === 2

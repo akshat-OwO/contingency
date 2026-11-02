@@ -86,7 +86,7 @@ const start = () =>
   call("agent_run_start", {
     inputs: [],
     operationId: `${proofId}-start`,
-    referencedSkills: [],
+    referencedFlows: [],
     requestedTask: "Add one Giant anvil to the cart",
     url: process.env.ECOMMERCE_URL,
     view: "compact",
@@ -234,7 +234,7 @@ const android = async () => {
   const session = await androidCall({
     _tag: "start",
     agentSetup: true,
-    flowSkillName: proofId,
+    flowName: proofId,
     kind: "teaching",
     operationId: `${proofId}-start`,
     recordingId: null,

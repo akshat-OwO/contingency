@@ -219,7 +219,7 @@ assert.ok(
 );
 const prepareName = "Prepare selected emulator";
 const recoverName = "Recover same emulator";
-const flowSkillName = `android-checkout-${process.pid}`;
+const flowName = `android-checkout-${process.pid}`;
 const receipt = {
   blockers: [],
   builds: builds.builds.map(
@@ -234,7 +234,7 @@ const receipt = {
   coverage: {},
   device: selection("working").device,
   feature: "android-checkout",
-  flowSkillName,
+  flowName,
 };
 const nodes = (session) => session.observation?.nodes ?? [];
 const shows = (session, condition) =>
@@ -367,7 +367,7 @@ const complete = (session, outcomeName, explanation) =>
 const startSession = (kind, variant, recordingId = null) =>
   command({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind,
     operationId: operation(),
     recordingId,
@@ -415,18 +415,12 @@ try {
 
   // Teaching through mirrored Workspace.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(
-    control,
-    selection("working"),
-    flowSkillName,
-    snapshot
-  );
+  await openAndroidSheet(control, selection("working"), flowName, snapshot);
   const listed = await tool("agent_device_sessions_list", {
     platform: "android",
   });
   const taughtSession = listed.find(
-    (session) =>
-      session.flowSkillName === flowSkillName && session.kind === "teaching"
+    (session) => session.flowName === flowName && session.kind === "teaching"
   );
   assert.ok(taughtSession);
   assert.deepEqual(
@@ -670,11 +664,11 @@ try {
     recordingId,
   };
 
-  await tool("agent_flow_skill_save", {
+  await tool("agent_flow_save", {
     claimOperationId: "android-checkout-claim",
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Sign in to the fixture shop, add an Anvil, and place a mock order. Use when checking the experimental Android checkout.\ninputs:\n---\n\n# Mock checkout\n\n1. Enter ${shopper} in the Shopper name field. Done when: the field shows ${shopper}.\n2. Activate Sign in. Done when: Catalog is visible.\n3. Activate Add Anvil to cart. Done when: Cart: 1 item is visible.\n4. Activate Open cart. Done when: Place mock order is visible.\n5. Activate Place mock order. Done when: Order confirmed is visible.\n`,
+        content: `---\nname: ${flowName}\ndescription: Sign in to the fixture shop, add an Anvil, and place a mock order. Use when checking the experimental Android checkout.\ninputs:\n---\n\n# Mock checkout\n\n1. Enter ${shopper} in the Shopper name field. Done when: the field shows ${shopper}.\n2. Activate Sign in. Done when: Catalog is visible.\n3. Activate Add Anvil to cart. Done when: Cart: 1 item is visible.\n4. Activate Open cart. Done when: Place mock order is visible.\n5. Activate Place mock order. Done when: Order confirmed is visible.\n`,
         path: "flow.md",
       },
     ],
@@ -684,7 +678,7 @@ try {
   const skillFile = path.join(
     instance.stateDir,
     "catalog",
-    flowSkillName,
+    flowName,
     "flow.md"
   );
   const saved = await readFile(skillFile, "utf-8");
@@ -773,7 +767,7 @@ try {
   );
   await snapshot("verified-cleanup");
   const verification = await readFile(
-    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
+    path.join(instance.stateDir, "catalog", flowName, "flow.md"),
     "utf-8"
   );
   assert.ok(verification.includes('"platform":"android"'));

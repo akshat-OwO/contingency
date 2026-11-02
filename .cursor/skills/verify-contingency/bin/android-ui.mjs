@@ -117,7 +117,7 @@ export const pickAndroid = async (page, flags, call) => {
 export const openAndroidSheet = async (
   control,
   selection,
-  flowSkillName,
+  flowName,
   snapshot
 ) => {
   const click = (name, partial = false) =>
@@ -147,7 +147,7 @@ export const openAndroidSheet = async (
   };
   await click("Android");
   await click("Open Android session");
-  await fill("Flow skill name", flowSkillName);
+  await fill("Flow name", flowName);
   await click(selection.device.serial, true);
   await fill("Search installed apps", selection.environment.appId);
   // Reading installed apps pulls each APK's label; a freshly booted device is slow.

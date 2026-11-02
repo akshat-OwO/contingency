@@ -48,7 +48,7 @@ try {
   assert.ok(device);
   const session = await call({
     _tag: "start",
-    flowSkillName: "ios-public-login",
+    flowName: "ios-public-login",
     kind: "teaching",
     operationId: operation(),
     recordingId: null,

@@ -260,7 +260,10 @@ export const LegacyAgentRunSummary = Schema.Struct({
   /** Relative to the Run's directory; `null` when capture produced none. */
   tracePath: Schema.NullOr(nonEmptyString),
   videoPath: Schema.NullOr(nonEmptyString),
-}).annotate({ identifier: "LegacyAgentRunSummary" });
+})
+  // Version 2 files predate ADR 0071 and store the Flow under its old key.
+  .pipe(Schema.encodeKeys({ flowName: "flowSkillName" }))
+  .annotate({ identifier: "LegacyAgentRunSummary" });
 export type LegacyAgentRunSummary = typeof LegacyAgentRunSummary.Type;
 
 /** Version 1 predates Flows; retain its identities and original account. */

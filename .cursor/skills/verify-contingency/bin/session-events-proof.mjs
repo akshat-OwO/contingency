@@ -133,7 +133,7 @@ const learn = Effect.gen(function* learnRecording() {
     recordingId: teaching.teaching.recordingId,
   });
   yield* save("timeline.json", timeline);
-  yield* call("agent_flow_skill_save", {
+  yield* call("agent_flow_save", {
     claimOperationId,
     files: [
       {
@@ -145,7 +145,7 @@ const learn = Effect.gen(function* learnRecording() {
     operationId: operation(),
     recordingId: teaching.teaching.recordingId,
   });
-  const dry = yield* call("agent_flow_skill_dry_run_start", {
+  const dry = yield* call("agent_flow_dry_run_start", {
     inputs: [],
     operationId: operation(),
     recordingId: teaching.teaching.recordingId,
@@ -206,7 +206,7 @@ const takeover = Effect.gen(function* startTakeoverProof() {
     clientVersion: "1",
     inputs: [],
     operationId: operation(),
-    referencedSkills: [],
+    referencedFlows: [],
     requestedTask: "Inspect the disposable shop",
     url: state.url,
     view: "compact",
@@ -251,7 +251,7 @@ const finish = Effect.gen(function* finishProof() {
     "variable-supplied",
     "teaching-started",
     "teaching-stopped",
-    "flow-skill-verified",
+    "flow-verified",
     "takeover-returned",
   ]) {
     yield* io(() => readFile(path.join(artifacts, `${key}.json`), "utf-8"));

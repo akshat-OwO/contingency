@@ -85,7 +85,7 @@ await Effect.runPromise(
       const url = new URL("devtools-observe.html", instance.ecommerceUrl).href;
       const run = yield* program(
         "start",
-        `const session = await tools.agent_run_start({ inputs: [], referencedSkills: [], requestedTask: "Find the fixture's failing request and read its console error", url: ${JSON.stringify(url)}, operationId: "devtools-proof-start", view: "compact" }); return { id: session.id, viewUrl: session.viewUrl };`
+        `const session = await tools.agent_run_start({ inputs: [], referencedFlows: [], requestedTask: "Find the fixture's failing request and read its console error", url: ${JSON.stringify(url)}, operationId: "devtools-proof-start", view: "compact" }); return { id: session.id, viewUrl: session.viewUrl };`
       );
       yield* command("browser", "goto", "--url", run.viewUrl);
       yield* command(

@@ -61,10 +61,10 @@ await Effect.runPromise(
         {
           ...taskRunSummary,
           inputs: [],
-          referencedSkills: names.length
+          referencedFlows: names.length
             ? [
                 {
-                  flowSkillName: names[0],
+                  flowName: names[0],
                   referencedAt: taskRunSummary.startedAt,
                 },
               ]
@@ -75,7 +75,7 @@ await Effect.runPromise(
       if (mode === "worst") {
         summaries.push({
           ...summaries[0],
-          referencedSkills: [],
+          referencedFlows: [],
           runId: "agentrun-loose",
           title:
             "Reconcile invoices for Aleksandra Wiśniewska-Kowalczyk before quarter-end close",
@@ -101,9 +101,9 @@ await Effect.runPromise(
           cleanup: { _tag: "pending" },
           createdAt: taskRunSummary.startedAt,
           emulation: taskRunSummary.startingEmulation,
-          flowSkillName: "deleted-cart",
+          flowName: "deleted-cart",
           lifecycle: {
-            _tag: "skill-drafted",
+            _tag: "flow-drafted",
             draftedAt: taskRunSummary.endedAt,
             readyAt: taskRunSummary.endedAt,
             skillPath: "deleted-cart",

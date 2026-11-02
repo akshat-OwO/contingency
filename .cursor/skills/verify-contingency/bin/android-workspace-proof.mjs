@@ -143,7 +143,7 @@ assert.ok(
   "Supply the explicitly authorized device declarations."
 );
 const prepareName = "Prepare selected emulator";
-const flowSkillName = `android-public-field-${process.pid}`;
+const flowName = `android-public-field-${process.pid}`;
 const publicText = "Public fixture 470";
 let recordingId;
 const receipt = {
@@ -151,7 +151,7 @@ const receipt = {
   coverage: {},
   device: selection.device,
   feature: "android-workspace",
-  flowSkillName,
+  flowName,
 };
 const read = (sessionId) => command({ _tag: "read", sessionId });
 const observe = (sessionId) =>
@@ -214,7 +214,7 @@ const journey = async (sessionId) => {
 
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowSkillName, snapshot);
+  await openAndroidSheet(control, selection, flowName, snapshot);
   await wait(prepareName);
   await click(prepareName);
   await wait("Start recording");
@@ -225,8 +225,7 @@ try {
     platform: "android",
   });
   const taughtSession = listedSessions.find(
-    (session) =>
-      session.flowSkillName === flowSkillName && session.kind === "teaching"
+    (session) => session.flowName === flowName && session.kind === "teaching"
   );
   assert.ok(taughtSession);
   assert.deepEqual(taughtSession.selection.device, selection.device);
@@ -301,11 +300,11 @@ try {
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)
   );
-  await tool("agent_flow_skill_save", {
+  await tool("agent_flow_save", {
     claimOperationId: "android-workspace-claim",
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Enter a public fixture name and sign in to the disposable Android checkout app. Use when checking experimental Workspace input.\ninputs:\n---\n\n# Enter public fixture text\n\n1. Enter ${publicText} in Shopper name. Done when: ${publicText} is visible.\n2. Activate Sign in. Done when: Catalog is visible.\n`,
+        content: `---\nname: ${flowName}\ndescription: Enter a public fixture name and sign in to the disposable Android checkout app. Use when checking experimental Workspace input.\ninputs:\n---\n\n# Enter public fixture text\n\n1. Enter ${publicText} in Shopper name. Done when: ${publicText} is visible.\n2. Activate Sign in. Done when: Catalog is visible.\n`,
         path: "flow.md",
       },
     ],
@@ -313,7 +312,7 @@ try {
     recordingId,
   });
   const saved = await readFile(
-    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
+    path.join(instance.stateDir, "catalog", flowName, "flow.md"),
     "utf-8"
   );
   assert.ok(
@@ -330,7 +329,7 @@ try {
 
   const taken = await command({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind: "dry-run",
     operationId: operation(),
     recordingId,
@@ -366,7 +365,7 @@ try {
 
   const dry = await command({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind: "dry-run",
     operationId: operation(),
     recordingId,
@@ -408,7 +407,7 @@ try {
     false
   );
   const verification = await readFile(
-    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
+    path.join(instance.stateDir, "catalog", flowName, "flow.md"),
     "utf-8"
   );
   assert.ok(
@@ -424,7 +423,7 @@ try {
 
   const later = await command({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind: "run",
     operationId: operation(),
     recordingId: null,
@@ -477,7 +476,7 @@ try {
     });
     for (const session of owned.filter(
       (entry) =>
-        entry.flowSkillName === flowSkillName &&
+        entry.flowName === flowName &&
         ["pending", "running", "paused"].includes(entry.phase)
     )) {
       await control(

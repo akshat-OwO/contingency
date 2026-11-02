@@ -126,7 +126,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     "agent_device_workspace",
     "agent_browser_act",
     "agent_browser_resume",
-    "agent_flow_skill_dry_run_start",
+    "agent_flow_dry_run_start",
     "agent_pending_decision_resolve",
     "agent_session_get",
     "agent_teaching_recording_claim",
@@ -141,7 +141,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     `const run = await tools.agent_run_start({
       inputs: [],
       operationId: ${JSON.stringify(operation("start"))},
-      referencedSkills: [],
+      referencedFlows: [],
       requestedTask: "Add one Giant anvil to the cart",
       url: ${JSON.stringify(shop)},
       view: "compact",
@@ -552,7 +552,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
     `const session = ${android(`{
       _tag: "start",
       agentSetup: true,
-      flowSkillName: ${JSON.stringify(`single-tool-android-${proofId}`)},
+      flowName: ${JSON.stringify(`single-tool-android-${proofId}`)},
       kind: "teaching",
       operationId: ${JSON.stringify(operation("android-start"))},
       recordingId: null,
