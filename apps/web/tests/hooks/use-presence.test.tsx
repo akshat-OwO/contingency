@@ -139,13 +139,13 @@ test("leaves at once where the browser cannot animate", () => {
 
 test("leaves towards the edge its layout docks it to when it closes", () => {
   const animations = installAnimations();
-  const { rerender } = render(<Surface value="Skills" />);
-  rerender(<Surface value="Skills" />);
+  const { rerender } = render(<Surface value="Flows" />);
+  rerender(<Surface value="Flows" />);
   // An equal motion rebuilt by the caller keeps the running animation.
   expect(animations).toHaveLength(1);
 
   // The window narrows and the layout stacks while the surface is open.
-  rerender(<Surface edge="bottom" value="Skills" />);
+  rerender(<Surface edge="bottom" value="Flows" />);
   rerender(<Surface edge="bottom" value={undefined} />);
 
   expect(animations).toHaveLength(2);

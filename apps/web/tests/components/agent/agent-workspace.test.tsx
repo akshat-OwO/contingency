@@ -405,7 +405,7 @@ const endedTaskSummary = {
 
 rpc.endedRunSummary = endedTaskSummary;
 
-/** One live Dry Run, rehearsing a drafted Flow Skill with a changed input. */
+/** One live Dry Run, rehearsing a drafted Flow with a changed input. */
 const dryRunSession = {
   ...session,
   clientName: "flow-dry-run",
@@ -596,7 +596,7 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
-  // The Flow Skill, which Agent Step it is on, and coverage. The step's name
+  // The Flow, which Agent Step it is on, and coverage. The step's name
   // and its "Done when:" line are behind the counter, not in the row (#238).
   expect(dock).toHaveTextContent("browse-catalogue");
   expect(dock).toHaveTextContent("Agent Step 2 of 2.");
@@ -635,9 +635,9 @@ test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", 
   const user = userEvent.setup();
   renderWorkspace(resultFor([dryRunSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+  expect(dock).toHaveTextContent("Rehearsing the Flow add-anvil.");
   expect(dock).toHaveTextContent("Changed inputs: product");
-  // The picker shows the Flow Skill; its option names the activity too.
+  // The picker shows the Flow; its option names the activity too.
   expect(sessionPicker()).toHaveTextContent("add-anvil");
   await openSessionPicker(user);
   expect(
@@ -833,7 +833,7 @@ test("names who holds the browser in the dock", async () => {
   expect(dock).toHaveTextContent("The agent has control.");
 });
 
-test("names the drafted Flow Skill in the Teaching dock", async () => {
+test("names the drafted Flow in the Teaching dock", async () => {
   renderWorkspace(
     resultFor([
       {
@@ -854,7 +854,7 @@ test("names the drafted Flow Skill in the Teaching dock", async () => {
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Flow skill drafted");
+  expect(dock).toHaveTextContent("Flow drafted");
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
   ).toHaveTextContent("browse-catalogue");
@@ -1141,7 +1141,7 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
   expect(dock).toHaveTextContent("Recording");
-  // A Teaching session is the Flow Skill name; the state lives in the badge.
+  // A Teaching session is the Flow name; the state lives in the badge.
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
   ).toHaveTextContent("browse-catalogue");
@@ -1589,7 +1589,7 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingSetup]), session.id);
   await user.click(await screen.findByRole("button", { name: "Rename flow" }));
-  const name = screen.getByLabelText("Flow skill name");
+  const name = screen.getByLabelText("Flow name");
   await user.clear(name);
   await user.type(name, "place-order");
   await user.click(screen.getByRole("button", { name: "Save name" }));
@@ -1689,7 +1689,7 @@ test("leaves the hand-off to an agent to the user's own prompt", async () => {
 
   cleanup();
   renderWorkspace(resultFor([teachingDrafted]), session.id);
-  await screen.findByText("Flow skill drafted");
+  await screen.findByText("Flow drafted");
   expect(screen.queryByRole("button", { name: /^Copy/u })).toBeNull();
   // A button reading "Dry run" started nothing, which read as a broken
   // build (#210).
@@ -2262,7 +2262,7 @@ test("follows a Teaching Dry Run and returns to its owner instead of the first s
     expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
     expect(
       screen.getByRole("region", { name: "Workspace dock" })
-    ).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+    ).toHaveTextContent("Rehearsing the Flow add-anvil.");
   });
   await refreshWorkspace();
   expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });

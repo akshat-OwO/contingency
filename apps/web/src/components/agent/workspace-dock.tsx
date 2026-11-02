@@ -36,10 +36,10 @@ export const Wordmark = () => (
 );
 
 /**
- * A session label reads `Flow Skill · Activity`, or the bare Flow Skill name
+ * A session label reads `Flow · Activity`, or the bare Flow name
  * while teaching. The name is what a person picks by, so it leads; the
- * activity is a quiet second column that still tells two sessions of one Flow
- * Skill apart. The option's accessible name is the whole label.
+ * activity is a quiet second column that still tells two sessions of one
+ * Flow apart. The option's accessible name is the whole label.
  */
 const SessionOption = ({ label }: { readonly label: string }) => {
   const separator = label.lastIndexOf(" · ");

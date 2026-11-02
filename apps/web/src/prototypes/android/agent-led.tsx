@@ -35,7 +35,7 @@ import {
 } from "./parts";
 import {
   androidDockPresentation,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
 } from "./presentation";
 import {
   decide,
@@ -155,7 +155,7 @@ export const AgentLedPrototype = ({
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceLayout
         sessionId={session.id}
-        skillsSession={androidSkillsSessionView(session)}
+        flowsSession={androidFlowsSessionView(session)}
         summary={
           ended
             ? {

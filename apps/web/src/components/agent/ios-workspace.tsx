@@ -300,7 +300,7 @@ const IosSetupSheet = ({
         }}
       >
         <label>
-          Flow skill name
+          Flow name
           <Input name="flow" required />
         </label>
         <label>
@@ -695,7 +695,7 @@ const IosDock = ({
       ) : null}
       {session?.cleanup?._tag === "purged" ? (
         <p className="text-muted-foreground text-pretty">
-          Recording deleted. Verified Flow Skill retained.
+          Recording deleted. Verified Flow retained.
         </p>
       ) : null}
       {session ? (

@@ -166,7 +166,7 @@ const ProvenanceBadge = ({
   if (provenance.example) {
     return (
       <Badge
-        title={`Bundled Example Flow Skill on ${provenance.demoSiteName ?? "the demo store"}. It is not your verified work.`}
+        title={`Bundled Example Flow on ${provenance.demoSiteName ?? "the demo store"}. It is not your verified work.`}
         variant="outline"
       >
         Example
@@ -233,7 +233,7 @@ export const RunDock = ({
   selectedSessionId,
   session,
   sessions,
-  skills = null,
+  flows = null,
   streamConnected,
 }: {
   /** What went wrong the last time this dock tried to change control. */
@@ -252,8 +252,8 @@ export const RunDock = ({
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: RunSessionSnapshot;
   readonly sessions: readonly AgentSessionSnapshot[];
-  /** The Skills drawer entry, beside the session picker, or nothing. */
-  readonly skills?: React.ReactNode;
+  /** The Flows drawer entry, beside the session picker, or nothing. */
+  readonly flows?: React.ReactNode;
   readonly streamConnected: boolean;
 }) => {
   const presentation = runDockPresentation(session, streamConnected);
@@ -307,7 +307,7 @@ export const RunDock = ({
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
-      {skills}
+      {flows}
       <DockSpacer />
       <AgentIdle session={session} />
       {presentation.coverage === undefined ? null : (

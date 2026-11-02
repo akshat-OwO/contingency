@@ -7,7 +7,7 @@ import type { AndroidWorkspaceSnapshot } from "@contingency/protocol";
 export {
   androidDockPresentation,
   androidSessionLabel,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
   isLiveAndroidSession,
 } from "@/components/agent/android-dock-state";
 export type {

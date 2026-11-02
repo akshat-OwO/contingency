@@ -397,7 +397,7 @@ test("shows a completed task separately from its assessment and evidence-backed 
   expect(screen.getByText(taskSummary.requestedTask)).toBeVisible();
   expect(screen.getByText("Leave the cart open instead.")).toBeVisible();
   expect(
-    screen.getByRole("region", { name: "Referenced skills" })
+    screen.getByRole("region", { name: "Referenced flows" })
   ).toHaveTextContent("browse-catalogue");
   expect(
     screen.getByRole("region", { name: "Task assessment" })

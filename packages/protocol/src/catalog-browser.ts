@@ -25,6 +25,8 @@ export const CatalogFlowEntry = Schema.Struct({
   /** Present when the flow's hosts are a bundled demo site. */
   demo: Schema.optional(DemoSiteId),
   description: Schema.String,
+  /** Group directory segments relative to the Catalog Root. */
+  groupPath: Schema.Array(nonEmptyString),
   hosts: Schema.Array(nonEmptyString),
   name: FlowName,
   stepCount: count,
@@ -42,10 +44,12 @@ export type CatalogFlowEntry = typeof CatalogFlowEntry.Type;
 export const CatalogRunEntry = Schema.Struct({
   assessment: Schema.NullOr(AgentAssessmentOutcome),
   endedAt: nonEmptyString,
-  /** The Flows the Run referenced, which is what groups it. */
+  /** The Flows the Run referenced; storage ownership is independent. */
   flowNames: Schema.Array(FlowName),
   kind: Schema.Literals(["interactive", "dry-run", "legacy"]),
   outcome: nonEmptyString,
+  /** The containing Flow, or null for a Run stored at the Catalog Root. */
+  ownerFlow: Schema.NullOr(FlowName),
   /** The Teaching Recording a Dry Run belongs to; `null` for other Runs. */
   recordingId: Schema.NullOr(TeachingRecordingId),
   runId: AgentRunId,
@@ -62,6 +66,8 @@ export const CatalogRecordingEntry = Schema.Struct({
   createdAt: nonEmptyString,
   flowName: FlowName,
   keyframeCount: count,
+  /** The containing Flow directory, including a recordings-only draft. */
+  ownerFlow: FlowName,
   /** The recording's capture state tag, such as `flow-drafted`. */
   phase: nonEmptyString,
   recordingId: TeachingRecordingId,
@@ -73,7 +79,7 @@ export type CatalogRecordingEntry = typeof CatalogRecordingEntry.Type;
 export const CatalogRootView = Schema.Struct({
   flows: Schema.Array(CatalogFlowEntry),
   path: nonEmptyString,
-  /** Whether a `.contingency` directory exists at `path`. */
+  /** Whether a Catalog Root directory exists at `path`. */
   present: Schema.Boolean,
   recordings: Schema.Array(CatalogRecordingEntry),
   runs: Schema.Array(CatalogRunEntry),

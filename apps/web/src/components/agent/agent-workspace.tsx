@@ -121,15 +121,15 @@ import {
   updateStreamMetrics,
 } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
-import { SkillDetails } from "@/components/catalog/skill-details";
-import { SkillsDockButton } from "@/components/catalog/skills-dock-button";
-import { SkillsDrawer } from "@/components/catalog/skills-drawer";
+import { FlowDetails } from "@/components/catalog/flow-details";
+import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
+import { FlowsDrawer } from "@/components/catalog/flows-drawer";
 import {
-  showsSkillsEntry,
-  skillsDrawerOpenAtom,
-  skillsSelectionAtom,
-  skillsSessionView,
-} from "@/components/catalog/skills-drawer-state";
+  showsFlowsEntry,
+  flowsDrawerOpenAtom,
+  flowsSelectionAtom,
+  flowsSessionView,
+} from "@/components/catalog/flows-drawer-state";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -268,7 +268,7 @@ const isFlowName = Schema.is(FlowName);
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
 
 /** What a Workspace-opened Teaching session is called before it is renamed. */
-const DEFAULT_FLOW_SKILL_NAME = "new-flow";
+const DEFAULT_FLOW_NAME = "new-flow";
 
 /** The viewport a Workspace-opened Teaching session starts under. */
 const WORKSPACE_SESSION_VIEWPORT = { height: 800, width: 1280 };
@@ -356,10 +356,10 @@ const EmptyState = ({
   error,
   onOpenSession,
   pending,
-  skills,
+  flows,
   unresolvedSessionId,
 }: {
-  readonly skills: React.ReactNode;
+  readonly flows: React.ReactNode;
   readonly error: string | undefined;
   readonly onOpenSession: (name: string) => void;
   readonly pending: boolean;
@@ -367,7 +367,7 @@ const EmptyState = ({
 }) => {
   // The name is asked for here rather than generated, so the dock's session
   // label is something the user recognizes from the first frame.
-  const [name, setName] = useState(DEFAULT_FLOW_SKILL_NAME);
+  const [name, setName] = useState(DEFAULT_FLOW_NAME);
   return (
     <main className="relative flex h-full min-h-0 flex-col">
       <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
@@ -387,7 +387,7 @@ const EmptyState = ({
             }}
           >
             <input
-              aria-label="Flow skill name"
+              aria-label="Flow name"
               className="bg-background focus-visible:ring-ring h-9 min-w-0 flex-1 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
               onChange={(event) => setName(event.target.value)}
               value={name}
@@ -410,7 +410,7 @@ const EmptyState = ({
           )}
         </section>
       </div>
-      <WorkspaceEmptyDock skills={skills} />
+      <WorkspaceEmptyDock flows={flows} />
     </main>
   );
 };
@@ -2296,7 +2296,7 @@ const useAgentView = (
 };
 
 /**
- * The Workspace between the Skills drawer on its left and, on its right,
+ * The Workspace between the Flows drawer on its left and, on its right,
  * either what the drawer picked or an ended Run's Summary. Details the user
  * opened take the right panel while they are open; closing them brings the
  * Run Summary back.
@@ -2313,15 +2313,15 @@ const WorkspaceLayout = ({
     | null
     | undefined;
 }) => {
-  const [open, setOpen] = useAtom(skillsDrawerOpenAtom);
-  const [selection, setSelection] = useAtom(skillsSelectionAtom);
+  const [open, setOpen] = useAtom(flowsDrawerOpenAtom);
+  const [selection, setSelection] = useAtom(flowsSelectionAtom);
   const sessionId = session?.id;
   // Details belong to what the user was looking at; another session starts
-  // with the drawer open on its own skill instead.
+  // with the drawer open on its own flow instead.
   useEffect(() => {
     setSelection(null);
   }, [sessionId, setSelection]);
-  const allowed = showsSkillsEntry(skillsSessionView(session));
+  const allowed = showsFlowsEntry(flowsSessionView(session));
   // Capture closes the drawer rather than hiding it, so Stop does not bring
   // it back over the page the user just proved.
   useEffect(() => {
@@ -2339,12 +2339,12 @@ const WorkspaceLayout = ({
         drawerOpen
           ? {
               content: (
-                <SkillsDrawer
+                <FlowsDrawer
                   key={sessionId ?? "none"}
-                  session={skillsSessionView(session)}
+                  session={flowsSessionView(session)}
                 />
               ),
-              label: "Skills",
+              label: "Flows Drawer",
               onClose: () => {
                 setOpen(false);
                 setSelection(null);
@@ -2363,7 +2363,7 @@ const WorkspaceLayout = ({
         details === null ? (
           (summary?.summary ?? null)
         ) : (
-          <SkillDetails selection={details} />
+          <FlowDetails selection={details} />
         )
       }
     >
@@ -2434,7 +2434,7 @@ const BrowserWorkspace = ({
             error={view.gestures.start.error}
             onOpenSession={view.openSession}
             pending={view.gestures.start.pending}
-            skills={<SkillsDockButton />}
+            flows={<FlowsDockButton />}
             unresolvedSessionId={state.unresolvedSessionId}
           />
         </WorkspaceLayout>
@@ -2447,8 +2447,8 @@ const BrowserWorkspace = ({
 
   const { session } = state;
   const finished = finishedRunSummary(session);
-  const skillsEntry = showsSkillsEntry(skillsSessionView(session)) ? (
-    <SkillsDockButton />
+  const flowsEntry = showsFlowsEntry(flowsSessionView(session)) ? (
+    <FlowsDockButton />
   ) : null;
 
   return (
@@ -2495,7 +2495,7 @@ const BrowserWorkspace = ({
                 }
                 selectedSessionId={state.selectedSessionId}
                 sessions={view.sessions}
-                skills={skillsEntry}
+                flows={flowsEntry}
               />
             ) : (
               <RunDock
@@ -2513,7 +2513,7 @@ const BrowserWorkspace = ({
                 selectedSessionId={state.selectedSessionId}
                 session={session}
                 sessions={view.sessions}
-                skills={skillsEntry}
+                flows={flowsEntry}
                 streamConnected={state.streamConnected}
               />
             )

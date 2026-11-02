@@ -8,7 +8,7 @@ import type {
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
-/** A persisted task record whose purpose was a Dry Run of one Flow Skill. */
+/** A persisted task record whose purpose was a Dry Run of one Flow. */
 export type TaskDryRunSummary = TaskAgentRunSummary & {
   readonly purpose: Extract<AgentTaskRunPurpose, { readonly kind: "dry-run" }>;
 };

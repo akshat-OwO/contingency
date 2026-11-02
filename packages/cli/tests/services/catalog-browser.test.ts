@@ -217,6 +217,7 @@ it.effect("lists the local root first and the global root after it", () =>
         createdAt: "2026-10-01T00:00:00.000Z",
         flowName: "draft-cart",
         keyframeCount: 1,
+        ownerFlow: "draft-cart",
         phase: "flow-drafted",
         recordingId: "recording-draft-cart",
       },
@@ -651,4 +652,39 @@ it.effect("finds task Runs in a grouped Flow alongside root history", () =>
     expect(result.roots[0]?.runs).toHaveLength(2);
     expect(result.roots[0]?.unreadable).toBe(1);
   }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "preserves Group paths and storage ownership independently of references",
+  () =>
+    Effect.gen(function* groupedCatalog() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "contingency-groups-",
+      });
+      yield* seedLocal(root);
+      yield* fs.makeDirectory(path.join(root, "Commerce", "Checkout"), {
+        recursive: true,
+      });
+      yield* fs.rename(
+        path.join(root, "draft-cart"),
+        path.join(root, "Commerce", "Checkout", "draft-cart")
+      );
+      const result = yield* Effect.gen(function* browse() {
+        return yield* (yield* CatalogBrowser).browse();
+      }).pipe(Effect.provide(browserFor(root)));
+      const [view] = result.roots;
+      expect(
+        view?.flows.find((flow) => flow.name === "draft-cart")?.groupPath
+      ).toEqual(["Commerce", "Checkout"]);
+      expect(
+        view?.runs.find((entry) => entry.runId === taskRunSummary.runId)
+          ?.ownerFlow
+      ).toBeNull();
+      expect(
+        view?.runs.find((entry) => entry.runId === "agentrun-dry-run")
+          ?.ownerFlow
+      ).toBe("draft-cart");
+      expect(view?.recordings[0]?.ownerFlow).toBe("draft-cart");
+    }).pipe(Effect.provide(NodeServices.layer))
 );

@@ -349,7 +349,7 @@ export const DryRunSummaryView = ({
     checksLabel="Pass checks"
     details={
       <>
-        <dt>Flow Skill</dt>
+        <dt>Flow</dt>
         <dd className="wrap-anywhere">{summary.purpose.flowName}</dd>
       </>
     }
@@ -380,9 +380,9 @@ export const InteractiveRunSummaryView = ({
     details={
       summary.referencedFlows.length === 0 ? null : (
         <>
-          <dt>Flow Skills</dt>
+          <dt>Flows</dt>
           <dd className="wrap-anywhere">
-            {summary.referencedFlows.map((skill) => skill.flowName).join(", ")}
+            {summary.referencedFlows.map((flow) => flow.flowName).join(", ")}
           </dd>
         </>
       )

@@ -11,7 +11,7 @@ import {
   runDuration,
   runKindLabel,
   when,
-} from "@/components/catalog/skills-format";
+} from "@/components/catalog/flows-format";
 import { cn } from "@/lib/utils";
 
 const outcomeDot: Record<AgentAssessmentOutcome | "none", string> = {

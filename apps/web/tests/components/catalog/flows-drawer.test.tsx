@@ -12,19 +12,19 @@ import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { SkillDetails } from "@/components/catalog/skill-details";
-import { SkillsDrawer } from "@/components/catalog/skills-drawer";
+import { FlowDetails } from "@/components/catalog/flow-details";
+import { FlowsDrawer } from "@/components/catalog/flows-drawer";
 import {
   availableFolder,
   defaultFolder,
   looseRuns,
   opensGlobal,
   orphanRecordings,
-  sessionSkills,
-  showsSkillsEntry,
-  skillsSelectionAtom,
-} from "@/components/catalog/skills-drawer-state";
-import { stepInstruction } from "@/components/catalog/skills-format";
+  sessionFlows,
+  showsFlowsEntry,
+  flowsSelectionAtom,
+} from "@/components/catalog/flows-drawer-state";
+import { stepInstruction } from "@/components/catalog/flows-format";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 let probeWidth = 1;
@@ -113,7 +113,34 @@ const run = {
   title: "Sign in with a fresh SMS code",
 } as const;
 
-const decodeRoot = Schema.decodeUnknownSync(CatalogRootView);
+type RootFixture = Omit<CatalogRootView, "flows" | "runs" | "recordings"> & {
+  flows: readonly (Omit<CatalogRootView["flows"][number], "groupPath"> & {
+    groupPath?: readonly string[];
+  })[];
+  runs: readonly (Omit<CatalogRootView["runs"][number], "ownerFlow"> & {
+    ownerFlow?: string | null;
+  })[];
+  recordings: readonly (Omit<
+    CatalogRootView["recordings"][number],
+    "ownerFlow"
+  > & { ownerFlow?: string })[];
+};
+const decodeRoot = (value: RootFixture) =>
+  Schema.decodeUnknownSync(CatalogRootView)({
+    ...value,
+    flows: value.flows.map((flow) => ({ groupPath: [], ...flow })),
+    recordings: value.recordings.map((entry) => ({
+      ownerFlow: entry.flowName,
+      ...entry,
+    })),
+    runs: value.runs.map((entry) => ({
+      ownerFlow:
+        entry.flowNames.find((name) =>
+          value.flows.some((flow) => flow.name === name)
+        ) ?? null,
+      ...entry,
+    })),
+  });
 
 const local = decodeRoot({
   flows: [
@@ -188,6 +215,7 @@ const recording = {
   createdAt: "2026-10-04T16:13:28.000Z",
   flowName: "1mg mobile login",
   keyframeCount: 2,
+  ownerFlow: "1mg mobile login",
   phase: "flow-drafted",
   recordingId: "recording-retained",
 } as const;
@@ -196,6 +224,7 @@ const retained = decodeRoot({
   ...local,
   flows: [],
   recordings: [recording],
+  runs: local.runs.map((entry) => ({ ...entry, ownerFlow: null })),
 });
 
 const RefreshCatalog = () => {
@@ -208,17 +237,17 @@ const RefreshCatalog = () => {
 };
 
 const ObserveSelection = () => {
-  useAtomValue(skillsSelectionAtom);
+  useAtomValue(flowsSelectionAtom);
   return null;
 };
 
 const SelectedDetails = () => {
-  const selection = useAtomValue(skillsSelectionAtom);
-  return selection === null ? null : <SkillDetails selection={selection} />;
+  const selection = useAtomValue(flowsSelectionAtom);
+  return selection === null ? null : <FlowDetails selection={selection} />;
 };
 
-test("selects nonempty folders local-first after Teaching and session skills", () => {
-  const none = sessionSkills();
+test("selects nonempty folders local-first after Teaching and session flows", () => {
+  const none = sessionFlows();
   expect(defaultFolder([retained, global], none)).toEqual({
     kind: "loose",
     scope: "local",
@@ -229,23 +258,23 @@ test("selects nonempty folders local-first after Teaching and session skills", (
     scope: "local",
   });
   expect(defaultFolder([emptyLocal, global], none)).toEqual({
-    kind: "skill",
+    kind: "flow",
     name: "Staging SSO login",
     scope: "global",
   });
   expect(
-    defaultFolder([retained, global], sessionSkills(teaching("setup")))
-  ).toEqual({ kind: "skill", name: "cart", scope: "local" });
+    defaultFolder([retained, global], sessionFlows(teaching("setup")))
+  ).toEqual({ kind: "flow", name: "cart", scope: "local" });
   expect(
     defaultFolder(
       [retained, global],
-      sessionSkills({
+      sessionFlows({
         activity: "run",
         dryRun: false,
         flowNames: ["Staging SSO login"],
       })
     )
-  ).toEqual({ kind: "skill", name: "Staging SSO login", scope: "global" });
+  ).toEqual({ kind: "flow", name: "Staging SSO login", scope: "global" });
   expect(
     opensGlobal(
       [emptyLocal, decodeRoot({ ...retained, scope: "global" })],
@@ -256,7 +285,7 @@ test("selects nonempty folders local-first after Teaching and session skills", (
   expect(opensGlobal([recordingOnly, global], "", none)).toBe(false);
 });
 
-test("groups recordings only under skills listed in their own root", () => {
+test("groups recordings only under flows listed in their own root", () => {
   expect(
     orphanRecordings(decodeRoot({ ...local, recordings: [recording] }))
   ).toEqual([]);
@@ -267,24 +296,22 @@ test("restores retained Runs and orphan recordings when the filter clears", asyn
   rpc.browse = browse([retained]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
-  expect(screen.queryByText("No Flow Skills yet")).toBeNull();
-  expect(screen.getByRole("button", { name: /Other runs/u })).toHaveAttribute(
+  expect(screen.queryByText("No Flows yet")).toBeNull();
+  expect(screen.getByRole("button", { name: /Root Runs/u })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
   expect(
     screen.getByRole("button", { name: /Sign in with a fresh SMS code/u })
   ).toBeVisible();
-  await userEvent.type(screen.getByLabelText("Filter skills"), "missing");
+  await userEvent.type(screen.getByLabelText("Filter flows"), "missing");
   expect(
     screen.queryByRole("button", { name: /Other recordings/u })
   ).toBeNull();
-  await userEvent.click(
-    screen.getByRole("button", { name: "Show all skills" })
-  );
+  await userEvent.click(screen.getByRole("button", { name: "Show all flows" }));
   await userEvent.click(
     screen.getByRole("button", { name: /Other recordings/u })
   );
@@ -294,12 +321,12 @@ test("restores retained Runs and orphan recordings when the filter clears", asyn
   expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
 });
 
-test("opens global-only orphan recordings with no nonexistent skill action", async () => {
+test("opens global-only orphan recordings with no nonexistent flow action", async () => {
   const root = decodeRoot({ ...retained, runs: [], scope: "global" });
   rpc.browse = browse([emptyLocal, root]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
       <SelectedDetails />
     </TestRegistry>
   );
@@ -324,7 +351,7 @@ test("opens global-only orphan recordings with no nonexistent skill action", asy
   expect(screen.queryByRole("button", { name: "1mg mobile login" })).toBeNull();
 });
 
-test("counts Global history without double-counting listed-skill entries", async () => {
+test("counts Global history without double-counting listed-flow entries", async () => {
   const root = decodeRoot({
     ...local,
     recordings: [
@@ -332,6 +359,7 @@ test("counts Global history without double-counting listed-skill entries", async
       {
         ...recording,
         flowName: "deleted-cart",
+        ownerFlow: "deleted-cart",
         recordingId: "recording-orphan",
       },
     ],
@@ -340,32 +368,32 @@ test("counts Global history without double-counting listed-skill entries", async
   rpc.browse = browse([emptyLocal, root]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   expect(screen.getByRole("button", { name: /Global\s*4/u })).toBeVisible();
-  await userEvent.type(screen.getByLabelText("Filter skills"), "1mg");
+  await userEvent.type(screen.getByLabelText("Filter flows"), "1mg");
   expect(screen.getByRole("button", { name: /Global\s*1/u })).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
   expect(screen.getByRole("button", { name: /Global\s*4/u })).toBeVisible();
 });
 
-test("refresh replaces a removed selected skill with retained history, then emptiness", async () => {
+test("refresh replaces a removed selected flow with retained history, then emptiness", async () => {
   rpc.browse = browse([local]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
       <RefreshCatalog />
     </TestRegistry>
   );
   await userEvent.click(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   rpc.browse = browse([retained]);
   await userEvent.click(
     screen.getByRole("button", { name: "Refresh catalog" })
   );
-  expect(screen.getByRole("button", { name: /Other runs/u })).toHaveAttribute(
+  expect(screen.getByRole("button", { name: /Root Runs/u })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
@@ -381,51 +409,51 @@ test("refresh replaces a removed selected skill with retained history, then empt
   await userEvent.click(
     screen.getByRole("button", { name: "Refresh catalog" })
   );
-  expect(screen.getByText("No Flow Skills yet")).toBeVisible();
+  expect(screen.getByText("No Flows yet")).toBeVisible();
   expect(
     availableFolder(
       { kind: "recordings", scope: "global" },
       [emptyLocal],
-      sessionSkills()
+      sessionFlows()
     )
   ).toBeUndefined();
 });
 
-test("hides the Skills entry only while the journey is captured", () => {
-  expect(showsSkillsEntry()).toBe(true);
-  expect(showsSkillsEntry(teaching("setup"))).toBe(true);
-  expect(showsSkillsEntry(teaching("recording"))).toBe(false);
-  expect(showsSkillsEntry(teaching("finalizing"))).toBe(false);
-  expect(showsSkillsEntry(teaching("ready"))).toBe(true);
+test("hides the Flows entry only while the journey is captured", () => {
+  expect(showsFlowsEntry()).toBe(true);
+  expect(showsFlowsEntry(teaching("setup"))).toBe(true);
+  expect(showsFlowsEntry(teaching("recording"))).toBe(false);
+  expect(showsFlowsEntry(teaching("finalizing"))).toBe(false);
+  expect(showsFlowsEntry(teaching("ready"))).toBe(true);
   expect(
-    showsSkillsEntry({ activity: "run", dryRun: false, flowNames: [] })
+    showsFlowsEntry({ activity: "run", dryRun: false, flowNames: [] })
   ).toBe(true);
 });
 
-test("marks the session's own skill by where it stands", () => {
+test("marks the session's own flow by where it stands", () => {
   expect(
-    sessionSkills({
+    sessionFlows({
       activity: "teaching",
       captureState: "setup",
       flowName: "cart",
     })
   ).toEqual({ labels: new Map(), pending: "cart" });
   expect(
-    sessionSkills({
+    sessionFlows({
       activity: "teaching",
       captureState: "flow-drafted",
       flowName: "cart",
     }).labels.get("cart")
   ).toBe("This session");
   expect(
-    sessionSkills({
+    sessionFlows({
       activity: "run",
       dryRun: true,
       flowNames: ["cart"],
     }).labels.get("cart")
   ).toBe("This Dry Run");
   expect([
-    ...sessionSkills({
+    ...sessionFlows({
       activity: "run",
       dryRun: false,
       flowNames: ["login", "cart"],
@@ -436,47 +464,47 @@ test("marks the session's own skill by where it stands", () => {
   ]);
 });
 
-test("opens on the session's skill, then on the first local skill", () => {
-  const none = sessionSkills();
+test("opens on the session's flow, then on the first local flow", () => {
+  const none = sessionFlows();
   expect(defaultFolder([local, global], none)).toEqual({
-    kind: "skill",
+    kind: "flow",
     name: "1mg mobile login",
     scope: "local",
   });
   expect(
     defaultFolder(
       [local, global],
-      sessionSkills({
+      sessionFlows({
         activity: "run",
         dryRun: false,
         flowNames: ["Staging SSO login"],
       })
     )
-  ).toEqual({ kind: "skill", name: "Staging SSO login", scope: "global" });
+  ).toEqual({ kind: "flow", name: "Staging SSO login", scope: "global" });
   expect(defaultFolder([emptyLocal], none)).toBeUndefined();
 });
 
 test("unfolds Global only when it is the one place with a match", () => {
-  const none = sessionSkills();
+  const none = sessionFlows();
   expect(opensGlobal([local, global], "", none)).toBe(false);
   expect(opensGlobal([emptyLocal, global], "", none)).toBe(true);
   expect(opensGlobal([local, global], "staging", none)).toBe(true);
   expect(opensGlobal([local, global], "nothing", none)).toBe(false);
 });
 
-test("lists local skills, folds Global, and opens a skill's Runs", async () => {
+test("lists local flows, folds Global, and opens a flow's Runs", async () => {
   rpc.browse = browse([local, global]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   const catalog = screen.getByRole("region", { name: "Catalog" });
   expect(
-    within(catalog).getByRole("button", { name: /1mg mobile login/u })
-  ).toHaveAttribute("aria-pressed", "true");
+    within(catalog).getByRole("treeitem", { name: /1mg mobile login/u })
+  ).toHaveAttribute("aria-selected", "true");
   expect(
-    within(catalog).getByRole("button", { name: /Verified · 1 run/u })
+    within(catalog).getByRole("treeitem", { name: /Verified · 1 run/u })
   ).toBeInTheDocument();
   expect(within(catalog).queryByText("Staging SSO login")).toBeNull();
   expect(
@@ -484,23 +512,23 @@ test("lists local skills, folds Global, and opens a skill's Runs", async () => {
   ).toBeInTheDocument();
 
   await userEvent.click(
-    within(catalog).getByRole("button", { name: /Ridgeline Boulder cart/u })
+    within(catalog).getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   expect(screen.getByText(/A passing Dry Run is the next step/u)).toBeVisible();
 
   await userEvent.click(
-    within(catalog).getByRole("button", { name: /Other runs/u })
+    within(catalog).getByRole("button", { name: /Root Runs/u })
   );
   expect(
     screen.getByRole("button", { name: /Explore the store/u })
   ).toBeInTheDocument();
 });
 
-test("holds a place for a skill still being taught", () => {
+test("holds a place for a flow still being taught", () => {
   rpc.browse = browse([local, global]);
   render(
     <TestRegistry>
-      <SkillsDrawer
+      <FlowsDrawer
         session={{
           activity: "teaching",
           captureState: "setup",
@@ -515,32 +543,30 @@ test("holds a place for a skill still being taught", () => {
   expect(screen.getByText("Not saved yet")).toBeVisible();
 });
 
-test("says so when neither root has a skill", () => {
+test("says so when neither root has a flow", () => {
   rpc.browse = browse([emptyLocal, decodeRoot({ ...global, flows: [] })]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
-  expect(screen.getByText("No Flow Skills yet")).toBeVisible();
+  expect(screen.getByText("No Flows yet")).toBeVisible();
 });
 
-test("names the miss and offers every skill again", async () => {
+test("names the miss and offers every flow again", async () => {
   rpc.browse = browse([local, global]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
-  await userEvent.type(screen.getByLabelText("Filter skills"), "checkout");
-  expect(screen.getByText("No skill matches “checkout”")).toBeVisible();
-  await userEvent.click(
-    screen.getByRole("button", { name: "Show all skills" })
-  );
-  expect(screen.getByLabelText("Filter skills")).toHaveValue("");
+  await userEvent.type(screen.getByLabelText("Filter flows"), "checkout");
+  expect(screen.getByText("No flow matches “checkout”")).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Show all flows" }));
+  expect(screen.getByLabelText("Filter flows")).toHaveValue("");
 });
 
-test("files a Run under Other runs when no listed skill claims it", () => {
+test("files a Run under Root Runs when no listed flow claims it", () => {
   const example = { ...run, flowNames: ["example-delivery-cart"] };
   const root = decodeRoot({ ...local, runs: [run, example] });
   expect(looseRuns(root).map((entry) => entry.runId)).toEqual([example.runId]);
@@ -558,7 +584,7 @@ test("shows a nonfatal singular warning alongside healthy entries", async () => 
   rpc.browse = browse([decodeRoot({ ...local, unreadable: 1 }), global]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   expect(screen.getByRole("status")).toHaveTextContent(
@@ -569,7 +595,7 @@ test("shows a nonfatal singular warning alongside healthy entries", async () => 
     screen.getByRole("button", { name: /Sign in with a fresh SMS code/u })
   ).toBeVisible();
   await userEvent.click(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   expect(screen.getByText(/A passing Dry Run is the next step/u)).toBeVisible();
 });
@@ -581,13 +607,13 @@ test("shows the combined plural warning with the empty state", () => {
   ]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   expect(screen.getByRole("status")).toHaveTextContent(
     "3 catalog documents could not be read."
   );
-  expect(screen.getByText("No Flow Skills yet")).toBeVisible();
+  expect(screen.getByText("No Flows yet")).toBeVisible();
   expect(screen.queryByText("The catalog could not be read")).toBeNull();
 });
 
@@ -595,7 +621,7 @@ test("omits the unreadable warning for a healthy catalog", () => {
   rpc.browse = browse([local, global]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   expect(screen.queryByRole("status")).toBeNull();
@@ -606,13 +632,13 @@ test("narrow navigation preserves filter, folder, Details selection and keyboard
   rpc.browse = browse([local, global]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
       <ObserveSelection />
     </TestRegistry>
   );
   expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
-  await userEvent.type(screen.getByLabelText("Filter skills"), "1mg");
-  const row = screen.getByRole("button", { name: /1mg mobile login/u });
+  await userEvent.type(screen.getByLabelText("Filter flows"), "1mg");
+  const row = screen.getByRole("treeitem", { name: /1mg mobile login/u });
   row.focus();
   await userEvent.keyboard("{Enter}");
   expect(screen.queryByRole("region", { name: "Catalog" })).toBeNull();
@@ -627,9 +653,9 @@ test("narrow navigation preserves filter, folder, Details selection and keyboard
   await userEvent.click(
     screen.getByRole("button", { name: "Back to catalog" })
   );
-  expect(screen.getByLabelText("Filter skills")).toHaveValue("1mg");
+  expect(screen.getByLabelText("Filter flows")).toHaveValue("1mg");
   expect(
-    screen.getByRole("button", { name: /1mg mobile login/u })
+    screen.getByRole("treeitem", { name: /1mg mobile login/u })
   ).toHaveFocus();
   expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.keyboard("{Enter}");
@@ -643,16 +669,16 @@ test("resizing keeps the focused navigation view and selected folder usable", as
   rpc.browse = browse([local]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
       <ObserveSelection />
     </TestRegistry>
   );
   await userEvent.click(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   resizeNavigation(0);
   expect(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   ).toHaveFocus();
   expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.keyboard("{Enter}");
@@ -677,6 +703,7 @@ test("narrow no-match recovery retains the chosen folder and restores history", 
         {
           ...recording,
           flowName: "deleted-cart",
+          ownerFlow: "deleted-cart",
           recordingId: "recording-orphan",
         },
       ],
@@ -685,37 +712,85 @@ test("narrow no-match recovery retains the chosen folder and restores history", 
   ]);
   render(
     <TestRegistry>
-      <SkillsDrawer session={undefined} />
+      <FlowsDrawer session={undefined} />
     </TestRegistry>
   );
   await userEvent.click(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   await userEvent.click(
     screen.getByRole("button", { name: "Back to catalog" })
   );
-  await userEvent.type(screen.getByLabelText("Filter skills"), "nothing");
+  await userEvent.type(screen.getByLabelText("Filter flows"), "nothing");
   expect(screen.getByText("Nothing here matches “nothing”.")).toBeVisible();
-  expect(screen.queryByRole("button", { name: "Show all skills" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /Other runs/u })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Show all flows" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Root Runs/u })).toBeNull();
   expect(
     screen.queryByRole("button", { name: /Other recordings/u })
   ).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Clear filter" }));
-  expect(screen.getByLabelText("Filter skills")).toHaveValue("");
+  expect(screen.getByLabelText("Filter flows")).toHaveValue("");
   expect(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
-  ).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("button", { name: /Other runs/u })).toBeVisible();
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
+  ).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("button", { name: /Root Runs/u })).toBeVisible();
   expect(
     screen.getByRole("button", { name: /Other recordings/u })
   ).toBeVisible();
   expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.click(
-    screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
+    screen.getByRole("treeitem", { name: /Ridgeline Boulder cart/u })
   );
   expect(
     screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
   ).toHaveFocus();
   expect(screen.getByRole("button", { name: "flow.md" })).toBeVisible();
+});
+
+test("navigates nested Groups and keeps multi-Flow root Runs separate", async () => {
+  const grouped = decodeRoot({
+    ...local,
+    flows: local.flows.map((flow) => ({
+      ...flow,
+      groupPath: ["Commerce", "Checkout"],
+    })),
+    recordings: [recording],
+    runs: [
+      ...local.runs,
+      {
+        ...run,
+        flowNames: local.flows.map((flow) => flow.name),
+        ownerFlow: null,
+        runId: "agentrun-multi",
+        title: "Compare journeys",
+      },
+    ],
+  });
+  rpc.browse = browse([grouped]);
+  render(
+    <TestRegistry>
+      <FlowsDrawer session={undefined} />
+    </TestRegistry>
+  );
+  const commerce = screen.getByRole("treeitem", { name: "Commerce" });
+  expect(screen.getByRole("treeitem", { name: "Checkout" })).toBeVisible();
+  commerce.focus();
+  await userEvent.keyboard("{ArrowLeft}");
+  expect(commerce).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("treeitem", { name: "Checkout" })).toBeNull();
+  await userEvent.keyboard("{ArrowRight}{ArrowDown}");
+  expect(screen.getByRole("treeitem", { name: "Checkout" })).toHaveFocus();
+  expect(
+    screen.queryByRole("button", { name: /Compare journeys/u })
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: /recording-retained/u })
+  ).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: /Root Runs/u }));
+  expect(
+    screen.getByRole("button", { name: /Compare journeys/u })
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: /recording-retained/u })
+  ).toBeNull();
 });

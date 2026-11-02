@@ -400,7 +400,7 @@ test("Guided Run host approval explains its saved scope", async () => {
     within(boundary).getByRole("button", { name: "Action details" })
   );
   expect(boundary).toHaveTextContent(
-    "adds it to this Guided Run and the saved Flow Skill's Domain Scope"
+    "adds it to this Guided Run and the saved Flow's Domain Scope"
   );
   expect(boundary).not.toHaveTextContent("saved Domain Scope stays unchanged");
 });

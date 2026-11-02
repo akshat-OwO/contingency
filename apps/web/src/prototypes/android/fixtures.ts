@@ -453,7 +453,7 @@ const inputResult = (
   );
 };
 
-/** Verify keeps the skill and purges the recording; reject keeps both. */
+/** Verify keeps the flow and purges the recording; reject keeps both. */
 const flowDecision = (
   current: AndroidWorkspaceSnapshot,
   decision: "verify" | "reject" | "retry-cleanup",

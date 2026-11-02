@@ -80,7 +80,7 @@ const PrerequisiteVariable = ({
 /**
  * Private inputs the user supplies or refuses in Workspace. The agent sees
  * each one's status, never its value. A Dry Run takes its prerequisite
- * Variables here, and an Example Run takes its bundled skill's private inputs.
+ * Variables here, and an Example Run takes its bundled flow's private inputs.
  */
 export const WorkspaceVariables = ({
   collapse,

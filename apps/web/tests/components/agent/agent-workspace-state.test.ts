@@ -123,7 +123,7 @@ const run = (dryRun: RunSnapshot["dryRun"]): RunSnapshot =>
     viewUrl: "http://127.0.0.1:7777/?session=agent-run",
   }) satisfies RunSnapshot;
 
-test("labels a Dry Run with the Flow Skill it rehearses", () => {
+test("labels a Dry Run with the Flow it rehearses", () => {
   const rehearsal = run({
     flowName: "add-anvil",
     recordingId: "recording-39cd",

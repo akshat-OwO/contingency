@@ -9,7 +9,7 @@ import type {
 
 import { androidDeviceLabel } from "@/components/agent/android-workspace-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
-import type { SkillsSessionView } from "@/components/catalog/skills-drawer-state";
+import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
 
 const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
   "dry-run": "Dry Run",
@@ -19,16 +19,16 @@ const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
 
 /**
  * An Android session reads like a browser one in the session picker: the Flow
- * Skill name first, then what the session is doing with it, marked Android so
+ * Flow name first, then what the session is doing with it, marked Android so
  * the two platforms never share a label.
  */
 export const androidSessionLabel = (session: AndroidWorkspaceSummary): string =>
   `${session.flowName} · Android ${KIND_LABEL[session.kind]}`;
 
-/** What the Skills drawer needs to know about an Android session. */
-export const androidSkillsSessionView = (
+/** What the Flows drawer needs to know about an Android session. */
+export const androidFlowsSessionView = (
   session: AndroidWorkspaceSnapshot
-): SkillsSessionView =>
+): FlowsSessionView =>
   session.kind === "teaching"
     ? {
         activity: "teaching",
@@ -170,13 +170,13 @@ const teachingPresentation = (
     case "learning": {
       return {
         ...base,
-        nextStep: "The flow skill appears in Skills when it is drafted.",
+        nextStep: "The Flow appears in Flows when it is drafted.",
       };
     }
     case "dry-running": {
       return {
         ...base,
-        nextStep: "The flow skill is running in its own Android Dry Run.",
+        nextStep: "The Flow is running in its own Android Dry Run.",
       };
     }
     case "dry-run-passed": {

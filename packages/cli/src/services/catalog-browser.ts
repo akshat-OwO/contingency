@@ -34,7 +34,7 @@ import { isVerifiedFlow } from "./requested-flows.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 /**
- * The Workspace's read-only view of Catalog Roots for the Skills drawer.
+ * The Workspace's read-only view of Catalog Roots for the Flows Drawer.
  *
  * It lists the Flows, persisted Runs, and Teaching Recordings of the
  * process's own Catalog Root, and of the user's `~/.contingency` when that is
@@ -109,6 +109,7 @@ export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
       flowNames: summary.referencedFlows.map((flow) => flow.flowName),
       kind: summary.purpose.kind,
       outcome: summary.outcome,
+      ownerFlow: null,
       recordingId:
         summary.purpose.kind === "dry-run" ? summary.purpose.recordingId : null,
       runId: summary.runId,
@@ -122,6 +123,7 @@ export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
     flowNames: summary.schemaVersion === 2 ? [summary.flowName] : [],
     kind: "legacy",
     outcome: summary.outcome,
+    ownerFlow: null,
     recordingId: null,
     runId: summary.runId,
     startedAt: summary.startedAt,
@@ -138,6 +140,7 @@ export const catalogRecordingEntry = (
   keyframeCount: manifest.artifacts.filter(
     (artifact) => artifact.kind === "keyframe"
   ).length,
+  ownerFlow: manifest.flowName,
   phase: manifest.lifecycle._tag,
   recordingId: manifest.recordingId,
 });
@@ -152,6 +155,7 @@ export const catalogFlowEntry = (
   const hosts = frontmatter?.hosts ?? [];
   const entry: Mutable<CatalogFlowEntry> = {
     description: frontmatter?.description ?? name,
+    groupPath: [],
     hosts,
     name,
     stepCount: flowProcedureSteps(flowContent).length,
@@ -171,9 +175,6 @@ type Read<A> =
 const documentReadFailure = (error: PlatformError): Read<never> => ({
   _tag: error.reason._tag === "NotFound" ? "absent" : "unreadable",
 });
-
-const readValues = <A>(entries: readonly Read<A>[]): readonly A[] =>
-  entries.flatMap((entry) => (entry._tag === "read" ? [entry.value] : []));
 
 const newestFirst = <A extends { readonly startedAt: string }>(
   entries: readonly A[]
@@ -237,7 +238,14 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
         { content: flow.content, path: FLOW_FILE },
         ...(contracts ?? []),
       ]);
-      entries.push(contracts === null ? { ...entry, verified: false } : entry);
+      entries.push({
+        ...entry,
+        groupPath: path
+          .relative(root, path.dirname(flow.directory))
+          .split(path.sep)
+          .filter(Boolean),
+        verified: contracts !== null && entry.verified,
+      });
     }
     return entries;
   });
@@ -255,7 +263,9 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       Effect.orElseSucceed(() => new Map<string, { directory: string }>())
     );
     const recordingDirectories: string[] = [];
-    for (const flow of discovered.values()) {
+    const recordingOwners = new Map<string, FlowName>();
+    const runOwners = new Map<string, FlowName>();
+    for (const [name, flow] of discovered) {
       const directory = path.join(
         flow.directory,
         TEACHING_RECORDINGS_DIRECTORY
@@ -263,6 +273,10 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       for (const id of yield* directoryNames(directory)) {
         if (!id.startsWith(".")) {
           recordingDirectories.push(path.join(directory, id));
+          recordingOwners.set(
+            path.join(directory, id, MANIFEST_FILE),
+            FlowName.make(name)
+          );
         }
       }
     }
@@ -274,7 +288,14 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       const runsDirectory = path.join(directory, AGENT_RUNS_DIRECTORY);
       for (const id of yield* directoryNames(runsDirectory)) {
         if (!id.startsWith(".")) {
-          runFiles.push(path.join(runsDirectory, id, SUMMARY_FILE));
+          const file = path.join(runsDirectory, id, SUMMARY_FILE);
+          runFiles.push(file);
+          const owner = [...discovered].find(
+            ([, flow]) => flow.directory === directory
+          );
+          if (owner !== undefined) {
+            runOwners.set(file, FlowName.make(owner[0]));
+          }
         }
       }
     }
@@ -297,10 +318,36 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       flows: entries,
       path: root,
       present: yield* exists(root),
-      recordings: readValues(manifests)
-        .map(catalogRecordingEntry)
+      recordings: manifests
+        .flatMap((entry, index) =>
+          entry._tag === "read"
+            ? [
+                {
+                  ...catalogRecordingEntry(entry.value),
+                  ownerFlow:
+                    recordingOwners.get(
+                      path.join(
+                        recordingDirectories[index] ?? "",
+                        MANIFEST_FILE
+                      )
+                    ) ?? entry.value.flowName,
+                },
+              ]
+            : []
+        )
         .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      runs: newestFirst(readValues(runs).map(catalogRunEntry)),
+      runs: newestFirst(
+        runs.flatMap((entry, index) =>
+          entry._tag === "read"
+            ? [
+                {
+                  ...catalogRunEntry(entry.value),
+                  ownerFlow: runOwners.get(runFiles[index] ?? "") ?? null,
+                },
+              ]
+            : []
+        )
+      ),
       scope,
       unreadable,
     } satisfies CatalogRootView;

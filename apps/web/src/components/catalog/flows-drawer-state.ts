@@ -11,15 +11,15 @@ import { Atom } from "effect/reactivity";
 import { sessionTaskRun } from "@/components/agent/run-provenance";
 
 /**
- * The Skills drawer: the Workspace's read-only browser over the Catalog
+ * The Flows drawer: the Workspace's read-only browser over the Catalog
  * Roots, opened from the dock. Its open state and the selection beside it are
  * shared by the dock, the drawer, and the details panel, so they are atoms
  * rather than one component's state.
  */
-export const skillsDrawerOpenAtom = Atom.make(false);
+export const flowsDrawerOpenAtom = Atom.make(false);
 
-/** What the details panel shows: a skill's package, a Run, or a recording. */
-export type SkillsSelection =
+/** What the details panel shows: a flow's package, a Run, or a recording. */
+export type FlowsSelection =
   | {
       readonly kind: "recording";
       readonly recording: CatalogRecordingEntry;
@@ -31,40 +31,40 @@ export type SkillsSelection =
       readonly scope: CatalogRootScope;
     }
   | {
-      readonly kind: "skill";
+      readonly kind: "flow";
       readonly name: CatalogFlowEntry["name"];
       readonly scope: CatalogRootScope;
     };
 
-export const skillsSelectionAtom = Atom.make<SkillsSelection | null>(null);
+export const flowsSelectionAtom = Atom.make<FlowsSelection | null>(null);
 
-/** A listed skill, or retained history without a listed skill. */
-export type SkillsFolder =
+/** A listed flow, or retained history without a listed flow. */
+export type FlowsFolder =
   | { readonly kind: "loose"; readonly scope: CatalogRootScope }
   | { readonly kind: "recordings"; readonly scope: CatalogRootScope }
   | {
-      readonly kind: "skill";
+      readonly kind: "flow";
       readonly name: string;
       readonly scope: CatalogRootScope;
     };
 
 export const sameFolder = (
-  a: SkillsFolder | undefined,
-  b: SkillsFolder
+  a: FlowsFolder | undefined,
+  b: FlowsFolder
 ): boolean =>
   a !== undefined &&
   a.kind === b.kind &&
   a.scope === b.scope &&
-  (a.kind !== "skill" || (b.kind === "skill" && a.name === b.name));
+  (a.kind !== "flow" || (b.kind === "flow" && a.name === b.name));
 
 export const sameSelection = (
-  a: SkillsSelection | null,
-  b: SkillsSelection
+  a: FlowsSelection | null,
+  b: FlowsSelection
 ): boolean => {
   if (a === null || a.kind !== b.kind || a.scope !== b.scope) {
     return false;
   }
-  if (a.kind === "skill" && b.kind === "skill") {
+  if (a.kind === "flow" && b.kind === "flow") {
     return a.name === b.name;
   }
   if (a.kind === "run" && b.kind === "run") {
@@ -79,9 +79,9 @@ export const sameSelection = (
 
 /**
  * What the drawer needs to know about the selected session: what it is doing,
- * and which Flow Skills it is about.
+ * and which Flows it is about.
  */
-export type SkillsSessionView =
+export type FlowsSessionView =
   | {
       readonly activity: "teaching";
       readonly captureState: string;
@@ -93,9 +93,9 @@ export type SkillsSessionView =
       readonly flowNames: readonly string[];
     };
 
-export const skillsSessionView = (
+export const flowsSessionView = (
   session: AgentSessionSnapshot | undefined
-): SkillsSessionView | undefined => {
+): FlowsSessionView | undefined => {
   if (session === undefined) {
     return undefined;
   }
@@ -110,20 +110,20 @@ export const skillsSessionView = (
   const flowNames =
     taskRun === undefined
       ? [session.flowName].filter((name) => name !== null)
-      : taskRun.referencedFlows.map((skill) => skill.flowName);
+      : taskRun.referencedFlows.map((flow) => flow.flowName);
   return { activity: "run", dryRun: session.dryRun !== null, flowNames };
 };
 
 /** Capture is user-led; nothing in the dock competes with the journey. */
 const CAPTURING = new Set(["recording", "finalizing"]);
 
-/** Whether the dock offers the Skills entry in this session's state. */
-export const showsSkillsEntry = (
-  session: SkillsSessionView | undefined
+/** Whether the dock offers the Flows entry in this session's state. */
+export const showsFlowsEntry = (
+  session: FlowsSessionView | undefined
 ): boolean =>
   session?.activity !== "teaching" || !CAPTURING.has(session.captureState);
 
-/** Teaching states whose Flow Skill has not been written to disk yet. */
+/** Teaching states whose Flow has not been written to disk yet. */
 const UNSAVED = new Set([
   "setup",
   "recording",
@@ -134,18 +134,18 @@ const UNSAVED = new Set([
 ]);
 
 /**
- * How the drawer marks the selected session's own skills. A skill still being
+ * How the drawer marks the selected session's own flows. A flow still being
  * taught has no directory yet, so it is `pending` and holds a placeholder row;
  * a saved one is labelled where it is listed.
  */
-export interface SessionSkills {
+export interface SessionFlows {
   readonly labels: ReadonlyMap<string, string>;
   readonly pending: string | undefined;
 }
 
-export const sessionSkills = (
-  session: SkillsSessionView | undefined
-): SessionSkills => {
+export const sessionFlows = (
+  session: FlowsSessionView | undefined
+): SessionFlows => {
   if (session === undefined) {
     return { labels: new Map(), pending: undefined };
   }
@@ -165,39 +165,35 @@ export const sessionSkills = (
 };
 
 export const matchesQuery = (
-  skill: Pick<CatalogFlowEntry, "name">,
+  flow: Pick<CatalogFlowEntry, "name">,
   query: string
-): boolean => skill.name.toLowerCase().includes(query.trim().toLowerCase());
+): boolean => flow.name.toLowerCase().includes(query.trim().toLowerCase());
 
-export const runsForSkill = (
+export const runsForFlow = (
   root: CatalogRootView,
   name: string
 ): readonly CatalogRunEntry[] =>
-  root.runs.filter((run) => run.flowNames.some((skill) => skill === name));
+  root.runs.filter((run) => run.ownerFlow === name);
 
-export const recordingsForSkill = (
+export const recordingsForFlow = (
   root: CatalogRootView,
   name: string
 ): readonly CatalogRecordingEntry[] =>
-  root.recordings.filter((recording) => recording.flowName === name);
+  root.recordings.filter((recording) => recording.ownerFlow === name);
 
 /**
- * Runs no listed skill in this root claims: Runs that referenced no skill,
- * and Runs whose skills live elsewhere, such as a bundled Example.
+ * Runs stored directly in the Catalog Root, including zero-Flow and multi-Flow Runs.
  */
 export const looseRuns = (root: CatalogRootView): readonly CatalogRunEntry[] =>
-  root.runs.filter(
-    (run) =>
-      !run.flowNames.some((name) =>
-        root.flows.some((skill) => skill.name === name)
-      )
-  );
+  root.runs.filter((run) => run.ownerFlow === null);
 
 export const orphanRecordings = (
   root: CatalogRootView
 ): readonly CatalogRecordingEntry[] => {
-  const listed = new Set(root.flows.map((skill) => skill.name));
-  return root.recordings.filter((recording) => !listed.has(recording.flowName));
+  const listed = new Set(root.flows.map((flow) => flow.name));
+  return root.recordings.filter(
+    (recording) => !listed.has(recording.ownerFlow ?? recording.flowName)
+  );
 };
 
 export const hasBrowsableEntries = (root: CatalogRootView): boolean =>
@@ -205,10 +201,10 @@ export const hasBrowsableEntries = (root: CatalogRootView): boolean =>
 
 /** Ignore a choice whose folder disappeared on a catalog refresh. */
 export const availableFolder = (
-  folder: SkillsFolder | null,
+  folder: FlowsFolder | null,
   roots: readonly CatalogRootView[],
-  skills: SessionSkills
-): SkillsFolder | undefined => {
+  flows: SessionFlows
+): FlowsFolder | undefined => {
   const root = roots.find((entry) => entry.scope === folder?.scope);
   if (folder === null || root === undefined) {
     return undefined;
@@ -219,13 +215,13 @@ export const availableFolder = (
   if (folder.kind === "recordings") {
     return orphanRecordings(root).length > 0 ? folder : undefined;
   }
-  return root.flows.some((skill) => skill.name === folder.name) ||
-    (folder.scope === "local" && skills.pending === folder.name)
+  return root.flows.some((flow) => flow.name === folder.name) ||
+    (folder.scope === "local" && flows.pending === folder.name)
     ? folder
     : undefined;
 };
 
-export const skillCount = (roots: readonly CatalogRootView[]): number =>
+export const flowCount = (roots: readonly CatalogRootView[]): number =>
   roots.reduce((total, root) => total + root.flows.length, 0);
 
 export const runCountLabel = (count: number): string => {
@@ -236,25 +232,25 @@ export const runCountLabel = (count: number): string => {
 };
 
 /**
- * Prefer Teaching and the session's listed skill, then browse local-first.
+ * Prefer Teaching and the session's listed flow, then browse local-first.
  */
 export const defaultFolder = (
   roots: readonly CatalogRootView[],
-  skills: SessionSkills
-): SkillsFolder | undefined => {
-  if (skills.pending !== undefined) {
-    return { kind: "skill", name: skills.pending, scope: "local" };
+  flows: SessionFlows
+): FlowsFolder | undefined => {
+  if (flows.pending !== undefined) {
+    return { kind: "flow", name: flows.pending, scope: "local" };
   }
   for (const root of roots) {
-    const own = root.flows.find((skill) => skills.labels.has(skill.name));
+    const own = root.flows.find((flow) => flows.labels.has(flow.name));
     if (own !== undefined) {
-      return { kind: "skill", name: own.name, scope: root.scope };
+      return { kind: "flow", name: own.name, scope: root.scope };
     }
   }
   for (const root of roots) {
     const first = root.flows.at(0);
     if (first !== undefined) {
-      return { kind: "skill", name: first.name, scope: root.scope };
+      return { kind: "flow", name: first.name, scope: root.scope };
     }
     if (looseRuns(root).length > 0) {
       return { kind: "loose", scope: root.scope };
@@ -268,18 +264,18 @@ export const defaultFolder = (
 
 /**
  * Whether the global root starts unfolded: only when it is the one place with
- * something to show, and no local skill is being taught.
+ * something to show, and no local flow is being taught.
  */
 export const opensGlobal = (
   roots: readonly CatalogRootView[],
   query: string,
-  skills: SessionSkills
+  flows: SessionFlows
 ): boolean => {
   const [local, global] = roots;
   const hits = (root: CatalogRootView | undefined) =>
     root !== undefined &&
     (query.trim() === ""
       ? hasBrowsableEntries(root)
-      : root.flows.some((skill) => matchesQuery(skill, query)));
-  return !hits(local) && hits(global) && skills.pending === undefined;
+      : root.flows.some((flow) => matchesQuery(flow, query)));
+  return !hits(local) && hits(global) && flows.pending === undefined;
 };

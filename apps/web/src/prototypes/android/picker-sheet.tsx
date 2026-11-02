@@ -50,7 +50,7 @@ import { WorkspaceLayout } from "./layout";
 import { ExperimentalBadge, PrototypeSummary, StateBadges } from "./parts";
 import {
   androidDockPresentation,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
 } from "./presentation";
 import {
   decide,
@@ -232,7 +232,7 @@ export const PickerSheetPrototype = ({
       {sheet}
       <WorkspaceLayout
         sessionId={session.id}
-        skillsSession={androidSkillsSessionView(session)}
+        flowsSession={androidFlowsSessionView(session)}
         summary={
           ended
             ? {

@@ -65,7 +65,7 @@ export const AndroidRunSummary = ({
       <dt className="text-muted-foreground">Cleanup</dt>
       <dd className="text-pretty">
         {session.cleanup?._tag === "purged"
-          ? "Recording deleted. Verified Flow Skill retained."
+          ? "Recording deleted. Verified Flow retained."
           : null}
         {session.cleanup?._tag === "purge-pending"
           ? `${session.cleanup.failure} Kept: ${session.cleanup.retainedFiles.join(", ")}.`

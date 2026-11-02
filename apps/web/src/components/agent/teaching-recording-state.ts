@@ -56,7 +56,7 @@ export type TeachingSecondaryAction =
 export interface TeachingRecordingPresentation {
   /** The one action this state offers, or `null` when it offers none. */
   readonly action: TeachingRecordingAction | null;
-  /** The short state name beside the Flow Skill, never a raw recording id. */
+  /** The short state name beside the Flow, never a raw recording id. */
   readonly badge: string;
   /**
    * What the user can do next, in one sentence. The dock keeps it behind a
@@ -70,7 +70,7 @@ export interface TeachingRecordingPresentation {
   /**
    * Whether the user can inspect the Page and comment on it. Only a live
    * recording can carry an instruction, so only `recording` offers it here.
-   * Correcting a drafted Flow Skill belongs to the learning work.
+   * Correcting a drafted Flow belongs to the learning work.
    */
   readonly showsInspect: boolean;
   readonly tone: "default" | "failed" | "recording";
@@ -205,7 +205,7 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Learning",
         nextStep:
-          "Keep using the browser. The flow skill appears here when it is drafted.",
+          "Keep using the browser. The Flow appears here when it is drafted.",
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
@@ -215,7 +215,7 @@ export const teachingRecordingPresentation = (
     case "flow-drafted": {
       return {
         action: null,
-        badge: "Flow skill drafted",
+        badge: "Flow drafted",
         nextStep: "Ask your agent to dry-run the flow with different inputs.",
         secondaries: [],
         showsElapsed: false,
@@ -227,7 +227,7 @@ export const teachingRecordingPresentation = (
       return {
         action: action("stop-dry-run", "Stop dry run"),
         badge: "Dry run",
-        nextStep: "The flow skill is running in a fresh browser.",
+        nextStep: "The Flow is running in a fresh browser.",
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
@@ -296,7 +296,7 @@ export const teachingRecordingPresentation = (
         action: null,
         badge: "Recording deleted",
         nextStep:
-          "The flow skill and its references are all that is left. Run it any time.",
+          "The Flow and its references are all that is left. Run it any time.",
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,

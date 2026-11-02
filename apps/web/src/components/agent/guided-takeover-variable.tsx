@@ -30,7 +30,7 @@ const PrivateVariableForm = ({
     >
       <p>
         Focus the browser field first. Enter a Variable here. The Timeline shows
-        its value; the saved skill keeps its reference.
+        its value; the saved flow keeps its reference.
       </p>
       <form
         className="flex flex-wrap items-end gap-2"
