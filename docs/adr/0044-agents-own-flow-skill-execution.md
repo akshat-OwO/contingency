@@ -1,10 +1,10 @@
 ---
-
-> Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
 status: accepted
 ---
 
 # Agents own Flow Skill execution
+
+> Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
 
 > Extended by [ADR 0057](./0057-system-one-pursues-delegated-sub-goals.md) (proposed). The agent may delegate a sub-goal to a System One Pursuit while keeping its plan and Agent Assessment.
 
