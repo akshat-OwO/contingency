@@ -101,7 +101,8 @@ export interface FlowSkillCatalogService {
   ) => Effect.Effect<FlowSkillPackage, FlowSkillCatalogError>;
   readonly readDocument: (
     flowSkillName: string,
-    documentPath: string
+    documentPath: string,
+    root?: string
   ) => Effect.Effect<FlowSkillFile, FlowSkillCatalogError>;
   readonly root: () => string;
   readonly select: (
@@ -377,7 +378,11 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
       }
       return yield* readPackage(root, name);
     }),
-    readDocument: Effect.fnUntraced(function* readDocument(name, documentPath) {
+    readDocument: Effect.fnUntraced(function* readDocument(
+      name,
+      documentPath,
+      root = selected
+    ) {
       if (!isSupportingDocument(documentPath)) {
         return yield* Effect.fail(
           catalogError(
@@ -386,7 +391,7 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
           )
         );
       }
-      const skill = yield* readPackage(selected, name);
+      const skill = yield* readPackage(root, name);
       const file = skill.files.find((entry) => entry.path === documentPath);
       if (file === undefined) {
         return yield* Effect.fail(
