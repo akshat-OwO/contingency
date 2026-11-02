@@ -5,7 +5,7 @@ import type {
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
-  FlowSkillName,
+  FlowName,
   AgentSessionSnapshot,
   BrowserStreamEvent,
 } from "@contingency/protocol";
@@ -273,9 +273,9 @@ export const catalogBrowseAtom = ContingencyRpcClient.query(
 );
 
 /** One Flow Skill package to read in the Skills drawer, per root and name. */
-export const catalogFlowSkillAtom = Atom.family((scope: CatalogRootScope) =>
-  Atom.family((name: FlowSkillName) =>
-    ContingencyRpcClient.query("catalog.flow-skill.get", { name, scope })
+export const catalogFlowAtom = Atom.family((scope: CatalogRootScope) =>
+  Atom.family((name: FlowName) =>
+    ContingencyRpcClient.query("catalog.flow.get", { name, scope })
   )
 );
 

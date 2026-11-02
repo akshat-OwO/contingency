@@ -32,7 +32,7 @@ test.each(AgentTaskRunOutcome.literals)(
       assessment: null,
       inputs: [],
       outcome,
-      referencedSkills: [],
+      referencedFlows: [],
       variables: [],
     });
     expect(decoded.assessment).toBeNull();
@@ -70,7 +70,7 @@ test("task reports require an explanation and browser evidence", () => {
 
 test("input identities reject unknown skills and duplicates", () => {
   for (const inputs of [
-    [{ flowSkillName: "unrequested", name: "product", value: "Mug" }],
+    [{ flowName: "unrequested", name: "product", value: "Mug" }],
     [taskRunSummary.inputs[0], taskRunSummary.inputs[0]],
   ]) {
     expect(() => decodeTask({ ...taskRunSummary, inputs })).toThrow();
@@ -90,7 +90,7 @@ test("a Dry Run task summary stays owned by its Teaching Recording", () => {
   const summary = decodeTask({
     ...taskRunSummary,
     purpose: {
-      flowSkillName: "browse-catalogue",
+      flowName: "browse-catalogue",
       kind: "dry-run",
       recordingId: "recording-task",
       takeoverOccurred: true,

@@ -20,7 +20,7 @@ const teaching = Schema.decodeUnknownSync(AgentSessionSnapshot)({
   controller: "user",
   createdAt: at,
   currentUrl: "http://127.0.0.1/shop",
-  flowSkillName: "cart",
+  flowName: "cart",
   id: "agent-event-test",
   interruptedAction: null,
   ownerProcessId: "process-test",
@@ -66,7 +66,7 @@ const manifest = (
       viewport: { deviceScaleFactor: 1, height: 480, width: 640 },
     },
     eventOrigin: origin,
-    flowSkillName: "cart",
+    flowName: "cart",
     lifecycle,
     receipts: [
       {
@@ -473,7 +473,7 @@ it.effect(
           "reject",
           { _tag: "pending" },
           {
-            _tag: "skill-drafted",
+            _tag: "flow-drafted",
             draftedAt: at,
             readyAt: at,
             startedAt: at,
@@ -502,10 +502,10 @@ it.effect(
       );
       const result = yield* log.read(teaching.id, initial.eventCursor);
       expect(result.events.map((event) => event.kind)).toEqual([
-        "flow-skill-verified",
+        "flow-verified",
         "cleanup-failed",
         "cleanup-completed",
-        "flow-skill-rejected",
+        "flow-rejected",
         "dry-run-stopped",
       ]);
       const agentLog = makeSessionEvents();

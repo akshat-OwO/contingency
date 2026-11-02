@@ -1,6 +1,6 @@
 import {
   AgentPursuitResult,
-  FlowSkillName,
+  FlowName,
   OperationId,
 } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
@@ -99,7 +99,7 @@ const pageShows = (request: Questions, text: string) =>
 
 interface PursueOptions {
   readonly doneWhen?: string;
-  readonly flowSkillName?: FlowSkillName;
+  readonly flowName?: FlowName;
   readonly goal?: string;
   readonly irreversible?: boolean;
   readonly maxActions?: number;
@@ -153,7 +153,7 @@ it.live(
       yield* Effect.scoped(
         Effect.gen(function* exercisePursuits() {
           const started = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-delivery-cart"),
+            example: FlowName.make("example-delivery-cart"),
             inputs: [
               { name: "product", value: "Trail Hammer" },
               { name: "city", value: "Denver" },
@@ -357,9 +357,9 @@ it.live(
       yield* Effect.scoped(
         Effect.gen(function* exercisePrivateInput() {
           const sessions = yield* AgentSession;
-          const flowSkillName = FlowSkillName.make("example-signed-in-return");
+          const flowName = FlowName.make("example-signed-in-return");
           const started = yield* exampleTool("agent_example_run_start", {
-            example: flowSkillName,
+            example: flowName,
             inputs: [
               { name: "order", value: "RH-1057" },
               { name: "reason", value: "Wrong item" },
@@ -381,19 +381,19 @@ it.live(
           };
           const goal = {
             doneWhen: 'The "Password" field holds the password.',
-            flowSkillName,
+            flowName,
             goal: "Enter the demo password in Password.",
           };
           const waiting = yield* pursue(sessionId, "secret-first", goal);
           expect(waiting.ending).toBe("needs-input");
           expect(waiting.missingVariable).toEqual({
-            flowSkillName,
+            flowName,
             name: "DEMO_PASSWORD",
           });
 
           const asked = yield* sessions.requestTaskVariable(
             sessionId,
-            flowSkillName,
+            flowName,
             "DEMO_PASSWORD",
             operation("secret-request")
           );
@@ -441,7 +441,7 @@ it.live("confirms quoted text only when the step brought it about", () =>
     yield* Effect.scoped(
       Effect.gen(function* exerciseQuotedChange() {
         const started = yield* exampleTool("agent_example_run_start", {
-          example: FlowSkillName.make("example-delivery-cart"),
+          example: FlowName.make("example-delivery-cart"),
           inputs: [
             { name: "product", value: "Trail Hammer" },
             { name: "city", value: "Denver" },
@@ -464,13 +464,13 @@ it.live("confirms quoted text only when the step brought it about", () =>
         const refused = yield* Effect.flip(
           pursue(started.id, "quoted-refused", {
             doneWhen: "The hammer is in the cart.",
-            flowSkillName: FlowSkillName.make("1mg mweb login"),
+            flowName: FlowName.make("1mg mweb login"),
             goal: "Add {{product}} to the cart, then click e21.",
           })
         );
         expect(refused.code).toBe("pursuit_steps_invalid");
         expect(refused.message).toMatch(
-          /^No action was taken\. flowSkillName 1mg mweb login is not referenced by this Run; use one of example-delivery-cart/u
+          /^No action was taken\. flowName 1mg mweb login is not referenced by this Run; use one of example-delivery-cart/u
         );
         expect(refused.message).toContain("steps[1].goal names an element");
         expect(refused.message).toContain("steps[1].doneWhen quotes no text");
@@ -529,7 +529,7 @@ it.live(
       yield* Effect.scoped(
         Effect.gen(function* exerciseSteps() {
           const started = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-delivery-cart"),
+            example: FlowName.make("example-delivery-cart"),
             inputs: [
               { name: "product", value: "Trail Hammer" },
               { name: "city", value: "Denver" },
@@ -697,7 +697,7 @@ it.live(
         Effect.gen(function* exerciseRetries() {
           const replays = yield* PursuitReplays;
           const started = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-delivery-cart"),
+            example: FlowName.make("example-delivery-cart"),
             inputs: [
               { name: "product", value: "Trail Hammer" },
               { name: "city", value: "Denver" },
@@ -795,7 +795,7 @@ it.live("records a step that acted when its call fails or is interrupted", () =>
     yield* Effect.scoped(
       Effect.gen(function* exerciseUnfinishedSteps() {
         const started = yield* exampleTool("agent_example_run_start", {
-          example: FlowSkillName.make("example-delivery-cart"),
+          example: FlowName.make("example-delivery-cart"),
           inputs: [
             { name: "product", value: "Trail Hammer" },
             { name: "city", value: "Denver" },

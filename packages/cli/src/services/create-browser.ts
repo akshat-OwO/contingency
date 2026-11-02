@@ -1037,7 +1037,7 @@ const LAUNCH_OPTIONS: LaunchOptions = {
 const launchChromium = async (
   performanceDirectory?: string
 ): Promise<LaunchedBrowser> => {
-  // Runs keep scan capability when skills are added later. Teaching and video
+  // Runs keep scan capability when flows are added later. Teaching and video
   // composition use a separate process without a debugging port.
   const persistent =
     performanceDirectory === undefined

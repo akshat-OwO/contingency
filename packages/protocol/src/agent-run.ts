@@ -10,7 +10,7 @@ import {
 } from "./browser-checks.ts";
 import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation, IgnoredSecret } from "./emulation.ts";
-import { FlowSkillName } from "./flow-skill-identifiers.ts";
+import { FlowName } from "./flow-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { RunVideoTimeMap } from "./run-video.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
@@ -21,7 +21,7 @@ const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
 const positiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 /**
- * One Interactive Run of a verified Flow Skill. It is a durable artifact with
+ * One Interactive Run of a verified Flow. It is a durable artifact with
  * its own identity: an Agent Session is the ephemeral envelope that performed
  * it, and dies with its MCP process, while the Run outlives both
  * ([ADR 0029](../../../docs/adr/0029-contingency-owns-the-sole-runner.md)).
@@ -184,8 +184,8 @@ export const LegacyAgentRunState = Schema.Struct({
   attribution: AgentRunAttribution,
   coverage: AgentRunCoverage,
   endedAt: Schema.NullOr(nonEmptyString),
-  /** The Flow Skill directory name this Run follows. */
-  flowSkillName: FlowSkillName,
+  /** The Flow directory name this Run follows. */
+  flowName: FlowName,
   /**
    * The declared inputs this Run was started with, including their values.
    */
@@ -207,7 +207,7 @@ export const LegacyAgentRunState = Schema.Struct({
   steps: Schema.Array(AgentRunStep).check(Schema.isMinLength(1)),
   title: nonEmptyString,
   /**
-   * The Flow Skill's declared inputs. The Run asks for them again rather than
+   * The Flow's declared inputs. The Run asks for them again rather than
    * persisting literals, so the Workspace reports only whether each has been
    * supplied (ADR 0039).
    */
@@ -237,7 +237,7 @@ export const LegacyAgentRunSummary = Schema.Struct({
   ceilings: Schema.optional(LegacyAgentRunCeilings),
   coverage: AgentRunCoverage,
   endedAt: nonEmptyString,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   /** Declared inputs and their values. */
   inputs: Schema.Array(
     Schema.Struct({
@@ -263,7 +263,7 @@ export const LegacyAgentRunSummary = Schema.Struct({
 }).annotate({ identifier: "LegacyAgentRunSummary" });
 export type LegacyAgentRunSummary = typeof LegacyAgentRunSummary.Type;
 
-/** Version 1 predates Flow Skills; retain its identities and original account. */
+/** Version 1 predates Flows; retain its identities and original account. */
 export const LegacyAgentFlowRunSummary = Schema.Struct({
   agentFlowId: Schema.String.check(
     Schema.isPattern(/^flow-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u)
@@ -296,21 +296,21 @@ export const LegacyAgentFlowRunSummary = Schema.Struct({
 }).annotate({ identifier: "LegacyAgentFlowRunSummary" });
 export type LegacyAgentFlowRunSummary = typeof LegacyAgentFlowRunSummary.Type;
 
-/** A skill requested by the user, including requests made after startup. */
-export const AgentRunSkillReference = Schema.Struct({
-  flowSkillName: FlowSkillName,
+/** A flow requested by the user, including requests made after startup. */
+export const AgentRunFlowReference = Schema.Struct({
+  flowName: FlowName,
   /**
-   * `example` marks a read-only Example Flow Skill bundled with Contingency
-   * rather than a user-verified catalog skill (ADR 0050).
+   * `example` marks a read-only Example Flow bundled with Contingency
+   * rather than a user-verified catalog flow (ADR 0050).
    */
   origin: Schema.optional(Schema.Literal("example")),
   referencedAt: nonEmptyString,
 });
-export type AgentRunSkillReference = typeof AgentRunSkillReference.Type;
+export type AgentRunFlowReference = typeof AgentRunFlowReference.Type;
 
-/** The skill and name together identify an input. Secret literals never travel. */
+/** The flow and name together identify an input. Secret literals never travel. */
 export const AgentRunInputIdentity = Schema.Struct({
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   name: nonEmptyString,
 });
 export type AgentRunInputIdentity = typeof AgentRunInputIdentity.Type;
@@ -324,7 +324,7 @@ export type AgentRunTaskInput = typeof AgentRunTaskInput.Type;
 
 export const AgentRunTaskVariable = Schema.Struct({
   ...AgentSessionVariableState.fields,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   lastAnswer: Schema.optional(Schema.Literals(["supplied", "refused"])),
 });
 export type AgentRunTaskVariable = typeof AgentRunTaskVariable.Type;
@@ -347,7 +347,7 @@ export const AgentTaskAssessment = Schema.Struct({
   evidence: Schema.Array(AgentTaskEvidence).check(Schema.isMinLength(1)),
   explanation: nonEmptyString,
   outcome: AgentAssessmentOutcome,
-  /** Required for Dry Run reports: whether the complete skill outcome was attempted. */
+  /** Required for Dry Run reports: whether the complete flow outcome was attempted. */
   outcomeComplete: Schema.optional(Schema.Boolean),
   submittedAt: nonEmptyString,
 });
@@ -373,7 +373,7 @@ export type AgentTaskRunOutcome = typeof AgentTaskRunOutcome.Type;
 export const AgentTaskRunPurpose = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("interactive") }),
   Schema.Struct({
-    flowSkillName: FlowSkillName,
+    flowName: FlowName,
     kind: Schema.Literal("dry-run"),
     recordingId: TeachingRecordingId,
     takeoverOccurred: Schema.Boolean,
@@ -382,13 +382,13 @@ export const AgentTaskRunPurpose = Schema.Union([
 export type AgentTaskRunPurpose = typeof AgentTaskRunPurpose.Type;
 
 export const RunEmulationSource = Schema.Struct({
-  flowSkillName: Schema.optional(FlowSkillName),
-  kind: Schema.Literals(["default", "flow-skill", "teaching"]),
+  flowName: Schema.optional(FlowName),
+  kind: Schema.Literals(["default", "flow", "teaching"]),
 });
 
 export const RunEmulationConflict = Schema.Struct({
   differingFields: Schema.Array(nonEmptyString),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   recovery: nonEmptyString,
 });
 export type RunEmulationConflict = typeof RunEmulationConflict.Type;
@@ -422,7 +422,7 @@ const taskRunFields = {
   purpose: AgentTaskRunPurpose,
   /** Sub-goals delegated to System One, absent before the first (ADR 0057). */
   pursuits: Schema.optional(Schema.Array(AgentPursuitRecord)),
-  referencedSkills: Schema.Array(AgentRunSkillReference),
+  referencedFlows: Schema.Array(AgentRunFlowReference),
   requestedTask: nonEmptyString,
   runId: AgentRunId,
   scanReports: scanReportsField,
@@ -438,18 +438,16 @@ const TaskAgentRunRecord = Schema.Struct(taskRunFields);
 
 const taskInputIdentity = Schema.makeFilter(
   (run: typeof TaskAgentRunRecord.Type) => {
-    const skills = new Set(
-      run.referencedSkills.map((skill) => skill.flowSkillName)
-    );
+    const flows = new Set(run.referencedFlows.map((flow) => flow.flowName));
     for (const inputs of [run.inputs, run.variables]) {
       const identities = new Set<string>();
       for (const input of inputs) {
-        if (!skills.has(input.flowSkillName)) {
-          return "Inputs and Variables must belong to a referenced Flow Skill.";
+        if (!flows.has(input.flowName)) {
+          return "Inputs and Variables must belong to a referenced Flow.";
         }
-        const identity = JSON.stringify([input.flowSkillName, input.name]);
+        const identity = JSON.stringify([input.flowName, input.name]);
         if (identities.has(identity)) {
-          return "Input and Variable identities must be unique within their Flow Skill.";
+          return "Input and Variable identities must be unique within their Flow.";
         }
         identities.add(identity);
       }
@@ -502,7 +500,7 @@ export const AgentTaskRunStart = Schema.Struct({
   clientVersion: optionalNullable(nonEmptyString),
   inputs: Schema.Array(AgentRunTaskInput),
   operationId: OperationId,
-  referencedSkills: Schema.Array(FlowSkillName),
+  referencedFlows: Schema.Array(FlowName),
   reportedModel: optionalNullable(nonEmptyString),
   reportedProvider: optionalNullable(nonEmptyString),
   requestedTask: nonEmptyString,
@@ -523,14 +521,14 @@ export const agentRunVideoPath = (runId: AgentRunId | string): string =>
 // ---------------------------------------------------------------------------
 
 /**
- * Start an Interactive Run of a verified Flow Skill. There is no revision to
- * name: the Flow Skill directory in the selected Catalog Root is the single
+ * Start an Interactive Run of a verified Flow. There is no revision to
+ * name: the Flow directory in the selected Catalog Root is the single
  * reusable source of truth (ADR 0039).
  */
-export const FlowSkillRunStart = Schema.Struct({
+export const FlowRunStart = Schema.Struct({
   clientName: optionalNullable(nonEmptyString),
   clientVersion: optionalNullable(nonEmptyString),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   /**
    * The declared inputs and their values, supplied again for this Run.
    */
@@ -545,10 +543,10 @@ export const FlowSkillRunStart = Schema.Struct({
   /** Client-asserted, stored unverified. */
   reportedModel: optionalNullable(nonEmptyString),
   reportedProvider: optionalNullable(nonEmptyString),
-  /** Where the Run opens. The Flow Skill's first step names the page. */
+  /** Where the Run opens. The Flow's first step names the page. */
   url: nonEmptyString,
 });
-export type FlowSkillRunStart = typeof FlowSkillRunStart.Type;
+export type FlowRunStart = typeof FlowRunStart.Type;
 
 export const AgentRunStepAssess = Schema.Struct({
   evidence: AgentAssessment.fields.evidence,

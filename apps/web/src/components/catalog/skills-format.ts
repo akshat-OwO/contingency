@@ -34,7 +34,7 @@ const PHASE = new Map([
   ["ready", "Recording saved"],
   ["recording", "Recording"],
   ["setup", "Not recording"],
-  ["skill-drafted", "Flow skill drafted"],
+  ["flow-drafted", "Flow skill drafted"],
   ["verified", "Verified"],
 ]);
 

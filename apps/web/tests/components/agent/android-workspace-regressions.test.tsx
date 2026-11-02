@@ -1,4 +1,4 @@
-import { AgentSessionId, FlowSkillName } from "@contingency/protocol";
+import { AgentSessionId, FlowName } from "@contingency/protocol";
 import type { AndroidWorkspaceSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -26,7 +26,7 @@ const completed: AndroidWorkspaceSnapshot = {
   controller: "user",
   error: null,
   field: null,
-  flowSkillName: FlowSkillName.make("finished-checkout"),
+  flowName: FlowName.make("finished-checkout"),
   id: AgentSessionId.make("agent-completed"),
   kind: "run",
   observation: null,
@@ -62,7 +62,7 @@ const completed: AndroidWorkspaceSnapshot = {
 };
 const paused = {
   ...completed,
-  flowSkillName: FlowSkillName.make("paused-checkout"),
+  flowName: FlowName.make("paused-checkout"),
   id: AgentSessionId.make("agent-paused"),
   phase: "paused",
 } as const;

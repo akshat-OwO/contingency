@@ -1,4 +1,4 @@
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
@@ -31,7 +31,7 @@ it.live(
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const started = yield* sessionTool("agent_guided_run_start", {
           group: "",
-          name: FlowSkillName.make("guided-state"),
+          name: FlowName.make("guided-state"),
           operationId: operation("start"),
           url: fixture.url("devtools.html"),
           viewport: agentViewport,
@@ -141,7 +141,7 @@ it.live(
         );
         expect(JSON.stringify(timeline)).not.toContain("x-discarded");
         const refused = yield* Effect.flip(
-          teachingRecordingTool("agent_flow_skill_save", {
+          teachingRecordingTool("agent_flow_save", {
             claimOperationId,
             files: [
               {
@@ -155,7 +155,7 @@ it.live(
           })
         );
         expect(refused.message).toContain("HEADER_X_CAPTURE");
-        const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
+        const saved = yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId,
           files: [
             {
@@ -177,18 +177,15 @@ it.live(
           `${root}/guided-state/browser-state.json`
         );
         expect(required).toContain("capture-mock");
-        const dry = yield* teachingRecordingTool(
-          "agent_flow_skill_dry_run_start",
-          {
-            inputs: [
-              { changed: true, name: "COOKIE_QA" },
-              { changed: true, name: "HEADER_X_CAPTURE" },
-            ],
-            operationId: operation("dry"),
-            recordingId,
-            url: fixture.url("devtools.html"),
-          }
-        );
+        const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
+          inputs: [
+            { changed: true, name: "COOKIE_QA" },
+            { changed: true, name: "HEADER_X_CAPTURE" },
+          ],
+          operationId: operation("dry"),
+          recordingId,
+          url: fixture.url("devtools.html"),
+        });
         const snapshot = yield* sessionTool("agent_browser_snapshot", {
           sessionId: dry.session.id,
         });
@@ -210,7 +207,7 @@ it.live(
           message: expect.stringContaining("every saved Browser Modification"),
         });
         yield* sessionTool("agent_variable_request", {
-          flowSkillName: FlowSkillName.make("guided-state"),
+          flowName: FlowName.make("guided-state"),
           name: "COOKIE_QA",
           operationId: operation("request-cookie"),
           sessionId: dry.session.id,
@@ -249,7 +246,7 @@ it.live(
           textScale: 150,
         });
         yield* sessionTool("agent_variable_request", {
-          flowSkillName: FlowSkillName.make("guided-state"),
+          flowName: FlowName.make("guided-state"),
           name: "HEADER_X_CAPTURE",
           operationId: operation("request-header"),
           sessionId: dry.session.id,

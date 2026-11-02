@@ -8,7 +8,7 @@ import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
@@ -55,7 +55,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
               allowedActivity: "any",
               baseUrl: BASE_URL,
             }),
-            makeFlowSkillCatalogLayer({ root: catalogRoot }),
+            makeFlowCatalogLayer({ root: catalogRoot }),
             makeAgentRunStoreLayer({ root: () => catalogRoot }),
             makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
           ).pipe(

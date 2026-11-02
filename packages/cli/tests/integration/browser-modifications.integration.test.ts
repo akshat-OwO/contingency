@@ -1,7 +1,7 @@
 import {
   AgentSessionId,
   BrowserModification,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
 } from "@contingency/protocol";
@@ -17,7 +17,7 @@ import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeBrowserModifications } from "../../src/services/browser-modifications.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
-import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
+import { stampFlowVerification } from "../../src/services/flow-package.ts";
 import {
   evidenceDirectory,
   agentProcessLayer,
@@ -52,7 +52,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("start"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Check browser modifications",
           url: fixture.url("devtools.html"),
         });
@@ -484,7 +484,7 @@ it.live(
         const dry = yield* sessions.start({
           activity: "run",
           dryRun: {
-            flowSkillName: FlowSkillName.make("dry"),
+            flowName: FlowName.make("dry"),
             inputs: [],
             recordingId: TeachingRecordingId.make("recording-dry"),
           },
@@ -510,7 +510,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("secret-run"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Prove scoped routes",
           url: fixture.url("shop.html"),
         });
@@ -575,7 +575,7 @@ it.live(
 );
 
 it.live(
-  "keeps modifications across Flow Skills and redacts secret Variables in the persisted Summary",
+  "keeps modifications across Flows and redacts secret Variables in the persisted Summary",
   () =>
     Effect.gen(function* composedEvidence() {
       const fs = yield* FileSystem.FileSystem;
@@ -611,13 +611,13 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("composed-start"),
-          referencedSkills: [FlowSkillName.make("first")],
+          referencedFlows: [FlowName.make("first")],
           requestedTask: "Inspect both skills",
           url: fixture.url("shop.html"),
         });
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const request = yield* sessionTool("agent_variable_request", {
-          flowSkillName: FlowSkillName.make("first"),
+          flowName: FlowName.make("first"),
           name: "PASSWORD",
           operationId: OperationId.make("request-secret"),
           sessionId: run.id,
@@ -662,7 +662,7 @@ it.live(
           inputs: [],
           instruction: "Continue with the second skill",
           operationId: OperationId.make("reference-second"),
-          referencedSkills: [FlowSkillName.make("second")],
+          referencedFlows: [FlowName.make("second")],
           sessionId: run.id,
         });
         const browser = yield* CreateBrowser;

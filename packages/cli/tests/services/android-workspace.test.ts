@@ -4,7 +4,7 @@ import {
   AgentSessionId,
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
-  FlowSkillName,
+  FlowName,
   OperationId,
 } from "@contingency/protocol";
 import type {
@@ -38,7 +38,7 @@ import {
   makeAndroidWorkspaceLayer,
 } from "../../src/services/android-workspace.ts";
 import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   DeviceWorkspaceTools,
   DeviceWorkspaceToolHandlersLive,
@@ -79,7 +79,7 @@ const selection: AndroidWorkspaceSelection = {
   },
 };
 const op = OperationId.make;
-const flowSkillName = FlowSkillName.make("android-edit");
+const flowName = FlowName.make("android-edit");
 const image =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
 const skill = `---\nname: android-edit\ndescription: Edit a public fixture field and return Home. Use when testing the Android fixture.\ninputs:\n---\n\n# Edit the fixture\n\n1. Activate the button named Edit. Done when: the public field is visible.\n2. Enter public fixture text. Done when: the field shows the value.\n3. Go back. Done when: Home is visible.\n`;
@@ -251,7 +251,7 @@ const fixture = (
       const store = makeTeachingRecordingStoreLayer({ root: () => root });
       const dependencies = Layer.mergeAll(
         store,
-        makeFlowSkillCatalogLayer({ root }),
+        makeFlowCatalogLayer({ root }),
         factory
       );
       const workspace = makeAndroidWorkspaceLayer({ root: () => root }).pipe(
@@ -265,7 +265,7 @@ const fixture = (
             Layer.provide(
               Layer.mergeAll(
                 makeTeachingRecordingStoreLayer({ root: () => root }),
-                makeFlowSkillCatalogLayer({ root }),
+                makeFlowCatalogLayer({ root }),
                 factory
               )
             )
@@ -310,7 +310,7 @@ const taught = Effect.gen(function* recordAndLearn() {
   const started = yield* workspace.execute(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "teaching",
       operationId: op("start-teaching"),
       recordingId: null,
@@ -405,7 +405,7 @@ const dryRun = (recordingId: TeachingRecordingId) =>
     const started = yield* workspace.execute(
       {
         _tag: "start",
-        flowSkillName,
+        flowName,
         kind: "dry-run",
         operationId: op("start-dry"),
         recordingId,
@@ -432,7 +432,7 @@ it.effect("starts, reads, and lists Android through the device tools", () =>
           command: {
             _tag: "start",
             agentSetup: true,
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("device-tool-start"),
             recordingId: null,
@@ -479,7 +479,7 @@ it.effect(
           workspace.execute(
             {
               _tag: "start",
-              flowSkillName,
+              flowName,
               kind: "teaching",
               operationId: op(id),
               recordingId: null,
@@ -548,7 +548,7 @@ it.effect(
         const started = yield* workspace.execute(
           {
             _tag: "start",
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("start-back"),
             recordingId: null,
@@ -619,7 +619,7 @@ it.effect("cancelling a mirror capture leaves Teaching intact", () =>
       const started = yield* workspace.execute(
         {
           _tag: "start",
-          flowSkillName,
+          flowName,
           kind: "teaching",
           operationId: op("start-teaching"),
           recordingId: null,
@@ -676,7 +676,7 @@ it.effect(
         const started = yield* workspace.execute(
           {
             _tag: "start",
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("mirror-start"),
             recordingId: null,
@@ -788,7 +788,7 @@ it.effect(
         const later = yield* workspace.execute(
           {
             _tag: "start",
-            flowSkillName,
+            flowName,
             kind: "run",
             operationId: op("later"),
             recordingId: null,
@@ -797,7 +797,7 @@ it.effect(
           "agent"
         );
         expect(later.kind).toBe("run");
-        expect(yield* workspace.activeRunFlowNames()).toContain(flowSkillName);
+        expect(yield* workspace.activeRunFlowNames()).toContain(flowName);
         yield* workspace.execute(
           {
             _tag: "close",
@@ -878,7 +878,7 @@ it.effect(
         const started = yield* workspace.execute(
           {
             _tag: "start",
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("start"),
             recordingId: null,
@@ -938,7 +938,7 @@ const preparePick = Effect.gen(function* preparePickSession() {
   const started = yield* workspace.execute(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "teaching",
       operationId: op("pick-start"),
       recordingId: null,
@@ -1446,7 +1446,7 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
     Schema.is(parameters)({
       command: {
         _tag: "start",
-        flowSkillName,
+        flowName,
         kind: "teaching",
         operationId: command.operationId,
         recordingId: null,
@@ -1562,7 +1562,7 @@ it.effect(
         const started = yield* workspace.execute(
           {
             _tag: "start",
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("private-start"),
             recordingId: null,
@@ -1694,7 +1694,7 @@ it.effect(
           const run = yield* workspace.execute(
             {
               _tag: "start",
-              flowSkillName,
+              flowName,
               kind,
               operationId: op(`private-${kind}`),
               recordingId: kind === "dry-run" ? recordingId : null,
@@ -1781,7 +1781,7 @@ it.effect(
           {
             _tag: "start",
             agentSetup: true,
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("setup-start"),
             recordingId: null,
@@ -1906,7 +1906,7 @@ it.effect(
           {
             _tag: "start",
             agentSetup: true,
-            flowSkillName,
+            flowName,
             kind: "teaching",
             operationId: op("refusal-start"),
             recordingId: null,
@@ -2243,7 +2243,7 @@ for (const existing of [false, true]) {
             Extract<AndroidWorkspaceCommand, { _tag: "start" }>
           > = {
             _tag: "start",
-            flowSkillName: FlowSkillName.make("checkout"),
+            flowName: FlowName.make("checkout"),
             kind: "teaching",
             operationId: op("grouped-start"),
             recordingId: null,
@@ -2262,7 +2262,7 @@ for (const existing of [false, true]) {
             path.join(owner, "recordings", started.recordingId)
           );
           expect(yield* fs.exists(path.join(root, "checkout"))).toBe(false);
-          expect((yield* store.read(started.recordingId)).flowSkillName).toBe(
+          expect((yield* store.read(started.recordingId)).flowName).toBe(
             "checkout"
           );
           yield* workspace.execute(

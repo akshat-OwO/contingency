@@ -49,7 +49,7 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Context attachments have no requirement and do not constrain Runs.
    - Link the file and check IDs at the triggering procedure points.
    - Browser Checks survive Recording Cleanup.
-   - Use agent_browser_act checkIds:[{flowSkillName,id}] with the triggering action, or agent_browser_snapshot checkIds for current-state storage checks.
+   - Use agent_browser_act checkIds:[{flowName,id}] with the triggering action, or agent_browser_snapshot checkIds for current-state storage checks.
    - Each grouped itemPath wildcard selects one unordered item satisfying every predicate; numeric path segments select explicit indices.
    - Storage paths require format "json".
    - Keep Not demonstrated expectations for the fresh Dry Run.
@@ -81,9 +81,9 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Mark Pursuits as Delegated in the learned procedure with the sub-goal, Done when condition, and recorded ending.
    - A later agent may perform that work itself when System One is unavailable.
 
-6. Save with agent_flow_skill_save. A refusal returns one diagnostic per broken property; fix those exact paths and save again.
+6. Save with agent_flow_save. A refusal returns one diagnostic per broken property; fix those exact paths and save again.
 
-7. Ask for ordinary inputs again and change at least one demonstrated input when the task permits it. Start a fresh-context Dry Run with agent_flow_skill_dry_run_start.
+7. Ask for ordinary inputs again and change at least one demonstrated input when the task permits it. Start a fresh-context Dry Run with agent_flow_dry_run_start.
 
    For an on-demand input omit its value; ask the user to supply it in the returned Workspace, then use its uppercase Variable name with agent_variable_enter. Follow the saved skill outcome under its Teaching hosts and Emulation; you may explore, recover, or choose another route.
 
@@ -92,10 +92,10 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Set replace:true to invalidate a previous value and reopen that field without restarting the browser.
    - A new input declaration requires revising the package and starting a fresh Dry Run.
 
-   - If setup requires user-requested verified Flow Skills, pass their names in prerequisites and all their ordinary inputs in prerequisiteInputs, scoped by flowSkillName and name.
+   - If setup requires user-requested verified Flow Skills, pass their names in prerequisites and all their ordinary inputs in prerequisiteInputs, scoped by flowName and name.
    - This set is fixed at startup; changes require a fresh Dry Run.
    - The start result includes their procedures.
-   - Request prerequisite on-demand inputs on demand with agent_variable_request, have the user supply or refuse them in Workspace, and enter them with agent_variable_enter using their declaring flowSkillName.
+   - Request prerequisite on-demand inputs on demand with agent_variable_request, have the user supply or refuse them in Workspace, and enter them with agent_variable_enter using their declaring flowName.
    - Set replace:true to request a fresh value for a retry.
    - Prerequisites share the tested skill's fresh context, Teaching hosts, and Emulation; they do not replace its complete outcome or widen Domain Scope.
 
@@ -105,10 +105,10 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
    Completion is required for a passing report too.
 
-9. A failed report keeps the Teaching Recording and this claim. Fix the package and call agent_flow_skill_save with the same claim operation id, then start another Dry Run.
+9. A failed report keeps the Teaching Recording and this claim. Fix the package and call agent_flow_save with the same claim operation id, then start another Dry Run.
 
 10. After a pass, show the result and link the Workspace. The user may verify or reject there, or tell you.
 
-    Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Relay a conversation choice with agent_flow_skill_decide.
+    Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Relay a conversation choice with agent_flow_decide.
 
     A pass retains the Teaching Recording until explicit verification.

@@ -1,6 +1,6 @@
 import type {
   AgentSessionSnapshot,
-  CatalogFlowSkillEntry,
+  CatalogFlowEntry,
   CatalogRecordingEntry,
   CatalogRootScope,
   CatalogRootView,
@@ -32,7 +32,7 @@ export type SkillsSelection =
     }
   | {
       readonly kind: "skill";
-      readonly name: CatalogFlowSkillEntry["name"];
+      readonly name: CatalogFlowEntry["name"];
       readonly scope: CatalogRootScope;
     };
 
@@ -85,12 +85,12 @@ export type SkillsSessionView =
   | {
       readonly activity: "teaching";
       readonly captureState: string;
-      readonly flowSkillName: string;
+      readonly flowName: string;
     }
   | {
       readonly activity: "run";
       readonly dryRun: boolean;
-      readonly flowSkillNames: readonly string[];
+      readonly flowNames: readonly string[];
     };
 
 export const skillsSessionView = (
@@ -103,15 +103,15 @@ export const skillsSessionView = (
     return {
       activity: "teaching",
       captureState: session.captureState._tag,
-      flowSkillName: session.flowSkillName,
+      flowName: session.flowName,
     };
   }
   const taskRun = sessionTaskRun(session);
-  const flowSkillNames =
+  const flowNames =
     taskRun === undefined
-      ? [session.flowSkillName].filter((name) => name !== null)
-      : taskRun.referencedSkills.map((skill) => skill.flowSkillName);
-  return { activity: "run", dryRun: session.dryRun !== null, flowSkillNames };
+      ? [session.flowName].filter((name) => name !== null)
+      : taskRun.referencedFlows.map((skill) => skill.flowName);
+  return { activity: "run", dryRun: session.dryRun !== null, flowNames };
 };
 
 /** Capture is user-led; nothing in the dock competes with the journey. */
@@ -151,21 +151,21 @@ export const sessionSkills = (
   }
   if (session.activity === "teaching") {
     return UNSAVED.has(session.captureState)
-      ? { labels: new Map(), pending: session.flowSkillName }
+      ? { labels: new Map(), pending: session.flowName }
       : {
-          labels: new Map([[session.flowSkillName, "This session"]]),
+          labels: new Map([[session.flowName, "This session"]]),
           pending: undefined,
         };
   }
   const label = session.dryRun ? "This Dry Run" : "In this run";
   return {
-    labels: new Map(session.flowSkillNames.map((name) => [name, label])),
+    labels: new Map(session.flowNames.map((name) => [name, label])),
     pending: undefined,
   };
 };
 
 export const matchesQuery = (
-  skill: Pick<CatalogFlowSkillEntry, "name">,
+  skill: Pick<CatalogFlowEntry, "name">,
   query: string
 ): boolean => skill.name.toLowerCase().includes(query.trim().toLowerCase());
 
@@ -173,13 +173,13 @@ export const runsForSkill = (
   root: CatalogRootView,
   name: string
 ): readonly CatalogRunEntry[] =>
-  root.runs.filter((run) => run.flowSkillNames.some((skill) => skill === name));
+  root.runs.filter((run) => run.flowNames.some((skill) => skill === name));
 
 export const recordingsForSkill = (
   root: CatalogRootView,
   name: string
 ): readonly CatalogRecordingEntry[] =>
-  root.recordings.filter((recording) => recording.flowSkillName === name);
+  root.recordings.filter((recording) => recording.flowName === name);
 
 /**
  * Runs no listed skill in this root claims: Runs that referenced no skill,
@@ -188,24 +188,20 @@ export const recordingsForSkill = (
 export const looseRuns = (root: CatalogRootView): readonly CatalogRunEntry[] =>
   root.runs.filter(
     (run) =>
-      !run.flowSkillNames.some((name) =>
-        root.flowSkills.some((skill) => skill.name === name)
+      !run.flowNames.some((name) =>
+        root.flows.some((skill) => skill.name === name)
       )
   );
 
 export const orphanRecordings = (
   root: CatalogRootView
 ): readonly CatalogRecordingEntry[] => {
-  const listed = new Set(root.flowSkills.map((skill) => skill.name));
-  return root.recordings.filter(
-    (recording) => !listed.has(recording.flowSkillName)
-  );
+  const listed = new Set(root.flows.map((skill) => skill.name));
+  return root.recordings.filter((recording) => !listed.has(recording.flowName));
 };
 
 export const hasBrowsableEntries = (root: CatalogRootView): boolean =>
-  root.flowSkills.length > 0 ||
-  root.runs.length > 0 ||
-  root.recordings.length > 0;
+  root.flows.length > 0 || root.runs.length > 0 || root.recordings.length > 0;
 
 /** Ignore a choice whose folder disappeared on a catalog refresh. */
 export const availableFolder = (
@@ -223,14 +219,14 @@ export const availableFolder = (
   if (folder.kind === "recordings") {
     return orphanRecordings(root).length > 0 ? folder : undefined;
   }
-  return root.flowSkills.some((skill) => skill.name === folder.name) ||
+  return root.flows.some((skill) => skill.name === folder.name) ||
     (folder.scope === "local" && skills.pending === folder.name)
     ? folder
     : undefined;
 };
 
 export const skillCount = (roots: readonly CatalogRootView[]): number =>
-  roots.reduce((total, root) => total + root.flowSkills.length, 0);
+  roots.reduce((total, root) => total + root.flows.length, 0);
 
 export const runCountLabel = (count: number): string => {
   if (count === 0) {
@@ -250,13 +246,13 @@ export const defaultFolder = (
     return { kind: "skill", name: skills.pending, scope: "local" };
   }
   for (const root of roots) {
-    const own = root.flowSkills.find((skill) => skills.labels.has(skill.name));
+    const own = root.flows.find((skill) => skills.labels.has(skill.name));
     if (own !== undefined) {
       return { kind: "skill", name: own.name, scope: root.scope };
     }
   }
   for (const root of roots) {
-    const first = root.flowSkills.at(0);
+    const first = root.flows.at(0);
     if (first !== undefined) {
       return { kind: "skill", name: first.name, scope: root.scope };
     }
@@ -284,6 +280,6 @@ export const opensGlobal = (
     root !== undefined &&
     (query.trim() === ""
       ? hasBrowsableEntries(root)
-      : root.flowSkills.some((skill) => matchesQuery(skill, query)));
+      : root.flows.some((skill) => matchesQuery(skill, query)));
   return !hits(local) && hits(global) && skills.pending === undefined;
 };

@@ -6,7 +6,7 @@ import {
   AgentTimelineEntry,
 } from "./agent-browser.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
-import { FlowSkillName } from "./flow-skill-identifiers.ts";
+import { FlowName } from "./flow-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -25,7 +25,7 @@ export const PURSUIT_LIMITS = {
   timeoutMs: 40_000,
 } as const;
 
-/** One sub-goal, phrased as one Flow Skill step. */
+/** One sub-goal, phrased as one Flow step. */
 export const AgentPursuitStep = Schema.Struct({
   /**
    * What the Page must visibly show for the step to hold. Text in double
@@ -42,7 +42,7 @@ export type AgentPursuitStep = typeof AgentPursuitStep.Type;
  */
 export const AgentBrowserPursue = Schema.Struct({
   /** Whose inputs and Variables the Pursuit may use. Absent means all. */
-  flowSkillName: optionalNullable(FlowSkillName),
+  flowName: optionalNullable(FlowName),
   /** Pause every mutating action of this Pursuit for user Confirmation. */
   irreversible: optionalNullable(Schema.Boolean),
   maxActions: optionalNullable(
@@ -126,7 +126,7 @@ export const AgentPursuitResult = Schema.Struct({
   intervention: Schema.NullOr(AgentExecutionBoundary),
   /** The Variable a `needs-input` ending asks the agent to request. */
   missingVariable: Schema.NullOr(
-    Schema.Struct({ flowSkillName: FlowSkillName, name: nonEmptyString })
+    Schema.Struct({ flowName: FlowName, name: nonEmptyString })
   ),
   reason: nonEmptyString,
   /** The Page as the Pursuit last read it. */

@@ -113,16 +113,16 @@ export const agentSessionActivityLabel = (
 export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.activity === "teaching") {
     return session.origin === "guided-run"
-      ? `${session.flowSkillName} · Guided Run`
-      : session.flowSkillName;
+      ? `${session.flowName} · Guided Run`
+      : session.flowName;
   }
   if (session.dryRun) {
-    return `${session.dryRun.flowSkillName} · Dry Run`;
+    return `${session.dryRun.flowName} · Dry Run`;
   }
   const name =
     session.run !== null && "schemaVersion" in session.run
       ? session.run.title
-      : (session.run?.flowSkillName ?? session.flowSkillName);
+      : (session.run?.flowName ?? session.flowName);
   return `${name ?? session.clientName} · Interactive Run`;
 };
 

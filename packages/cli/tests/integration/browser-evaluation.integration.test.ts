@@ -2,7 +2,7 @@ import type { AgentSessionId } from "@contingency/protocol";
 import {
   AgentActionResult,
   BrowserModification,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
 } from "@contingency/protocol";
@@ -242,7 +242,7 @@ it.live(
           activity: "run",
           domainScope: { hosts: ["127.0.0.1"] },
           dryRun: {
-            flowSkillName: FlowSkillName.make("dry"),
+            flowName: FlowName.make("dry"),
             inputs: [],
             recordingId: TeachingRecordingId.make("recording-dry"),
           },
@@ -253,13 +253,13 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("run"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Inspect computed style",
           url: fixture.url("devtools.html"),
         });
         const guided = yield* sessionTool("agent_guided_run_start", {
           group: "",
-          name: FlowSkillName.make("eval-guided"),
+          name: FlowName.make("eval-guided"),
           operationId: OperationId.make("guided"),
           url: fixture.url("devtools.html"),
           viewport: agentViewport,
@@ -410,7 +410,7 @@ it.live(
           operationId: claimOperationId,
           recordingId: guided.recordingId,
         });
-        yield* teachingRecordingTool("agent_flow_skill_save", {
+        yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId,
           files: [
             {
@@ -513,7 +513,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("run"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Test confirmed evaluation",
           url: fixture.url("browser-evaluation.html"),
         });

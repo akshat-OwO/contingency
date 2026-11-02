@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { AgentRunSummary } from "@contingency/protocol";
-import type { AgentRunId, FlowSkillName } from "@contingency/protocol";
+import type { AgentRunId, FlowName } from "@contingency/protocol";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
@@ -44,7 +44,7 @@ export interface AgentRunStoreService {
    */
   readonly prepare: (
     runId: AgentRunId,
-    flows?: readonly FlowSkillName[]
+    flows?: readonly FlowName[]
   ) => Effect.Effect<string, AgentRunStoreError>;
   readonly read: (
     runId: AgentRunId
@@ -76,10 +76,7 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
   const fileSystem = yield* FileSystem.FileSystem;
 
   // Pin ownership at Start. Resolve the owner's name for every later write.
-  const owners = new Map<
-    AgentRunId,
-    { root: string; flow: FlowSkillName | null }
-  >();
+  const owners = new Map<AgentRunId, { root: string; flow: FlowName | null }>();
   const catalogError = (cause: { readonly message: string }) =>
     storeError("agent_run_invalid", cause.message);
 
@@ -124,7 +121,7 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
       return existing[0] ?? path.join(root, AGENT_RUNS_DIRECTORY, runId);
     });
 
-  const prepare = (runId: AgentRunId, flows?: readonly FlowSkillName[]) =>
+  const prepare = (runId: AgentRunId, flows?: readonly FlowName[]) =>
     Effect.gen(function* prepareRun() {
       if (flows !== undefined && !owners.has(runId)) {
         owners.set(runId, {

@@ -143,7 +143,7 @@ export const makeRunScans = (
                   : "Run browser settings",
               requirement: (owner.run.scanRequirements ?? []).find(
                 (scan) =>
-                  scan.flowSkillName === report.flowSkillName &&
+                  scan.flowName === report.flowName &&
                   scan.id === report.requirementId
               ),
               scan: report,
@@ -272,7 +272,7 @@ export const makeRunScans = (
       }
       const attempts = (owner.run.scanReports ?? []).filter(
         (report) =>
-          report.flowSkillName === requirement.flowSkillName &&
+          report.flowName === requirement.flowName &&
           report.requirementId === requirement.id
       );
       if (attempts.some((report) => report.status === "completed")) {
@@ -297,7 +297,7 @@ export const makeRunScans = (
         );
       }
       const report: ScanReport = {
-        flowSkillName: requirement.flowSkillName,
+        flowName: requirement.flowName,
         id: `scan-${randomUUID()}`,
         mode: requirement.mode,
         requirementId: requirement.id,

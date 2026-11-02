@@ -57,7 +57,7 @@ const remaining = (waiting: number, total: number) =>
 
 /** The heading a runtime Variable request takes, by who answers it where. */
 export const runtimeVariablesTitle = (session: AgentSessionSnapshot) => {
-  if (session.dryRun?.flowSkillName !== undefined) {
+  if (session.dryRun?.flowName !== undefined) {
     return "Prerequisite Variables";
   }
   if (takesExampleVariables(session)) {

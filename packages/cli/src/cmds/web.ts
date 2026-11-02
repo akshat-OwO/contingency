@@ -16,8 +16,8 @@ import {
 } from "../services/catalog-browser.ts";
 import {
   defaultCatalogRoot,
-  makeFlowSkillCatalogLayer,
-} from "../services/flow-skill-catalog.ts";
+  makeFlowCatalogLayer,
+} from "../services/flow-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
@@ -88,9 +88,7 @@ export const webCommand = Command.make(
               globalRoot: defaultGlobalCatalogRoot(),
               localRoot: () => selectedCatalogRoot,
             }).pipe(
-              Layer.provide(
-                makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
-              )
+              Layer.provide(makeFlowCatalogLayer({ root: selectedCatalogRoot }))
             )
           )
         );
@@ -119,7 +117,7 @@ export const webCommand = Command.make(
               Layer.provide(
                 Layer.merge(
                   teachingRecordingStore,
-                  makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
+                  makeFlowCatalogLayer({ root: selectedCatalogRoot })
                 )
               )
             )
@@ -133,7 +131,7 @@ export const webCommand = Command.make(
               Layer.provide(
                 Layer.merge(
                   teachingRecordingStore,
-                  makeFlowSkillCatalogLayer({ root: selectedCatalogRoot })
+                  makeFlowCatalogLayer({ root: selectedCatalogRoot })
                 )
               )
             )

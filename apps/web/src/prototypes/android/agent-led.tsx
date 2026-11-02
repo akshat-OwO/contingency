@@ -220,7 +220,7 @@ export const AgentLedPrototype = ({
             <DockWordmark />
             <span className="flex items-center gap-1.5 px-2 text-sm">
               <SmartphoneIcon aria-hidden="true" className="size-4" />
-              {session.flowSkillName}
+              {session.flowName}
             </span>
             <DockSpacer />
             {presentation.rejectable ? (

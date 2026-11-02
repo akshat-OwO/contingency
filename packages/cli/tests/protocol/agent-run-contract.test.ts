@@ -39,7 +39,7 @@ const summary = {
   },
   coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
   endedAt: "2026-09-04T00:01:00.000Z",
-  flowSkillName: "browse-catalogue",
+  flowName: "browse-catalogue",
   inputs: [{ name: "product", value: "Mug" }],
   outcome: "completed",
   runId: "agentrun-one",
@@ -68,7 +68,7 @@ const summary = {
   videoPath: "run.webm",
 };
 
-test("only a working Agent Assessment advances a Flow Skill", () => {
+test("only a working Agent Assessment advances a Flow", () => {
   const outcomes = AgentAssessmentOutcome.literals;
   expect(outcomes.filter((outcome) => advancesAgentRun(outcome))).toEqual([
     "working",

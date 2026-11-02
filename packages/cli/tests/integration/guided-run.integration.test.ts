@@ -4,7 +4,7 @@ import { buffer } from "node:stream/consumers";
 import type { GuidedRunCheckProposal } from "@contingency/protocol";
 import {
   ContingencyRpcs,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
@@ -53,7 +53,7 @@ it.live(
         const sessions = yield* AgentSession;
         const params = {
           group: "",
-          name: FlowSkillName.make("guided-delivery"),
+          name: FlowName.make("guided-delivery"),
           operationId: operation("guided-start"),
           url: fixtures.url("delivery.html"),
           viewport: agentViewport,
@@ -402,7 +402,7 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
           const sessions = yield* AgentSession;
           const started = yield* sessionTool("agent_guided_run_start", {
             group: "",
-            name: FlowSkillName.make("guided-close"),
+            name: FlowName.make("guided-close"),
             operationId: operation("start"),
             url: fixtures.url("delivery.html"),
             viewport: agentViewport,
@@ -569,7 +569,7 @@ it.live(
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
           group: "",
-          name: FlowSkillName.make("guided-email"),
+          name: FlowName.make("guided-email"),
           operationId: operation("start"),
           url: fixtures.url("agent-login.html"),
           viewport: agentViewport,
@@ -728,7 +728,7 @@ it.live(
             variableName: "EMAIL",
           })
         );
-        yield* teachingRecordingTool("agent_flow_skill_save", {
+        yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId,
           files: [
             {
@@ -754,15 +754,12 @@ inputs:
         );
         expect(savedSkill).toContain("{{EMAIL}}");
         expect(savedSkill).not.toContain(secret);
-        const dry = yield* teachingRecordingTool(
-          "agent_flow_skill_dry_run_start",
-          {
-            inputs: [{ changed: true, name: "EMAIL", secret: true }],
-            operationId: operation("dry-start"),
-            recordingId,
-            url: fixtures.url("agent-login.html"),
-          }
-        );
+        const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
+          inputs: [{ changed: true, name: "EMAIL", secret: true }],
+          operationId: operation("dry-start"),
+          recordingId,
+          url: fixtures.url("agent-login.html"),
+        });
         expect(dry.session.id).not.toBe(started.id);
         yield* sessions.supplyDryRunVariable(
           dry.session.id,
@@ -826,7 +823,7 @@ it.live(
         const third = "http://unapproved.example/";
         const started = yield* sessionTool("agent_guided_run_start", {
           group: "",
-          name: FlowSkillName.make("guided-hosts"),
+          name: FlowName.make("guided-hosts"),
           operationId: operation("start"),
           url,
           viewport: agentViewport,
@@ -858,7 +855,7 @@ it.live(
           boundaryId
         );
         expect(pending.scopeSummary).toContain("localhost");
-        expect(pending.scopeSummary).toContain("Flow Skill");
+        expect(pending.scopeSummary).toContain("Flow");
         expect((yield* sessions.get(sessionId)).currentUrl).toBe(url);
         const approval = {
           decision: "allow" as const,
@@ -950,7 +947,7 @@ it.live(
           operationId: claimOperationId,
           recordingId,
         });
-        yield* teachingRecordingTool("agent_flow_skill_save", {
+        yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId,
           files: [
             {
@@ -975,10 +972,12 @@ inputs:
         );
         expect(saved).toContain("hosts:\n  - 127.0.0.1\n  - localhost");
         expect(saved).not.toContain("unapproved.example");
-        const dry = yield* teachingRecordingTool(
-          "agent_flow_skill_dry_run_start",
-          { inputs: [], operationId: operation("dry"), recordingId, url }
-        );
+        const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
+          inputs: [],
+          operationId: operation("dry"),
+          recordingId,
+          url,
+        });
         const drySecond = yield* sessionTool("agent_browser_act", {
           action: { type: "navigate", url: second },
           operationId: operation("dry-second"),
@@ -1009,7 +1008,7 @@ it.live(
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
           group: "",
-          name: FlowSkillName.make("guided-checks"),
+          name: FlowName.make("guided-checks"),
           operationId: operation("start-checks"),
           url: fixtures.url("delivery.html"),
           viewport: agentViewport,
@@ -1211,7 +1210,7 @@ it.live(
             path: "checks.json",
           },
         ];
-        yield* teachingRecordingTool("agent_flow_skill_save", {
+        yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId,
           files,
           operationId: operation("save-checks"),
@@ -1243,7 +1242,7 @@ it.live(
         );
         expect(
           (yield* Effect.flip(
-            teachingRecordingTool("agent_flow_skill_save", {
+            teachingRecordingTool("agent_flow_save", {
               claimOperationId,
               files: invented,
               operationId: operation("invent-checks"),
@@ -1252,7 +1251,7 @@ it.live(
           )).code
         ).toBe("teaching_recording_invalid");
         const later = (yield* teachingRecordingTool(
-          "agent_flow_skill_dry_run_start",
+          "agent_flow_dry_run_start",
           {
             inputs: [],
             operationId: operation("later-run"),
@@ -1265,7 +1264,7 @@ it.live(
         }
         expect(later.run.scanRequirements).toEqual([
           {
-            flowSkillName: "guided-checks",
+            flowName: "guided-checks",
             id: "cart-a11y",
             mode: "accessibility",
             when: "Delivery is selected",
@@ -1274,7 +1273,7 @@ it.live(
         expect(later.run.scanReports ?? []).toEqual([]);
         const scanned = yield* runTool("agent_run_scan", {
           action: "start",
-          flowSkillName: FlowSkillName.make("guided-checks"),
+          flowName: FlowName.make("guided-checks"),
           operationId: operation("later-scan"),
           requirementId: "cart-a11y",
           sessionId: later.id,
@@ -1294,7 +1293,7 @@ it.live(
           clientName: "checks-test",
           clientVersion: "1",
           group: "",
-          name: FlowSkillName.make("ordinary-checks"),
+          name: FlowName.make("ordinary-checks"),
           operationId: operation("ordinary"),
           url: fixtures.url("delivery.html"),
           viewport: agentViewport,

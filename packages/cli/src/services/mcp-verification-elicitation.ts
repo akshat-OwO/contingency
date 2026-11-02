@@ -40,7 +40,7 @@ export const makeVerificationElicitation = () => {
           new McpSchema.ElicitRequestURLParams({
             elicitationId: `verify-${sessionId}`,
             message:
-              "The Dry Run passed. Verify or reject the Flow Skill in Workspace.",
+              "The Dry Run passed. Verify or reject the Flow in Workspace.",
             mode: "url",
             url: viewUrl,
           })

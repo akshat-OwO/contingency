@@ -140,7 +140,7 @@ const walkSite = (
       clientName: "kev-crawl",
       inputs: [],
       operationId: OperationId.make(`${tag}-start`),
-      referencedSkills: [],
+      referencedFlows: [],
       requestedTask: `Browse ${site} to collect page snapshots.`,
       url: site,
     });

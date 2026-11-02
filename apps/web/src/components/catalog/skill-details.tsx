@@ -1,9 +1,9 @@
 import type {
-  CatalogFlowSkillResult,
+  CatalogFlowResult,
   CatalogRecordingEntry,
   CatalogRootScope,
   CatalogRunEntry,
-  FlowSkillName,
+  FlowName,
 } from "@contingency/protocol";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createHighlighter } from "@tanstack/highlight/core";
@@ -75,7 +75,7 @@ const SkillLink = ({
   name,
   scope,
 }: {
-  readonly name: FlowSkillName;
+  readonly name: FlowName;
   readonly scope: CatalogRootScope;
 }) => {
   const { catalogBrowseAtom } = useRpcDependencies();
@@ -85,8 +85,7 @@ const SkillLink = ({
     result._tag === "Success" &&
     result.value.roots.some(
       (root) =>
-        root.scope === scope &&
-        root.flowSkills.some((skill) => skill.name === name)
+        root.scope === scope && root.flows.some((skill) => skill.name === name)
     );
   // A Run can name a skill this root no longer holds, or a bundled Example
   // that was never in it; that name is shown, not offered as a link.
@@ -119,7 +118,7 @@ const SkillPackage = ({
   skill,
 }: {
   readonly scope: CatalogRootScope;
-  readonly skill: CatalogFlowSkillResult;
+  readonly skill: CatalogFlowResult;
 }) => (
   <article className="space-y-5">
     <header className="space-y-2">
@@ -215,11 +214,11 @@ const SkillDetail = ({
   name,
   scope,
 }: {
-  readonly name: FlowSkillName;
+  readonly name: FlowName;
   readonly scope: CatalogRootScope;
 }) => {
-  const { catalogFlowSkillAtom } = useRpcDependencies();
-  const result = useAtomValue(catalogFlowSkillAtom(scope)(name));
+  const { catalogFlowAtom } = useRpcDependencies();
+  const result = useAtomValue(catalogFlowAtom(scope)(name));
   if (result._tag === "Initial") {
     return <p className="text-muted-foreground text-sm">Reading flow.md…</p>;
   }
@@ -265,13 +264,13 @@ const RunDetail = ({
       </p>
     </header>
     <Section title="Flow Skills">
-      {run.flowSkillNames.length === 0 ? (
+      {run.flowNames.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           This Run referenced no Flow Skill.
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {run.flowSkillNames.map((name) => (
+          {run.flowNames.map((name) => (
             <SkillLink key={name} name={name} scope={scope} />
           ))}
         </div>
@@ -320,7 +319,7 @@ const RecordingDetail = ({
       </p>
     </header>
     <Section title="Flow Skill">
-      <SkillLink name={recording.flowSkillName} scope={scope} />
+      <SkillLink name={recording.flowName} scope={scope} />
     </Section>
     <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
       {recording.cleanup === "purged"

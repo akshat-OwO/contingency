@@ -367,7 +367,7 @@ const PAGE_READING_PRELUDE = `
   // The accessible name computation's precedence, in the order a screen
   // reader applies it. \`placeholder\` is the last resort it is in the
   // standard, not the first thing a text field answers with: a control with a
-  // visible label is asked for by that label, in a Flow Skill and in a
+  // visible label is asked for by that label, in a Flow and in a
   // recorded Teaching action alike.
   const accessibleName = (element, content = renderedText) => {
     const labelled = element.getAttribute("aria-labelledby");

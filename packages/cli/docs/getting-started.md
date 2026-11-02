@@ -5,7 +5,7 @@ Contingency owns a local browser, its Workspace, and the Flow Skills in the Cata
 ## Start
 
 1. Call `agent_catalog_get`. If the Catalog Root differs from the user's expectation or launch context, select the expected root with `agent_catalog_select`.
-2. Call `agent_flow_skills_list` and `agent_teaching_recordings_list`.
+2. Call `agent_flows_list` and `agent_teaching_recordings_list`.
 3. Introduce yourself and share a clickable **Open Workspace** link to `workspaceUrl`. Summarize the catalog and offer available work.
 
 Follow each tool's contract and `nextAction`.

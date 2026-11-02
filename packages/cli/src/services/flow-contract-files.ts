@@ -1,10 +1,10 @@
 import path from "node:path";
 
-import type { FlowSkillFile } from "@contingency/protocol";
+import type { FlowFile } from "@contingency/protocol";
 import { Effect } from "effect";
 import type { FileSystem } from "effect/FileSystem";
 
-import { FLOW_CONTRACT_FILES } from "./flow-skill-package.ts";
+import { FLOW_CONTRACT_FILES } from "./flow-package.ts";
 
 /** Read only reserved contracts whose targets stay inside the Flow. */
 export const readFlowContractFiles = Effect.fnUntraced(function* readContracts(
@@ -12,7 +12,7 @@ export const readFlowContractFiles = Effect.fnUntraced(function* readContracts(
   fs: FileSystem
 ) {
   const real = yield* fs.realPath(directory);
-  const files: FlowSkillFile[] = [];
+  const files: FlowFile[] = [];
   for (const name of FLOW_CONTRACT_FILES) {
     const file = path.join(directory, name);
     if (!(yield* fs.exists(file))) {

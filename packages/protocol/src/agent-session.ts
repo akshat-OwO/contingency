@@ -18,7 +18,7 @@ import { DraftEmulation } from "./emulation.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { PlatformIdentity } from "./platform.ts";
 import {
-  FlowSkillName,
+  FlowName,
   TeachingCaptureState,
   TeachingProgress,
   TeachingRecordingCleanupState,
@@ -129,13 +129,13 @@ const AgentSessionSnapshotBase = {
 
 /**
  * What a Dry Run session rehearses. A Dry Run is driven against the saved
- * Flow Skill package rather than ordered Agent Steps, so it carries the
+ * Flow package rather than ordered Agent Steps, so it carries the
  * identity of the flow and the Teaching Recording instead of an
  * {@link AgentRunState}. Its presence is what separates a rehearsal from an
  * Interactive Run when a reader has only the session.
  */
 export const AgentDryRunState = Schema.Struct({
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   /**
    * The inputs the rehearsal was started with, and which of them differ from
    * the recorded journey. An input without a startup value is `null` until
@@ -162,7 +162,7 @@ export const TeachingSessionSnapshot = Schema.Struct({
   activity: Schema.Literal("teaching"),
   captureState: TeachingCaptureState,
   dryRun: Schema.Null.pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   recordingCleanup: optionalNullable(TeachingRecordingCleanupState),
   recordingId: TeachingRecordingId,
   run: Schema.Null,
@@ -177,14 +177,14 @@ export const RunSessionSnapshot = Schema.Struct({
   dryRun: Schema.NullOr(AgentDryRunState).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null))
   ),
-  flowSkillName: Schema.NullOr(FlowSkillName),
+  flowName: Schema.NullOr(FlowName),
   recordingId: Schema.NullOr(TeachingRecordingId),
   run: Schema.NullOr(Schema.Union([AgentRunState, TaskAgentRunState])),
   teaching: Schema.Null,
 });
 export type RunSessionSnapshot = typeof RunSessionSnapshot.Type;
 
-/** Task-only session contract without a singular skill slot. */
+/** Task-only session contract without a singular flow slot. */
 export const TaskRunSessionSnapshot = Schema.Struct({
   ...AgentSessionSnapshotBase,
   activity: Schema.Literal("run"),
@@ -244,8 +244,8 @@ export const SessionEvent = Schema.Struct({
     "variable-supplied",
     "variable-refused",
     "dry-run-stopped",
-    "flow-skill-verified",
-    "flow-skill-rejected",
+    "flow-verified",
+    "flow-rejected",
     "cleanup-completed",
     "cleanup-failed",
     "session-closed",

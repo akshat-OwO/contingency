@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { FlowSkillFile, FlowSkillName } from "@contingency/protocol";
+import type { FlowFile, FlowName } from "@contingency/protocol";
 import { Schema } from "effect";
 
 /** Document paths never enter evidence directories, even through nested aliases. */
@@ -65,7 +65,7 @@ const firstHeading = (content: string): string | null => {
 };
 
 /** Runs receive the procedure and an index, with document bodies fetched as needed. */
-export const flowDocuments = (files: readonly FlowSkillFile[]) => ({
+export const flowDocuments = (files: readonly FlowFile[]) => ({
   files: files.filter((file) => file.path === "flow.md"),
   supportingDocuments: files.flatMap((file) =>
     isSupportingDocument(file.path)
@@ -82,6 +82,6 @@ export const flowDocuments = (files: readonly FlowSkillFile[]) => ({
 /** Delivery belongs to the operation receipt, not the persisted Run or session state. */
 export interface FlowDocumentDelivery {
   readonly flowDocuments?: readonly ({
-    readonly flowSkillName: FlowSkillName;
+    readonly flowName: FlowName;
   } & ReturnType<typeof flowDocuments>)[];
 }

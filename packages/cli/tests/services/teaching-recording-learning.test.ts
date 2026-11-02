@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   AgentSessionId,
   ContentHash,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
   UserAgentProfileId,
@@ -54,7 +54,7 @@ it.effect(
             userAgentProfile: UserAgentProfileId.make("default"),
             viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
           },
-          flowSkillName: FlowSkillName.make("large-timeline"),
+          flowName: FlowName.make("large-timeline"),
           operationId: OperationId.make("large-begin"),
           recordingId,
           sessionId: AgentSessionId.make("agent-large-timeline"),
@@ -168,7 +168,7 @@ it.effect(
             userAgentProfile: UserAgentProfileId.make("default"),
             viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
           },
-          flowSkillName: FlowSkillName.make("withheld-fill"),
+          flowName: FlowName.make("withheld-fill"),
           operationId: OperationId.make("withheld-begin"),
           recordingId: withheldRecordingId,
           sessionId: AgentSessionId.make("agent-withheld-fill"),
@@ -253,7 +253,7 @@ for (const variant of [
           const learning = yield* TeachingRecordingLearning;
           const begun = yield* store.begin({
             emulation: null,
-            flowSkillName: FlowSkillName.make("scope"),
+            flowName: FlowName.make("scope"),
             operationId: OperationId.make("begin"),
             origin,
             recordingId,
@@ -340,7 +340,7 @@ for (const value of ["login", "anvil"]) {
           const learning = yield* TeachingRecordingLearning;
           const begun = yield* store.begin({
             emulation: null,
-            flowSkillName: FlowSkillName.make("login"),
+            flowName: FlowName.make("login"),
             operationId: OperationId.make("begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-variable-save"),
@@ -498,7 +498,7 @@ for (const failure of ["none", "document", "receipt"] as const) {
               if (
                 !held &&
                 ((source === target && destination.endsWith(".backup")) ||
-                  (source.includes(".flow-skill-") &&
+                  (source.includes(".flow-") &&
                     destination === path.join(target, "flow.md")))
               ) {
                 held = true;
@@ -520,7 +520,7 @@ for (const failure of ["none", "document", "receipt"] as const) {
               return yield* fs.rename(source, destination);
             }),
           writeFileString: (file, contents, options) =>
-            failure === "receipt" && contents.includes('"skill-drafted"')
+            failure === "receipt" && contents.includes('"flow-drafted"')
               ? Effect.fail(
                   PlatformError.systemError({
                     _tag: "Unknown",
@@ -542,7 +542,7 @@ for (const failure of ["none", "document", "receipt"] as const) {
           const learning = yield* TeachingRecordingLearning;
           yield* store.begin({
             emulation: null,
-            flowSkillName: FlowSkillName.make("scope"),
+            flowName: FlowName.make("scope"),
             operationId: OperationId.make("begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-save"),
@@ -623,7 +623,7 @@ for (const failure of ["none", "document", "receipt"] as const) {
           const otherId = TeachingRecordingId.make("recording-concurrent");
           yield* store.begin({
             emulation: null,
-            flowSkillName: FlowSkillName.make("scope"),
+            flowName: FlowName.make("scope"),
             operationId: OperationId.make("other-begin"),
             recordingId: otherId,
             sessionId: AgentSessionId.make("agent-other"),
@@ -672,7 +672,7 @@ for (const failure of ["none", "document", "receipt"] as const) {
         );
         expect(
           (yield* fs.readDirectory(root)).some((name) =>
-            name.startsWith(".flow-skill-")
+            name.startsWith(".flow-")
           )
         ).toBe(false);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

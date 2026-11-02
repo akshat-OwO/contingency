@@ -212,7 +212,7 @@ export const teachingRecordingPresentation = (
         tone: "default",
       };
     }
-    case "skill-drafted": {
+    case "flow-drafted": {
       return {
         action: null,
         badge: "Flow skill drafted",

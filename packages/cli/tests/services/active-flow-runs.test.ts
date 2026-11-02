@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   AgentSessionId,
   ContentHash,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
   UserAgentProfileId,
@@ -55,7 +55,7 @@ for (const platform of ["android", "ios"] as const) {
           };
           yield* store.begin({
             emulation,
-            flowSkillName: FlowSkillName.make("cart"),
+            flowName: FlowName.make("cart"),
             operationId: OperationId.make("begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-native-save"),
@@ -93,7 +93,7 @@ for (const platform of ["android", "ios"] as const) {
             recordingId,
           });
           const save = (description: string, operation: string) =>
-            teachingRecordingTool("agent_flow_skill_save", {
+            teachingRecordingTool("agent_flow_save", {
               claimOperationId,
               files: [
                 {

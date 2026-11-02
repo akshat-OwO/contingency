@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
@@ -10,19 +10,19 @@ import {
   makeCatalogBrowserLayer,
 } from "../../src/services/catalog-browser.ts";
 import {
-  FlowSkillCatalog,
-  makeFlowSkillCatalogLayer,
-} from "../../src/services/flow-skill-catalog.ts";
+  FlowCatalog,
+  makeFlowCatalogLayer,
+} from "../../src/services/flow-catalog.ts";
 import {
   FLOW_CONTRACT_FILES,
   flowVerificationDigests,
-  stampFlowSkillProvenance,
+  stampFlowProvenance,
   stampFlowVerification,
-} from "../../src/services/flow-skill-package.ts";
+} from "../../src/services/flow-package.ts";
 import {
-  isVerifiedFlowSkill,
-  readRequestedSkills,
-} from "../../src/services/requested-flow-skills.ts";
+  isVerifiedFlow,
+  readRequestedFlows,
+} from "../../src/services/requested-flows.ts";
 
 const procedure =
   "---\nname: example\ndescription: Open the shop.\ninputs:\n  - city\n---\n\n1. Open the shop. Done when: the shop is visible.\n";
@@ -87,7 +87,7 @@ it.effect(
         },
       ];
       yield* Effect.gen(function* readSurfaces() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         const browser = yield* CatalogBrowser;
         for (const mutation of mutations) {
           for (const file of baseline) {
@@ -99,15 +99,15 @@ it.effect(
           const target = path.join(directory, mutation.file);
           yield* fs.writeFileString(target, mutation.content);
           expect(
-            (yield* catalog.list()).flowSkills[0]?.verified,
+            (yield* catalog.list()).flows[0]?.verified,
             mutation.name
           ).toBe(mutation.verified);
           expect(
-            (yield* browser.browse()).roots[0]?.flowSkills[0]?.verified,
+            (yield* browser.browse()).roots[0]?.flows[0]?.verified,
             mutation.name
           ).toBe(mutation.verified);
           const startup = yield* Effect.result(
-            readRequestedSkills([FlowSkillName.make("example")])
+            readRequestedFlows([FlowName.make("example")])
           );
           expect(startup._tag, mutation.name).toBe(
             mutation.verified ? "Success" : "Failure"
@@ -121,7 +121,7 @@ it.effect(
             localRoot: () => root,
           })
         ),
-        Effect.provide(makeFlowSkillCatalogLayer({ root }))
+        Effect.provide(makeFlowCatalogLayer({ root }))
       );
     }).pipe(Effect.provide(NodeServices.layer))
 );
@@ -129,11 +129,11 @@ it.effect(
 it("invalidates verification when contracts are added or removed", () => {
   const content = stampFlowVerification(procedure, verification, contracts);
   expect(
-    isVerifiedFlowSkill([{ content, path: "flow.md" }, ...contracts.slice(1)])
+    isVerifiedFlow([{ content, path: "flow.md" }, ...contracts.slice(1)])
   ).toBe(false);
   const absent = stampFlowVerification(procedure, verification);
   expect(
-    isVerifiedFlowSkill([
+    isVerifiedFlow([
       { content: absent, path: "flow.md" },
       { content: "{}", path: "checks.json" },
     ])
@@ -142,7 +142,7 @@ it("invalidates verification when contracts are added or removed", () => {
 
 it("keeps digests stable across verification and provenance stamps and CRLF", () => {
   const expected = flowVerificationDigests(procedure, contracts);
-  const provenance = stampFlowSkillProvenance(procedure, {
+  const provenance = stampFlowProvenance(procedure, {
     emulation: null,
     hosts: ["shop.example.com"],
   });
@@ -163,6 +163,6 @@ it("keeps digests stable across verification and provenance stamps and CRLF", ()
     )
   ).toEqual(expected);
   expect(
-    isVerifiedFlowSkill([{ content: second, path: "flow.md" }, ...contracts])
+    isVerifiedFlow([{ content: second, path: "flow.md" }, ...contracts])
   ).toBe(true);
 });

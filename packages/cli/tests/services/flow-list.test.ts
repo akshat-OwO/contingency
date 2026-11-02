@@ -4,11 +4,11 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
-import { flowDocuments } from "../../src/services/flow-documents.ts";
 import {
-  FlowSkillCatalog,
-  makeFlowSkillCatalogLayer,
-} from "../../src/services/flow-skill-catalog.ts";
+  FlowCatalog,
+  makeFlowCatalogLayer,
+} from "../../src/services/flow-catalog.ts";
+import { flowDocuments } from "../../src/services/flow-documents.ts";
 
 const SKILL = `---
 name: set-delivery-area
@@ -26,22 +26,22 @@ inputs:
    Done when: the field holds the area.
 `;
 
-it.effect("lists a Flow Skill without naming the Catalog Root", () =>
+it.effect("lists a Flow without naming the Catalog Root", () =>
   Effect.gen(function* listWithoutPaths() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-flow-skill-list-",
+      prefix: "contingency-flow-list-",
     });
     const directory = path.join(root, "set-delivery-area");
     yield* fileSystem.makeDirectory(directory, { recursive: true });
     yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
 
     const listing = yield* Effect.gen(function* readListing() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       return yield* catalog.list();
-    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+    }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
 
-    expect(listing.flowSkills).toEqual([
+    expect(listing.flows).toEqual([
       {
         description: "Set the delivery area for a store.",
         inputs: [{ description: "The delivery area to set.", name: "area" }],
@@ -62,7 +62,7 @@ it.effect(
     Effect.gen(function* readWithoutEscapingLink() {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-flow-skill-escape-",
+        prefix: "contingency-flow-escape-",
       });
       const directory = path.join(root, "set-delivery-area");
       yield* fileSystem.makeDirectory(path.join(directory, "references"), {
@@ -81,9 +81,9 @@ it.effect(
       );
 
       const skill = yield* Effect.gen(function* readSkill() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         return yield* catalog.read("set-delivery-area");
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
 
       expect(skill.files.map((file) => file.path)).toEqual([
         "flow.md",
@@ -126,7 +126,7 @@ it.effect(
         path.join(directory, "outside.md")
       );
       yield* Effect.gen(function* readDocuments() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         const skill = yield* catalog.read("set-delivery-area");
         expect(skill.files.map((file) => file.path)).toEqual([
           "flow.md",
@@ -161,6 +161,6 @@ it.effect(
           );
           expect(error.code).toBe("agent_catalog_invalid");
         }
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
 );

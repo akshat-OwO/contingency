@@ -241,7 +241,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("scale-start"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Check scale",
           url: fixture.url("emulation-scale.html"),
         });
@@ -352,7 +352,7 @@ it.live(
           operationId: OperationId.make("scale-claim"),
           recordingId,
         });
-        yield* teachingRecordingTool("agent_flow_skill_save", {
+        yield* teachingRecordingTool("agent_flow_save", {
           claimOperationId: OperationId.make("scale-claim"),
           files: [
             {
@@ -372,16 +372,13 @@ it.live(
         const skill = yield* fs.readFileString(`${root}/scale/flow.md`);
         expect(skill).toContain("pageZoom: 400");
         expect(skill).toContain("textScale: 200");
-        const dry = yield* teachingRecordingTool(
-          "agent_flow_skill_dry_run_start",
-          {
-            inputs: [],
-            operationId: OperationId.make("scale-dry"),
-            prerequisites: [],
-            recordingId,
-            url: fixture.url("emulation-scale.html"),
-          }
-        );
+        const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
+          inputs: [],
+          operationId: OperationId.make("scale-dry"),
+          prerequisites: [],
+          recordingId,
+          url: fixture.url("emulation-scale.html"),
+        });
         expect(
           yield* service.devtools(dry.session.id, { action: "emulation_get" })
         ).toMatchObject({ pageZoom: 400, textScale: 200 });

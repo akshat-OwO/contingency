@@ -9,7 +9,7 @@ import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
@@ -28,15 +28,15 @@ const initializeBody = JSON.stringify({
 });
 
 const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
-  skillContent?: string
+  flowContent?: string
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
-  if (skillContent !== undefined) {
+  if (flowContent !== undefined) {
     yield* fileSystem.makeDirectory(`${catalogRoot}/input-forms`);
     yield* fileSystem.writeFileString(
       `${catalogRoot}/input-forms/flow.md`,
-      skillContent
+      flowContent
     );
   }
   const allowedOrigins = new Set(["http://127.0.0.1:7783"]);
@@ -50,7 +50,7 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
             allowedActivity: "any",
             baseUrl: "http://127.0.0.1:7783",
           }),
-          makeFlowSkillCatalogLayer({ root: catalogRoot }),
+          makeFlowCatalogLayer({ root: catalogRoot }),
           makeAgentRunStoreLayer({ root: () => catalogRoot }),
           makeTeachingRecordingStoreLayer({ root: () => catalogRoot }),
           makeDemoSiteLayer()
@@ -120,13 +120,13 @@ inputs:
         id: 2,
         jsonrpc: "2.0",
         method: "tools/call",
-        params: { arguments: {}, name: "agent_flow_skills_list" },
+        params: { arguments: {}, name: "agent_flows_list" },
       })
     );
     expect(response.status).toBe(200);
     const payload: unknown = yield* Effect.promise(() => response.json());
     const listing = {
-      flowSkills: [
+      flows: [
         {
           description: "Exercise input declarations.",
           inputs: [

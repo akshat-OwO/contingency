@@ -165,7 +165,7 @@ export const runDockPresentation = (
     } else if ("schemaVersion" in run) {
       sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
     } else {
-      sentences.push(`Running the flow skill ${run.flowSkillName}.`);
+      sentences.push(`Running the flow skill ${run.flowName}.`);
       const active = activeStep(run);
       if (active === undefined) {
         const outcome =
@@ -182,7 +182,7 @@ export const runDockPresentation = (
     }
   } else {
     sentences.push(
-      `Rehearsing the flow skill ${dryRun.flowSkillName}.`,
+      `Rehearsing the flow skill ${dryRun.flowName}.`,
       changedInputsSentence(dryRun.inputs)
     );
     if (run !== null && "schemaVersion" in run) {

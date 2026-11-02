@@ -202,7 +202,7 @@ export const armBrowserChecks = (
       status: BrowserCheckResult["status"]
     ): BrowserCheckResult => ({
       at: new Date().toISOString(),
-      flowSkillName: reference.flowSkillName,
+      flowName: reference.flowName,
       id: reference.check.id,
       operationId,
       status,

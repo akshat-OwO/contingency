@@ -2,7 +2,7 @@ import path from "node:path";
 
 import {
   AgentSessionSnapshot,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TaskAgentRunState,
   TeachingRecordingId,
@@ -105,15 +105,15 @@ it.effect(
       const updated = yield* lifecycle.update(
         run,
         Effect.succeed({
+          flows: [],
           inputs: [
             {
-              flowSkillName: FlowSkillName.make("browse-catalogue"),
+              flowName: FlowName.make("browse-catalogue"),
               name: "product",
               value: "Cup",
             },
           ],
           instruction: "Inspect the mug without checkout.",
-          skills: [],
         })
       );
       expect(updated.run.assessment).toBeNull();
@@ -122,12 +122,12 @@ it.effect(
         "Inspect the mug without checkout."
       );
       expect(updated.run.inputs).toEqual([
-        { flowSkillName: "browse-catalogue", name: "product", value: "Cup" },
-        { flowSkillName: "update-cart", name: "product", value: "Blue mug" },
+        { flowName: "browse-catalogue", name: "product", value: "Cup" },
+        { flowName: "update-cart", name: "product", value: "Blue mug" },
       ]);
       const inputOnly = yield* lifecycle.update(
         run,
-        Effect.succeed({ inputs: [], skills: [] })
+        Effect.succeed({ flows: [], inputs: [] })
       );
       expect(inputOnly.run.assessment).toEqual(run.assessment);
     })
@@ -136,7 +136,7 @@ it.effect(
 const dryTask = () => ({
   ...runningTask(),
   purpose: {
-    flowSkillName: FlowSkillName.make("browse-catalogue"),
+    flowName: FlowName.make("browse-catalogue"),
     kind: "dry-run" as const,
     recordingId: TeachingRecordingId.make("recording-lifecycle"),
     takeoverOccurred: false,
@@ -172,7 +172,7 @@ const snapshotFor = (run: TaskAgentRunState) =>
     createdAt: at,
     currentUrl: "http://localhost/shop.html",
     dryRun: null,
-    flowSkillName: null,
+    flowName: null,
     id: taskRunSummary.sessionId,
     interruptedAction: null,
     ownerProcessId: "mcp-lifecycle-test",
@@ -361,7 +361,7 @@ it.effect.each([
                 scanReports: [],
                 scanRequirements: [
                   {
-                    flowSkillName: baseRun.purpose.flowSkillName,
+                    flowName: baseRun.purpose.flowName,
                     id: "required-load",
                     mode: "reload" as const,
                     when: "The catalog opens",
@@ -372,7 +372,7 @@ it.effect.each([
         const { recordingId } = run.purpose;
         yield* store.begin({
           emulation: run.startingEmulation,
-          flowSkillName: run.purpose.flowSkillName,
+          flowName: run.purpose.flowName,
           operationId: operation("begin"),
           recordingId,
           sessionId: taskRunSummary.sessionId,
@@ -391,7 +391,7 @@ it.effect.each([
           operationId: operation("learn"),
           recordingId,
         });
-        yield* store.saveSkill({
+        yield* store.saveFlow({
           claimOperationId: operation("learn"),
           files: ["flow.md"],
           operationId: operation("save"),
@@ -431,7 +431,7 @@ it.effect.each([
           snapshot: Schema.decodeUnknownSync(AgentSessionSnapshot)({
             ...base.snapshot,
             dryRun: {
-              flowSkillName: run.purpose.flowSkillName,
+              flowName: run.purpose.flowName,
               recordingId,
               startedAt: at,
             },

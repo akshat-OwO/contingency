@@ -22,7 +22,7 @@ import { fixtureServer } from "./harness.ts";
 
 /**
  * The package a learning agent submits after reading Contingency's authoring
- * skills. It meets the Flow Skill contract, so the save path is exercised the
+ * skills. It meets the Flow contract, so the save path is exercised the
  * way a real learning run reaches it rather than through a bare heading.
  */
 const LEARN_ANVIL_SKILL = `---
@@ -131,7 +131,7 @@ it.live("waits for a claimable recording after Workspace Stop", () =>
             recordingId,
           }
         );
-        expect(claimed.claim?.flowSkillName).toBe("stop-wait");
+        expect(claimed.claim?.flowName).toBe("stop-wait");
         yield* Fiber.join(stopping);
       }).pipe(
         Effect.ensuring(
@@ -145,7 +145,7 @@ it.live("waits for a claimable recording after Workspace Stop", () =>
 );
 
 it.live(
-  "learns a bounded Flow Skill from a recording created in another process lifetime",
+  "learns a bounded Flow from a recording created in another process lifetime",
   () =>
     Effect.gen(function* learnPersistedTeachingRecording() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -260,7 +260,7 @@ it.live(
               recordingId,
             }
           );
-          expect(claimed.claim?.flowSkillName).toBe("learn-anvil");
+          expect(claimed.claim?.flowName).toBe("learn-anvil");
           const released = yield* teachingRecordingTool(
             "agent_teaching_recording_claim",
             {
@@ -383,7 +383,7 @@ it.live(
             "# Previous package\n"
           );
           const refusedSave = yield* Effect.flip(
-            teachingRecordingTool("agent_flow_skill_save", {
+            teachingRecordingTool("agent_flow_save", {
               claimOperationId,
               files: [{ content: "escape", path: "../outside.md" }],
               operationId: OperationId.make("learning-save-invalid"),
@@ -398,7 +398,7 @@ it.live(
           ).toBe("# Previous package\n");
 
           const refusedContent = yield* Effect.flip(
-            teachingRecordingTool("agent_flow_skill_save", {
+            teachingRecordingTool("agent_flow_save", {
               claimOperationId,
               files: [
                 { content: "# Learn anvil\n\nClick e12.\n", path: "flow.md" },
@@ -410,7 +410,7 @@ it.live(
           expect(refusedContent.code).toBe("teaching_recording_invalid");
           const diagnostics = refusedContent.diagnostics ?? [];
           expect(diagnostics.map((entry) => entry.code)).toContain(
-            "flow_skill_missing_frontmatter"
+            "flow_missing_frontmatter"
           );
           expect(
             diagnostics.every((entry) => entry.path[0] === "flow.md")
@@ -443,11 +443,11 @@ it.live(
                 path: "targets.md",
               },
             ],
-            operationId: OperationId.make("learning-save-skill"),
+            operationId: OperationId.make("learning-save-flow"),
             recordingId,
           } as const;
           const saved = yield* teachingRecordingTool(
-            "agent_flow_skill_save",
+            "agent_flow_save",
             saveInput
           );
           expect(saved.files.toSorted()).toEqual([
@@ -481,10 +481,10 @@ it.live(
           expect(learnedReference).toContain("{{PASSWORD}}");
           expect(learnedReference).not.toContain(privateFieldValue);
           expect(
-            yield* teachingRecordingTool("agent_flow_skill_save", saveInput)
+            yield* teachingRecordingTool("agent_flow_save", saveInput)
           ).toEqual(saved);
           expect(
-            yield* teachingRecordingTool("agent_flow_skill_save", {
+            yield* teachingRecordingTool("agent_flow_save", {
               ...saveInput,
               files: [
                 {

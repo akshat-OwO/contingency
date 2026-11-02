@@ -20,19 +20,18 @@ export const BrowserCheckResults = ({
         {coverage.fulfilled}/{coverage.total} required checks passed
       </p>
       <ul className="space-y-2">
-        {run.browserChecks?.map(({ check, flowSkillName }) => {
+        {run.browserChecks?.map(({ check, flowName }) => {
           const result = run.browserCheckResults?.findLast(
             (candidate) =>
-              candidate.flowSkillName === flowSkillName &&
-              candidate.id === check.id
+              candidate.flowName === flowName && candidate.id === check.id
           );
           return (
             <li
               className="rounded-lg border p-3"
-              key={`${flowSkillName}/${check.id}`}
+              key={`${flowName}/${check.id}`}
             >
               <p>
-                {flowSkillName} · {check.id}
+                {flowName} · {check.id}
               </p>
               <p>{result?.status ?? "Unfulfilled"}</p>
               <p>

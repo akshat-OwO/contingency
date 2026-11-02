@@ -1,20 +1,20 @@
 import path from "node:path";
 
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 import type { FileSystem } from "effect";
 
-import { SKILL_FILE } from "./flow-skill-package.ts";
+import { FLOW_FILE } from "./flow-package.ts";
 
 export const RESERVED_FLOW_NAMES = new Set(["runs", "recordings", "flow.md"]);
 const excluded = new Set(["runs", "recordings"]);
 const skipDirectory = (name: string) =>
   name.startsWith(".") || excluded.has(name);
-const isFlowName = Schema.is(FlowSkillName);
+const isFlowName = Schema.is(FlowName);
 const invalidFlowName = (name: string) =>
   RESERVED_FLOW_NAMES.has(name) || !isFlowName(name);
 const invalid = (message: string) => ({
-  _tag: "FlowSkillCatalogError" as const,
+  _tag: "FlowCatalogError" as const,
   code: "agent_catalog_invalid" as const,
   message,
 });
@@ -69,9 +69,9 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
     }
     visited.add(real);
     const names = (yield* fs.readDirectory(directory)).toSorted();
-    const entry = path.join(directory, SKILL_FILE);
+    const entry = path.join(directory, FLOW_FILE);
     const hasFlow =
-      names.includes(SKILL_FILE) && (yield* fs.stat(entry)).type === "File";
+      names.includes(FLOW_FILE) && (yield* fs.stat(entry)).type === "File";
     let owner = parentFlow;
     const hasDraft =
       directory !== root && (yield* isDraft(directory, names, fs));
@@ -130,7 +130,7 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
 export const resolveFlowDirectory = Effect.fnUntraced(
   function* resolveFlowDirectory(
     root: string,
-    name: FlowSkillName,
+    name: FlowName,
     fs: FileSystem.FileSystem
   ) {
     const flow = (yield* discoverFlows(root, fs)).get(name);
@@ -159,9 +159,9 @@ export const maintainCatalogGitignore = Effect.fnUntraced(
     const missing = [
       "**/runs/",
       "**/recordings/",
-      ".flow-skill.lock",
-      ".flow-skill-*.tmp",
-      ".flow-skill-*.backup",
+      ".flow.lock",
+      ".flow-*.tmp",
+      ".flow-*.backup",
     ].filter((rule) => !lines.has(rule));
     if (missing.length > 0 || previous !== original) {
       yield* fs.writeFileString(

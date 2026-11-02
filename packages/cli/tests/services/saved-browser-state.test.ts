@@ -2,7 +2,7 @@ import type { TeachingEvent } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Result } from "effect";
 
-import { validateFlowSkillPackage } from "../../src/services/flow-skill-package.ts";
+import { validateFlowPackage } from "../../src/services/flow-package.ts";
 import {
   browserVariableReference,
   matchesRequiredModification,
@@ -94,9 +94,9 @@ it.effect(
         shortEvents
       );
       expect(shortFiles[0]?.content).toContain("1. Open the fixture.");
-      expect(
-        Result.isSuccess(validateFlowSkillPackage("test", shortFiles))
-      ).toBe(true);
+      expect(Result.isSuccess(validateFlowPackage("test", shortFiles))).toBe(
+        true
+      );
       expect(shortFiles[1]?.content).toBe('{"count":1}');
       expect(JSON.stringify(files)).not.toContain("cookie-literal");
       expect(JSON.stringify(files)).not.toContain("header-literal");

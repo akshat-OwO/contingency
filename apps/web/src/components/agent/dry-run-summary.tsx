@@ -1,6 +1,6 @@
 import type {
   AgentTaskAssessment,
-  FlowSkillDryRunResult,
+  FlowDryRunResult,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
@@ -340,7 +340,7 @@ export const DryRunSummaryView = ({
   videoSrc,
 }: {
   /** The Runner's observable-outcome result, when the caller has it. */
-  readonly result?: FlowSkillDryRunResult;
+  readonly result?: FlowDryRunResult;
   readonly summary: TaskDryRunSummary;
   readonly videoSrc?: string | undefined;
 }) => (
@@ -350,7 +350,7 @@ export const DryRunSummaryView = ({
     details={
       <>
         <dt>Flow Skill</dt>
-        <dd className="wrap-anywhere">{summary.purpose.flowSkillName}</dd>
+        <dd className="wrap-anywhere">{summary.purpose.flowName}</dd>
       </>
     }
     failure={
@@ -378,13 +378,11 @@ export const InteractiveRunSummaryView = ({
     checks={interactiveRunChecks(summary)}
     checksLabel="Run checks"
     details={
-      summary.referencedSkills.length === 0 ? null : (
+      summary.referencedFlows.length === 0 ? null : (
         <>
           <dt>Flow Skills</dt>
           <dd className="wrap-anywhere">
-            {summary.referencedSkills
-              .map((skill) => skill.flowSkillName)
-              .join(", ")}
+            {summary.referencedFlows.map((skill) => skill.flowName).join(", ")}
           </dd>
         </>
       )

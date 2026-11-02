@@ -142,7 +142,7 @@ it.live("answers compact sessions and pages the history they omit", () =>
       {
         inputs: [],
         operationId: "compact-start",
-        referencedSkills: [],
+        referencedFlows: [],
         requestedTask: "Fill in the checkout details",
         url: fixture.url("checkout.html"),
         view: "compact",
@@ -263,7 +263,7 @@ it.live(
           const started = yield* runTool("agent_run_start", {
             inputs: [],
             operationId: operation("sequence-start"),
-            referencedSkills: [],
+            referencedFlows: [],
             requestedTask: "Fill in the checkout details",
             url: fixture.url("checkout.html"),
           });

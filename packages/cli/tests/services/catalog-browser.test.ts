@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { FlowSkillName, TaskAgentRunSummary } from "@contingency/protocol";
+import { FlowName, TaskAgentRunSummary } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import {
@@ -17,8 +17,8 @@ import {
   CatalogBrowser,
   makeCatalogBrowserLayer,
 } from "../../src/services/catalog-browser.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
-import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import { stampFlowVerification } from "../../src/services/flow-package.ts";
 import { taskRunSummary } from "../helpers/task-run.ts";
 
 const skillFile = (name: string, host: string) => `---
@@ -43,7 +43,7 @@ const VERIFIED = {
   verifiedAt: "2026-10-01",
 };
 
-const manifest = (recordingId: string, flowSkillName: string) => ({
+const manifest = (recordingId: string, flowName: string) => ({
   artifacts: [
     {
       capturedAt: "2026-10-01T00:00:10.000Z",
@@ -67,9 +67,9 @@ const manifest = (recordingId: string, flowSkillName: string) => ({
     userAgentProfile: "default",
     viewport: { deviceScaleFactor: 1, height: 800, width: 1280 },
   },
-  flowSkillName,
+  flowName,
   lifecycle: {
-    _tag: "skill-drafted",
+    _tag: "flow-drafted",
     draftedAt: "2026-10-01T00:02:00.000Z",
     readyAt: "2026-10-01T00:01:00.000Z",
     startedAt: "2026-10-01T00:00:05.000Z",
@@ -91,14 +91,14 @@ const dryRunSummary = (recordingId: string) =>
       ...encodeSummary(taskRunSummary),
       inputs: [],
       purpose: {
-        flowSkillName: "draft-cart",
+        flowName: "draft-cart",
         kind: "dry-run",
         recordingId,
         takeoverOccurred: false,
       },
-      referencedSkills: [
+      referencedFlows: [
         {
-          flowSkillName: "draft-cart",
+          flowName: "draft-cart",
           referencedAt: "2026-10-02T00:00:00.000Z",
         },
       ],
@@ -117,7 +117,7 @@ const writeJson = (file: string, contents: string) =>
   });
 
 const writeSkill = (root: string, name: string, verified: boolean) =>
-  Effect.gen(function* writeFlowSkill() {
+  Effect.gen(function* writeFlow() {
     const fileSystem = yield* FileSystem.FileSystem;
     const directory = path.join(root, name);
     yield* fileSystem.makeDirectory(path.join(directory, "references"), {
@@ -137,7 +137,7 @@ const seedLocal = (root: string) =>
     const fileSystem = yield* FileSystem.FileSystem;
     yield* writeSkill(root, "browse-catalogue", true);
     yield* writeSkill(root, "draft-cart", false);
-    // A directory without flow.md is not a Flow Skill and is not listed.
+    // A directory without flow.md is not a Flow and is not listed.
     yield* fileSystem.makeDirectory(path.join(root, "notes"), {
       recursive: true,
     });
@@ -166,7 +166,7 @@ const seedLocal = (root: string) =>
 
 const browserFor = (localRoot: string, globalRoot?: string) =>
   makeCatalogBrowserLayer({ globalRoot, localRoot: () => localRoot }).pipe(
-    Layer.provide(makeFlowSkillCatalogLayer({ root: localRoot }))
+    Layer.provide(makeFlowCatalogLayer({ root: localRoot }))
   );
 
 it.effect("lists the local root first and the global root after it", () =>
@@ -190,12 +190,12 @@ it.effect("lists the local root first and the global root after it", () =>
     expect(localView?.scope).toBe("local");
     expect(localView?.present).toBe(true);
     expect(
-      localView?.flowSkills.map((skill) => [skill.name, skill.verified])
+      localView?.flows.map((skill) => [skill.name, skill.verified])
     ).toEqual([
       ["browse-catalogue", true],
       ["draft-cart", false],
     ]);
-    expect(localView?.flowSkills[0]).toMatchObject({
+    expect(localView?.flows[0]).toMatchObject({
       description: "Add a product to the browse-catalogue cart.",
       hosts: ["shop.example.com"],
       stepCount: 2,
@@ -209,15 +209,15 @@ it.effect("lists the local root first and the global root after it", () =>
     ]);
     expect(localView?.runs[1]).toMatchObject({
       assessment: "working",
-      flowSkillNames: ["browse-catalogue", "update-cart"],
+      flowNames: ["browse-catalogue", "update-cart"],
     });
     expect(localView?.recordings).toEqual([
       {
         cleanup: "pending",
         createdAt: "2026-10-01T00:00:00.000Z",
-        flowSkillName: "draft-cart",
+        flowName: "draft-cart",
         keyframeCount: 1,
-        phase: "skill-drafted",
+        phase: "flow-drafted",
         recordingId: "recording-draft-cart",
       },
     ]);
@@ -229,7 +229,7 @@ it.effect("lists the local root first and the global root after it", () =>
       runs: [],
       scope: "global",
     });
-    expect(globalView?.flowSkills.map((skill) => skill.name)).toEqual([
+    expect(globalView?.flows.map((skill) => skill.name)).toEqual([
       "staging-login",
     ]);
   }).pipe(Effect.provide(NodeServices.layer))
@@ -248,7 +248,7 @@ it.effect("lists one root when the global root is the local one", () =>
     }).pipe(Effect.provide(browserFor(root, `${root}${path.sep}`)));
     expect(result.roots.map((view) => view.scope)).toEqual(["local"]);
     expect(result.roots[0]).toMatchObject({
-      flowSkills: [],
+      flows: [],
       present: false,
       unreadable: 0,
     });
@@ -268,7 +268,7 @@ it.effect("reports a missing global root as absent rather than failing", () =>
       return yield* browser.browse();
     }).pipe(Effect.provide(browserFor(local, path.join(workspace, "nobody"))));
     expect(result.roots[1]).toMatchObject({
-      flowSkills: [],
+      flows: [],
       present: false,
       scope: "global",
     });
@@ -276,7 +276,7 @@ it.effect("reports a missing global root as absent rather than failing", () =>
 );
 
 it.effect("reads one skill's files and procedure from either root", () =>
-  Effect.gen(function* readSkills() {
+  Effect.gen(function* readFlows() {
     const fileSystem = yield* FileSystem.FileSystem;
     const workspace = yield* fileSystem.makeTempDirectoryScoped({
       prefix: "contingency-catalog-browser-read-",
@@ -290,16 +290,10 @@ it.effect("reads one skill's files and procedure from either root", () =>
       function* read() {
         const browser = yield* CatalogBrowser;
         return [
-          yield* browser.flowSkill(
-            "local",
-            FlowSkillName.make("browse-catalogue")
-          ),
-          yield* browser.flowSkill(
-            "global",
-            FlowSkillName.make("staging-login")
-          ),
+          yield* browser.flow("local", FlowName.make("browse-catalogue")),
+          yield* browser.flow("global", FlowName.make("staging-login")),
           yield* Effect.flip(
-            browser.flowSkill("local", FlowSkillName.make("staging-login"))
+            browser.flow("local", FlowName.make("staging-login"))
           ),
         ] as const;
       }
@@ -328,7 +322,7 @@ it.effect("reads one skill's files and procedure from either root", () =>
       name: "staging-login",
       verified: false,
     });
-    expect(missing.code).toBe("flow_skill_not_found");
+    expect(missing.code).toBe("flow_not_found");
   }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -342,10 +336,10 @@ it.effect("refuses the global scope when no global root is listed", () =>
     const error = yield* Effect.gen(function* read() {
       const browser = yield* CatalogBrowser;
       return yield* Effect.flip(
-        browser.flowSkill("global", FlowSkillName.make("staging-login"))
+        browser.flow("global", FlowName.make("staging-login"))
       );
     }).pipe(Effect.provide(browserFor(local)));
-    expect(error.code).toBe("flow_skill_not_found");
+    expect(error.code).toBe("flow_not_found");
   }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -394,13 +388,10 @@ it.effect("leaves out a reference that links outside its package", () =>
       const browser = yield* CatalogBrowser;
       return [
         yield* browser.browse(),
-        yield* browser.flowSkill(
-          "local",
-          FlowSkillName.make("browse-catalogue")
-        ),
+        yield* browser.flow("local", FlowName.make("browse-catalogue")),
       ] as const;
     }).pipe(Effect.provide(browserFor(local)));
-    expect(listing.roots[0]?.flowSkills[0]?.verified).toBe(false);
+    expect(listing.roots[0]?.flows[0]?.verified).toBe(false);
     expect(skill.entry.verified).toBe(false);
     expect(skill.files.map((file) => file.path)).toEqual(["flow.md"]);
   }).pipe(Effect.provide(NodeServices.layer))
@@ -427,7 +418,7 @@ it.effect("lists a Flow as unverified when its stamp is malformed", () =>
       return yield* browser.browse();
     }).pipe(Effect.provide(browserFor(local)));
     expect(
-      result.roots[0]?.flowSkills.map((skill) => [skill.name, skill.verified])
+      result.roots[0]?.flows.map((skill) => [skill.name, skill.verified])
     ).toEqual([
       ["browse-catalogue", false],
       ["update-cart", true],
@@ -497,7 +488,7 @@ for (const reason of ["PermissionDenied", "Busy", "Unknown"] as const) {
               : fs.readFileString(file, encoding),
         });
         expect(result.roots[0]?.unreadable).toBe(4);
-        expect(result.roots[0]?.flowSkills).toHaveLength(2);
+        expect(result.roots[0]?.flows).toHaveLength(2);
         expect(result.roots[0]?.runs).toHaveLength(2);
         expect(result.roots[0]?.recordings).toHaveLength(1);
       }).pipe(Effect.provide(NodeServices.layer))

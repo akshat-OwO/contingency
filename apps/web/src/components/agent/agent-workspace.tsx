@@ -1,9 +1,9 @@
 import {
   httpOriginFromUrl,
-  describeFlowSkillName,
+  describeFlowName,
   dryRunVideoPath,
-  FlowSkillName,
-  flowSkillNameRule,
+  FlowName,
+  flowNameRule,
   isLiveAgentSessionPhase,
   OperationId,
 } from "@contingency/protocol";
@@ -263,7 +263,7 @@ const sameProjection = (left: FrameProjection, right: FrameProjection) =>
   left.scrollOffsetX === right.scrollOffsetX &&
   left.scrollOffsetY === right.scrollOffsetY;
 
-const isFlowSkillName = Schema.is(FlowSkillName);
+const isFlowName = Schema.is(FlowName);
 
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
 
@@ -898,13 +898,13 @@ const useAgentView = (
   const recordInstruction = useAtomSet(agentTeachingInstructionRecordMutation, {
     mode: "promise",
   });
-  const renameFlowSkill = useAtomSet(agentTeachingFlowRenameMutation, {
+  const renameFlow = useAtomSet(agentTeachingFlowRenameMutation, {
     mode: "promise",
   });
-  const rejectFlowSkill = useAtomSet(agentTeachingFlowRejectMutation, {
+  const rejectFlow = useAtomSet(agentTeachingFlowRejectMutation, {
     mode: "promise",
   });
-  const verifyFlowSkill = useAtomSet(agentTeachingFlowVerifyMutation, {
+  const verifyFlow = useAtomSet(agentTeachingFlowVerifyMutation, {
     mode: "promise",
   });
   const retryTeachingCleanup = useAtomSet(agentTeachingCleanupRetryMutation, {
@@ -1577,7 +1577,7 @@ const useAgentView = (
             break;
           }
           case "verify-flow": {
-            response = await verifyFlowSkill({
+            response = await verifyFlow({
               payload: data,
             });
             break;
@@ -1944,7 +1944,7 @@ const useAgentView = (
     switch (action) {
       case "reject-flow": {
         runTeachingMutation(async () => {
-          const response = await rejectFlowSkill({
+          const response = await rejectFlow({
             payload: {
               operationId: OperationId.make(globalThis.crypto.randomUUID()),
               recordingId: current.recordingId,
@@ -1958,14 +1958,14 @@ const useAgentView = (
         const name = (detail ?? "").trim();
         // A name the catalog would refuse is refused here, in the slot a
         // refused rename would use, without a request.
-        if (!isFlowSkillName(name)) {
+        if (!isFlowName(name)) {
           recordingGesture.dispatch(
-            Effect.fail(describeFlowSkillName(name) ?? flowSkillNameRule)
+            Effect.fail(describeFlowName(name) ?? flowNameRule)
           );
           return;
         }
         runTeachingMutation(async () => {
-          await renameFlowSkill({
+          await renameFlow({
             payload: {
               name,
               operationId: OperationId.make(globalThis.crypto.randomUUID()),
@@ -2474,7 +2474,7 @@ const BrowserWorkspace = ({
                 captureState={session.captureState}
                 cleanup={session.recordingCleanup}
                 controller={session.controller}
-                flowSkillName={session.flowSkillName}
+                flowName={session.flowName}
                 instructions={session.teaching.instructions}
                 onComment={view.openCommentComposer}
                 onGesture={view.changeRecording}

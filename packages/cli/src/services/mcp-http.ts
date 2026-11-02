@@ -171,7 +171,7 @@ const makeSingleToolInstructions = (
     "When a program ends with an intervention, present it and wait for the user; never repeat its attempt in a new program, resume only the exact boundary.",
     // Experimental (ADR 0057): only the instructions change, never the Run.
     ...(systemOne?.first === true
-      ? ["Try tools.agent_browser_pursue for each Flow Skill step first."]
+      ? ["Try tools.agent_browser_pursue for each Flow step first."]
       : []),
     channel
       ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
@@ -201,7 +201,7 @@ export const makeMcpInstructions = (
         "Use agent_browser_act_sequence for known steps; it stops where you must look again.",
         // Experimental (ADR 0057): only the instructions change, never the Run.
         ...(systemOne?.first === true
-          ? ["Try agent_browser_pursue for each Flow Skill step first."]
+          ? ["Try agent_browser_pursue for each Flow step first."]
           : []),
         channel
           ? "On channel events, call agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."

@@ -80,7 +80,7 @@ const scopeSummary = (
 ): string => {
   if (boundary.reason === "domain") {
     if (scope === "guided-run") {
-      return `Allow the exact host ${webHost(boundary.requested) ?? boundary.requested} for this Guided Run and its saved Flow Skill. After Allow, resume this boundary with agent_browser_resume.`;
+      return `Allow the exact host ${webHost(boundary.requested) ?? boundary.requested} for this Guided Run and its saved Flow. After Allow, resume this boundary with agent_browser_resume.`;
     }
     return `Allow ${boundary.requested} for this Run. The saved Domain Scope stays unchanged.`;
   }

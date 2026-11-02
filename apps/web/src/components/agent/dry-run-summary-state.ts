@@ -4,7 +4,7 @@ import type {
   AgentRunSummary,
   AgentTaskRunOutcome,
   AgentTaskRunPurpose,
-  FlowSkillDryRunResult,
+  FlowDryRunResult,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
@@ -182,7 +182,7 @@ export type DryRunVerdict = "checks-passed" | "failed" | "passed";
 
 export const dryRunVerdict = (
   summary: TaskDryRunSummary,
-  result: FlowSkillDryRunResult | undefined
+  result: FlowDryRunResult | undefined
 ): DryRunVerdict => {
   if (result?.outcome === "failed" || !dryRunChecksPass(summary)) {
     return "failed";

@@ -183,7 +183,7 @@ export const TeachingRecordingDock = ({
   captureState,
   cleanup,
   controller,
-  flowSkillName,
+  flowName,
   origin,
   instructions,
   onComment,
@@ -208,7 +208,7 @@ export const TeachingRecordingDock = ({
   /** Who holds the browser. Start waits for the agent's setup handoff. */
   readonly controller: AgentSessionController;
   readonly origin?: "teaching" | "guided-run";
-  readonly flowSkillName: string;
+  readonly flowName: string;
   /**
    * Every Teaching instruction this recording has collected, oldest first,
    * whether attached through inspect or relayed over MCP.
@@ -243,7 +243,7 @@ export const TeachingRecordingDock = ({
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);
   const startRename = () => {
-    setRename(flowSkillName);
+    setRename(flowName);
     setRenaming(true);
   };
   return (

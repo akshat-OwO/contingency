@@ -7,7 +7,7 @@ import {
   AgentSessionCompact,
   AgentSessionSnapshot,
   BrowserFailureReason,
-  FlowSkillDiagnostic,
+  FlowDiagnostic,
   OperationId,
 } from "@contingency/protocol";
 import type {
@@ -36,7 +36,7 @@ import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { discoverFlows } from "../../src/services/flow-catalog-layout.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   AgentRunToolHandlersLive,
   AgentRunTools,
@@ -76,7 +76,7 @@ export const agentViewport = {
 /** The structured failure an MCP client actually reads. */
 export interface ToolFailure {
   readonly code: string;
-  readonly diagnostics?: readonly FlowSkillDiagnostic[] | undefined;
+  readonly diagnostics?: readonly FlowDiagnostic[] | undefined;
   readonly message: string;
   readonly reason?: typeof BrowserFailureReason.Type | undefined;
 }
@@ -88,7 +88,7 @@ const decodeToolSuccess = <Success extends Schema.Top>(
 
 const ToolFailureSchema = Schema.Struct({
   code: Schema.String,
-  diagnostics: Schema.optional(Schema.Array(FlowSkillDiagnostic)),
+  diagnostics: Schema.optional(Schema.Array(FlowDiagnostic)),
   message: Schema.String,
   reason: Schema.optional(BrowserFailureReason),
 });
@@ -122,7 +122,7 @@ const unpublishedFields = new Map<string, Schema.Decoder<object>>([
   ["agent_browser_resume", AgentActionResult],
   ["agent_browser_act_sequence", AgentActSequenceResult],
   [
-    "agent_flow_skill_dry_run_start",
+    "agent_flow_dry_run_start",
     Schema.Struct({ session: AgentSessionSnapshot }),
   ],
   [
@@ -402,7 +402,7 @@ export const resolveVariable = (input: {
  * toolkits and the Workspace's loopback RPC, over a real Chromium.
  *
  * Each call builds a fresh registry, which is how a test spends more than one
- * process lifetime: nothing but the persisted Flow Skill, Teaching Recording,
+ * process lifetime: nothing but the persisted Flow, Teaching Recording,
  * and Run packages crosses between them.
  */
 export const agentProcessLayer = (
@@ -450,7 +450,7 @@ export const agentProcessLayer = (
             Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
           )
         ),
-        makeFlowSkillCatalogLayer(
+        makeFlowCatalogLayer(
           followCatalogSelection === true
             ? {
                 ...catalogOptions,

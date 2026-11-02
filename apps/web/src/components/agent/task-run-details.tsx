@@ -137,16 +137,16 @@ export const TaskRunDetails = ({
       </section>
       <section aria-label="Referenced skills" className="space-y-2">
         <h3 className="text-sm leading-5 font-semibold">Referenced skills</h3>
-        {run.referencedSkills.length === 0 ? (
+        {run.referencedFlows.length === 0 ? (
           <p>No Flow Skills referenced.</p>
         ) : (
           <ul className="space-y-1">
-            {run.referencedSkills.map((skill) => (
+            {run.referencedFlows.map((skill) => (
               <li
                 className="flex flex-wrap items-center gap-2 wrap-anywhere"
-                key={skill.flowSkillName}
+                key={skill.flowName}
               >
-                {skill.flowSkillName}
+                {skill.flowName}
                 {skill.origin === "example" ? (
                   <Badge variant="outline">Example</Badge>
                 ) : null}

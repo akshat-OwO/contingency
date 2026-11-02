@@ -34,7 +34,7 @@ const PrerequisiteVariable = ({
     Atom.make({ error: "", pending: false, value: "" })
   );
   const [state, setState] = useAtom(stateAtom);
-  const label = `${decision.variable?.flowSkillName}/${decision.variable?.name}`;
+  const label = `${decision.variable?.flowName}/${decision.variable?.name}`;
   const submit = async (value: string | null) => {
     setState((current) => ({ ...current, error: "", pending: true }));
     try {
@@ -99,10 +99,7 @@ export const WorkspaceVariables = ({
   );
   const pendingScopes = new Set(
     pending.map((decision) =>
-      JSON.stringify([
-        decision.variable?.flowSkillName,
-        decision.variable?.name,
-      ])
+      JSON.stringify([decision.variable?.flowName, decision.variable?.name])
     )
   );
   const answers =
@@ -111,7 +108,7 @@ export const WorkspaceVariables = ({
           (variable) =>
             variable.lastAnswer !== undefined &&
             !pendingScopes.has(
-              JSON.stringify([variable.flowSkillName, variable.name])
+              JSON.stringify([variable.flowName, variable.name])
             )
         )
       : [];
@@ -146,8 +143,8 @@ export const WorkspaceVariables = ({
         <div className="flex flex-wrap gap-x-4 gap-y-1">
           {answers.map((answer) => (
             <AnsweredVariable
-              key={JSON.stringify([answer.flowSkillName, answer.name])}
-              label={`${answer.flowSkillName}/${answer.name}`}
+              key={JSON.stringify([answer.flowName, answer.name])}
+              label={`${answer.flowName}/${answer.name}`}
               status={answer.lastAnswer ?? ""}
             />
           ))}

@@ -1,13 +1,13 @@
 import path from "node:path";
 
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import type { AgentElementRef, AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
-import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
+import { stampFlowVerification } from "../../src/services/flow-package.ts";
 import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
   agentProcessLayer,
@@ -30,7 +30,7 @@ const exerciseTargetVariables = Effect.fn("exerciseTargetVariables")(
   ) {
     const sessions = yield* AgentSession;
     const targetRequest = {
-      flowSkillName: FlowSkillName.make("cart"),
+      flowName: FlowName.make("cart"),
       name: "PASSWORD",
       operationId: operation("target-request"),
       sessionId,
@@ -54,8 +54,7 @@ const exerciseTargetVariables = Effect.fn("exerciseTargetVariables")(
     expect(targetWaiting.dryRun?.variables[0]?.supplied).toBe(false);
     expect(
       targetWaiting.run?.variables.find(
-        (variable) =>
-          "flowSkillName" in variable && variable.flowSkillName === "cart"
+        (variable) => "flowName" in variable && variable.flowName === "cart"
       )?.supplied
     ).toBe(false);
     const unsuppliedReplacement = yield* sessionTool("agent_variable_request", {
@@ -63,7 +62,7 @@ const exerciseTargetVariables = Effect.fn("exerciseTargetVariables")(
       operationId: operation("target-replace-again"),
     });
     expect(unsuppliedReplacement.updatedAt).toBe(targetWaiting.updatedAt);
-    for (const scope of [null, FlowSkillName.make("cart")]) {
+    for (const scope of [null, FlowName.make("cart")]) {
       expect(
         (yield* Effect.flip(
           scope === null
@@ -74,7 +73,7 @@ const exerciseTargetVariables = Effect.fn("exerciseTargetVariables")(
                 sessionId,
               })
             : sessionTool("agent_variable_enter", {
-                flowSkillName: scope,
+                flowName: scope,
                 name: "PASSWORD",
                 operationId: operation("target-old-scoped"),
                 ref,
@@ -182,7 +181,7 @@ it.live(
             operationId: operation("prereq-claim"),
             recordingId,
           });
-          yield* teachingRecordingTool("agent_flow_skill_save", {
+          yield* teachingRecordingTool("agent_flow_save", {
             claimOperationId: operation("prereq-claim"),
             files: [
               {
@@ -207,45 +206,36 @@ it.live(
             operationId: operation("prereq-start"),
             prerequisiteInputs: [
               {
-                flowSkillName: FlowSkillName.make("location"),
+                flowName: FlowName.make("location"),
                 name: "area",
                 value: "North",
               },
               {
-                flowSkillName: FlowSkillName.make("login"),
+                flowName: FlowName.make("login"),
                 name: "area",
                 value: "South",
               },
             ],
-            prerequisites: [
-              FlowSkillName.make("location"),
-              FlowSkillName.make("login"),
-            ],
+            prerequisites: [FlowName.make("location"), FlowName.make("login")],
             recordingId,
             url: fixture.url("task-session.html"),
           };
           for (const [suffix, changes] of [
-            ["unknown", { prerequisites: [FlowSkillName.make("unknown")] }],
-            [
-              "unverified",
-              { prerequisites: [FlowSkillName.make("unverified")] },
-            ],
+            ["unknown", { prerequisites: [FlowName.make("unknown")] }],
+            ["unverified", { prerequisites: [FlowName.make("unverified")] }],
             [
               "duplicate",
               {
-                prerequisites: [
-                  FlowSkillName.make("login"),
-                  FlowSkillName.make("login"),
-                ],
+                prerequisites: [FlowName.make("login"), FlowName.make("login")],
               },
             ],
-            ["target", { prerequisites: [FlowSkillName.make("cart")] }],
+            ["target", { prerequisites: [FlowName.make("cart")] }],
             [
               "undeclared",
               {
                 prerequisiteInputs: [
                   {
-                    flowSkillName: FlowSkillName.make("login"),
+                    flowName: FlowName.make("login"),
                     name: "unknown",
                     value: "x",
                   },
@@ -254,7 +244,7 @@ it.live(
             ],
           ] as const) {
             const refused = yield* Effect.flip(
-              teachingRecordingTool("agent_flow_skill_dry_run_start", {
+              teachingRecordingTool("agent_flow_dry_run_start", {
                 ...start,
                 ...changes,
                 operationId: operation(`prereq-${suffix}`),
@@ -262,11 +252,11 @@ it.live(
             );
             expect(refused.code).toMatch(/invalid|not_found/u);
             expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
-              "skill-drafted"
+              "flow-drafted"
             );
           }
           const started = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             start
           );
           const { session } = started;
@@ -287,24 +277,23 @@ it.live(
               )
             )
           ).toBe(true);
-          expect(
-            started.prerequisites.map((skill) => skill.flowSkillName)
-          ).toEqual(["location", "login"]);
+          expect(started.prerequisites.map((skill) => skill.flowName)).toEqual([
+            "location",
+            "login",
+          ]);
           expect(session.run.startingEmulation.viewport).toEqual(agentViewport);
           expect(
-            (yield* teachingRecordingTool(
-              "agent_flow_skill_dry_run_start",
-              start
-            )).session.id
+            (yield* teachingRecordingTool("agent_flow_dry_run_start", start))
+              .session.id
           ).toBe(session.id);
           expect(
             (yield* Effect.flip(
-              teachingRecordingTool("agent_flow_skill_dry_run_start", {
+              teachingRecordingTool("agent_flow_dry_run_start", {
                 ...start,
                 prerequisiteInputs: start.prerequisiteInputs.filter(
-                  (input) => input.flowSkillName === "login"
+                  (input) => input.flowName === "login"
                 ),
-                prerequisites: [FlowSkillName.make("login")],
+                prerequisites: [FlowName.make("login")],
               })
             )).code
           ).toBe("agent_session_conflict");
@@ -314,7 +303,7 @@ it.live(
                 inputs: [],
                 instruction: "Change target",
                 operationId: operation("prereq-late"),
-                referencedSkills: [],
+                referencedFlows: [],
                 sessionId: session.id,
               })
             )).code
@@ -327,7 +316,7 @@ it.live(
           ).toBe(true);
           const password = findNode(observed.nodes, "textbox", "Password").ref;
           const entry = {
-            flowSkillName: FlowSkillName.make("login"),
+            flowName: FlowName.make("login"),
             name: "PASSWORD",
             operationId: operation("prereq-unsupplied"),
             ref: password,
@@ -338,7 +327,7 @@ it.live(
               .message
           ).toContain("not been supplied");
           const request = {
-            flowSkillName: FlowSkillName.make("login"),
+            flowName: FlowName.make("login"),
             name: "PASSWORD",
             operationId: operation("prereq-request"),
             sessionId: session.id,
@@ -393,14 +382,14 @@ it.live(
             supplied.run?.variables
               .filter((variable) => variable.supplied)
               .map((variable) =>
-                "flowSkillName" in variable ? variable.flowSkillName : ""
+                "flowName" in variable ? variable.flowName : ""
               )
           ).toEqual(["login"]);
           expect(JSON.stringify(supplied)).toContain(supply.value);
           expect(supplied.run).toMatchObject({
             variables: expect.arrayContaining([
               expect.objectContaining({
-                flowSkillName: "login",
+                flowName: "login",
                 lastAnswer: "supplied",
               }),
             ]),
@@ -445,14 +434,13 @@ it.live(
           expect(
             afterTargetSupply.run?.variables.find(
               (variable) =>
-                "flowSkillName" in variable &&
-                variable.flowSkillName === "location"
+                "flowName" in variable && variable.flowName === "location"
             )?.supplied
           ).toBe(false);
           yield* exerciseTargetVariables(session.id, password);
           const otherScope = yield* sessionTool("agent_variable_request", {
             ...request,
-            flowSkillName: FlowSkillName.make("location"),
+            flowName: FlowName.make("location"),
             operationId: operation("prereq-other-request"),
           });
           const [otherDecision] = otherScope.pendingDecisions;
@@ -525,13 +513,13 @@ it.live(
             /private-login|private-target/u
           );
           const retried = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               ...start,
               operationId: operation("prereq-fresh"),
               prerequisiteInputs: [
                 {
-                  flowSkillName: FlowSkillName.make("login"),
+                  flowName: FlowName.make("login"),
                   name: "PASSWORD",
                   value: "startup-password",
                 },
@@ -542,7 +530,7 @@ it.live(
           expect(retried.session.run).toMatchObject({
             inputs: expect.arrayContaining([
               {
-                flowSkillName: "login",
+                flowName: "login",
                 name: "PASSWORD",
                 value: "startup-password",
               },

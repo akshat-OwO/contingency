@@ -4,7 +4,7 @@ import {
   AgentSessionId,
   AgentSessionSnapshot,
   ContentHash,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TaskAgentRunState,
   TeachingRecordingId,
@@ -16,14 +16,14 @@ import { Effect, Exit, FileSystem, Layer, Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   stampFlowVerification,
-  readFlowSkillFrontmatter,
-} from "../../src/services/flow-skill-package.ts";
+  readFlowFrontmatter,
+} from "../../src/services/flow-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
 import {
-  decideFlowSkill,
+  decideFlow,
   startDryRun,
   stopDryRun,
   teachingRecordingSummary,
@@ -38,7 +38,7 @@ import {
 const operation = OperationId.make;
 const at = "2026-10-03T10:00:00.000Z";
 const sessionId = AgentSessionId.make("agent-orchestration-test");
-const flowSkillName = FlowSkillName.make("cart");
+const flowName = FlowName.make("cart");
 const emulation = {
   permissions: [],
   userAgentProfile: UserAgentProfileId.make("default"),
@@ -58,7 +58,7 @@ const writeSkill = (
   inputs: readonly string[],
   verified: boolean
 ) =>
-  Effect.gen(function* writeFlowSkill() {
+  Effect.gen(function* writeFlow() {
     const files = yield* FileSystem.FileSystem;
     yield* files.makeDirectory(path.join(root, name, "references"), {
       recursive: true,
@@ -99,7 +99,7 @@ const writeSkill = (
     }
   });
 
-/** A recording whose `cart` Flow Skill is saved and ready for a Dry Run. */
+/** A recording whose `cart` Flow is saved and ready for a Dry Run. */
 const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
   Effect.gen(function* draftRecording() {
     const files = yield* FileSystem.FileSystem;
@@ -107,7 +107,7 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
     const step = (name: string) => operation(`${recordingId}-${name}`);
     yield* store.begin({
       emulation,
-      flowSkillName,
+      flowName,
       operationId: step("begin"),
       recordingId,
       sessionId,
@@ -133,8 +133,8 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
       recordingId,
     });
     yield* store.startLearning({ operationId: step("learn"), recordingId });
-    yield* writeSkill(root, flowSkillName, ["sku", "PASSWORD"], false);
-    yield* store.saveSkill({
+    yield* writeSkill(root, flowName, ["sku", "PASSWORD"], false);
+    yield* store.saveFlow({
       claimOperationId: step("learn"),
       files: ["flow.md"],
       operationId: step("save"),
@@ -165,13 +165,13 @@ const snapshotFor = (input: AgentSessionStartInput) =>
     activity: "run",
     boundary: null,
     captureState: null,
-    clientName: "flow-skill-dry-run",
+    clientName: "flow-dry-run",
     clientVersion: "1",
     controller: "agent",
     createdAt: at,
     currentUrl: input.url,
     dryRun: null,
-    flowSkillName: null,
+    flowName: null,
     id: sessionId,
     interruptedAction: null,
     ownerProcessId: "orchestration-test",
@@ -232,7 +232,7 @@ const dryRunLayer = (
 ) =>
   Layer.mergeAll(
     sessions.layer,
-    makeFlowSkillCatalogLayer({ root }).pipe(Layer.provide(NodeServices.layer)),
+    makeFlowCatalogLayer({ root }).pipe(Layer.provide(NodeServices.layer)),
     storeLayer(root)
   );
 
@@ -247,17 +247,17 @@ const startInput = (
   operationId: operation("dry-run-start"),
   prerequisiteInputs: [
     {
-      flowSkillName: FlowSkillName.make("location"),
+      flowName: FlowName.make("location"),
       name: "area",
       value: "North",
     },
     {
-      flowSkillName: FlowSkillName.make("login"),
+      flowName: FlowName.make("login"),
       name: "area",
       value: "South",
     },
   ],
-  prerequisites: [FlowSkillName.make("location"), FlowSkillName.make("login")],
+  prerequisites: [FlowName.make("location"), FlowName.make("login")],
   recordingId,
   url: "http://localhost/cart.html",
   ...changes,
@@ -280,17 +280,14 @@ it.effect(
         yield* writeSkill(root, "unverified", ["area"], false);
 
         const refusals: readonly [string, Partial<DryRunStartInput>][] = [
-          ["unverified", { prerequisites: [FlowSkillName.make("unverified")] }],
+          ["unverified", { prerequisites: [FlowName.make("unverified")] }],
           [
             "duplicate",
             {
-              prerequisites: [
-                FlowSkillName.make("login"),
-                FlowSkillName.make("login"),
-              ],
+              prerequisites: [FlowName.make("login"), FlowName.make("login")],
             },
           ],
-          ["tested skill", { prerequisites: [flowSkillName] }],
+          ["tested skill", { prerequisites: [flowName] }],
           [
             "incomplete inputs",
             { inputs: startInput(recordingId).inputs.slice(0, 1) },
@@ -317,7 +314,7 @@ it.effect(
           );
           expect(refused.code, label).toBe(
             label === "unverified" || label === "private prerequisite input"
-              ? "flow_skill_invalid"
+              ? "flow_invalid"
               : "teaching_recording_invalid"
           );
         }
@@ -330,15 +327,16 @@ it.effect(
         );
         const started = yield* startDryRun(startInput(recordingId));
         expect(started.manifest.lifecycle._tag).toBe("dry-running");
-        expect(started.skillPath).toBe("shop/cart/flow.md");
+        expect(started.flowPath).toBe("shop/cart/flow.md");
         // The package is read through the catalog, supporting Markdown included.
         expect(started.files.map((file) => file.path)).toEqual([
           "flow.md",
           "references/notes.md",
         ]);
-        expect(
-          started.prerequisites.map((skill) => skill.flowSkillName)
-        ).toEqual(["location", "login"]);
+        expect(started.prerequisites.map((skill) => skill.flowName)).toEqual([
+          "location",
+          "login",
+        ]);
 
         const [first] = [...sessions.started.values()];
         const run = Schema.decodeUnknownSync(TaskAgentRunState)(
@@ -363,31 +361,31 @@ it.effect(
         // Inputs keep the skill that declared them, and a secret never leaves
         // the request as a literal.
         expect(run.inputs).toEqual([
-          { flowSkillName: "location", name: "area", value: "North" },
-          { flowSkillName: "login", name: "area", value: "South" },
-          { flowSkillName: "cart", name: "sku", value: "anvil" },
+          { flowName: "location", name: "area", value: "North" },
+          { flowName: "login", name: "area", value: "South" },
+          { flowName: "cart", name: "sku", value: "anvil" },
         ]);
         expect(run.variables).toEqual([
           {
-            flowSkillName: "location",
+            flowName: "location",
             name: "area",
             runtime: true,
             supplied: false,
           },
           {
-            flowSkillName: "login",
+            flowName: "login",
             name: "area",
             runtime: true,
             supplied: false,
           },
           {
-            flowSkillName: "login",
+            flowName: "login",
             name: "PASSWORD",
             runtime: true,
             supplied: false,
           },
           {
-            flowSkillName: "cart",
+            flowName: "cart",
             name: "PASSWORD",
             runtime: true,
             supplied: false,
@@ -405,17 +403,17 @@ it.effect(
           {
             prerequisiteInputs:
               startInput(recordingId).prerequisiteInputs.slice(1),
-            prerequisites: [FlowSkillName.make("login")],
+            prerequisites: [FlowName.make("login")],
           },
           {
             prerequisiteInputs: [
               {
-                flowSkillName: FlowSkillName.make("location"),
+                flowName: FlowName.make("location"),
                 name: "area",
                 value: "East",
               },
               {
-                flowSkillName: FlowSkillName.make("login"),
+                flowName: FlowName.make("login"),
                 name: "area",
                 value: "South",
               },
@@ -445,7 +443,7 @@ it.effect("verification wins a race with Stop after a pass", () =>
       const [verified, stopped] = yield* Effect.all(
         [
           Effect.exit(
-            decideFlowSkill({
+            decideFlow({
               decision: "verify",
               operationId: operation("race-verify"),
               recordingId: passedId,
@@ -478,7 +476,7 @@ it.effect("verification wins a race with Stop after a pass", () =>
       });
       expect(stoppedRun.lifecycle._tag).toBe("dry-run-failed");
       const refused = yield* Effect.flip(
-        decideFlowSkill({
+        decideFlow({
           decision: "verify",
           operationId: operation("running-verify"),
           recordingId: runningId,
@@ -506,12 +504,7 @@ it.effect(
       const retriedId = TeachingRecordingId.make("recording-cleanup-retry");
       const restartedId = TeachingRecordingId.make("recording-cleanup-restart");
       const directory = (recordingId: TeachingRecordingId) =>
-        path.join(
-          root,
-          flowSkillName,
-          TEACHING_RECORDINGS_DIRECTORY,
-          recordingId
-        );
+        path.join(root, flowName, TEACHING_RECORDINGS_DIRECTORY, recordingId);
       const lockedFor = (recordingId: TeachingRecordingId) =>
         path.join(directory(recordingId), "locked");
       const lock = (recordingId: TeachingRecordingId) =>
@@ -530,7 +523,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         yield* passedRecording(root, retriedId);
         yield* lock(retriedId);
-        const failed = yield* decideFlowSkill({
+        const failed = yield* decideFlow({
           decision: "verify",
           operationId: operation("cleanup-verify"),
           recordingId: retriedId,
@@ -546,10 +539,10 @@ it.effect(
           path.join(root, "cart/flow.md")
         );
         expect(
-          readFlowSkillFrontmatter(verification)?.verification?.verifiedAt
+          readFlowFrontmatter(verification)?.verification?.verifiedAt
         ).toBeDefined();
 
-        const stillLocked = yield* decideFlowSkill({
+        const stillLocked = yield* decideFlow({
           decision: "retry-cleanup",
           operationId: operation("cleanup-retry-locked"),
           recordingId: retriedId,
@@ -558,7 +551,7 @@ it.effect(
         expect(stillLocked.cleanup._tag).toBe("purge-pending");
 
         yield* unlock(retriedId);
-        const retried = yield* decideFlowSkill({
+        const retried = yield* decideFlow({
           decision: "retry-cleanup",
           operationId: operation("cleanup-retry"),
           recordingId: retriedId,
@@ -566,7 +559,7 @@ it.effect(
         expect(retried.cleanup._tag).toBe("purged");
         expect(yield* files.exists(directory(retriedId))).toBe(false);
         // A replayed retry answers with the purged recording.
-        const replayed = yield* decideFlowSkill({
+        const replayed = yield* decideFlow({
           decision: "retry-cleanup",
           operationId: operation("cleanup-retry"),
           recordingId: retriedId,
@@ -576,7 +569,7 @@ it.effect(
         yield* files.remove(path.join(root, "cart"), { recursive: true });
         yield* passedRecording(root, restartedId);
         yield* lock(restartedId);
-        const pending = yield* decideFlowSkill({
+        const pending = yield* decideFlow({
           decision: "verify",
           operationId: operation("restart-verify"),
           recordingId: restartedId,
@@ -606,7 +599,7 @@ it.effect("projects one summary for every learning state", () =>
       const store = yield* TeachingRecordingStore;
       const setup = yield* store.begin({
         emulation,
-        flowSkillName,
+        flowName,
         operationId: operation("summary-begin"),
         recordingId,
         sessionId,
@@ -623,7 +616,7 @@ it.effect("projects one summary for every learning state", () =>
         cleanup: passed.cleanup,
         emulation,
         failure: null,
-        flowSkillName,
+        flowName,
         lifecycle: "dry-run-passed",
         recordingId: passed.recordingId,
         runtime: browserRequirements,

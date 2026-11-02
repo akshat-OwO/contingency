@@ -1,4 +1,4 @@
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
 import { applyCommand, FIXTURE_SELECTION } from "@/prototypes/android/fixtures";
@@ -7,7 +7,7 @@ import { actionableNodes } from "@/prototypes/android/presentation";
 test("offers untaught controls", () => {
   const started = applyCommand(null, {
     _tag: "start",
-    flowSkillName: FlowSkillName.make("checkout"),
+    flowName: FlowName.make("checkout"),
     kind: "teaching",
     operationId: OperationId.make("prototype-start"),
     recordingId: null,

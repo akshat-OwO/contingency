@@ -1,25 +1,25 @@
 import path from "node:path";
 
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import { Effect } from "effect";
 
 import { DEMO_HOST, DEMO_SITE_NAME } from "./demo-site.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 
 /**
- * The bundled Example Flow Skills that onboarding runs on Ridgeline Hardware
+ * The bundled Example Flows that onboarding runs on Ridgeline Hardware
  * (ADR 0050).
  *
  * They are read-only packages shipped with the CLI, outside every Catalog
  * Root. They are resolved only by name through this registry, they carry no
  * verification record, and their taught host is the demo store alone. The
- * user's own variation is an ordinary drafted Flow Skill in their catalog.
+ * user's own variation is an ordinary drafted Flow in their catalog.
  */
 
 export interface OnboardingExample {
   /** Whether a learned variation can be rerun against the cart fault. */
   readonly appliesToCartFault: boolean;
-  readonly flowSkillName: FlowSkillName;
+  readonly flowName: FlowName;
   readonly recommended: boolean;
   /** What the user can check when the journey works. */
   readonly result: string;
@@ -40,7 +40,7 @@ export const CART_FAULT_PATH = "/?fault=add-to-cart";
 export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   {
     appliesToCartFault: true,
-    flowSkillName: FlowSkillName.make("example-delivery-cart"),
+    flowName: FlowName.make("example-delivery-cart"),
     recommended: true,
     result: "The cart names the chosen product and delivery location.",
     sampleInputs: {
@@ -56,10 +56,10 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   },
   {
     appliesToCartFault: false,
-    flowSkillName: FlowSkillName.make("example-signed-in-return"),
+    flowName: FlowName.make("example-signed-in-return"),
     recommended: false,
     result:
-      "The return confirmation identifies the selected order. The Flow Skill declares its private input.",
+      "The return confirmation identifies the selected order. The Flow declares its private input.",
     sampleInputs: { order: "RH-1042", reason: "Wrong item" },
     startPath: "/signin.html",
     title: "Complete a signed-in task",
@@ -69,7 +69,7 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   },
   {
     appliesToCartFault: true,
-    flowSkillName: FlowSkillName.make("example-cart-scan"),
+    flowName: FlowName.make("example-cart-scan"),
     recommended: false,
     result:
       "The Run includes a completed Scan Report. The documented low-contrast note can remain while the journey passes.",
@@ -83,7 +83,7 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   },
   {
     appliesToCartFault: true,
-    flowSkillName: FlowSkillName.make("example-broken-cart"),
+    flowName: FlowName.make("example-broken-cart"),
     recommended: false,
     result:
       "The failure report cites the empty cart. The learned variation passes on the healthy store.",
@@ -96,14 +96,14 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   },
 ];
 
-export const EXAMPLE_FLOW_SKILL_NAMES = ONBOARDING_EXAMPLES.map(
-  (example) => example.flowSkillName
+export const EXAMPLE_FLOW_FLOW_NAMES = ONBOARDING_EXAMPLES.map(
+  (example) => example.flowName
 );
 
 export const findOnboardingExample = (
   name: string
 ): OnboardingExample | undefined =>
-  ONBOARDING_EXAMPLES.find((example) => example.flowSkillName === name);
+  ONBOARDING_EXAMPLES.find((example) => example.flowName === name);
 
 /** Built output keeps examples under `dist/examples`; a source checkout reads the package. */
 export const resolveExampleRoot = (moduleDirectory: string): string =>
@@ -114,29 +114,29 @@ export const resolveExampleRoot = (moduleDirectory: string): string =>
 const exampleRoot = resolveExampleRoot(import.meta.dirname);
 
 const exampleError = (message: string) => ({
-  code: "flow_skill_invalid" as const,
+  code: "flow_invalid" as const,
   message,
 });
 
 /**
- * Read bundled Example Flow Skills by registry name. The catalog's package
- * reader parses them, but from the bundled root: a user's catalog skill with
+ * Read bundled Example Flows by registry name. The catalog's package
+ * reader parses them, but from the bundled root: a user's catalog flow with
  * the same name is never consulted, and nothing is copied into the catalog.
  */
-export const readExampleSkills = (
+export const readExampleFlows = (
   names: readonly string[],
   root: string = exampleRoot
 ) =>
   Effect.gen(function* readExamples() {
-    const catalog = yield* FlowSkillCatalog;
-    const skills = [];
+    const catalog = yield* FlowCatalog;
+    const flows = [];
     for (const name of new Set(names)) {
       if (findOnboardingExample(name) === undefined) {
         return yield* Effect.fail(
-          exampleError(`${name} is not a bundled Example Flow Skill.`)
+          exampleError(`${name} is not a bundled Example Flow.`)
         );
       }
-      const skill = yield* catalog
+      const flow = yield* catalog
         .read(name, root)
         .pipe(
           Effect.mapError((cause) =>
@@ -145,16 +145,16 @@ export const readExampleSkills = (
             )
           )
         );
-      if (skill.hosts.length !== 1 || skill.hosts[0] !== DEMO_HOST) {
+      if (flow.hosts.length !== 1 || flow.hosts[0] !== DEMO_HOST) {
         return yield* Effect.fail(
           exampleError(
             `The bundled Example ${name} must be limited to ${DEMO_HOST}.`
           )
         );
       }
-      skills.push(skill);
+      flows.push(flow);
     }
-    return skills;
+    return flows;
   });
 
 /** Fetch only registered bundled Examples, using the same document boundary as the catalog. */
@@ -162,10 +162,10 @@ export const readExampleDocument = (name: string, documentPath: string) =>
   Effect.gen(function* readDocument() {
     if (findOnboardingExample(name) === undefined) {
       return yield* Effect.fail(
-        exampleError(`${name} is not a bundled Example Flow Skill.`)
+        exampleError(`${name} is not a bundled Example Flow.`)
       );
     }
-    const catalog = yield* FlowSkillCatalog;
+    const catalog = yield* FlowCatalog;
     return yield* catalog.readDocument(name, documentPath, exampleRoot);
   });
 
@@ -187,7 +187,7 @@ export const describeOnboardingExamples = (origin: string): string =>
     ...ONBOARDING_EXAMPLES.flatMap((example) => [
       `## ${example.title}${example.recommended ? " (recommended first example)" : ""}`,
       "",
-      `- Example Flow Skill: ${example.flowSkillName}`,
+      `- Example Flow: ${example.flowName}`,
       `- Starts at: ${origin}${example.startPath}`,
       `- The user watches: ${example.watch}`,
       `- Variation to teach: ${example.variation}`,
@@ -207,8 +207,8 @@ export const describeOnboardingExamples = (origin: string): string =>
     "",
     "## Demo work in the user's catalog",
     "",
-    `- A Flow Skill learned on the store keeps the taught host ${DEMO_HOST}. The catalog lists it with demo: ridgeline, and its Runs carry demoSite: ridgeline.`,
+    `- A Flow learned on the store keeps the taught host ${DEMO_HOST}. The catalog lists it with demo: ridgeline, and its Runs carry demoSite: ridgeline.`,
     '- Start the description with "Demo:" so people reading the catalog can tell it apart from a real website\'s journey.',
     `- The port changes between launches. Declare an ordinary input named demo_origin, write store URLs as {{demo_origin}}/path, and supply ${origin} as its value. Pass a url on ${origin} to Dry Runs and Runs.`,
-    `- To rerun a verified demo skill against the fault, start agent_run_start with that skill and url ${origin}${CART_FAULT_PATH}. Report the observed failure, then restore the healthy store before agent_run_complete.`,
+    `- To rerun a verified demo flow against the fault, start agent_run_start with that flow and url ${origin}${CART_FAULT_PATH}. Report the observed failure, then restore the healthy store before agent_run_complete.`,
   ].join("\n");

@@ -66,7 +66,7 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     // disabled until control is explicitly returned.
     "agent_control_unavailable",
     // Catalog Root failures the Workspace can act on: an unusable Catalog
-    // Root, a conflicting write, or a missing Flow Skill.
+    // Root, a conflicting write, or a missing Flow.
     "agent_catalog_invalid",
     "agent_flow_conflict",
     "agent_flow_invalid",

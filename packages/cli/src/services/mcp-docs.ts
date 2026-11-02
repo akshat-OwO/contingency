@@ -26,8 +26,8 @@ export const DOC_TOPICS = [
   },
   {
     description:
-      "Guide: run Flow Skills in an Interactive Run, assess with evidence, complete the Run, and delegate steps to System One Pursuits.",
-    title: "Run Flow Skills",
+      "Guide: run Flows in an Interactive Run, assess with evidence, complete the Run, and delegate steps to System One Pursuits.",
+    title: "Run Flows",
     topic: "run",
   },
   {
@@ -38,7 +38,7 @@ export const DOC_TOPICS = [
   },
   {
     description:
-      "Guide: learn a Flow Skill from the user's Source Document in a Guided Run.",
+      "Guide: learn a Flow from the user's Source Document in a Guided Run.",
     title: "Guided Run",
     topic: "guided-run",
   },
@@ -74,7 +74,7 @@ export const DOC_TOPICS = [
   },
   {
     description:
-      "Variables: declaring Flow Skill inputs, what runtime means, how values are supplied, and ignored legacy secret declarations.",
+      "Variables: declaring Flow inputs, what runtime means, how values are supplied, and ignored legacy secret declarations.",
     title: "Variables",
     topic: "variables",
   },

@@ -90,10 +90,10 @@ import {
   TeachingCaptureState,
   TeachingRecordingCleanupState,
   TeachingRecordingId,
-  describeFlowSkillName,
-  FlowSkillName,
+  describeFlowName,
+  FlowName,
   isLiveAgentSessionPhase,
-  flowSkillNameRule,
+  flowNameRule,
   ContentHash,
   OperationId,
   viewportForIdentity,
@@ -167,7 +167,7 @@ import type {
 } from "./execution-boundary.ts";
 import { resolveFlowDirectory } from "./flow-catalog-layout.ts";
 import type { FlowDocumentDelivery } from "./flow-documents.ts";
-import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import { readFlowFrontmatter } from "./flow-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import type { SavedPlatformRequirements } from "./platform-requirements.ts";
 import {
@@ -268,18 +268,18 @@ export interface AgentSessionStartInput extends FlowDocumentDelivery {
   readonly openedBy?: AgentSessionController | undefined;
   /**
    * The Interactive Run this session performs, already resolved from a
-   * requested task or a historical ordered Flow Skill. The session owns its
+   * requested task or a historical ordered Flow. The session owns its
    * execution state and evidence from the moment the browser opens.
    */
   readonly run?: AgentRunState | TaskAgentRunState | undefined;
   /**
-   * The Dry Run this session rehearses. A Dry Run follows the saved Flow Skill
+   * The Dry Run this session rehearses. A Dry Run follows the saved Flow
    * package rather than ordered Agent Steps, so it names the flow and the
    * Teaching Recording it came from instead of carrying a Run state.
    */
   readonly dryRun?:
     | {
-        readonly flowSkillName: FlowSkillName;
+        readonly flowName: FlowName;
         /**
          * The inputs the rehearsal runs with. An input without a startup value
          * carries `null` until it is supplied in Workspace.
@@ -365,7 +365,7 @@ export interface AgentSessionService {
   >;
   readonly scan: (
     sessionId: AgentSessionId,
-    flowSkillName: string,
+    flowName: string,
     requirementId: string,
     action: "start" | "stop",
     operationId: OperationId,
@@ -373,7 +373,7 @@ export interface AgentSessionService {
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly scanScope: (
     sessionId: AgentSessionId,
-    flowSkillName: string,
+    flowName: string,
     requirementId: string,
     reason: string,
     operationId: OperationId
@@ -435,10 +435,10 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
-  /** Rename the Flow Skill this Teaching session is about to demonstrate. */
-  readonly renameFlowSkill: (
+  /** Rename the Flow this Teaching session is about to demonstrate. */
+  readonly renameFlow: (
     sessionId: AgentSessionId,
-    name: FlowSkillName,
+    name: FlowName,
     operationId?: OperationId | string
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /**
@@ -583,7 +583,7 @@ export interface AgentSessionService {
   /**
    * Re-apply the whole Emulation the session runs under. Identity, viewport,
    * and environment move together (ADR 0013), and the session remembers what
-   * it now emulates so a learned Flow Skill runs under what was demonstrated.
+   * it now emulates so a learned Flow runs under what was demonstrated.
    */
   readonly setEmulation: (
     sessionId: AgentSessionId,
@@ -646,7 +646,7 @@ export interface AgentSessionService {
     name: string,
     ref: string,
     operationId?: OperationId | string,
-    flowSkillName?: string
+    flowName?: string
   ) => Effect.Effect<AgentActionResult, AgentSessionError>;
   readonly updateTask: <E>(
     sessionId: AgentSessionId,
@@ -656,8 +656,8 @@ export interface AgentSessionService {
           FlowDocumentDelivery["flowDocuments"]
         >;
         readonly instruction?: string | undefined;
-        readonly skills: readonly {
-          readonly flowSkillName: FlowSkillName;
+        readonly flows: readonly {
+          readonly flowName: FlowName;
           readonly hosts: readonly string[];
           readonly variables: readonly AgentRunTaskVariable[];
         }[];
@@ -689,7 +689,7 @@ export interface AgentSessionService {
   ) => Effect.Effect<void, AgentSessionError>;
   readonly requestTaskVariable: (
     sessionId: AgentSessionId,
-    flowSkillName: string,
+    flowName: string,
     name: string,
     operationId: OperationId,
     replace?: boolean
@@ -749,7 +749,7 @@ export const AgentSession = Context.Service<AgentSessionService>(
 const exampleRun = (run: AgentSessionSnapshot["run"]): boolean =>
   run !== null &&
   isTaskRun(run) &&
-  run.referencedSkills.some((skill) => skill.origin === "example");
+  run.referencedFlows.some((flow) => flow.origin === "example");
 
 const notDeclaringVariables = (sessionId: AgentSessionId) =>
   error(
@@ -768,18 +768,18 @@ const viewUrl = (baseUrl: string, sessionId: AgentSessionId): string => {
 
 /**
  * What a Dry Run contributes to its session snapshot. A rehearsal names the
- * Flow Skill and the Teaching Recording it runs, so a reader can tell it from
+ * Flow and the Teaching Recording it runs, so a reader can tell it from
  * an Interactive Run without the tool result that started it (#202).
  */
 const dryRunIdentity = (
   dryRun: AgentSessionStartInput["dryRun"],
   at: string
-): Pick<RunSessionSnapshot, "dryRun" | "flowSkillName" | "recordingId"> =>
+): Pick<RunSessionSnapshot, "dryRun" | "flowName" | "recordingId"> =>
   dryRun === undefined
-    ? { dryRun: null, flowSkillName: null, recordingId: null }
+    ? { dryRun: null, flowName: null, recordingId: null }
     : {
         dryRun: { ...dryRun, startedAt: at, variables: dryRun.variables ?? [] },
-        flowSkillName: dryRun.flowSkillName,
+        flowName: dryRun.flowName,
         recordingId: dryRun.recordingId,
       };
 
@@ -809,7 +809,7 @@ const snapshotFromReadyManifest = (
     currentUrl: "about:blank",
     decisionHistory: [],
     dryRun: null,
-    flowSkillName: manifest.flowSkillName,
+    flowName: manifest.flowName,
     id: manifest.sessionId,
     interruptedAction: null,
     origin: manifest.origin,
@@ -1167,7 +1167,7 @@ export const describeCapturedAction = (
  * How a click reads when the tree recorded beside it does not describe the
  * control it hit. The bare reference is the one thing a later reader cannot
  * use — it means nothing outside the session and dies with the document — and the
- * Flow Skill contract rejects a step that names one, so an unresolved click
+ * Flow contract rejects a step that names one, so an unresolved click
  * says it is unresolved rather than handing on a reference or a name no
  * recorded tree can be joined back to.
  */
@@ -1314,10 +1314,10 @@ const browserEvidenceScrubber = (
   return scrub;
 };
 
-const variableKey = (name: string, flowSkillName?: string | null): string =>
-  flowSkillName === undefined || flowSkillName === null
+const variableKey = (name: string, flowName?: string | null): string =>
+  flowName === undefined || flowName === null
     ? name
-    : JSON.stringify([flowSkillName, name]);
+    : JSON.stringify([flowName, name]);
 
 /**
  * Record what the Runner produced during the owning Run, so an
@@ -1649,9 +1649,9 @@ const variableResolution = (
     variableName: pending.variable?.name ?? null,
   } satisfies Omit<AgentPendingDecisionResolution, "userMessage">;
   const scoped =
-    pending.variable?.flowSkillName === undefined
+    pending.variable?.flowName === undefined
       ? base
-      : { ...base, variableFlowSkillName: pending.variable.flowSkillName };
+      : { ...base, variableFlowName: pending.variable.flowName };
   if (userMessage === undefined || userMessage === null) {
     return scoped;
   }
@@ -2143,7 +2143,7 @@ const makeAgentSession = (
                   );
                   return resolveFlowDirectory(
                     catalogRoot,
-                    snapshot.flowSkillName,
+                    snapshot.flowName,
                     fileSystem
                   ).pipe(
                     Effect.flatMap((directory) =>
@@ -2151,16 +2151,15 @@ const makeAgentSession = (
                     ),
                     Effect.flatMap((contents) => {
                       const verifiedAt =
-                        readFlowSkillFrontmatter(contents)?.verification
-                          ?.verifiedAt;
+                        readFlowFrontmatter(contents)?.verification?.verifiedAt;
                       if (verifiedAt === undefined) {
                         return Effect.succeed(snapshot);
                       }
                       sessionEvents.observeVerification(
                         sessionId,
                         verifiedAt,
-                        readFlowSkillFrontmatter(contents)?.verification
-                          ?.origin === "agent"
+                        readFlowFrontmatter(contents)?.verification?.origin ===
+                          "agent"
                           ? "agent"
                           : "workspace"
                       );
@@ -2648,14 +2647,14 @@ const makeAgentSession = (
     });
 
     /**
-     * Renaming the Flow Skill before anything is captured. The name is only
+     * Renaming the Flow before anything is captured. The name is only
      * changeable in `setup`: once a recording exists the bundle on disk is
      * already filed under the name it was begun with.
      */
-    const renameFlowSkillUnlocked = Effect.fn("AgentSession.renameFlowSkill")(
-      function* renameFlowSkill(
+    const renameFlowUnlocked = Effect.fn("AgentSession.renameFlow")(
+      function* renameFlow(
         sessionId: AgentSessionId,
-        name: FlowSkillName,
+        name: FlowName,
         operationId: OperationId | string
       ) {
         const requestInput = JSON.stringify({ name });
@@ -2681,14 +2680,14 @@ const makeAgentSession = (
               return yield* Effect.fail(
                 error(
                   "agent_session_conflict",
-                  `A Flow Skill cannot be renamed from ${record.snapshot.captureState._tag}.`
+                  `A Flow cannot be renamed from ${record.snapshot.captureState._tag}.`
                 )
               );
             }
             if (teachingRecordingStore !== undefined) {
               yield* teachingRecordingStore
                 .rename({
-                  flowSkillName: name,
+                  flowName: name,
                   operationId: OperationId.make(operationId),
                   recordingId: record.snapshot.recordingId,
                 })
@@ -2700,7 +2699,7 @@ const makeAgentSession = (
             }
             const renamed: AgentSessionSnapshot = {
               ...record.snapshot,
-              flowSkillName: name,
+              flowName: name,
               updatedAt: now().toISOString(),
             };
             yield* save(sessionId, record, renamed);
@@ -2789,7 +2788,7 @@ const makeAgentSession = (
             yield* teachingRecordingStore
               .begin({
                 emulation: record.emulation,
-                flowSkillName: record.snapshot.flowSkillName,
+                flowName: record.snapshot.flowName,
                 operationId: operation,
                 origin: record.snapshot.origin,
                 recordingId,
@@ -3075,13 +3074,13 @@ const makeAgentSession = (
 
     /**
      * The Variable this Run declares under this name. A Run may only be asked
-     * for the inputs its Flow Skill declares, so a name the Flow Skill never
+     * for the inputs its Flow declares, so a name the Flow never
      * mentioned is refused rather than invented.
      */
     const requireDeclaredVariable = (
       record: SessionRecord,
       name: string,
-      flowSkillName?: string | null
+      flowName?: string | null
     ):
       | { readonly _tag: "error"; readonly error: AgentSessionError }
       | { readonly _tag: "ok"; readonly variable: Variable } => {
@@ -3099,16 +3098,16 @@ const makeAgentSession = (
         (variable) =>
           variable.name === name &&
           (!("schemaVersion" in declaring) ||
-            ("flowSkillName" in variable &&
-              variable.flowSkillName ===
-                (flowSkillName ?? record.snapshot.dryRun?.flowSkillName)))
+            ("flowName" in variable &&
+              variable.flowName ===
+                (flowName ?? record.snapshot.dryRun?.flowName)))
       );
       return declared === undefined
         ? {
             _tag: "error",
             error: error(
               "agent_session_invalid",
-              `No Variable ${name} is declared for ${flowSkillName ?? ("flowSkillName" in declaring ? declaring.flowSkillName : "the requested skill")}.`
+              `No Variable ${name} is declared for ${flowName ?? ("flowName" in declaring ? declaring.flowName : "the requested flow")}.`
             ),
           }
         : {
@@ -3205,7 +3204,7 @@ const makeAgentSession = (
           modificationRecords(record),
           (name) =>
             record.supplied.get(
-              variableKey(name, record.snapshot.dryRun?.flowSkillName)
+              variableKey(name, record.snapshot.dryRun?.flowName)
             )
         );
       if (saved && expected !== undefined) {
@@ -3696,7 +3695,7 @@ const makeAgentSession = (
       | {
           readonly _tag: "fresh";
           readonly identity: {
-            readonly flowSkillName: FlowSkillName;
+            readonly flowName: FlowName;
             readonly recordingId: TeachingRecordingId;
             /**
              * When the capture was requested. With recording storage it is
@@ -3715,13 +3714,13 @@ const makeAgentSession = (
         }
         const requestedName = startInput.name?.trim() || `flow-${randomUUID()}`;
         const identity = {
-          flowSkillName: yield* Schema.decodeUnknownEffect(FlowSkillName)(
+          flowName: yield* Schema.decodeUnknownEffect(FlowName)(
             requestedName
           ).pipe(
             Effect.mapError(() =>
               error(
                 "agent_session_invalid",
-                describeFlowSkillName(requestedName) ?? flowSkillNameRule
+                describeFlowName(requestedName) ?? flowNameRule
               )
             )
           ),
@@ -3741,7 +3740,7 @@ const makeAgentSession = (
         const begun = yield* teachingRecordingStore
           .begin({
             emulation,
-            flowSkillName: identity.flowSkillName,
+            flowName: identity.flowName,
             group: startInput.group,
             operationId: OperationId.make(
               startInput.operationId ?? `start-${startSessionId}`
@@ -4015,7 +4014,7 @@ const makeAgentSession = (
                             },
                             controller: input.openedBy ?? "user",
                             dryRun: null,
-                            flowSkillName: teachingIdentity.flowSkillName,
+                            flowName: teachingIdentity.flowName,
                             origin: recordingOrigin,
                             recordingCleanup: { _tag: "pending" as const },
                             recordingId: teachingIdentity.recordingId,
@@ -4865,13 +4864,13 @@ const makeAgentSession = (
         const checks = checkIds.map((identity) =>
           requirements.find(
             (reference) =>
-              reference.flowSkillName === identity.flowSkillName &&
+              reference.flowName === identity.flowName &&
               reference.check.id === identity.id
           )
         );
         if (
           checks.some((check) => check === undefined) ||
-          new Set(checkIds.map((check) => `${check.flowSkillName}/${check.id}`))
+          new Set(checkIds.map((check) => `${check.flowName}/${check.id}`))
             .size !== checkIds.length
         ) {
           return yield* Effect.fail(
@@ -4920,13 +4919,11 @@ const makeAgentSession = (
               resolveBrowserCheckInputs(
                 reference,
                 (name) =>
-                  record.supplied.get(
-                    variableKey(name, reference.flowSkillName)
-                  ) ??
+                  record.supplied.get(variableKey(name, reference.flowName)) ??
                   (run !== null && isTaskRun(run)
                     ? (run.inputs.find(
                         (input) =>
-                          input.flowSkillName === reference.flowSkillName &&
+                          input.flowName === reference.flowName &&
                           input.name === name
                       )?.value ?? undefined)
                     : undefined)
@@ -5601,7 +5598,7 @@ const makeAgentSession = (
             const declared = requireDeclaredVariable(
               record,
               pending.variable.name,
-              pending.variable.flowSkillName
+              pending.variable.flowName
             );
             if (declared._tag === "error") {
               return yield* Effect.fail(declared.error);
@@ -5609,7 +5606,7 @@ const makeAgentSession = (
             const { name } = pending.variable;
             if (supply && value !== null) {
               record.supplied.set(
-                variableKey(name, pending.variable.flowSkillName),
+                variableKey(name, pending.variable.flowName),
                 value
               );
             }
@@ -5625,11 +5622,10 @@ const makeAgentSession = (
                     ...state,
                     variables: state.variables.map((variable) =>
                       variable.name === name &&
-                      (pending.variable?.flowSkillName === undefined ||
-                        pending.variable.flowSkillName === null ||
-                        ("flowSkillName" in variable &&
-                          variable.flowSkillName ===
-                            pending.variable.flowSkillName))
+                      (pending.variable?.flowName === undefined ||
+                        pending.variable.flowName === null ||
+                        ("flowName" in variable &&
+                          variable.flowName === pending.variable.flowName))
                         ? { ...variable, supplied: true }
                         : variable
                     ),
@@ -5647,8 +5643,8 @@ const makeAgentSession = (
                 return {
                   ...run,
                   variables: run.variables.map((variable) =>
-                    variable.flowSkillName ===
-                      pending.variable?.flowSkillName && variable.name === name
+                    variable.flowName === pending.variable?.flowName &&
+                    variable.name === name
                       ? { ...variable, lastAnswer, supplied: supply }
                       : variable
                   ),
@@ -7964,20 +7960,14 @@ const makeAgentSession = (
             )
           )
         ),
-      enterSuppliedVariable: (
-        sessionId,
-        name,
-        ref,
-        operationId,
-        flowSkillName
-      ) =>
+      enterSuppliedVariable: (sessionId, name, ref, operationId, flowName) =>
         Effect.gen(function* enterSuppliedVerificationVariable() {
           const record = yield* requireLiveRecord(sessionId);
           if (record.snapshot.activity === "teaching") {
             return yield* ledger.serializeMutation(
               Effect.gen(function* enterSetupVariable() {
                 const requestInput = JSON.stringify({
-                  flowSkillName: flowSkillName ?? null,
+                  flowName: flowName ?? null,
                   kind: "supplied-variable",
                   name,
                   ref,
@@ -7994,11 +7984,11 @@ const makeAgentSession = (
                 const current = yield* requireLiveRecord(sessionId);
                 if (
                   !agentPreparesTeaching(current.snapshot) ||
-                  (flowSkillName !== null && flowSkillName !== undefined)
+                  (flowName !== null && flowName !== undefined)
                 ) {
                   return yield* Effect.fail(
                     teachingIsUserLed(
-                      "This private input was not dispatched. Setup Variables require agent-held Teaching setup and no flowSkillName."
+                      "This private input was not dispatched. Setup Variables require agent-held Teaching setup and no flowName."
                     )
                   );
                 }
@@ -8029,7 +8019,7 @@ const makeAgentSession = (
               })
             );
           }
-          const declared = requireDeclaredVariable(record, name, flowSkillName);
+          const declared = requireDeclaredVariable(record, name, flowName);
           if (declared._tag === "error") {
             return yield* Effect.fail(declared.error);
           }
@@ -8038,7 +8028,7 @@ const makeAgentSession = (
               takenOver("This private input was not dispatched.")
             );
           }
-          const value = record.supplied.get(variableKey(name, flowSkillName));
+          const value = record.supplied.get(variableKey(name, flowName));
           if (value === undefined) {
             return yield* Effect.fail(
               error(
@@ -8057,7 +8047,7 @@ const makeAgentSession = (
             // The fingerprint names the Variable, not its value: a retry of
             // the same request is the same request whatever the user typed.
             requestInput: JSON.stringify({
-              flowSkillName: flowSkillName ?? null,
+              flowName: flowName ?? null,
               kind: "supplied-variable",
               name,
               ref,
@@ -8317,9 +8307,9 @@ const makeAgentSession = (
                 ).pipe(Effect.asVoid)
           )
         ),
-      renameFlowSkill: (sessionId, name, operationId) =>
+      renameFlow: (sessionId, name, operationId) =>
         ledger.serializeMutation(
-          renameFlowSkillUnlocked(
+          renameFlowUnlocked(
             sessionId,
             name,
             operationId ?? OperationId.make(`rename-${randomUUID()}`)
@@ -8332,7 +8322,7 @@ const makeAgentSession = (
         ),
       requestTaskVariable: (
         sessionId,
-        flowSkillName,
+        flowName,
         name,
         operationId,
         replace = false
@@ -8341,7 +8331,7 @@ const makeAgentSession = (
           sessionId,
           operationId,
           "variable-request",
-          JSON.stringify({ flowSkillName, name, replace }),
+          JSON.stringify({ flowName, name, replace }),
           (record, run) =>
             Effect.gen(function* requestVariable() {
               if (record.snapshot.activity !== "run") {
@@ -8352,16 +8342,12 @@ const makeAgentSession = (
                   )
                 );
               }
-              const declared = requireDeclaredVariable(
-                record,
-                name,
-                flowSkillName
-              );
+              const declared = requireDeclaredVariable(record, name, flowName);
               if (declared._tag === "error") {
                 return yield* Effect.fail(declared.error);
               }
               const { dryRun } = record.snapshot;
-              if (dryRun !== null && flowSkillName === dryRun.flowSkillName) {
+              if (dryRun !== null && flowName === dryRun.flowName) {
                 if (!declared.variable.runtime) {
                   return yield* Effect.fail(
                     error(
@@ -8376,12 +8362,9 @@ const makeAgentSession = (
                 if (!(replace && suppliedVariable?.supplied)) {
                   return record.snapshot;
                 }
-                // The tested skill uses the existing Workspace secret fields.
+                // The tested flow uses the existing Workspace secret fields.
                 // Both lookup forms must lose the previous value on replacement.
-                retireSupplied(record, [
-                  name,
-                  variableKey(name, flowSkillName),
-                ]);
+                retireSupplied(record, [name, variableKey(name, flowName)]);
                 const next = {
                   ...record.snapshot,
                   dryRun: {
@@ -8395,8 +8378,7 @@ const makeAgentSession = (
                   run: {
                     ...run,
                     variables: run.variables.map((variable) =>
-                      variable.flowSkillName === flowSkillName &&
-                      variable.name === name
+                      variable.flowName === flowName && variable.name === name
                         ? { ...variable, supplied: false }
                         : variable
                     ),
@@ -8408,21 +8390,20 @@ const makeAgentSession = (
               }
               const variable = run.variables.find(
                 (candidate) =>
-                  candidate.flowSkillName === flowSkillName &&
-                  candidate.name === name
+                  candidate.flowName === flowName && candidate.name === name
               );
               if (
                 (variable?.supplied && !replace) ||
                 record.snapshot.pendingDecisions.some(
                   (decision) =>
                     decision.variable?.name === name &&
-                    decision.variable.flowSkillName === flowSkillName
+                    decision.variable.flowName === flowName
                 )
               ) {
                 return record.snapshot;
               }
               if (replace) {
-                retireSupplied(record, [variableKey(name, flowSkillName)]);
+                retireSupplied(record, [variableKey(name, flowName)]);
               }
               const at = now().toISOString();
               const decision: AgentPendingDecision = {
@@ -8432,17 +8413,17 @@ const makeAgentSession = (
                 pendingDecisionId: AgentPendingDecisionId.make(
                   `pending-${randomUUID()}`
                 ),
-                scopeSummary: `Supply Variable ${flowSkillName}/${name}. The value is visible in session and Run evidence.`,
+                scopeSummary: `Supply Variable ${flowName}/${name}. The value is visible in session and Run evidence.`,
                 sessionId,
                 variable: {
-                  flowSkillName,
+                  flowName,
                   name,
                 },
               };
               const next = {
                 ...record.snapshot,
                 dryRun:
-                  record.snapshot.dryRun?.flowSkillName === flowSkillName
+                  record.snapshot.dryRun?.flowName === flowName
                     ? {
                         ...record.snapshot.dryRun,
                         variables: record.snapshot.dryRun.variables.map(
@@ -8460,10 +8441,7 @@ const makeAgentSession = (
                 run: {
                   ...run,
                   variables: run.variables.map((item) => {
-                    if (
-                      item.flowSkillName !== flowSkillName ||
-                      item.name !== name
-                    ) {
+                    if (item.flowName !== flowName || item.name !== name) {
                       return item;
                     }
                     const { lastAnswer: _lastAnswer, ...unanswered } = item;
@@ -8630,7 +8608,7 @@ const makeAgentSession = (
             ),
       scan: (
         sessionId,
-        flowSkillName,
+        flowName,
         requirementId,
         action,
         operationId,
@@ -8642,7 +8620,7 @@ const makeAgentSession = (
           "scan",
           JSON.stringify({
             action,
-            flowSkillName,
+            flowName,
             requirementId,
             retryInstructionAt,
           }),
@@ -8662,7 +8640,7 @@ const makeAgentSession = (
                 }
                 const requirement = run.scanRequirements?.find(
                   (candidate) =>
-                    candidate.flowSkillName === flowSkillName &&
+                    candidate.flowName === flowName &&
                     candidate.id === requirementId
                 );
                 if (
@@ -8684,7 +8662,7 @@ const makeAgentSession = (
                 if (action === "stop") {
                   if (
                     active?.requirementId !== requirementId ||
-                    active.flowSkillName !== flowSkillName
+                    active.flowName !== flowName
                   ) {
                     return yield* Effect.fail(
                       error(
@@ -8765,24 +8743,18 @@ const makeAgentSession = (
             error("agent_session_invalid", "Unknown scan report.")
           );
         }),
-      scanScope: (
-        sessionId,
-        flowSkillName,
-        requirementId,
-        reason,
-        operationId
-      ) =>
+      scanScope: (sessionId, flowName, requirementId, reason, operationId) =>
         taskMutation(
           sessionId,
           operationId,
           "scan-scope",
-          JSON.stringify({ flowSkillName, reason, requirementId }),
+          JSON.stringify({ flowName, reason, requirementId }),
           (record, run) => {
             if (
               run.purpose.kind === "dry-run" ||
               !run.scanRequirements?.some(
                 (requirement) =>
-                  requirement.flowSkillName === flowSkillName &&
+                  requirement.flowName === flowName &&
                   requirement.id === requirementId
               )
             ) {
@@ -8801,7 +8773,7 @@ const makeAgentSession = (
                       ...run,
                       scanRequirements: (run.scanRequirements ?? []).map(
                         (requirement) =>
-                          requirement.flowSkillName === flowSkillName &&
+                          requirement.flowName === flowName &&
                           requirement.id === requirementId
                             ? { ...requirement, outsideScope: reason }
                             : requirement
@@ -8957,7 +8929,7 @@ const makeAgentSession = (
               return yield* Effect.fail(
                 error(
                   "agent_session_conflict",
-                  "An Interactive Run reproduces the Emulation the Flow Skill was demonstrated under. Configure the browser while Teaching instead."
+                  "An Interactive Run reproduces the Emulation the Flow was demonstrated under. Configure the browser while Teaching instead."
                 )
               );
             }
@@ -9201,7 +9173,7 @@ const makeAgentSession = (
             );
           }
           record.supplied.set(name, value);
-          record.supplied.set(variableKey(name, dryRun.flowSkillName), value);
+          record.supplied.set(variableKey(name, dryRun.flowName), value);
           const updated = yield* mutate(sessionId, (snapshot) => {
             if (snapshot.activity !== "run" || snapshot.dryRun === null) {
               return snapshot;
@@ -9219,8 +9191,7 @@ const makeAgentSession = (
                   ? {
                       ...snapshot.run,
                       variables: snapshot.run.variables.map((item) =>
-                        item.name === name &&
-                        item.flowSkillName === dryRun.flowSkillName
+                        item.name === name && item.flowName === dryRun.flowName
                           ? { ...item, supplied: true }
                           : item
                       ),
@@ -9285,7 +9256,7 @@ const makeAgentSession = (
                   at,
                   description:
                     input.instruction ??
-                    "Referenced requested Flow Skills or supplied task inputs",
+                    "Referenced requested Flows or supplied task inputs",
                   dispatched: false,
                   id: `instruction-${randomUUID()}`,
                   outcome: "completed",
@@ -9296,7 +9267,7 @@ const makeAgentSession = (
               // acquisition or Emulation change occurs on this path.
               yield* (
                 record.executionBoundary?.admitRequestedHosts(
-                  input.skills.flatMap((skill) => skill.hosts)
+                  input.flows.flatMap((flow) => flow.hosts)
                 ) ?? Effect.void
               );
               return input.flowDocuments === undefined

@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import nodePath from "node:path";
 
 import type {
-  FlowSkillDiagnostic,
-  FlowSkillFile,
+  FlowDiagnostic,
+  FlowFile,
   PlatformRequirements,
   PlatformIdentity,
 } from "@contingency/protocol";
@@ -21,7 +21,7 @@ import type { SavedPlatformRequirements } from "./platform-requirements.ts";
 import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
 
 /**
- * The mechanical contract a proposed Flow Skill package must meet before it
+ * The mechanical contract a proposed Flow package must meet before it
  * replaces the live directory.
  *
  * Contingency owns the package shape (ADR 0039) but does not grade prose. Every
@@ -31,7 +31,7 @@ import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
  * user's machine, so the same package is accepted or refused everywhere.
  */
 
-export const SKILL_FILE = "flow.md";
+export const FLOW_FILE = "flow.md";
 export const TARGETS_FILE = "targets.md";
 
 /** The marker that ends one procedure step with a checkable outcome. */
@@ -44,7 +44,7 @@ const diagnostic = (
   code: string,
   message: string,
   path: readonly string[]
-): FlowSkillDiagnostic => ({ code, message, path: [...path] });
+): FlowDiagnostic => ({ code, message, path: [...path] });
 
 /** Durable Dry Run evidence contains input names, never their values. */
 const verificationSchema = Schema.Struct({
@@ -81,7 +81,7 @@ const readVerification = (
   );
 };
 
-export interface FlowSkillFrontmatter {
+export interface FlowFrontmatter {
   readonly verification: FlowVerification | undefined;
   readonly runtime: SavedPlatformRequirements;
   /** Everything after the closing delimiter, where the procedure lives. */
@@ -91,10 +91,10 @@ export interface FlowSkillFrontmatter {
    * The Emulation the journey was demonstrated under, as flat scalars. Written
    * by Contingency at save time, not authored by the agent.
    */
-  readonly emulation: FlowSkillEmulation | undefined;
+  readonly emulation: FlowEmulation | undefined;
   /** Hosts visited during Teaching or approved during a Guided Run. */
   readonly hosts: readonly string[];
-  readonly inputs: readonly FlowSkillInput[];
+  readonly inputs: readonly FlowInput[];
   /**
    * Every `inputs` entry the grammar could not read as a declaration, verbatim.
    * The validator reports the shape rather than letting the undeclared-input
@@ -109,17 +109,17 @@ export interface FlowSkillFrontmatter {
  * description; the mapping form is where an author documents what the value is,
  * which is the only place a later caller looks before supplying it.
  */
-export interface FlowSkillInput {
+export interface FlowInput {
   readonly description: string | undefined;
   readonly name: string;
 }
 
 /**
- * The Emulation subset a Flow Skill carries. `viewport` is one `WxH@scale`
- * scalar so the grammar stays the flat one the authoring skills teach, and a
+ * The Emulation subset a Flow carries. `viewport` is one `WxH@scale`
+ * scalar so the grammar stays the flat one the authoring flows teach, and a
  * demonstrated phone stays a phone when the Run reproduces it (ADR 0013).
  */
-export interface FlowSkillEmulation {
+export interface FlowEmulation {
   readonly pageZoom?: number | undefined;
   readonly textScale?: number | undefined;
   readonly diagnostics?: readonly string[];
@@ -129,10 +129,10 @@ export interface FlowSkillEmulation {
    * one `lat,lon[@accuracy]` scalar. A flow that only works from one place says
    * so here rather than reading as portable (#241).
    */
-  readonly geolocation: FlowSkillGeolocation | undefined;
+  readonly geolocation: FlowGeolocation | undefined;
   readonly locale: string | undefined;
   /** The website permission decisions the demonstration was granted or denied. */
-  readonly permissions: readonly FlowSkillPermission[];
+  readonly permissions: readonly FlowPermission[];
   readonly timezone: string | undefined;
   readonly userAgentProfile: string | undefined;
   readonly viewport:
@@ -144,7 +144,7 @@ export interface FlowSkillEmulation {
     | undefined;
 }
 
-export interface FlowSkillGeolocation {
+export interface FlowGeolocation {
   readonly accuracy: number | undefined;
   readonly latitude: number;
   readonly longitude: number;
@@ -155,7 +155,7 @@ export interface FlowSkillGeolocation {
  * `<permission> <state>` for a context-wide decision, with the origin appended
  * when the decision is narrowed to one site.
  */
-export interface FlowSkillPermission {
+export interface FlowPermission {
   readonly origin: string | undefined;
   readonly permission: string;
   readonly state: "denied" | "granted";
@@ -171,9 +171,7 @@ const GEOLOCATION_SCALAR =
  * Reads the fixed position scalar. Invalid coordinates return undefined so
  * the emulation parser can retain a diagnostic and refuse the saved requirement.
  */
-const readGeolocationScalar = (
-  value: string
-): FlowSkillGeolocation | undefined => {
+const readGeolocationScalar = (value: string): FlowGeolocation | undefined => {
   const match = GEOLOCATION_SCALAR.exec(value.trim());
   if (match === null) {
     return undefined;
@@ -199,7 +197,7 @@ const PERMISSION_ITEM =
  * `granted`, matching how flows written before decisions were explicit decode
  * in the protocol.
  */
-const readPermissionItem = (item: string): FlowSkillPermission | undefined => {
+const readPermissionItem = (item: string): FlowPermission | undefined => {
   const match = PERMISSION_ITEM.exec(item.trim());
   if (match === null) {
     return undefined;
@@ -213,7 +211,7 @@ const readPermissionItem = (item: string): FlowSkillPermission | undefined => {
 
 const readViewportScalar = (
   value: string
-): FlowSkillEmulation["viewport"] | undefined => {
+): FlowEmulation["viewport"] | undefined => {
   const match = VIEWPORT_SCALAR.exec(value.trim());
   if (match === null) {
     return undefined;
@@ -267,10 +265,10 @@ const readFrontmatterLine = (raw: string): FrontmatterLine => {
 
 const readEmulationBlock = (
   fields: Record<string, string>,
-  permissions: readonly FlowSkillPermission[],
+  permissions: readonly FlowPermission[],
   diagnostics: string[],
   declared: boolean
-): FlowSkillEmulation | undefined =>
+): FlowEmulation | undefined =>
   declared
     ? {
         colorScheme: fields.colorScheme,
@@ -295,7 +293,7 @@ const readEmulationBlock = (
     : undefined;
 
 /** A declared input while the parser is still filling it in. */
-interface MutableFlowSkillInput {
+interface MutableFlowInput {
   description: string | undefined;
   name: string;
 }
@@ -319,9 +317,9 @@ const sequenceFor = (key: string): "hosts" | "inputs" | undefined => {
  */
 const readInputItem = (
   item: string,
-  inputs: MutableFlowSkillInput[],
+  inputs: MutableFlowInput[],
   malformed: string[]
-): MutableFlowSkillInput | undefined => {
+): MutableFlowInput | undefined => {
   if (INPUT_NAME.test(item)) {
     inputs.push({ description: undefined, name: item });
     return undefined;
@@ -333,7 +331,7 @@ const readInputItem = (
     malformed.push(item);
     return undefined;
   }
-  const entry: MutableFlowSkillInput = { description: undefined, name: value };
+  const entry: MutableFlowInput = { description: undefined, name: value };
   inputs.push(entry);
   return entry;
 };
@@ -341,7 +339,7 @@ const readInputItem = (
 /** Records one permission entry or a diagnostic for an unreadable shape. */
 const pushPermission = (
   value: string,
-  permissions: FlowSkillPermission[],
+  permissions: FlowPermission[],
   diagnostics: string[]
 ): void => {
   const decision = value.length > 0 ? readPermissionItem(value) : undefined;
@@ -360,7 +358,7 @@ const readEmulationKey = (
   key: string,
   value: string,
   emulation: Record<string, string>,
-  permissions: FlowSkillPermission[],
+  permissions: FlowPermission[],
   diagnostics: string[]
 ): boolean => {
   if (
@@ -413,16 +411,16 @@ const invalidEmulationHeader = (
 ) => Object.hasOwn(scalars, "emulation") || line.value.length > 0;
 
 /**
- * Reads the small YAML subset a Flow Skill is allowed to use: the `name` and
+ * Reads the small YAML subset a Flow is allowed to use: the `name` and
  * `description` scalars, the `hosts` sequence, the `inputs` sequence in either
  * its bare-name or its `name`/`description` mapping form, and the
  * `emulation` block of flat scalars with its one `permissions` sequence. A full YAML parser would accept shapes the rest of the
- * product cannot read back, so the grammar stays the one the authoring skills
+ * product cannot read back, so the grammar stays the one the authoring flows
  * teach.
  */
-export const readFlowSkillFrontmatter = (
+export const readFlowFrontmatter = (
   content: string
-): FlowSkillFrontmatter | undefined => {
+): FlowFrontmatter | undefined => {
   const match = FRONTMATTER.exec(content);
   if (match === null) {
     return undefined;
@@ -434,18 +432,18 @@ export const readFlowSkillFrontmatter = (
     return !line.indented && line.key === "runtime" ? [line.value] : [];
   });
   const hosts: string[] = [];
-  const inputs: MutableFlowSkillInput[] = [];
+  const inputs: MutableFlowInput[] = [];
   const malformedInputs: string[] = [];
   const scalars: Record<string, string> = {};
   const emulation: Record<string, string> = {};
-  const permissions: FlowSkillPermission[] = [];
+  const permissions: FlowPermission[] = [];
   const emulationDiagnostics: string[] = [];
   let sequence: "hosts" | "inputs" | undefined;
   let inEmulation = false;
   /** Whether an indented item belongs to `emulation.permissions`. */
   let inPermissions = false;
   /** The mapping-form input an indented key still belongs to, when any. */
-  let openInput: MutableFlowSkillInput | undefined;
+  let openInput: MutableFlowInput | undefined;
   for (const raw of lines) {
     const line = readFrontmatterLine(raw);
     if (line.item !== undefined) {
@@ -468,7 +466,7 @@ export const readFlowSkillFrontmatter = (
     }
     if (line.indented) {
       // An indented key belongs to whatever block opened it. It is never a
-      // top-level scalar: reading `description` under an input as the skill's
+      // top-level scalar: reading `description` under an input as the flow's
       // own description is how a declared input went missing (#203).
       if (inEmulation) {
         inPermissions = readEmulationKey(
@@ -570,7 +568,7 @@ const sha256 = (content: string): string =>
 /** Version 1 hashes LF-normalized authored frontmatter and the unchanged body. */
 export const flowVerificationDigests = (
   content: string,
-  files: readonly FlowSkillFile[] = []
+  files: readonly FlowFile[] = []
 ): NonNullable<FlowVerification["digests"]> => {
   const normalized = normalizedText(content);
   const match = FRONTMATTER.exec(normalized);
@@ -595,7 +593,7 @@ export const flowVerificationDigests = (
 
 export const matchesFlowVerificationDigests = (
   content: string,
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   recorded: FlowVerification["digests"]
 ): boolean => {
   if (recorded === undefined) {
@@ -610,9 +608,9 @@ export const matchesFlowVerificationDigests = (
   );
 };
 
-const emulationLines = (emulation: FlowSkillEmulation): string[] => {
+const emulationLines = (emulation: FlowEmulation): string[] => {
   const lines: string[] = [];
-  // 100% is the browser default; omit it so older Flow Skills round-trip.
+  // 100% is the browser default; omit it so older Flows round-trip.
   if (emulation.pageZoom !== undefined && emulation.pageZoom !== 100) {
     lines.push(`  pageZoom: ${emulation.pageZoom}`);
   }
@@ -666,10 +664,10 @@ const withoutLegacySecretDeclarations = (content: string): string => {
   return `---\n${block}\n---${content.slice(match[0].length)}`;
 };
 
-export const stampFlowSkillProvenance = (
+export const stampFlowProvenance = (
   content: string,
   provenance: {
-    readonly emulation: FlowSkillEmulation | null;
+    readonly emulation: FlowEmulation | null;
     readonly hosts: readonly string[];
     readonly runtime?: PlatformRequirements | undefined;
   }
@@ -702,7 +700,7 @@ export const stampFlowSkillProvenance = (
 export const stampFlowVerification = (
   content: string,
   verification: FlowVerification,
-  files: readonly FlowSkillFile[] = []
+  files: readonly FlowFile[] = []
 ): string => {
   const match = FRONTMATTER.exec(content);
   if (match === null) {
@@ -741,7 +739,7 @@ const RESIDUE = [
 const IMAGE_SUFFIXES = [".png", ".jpg", ".jpeg", ".webm", ".webp"] as const;
 
 /** One numbered step and the text that belongs to it, for completion checks. */
-export interface FlowSkillStep {
+export interface FlowStep {
   readonly block: string;
   readonly label: string;
 }
@@ -752,7 +750,7 @@ const SECTION_HEADING = /^#{1,6}\s+\S/u;
 /** A fence line, so a `#` comment inside a code block never reads as a heading. */
 const CODE_FENCE = /^\s*(?:`{3,}|~{3,})/u;
 
-export const readFlowSkillSteps = (body: string): readonly FlowSkillStep[] => {
+export const readFlowSteps = (body: string): readonly FlowStep[] => {
   const lines = body.split(/\r?\n/u);
   const steps: { block: string[]; label: string }[] = [];
   let open = false;
@@ -783,15 +781,15 @@ export const readFlowSkillSteps = (body: string): readonly FlowSkillStep[] => {
 };
 
 const checkResidue = (
-  file: FlowSkillFile,
-  report: (entry: FlowSkillDiagnostic) => void
+  file: FlowFile,
+  report: (entry: FlowDiagnostic) => void
 ): void => {
   for (const marker of RESIDUE) {
     if (file.content.includes(marker)) {
       report(
         diagnostic(
-          "flow_skill_recording_residue",
-          `${file.path} names the recording artifact ${marker}. A Flow Skill must be followable after the recording is deleted.`,
+          "flow_recording_residue",
+          `${file.path} names the recording artifact ${marker}. A Flow must be followable after the recording is deleted.`,
           [file.path]
         )
       );
@@ -800,8 +798,8 @@ const checkResidue = (
   if (EMBEDDED_IMAGE.test(file.content)) {
     report(
       diagnostic(
-        "flow_skill_embedded_image",
-        `${file.path} embeds an image. A Flow Skill describes targets in words so it survives a re-render.`,
+        "flow_embedded_image",
+        `${file.path} embeds an image. A Flow describes targets in words so it survives a re-render.`,
         [file.path]
       )
     );
@@ -810,7 +808,7 @@ const checkResidue = (
   if (elementRef !== null) {
     report(
       diagnostic(
-        "flow_skill_element_ref",
+        "flow_element_ref",
         `${file.path} names the short-lived element reference ${elementRef[0]}. Use the role, the accessible name, and the nearby context instead.`,
         [file.path]
       )
@@ -820,7 +818,7 @@ const checkResidue = (
   if (cssId !== null) {
     report(
       diagnostic(
-        "flow_skill_generated_selector",
+        "flow_generated_selector",
         `${file.path} names the selector ${cssId[0]}. A generated or positional selector does not outlive the page.`,
         [file.path]
       )
@@ -829,7 +827,7 @@ const checkResidue = (
   if (PRIVATE_REASONING.test(file.content)) {
     report(
       diagnostic(
-        "flow_skill_private_reasoning",
+        "flow_private_reasoning",
         `${file.path} records private model reasoning. Keep the package to what a later reader must do.`,
         [file.path]
       )
@@ -853,7 +851,7 @@ const checkResidue = (
     PLACEHOLDER.lastIndex = 0;
     report(
       diagnostic(
-        "flow_skill_secret_literal",
+        "flow_secret_literal",
         `${file.path} stores a captured credential literal. Declare it as an input and reference it as a placeholder.`,
         [file.path]
       )
@@ -862,9 +860,9 @@ const checkResidue = (
 };
 
 const checkLinks = (
-  file: FlowSkillFile,
+  file: FlowFile,
   known: ReadonlySet<string>,
-  report: (entry: FlowSkillDiagnostic) => void
+  report: (entry: FlowDiagnostic) => void
 ): void => {
   MARKDOWN_LINK.lastIndex = 0;
   for (
@@ -881,8 +879,8 @@ const checkLinks = (
     ) {
       report(
         diagnostic(
-          "flow_skill_embedded_image",
-          `${file.path} points at the captured media ${target}. A Flow Skill carries no recording media.`,
+          "flow_embedded_image",
+          `${file.path} points at the captured media ${target}. A Flow carries no recording media.`,
           [file.path]
         )
       );
@@ -900,7 +898,7 @@ const checkLinks = (
     ) {
       report(
         diagnostic(
-          "flow_skill_missing_reference",
+          "flow_missing_reference",
           `${file.path} points at ${target}, which the package does not contain.`,
           [file.path, target]
         )
@@ -915,14 +913,14 @@ const checkLinks = (
  * re-prompt for, which is the whole reason inputs are declared.
  */
 const checkDeclaredInputs = (
-  files: readonly FlowSkillFile[],
-  frontmatter: FlowSkillFrontmatter,
-  report: (entry: FlowSkillDiagnostic) => void
+  files: readonly FlowFile[],
+  frontmatter: FlowFrontmatter,
+  report: (entry: FlowDiagnostic) => void
 ): void => {
   const declared = new Set(frontmatter.inputs.map((input) => input.name));
   for (const file of files) {
     const scanned =
-      file.path === SKILL_FILE
+      file.path === FLOW_FILE
         ? `${frontmatter.description ?? ""}\n${frontmatter.body}`
         : file.content;
     const used = new Set<string>();
@@ -940,10 +938,10 @@ const checkDeclaredInputs = (
       }
       report(
         diagnostic(
-          "flow_skill_undeclared_input",
+          "flow_undeclared_input",
           `${file.path} uses {{${input}}} but flow.md does not declare ${input} under inputs.`,
-          file.path === SKILL_FILE
-            ? [SKILL_FILE, "frontmatter", "inputs", input]
+          file.path === FLOW_FILE
+            ? [FLOW_FILE, "frontmatter", "inputs", input]
             : [file.path, "inputs", input]
         )
       );
@@ -954,13 +952,13 @@ const checkDeclaredInputs = (
 const TARGET_ENTRY = /^\s*-\s+role=/u;
 
 const checkAccessibility = (
-  file: FlowSkillFile,
-  report: (entry: FlowSkillDiagnostic) => void
+  file: FlowFile,
+  report: (entry: FlowDiagnostic) => void
 ): void => {
   if (!file.content.includes(STABILITY_HEADING)) {
     report(
       diagnostic(
-        "flow_skill_missing_stability_rationale",
+        "flow_missing_stability_rationale",
         `${TARGETS_FILE} must carry the heading "${STABILITY_HEADING}" and say why each target outlives the page.`,
         [file.path, STABILITY_HEADING]
       )
@@ -972,7 +970,7 @@ const checkAccessibility = (
   if (entries.length === 0) {
     report(
       diagnostic(
-        "flow_skill_missing_target",
+        "flow_missing_target",
         `${TARGETS_FILE} must list every target as \`- role=<role> name="<name>" context="<context>"\`.`,
         [file.path]
       )
@@ -983,7 +981,7 @@ const checkAccessibility = (
     if (!(entry.includes("name=") && entry.includes("context="))) {
       report(
         diagnostic(
-          "flow_skill_incomplete_target",
+          "flow_incomplete_target",
           `${TARGETS_FILE} target \`${entry.trim()}\` needs a role, an accessible name, and the nearby context that disambiguates it.`,
           [file.path, entry.trim()]
         )
@@ -994,7 +992,7 @@ const checkAccessibility = (
 
 const sourceDocumentDiagnostics = (
   content: string
-): readonly FlowSkillDiagnostic[] => {
+): readonly FlowDiagnostic[] => {
   const source = (FRONTMATTER.exec(content)?.groups?.block ?? "")
     .split(/\r?\n/u)
     .some((raw) => {
@@ -1004,9 +1002,9 @@ const sourceDocumentDiagnostics = (
   if (source) {
     return [
       diagnostic(
-        "flow_skill_source_forbidden",
-        "A Flow Skill must not link or store its Source Document. Remove source frontmatter.",
-        [SKILL_FILE, "frontmatter", "source"]
+        "flow_source_forbidden",
+        "A Flow must not link or store its Source Document. Remove source frontmatter.",
+        [FLOW_FILE, "frontmatter", "source"]
       ),
     ];
   }
@@ -1014,104 +1012,100 @@ const sourceDocumentDiagnostics = (
 };
 
 /**
- * Validates one proposed Flow Skill package against the observable contract.
+ * Validates one proposed Flow package against the observable contract.
  * Returns the files unchanged on success so the caller can keep writing the
  * exact bytes the agent submitted.
  */
-export const validateFlowSkillPackage = (
-  flowSkillName: string,
-  files: readonly FlowSkillFile[]
-): Result.Result<readonly FlowSkillFile[], readonly FlowSkillDiagnostic[]> => {
-  const diagnostics: FlowSkillDiagnostic[] = [];
-  const report = (entry: FlowSkillDiagnostic) => {
+export const validateFlowPackage = (
+  flowName: string,
+  files: readonly FlowFile[]
+): Result.Result<readonly FlowFile[], readonly FlowDiagnostic[]> => {
+  const diagnostics: FlowDiagnostic[] = [];
+  const report = (entry: FlowDiagnostic) => {
     diagnostics.push(entry);
   };
   const browserChecks = parseBrowserChecks(files);
   if (Result.isFailure(browserChecks)) {
     report(
-      diagnostic(
-        "flow_skill_invalid_browser_checks",
-        browserChecks.failure.message,
-        [BROWSER_CHECKS_FILE]
-      )
+      diagnostic("flow_invalid_browser_checks", browserChecks.failure.message, [
+        BROWSER_CHECKS_FILE,
+      ])
     );
   }
   const scans = parseScanRequirements(files);
   if (Result.isFailure(scans)) {
     report(
-      diagnostic("flow_skill_invalid_scans", scans.failure.message, [
-        SCANS_FILE,
-      ])
+      diagnostic("flow_invalid_scans", scans.failure.message, [SCANS_FILE])
     );
   }
   const known = new Set(files.map((file) => file.path));
-  const skill = files.find((file) => file.path === SKILL_FILE);
-  if (skill === undefined) {
+  const flow = files.find((file) => file.path === FLOW_FILE);
+  if (flow === undefined) {
     return Result.fail([
       diagnostic(
-        "flow_skill_missing_skill_file",
-        "A Flow Skill package must contain flow.md.",
-        [SKILL_FILE]
+        "flow_missing_flow_file",
+        "A Flow package must contain flow.md.",
+        [FLOW_FILE]
       ),
     ]);
   }
-  for (const entry of sourceDocumentDiagnostics(skill.content)) {
+  for (const entry of sourceDocumentDiagnostics(flow.content)) {
     report(entry);
   }
-  const frontmatter = readFlowSkillFrontmatter(skill.content);
+  const frontmatter = readFlowFrontmatter(flow.content);
   if (frontmatter === undefined) {
     report(
       diagnostic(
-        "flow_skill_missing_frontmatter",
+        "flow_missing_frontmatter",
         "flow.md must open with a YAML frontmatter block carrying name, description, and inputs.",
-        [SKILL_FILE, "frontmatter"]
+        [FLOW_FILE, "frontmatter"]
       )
     );
   } else {
     for (const message of frontmatter.runtime.diagnostics) {
       report(
-        diagnostic("flow_skill_invalid_runtime", message, [
-          SKILL_FILE,
+        diagnostic("flow_invalid_runtime", message, [
+          FLOW_FILE,
           "frontmatter",
           "runtime",
         ])
       );
     }
-    if (frontmatter.name !== flowSkillName) {
+    if (frontmatter.name !== flowName) {
       report(
         diagnostic(
-          "flow_skill_name_mismatch",
-          `flow.md declares name "${frontmatter.name ?? ""}" but the package is saved as "${flowSkillName}".`,
-          [SKILL_FILE, "frontmatter", "name"]
+          "flow_name_mismatch",
+          `flow.md declares name "${frontmatter.name ?? ""}" but the package is saved as "${flowName}".`,
+          [FLOW_FILE, "frontmatter", "name"]
         )
       );
     }
     if ((frontmatter.description ?? "").trim().length === 0) {
       report(
         diagnostic(
-          "flow_skill_missing_description",
+          "flow_missing_description",
           "flow.md must declare a description that states the task and when to run it.",
-          [SKILL_FILE, "frontmatter", "description"]
+          [FLOW_FILE, "frontmatter", "description"]
         )
       );
     }
     for (const entry of frontmatter.malformedInputs) {
       report(
         diagnostic(
-          "flow_skill_invalid_input",
+          "flow_invalid_input",
           `flow.md declares the input entry \`- ${entry}\` in a shape Contingency cannot read. Each entry under inputs is either a bare name (\`- sku\`) or a mapping opening with \`- name: sku\` and an optional indented \`description:\` line.`,
-          [SKILL_FILE, "frontmatter", "inputs", entry]
+          [FLOW_FILE, "frontmatter", "inputs", entry]
         )
       );
     }
     checkDeclaredInputs(files, frontmatter, report);
-    const steps = readFlowSkillSteps(frontmatter.body);
+    const steps = readFlowSteps(frontmatter.body);
     if (steps.length === 0) {
       report(
         diagnostic(
-          "flow_skill_missing_steps",
+          "flow_missing_steps",
           "flow.md must carry a numbered procedure. A how-to without ordered work cannot be followed.",
-          [SKILL_FILE, "steps"]
+          [FLOW_FILE, "steps"]
         )
       );
     }
@@ -1119,9 +1113,9 @@ export const validateFlowSkillPackage = (
       if (!step.block.includes(COMPLETION_MARKER)) {
         report(
           diagnostic(
-            "flow_skill_missing_completion_condition",
+            "flow_missing_completion_condition",
             `Step ${step.label} of flow.md must carry a "${COMPLETION_MARKER} <observable outcome>" line so a later run can tell it finished.`,
-            [SKILL_FILE, "steps", step.label]
+            [FLOW_FILE, "steps", step.label]
           )
         );
       }
@@ -1140,8 +1134,8 @@ export const validateFlowSkillPackage = (
     : Result.fail(diagnostics);
 };
 
-/** One ordered step of a saved Flow Skill, as a Run executes it. */
-export interface FlowSkillProcedureStep {
+/** One ordered step of a saved Flow, as a Run executes it. */
+export interface FlowProcedureStep {
   /** The step's whole text, placeholders included. */
   readonly description: string;
   /** The observable outcome that ends the step. */
@@ -1172,19 +1166,19 @@ const completionOf = (block: string): string => {
 
 /**
  * The ordered steps a Run follows, read from the saved `flow.md`. The Flow
- * Skill is the single reusable format (ADR 0039), so a Run derives its Agent
+ * Flow is the single reusable format (ADR 0039), so a Run derives its Agent
  * Steps from the same numbered procedure a person reads. Validation already
  * refused a package whose steps lack a completion condition, so a saved
  * package always yields a `doneWhen` for every step.
  */
-export const flowSkillProcedureSteps = (
-  skillContent: string
-): readonly FlowSkillProcedureStep[] => {
-  const frontmatter = readFlowSkillFrontmatter(skillContent);
+export const flowProcedureSteps = (
+  flowContent: string
+): readonly FlowProcedureStep[] => {
+  const frontmatter = readFlowFrontmatter(flowContent);
   if (frontmatter === undefined) {
     return [];
   }
-  return readFlowSkillSteps(frontmatter.body).map((step, index) => ({
+  return readFlowSteps(frontmatter.body).map((step, index) => ({
     description: step.block.trim(),
     doneWhen: completionOf(step.block),
     index,
@@ -1193,15 +1187,15 @@ export const flowSkillProcedureSteps = (
 };
 
 /** Whether frontmatter records explicit user verification on this platform. */
-export const isVerifiedFlowSkill = (
+export const isVerifiedFlow = (
   files: readonly { readonly content: string; readonly path: string }[],
   platform: PlatformIdentity = "web"
 ): boolean =>
   files.some((file) => {
-    if (file.path !== SKILL_FILE) {
+    if (file.path !== FLOW_FILE) {
       return false;
     }
-    const stamp = readFlowSkillFrontmatter(file.content)?.verification;
+    const stamp = readFlowFrontmatter(file.content)?.verification;
     return (
       stamp?.outcome === "passed" &&
       (stamp.verifiedAt?.length ?? 0) > 0 &&

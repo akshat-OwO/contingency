@@ -3,7 +3,7 @@ import { Schema } from "effect";
 import { AgentExecutionBoundary } from "./agent-browser.ts";
 import { AgentPendingDecision } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
-import { FlowSkillName } from "./flow-skill-identifiers.ts";
+import { FlowName } from "./flow-identifiers.ts";
 import {
   AndroidPreparation,
   AndroidStartingConditions,
@@ -179,7 +179,7 @@ export const AndroidWorkspaceSummary = Schema.Struct({
   completedAt: Schema.NullOr(text),
   controller: Schema.Literals(["agent", "user"]),
   error: Schema.NullOr(text),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   id: AgentSessionId,
   kind: Schema.Literals(["teaching", "dry-run", "run"]),
   phase: Schema.Literals([
@@ -240,7 +240,7 @@ const mutation = { ...session, operationId: deviceOperationId };
 export const AndroidWorkspaceCommand = Schema.Union([
   Schema.TaggedStruct("start", {
     agentSetup: Schema.optionalKey(Schema.Boolean),
-    flowSkillName: FlowSkillName,
+    flowName: FlowName,
     group: Schema.optionalKey(Schema.String),
     kind: Schema.Literals(["teaching", "dry-run", "run"]),
     operationId: deviceOperationId,

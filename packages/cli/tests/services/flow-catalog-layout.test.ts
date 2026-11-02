@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
@@ -14,9 +14,9 @@ import {
   resolveFlowDirectory,
 } from "../../src/services/flow-catalog-layout.ts";
 import {
-  FlowSkillCatalog,
-  makeFlowSkillCatalogLayer,
-} from "../../src/services/flow-skill-catalog.ts";
+  FlowCatalog,
+  makeFlowCatalogLayer,
+} from "../../src/services/flow-catalog.ts";
 
 const document = (name: string) =>
   `---\nname: ${name}\ndescription: Complete the journey.\n---\n1. Open the store.\n   Done when: the store is visible.\n`;
@@ -45,14 +45,14 @@ it.effect(
       yield* writeFlow(root, "runs/run/hidden");
       yield* writeFlow(root, "shop/checkout/guest/recordings/hidden");
       yield* Effect.gen(function* read() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         expect(
-          (yield* catalog.list()).flowSkills.map((entry) => entry.name)
+          (yield* catalog.list()).flows.map((entry) => entry.name)
         ).toEqual(["guest"]);
         expect((yield* catalog.read("guest")).directory).toBe(
           path.join(root, "shop/checkout/guest")
         );
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -63,7 +63,7 @@ it.effect("refuses duplicate names with both paths", () =>
     yield* writeFlow(root, "first/guest");
     yield* writeFlow(root, "second/guest");
     yield* Effect.gen(function* read() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       for (const operation of [
         catalog.list().pipe(Effect.asVoid),
         catalog.read("guest").pipe(Effect.asVoid),
@@ -72,7 +72,7 @@ it.effect("refuses duplicate names with both paths", () =>
         expect(error.message).toContain(path.join(root, "first/guest"));
         expect(error.message).toContain(path.join(root, "second/guest"));
       }
-    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+    }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
   }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -91,13 +91,13 @@ for (const relative of [
       }
       yield* writeFlow(root, relative);
       yield* Effect.gen(function* read() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         const error = yield* Effect.flip(catalog.list());
         expect(error.code).toBe("agent_catalog_invalid");
         expect(error.message).toContain(
           path.join(root, relative.split("/")[0] ?? "")
         );
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
   );
 }
@@ -110,7 +110,7 @@ it.effect(
       const workspace = yield* fs.makeTempDirectoryScoped();
       const root = path.join(workspace, "contingency");
       yield* Effect.gen(function* select() {
-        const catalog = yield* FlowSkillCatalog;
+        const catalog = yield* FlowCatalog;
         yield* catalog.select(root);
         const ignore = path.join(root, ".gitignore");
         expect(yield* fs.readFileString(ignore)).toContain(
@@ -122,7 +122,7 @@ it.effect(
         expect(maintained).toContain("custom/\n");
         expect(maintained.match(/\*\*\/runs\//gu)).toHaveLength(1);
         expect(maintained).toContain("**/recordings/\n");
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -133,11 +133,12 @@ it.effect("discovers Flows in every ordinary Group", () =>
     yield* writeFlow(root, "group/ordinary");
     yield* writeFlow(root, "another/visible");
     yield* Effect.gen(function* read() {
-      const catalog = yield* FlowSkillCatalog;
-      expect(
-        (yield* catalog.list()).flowSkills.map((flow) => flow.name)
-      ).toEqual(["ordinary", "visible"]);
-    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      const catalog = yield* FlowCatalog;
+      expect((yield* catalog.list()).flows.map((flow) => flow.name)).toEqual([
+        "ordinary",
+        "visible",
+      ]);
+    }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
   }).pipe(Effect.provide(NodeServices.layer))
 );
 
@@ -156,29 +157,28 @@ it.effect(
         kind: "draft",
       });
       expect(
-        yield* resolveFlowDirectory(root, FlowSkillName.make("checkout"), fs)
+        yield* resolveFlowDirectory(root, FlowName.make("checkout"), fs)
       ).toBe(directory);
       yield* Effect.gen(function* listings() {
-        const catalog = yield* FlowSkillCatalog;
-        expect((yield* catalog.list()).flowSkills).toEqual([]);
+        const catalog = yield* FlowCatalog;
+        expect((yield* catalog.list()).flows).toEqual([]);
         expect((yield* Effect.flip(catalog.read("checkout"))).code).toBe(
-          "flow_skill_not_found"
+          "flow_not_found"
         );
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
       yield* Effect.gen(function* workspaceListing() {
         const browser = yield* CatalogBrowser;
-        expect((yield* browser.browse()).roots[0]?.flowSkills).toEqual([]);
+        expect((yield* browser.browse()).roots[0]?.flows).toEqual([]);
         expect(
-          (yield* Effect.flip(
-            browser.flowSkill("local", FlowSkillName.make("checkout"))
-          )).code
-        ).toBe("flow_skill_not_found");
+          (yield* Effect.flip(browser.flow("local", FlowName.make("checkout"))))
+            .code
+        ).toBe("flow_not_found");
       }).pipe(
         Effect.provide(
           makeCatalogBrowserLayer({
             globalRoot: root,
             localRoot: () => root,
-          }).pipe(Layer.provide(makeFlowSkillCatalogLayer({ root })))
+          }).pipe(Layer.provide(makeFlowCatalogLayer({ root })))
         )
       );
       yield* writeFlow(root, "other/checkout");

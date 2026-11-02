@@ -46,7 +46,7 @@ it.live(
       );
       const read = (documentPath: string, sessionId?: string) =>
         call("agent_flow_document_get", {
-          flowSkillName: "example-delivery-cart",
+          flowName: "example-delivery-cart",
           path: documentPath,
           sessionId: sessionId ?? null,
         });
@@ -75,7 +75,7 @@ it.live(
       const updated = yield* call("agent_run_update", {
         inputs: [],
         operationId: "update-example-origin",
-        referencedSkills: ["example-delivery-cart"],
+        referencedFlows: ["example-delivery-cart"],
         sessionId: session.id,
       });
       expect(updated.result.isError).not.toBe(true);
@@ -95,7 +95,7 @@ it.live(
       }
       expect(
         (yield* call("agent_flow_document_get", {
-          flowSkillName: "unreferenced",
+          flowName: "unreferenced",
           path: "targets.md",
           sessionId: session.id,
         })).result.isError
@@ -103,7 +103,7 @@ it.live(
       expect(
         yield* request("tools/call", {
           arguments: {
-            flowSkillName: "example-delivery-cart",
+            flowName: "example-delivery-cart",
             origin: "example",
             path: "targets.md",
           },

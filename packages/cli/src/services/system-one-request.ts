@@ -1,6 +1,6 @@
 /**
  * The System One request a fast browser loop sends: a Browser Snapshot turned
- * into a numbered action space, and the typed questions one Flow Skill step
+ * into a numbered action space, and the typed questions one Flow step
  * asks of it. Shared by Pursuits, the Jev benchmark, and the Kev training-data
  * crawler, so a trained model sees exactly the requests Contingency sends.
  */
@@ -149,7 +149,7 @@ export const operationFor = (
   withheld = false
 ): Operation | undefined => {
   // A native select lists no options in the Snapshot, so its value comes
-  // from the Flow Skill's inputs, like a filled field's.
+  // from the Flow's inputs, like a filled field's.
   if (node.role === "combobox") {
     return "SELECT";
   }

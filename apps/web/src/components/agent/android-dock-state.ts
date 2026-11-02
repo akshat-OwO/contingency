@@ -23,7 +23,7 @@ const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
  * the two platforms never share a label.
  */
 export const androidSessionLabel = (session: AndroidWorkspaceSummary): string =>
-  `${session.flowSkillName} · Android ${KIND_LABEL[session.kind]}`;
+  `${session.flowName} · Android ${KIND_LABEL[session.kind]}`;
 
 /** What the Skills drawer needs to know about an Android session. */
 export const androidSkillsSessionView = (
@@ -33,12 +33,12 @@ export const androidSkillsSessionView = (
     ? {
         activity: "teaching",
         captureState: session.captureState?._tag ?? "setup",
-        flowSkillName: session.flowSkillName,
+        flowName: session.flowName,
       }
     : {
         activity: "run",
         dryRun: session.kind === "dry-run",
-        flowSkillNames: [session.flowSkillName],
+        flowNames: [session.flowName],
       };
 
 /** Whether the session still owns its device. */

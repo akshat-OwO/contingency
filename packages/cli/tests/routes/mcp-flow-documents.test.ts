@@ -43,7 +43,7 @@ it.live(
       const read = (documentPath: string) =>
         request("tools/call", {
           name: "agent_flow_document_get",
-          arguments: { flowSkillName: "checkout", path: documentPath },
+          arguments: { flowName: "checkout", path: documentPath },
         }).pipe(Effect.map(Schema.decodeUnknownSync(Answer)));
       expect((yield* read("knowledge/deep/rules.md")).result).toMatchObject({
         structuredContent: {

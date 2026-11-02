@@ -1,6 +1,6 @@
 import {
   AgentSessionId,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
 } from "@contingency/protocol";
@@ -35,7 +35,7 @@ const idle: SessionWaits = {
 const dryRunWithSecret = (supplied: boolean): SessionWaits => ({
   ...idle,
   dryRun: {
-    flowSkillName: FlowSkillName.make("checkout"),
+    flowName: FlowName.make("checkout"),
     inputs: [],
     recordingId: TeachingRecordingId.make("recording-checkout"),
     startedAt: "2026-10-15T00:00:00.000Z",
@@ -82,7 +82,7 @@ const androidSession = (overrides: {
 const start = {
   command: {
     _tag: "start",
-    flowSkillName: "checkout",
+    flowName: "checkout",
     kind: "run",
     operationId: OperationId.make("android-start"),
   },
@@ -188,7 +188,7 @@ const userWorkspace = (initial: SessionWaits, duringRead?: SessionWaits) => {
                 operation("agent_session_close", false),
                 // A new Dry Run asks for its secret, nesting its session.
                 operation(
-                  "agent_flow_skill_dry_run_start",
+                  "agent_flow_dry_run_start",
                   false,
                   dryRunWithSecret(false),
                   { session: { id: browserId } }
@@ -287,22 +287,20 @@ describe("browser interventions during a program", () => {
       Effect.gen(function* dryRunSecret() {
         const workspace = userWorkspace(idle);
         const answer = yield* workspace.execute(`
-          const started = await tools.agent_flow_skill_dry_run_start({});
+          const started = await tools.agent_flow_dry_run_start({});
           const sessionId = started.session.id;
           await tools.agent_browser_snapshot({ sessionId });
           return await tools.agent_browser_act({ sessionId });
         `);
         expect(answer).toMatchObject({
           intervention: {
-            operation: "agent_flow_skill_dry_run_start",
+            operation: "agent_flow_dry_run_start",
             reasons: ["variable_requested"],
             sessionId: browserId,
           },
           status: "intervention",
         });
-        expect(workspace.dispatched).toEqual([
-          "agent_flow_skill_dry_run_start",
-        ]);
+        expect(workspace.dispatched).toEqual(["agent_flow_dry_run_start"]);
       }),
     HANG_GUARD_MS
   );

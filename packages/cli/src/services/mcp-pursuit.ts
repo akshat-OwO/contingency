@@ -15,7 +15,7 @@ import type {
   AgentPursuitStep,
   AgentSessionId,
   AgentSessionSnapshot,
-  FlowSkillName,
+  FlowName,
   TaskAgentRunState,
 } from "@contingency/protocol";
 import {
@@ -113,7 +113,7 @@ type PursueParameters = typeof AgentBrowserPursueParameters.Type;
 
 const AgentBrowserPursueTool = Tool.make("agent_browser_pursue", {
   dependencies: [AgentSession, SystemOne],
-  description: `Delegate Run or Dry Run steps to the configured System One model. steps: the Flow Skill's remaining numbered steps in one call, each {goal: the step's text, doneWhen: its Done when: line}; {{input}} placeholders are filled. doneWhen must double-quote text the Page shows once the step holds, or say a popup is gone; steps code cannot check fail with pursuit_steps_invalid before acting. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; Variables by name only. Same operationId replays.`,
+  description: `Delegate Run or Dry Run steps to the configured System One model. steps: the Flow's remaining numbered steps in one call, each {goal: the step's text, doneWhen: its Done when: line}; {{input}} placeholders are filled. doneWhen must double-quote text the Page shows once the step holds, or say a popup is gone; steps code cannot check fail with pursuit_steps_invalid before acting. Returns at the first step not done. Per step ${PURSUIT_LIMITS.maxActions} actions, per call ${PURSUIT_LIMITS.timeoutMs / 1000} s; maxActions and timeoutMs only lower these. Actions get agent_browser_act checks; irreversible:true confirms each. Endings: done, blocked, unsure, paused (boundary or Takeover), needs-input (request missingVariable, pursue again); reason says why. Actions remain; verify done in the Snapshot. System One gets Page text, elements, recent actions, and ordinary input values; Variables by name only. Same operationId replays.`,
   failure: AgentSessionFailure,
   parameters: AgentBrowserPursueParameters,
   success: UnpublishedPursuitResult,
@@ -126,13 +126,13 @@ export const PursuitTools = withStrictParameters(
 /** One value System One may choose for a field. */
 export type ScopeInput =
   | {
-      readonly flowSkillName: FlowSkillName;
+      readonly flowName: FlowName;
       readonly kind: "value";
       readonly name: string;
       readonly value: string;
     }
   | {
-      readonly flowSkillName: FlowSkillName;
+      readonly flowName: FlowName;
       readonly kind: "variable";
       readonly name: string;
       readonly supplied: boolean;
@@ -145,34 +145,33 @@ export type ScopeInput =
  */
 const inputsInScope = (
   run: Pick<TaskAgentRunState, "inputs" | "variables">,
-  flowSkillName: FlowSkillName | undefined
+  flowName: FlowName | undefined
 ) => {
-  const inScope = (owner: FlowSkillName) =>
-    flowSkillName === undefined || owner === flowSkillName;
+  const inScope = (owner: FlowName) =>
+    flowName === undefined || owner === flowName;
   const entries: ScopeInput[] = [];
   for (const input of run.inputs) {
-    if (inScope(input.flowSkillName)) {
+    if (inScope(input.flowName)) {
       entries.push({ ...input, kind: "value" });
     }
   }
   for (const variable of run.variables) {
     if (
-      inScope(variable.flowSkillName) &&
+      inScope(variable.flowName) &&
       !run.inputs.some(
         (input) =>
-          input.flowSkillName === variable.flowSkillName &&
-          input.name === variable.name
+          input.flowName === variable.flowName && input.name === variable.name
       )
     ) {
       entries.push({
-        flowSkillName: variable.flowSkillName,
+        flowName: variable.flowName,
         kind: "variable",
         name: variable.name,
         supplied: variable.supplied,
       });
     }
   }
-  // Two skills may declare the same name; their keys must still differ.
+  // Two flows may declare the same name; their keys must still differ.
   const counts = new Map<string, number>();
   for (const { name } of entries) {
     counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -182,7 +181,7 @@ const inputsInScope = (
   for (const input of entries) {
     const key =
       (counts.get(input.name) ?? 0) > 1
-        ? `${input.flowSkillName}/${input.name}`
+        ? `${input.flowName}/${input.name}`
         : input.name;
     if (!inputs.has(key)) {
       inputs.set(key, input);
@@ -568,14 +567,14 @@ const codeOutcome = (
     ? overlayOutcome(doneWhen, snapshot)
     : quotedOutcome(doneWhen, snapshot, start);
 
-/** A Flow Skill input placeholder, as Flow Skills write them. */
+/** A Flow input placeholder, as Flows write them. */
 const PLACEHOLDER = /\{\{\s*(?<name>[A-Za-z][\w-]*)\s*\}\}/gu;
 /** A Browser Snapshot reference, which System One never sees. */
 const ELEMENT_REF = /(?<![\w-])@?e\d+(?![\w-])/u;
 
 /** How to write steps System One can pursue, for every refusal. */
 const STEP_GUIDANCE =
-  "Pass each remaining Flow Skill step as goal and its Done when: line as doneWhen, and quote text the Page shows once the step holds.";
+  "Pass each remaining Flow step as goal and its Done when: line as doneWhen, and quote text the Page shows once the step holds.";
 
 /** Quotation marks that open or close a quoted phrase. */
 const QUOTE_MARKS = /["\u201C\u201D]/gu;
@@ -615,7 +614,7 @@ const fillPlaceholders = (
       }
       if (matches.length > 1) {
         problems.push(
-          `${field} uses ${whole}, which several referenced Flow Skills declare; pass flowSkillName`
+          `${field} uses ${whole}, which several referenced Flows declare; pass flowName`
         );
         return whole;
       }
@@ -820,7 +819,7 @@ const decide = (
         `System One chose Variable ${input.name}, which has no value yet. Request it with agent_variable_request, then pursue again.`,
         {
           missingVariable: {
-            flowSkillName: input.flowSkillName,
+            flowName: input.flowName,
             name: input.name,
           },
         }
@@ -1034,20 +1033,18 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
     const systemOne = yield* SystemOne;
     const { sessionId } = params;
     const run = yield* requirePursuitRun(yield* service.get(sessionId));
-    const { criteria, inputs } = inputsInScope(run, params.flowSkillName);
+    const { criteria, inputs } = inputsInScope(run, params.flowName);
     const prepared = preparePursuitSteps(params.steps, inputs);
     const problems = [...prepared.problems];
-    const { flowSkillName } = params;
+    const { flowName } = params;
     if (
-      flowSkillName !== undefined &&
-      flowSkillName !== null &&
-      "referencedSkills" in run &&
-      !run.referencedSkills.some(
-        (skill) => skill.flowSkillName === flowSkillName
-      )
+      flowName !== undefined &&
+      flowName !== null &&
+      "referencedFlows" in run &&
+      !run.referencedFlows.some((flow) => flow.flowName === flowName)
     ) {
       problems.unshift(
-        `flowSkillName ${flowSkillName} is not referenced by this Run; use one of ${run.referencedSkills.map((skill) => skill.flowSkillName).join(", ") || "none"}, or add it with agent_run_update`
+        `flowName ${flowName} is not referenced by this Run; use one of ${run.referencedFlows.map((flow) => flow.flowName).join(", ") || "none"}, or add it with agent_run_update`
       );
     }
     if (problems.length > 0) {
@@ -1104,7 +1101,7 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
             input.name,
             candidate.ref,
             operationId,
-            input.flowSkillName
+            input.flowName
           )
         : service.act(
             sessionId,

@@ -15,13 +15,13 @@ import { AgentPursuitRecord } from "./agent-pursuit.ts";
 import { AgentRunSummary } from "./agent-run.ts";
 import { BrowserCheck, browserAttachmentsField } from "./browser-checks.ts";
 import { DraftEmulation, Variable } from "./emulation.ts";
-import { FlowSkillName } from "./flow-skill-identifiers.ts";
+import { FlowName } from "./flow-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { PlatformRequirements } from "./platform.ts";
 import { TeachingScan } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
-export { FlowSkillName } from "./flow-skill-identifiers.ts";
+export { FlowName } from "./flow-identifiers.ts";
 export { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 
 const nonEmptyString = Schema.String.check(Schema.isMinLength(1));
@@ -39,36 +39,34 @@ export const ContentHash = Schema.String.check(
 export type ContentHash = typeof ContentHash.Type;
 
 /** The whole rule, stated the way a caller can act on it. */
-export const flowSkillNameRule =
-  "A Flow Skill name is 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, and starts with a letter or a number.";
+export const flowNameRule =
+  "A Flow name is 1 to 128 characters of letters, numbers, spaces, dots, dashes, and underscores, and starts with a letter or a number.";
 
-const flowSkillNameCharacter = /[A-Za-z0-9 ._-]/u;
+const flowNameCharacter = /[A-Za-z0-9 ._-]/u;
 
 /**
- * Why a candidate is not a Flow Skill name, or `null` when it is one. The
+ * Why a candidate is not a Flow name, or `null` when it is one. The
  * caller of a refused rename or Teaching start reads this instead of guessing:
  * it names the characters that were rejected and then states the rule.
  */
-export const describeFlowSkillName = (candidate: string): string | null => {
+export const describeFlowName = (candidate: string): string | null => {
   if (candidate.length === 0) {
-    return `A Flow Skill name cannot be empty. ${flowSkillNameRule}`;
+    return `A Flow name cannot be empty. ${flowNameRule}`;
   }
   const rejected = [
     ...new Set(
-      [...candidate].filter(
-        (character) => !flowSkillNameCharacter.test(character)
-      )
+      [...candidate].filter((character) => !flowNameCharacter.test(character))
     ),
   ];
   if (rejected.length > 0) {
     const listed = rejected.map((character) => `"${character}"`).join(", ");
-    return `A Flow Skill name cannot contain ${listed}. ${flowSkillNameRule}`;
+    return `A Flow name cannot contain ${listed}. ${flowNameRule}`;
   }
   if (candidate.length > 128) {
-    return `A Flow Skill name cannot be longer than 128 characters. ${flowSkillNameRule}`;
+    return `A Flow name cannot be longer than 128 characters. ${flowNameRule}`;
   }
   if (!/^[A-Za-z0-9]/u.test(candidate)) {
-    return `A Flow Skill name cannot start with "${candidate[0]}". ${flowSkillNameRule}`;
+    return `A Flow name cannot start with "${candidate[0]}". ${flowNameRule}`;
   }
   return null;
 };
@@ -107,7 +105,7 @@ const Learning = Schema.TaggedStruct("learning", {
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
-const SkillDrafted = Schema.TaggedStruct("skill-drafted", {
+const FlowDrafted = Schema.TaggedStruct("flow-drafted", {
   claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   readyAt: nonEmptyString,
@@ -130,7 +128,7 @@ const DryRunning = Schema.TaggedStruct("dry-running", {
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
-export const FlowSkillDryRunResult = Schema.Struct({
+export const FlowDryRunResult = Schema.Struct({
   completedAt: nonEmptyString,
   inputs: Schema.Array(
     Schema.Struct({
@@ -142,13 +140,13 @@ export const FlowSkillDryRunResult = Schema.Struct({
   observableOutcome: nonEmptyString,
   outcome: Schema.Literals(["failed", "passed"]),
 });
-export type FlowSkillDryRunResult = typeof FlowSkillDryRunResult.Type;
+export type FlowDryRunResult = typeof FlowDryRunResult.Type;
 
 const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
   claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
-  dryRunResult: FlowSkillDryRunResult,
+  dryRunResult: FlowDryRunResult,
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
@@ -160,7 +158,7 @@ const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
   claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
-  dryRunResult: FlowSkillDryRunResult,
+  dryRunResult: FlowDryRunResult,
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
@@ -171,7 +169,7 @@ const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
 const Verified = Schema.TaggedStruct("verified", {
   draftedAt: nonEmptyString,
   dryRunEndedAt: nonEmptyString,
-  dryRunResult: FlowSkillDryRunResult,
+  dryRunResult: FlowDryRunResult,
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
@@ -193,7 +191,7 @@ export const TeachingCaptureState = Schema.Union([
   Finalizing,
   Ready,
   Learning,
-  SkillDrafted,
+  FlowDrafted,
   DryRunning,
   DryRunFailed,
   DryRunPassed,
@@ -229,7 +227,7 @@ export const TeachingRecordingOperation = Schema.Literals([
   "start-learning",
   "release-learning",
   "fail-learning",
-  "save-skill",
+  "save-flow",
   "start-dry-run",
   "fail-dry-run",
   "pass-dry-run",
@@ -265,7 +263,7 @@ const TeachingRecordingManifestBase = {
   createdAt: nonEmptyString,
   emulation: Schema.NullOr(DraftEmulation),
   eventOrigin: Schema.optional(Schema.Literals(["agent", "workspace"])),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   origin: TeachingRecordingOrigin,
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
@@ -531,12 +529,12 @@ export const TeachingRecordingSummary = Schema.Struct({
    */
   emulation: Schema.NullOr(DraftEmulation),
   failure: Schema.NullOr(Schema.String),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   lifecycle: Schema.Literals([
     "recording",
     "ready",
     "learning",
-    "skill-drafted",
+    "flow-drafted",
     "dry-running",
     "dry-run-failed",
     "dry-run-passed",
@@ -556,7 +554,7 @@ export type TeachingRecordingList = typeof TeachingRecordingList.Type;
 
 export const TeachingRecordingClaim = Schema.Struct({
   claimedAt: nonEmptyString,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   operationId: OperationId,
   recordingId: TeachingRecordingId,
 });
@@ -615,32 +613,32 @@ export const TeachingKeyframeFile = Schema.Struct({
 });
 export type TeachingKeyframeFile = typeof TeachingKeyframeFile.Type;
 
-export const FlowSkillFile = Schema.Struct({
+export const FlowFile = Schema.Struct({
   content: nonEmptyString,
   path: nonEmptyString,
 });
-export type FlowSkillFile = typeof FlowSkillFile.Type;
+export type FlowFile = typeof FlowFile.Type;
 
 /**
- * One structured reason a proposed Flow Skill package was refused. The path
+ * One structured reason a proposed Flow package was refused. The path
  * starts at the file it belongs to, so an agent can fix the exact line rather
- * than resubmit the whole package. It is not a JSON pointer: a Flow Skill is
+ * than resubmit the whole package. It is not a JSON pointer: a Flow is
  * markdown, not a draft object.
  */
-export const FlowSkillDiagnostic = Schema.Struct({
+export const FlowDiagnostic = Schema.Struct({
   code: nonEmptyString,
   message: nonEmptyString,
   /** File first, then the section or field inside it. */
   path: Schema.Array(nonEmptyString),
 });
-export type FlowSkillDiagnostic = typeof FlowSkillDiagnostic.Type;
+export type FlowDiagnostic = typeof FlowDiagnostic.Type;
 
-export const FlowSkillSaveResult = Schema.Struct({
+export const FlowSaveResult = Schema.Struct({
   files: Schema.Array(nonEmptyString),
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   recordingId: TeachingRecordingId,
 });
-export type FlowSkillSaveResult = typeof FlowSkillSaveResult.Type;
+export type FlowSaveResult = typeof FlowSaveResult.Type;
 
 /**
  * The size ceilings one recording may reach. Reaching any of them stops the
@@ -783,7 +781,7 @@ export type TeachingInstructionRecord = typeof TeachingInstructionRecord.Type;
 
 /**
  * Enter a named Variable while recording. Evidence retains its value and name;
- * learning writes the Variable reference into the saved Flow Skill.
+ * learning writes the Variable reference into the saved Flow.
  */
 export const TeachingVariableInput = Schema.Struct({
   operationId: OperationId,

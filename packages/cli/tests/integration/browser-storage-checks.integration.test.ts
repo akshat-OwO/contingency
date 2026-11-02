@@ -85,7 +85,7 @@ it.effect(
         Effect.gen(function* evaluateCheck() {
           const armed = yield* armBrowserChecks(
             target,
-            [{ check, flowSkillName: "storage" }],
+            [{ check, flowName: "storage" }],
             check.id
           );
           yield* armed.start();
@@ -345,7 +345,7 @@ it.effect("fails a storage check whose last read the deadline cut short", () =>
             timeoutMs: 1000,
             when: "After the action",
           },
-          flowSkillName: "storage",
+          flowName: "storage",
         },
       ],
       "deadline-cut"

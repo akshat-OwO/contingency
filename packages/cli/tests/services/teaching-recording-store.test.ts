@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import {
   AgentRunId,
   AgentSessionId,
-  FlowSkillName,
+  FlowName,
   ContentHash,
   OperationId,
   TeachingRecordingId,
@@ -18,8 +18,8 @@ import { Effect, FileSystem, Layer } from "effect";
 import {
   FLOW_CONTRACT_FILES,
   flowVerificationDigests,
-  readFlowSkillFrontmatter,
-} from "../../src/services/flow-skill-package.ts";
+  readFlowFrontmatter,
+} from "../../src/services/flow-package.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -86,7 +86,7 @@ it.effect.each([
         const store = yield* TeachingRecordingStore;
         const begin = {
           emulation,
-          flowSkillName: FlowSkillName.make("checkout-flow"),
+          flowName: FlowName.make("checkout-flow"),
           operationId: OperationId.make("begin-once"),
           recordingId,
           sessionId,
@@ -155,14 +155,14 @@ it.effect.each([
           operationId: OperationId.make("learning-once"),
           recordingId,
         });
-        const drafted = yield* store.saveSkill({
+        const drafted = yield* store.saveFlow({
           claimOperationId: OperationId.make("learning-once"),
           files: ["flow.md"],
-          operationId: OperationId.make("save-skill-once"),
+          operationId: OperationId.make("save-flow-once"),
           recordingId,
         });
         expect(
-          drafted.receipts.find((receipt) => receipt.operation === "save-skill")
+          drafted.receipts.find((receipt) => receipt.operation === "save-flow")
             ?.files
         ).toEqual(["flow.md"]);
         yield* fileSystem.makeDirectory(path.join(root, "checkout-flow"), {
@@ -201,7 +201,7 @@ it.effect.each([
               operationId: OperationId.make(`learn-${id}`),
               recordingId: id,
             });
-            yield* store.saveSkill({
+            yield* store.saveFlow({
               claimOperationId: OperationId.make(`learn-${id}`),
               files: ["flow.md"],
               operationId: OperationId.make(`save-${id}`),
@@ -369,7 +369,7 @@ it.effect.each([
         "start",
         "stop",
         "start-learning",
-        "save-skill",
+        "save-flow",
         "start-dry-run",
         "pass-dry-run",
         "verification",
@@ -394,7 +394,7 @@ it.effect.each([
       const savedContent = yield* fileSystem.readFileString(
         path.join(flowDirectory, "flow.md")
       );
-      const saved = readFlowSkillFrontmatter(savedContent);
+      const saved = readFlowFrontmatter(savedContent);
       expect(saved?.verification).toEqual({
         completedAt: at,
         digests: flowVerificationDigests(
@@ -431,7 +431,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
           emulation,
-          flowSkillName: FlowSkillName.make("failed-flow"),
+          flowName: FlowName.make("failed-flow"),
           operationId: OperationId.make("begin-failure"),
           recordingId: failedRecordingId,
           sessionId,
@@ -481,7 +481,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
           emulation,
-          flowSkillName: FlowSkillName.make("delivery-flow"),
+          flowName: FlowName.make("delivery-flow"),
           operationId: OperationId.make("retention-begin"),
           recordingId: retainedId,
           sessionId,
@@ -518,7 +518,7 @@ it.effect(
           skillFile,
           "---\nname: delivery-flow\n---\n# Delivery flow\n"
         );
-        yield* store.saveSkill({
+        yield* store.saveFlow({
           claimOperationId: OperationId.make("retention-learn"),
           files: ["flow.md"],
           operationId: OperationId.make("retention-save"),
@@ -558,7 +558,7 @@ it.effect(
         return rejected;
       }).pipe(Effect.provide(layerFor(root)));
 
-      expect(result.lifecycle._tag).toBe("skill-drafted");
+      expect(result.lifecycle._tag).toBe("flow-drafted");
       expect(yield* fileSystem.exists(artifactFile)).toBe(true);
       expect(
         yield* fileSystem.readFileString(
@@ -588,7 +588,7 @@ it.effect.each([false, true])(
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
           emulation,
-          flowSkillName: FlowSkillName.make("recovery-flow"),
+          flowName: FlowName.make("recovery-flow"),
           operationId: OperationId.make("recovery-begin"),
           recordingId: recoveryId,
           sessionId,
@@ -618,7 +618,7 @@ it.effect.each([false, true])(
           operationId: OperationId.make("recovery-learn"),
           recordingId: recoveryId,
         });
-        yield* store.saveSkill({
+        yield* store.saveFlow({
           claimOperationId: OperationId.make("recovery-learn"),
           files: ["flow.md"],
           operationId: OperationId.make("recovery-save"),
@@ -677,7 +677,7 @@ it.effect.each([false, true])(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("keeps a verified Flow Skill retryable when cleanup fails", () =>
+it.effect("keeps a verified Flow retryable when cleanup fails", () =>
   Effect.gen(function* exposeCleanupFailure() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
@@ -707,7 +707,7 @@ it.effect("keeps a verified Flow Skill retryable when cleanup fails", () =>
         },
         createdAt: at,
         emulation,
-        flowSkillName: "cleanup-failure-flow",
+        flowName: "cleanup-failure-flow",
         lifecycle: {
           _tag: "verified",
           draftedAt: at,
@@ -770,7 +770,7 @@ it.effect("releases and retries failed learning claims", () =>
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
         emulation,
-        flowSkillName: FlowSkillName.make("retry-flow"),
+        flowName: FlowName.make("retry-flow"),
         operationId: OperationId.make("retry-begin"),
         recordingId: retryId,
         sessionId,
@@ -1044,7 +1044,7 @@ it.effect(
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
           emulation,
-          flowSkillName: FlowSkillName.make("checkout-flow"),
+          flowName: FlowName.make("checkout-flow"),
           operationId: OperationId.make("web-begin"),
           recordingId,
           sessionId,
@@ -1092,7 +1092,7 @@ it.effect("keeps an active recording under its original Catalog Root", () =>
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
         emulation,
-        flowSkillName: FlowSkillName.make("checkout-flow"),
+        flowName: FlowName.make("checkout-flow"),
         operationId: OperationId.make("root-begin"),
         recordingId,
         sessionId,
@@ -1148,7 +1148,7 @@ it.effect(
           cleanup: { _tag: "pending" },
           createdAt: at,
           emulation,
-          flowSkillName: "checkout-flow",
+          flowName: "checkout-flow",
           lifecycle: { _tag: "finalizing", startedAt: at, stoppedAt: at },
           receipts: [
             {
@@ -1200,13 +1200,13 @@ it.effect("renames before capture and discards a recording back to setup", () =>
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
         emulation,
-        flowSkillName: FlowSkillName.make("first-name"),
+        flowName: FlowName.make("first-name"),
         operationId: OperationId.make("begin-discard"),
         recordingId: discardedId,
         sessionId,
       });
       const rename = {
-        flowSkillName: FlowSkillName.make("second-name"),
+        flowName: FlowName.make("second-name"),
         operationId: OperationId.make("rename-once"),
         recordingId: discardedId,
       };
@@ -1221,7 +1221,7 @@ it.effect("renames before capture and discards a recording back to setup", () =>
       // bundle on disk is already filed under the name it began with.
       const lateRename = yield* Effect.flip(
         store.rename({
-          flowSkillName: FlowSkillName.make("third-name"),
+          flowName: FlowName.make("third-name"),
           operationId: OperationId.make("rename-late"),
           recordingId: discardedId,
         })
@@ -1251,7 +1251,7 @@ it.effect("renames before capture and discards a recording back to setup", () =>
       return { discarded, lateRename, renamed };
     }).pipe(Effect.provide(layerFor(root)));
 
-    expect(outcome.renamed.flowSkillName).toBe("second-name");
+    expect(outcome.renamed.flowName).toBe("second-name");
     expect(outcome.lateRename.code).toBe("teaching_recording_conflict");
     expect(outcome.discarded.lifecycle._tag).toBe("setup");
     expect(outcome.discarded.artifacts).toEqual([]);
@@ -1272,7 +1272,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
         emulation,
-        flowSkillName: FlowSkillName.make("lifetime-flow"),
+        flowName: FlowName.make("lifetime-flow"),
         operationId: OperationId.make("lifetime-begin"),
         recordingId: claimedId,
         sessionId,
@@ -1290,7 +1290,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
 
       // A save needs a claim, and names the tool that grants one.
       const unclaimed = yield* Effect.result(
-        store.saveSkill({
+        store.saveFlow({
           claimOperationId: claim,
           files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-unclaimed"),
@@ -1314,7 +1314,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         recursive: true,
       });
       yield* fileSystem.writeFileString(skillFile, "# Lifetime flow\n");
-      yield* store.saveSkill({
+      yield* store.saveFlow({
         claimOperationId: claim,
         files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-one"),
@@ -1333,17 +1333,17 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       });
 
       // The failure keeps the claim, so the same agent saves its fix.
-      const fixed = yield* store.saveSkill({
+      const fixed = yield* store.saveFlow({
         claimOperationId: claim,
         files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-two"),
         recordingId: claimedId,
       });
-      expect(fixed.lifecycle._tag).toBe("skill-drafted");
+      expect(fixed.lifecycle._tag).toBe("flow-drafted");
 
       // Another live operation's claim id is a conflict, not a missing claim.
       const other = yield* Effect.result(
-        store.saveSkill({
+        store.saveFlow({
           claimOperationId: OperationId.make("lifetime-other-claim"),
           files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-other"),
@@ -1363,7 +1363,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
 
       // A Dry Run in flight reports on the package it started with.
       const midRun = yield* Effect.result(
-        store.saveSkill({
+        store.saveFlow({
           claimOperationId: claim,
           files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-mid-run"),
@@ -1382,7 +1382,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       // A passing Dry Run is the user's choice to make, so the claim alone
       // does not let the agent replace the package it passed with.
       const afterPass = yield* Effect.result(
-        store.saveSkill({
+        store.saveFlow({
           claimOperationId: claim,
           files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-after-pass"),
@@ -1393,7 +1393,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         failure: { code: "teaching_recording_conflict" },
       });
       if (afterPass._tag === "Failure") {
-        expect(afterPass.failure.message).toContain("agent_flow_skill_decide");
+        expect(afterPass.failure.message).toContain("agent_flow_decide");
       }
       expect((yield* store.read(claimedId)).lifecycle._tag).toBe(
         "dry-run-passed"
@@ -1405,13 +1405,13 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       });
 
       // A rejection keeps the claim too.
-      const revised = yield* store.saveSkill({
+      const revised = yield* store.saveFlow({
         claimOperationId: claim,
         files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-three"),
         recordingId: claimedId,
       });
-      expect(revised.lifecycle._tag).toBe("skill-drafted");
+      expect(revised.lifecycle._tag).toBe("flow-drafted");
 
       // The claim ends where the agent gives up, from a drafted state.
       const released = yield* store.releaseLearning({
@@ -1432,12 +1432,12 @@ it.effect.each(["", "shop/checkout"])(
       const root = yield* fs.makeTempDirectoryScoped({
         prefix: "contingency-recording-group-",
       });
-      const name = FlowSkillName.make("grouped-flow");
+      const name = FlowName.make("grouped-flow");
       yield* Effect.gen(function* firstProcess() {
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
           emulation,
-          flowSkillName: name,
+          flowName: name,
           group,
           operationId: OperationId.make("group-begin"),
           recordingId,
@@ -1488,7 +1488,7 @@ it.effect.each(["runs", "recordings", "flow.md"])(
         const result = yield* Effect.flip(
           store.begin({
             emulation,
-            flowSkillName: FlowSkillName.make(name),
+            flowName: FlowName.make(name),
             group: "",
             operationId: OperationId.make("reserved-begin"),
             recordingId,
@@ -1511,7 +1511,7 @@ it.effect("refuses duplicate names and Groups inside draft Flows", () =>
       const store = yield* TeachingRecordingStore;
       const input = {
         emulation,
-        flowSkillName: FlowSkillName.make("checkout"),
+        flowName: FlowName.make("checkout"),
         group: "shop",
         operationId: OperationId.make("collision-begin"),
         recordingId,
@@ -1522,7 +1522,7 @@ it.effect("refuses duplicate names and Groups inside draft Flows", () =>
         { ...input, group: "other" },
         {
           ...input,
-          flowSkillName: FlowSkillName.make("another"),
+          flowName: FlowName.make("another"),
           group: "shop/checkout/nested",
         },
       ]) {

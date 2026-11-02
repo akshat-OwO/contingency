@@ -71,7 +71,7 @@ const run = {
   },
   coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
   endedAt: null,
-  flowSkillName: "browse-catalogue",
+  flowName: "browse-catalogue",
   inputs: [{ name: "product", value: "Mug" }],
   lastAgentActivityAt: "2026-09-04T00:01:00.000Z",
   outcome: null,
@@ -113,7 +113,7 @@ const summary = {
   attribution: run.attribution,
   coverage: run.coverage,
   endedAt: "2026-09-04T00:02:00.000Z",
-  flowSkillName: "browse-catalogue",
+  flowName: "browse-catalogue",
   inputs: run.inputs,
   outcome: "ended-early",
   runId: "agentrun-one",
@@ -375,9 +375,9 @@ const taskSummary = {
   ],
   outcome: "completed",
   purpose: { kind: "interactive" },
-  referencedSkills: [
+  referencedFlows: [
     {
-      flowSkillName: "browse-catalogue",
+      flowName: "browse-catalogue",
       referencedAt: "2026-09-04T00:00:00.000Z",
     },
   ],
@@ -458,7 +458,7 @@ test("shows closure without inventing a task assessment", () => {
 const dryRunTask = {
   ...taskSummary,
   purpose: {
-    flowSkillName: "browse-catalogue",
+    flowName: "browse-catalogue",
     kind: "dry-run",
     recordingId: "recording-one",
     takeoverOccurred: false,
@@ -618,7 +618,7 @@ const dryRunCapture = {
     ...taskSummary,
     assessment: { ...taskSummary.assessment, outcomeComplete: true },
     purpose: {
-      flowSkillName: "browse-catalogue",
+      flowName: "browse-catalogue",
       kind: "dry-run",
       recordingId: "recording-one",
       takeoverOccurred: false,

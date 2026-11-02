@@ -144,7 +144,7 @@ export const DirectPrototype = ({
           >
             <DockWordmark />
             <Button className="max-w-56" size="sm" variant="outline">
-              <span className="truncate">{session.flowSkillName}</span>
+              <span className="truncate">{session.flowName}</span>
             </Button>
             <SkillsDockButton />
             <DockSpacer />

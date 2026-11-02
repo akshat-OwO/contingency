@@ -5,8 +5,8 @@ import { AgentRunId } from "@contingency/protocol";
 import type {
   AgentRunTaskInput,
   AgentSessionSnapshot,
-  FlowSkillFile,
-  FlowSkillName,
+  FlowFile,
+  FlowName,
   OperationId,
   TaskAgentRunState,
   TeachingRecordingId,
@@ -19,7 +19,7 @@ import { AgentSession } from "./agent-session.ts";
 import { requestedBrowserChecks } from "./browser-check-requirements.ts";
 import { markDemoWork } from "./demo-site.ts";
 import { webHost } from "./domain-scope.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 import {
   browserCapabilities,
   browserRequirements,
@@ -27,10 +27,10 @@ import {
 } from "./platform-requirements.ts";
 import {
   VARIABLE_REFERENCE_NAME,
-  readRequestedSkills,
+  readRequestedFlows,
   taskVariables,
   validateTaskInputs,
-} from "./requested-flow-skills.ts";
+} from "./requested-flows.ts";
 import { readBrowserState } from "./saved-browser-state.ts";
 import { requestedScans } from "./scan-requirements.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
@@ -38,7 +38,7 @@ import type { TeachingRecordingMutation } from "./teaching-recording-store.ts";
 
 /**
  * Teaching Recording orchestration: the sequences that span the durable store,
- * the Flow Skill catalog, and the Agent Session that runs a Dry Run.
+ * the Flow catalog, and the Agent Session that runs a Dry Run.
  *
  * The store owns each durable transition, its cross-process lock, and its
  * receipt. This module owns the order of those transitions — Dry Run startup
@@ -80,7 +80,7 @@ export const teachingRecordingSummary = (
     cleanup: manifest.cleanup,
     emulation: manifest.emulation,
     failure,
-    flowSkillName: manifest.flowSkillName,
+    flowName: manifest.flowName,
     lifecycle: lifecycle._tag,
     recordingId: manifest.recordingId,
     runtime: manifest.runtime ?? browserRequirements,
@@ -90,7 +90,7 @@ export const teachingRecordingSummary = (
     case "recording":
     case "ready":
     case "learning":
-    case "skill-drafted":
+    case "flow-drafted":
     case "dry-running":
     case "dry-run-passed":
     case "verified": {
@@ -130,21 +130,21 @@ const refreshSession = (manifest: TeachingRecordingManifest) =>
     )
   );
 
-export type FlowSkillDecision = "reject" | "retry-cleanup" | "verify";
+export type FlowDecision = "reject" | "retry-cleanup" | "verify";
 
-export interface FlowSkillDecisionInput extends TeachingRecordingMutation {
-  readonly decision: FlowSkillDecision;
+export interface FlowDecisionInput extends TeachingRecordingMutation {
+  readonly decision: FlowDecision;
 }
 
 /**
- * Relay the user's decision about a Flow Skill whose Dry Run passed, or resume
+ * Relay the user's decision about a Flow whose Dry Run passed, or resume
  * Cleanup for one already verified.
  *
  * Verification purges in two durable halves: the verified transition lands
  * first, then deletion runs. A retry re-enters only the second half, so a
- * failed deletion never rolls the Flow Skill back.
+ * failed deletion never rolls the Flow back.
  */
-export const decideFlowSkill = (input: FlowSkillDecisionInput) =>
+export const decideFlow = (input: FlowDecisionInput) =>
   Effect.gen(function* decide() {
     const store = yield* TeachingRecordingStore;
     const mutation = {
@@ -206,19 +206,19 @@ export interface DryRunInput {
 export interface DryRunStartInput extends TeachingRecordingMutation {
   readonly inputs: readonly DryRunInput[];
   readonly prerequisiteInputs: readonly AgentRunTaskInput[];
-  readonly prerequisites: readonly FlowSkillName[];
+  readonly prerequisites: readonly FlowName[];
   readonly url: string;
 }
 
 export interface DryRunStarted {
-  readonly files: readonly FlowSkillFile[];
+  readonly files: readonly FlowFile[];
   readonly manifest: TeachingRecordingManifest;
   readonly prerequisites: readonly {
-    readonly files: readonly FlowSkillFile[];
-    readonly flowSkillName: FlowSkillName;
+    readonly files: readonly FlowFile[];
+    readonly flowName: FlowName;
   }[];
   readonly session: AgentSessionSnapshot;
-  readonly skillPath: string;
+  readonly flowPath: string;
 }
 
 const conflict = (message: string) =>
@@ -240,20 +240,20 @@ const dryRunId = (
   );
 
 /**
- * Start a saved Flow Skill's Dry Run in a fresh browser context.
+ * Start a saved Flow's Dry Run in a fresh browser context.
  *
  * Prerequisites and their ordinary inputs are fixed here and become part of
  * the start request, so a replay that changes either conflicts with the first
  * start instead of rebuilding a different Run (ADR 0047). Inputs stay scoped
- * to the skill that declares them, and the Domain Scope stays the Teaching
+ * to the flow that declares them, and the Domain Scope stays the Teaching
  * hosts.
  */
 export const startDryRun = (input: DryRunStartInput) =>
   // oxlint-disable-next-line eslint/complexity
-  Effect.gen(function* startFlowSkillDryRun() {
+  Effect.gen(function* startFlowDryRun() {
     const store = yield* TeachingRecordingStore;
     const sessions = yield* AgentSession;
-    const catalog = yield* FlowSkillCatalog;
+    const catalog = yield* FlowCatalog;
     const manifest = yield* store
       .read(input.recordingId)
       .pipe(Effect.mapError(fromCause));
@@ -274,7 +274,7 @@ export const startDryRun = (input: DryRunStartInput) =>
         receipt.operationId === input.operationId
     );
     if (
-      manifest.lifecycle._tag !== "skill-drafted" &&
+      manifest.lifecycle._tag !== "flow-drafted" &&
       manifest.lifecycle._tag !== "dry-run-failed" &&
       !replay
     ) {
@@ -287,22 +287,22 @@ export const startDryRun = (input: DryRunStartInput) =>
     // The package lives under the Catalog Root that holds the recording, which
     // may not be the root this process selected since.
     const recordingCatalogRoot = store.catalogRoot(manifest.recordingId);
-    const skill = yield* catalog
-      .read(manifest.flowSkillName, recordingCatalogRoot)
+    const flow = yield* catalog
+      .read(manifest.flowName, recordingCatalogRoot)
       .pipe(
         Effect.mapError((cause) =>
           orchestrationError(
             "teaching_recording_io",
-            `Could not read the Flow Skill package: ${cause.message}`
+            `Could not read the Flow package: ${cause.message}`
           )
         )
       );
-    if (skill.steps.length === 0) {
+    if (flow.steps.length === 0) {
       return yield* Effect.fail(
-        invalid("The Flow Skill has no numbered steps to assess.")
+        invalid("The Flow has no numbered steps to assess.")
       );
     }
-    const runtime = skill.runtime ?? {
+    const runtime = flow.runtime ?? {
       diagnostics: [],
       requirements: browserRequirements,
     };
@@ -317,7 +317,7 @@ export const startDryRun = (input: DryRunStartInput) =>
       browserCapabilities
     ).pipe(Effect.mapError((cause) => invalid(cause.message)));
     const host = webHost(input.url);
-    const { hosts } = skill;
+    const { hosts } = flow;
     if (host === undefined || !hosts.includes(host)) {
       return yield* Effect.fail(
         invalid(
@@ -328,12 +328,12 @@ export const startDryRun = (input: DryRunStartInput) =>
     const names = new Set(input.inputs.map(({ name }) => name));
     if (
       names.size !== input.inputs.length ||
-      names.size !== skill.inputs.length ||
-      skill.inputs.some(({ name }) => !names.has(name))
+      names.size !== flow.inputs.length ||
+      flow.inputs.some(({ name }) => !names.has(name))
     ) {
       return yield* Effect.fail(
         invalid(
-          "Dry Run inputs must name every declared Flow Skill input exactly once."
+          "Dry Run inputs must name every declared Flow input exactly once."
         )
       );
     }
@@ -360,15 +360,15 @@ export const startDryRun = (input: DryRunStartInput) =>
     }));
     if (
       new Set(input.prerequisites).size !== input.prerequisites.length ||
-      input.prerequisites.includes(manifest.flowSkillName)
+      input.prerequisites.includes(manifest.flowName)
     ) {
       return yield* Effect.fail(
         invalid(
-          "Dry Run prerequisites must be distinct verified skills other than the tested skill."
+          "Dry Run prerequisites must be distinct verified flows other than the tested flow."
         )
       );
     }
-    const prerequisites = yield* readRequestedSkills(input.prerequisites).pipe(
+    const prerequisites = yield* readRequestedFlows(input.prerequisites).pipe(
       Effect.mapError(fromCause)
     );
     yield* validateTaskInputs(prerequisites, input.prerequisiteInputs).pipe(
@@ -378,59 +378,57 @@ export const startDryRun = (input: DryRunStartInput) =>
     const run: TaskAgentRunState = markDemoWork(hosts, {
       assessment: null,
       attribution: {
-        clientName: "flow-skill-dry-run",
+        clientName: "flow-dry-run",
         clientVersion: "1",
         reportedMetadataVerified: false,
         reportedModel: null,
         reportedProvider: null,
       },
       browserChecks: yield* requestedBrowserChecks([
-        skill,
+        flow,
         ...prerequisites,
       ]).pipe(Effect.mapError((cause) => invalid(cause.message))),
       emulationSource: {
-        flowSkillName: manifest.flowSkillName,
+        flowName: manifest.flowName,
         kind: "teaching",
       },
       findings: [],
       inputs: [
         ...input.prerequisiteInputs,
         ...dryRunInputs.flatMap(({ name, value }) =>
-          value === null
-            ? []
-            : [{ flowSkillName: manifest.flowSkillName, name, value }]
+          value === null ? [] : [{ flowName: manifest.flowName, name, value }]
         ),
       ],
       instructions: [],
       lastAgentActivityAt: startedAt,
       lifecycle: { phase: "running" },
       purpose: {
-        flowSkillName: manifest.flowSkillName,
+        flowName: manifest.flowName,
         kind: "dry-run",
         recordingId: manifest.recordingId,
         takeoverOccurred: false,
       },
-      referencedSkills: [
-        { flowSkillName: manifest.flowSkillName, referencedAt: startedAt },
+      referencedFlows: [
+        { flowName: manifest.flowName, referencedAt: startedAt },
         ...prerequisites.map((prerequisite) => ({
-          flowSkillName: prerequisite.name,
+          flowName: prerequisite.name,
           referencedAt: startedAt,
         })),
       ],
-      requestedTask: skill.title,
+      requestedTask: flow.title,
       runId: dryRunId(input.recordingId, input.operationId),
       scanReports: [],
-      scanRequirements: yield* requestedScans([skill, ...prerequisites]).pipe(
+      scanRequirements: yield* requestedScans([flow, ...prerequisites]).pipe(
         Effect.mapError((cause) => invalid(cause.message))
       ),
       schemaVersion: 3,
       startedAt,
       startingEmulation: manifest.emulation,
-      title: manifest.flowSkillName,
+      title: manifest.flowName,
       variables: [
         ...prerequisites.flatMap(taskVariables),
         ...requestedNames.map((name) => ({
-          flowSkillName: manifest.flowSkillName,
+          flowName: manifest.flowName,
           name,
           runtime: true,
           supplied: false,
@@ -444,11 +442,11 @@ export const startDryRun = (input: DryRunStartInput) =>
       return {
         activity: "run" as const,
         artifactDirectory: evidenceDirectory,
-        clientName: "flow-skill-dry-run",
+        clientName: "flow-dry-run",
         clientVersion: "1",
         domainScope: { hosts },
         dryRun: {
-          flowSkillName: manifest.flowSkillName,
+          flowName: manifest.flowName,
           inputs: dryRunInputs,
           recordingId: manifest.recordingId,
           variables: requestedNames.map((name) => ({
@@ -458,10 +456,10 @@ export const startDryRun = (input: DryRunStartInput) =>
           })),
         },
         emulation,
-        requiredBrowserState: yield* readBrowserState(skill.files).pipe(
+        requiredBrowserState: yield* readBrowserState(flow.files).pipe(
           Effect.mapError(() =>
             invalid(
-              "The saved required browser state is invalid. Repair the Flow Skill before starting a Dry Run."
+              "The saved required browser state is invalid. Repair the Flow before starting a Dry Run."
             )
           )
         ),
@@ -491,7 +489,7 @@ export const startDryRun = (input: DryRunStartInput) =>
         {
           operationId: input.operationId,
           request: JSON.stringify({
-            activity: "flow-skill-dry-run",
+            activity: "flow-dry-run",
             inputs: input.inputs,
             prerequisiteInputs: input.prerequisiteInputs,
             prerequisites: input.prerequisites,
@@ -541,16 +539,16 @@ export const startDryRun = (input: DryRunStartInput) =>
       );
     }
     return {
-      files: skill.files,
+      files: flow.files,
+      flowPath: path.relative(
+        recordingCatalogRoot,
+        path.join(flow.directory, "flow.md")
+      ),
       manifest: started,
       prerequisites: prerequisites.map((prerequisite) => ({
         files: prerequisite.files,
-        flowSkillName: prerequisite.name,
+        flowName: prerequisite.name,
       })),
       session,
-      skillPath: path.relative(
-        recordingCatalogRoot,
-        path.join(skill.directory, "flow.md")
-      ),
     } satisfies DryRunStarted;
   });

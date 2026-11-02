@@ -1,10 +1,6 @@
 import path from "node:path";
 
-import {
-  AgentElementRef,
-  FlowSkillName,
-  OperationId,
-} from "@contingency/protocol";
+import { AgentElementRef, FlowName, OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
@@ -134,7 +130,7 @@ it.live(
 
           // Private input: requested by the agent, supplied in Workspace.
           const signedIn = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-signed-in-return"),
+            example: FlowName.make("example-signed-in-return"),
             inputs: [
               { name: "order", value: "RH-1057" },
               { name: "reason", value: "Wrong item" },
@@ -142,9 +138,9 @@ it.live(
             operationId: operation("example-return"),
           });
           const returnRun = taskRun(signedIn);
-          expect(returnRun.referencedSkills).toEqual([
+          expect(returnRun.referencedFlows).toEqual([
             expect.objectContaining({
-              flowSkillName: "example-signed-in-return",
+              flowName: "example-signed-in-return",
               origin: "example",
             }),
           ]);
@@ -156,7 +152,7 @@ it.live(
             /^http:\/\/ridgeline\.localhost:\d+\/signin\.html$/u
           );
           const requested = yield* sessionTool("agent_variable_request", {
-            flowSkillName: FlowSkillName.make("example-signed-in-return"),
+            flowName: FlowName.make("example-signed-in-return"),
             name: "DEMO_PASSWORD",
             operationId: operation("example-password"),
             sessionId: signedIn.id,
@@ -186,7 +182,7 @@ it.live(
             sessionId: signedIn.id,
           });
           yield* sessionTool("agent_variable_enter", {
-            flowSkillName: FlowSkillName.make("example-signed-in-return"),
+            flowName: FlowName.make("example-signed-in-return"),
             name: "DEMO_PASSWORD",
             operationId: operation("example-password-enter"),
             ref: AgentElementRef.make(
@@ -253,12 +249,12 @@ it.live(
 
           // A fault in one browser context never reaches another.
           const broken = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-broken-cart"),
+            example: FlowName.make("example-broken-cart"),
             inputs: [{ name: "product", value: "Cedar Pull Saw" }],
             operationId: operation("example-broken"),
           });
           const healthy = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-delivery-cart"),
+            example: FlowName.make("example-delivery-cart"),
             inputs: [
               { name: "product", value: "Cedar Pull Saw" },
               { name: "city", value: "Denver" },
@@ -296,13 +292,13 @@ it.live(
 
           // A required scan runs against the Example's Scan Requirement.
           const scanned = yield* exampleTool("agent_example_run_start", {
-            example: FlowSkillName.make("example-cart-scan"),
+            example: FlowName.make("example-cart-scan"),
             inputs: [{ name: "product", value: "Garden Trowel" }],
             operationId: operation("example-scan"),
           });
           expect(taskRun(scanned).scanRequirements).toEqual([
             expect.objectContaining({
-              flowSkillName: "example-cart-scan",
+              flowName: "example-cart-scan",
               id: "cart-accessibility",
               mode: "accessibility",
             }),
@@ -321,7 +317,7 @@ it.live(
           );
           const reported = yield* runTool("agent_run_scan", {
             action: "start",
-            flowSkillName: FlowSkillName.make("example-cart-scan"),
+            flowName: FlowName.make("example-cart-scan"),
             operationId: operation("scan-start"),
             requirementId: "cart-accessibility",
             sessionId: scanned.id,

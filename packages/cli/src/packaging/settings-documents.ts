@@ -143,7 +143,7 @@ export const renderSettingsReference = (): string => {
       ({ env, key }) => `| \`${key}\` | \`${env}\` |`
     ),
     "",
-    "A Variable value, such as a password a Flow Skill uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).",
+    "A Variable value, such as a password a Flow uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).",
     ""
   );
   return lines.join("\n");

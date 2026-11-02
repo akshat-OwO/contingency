@@ -38,13 +38,13 @@ export const ScanResults = ({
         {run.scanRequirements?.map((requirement) => {
           const reports = (run.scanReports ?? []).filter(
             (report) =>
-              report.flowSkillName === requirement.flowSkillName &&
+              report.flowName === requirement.flowName &&
               report.requirementId === requirement.id
           );
           return (
             <li
               className="space-y-1 rounded-lg border p-3"
-              key={`${requirement.flowSkillName}:${requirement.id}`}
+              key={`${requirement.flowName}:${requirement.id}`}
             >
               <p className="font-medium">
                 {labels[requirement.mode]} · {requirement.when}

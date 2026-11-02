@@ -1,7 +1,7 @@
 /**
- * Delegated sub-goals on real Flow Skills (ADR 0057).
+ * Delegated sub-goals on real Flows (ADR 0057).
  *
- * A scripted agent hands a Flow Skill's steps to `agent_browser_pursue`,
+ * A scripted agent hands a Flow's steps to `agent_browser_pursue`,
  * all in one call or one call per step, the way an agent under
  * `CONTINGENCY_SYSTEM_ONE_FIRST=true` is told to. The outcome is
  * checked in code from the final Page, never taken from System One.
@@ -22,7 +22,7 @@ import path from "node:path";
 
 import {
   AgentPursuitResult,
-  FlowSkillName,
+  FlowName,
   OperationId,
 } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
@@ -38,7 +38,7 @@ import {
 } from "effect";
 
 import { makeDemoSiteLayer } from "../src/services/demo-site-server.ts";
-import { readFlowSkillFrontmatter } from "../src/services/flow-skill-package.ts";
+import { readFlowFrontmatter } from "../src/services/flow-package.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
@@ -66,8 +66,8 @@ import {
   now,
   pageText,
   percentile,
-} from "./flow-skill-scenarios.ts";
-import type { Scenario } from "./flow-skill-scenarios.ts";
+} from "./flow-scenarios.ts";
+import type { Scenario } from "./flow-scenarios.ts";
 
 const exampleTool = makeCall(OnboardingTools);
 const pursueTool = makeCall(PursuitTools, "agent");
@@ -127,7 +127,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
         )
       );
       const started = yield* exampleTool("agent_example_run_start", {
-        example: FlowSkillName.make(scenario.skill.example),
+        example: FlowName.make(scenario.skill.example),
         inputs: Object.entries(scenario.inputs).map(([name, value]) => ({
           name,
           value,
@@ -135,7 +135,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
         operationId,
       });
       return {
-        flowSkillName: FlowSkillName.make(scenario.skill.example),
+        flowName: FlowName.make(scenario.skill.example),
         sessionId: started.id,
         skill,
       };
@@ -143,13 +143,13 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
     const skill = yield* fs.readFileString(
       path.join(scenario.skill.directory, "flow.md")
     );
-    const name = readFlowSkillFrontmatter(skill)?.name;
+    const name = readFlowFrontmatter(skill)?.name;
     if (name === undefined) {
       return yield* Effect.die(
-        new Error(`${scenario.skill.directory} has no Flow Skill name.`)
+        new Error(`${scenario.skill.directory} has no Flow name.`)
       );
     }
-    const flowSkillName = FlowSkillName.make(name);
+    const flowName = FlowName.make(name);
     const copy = path.join(root, path.basename(scenario.skill.directory));
     if (!(yield* fs.exists(copy))) {
       yield* fs.copy(scenario.skill.directory, copy);
@@ -157,16 +157,16 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
     const started = yield* runTool("agent_run_start", {
       clientName: "pursuit-loop",
       inputs: Object.entries(scenario.inputs).map(([input, value]) => ({
-        flowSkillName,
+        flowName,
         name: input,
         value,
       })),
       operationId,
-      referencedSkills: [flowSkillName],
-      requestedTask: `Run the ${name} Flow Skill.`,
+      referencedFlows: [flowName],
+      requestedTask: `Run the ${name} Flow.`,
       url: scenario.skill.url,
     });
-    return { flowSkillName, sessionId: started.id, skill };
+    return { flowName, sessionId: started.id, skill };
   });
 
 interface StepCue {
@@ -177,12 +177,12 @@ interface StepCue {
 
 const pursueSteps = (
   sessionId: AgentSessionId,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   cues: readonly StepCue[],
   operationId: string
 ) =>
   pursueTool("agent_browser_pursue", {
-    flowSkillName,
+    flowName,
     format: "structured",
     operationId: OperationId.make(operationId),
     sessionId,
@@ -198,7 +198,7 @@ const pursueSteps = (
 
 /**
  * `flow` hands every step over in one call, as an agent that trusts the
- * Flow Skill would; `steps` makes one call per step, as an agent that
+ * Flow would; `steps` makes one call per step, as an agent that
  * checks each step before the next would.
  */
 const batches = (cues: readonly StepCue[], mode: "flow" | "steps") =>
@@ -210,8 +210,8 @@ const runScenario = (
   root: string,
   mode: "flow" | "steps"
 ) =>
-  Effect.gen(function* runFlowSkill() {
-    const { flowSkillName, sessionId, skill } = yield* startScenario(
+  Effect.gen(function* runFlow() {
+    const { flowName, sessionId, skill } = yield* startScenario(
       scenario,
       tag,
       root
@@ -229,12 +229,7 @@ const runScenario = (
       }
       const callStartedAt = yield* now;
       const pursued = yield* Effect.result(
-        pursueSteps(
-          sessionId,
-          flowSkillName,
-          batch,
-          `${tag}-step-${first.step}`
-        )
+        pursueSteps(sessionId, flowName, batch, `${tag}-step-${first.step}`)
       );
       const ms = yield* elapsedSince(callStartedAt);
       if (pursued._tag === "Failure") {

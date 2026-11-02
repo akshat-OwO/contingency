@@ -28,7 +28,7 @@ it.live(
           const started = yield* runTool("agent_run_start", {
             inputs: [],
             operationId: OperationId.make("navigation-policy-start"),
-            referencedSkills: [],
+            referencedFlows: [],
             requestedTask: "Inspect boundary navigation",
             url: fixture.url("agent-boundary-frame.html"),
           });
@@ -117,7 +117,7 @@ it.live(
           const started = yield* runTool("agent_run_start", {
             inputs: [],
             operationId: OperationId.make("resume-start"),
-            referencedSkills: [],
+            referencedFlows: [],
             requestedTask: "Add an anvil to the cart",
             url: fixture.url("task-session.html"),
           });

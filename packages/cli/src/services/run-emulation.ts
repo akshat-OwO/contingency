@@ -1,20 +1,17 @@
 import { DraftEmulation } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 
-import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
+import type { FlowPackage } from "./flow-catalog.ts";
 import {
   browserCapabilities,
   browserRequirements,
   validatePlatformRequirements,
 } from "./platform-requirements.ts";
 
-type SkillEnvironment = Pick<
-  FlowSkillPackage,
-  "name" | "emulation" | "runtime"
->;
+type FlowEnvironment = Pick<FlowPackage, "name" | "emulation" | "runtime">;
 
 const invalid = (message: string) => ({
-  code: "flow_skill_invalid" as const,
+  code: "flow_invalid" as const,
   message,
 });
 const definedFields = <Value extends object>(fields: Value) =>
@@ -29,21 +26,21 @@ export const defaultRunEmulation: DraftEmulation = {
 };
 
 /** Decode the saved requirement without dropping invalid fields or inventing a device. */
-export const skillRunEmulation = (skill: SkillEnvironment) =>
-  Effect.gen(function* readSkillEnvironment() {
+export const flowRunEmulation = (flow: FlowEnvironment) =>
+  Effect.gen(function* readFlowEnvironment() {
     yield* validatePlatformRequirements(
-      skill.runtime ?? { diagnostics: [], requirements: browserRequirements },
+      flow.runtime ?? { diagnostics: [], requirements: browserRequirements },
       "web",
       browserCapabilities
     );
-    const saved = skill.emulation;
+    const saved = flow.emulation;
     if (saved === undefined) {
       return;
     }
     if ((saved.diagnostics?.length ?? 0) > 0 || saved.viewport === undefined) {
       return yield* Effect.fail(
         invalid(
-          `Flow Skill ${skill.name} has invalid emulation: ${saved.diagnostics?.join(" ") || "A declared environment requires a viewport."} Repair its saved emulation before starting a Run.`
+          `Flow ${flow.name} has invalid emulation: ${saved.diagnostics?.join(" ") || "A declared environment requires a viewport."} Repair its saved emulation before starting a Run.`
         )
       );
     }
@@ -66,16 +63,12 @@ export const skillRunEmulation = (skill: SkillEnvironment) =>
       })
     ).pipe(
       Effect.mapError((cause) =>
-        invalid(
-          `Flow Skill ${skill.name} has invalid emulation: ${cause.message}`
-        )
+        invalid(`Flow ${flow.name} has invalid emulation: ${cause.message}`)
       )
     );
     yield* Effect.try({
       catch: (cause) =>
-        invalid(
-          `Flow Skill ${skill.name} has invalid emulation: ${String(cause)}`
-        ),
+        invalid(`Flow ${flow.name} has invalid emulation: ${String(cause)}`),
       try: () => {
         if (emulation.locale) {
           Intl.getCanonicalLocales(emulation.locale);
@@ -157,24 +150,24 @@ export const emulationDifferences = (
   return differences;
 };
 
-export const startingRunEmulation = (skills: readonly SkillEnvironment[]) =>
+export const startingRunEmulation = (flows: readonly FlowEnvironment[]) =>
   Effect.gen(function* chooseStartingEnvironment() {
     let emulation = defaultRunEmulation;
-    let source: FlowSkillPackage["name"] | undefined;
-    for (const skill of skills) {
-      const expected = yield* skillRunEmulation(skill);
+    let source: FlowPackage["name"] | undefined;
+    for (const flow of flows) {
+      const expected = yield* flowRunEmulation(flow);
       if (expected === undefined) {
         continue;
       }
       if (source === undefined) {
         emulation = expected;
-        source = skill.name;
+        source = flow.name;
       } else {
         const fields = emulationDifferences(emulation, expected);
         if (fields.length > 0) {
           return yield* Effect.fail(
             invalid(
-              `Flow Skills ${source} and ${skill.name} require different emulation (${fields.join(", ")}). Start separate Runs or align the saved environments; no browser was opened.`
+              `Flows ${source} and ${flow.name} require different emulation (${fields.join(", ")}). Start separate Runs or align the saved environments; no browser was opened.`
             )
           );
         }
@@ -188,9 +181,9 @@ export const startingRunEmulation = (skills: readonly SkillEnvironment[]) =>
           ...browserRequirements,
           capabilities: [
             ...new Set(
-              skills.flatMap(
-                (skill) =>
-                  (skill.runtime?.requirements ?? browserRequirements)
+              flows.flatMap(
+                (flow) =>
+                  (flow.runtime?.requirements ?? browserRequirements)
                     .capabilities
               )
             ),

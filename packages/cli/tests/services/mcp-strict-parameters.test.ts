@@ -4,7 +4,7 @@ import { Tool, Toolkit } from "effect/ai";
 
 import { AgentRunStore } from "../../src/services/agent-run-store.ts";
 import { AgentSession } from "../../src/services/agent-session.ts";
-import { FlowSkillCatalog } from "../../src/services/flow-skill-catalog.ts";
+import { FlowCatalog } from "../../src/services/flow-catalog.ts";
 import {
   AgentRunToolHandlersLive,
   AgentRunTools,
@@ -26,7 +26,7 @@ import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recordin
 
 it("omits the superseded Dry Run report tool", () => {
   expect(Object.keys(TeachingRecordingTools.tools)).not.toContain(
-    "agent_flow_skill_dry_run_report"
+    "agent_flow_dry_run_report"
   );
 });
 
@@ -38,7 +38,7 @@ const untouchedServices = Layer.mergeAll(
   Layer.succeed(McpProcessDiagnostics, { read: defaultProcessInfo("native") }),
   Layer.mock(AgentSession, {}),
   Layer.mock(AgentRunStore, {}),
-  Layer.mock(FlowSkillCatalog, {
+  Layer.mock(FlowCatalog, {
     root: () => {
       throw new Error("A refused tool call must not read the Catalog Root.");
     },
@@ -86,8 +86,8 @@ it.effect("refuses the removed Run ceiling fields on Run start", () =>
     for (const ceiling of ["runCeilingMs", "stepCeilingMs"]) {
       // SAFETY: only the removed ceiling key departs from the declared shape.
       const refused = yield* Effect.flip(
-        built.handle("agent_flow_skill_run_start", {
-          flowSkillName: "read-delivery",
+        built.handle("agent_flow_run_start", {
+          flowName: "read-delivery",
           inputs: [],
           operationId: "op-1",
           [ceiling]: 120_000,
@@ -144,3 +144,22 @@ it("leaves every published JSON Schema unchanged", () => {
     }
   }
 });
+
+it.effect("refuses the old Flow name parameter before reading a document", () =>
+  Effect.gen(function* refuseOldFlowParameter() {
+    const built = yield* AgentCatalogTools;
+    // SAFETY: the old parameter is intentionally sent to prove strict refusal.
+    const refused = yield* Effect.flip(
+      built.handle("agent_flow_document_get", {
+        flowName: "checkout",
+        flowSkillName: "checkout",
+        path: "setup.md",
+      } as never)
+    );
+    expect(refused.message).toContain("flowSkillName");
+  }).pipe(
+    Effect.provide(
+      AgentCatalogToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
+    )
+  )
+);

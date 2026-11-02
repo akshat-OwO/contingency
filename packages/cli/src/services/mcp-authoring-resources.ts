@@ -49,7 +49,7 @@ export const McpAuthoringResourcesLayer: Layer.Layer<
     audience: ["assistant"],
     content: readLearnFlowResource,
     description:
-      "The learn-flow procedure: how to learn a Teaching Recording into a Flow Skill, Dry Run it, and record the user's verification. The same text as the learn-flow prompt.",
+      "The learn-flow procedure: how to learn a Teaching Recording into a Flow, Dry Run it, and record the user's verification. The same text as the learn-flow prompt.",
     mimeType: "text/markdown",
     name: LEARN_PROMPT_NAME,
     uri: LEARN_FLOW_URI,
@@ -57,14 +57,14 @@ export const McpAuthoringResourcesLayer: Layer.Layer<
   McpServer.prompt({
     content: () => readLearnFlowResource,
     description:
-      "The reading order for learning a Contingency Teaching Recording into a Flow Skill, including the writing reference this server serves.",
+      "The reading order for learning a Contingency Teaching Recording into a Flow, including the writing reference this server serves.",
     name: LEARN_PROMPT_NAME,
   }),
   McpServer.resource({
     audience: ["assistant"],
     content: readAuthoringResource("writing.md"),
     description:
-      "Writing reference: technical document structure, clear and natural prose, and instructions agents can follow. Read before writing a Flow Skill.",
+      "Writing reference: technical document structure, clear and natural prose, and instructions agents can follow. Read before writing a Flow.",
     mimeType: "text/markdown",
     name: "Writing",
     uri: WRITING_RESOURCE_URI,

@@ -1,7 +1,7 @@
 import {
   AgentElementRef,
   AgentSnapshotId,
-  FlowSkillName,
+  FlowName,
 } from "@contingency/protocol";
 import type { AgentSnapshotNode } from "@contingency/protocol";
 import { expect, it } from "vitest";
@@ -13,25 +13,25 @@ import {
 import type { ScopeInput } from "../../src/services/mcp-pursuit.ts";
 import { actionSpace } from "../../src/services/system-one-request.ts";
 
-const skill = FlowSkillName.make("1mg mweb adding a sku to cart");
-const other = FlowSkillName.make("1mg mweb manual location");
+const skill = FlowName.make("1mg mweb adding a sku to cart");
+const other = FlowName.make("1mg mweb manual location");
 
 const scope = (...inputs: readonly ScopeInput[]) =>
   new Map(inputs.map((input) => [input.name, input]));
 const value = (name: string, text: string, owner = skill): ScopeInput => ({
-  flowSkillName: owner,
+  flowName: owner,
   kind: "value",
   name,
   value: text,
 });
 const variable = (name: string): ScopeInput => ({
-  flowSkillName: skill,
+  flowName: skill,
   kind: "variable",
   name,
   supplied: true,
 });
 
-it("accepts Flow Skill steps and fills their input placeholders", () => {
+it("accepts Flow steps and fills their input placeholders", () => {
   const { problems, steps } = preparePursuitSteps(
     [
       {
@@ -124,7 +124,7 @@ it("refuses a goal that only repeats its doneWhen or an earlier goal", () => {
   ]);
 });
 
-it("names a Variable rather than quoting it, and needs flowSkillName for shared names", () => {
+it("names a Variable rather than quoting it, and needs flowName for shared names", () => {
   const named = preparePursuitSteps(
     [
       {
@@ -153,9 +153,7 @@ it("names a Variable rather than quoting it, and needs flowSkillName for shared 
     ])
   );
   expect(shared.problems).toEqual([
-    expect.stringMatching(
-      /several referenced Flow Skills declare; pass flowSkillName/u
-    ),
+    expect.stringMatching(/several referenced Flows declare; pass flowName/u),
   ]);
 });
 

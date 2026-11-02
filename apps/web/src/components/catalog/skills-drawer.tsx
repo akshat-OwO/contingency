@@ -1,7 +1,4 @@
-import type {
-  CatalogFlowSkillEntry,
-  CatalogRootView,
-} from "@contingency/protocol";
+import type { CatalogFlowEntry, CatalogRootView } from "@contingency/protocol";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
@@ -86,7 +83,7 @@ const SkillRow = ({
   readonly onSelect: () => void;
   readonly root: CatalogRootView;
   readonly selected: boolean;
-  readonly skill: CatalogFlowSkillEntry;
+  readonly skill: CatalogFlowEntry;
 }) => {
   const runs = runsForSkill(root, skill.name);
   const latest = runs.at(0);
@@ -180,14 +177,14 @@ const RootSkills = ({
   readonly root: CatalogRootView;
   readonly skills: SessionSkills;
 }) => {
-  const listed = root.flowSkills.filter((skill) => matchesQuery(skill, query));
+  const listed = root.flows.filter((skill) => matchesQuery(skill, query));
   const loose = looseRuns(root);
   const orphans = orphanRecordings(root);
   const filtering = query.trim() !== "";
   const pending =
     root.scope === "local" &&
     skills.pending !== undefined &&
-    !root.flowSkills.some((skill) => skill.name === skills.pending)
+    !root.flows.some((skill) => skill.name === skills.pending)
       ? skills.pending
       : undefined;
   if (!root.present && pending === undefined) {
@@ -344,8 +341,8 @@ const CatalogColumn = ({
       ? 0
       : looseRuns(global).length + orphanRecordings(global).length;
   const globalHits =
-    (global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
-      0) + globalHistoryHits;
+    (global?.flows.filter((skill) => matchesQuery(skill, query)).length ?? 0) +
+    globalHistoryHits;
   return (
     <section aria-label="Catalog" className="flex min-h-0 min-w-0 flex-col">
       <div className="border-b p-1.5">
@@ -425,7 +422,7 @@ const FolderContents = ({
       : historyRecordings;
   const skill =
     folder.kind === "skill"
-      ? root.flowSkills.find((entry) => entry.name === folder.name)
+      ? root.flows.find((entry) => entry.name === folder.name)
       : undefined;
   return (
     <div className="space-y-3 p-1.5">
@@ -524,7 +521,7 @@ const ContentsColumn = ({
   readonly skills: SessionSkills;
 }) => {
   const hits = roots.flatMap((root) =>
-    root.flowSkills.filter((skill) => matchesQuery(skill, query))
+    root.flows.filter((skill) => matchesQuery(skill, query))
   );
   if (query.trim() !== "" && hits.length === 0) {
     return (
@@ -562,7 +559,7 @@ const ContentsColumn = ({
   if (
     folder.kind === "skill" &&
     folder.name === skills.pending &&
-    !root.flowSkills.some((skill) => skill.name === folder.name)
+    !root.flows.some((skill) => skill.name === folder.name)
   ) {
     return (
       <div className="p-3">

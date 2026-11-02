@@ -7,7 +7,7 @@
  * Prototype code only: delete `src/prototypes/android` and its route to
  * remove it.
  */
-import { AgentSessionId, FlowSkillName } from "@contingency/protocol";
+import { AgentSessionId, FlowName } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
@@ -262,7 +262,7 @@ const teaching: AndroidWorkspaceSnapshot = {
   controller: "user",
   error: null,
   field: null,
-  flowSkillName: FlowSkillName.make("checkout"),
+  flowName: FlowName.make("checkout"),
   id: AgentSessionId.make("agent-android-teaching"),
   kind: "teaching",
   observation: null,
@@ -485,7 +485,7 @@ export const applyCommand = (
     const { selection } = command;
     return {
       ...teaching,
-      flowSkillName: command.flowSkillName,
+      flowName: command.flowName,
       kind: command.kind,
       requirements: {
         ...teaching.requirements,

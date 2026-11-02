@@ -3,7 +3,7 @@ import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
-  FlowSkillName,
+  FlowName,
 } from "@contingency/protocol";
 import {
   useAtom,
@@ -742,11 +742,11 @@ export const AndroidWorkspace = ({
         />
       )}
       <AndroidSetupSheet
-        onOpen={(flowSkillName: FlowSkillName, selection) => {
+        onOpen={(flowName: FlowName, selection) => {
           if (
             mutate({
               _tag: "start",
-              flowSkillName,
+              flowName,
               kind: "teaching",
               operationId: operationId(),
               recordingId: null,

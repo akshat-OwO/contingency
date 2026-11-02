@@ -84,11 +84,11 @@ export const BrowserCheck = Schema.Union([
 export type BrowserCheck = typeof BrowserCheck.Type;
 export const BrowserCheckReference = Schema.Struct({
   check: BrowserCheck,
-  flowSkillName: text,
+  flowName: text,
 });
 export type BrowserCheckReference = typeof BrowserCheckReference.Type;
 export const BrowserCheckIdentity = Schema.Struct({
-  flowSkillName: text,
+  flowName: text,
   id: text,
 });
 export type BrowserCheckIdentity = typeof BrowserCheckIdentity.Type;
@@ -267,10 +267,10 @@ export const browserCheckCoverage = (run: {
   readonly browserCheckResults?: readonly BrowserCheckResult[];
 }) => {
   const requirements = run.browserChecks ?? [];
-  const fulfilled = requirements.filter(({ flowSkillName, check }) => {
+  const fulfilled = requirements.filter(({ flowName, check }) => {
     const result = run.browserCheckResults?.findLast(
       (candidate) =>
-        candidate.flowSkillName === flowSkillName && candidate.id === check.id
+        candidate.flowName === flowName && candidate.id === check.id
     );
     return result?.status === "passed";
   }).length;

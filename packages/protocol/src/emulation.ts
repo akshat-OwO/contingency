@@ -100,7 +100,7 @@ const coherentPermissionDecisions = Schema.makeFilter<
 
 /**
  * A whole set of permission decisions, coherent as a set. Browser sessions,
- * RPC inputs and Flow Skills share this validation.
+ * RPC inputs and Flows share this validation.
  */
 export const PermissionDecisions = Schema.Array(PermissionDecision).check(
   coherentPermissionDecisions

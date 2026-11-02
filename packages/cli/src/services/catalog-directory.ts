@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { Effect, FileSystem, Option } from "effect";
 
-import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
+import { CATALOG_DIRECTORY } from "./flow-catalog.ts";
 
 /**
  * Which directory an MCP process takes its Catalog Root from (ADR 0049).

@@ -32,7 +32,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 import {
   createIosRun,
   iosCapabilities,
@@ -45,8 +45,8 @@ import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
-import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
-import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
+import { isVerifiedFlow } from "./requested-flows.ts";
+import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
 export interface IosWorkspaceError {
@@ -285,7 +285,7 @@ export const makeIosWorkspaceLayer = (options: {
     Effect.gen(function* makeWorkspace() {
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
 
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -570,27 +570,24 @@ export const makeIosWorkspaceLayer = (options: {
               command.kind === "dry-run" && command.recordingId !== null
                 ? store.catalogRoot(command.recordingId)
                 : undefined;
-            const skill = yield* catalog.read(
-              command.flowSkillName,
-              recordingRoot
-            );
+            const flow = yield* catalog.read(command.flowName, recordingRoot);
             if (
-              skill.runtime?.diagnostics.length !== 0 ||
-              skill.runtime.requirements.platform !== "ios"
+              flow.runtime?.diagnostics.length !== 0 ||
+              flow.runtime.requirements.platform !== "ios"
             ) {
               return yield* denied(
-                "Select a valid iOS Flow Skill. Browser verification cannot authorize iOS."
+                "Select a valid iOS Flow. Browser verification cannot authorize iOS."
               );
             }
-            taught = skill.runtime.requirements;
-            ({ inputs } = skill);
-            if (!supportsWorkspaceRequirements(taught, skill.inputs)) {
+            taught = flow.runtime.requirements;
+            ({ inputs } = flow);
+            if (!supportsWorkspaceRequirements(taught, flow.inputs)) {
               return yield* denied(
                 "This iOS journey requires declared preparation and outcomes and supports named inputs only."
               );
             }
             if (command.kind === "run") {
-              if (!isVerifiedFlowSkill(skill.files, "ios")) {
+              if (!isVerifiedFlow(flow.files, "ios")) {
                 return yield* denied(
                   "A later iOS Run requires explicit iOS verification."
                 );
@@ -604,14 +601,14 @@ export const makeIosWorkspaceLayer = (options: {
               }
               const manifest = yield* store.read(recordingId);
               if (
-                manifest.flowSkillName !== command.flowSkillName ||
+                manifest.flowName !== command.flowName ||
                 JSON.stringify(manifest.runtime) !== JSON.stringify(taught) ||
                 manifest.runtime?.platform !== "ios" ||
-                (manifest.lifecycle._tag !== "skill-drafted" &&
+                (manifest.lifecycle._tag !== "flow-drafted" &&
                   manifest.lifecycle._tag !== "dry-run-failed")
               ) {
                 return yield* denied(
-                  "The iOS recording is not ready for this Flow Skill's Dry Run."
+                  "The iOS recording is not ready for this Flow's Dry Run."
                 );
               }
             }
@@ -701,7 +698,7 @@ export const makeIosWorkspaceLayer = (options: {
                 yield* store
                   .begin({
                     emulation: null,
-                    flowSkillName: command.flowSkillName,
+                    flowName: command.flowName,
                     group: command.group,
                     operationId: command.operationId,
                     recordingId,
@@ -725,7 +722,7 @@ export const makeIosWorkspaceLayer = (options: {
                   ? "user"
                   : "agent",
               error: null,
-              flowSkillName: command.flowSkillName,
+              flowName: command.flowName,
               id,
               kind: command.kind,
               phase: "pending",
@@ -777,7 +774,7 @@ export const makeIosWorkspaceLayer = (options: {
               variables: Atom.make<readonly WorkspaceVariable[]>(
                 inputs.map(({ name }) => ({
                   name: name.toUpperCase(),
-                  purpose: `Input for ${command.flowSkillName}`,
+                  purpose: `Input for ${command.flowName}`,
                   requestId: randomUUID(),
                   setup: false,
                   status: "requested" as const,
@@ -929,7 +926,7 @@ export const makeIosWorkspaceLayer = (options: {
               session.boundary,
               "ios",
               command,
-              summary.flowSkillName,
+              summary.flowName,
               selectedTarget
             );
             if (check !== undefined) {
@@ -1274,7 +1271,7 @@ export const makeIosWorkspaceLayer = (options: {
                 "Verification and rejection require an explicit Workspace choice."
               );
             }
-            const decided = yield* decideFlowSkill({
+            const decided = yield* decideFlow({
               ...command,
               recordingId: summary.recordingId,
             }).pipe(Effect.provideService(TeachingRecordingStore, store));
@@ -1330,7 +1327,7 @@ export const makeIosWorkspaceLayer = (options: {
               (variables.length >= 64 && !existing)
             ) {
               return yield* denied(
-                "Select a declared Flow Skill input; Teaching supports at most 64 Variables."
+                "Select a declared Flow input; Teaching supports at most 64 Variables."
               );
             }
             if (!existing || command.replace) {
@@ -1609,7 +1606,7 @@ export const makeIosWorkspaceLayer = (options: {
                 summary.kind !== "teaching" &&
                 ["pending", "running", "paused"].includes(summary.phase)
               ) {
-                names.push(summary.flowSkillName);
+                names.push(summary.flowName);
               }
             }
             return names;
@@ -1637,7 +1634,7 @@ export const makeIosWorkspaceLayer = (options: {
                       "Verification and Cleanup require an explicit Workspace choice for its recording."
                     );
                   }
-                  yield* decideFlowSkill({
+                  yield* decideFlow({
                     ...command,
                     recordingId: summary.recordingId,
                   }).pipe(Effect.provideService(TeachingRecordingStore, store));

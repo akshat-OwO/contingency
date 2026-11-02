@@ -88,7 +88,7 @@ const sessionAt = <Overrides extends object>(
   controller: "agent",
   createdAt: at,
   currentUrl: "https://shop.example.com/",
-  flowSkillName: "shop-sign-in",
+  flowName: "shop-sign-in",
   id: "agent-one",
   interruptedAction: null,
   ownerProcessId: "mcp-test",

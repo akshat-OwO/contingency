@@ -1,13 +1,13 @@
 /**
  * The demo and catalog scenarios the System One benchmarks drive, each with
- * an outcome checked in code, and the Flow Skill steps they turn into cues.
+ * an outcome checked in code, and the Flow steps they turn into cues.
  */
 import path from "node:path";
 
 import type { AgentBrowserSnapshot } from "@contingency/protocol";
 import { Config, Effect } from "effect";
 
-import { flowSkillProcedureSteps } from "../src/services/flow-skill-package.ts";
+import { flowProcedureSteps } from "../src/services/flow-package.ts";
 import type { Cue } from "../src/services/system-one-request.ts";
 
 export interface Scenario {
@@ -67,7 +67,7 @@ export const parsePairs = (text: string): Record<string, string> =>
       )
   );
 
-/** A verified Flow Skill from a real catalog, described by the environment. */
+/** A verified Flow from a real catalog, described by the environment. */
 export const catalogScenario = Effect.gen(function* readCatalogScenario() {
   const directory = yield* Config.String("JEV_SKILL_DIR");
   const url = yield* Config.String("JEV_SKILL_URL");
@@ -109,7 +109,7 @@ export const cuesFor = (
   skill: string,
   inputs: Readonly<Record<string, string>>
 ): readonly Cue[] =>
-  flowSkillProcedureSteps(skill).map((step) => ({
+  flowProcedureSteps(skill).map((step) => ({
     doneWhen: fillPlaceholders(step.doneWhen, inputs),
     inputs,
     instruction: fillPlaceholders(

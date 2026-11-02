@@ -3,13 +3,13 @@ import path from "node:path";
 
 import {
   AgentRunSummary,
-  FlowSkillName,
+  FlowName,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import type {
   CatalogBrowseResult,
-  CatalogFlowSkillEntry,
-  CatalogFlowSkillResult,
+  CatalogFlowEntry,
+  CatalogFlowResult,
   CatalogRecordingEntry,
   CatalogRootScope,
   CatalogRootView,
@@ -22,24 +22,21 @@ import type { Mutable } from "effect/Types";
 import { AGENT_RUNS_DIRECTORY } from "./agent-run-store.ts";
 import { DEMO_SITE_ID, isDemoHosts } from "./demo-site.ts";
 import { discoverFlows } from "./flow-catalog-layout.ts";
+import { GLOBAL_CATALOG_DIRECTORY, FlowCatalog } from "./flow-catalog.ts";
+import type { FlowCatalogService } from "./flow-catalog.ts";
 import { readFlowContractFiles } from "./flow-contract-files.ts";
 import {
-  GLOBAL_CATALOG_DIRECTORY,
-  FlowSkillCatalog,
-} from "./flow-skill-catalog.ts";
-import type { FlowSkillCatalogService } from "./flow-skill-catalog.ts";
-import {
-  flowSkillProcedureSteps,
-  readFlowSkillFrontmatter,
-  SKILL_FILE,
-} from "./flow-skill-package.ts";
-import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
+  flowProcedureSteps,
+  readFlowFrontmatter,
+  FLOW_FILE,
+} from "./flow-package.ts";
+import { isVerifiedFlow } from "./requested-flows.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 /**
  * The Workspace's read-only view of Catalog Roots for the Skills drawer.
  *
- * It lists the Flow Skills, persisted Runs, and Teaching Recordings of the
+ * It lists the Flows, persisted Runs, and Teaching Recordings of the
  * process's own Catalog Root, and of the user's `~/.contingency` when that is
  * a different directory. It reads manifests and Run Summaries, never videos,
  * Traces, or keyframes, and it writes nothing. The global root is a Workspace
@@ -49,7 +46,7 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 export interface CatalogBrowserError {
   readonly _tag: "CatalogBrowserError";
-  readonly code: "catalog_io" | "flow_skill_not_found";
+  readonly code: "catalog_io" | "flow_not_found";
   readonly message: string;
 }
 
@@ -66,10 +63,10 @@ export interface CatalogBrowserService {
     CatalogBrowseResult,
     CatalogBrowserError
   >;
-  readonly flowSkill: (
+  readonly flow: (
     scope: CatalogRootScope,
-    name: FlowSkillName
-  ) => Effect.Effect<CatalogFlowSkillResult, CatalogBrowserError>;
+    name: FlowName
+  ) => Effect.Effect<CatalogFlowResult, CatalogBrowserError>;
 }
 
 export const CatalogBrowser = Context.Service<CatalogBrowserService>(
@@ -109,9 +106,7 @@ export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
     return {
       assessment: summary.assessment?.outcome ?? null,
       endedAt: summary.endedAt,
-      flowSkillNames: summary.referencedSkills.map(
-        (skill) => skill.flowSkillName
-      ),
+      flowNames: summary.referencedFlows.map((flow) => flow.flowName),
       kind: summary.purpose.kind,
       outcome: summary.outcome,
       recordingId:
@@ -124,7 +119,7 @@ export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
   return {
     assessment: null,
     endedAt: summary.endedAt,
-    flowSkillNames: summary.schemaVersion === 2 ? [summary.flowSkillName] : [],
+    flowNames: summary.schemaVersion === 2 ? [summary.flowName] : [],
     kind: "legacy",
     outcome: summary.outcome,
     recordingId: null,
@@ -139,7 +134,7 @@ export const catalogRecordingEntry = (
 ): CatalogRecordingEntry => ({
   cleanup: manifest.cleanup._tag,
   createdAt: manifest.createdAt,
-  flowSkillName: manifest.flowSkillName,
+  flowName: manifest.flowName,
   keyframeCount: manifest.artifacts.filter(
     (artifact) => artifact.kind === "keyframe"
   ).length,
@@ -147,20 +142,20 @@ export const catalogRecordingEntry = (
   recordingId: manifest.recordingId,
 });
 
-/** A list entry from a skill's flow.md and the files beside it. */
-export const catalogFlowSkillEntry = (
-  name: FlowSkillName,
-  skillContent: string,
+/** A list entry from a flow's flow.md and the files beside it. */
+export const catalogFlowEntry = (
+  name: FlowName,
+  flowContent: string,
   files: readonly { readonly content: string; readonly path: string }[]
-): CatalogFlowSkillEntry => {
-  const frontmatter = readFlowSkillFrontmatter(skillContent);
+): CatalogFlowEntry => {
+  const frontmatter = readFlowFrontmatter(flowContent);
   const hosts = frontmatter?.hosts ?? [];
-  const entry: Mutable<CatalogFlowSkillEntry> = {
+  const entry: Mutable<CatalogFlowEntry> = {
     description: frontmatter?.description ?? name,
     hosts,
     name,
-    stepCount: flowSkillProcedureSteps(skillContent).length,
-    verified: isVerifiedFlowSkill(files),
+    stepCount: flowProcedureSteps(flowContent).length,
+    verified: isVerifiedFlow(files),
   };
   if (isDemoHosts(hosts)) {
     entry.demo = DEMO_SITE_ID;
@@ -188,7 +183,7 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
   options: CatalogBrowserOptions
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
-  const catalog = yield* FlowSkillCatalog;
+  const catalog = yield* FlowCatalog;
 
   const exists = (target: string) =>
     fileSystem
@@ -223,12 +218,12 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       );
     }).pipe(Effect.orElseSucceed(documentReadFailure));
 
-  const flowSkills = Effect.fnUntraced(function* listFlowSkills(root: string) {
-    const flows = yield* discoverFlows(root, fileSystem).pipe(
+  const flows = Effect.fnUntraced(function* listFlows(root: string) {
+    const discovered = yield* discoverFlows(root, fileSystem).pipe(
       Effect.mapError((cause) => browserError("catalog_io", cause.message))
     );
-    const entries: CatalogFlowSkillEntry[] = [];
-    for (const [name, flow] of [...flows].toSorted(([a], [b]) =>
+    const entries: CatalogFlowEntry[] = [];
+    for (const [name, flow] of [...discovered].toSorted(([a], [b]) =>
       a.localeCompare(b)
     )) {
       if (flow.kind === "draft") {
@@ -238,11 +233,10 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
         flow.directory,
         fileSystem
       ).pipe(Effect.orElseSucceed(() => null));
-      const entry = catalogFlowSkillEntry(
-        FlowSkillName.make(name),
-        flow.content,
-        [{ content: flow.content, path: SKILL_FILE }, ...(contracts ?? [])]
-      );
+      const entry = catalogFlowEntry(FlowName.make(name), flow.content, [
+        { content: flow.content, path: FLOW_FILE },
+        ...(contracts ?? []),
+      ]);
       entries.push(contracts === null ? { ...entry, verified: false } : entry);
     }
     return entries;
@@ -257,11 +251,11 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     scope: CatalogRootScope,
     root: string
   ) {
-    const flows = yield* discoverFlows(root, fileSystem).pipe(
+    const discovered = yield* discoverFlows(root, fileSystem).pipe(
       Effect.orElseSucceed(() => new Map<string, { directory: string }>())
     );
     const recordingDirectories: string[] = [];
-    for (const flow of flows.values()) {
+    for (const flow of discovered.values()) {
       const directory = path.join(
         flow.directory,
         TEACHING_RECORDINGS_DIRECTORY
@@ -275,7 +269,7 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     const runFiles: string[] = [];
     for (const directory of [
       root,
-      ...[...flows.values()].map((flow) => flow.directory),
+      ...[...discovered.values()].map((flow) => flow.directory),
     ]) {
       const runsDirectory = path.join(directory, AGENT_RUNS_DIRECTORY);
       for (const id of yield* directoryNames(runsDirectory)) {
@@ -284,9 +278,9 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
         }
       }
     }
-    const [skills, manifests, runs] = yield* Effect.all(
+    const [entries, manifests, runs] = yield* Effect.all(
       [
-        flowSkills(root),
+        flows(root),
         Effect.forEach(
           recordingDirectories,
           (id) => readJson(path.join(id, MANIFEST_FILE), decodeManifest),
@@ -300,7 +294,7 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       (entry) => entry._tag === "unreadable"
     ).length;
     return {
-      flowSkills: skills,
+      flows: entries,
       path: root,
       present: yield* exists(root),
       recordings: readValues(manifests)
@@ -336,9 +330,9 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     };
   });
 
-  const flowSkill = Effect.fnUntraced(function* readFlowSkill(
+  const readCatalogFlow = Effect.fnUntraced(function* readFlow(
     scope: CatalogRootScope,
-    name: FlowSkillName
+    name: FlowName
   ) {
     const root =
       scope === "local"
@@ -347,39 +341,37 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     if (root === null) {
       return yield* Effect.fail(
         browserError(
-          "flow_skill_not_found",
+          "flow_not_found",
           "This Workspace lists no global Catalog Root."
         )
       );
     }
-    const skill = yield* catalog
+    const flow = yield* catalog
       .read(name, root)
       .pipe(
         Effect.mapError((error) =>
           browserError(
-            error.code === "flow_skill_not_found"
-              ? "flow_skill_not_found"
-              : "catalog_io",
+            error.code === "flow_not_found" ? "flow_not_found" : "catalog_io",
             error.message
           )
         )
       );
     return {
-      entry: catalogFlowSkillEntry(
-        skill.name,
-        skill.files.find((file) => file.path === SKILL_FILE)?.content ?? "",
-        skill.files
+      entry: catalogFlowEntry(
+        flow.name,
+        flow.files.find((file) => file.path === FLOW_FILE)?.content ?? "",
+        flow.files
       ),
-      files: skill.files,
-      steps: skill.steps.map((step) => ({
+      files: flow.files,
+      steps: flow.steps.map((step) => ({
         description: step.description,
         doneWhen: step.doneWhen,
         name: step.name,
       })),
-    } satisfies CatalogFlowSkillResult;
+    } satisfies CatalogFlowResult;
   });
 
-  return CatalogBrowser.of({ browse, flowSkill });
+  return CatalogBrowser.of({ browse, flow: readCatalogFlow });
 });
 
 export const makeCatalogBrowserLayer = (
@@ -387,5 +379,5 @@ export const makeCatalogBrowserLayer = (
 ): Layer.Layer<
   CatalogBrowserService,
   never,
-  FileSystem.FileSystem | FlowSkillCatalogService
+  FileSystem.FileSystem | FlowCatalogService
 > => Layer.effect(CatalogBrowser, makeCatalogBrowser(options));

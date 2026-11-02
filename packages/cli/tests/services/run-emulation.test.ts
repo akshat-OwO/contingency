@@ -1,18 +1,18 @@
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
+import { readFlowFrontmatter } from "../../src/services/flow-package.ts";
 import {
   startingRunEmulation,
-  skillRunEmulation,
+  flowRunEmulation,
 } from "../../src/services/run-emulation.ts";
 
 const skill = (name: string, block: string) => ({
-  emulation: readFlowSkillFrontmatter(
+  emulation: readFlowFrontmatter(
     `---\nname: ${name}\n${block}\n---\nprocedure\n`
   )?.emulation,
-  name: FlowSkillName.make(name),
+  name: FlowName.make(name),
 });
 
 it.effect(
@@ -54,9 +54,9 @@ it.effect(
         "  viewport: 390x844@1\n  permissions:\n    - {invalid}",
       ]) {
         const error = yield* Effect.flip(
-          skillRunEmulation(skill("invalid", `emulation:\n${declaration}`))
+          flowRunEmulation(skill("invalid", `emulation:\n${declaration}`))
         );
-        expect(error.code).toBe("flow_skill_invalid");
+        expect(error.code).toBe("flow_invalid");
         expect(error.message).toContain("invalid emulation");
       }
     })
@@ -117,9 +117,9 @@ it.effect(
       ]) {
         expect(
           yield* Effect.flip(
-            skillRunEmulation(skill("invalid", `${base}\n  ${declaration}`))
+            flowRunEmulation(skill("invalid", `${base}\n  ${declaration}`))
           )
-        ).toHaveProperty("code", "flow_skill_invalid");
+        ).toHaveProperty("code", "flow_invalid");
       }
       expect(
         (yield* Effect.flip(

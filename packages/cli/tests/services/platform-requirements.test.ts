@@ -1,18 +1,18 @@
-import { FlowSkillName, IosWorkspaceSelection } from "@contingency/protocol";
+import { FlowName, IosWorkspaceSelection } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import {
-  readFlowSkillFrontmatter,
-  stampFlowSkillProvenance,
+  readFlowFrontmatter,
+  stampFlowProvenance,
   stampFlowVerification,
-} from "../../src/services/flow-skill-package.ts";
+} from "../../src/services/flow-package.ts";
 import {
   browserRequirements,
   readPlatformRequirements,
 } from "../../src/services/platform-requirements.ts";
-import { isVerifiedFlowSkill } from "../../src/services/requested-flow-skills.ts";
-import { skillRunEmulation } from "../../src/services/run-emulation.ts";
+import { isVerifiedFlow } from "../../src/services/requested-flows.ts";
+import { flowRunEmulation } from "../../src/services/run-emulation.ts";
 
 it.effect(
   "round-trips runtime requirements while retaining legacy browser Emulation",
@@ -20,17 +20,17 @@ it.effect(
     Effect.gen(function* metadataCompatibility() {
       const legacy =
         "---\nname: phone\ndescription: Phone journey\nemulation:\n  viewport: 390x844@2\n  userAgentProfile: chrome-android-mobile\n---\n1. Continue\n   Done when: Complete\n";
-      const before = readFlowSkillFrontmatter(legacy);
+      const before = readFlowFrontmatter(legacy);
       expect(before?.runtime.requirements.platform).toBe("web");
       if (before?.emulation === undefined) {
         throw new Error("Missing legacy Emulation");
       }
-      const saved = stampFlowSkillProvenance(legacy, {
+      const saved = stampFlowProvenance(legacy, {
         emulation: before.emulation,
         hosts: ["example.com"],
         runtime: browserRequirements,
       });
-      const after = readFlowSkillFrontmatter(saved);
+      const after = readFlowFrontmatter(saved);
       if (after === undefined) {
         throw new Error("Missing stamped frontmatter");
       }
@@ -39,9 +39,9 @@ it.effect(
         requirements: browserRequirements,
       });
       expect(after?.emulation).toEqual(before?.emulation);
-      const effective = yield* skillRunEmulation({
+      const effective = yield* flowRunEmulation({
         emulation: after?.emulation,
-        name: FlowSkillName.make("phone"),
+        name: FlowName.make("phone"),
         runtime: after?.runtime,
       });
       expect(effective?.viewport).toEqual({
@@ -82,13 +82,13 @@ it.effect(
         }),
       ]) {
         const failed = yield* Effect.flip(
-          skillRunEmulation({
+          flowRunEmulation({
             emulation: undefined,
-            name: FlowSkillName.make("unsupported"),
+            name: FlowName.make("unsupported"),
             runtime: readPlatformRequirements([value]),
           })
         );
-        expect(failed.code).toBe("flow_skill_invalid");
+        expect(failed.code).toBe("flow_invalid");
       }
       expect(readPlatformRequirements(["{}", "{}"]).diagnostics).toHaveLength(
         1
@@ -112,10 +112,10 @@ const verified = (platform: "web" | "android") => [
 
 it.effect("verification is platform-specific", () =>
   Effect.sync(() => {
-    expect(isVerifiedFlowSkill(verified("web"), "web")).toBe(true);
-    expect(isVerifiedFlowSkill(verified("web"), "android")).toBe(false);
-    expect(isVerifiedFlowSkill(verified("android"), "android")).toBe(true);
-    expect(isVerifiedFlowSkill(verified("android"), "web")).toBe(false);
+    expect(isVerifiedFlow(verified("web"), "web")).toBe(true);
+    expect(isVerifiedFlow(verified("web"), "android")).toBe(false);
+    expect(isVerifiedFlow(verified("android"), "android")).toBe(true);
+    expect(isVerifiedFlow(verified("android"), "web")).toBe(false);
   })
 );
 

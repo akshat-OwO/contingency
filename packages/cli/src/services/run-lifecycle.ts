@@ -22,7 +22,7 @@ import type {
   AgentTaskAssessment,
   AgentRunTaskInput,
   AgentRunTaskVariable,
-  FlowSkillName,
+  FlowName,
   BrowserCheckReference,
   ScanReference,
 } from "@contingency/protocol";
@@ -276,8 +276,8 @@ export interface RunFinalizationRecord {
 export interface TaskRunUpdate extends FlowDocumentDelivery {
   readonly emulationConflicts?: readonly RunEmulationConflict[];
   readonly instruction?: string | undefined;
-  readonly skills: readonly {
-    readonly flowSkillName: FlowSkillName;
+  readonly flows: readonly {
+    readonly flowName: FlowName;
     readonly hosts: readonly string[];
     readonly variables: readonly AgentRunTaskVariable[];
     readonly browserChecks?: readonly BrowserCheckReference[];
@@ -364,7 +364,7 @@ const requireTaskUpdate = (run: TaskAgentRunState) =>
     ? Effect.fail(
         error(
           "agent_session_invalid",
-          "A Dry Run assesses the saved complete skill outcome under its Teaching hosts. Start a fresh Dry Run to change inputs."
+          "A Dry Run assesses the saved complete flow outcome under its Teaching hosts. Start a fresh Dry Run to change inputs."
         )
       )
     : Effect.void;
@@ -373,51 +373,47 @@ const withTaskUpdate = (
   input: TaskRunUpdate,
   at: string
 ): TaskAgentRunState => {
-  const referencedSkills = [...run.referencedSkills];
+  const referencedFlows = [...run.referencedFlows];
   const browserChecks = [...(run.browserChecks ?? [])];
   const scanRequirements = [...(run.scanRequirements ?? [])];
   const variables = [...run.variables];
-  for (const skill of input.skills) {
-    for (const reference of skill.browserChecks ?? []) {
+  for (const flow of input.flows) {
+    for (const reference of flow.browserChecks ?? []) {
       if (
         !browserChecks.some(
           (existing) =>
-            existing.flowSkillName === reference.flowSkillName &&
+            existing.flowName === reference.flowName &&
             existing.check.id === reference.check.id
         )
       ) {
         browserChecks.push(reference);
       }
     }
-    for (const scan of skill.scans ?? []) {
+    for (const scan of flow.scans ?? []) {
       if (
         !scanRequirements.some(
           (existing) =>
-            existing.flowSkillName === scan.flowSkillName &&
-            existing.id === scan.id
+            existing.flowName === scan.flowName && existing.id === scan.id
         )
       ) {
         scanRequirements.push(scan);
       }
     }
     if (
-      !referencedSkills.some(
-        (reference) => reference.flowSkillName === skill.flowSkillName
-      )
+      !referencedFlows.some((reference) => reference.flowName === flow.flowName)
     ) {
-      referencedSkills.push({
-        flowSkillName: skill.flowSkillName,
+      referencedFlows.push({
+        flowName: flow.flowName,
         referencedAt: at,
       });
-      variables.push(...skill.variables);
+      variables.push(...flow.variables);
     }
   }
   const inputs = [...run.inputs];
   for (const supplied of input.inputs) {
     const existing = inputs.findIndex(
       (value) =>
-        value.flowSkillName === supplied.flowSkillName &&
-        value.name === supplied.name
+        value.flowName === supplied.flowName && value.name === supplied.name
     );
     if (existing === -1) {
       inputs.push(supplied);
@@ -436,9 +432,7 @@ const withTaskUpdate = (
     emulationConflicts: [
       ...(run.emulationConflicts ?? []).filter(
         (conflict) =>
-          !input.skills.some(
-            (skill) => skill.flowSkillName === conflict.flowSkillName
-          )
+          !input.flows.some((flow) => flow.flowName === conflict.flowName)
       ),
       ...(input.emulationConflicts ?? []),
     ],
@@ -451,7 +445,7 @@ const withTaskUpdate = (
             { instruction: input.instruction, receivedAt: at },
           ],
     lastAgentActivityAt: at,
-    referencedSkills,
+    referencedFlows,
     scanRequirements,
     variables,
   };
@@ -764,7 +758,7 @@ export const makeRunLifecycle = (dependencies: {
                 assessmentCounts: finished.assessmentCounts,
                 coverage: finished.coverage,
                 endedAt: finished.endedAt ?? at,
-                flowSkillName: finished.flowSkillName,
+                flowName: finished.flowName,
                 inputs: finished.inputs,
                 outcome: finished.outcome ?? "ended-early",
                 schemaVersion: 2,

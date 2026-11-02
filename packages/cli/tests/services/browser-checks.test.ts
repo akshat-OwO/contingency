@@ -205,10 +205,10 @@ it.effect(
     })
 );
 it("coverage requires local results for each skill and check, with the latest failure retained", () => {
-  const reference = { check, flowSkillName: "submit" };
+  const reference = { check, flowName: "submit" };
   const passed = {
     at: "2026-10-07T00:00:00Z",
-    flowSkillName: "submit",
+    flowName: "submit",
     id: check.id,
     operationId: "click",
     status: "passed" as const,
@@ -219,7 +219,7 @@ it("coverage requires local results for each skill and check, with the latest fa
   );
   expect(
     browserCheckCoverage({
-      browserCheckResults: [{ ...passed, flowSkillName: "other" }],
+      browserCheckResults: [{ ...passed, flowName: "other" }],
       browserChecks: [reference],
     }).complete
   ).toBe(false);
@@ -285,7 +285,7 @@ it.effect(
         })
       ).toContain("private");
       const resolved = yield* resolveBrowserCheckInputs(
-        { check: privateCheck, flowSkillName: "submit" },
+        { check: privateCheck, flowName: "submit" },
         (name) => (name === "SECRET" ? "disposable" : undefined)
       );
       expect(resolved.check.expectation.predicates[0]?.expected).toBe(
@@ -297,7 +297,7 @@ it.effect(
       expect(
         (yield* Effect.result(
           resolveBrowserCheckInputs(
-            { check: privateCheck, flowSkillName: "submit" },
+            { check: privateCheck, flowName: "submit" },
             () => {}
           )
         ))._tag
@@ -392,7 +392,7 @@ it.effect(
         )).message
       ).toContain("exactly");
       const resolved = yield* resolveBrowserCheckInputs(
-        { check: storage, flowSkillName: "submit" },
+        { check: storage, flowName: "submit" },
         () => "ready"
       );
       expect(resolved.check).toMatchObject({ format: "json" });

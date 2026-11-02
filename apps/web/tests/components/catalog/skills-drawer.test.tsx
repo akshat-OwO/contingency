@@ -104,7 +104,7 @@ const TestRegistry = ({ children }: { readonly children: ReactNode }) => (
 const run = {
   assessment: "working",
   endedAt: "2026-10-04T16:16:40.000Z",
-  flowSkillNames: ["1mg mobile login"],
+  flowNames: ["1mg mobile login"],
   kind: "interactive",
   outcome: "completed",
   recordingId: null,
@@ -116,7 +116,7 @@ const run = {
 const decodeRoot = Schema.decodeUnknownSync(CatalogRootView);
 
 const local = decodeRoot({
-  flowSkills: [
+  flows: [
     {
       description: "Sign in to 1mg mobile web.",
       hosts: ["www.1mg.com"],
@@ -140,7 +140,7 @@ const local = decodeRoot({
     {
       ...run,
       assessment: null,
-      flowSkillNames: [],
+      flowNames: [],
       runId: "agentrun-loose",
       title: "Explore the store",
     },
@@ -150,7 +150,7 @@ const local = decodeRoot({
 });
 
 const global = decodeRoot({
-  flowSkills: [
+  flows: [
     {
       description: "Sign in to staging.",
       hosts: ["sso.example.com"],
@@ -169,7 +169,7 @@ const global = decodeRoot({
 
 const emptyLocal = decodeRoot({
   ...local,
-  flowSkills: [],
+  flows: [],
   present: false,
   runs: [],
 });
@@ -181,20 +181,20 @@ const browse = (roots: readonly CatalogRootView[]) => ({
 });
 
 const teaching = (captureState: string) =>
-  ({ activity: "teaching", captureState, flowSkillName: "cart" }) as const;
+  ({ activity: "teaching", captureState, flowName: "cart" }) as const;
 
 const recording = {
   cleanup: "pending",
   createdAt: "2026-10-04T16:13:28.000Z",
-  flowSkillName: "1mg mobile login",
+  flowName: "1mg mobile login",
   keyframeCount: 2,
-  phase: "skill-drafted",
+  phase: "flow-drafted",
   recordingId: "recording-retained",
 } as const;
 
 const retained = decodeRoot({
   ...local,
-  flowSkills: [],
+  flows: [],
   recordings: [recording],
 });
 
@@ -242,7 +242,7 @@ test("selects nonempty folders local-first after Teaching and session skills", (
       sessionSkills({
         activity: "run",
         dryRun: false,
-        flowSkillNames: ["Staging SSO login"],
+        flowNames: ["Staging SSO login"],
       })
     )
   ).toEqual({ kind: "skill", name: "Staging SSO login", scope: "global" });
@@ -331,7 +331,7 @@ test("counts Global history without double-counting listed-skill entries", async
       recording,
       {
         ...recording,
-        flowSkillName: "deleted-cart",
+        flowName: "deleted-cart",
         recordingId: "recording-orphan",
       },
     ],
@@ -398,7 +398,7 @@ test("hides the Skills entry only while the journey is captured", () => {
   expect(showsSkillsEntry(teaching("finalizing"))).toBe(false);
   expect(showsSkillsEntry(teaching("ready"))).toBe(true);
   expect(
-    showsSkillsEntry({ activity: "run", dryRun: false, flowSkillNames: [] })
+    showsSkillsEntry({ activity: "run", dryRun: false, flowNames: [] })
   ).toBe(true);
 });
 
@@ -407,28 +407,28 @@ test("marks the session's own skill by where it stands", () => {
     sessionSkills({
       activity: "teaching",
       captureState: "setup",
-      flowSkillName: "cart",
+      flowName: "cart",
     })
   ).toEqual({ labels: new Map(), pending: "cart" });
   expect(
     sessionSkills({
       activity: "teaching",
-      captureState: "skill-drafted",
-      flowSkillName: "cart",
+      captureState: "flow-drafted",
+      flowName: "cart",
     }).labels.get("cart")
   ).toBe("This session");
   expect(
     sessionSkills({
       activity: "run",
       dryRun: true,
-      flowSkillNames: ["cart"],
+      flowNames: ["cart"],
     }).labels.get("cart")
   ).toBe("This Dry Run");
   expect([
     ...sessionSkills({
       activity: "run",
       dryRun: false,
-      flowSkillNames: ["login", "cart"],
+      flowNames: ["login", "cart"],
     }).labels.entries(),
   ]).toEqual([
     ["login", "In this run"],
@@ -449,7 +449,7 @@ test("opens on the session's skill, then on the first local skill", () => {
       sessionSkills({
         activity: "run",
         dryRun: false,
-        flowSkillNames: ["Staging SSO login"],
+        flowNames: ["Staging SSO login"],
       })
     )
   ).toEqual({ kind: "skill", name: "Staging SSO login", scope: "global" });
@@ -504,7 +504,7 @@ test("holds a place for a skill still being taught", () => {
         session={{
           activity: "teaching",
           captureState: "setup",
-          flowSkillName: "New cart",
+          flowName: "New cart",
         }}
       />
     </TestRegistry>
@@ -516,7 +516,7 @@ test("holds a place for a skill still being taught", () => {
 });
 
 test("says so when neither root has a skill", () => {
-  rpc.browse = browse([emptyLocal, decodeRoot({ ...global, flowSkills: [] })]);
+  rpc.browse = browse([emptyLocal, decodeRoot({ ...global, flows: [] })]);
   render(
     <TestRegistry>
       <SkillsDrawer session={undefined} />
@@ -541,7 +541,7 @@ test("names the miss and offers every skill again", async () => {
 });
 
 test("files a Run under Other runs when no listed skill claims it", () => {
-  const example = { ...run, flowSkillNames: ["example-delivery-cart"] };
+  const example = { ...run, flowNames: ["example-delivery-cart"] };
   const root = decodeRoot({ ...local, runs: [run, example] });
   expect(looseRuns(root).map((entry) => entry.runId)).toEqual([example.runId]);
 });
@@ -577,7 +577,7 @@ test("shows a nonfatal singular warning alongside healthy entries", async () => 
 test("shows the combined plural warning with the empty state", () => {
   rpc.browse = browse([
     decodeRoot({ ...emptyLocal, present: true, unreadable: 1 }),
-    decodeRoot({ ...global, flowSkills: [], unreadable: 2 }),
+    decodeRoot({ ...global, flows: [], unreadable: 2 }),
   ]);
   render(
     <TestRegistry>
@@ -676,7 +676,7 @@ test("narrow no-match recovery retains the chosen folder and restores history", 
         recording,
         {
           ...recording,
-          flowSkillName: "deleted-cart",
+          flowName: "deleted-cart",
           recordingId: "recording-orphan",
         },
       ],

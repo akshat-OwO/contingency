@@ -35,7 +35,7 @@ export const runProvenance = (
 ): RunProvenance => ({
   demoSiteName:
     run.demoSite === undefined ? undefined : DEMO_SITE_NAMES[run.demoSite],
-  example: run.referencedSkills.some((skill) => skill.origin === "example"),
+  example: run.referencedFlows.some((skill) => skill.origin === "example"),
 });
 
 /** The task Run a session holds, when it holds one. */
@@ -49,7 +49,7 @@ export const sessionTaskRun = (
 /** Whether a live Interactive Run takes private inputs in Workspace. */
 export const takesExampleVariables = (session: AgentSessionSnapshot) =>
   session.dryRun === null &&
-  (sessionTaskRun(session)?.referencedSkills.some(
+  (sessionTaskRun(session)?.referencedFlows.some(
     (skill) => skill.origin === "example"
   ) ??
     false);

@@ -10,7 +10,7 @@ import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   LEARN_FLOW_URI,
   WRITING_RESOURCE_URI,
@@ -66,7 +66,7 @@ const serving = Effect.fn("servingAuthoringSkills")(
         Layer.provide(
           Layer.mergeAll(
             makeAgentSessionLayer({ allowedActivity: "any", baseUrl }),
-            makeFlowSkillCatalogLayer({ root: catalogRoot }),
+            makeFlowCatalogLayer({ root: catalogRoot }),
             makeAgentRunStoreLayer({ root: () => catalogRoot }),
             makeTeachingRecordingStoreLayer({ root: () => catalogRoot }),
             makeDemoSiteLayer()
