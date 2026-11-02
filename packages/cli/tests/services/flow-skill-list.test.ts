@@ -4,6 +4,7 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
+import { flowDocuments } from "../../src/services/flow-documents.ts";
 import {
   FlowSkillCatalog,
   makeFlowSkillCatalogLayer,
@@ -87,5 +88,78 @@ it.effect(
         "flow.md",
         "references/accessibility.md",
       ]);
+    }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "discovers supporting markdown at depth and refuses document escapes",
+  () =>
+    Effect.gen(function* supportingDocuments() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const directory = path.join(root, "set-delivery-area");
+      const files = [
+        { content: SKILL, path: "flow.md" },
+        {
+          content: "Intro\n\n## Starting state\nSecret body",
+          path: "setup.md",
+        },
+        { content: "Rules\n=====\nBody", path: "knowledge/deep/rules.md" },
+        { content: "{{undeclared}}", path: "knowledge/notes.txt" },
+        { content: "# Run evidence", path: "runs/private.md" },
+        { content: "# Teaching evidence", path: "recordings/private.md" },
+        { content: "# Nested evidence", path: "knowledge/runs/private.md" },
+      ];
+      for (const file of files) {
+        const target = path.join(directory, file.path);
+        yield* fs.makeDirectory(path.dirname(target), { recursive: true });
+        yield* fs.writeFileString(target, file.content);
+      }
+      yield* fs.symlink(
+        path.join(directory, "runs/private.md"),
+        path.join(directory, "leak.md")
+      );
+      yield* fs.writeFileString(path.join(root, "outside.md"), "# Outside");
+      yield* fs.symlink(
+        path.join(root, "outside.md"),
+        path.join(directory, "outside.md")
+      );
+      yield* Effect.gen(function* readDocuments() {
+        const catalog = yield* FlowSkillCatalog;
+        const skill = yield* catalog.read("set-delivery-area");
+        expect(skill.files.map((file) => file.path)).toEqual([
+          "flow.md",
+          "knowledge/deep/rules.md",
+          "setup.md",
+        ]);
+        expect(flowDocuments(skill.files)).toEqual({
+          files: [{ content: SKILL, path: "flow.md" }],
+          supportingDocuments: [
+            { heading: "Rules", path: "knowledge/deep/rules.md" },
+            { heading: "Starting state", path: "setup.md" },
+          ],
+        });
+        expect(
+          yield* catalog.readDocument("set-delivery-area", "setup.md")
+        ).toEqual(files[1]);
+        for (const documentPath of [
+          "../outside.md",
+          "/outside.md",
+          "knowledge/../../outside.md",
+          "runs/private.md",
+          "recordings/private.md",
+          "knowledge/runs/private.md",
+          "leak.md",
+          "outside.md",
+          "knowledge/notes.txt",
+          "flow.md",
+          "knowledge\\rules.md",
+        ]) {
+          const error = yield* Effect.flip(
+            catalog.readDocument("set-delivery-area", documentPath)
+          );
+          expect(error.code).toBe("agent_catalog_invalid");
+        }
+      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
 );

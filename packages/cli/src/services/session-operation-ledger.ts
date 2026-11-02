@@ -1,6 +1,6 @@
 import type {
   AgentActionResult,
-  AgentSessionSnapshot,
+  AgentSessionSnapshot as ProtocolSessionSnapshot,
   AgentRunSummary,
   OperationId,
 } from "@contingency/protocol";
@@ -12,6 +12,7 @@ import type {
   AgentSessionDomainError,
   AgentSessionError,
 } from "./agent-session-error.ts";
+import type { FlowDocumentDelivery } from "./flow-documents.ts";
 
 export type AgentOperationKind =
   | "profile"
@@ -45,6 +46,8 @@ export type AgentOperationKind =
   | "start"
   | "takeover"
   | "variable-supply";
+
+type AgentSessionSnapshot = ProtocolSessionSnapshot & FlowDocumentDelivery;
 
 /** What a replayed operation answers with, discriminated so no cast is needed. */
 type AgentOperationResult =

@@ -17,6 +17,7 @@ import {
   discoverFlows,
   maintainCatalogGitignore,
 } from "./flow-catalog-layout.ts";
+import { isFlowDocumentArea, isSupportingDocument } from "./flow-documents.ts";
 import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
@@ -34,9 +35,8 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 /**
  * The Catalog Root and the Flow Skill packages inside it.
  *
- * A Flow Skill is a directory of markdown: `flow.md` plus optional
- * `references/`. There are no revisions, no heads, and no evidence packages
- * beside it, because the Flow Skill is the single reusable format
+ * A Flow holds `flow.md`, supporting markdown at any depth, and local
+ * evidence in `recordings/` and `runs/`. The Flow is the reusable format
  * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
  * This service only selects the root and reads what is already on disk;
  * writing a package belongs to Teaching Recording learning, which is the only
@@ -99,6 +99,10 @@ export interface FlowSkillCatalogService {
     flowSkillName: FlowSkillName | string,
     root?: string
   ) => Effect.Effect<FlowSkillPackage, FlowSkillCatalogError>;
+  readonly readDocument: (
+    flowSkillName: string,
+    documentPath: string
+  ) => Effect.Effect<FlowSkillFile, FlowSkillCatalogError>;
   readonly root: () => string;
   readonly select: (
     root: string,
@@ -182,57 +186,69 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     return flow;
   });
 
-  /**
-   * Every text file under `references/`, the same set Teaching Recording
-   * learning saves. A file that is not UTF-8 text, such as an image a user
-   * committed beside the package, is not part of the package an agent reads.
-   */
-  const readReferences = Effect.fnUntraced(function* readReferenceFiles(
+  const readReferences = Effect.fnUntraced(function* readSupportingDocuments(
     directory: string
   ) {
-    const referenceDirectory = path.join(directory, "references");
-    const present = yield* fileSystem
-      .exists(referenceDirectory)
-      .pipe(Effect.mapError(ioError(`Could not read ${referenceDirectory}`)));
-    if (!present) {
-      return [];
-    }
-    const names = yield* fileSystem
-      .readDirectory(referenceDirectory, { recursive: true })
-      .pipe(Effect.mapError(ioError(`Could not read ${referenceDirectory}`)));
-    // A symlink that leads out of the package is not part of it: following
-    // it would hand an agent, or the Workspace, a file from elsewhere.
-    const packageDirectory = yield* fileSystem
+    const realRoot = yield* fileSystem
       .realPath(directory)
-      .pipe(Effect.mapError(ioError(`Could not read ${directory}`)));
-    const references: FlowSkillFile[] = [];
-    for (const file of names.toSorted()) {
-      const filePath = path.join(referenceDirectory, file);
-      const context = `Could not read references/${file}`;
-      const info = yield* fileSystem
-        .stat(filePath)
-        .pipe(Effect.mapError(ioError(context)));
-      if (info.type !== "File") {
+      .pipe(Effect.mapError(ioError("Could not resolve Flow")));
+    const pending = [""];
+    const visited = new Set<string>();
+    const documents: FlowSkillFile[] = [];
+    while (pending.length > 0) {
+      const parent = pending.pop() ?? "";
+      const real = yield* fileSystem
+        .realPath(path.join(directory, parent))
+        .pipe(Effect.mapError(ioError("Could not resolve Flow documents")));
+      const relative = path.relative(realRoot, real).split(path.sep).join("/");
+      if (
+        !isInside(realRoot, real) ||
+        (relative !== "" && !isFlowDocumentArea(relative)) ||
+        visited.has(real)
+      ) {
         continue;
       }
-      const target = yield* fileSystem
-        .realPath(filePath)
-        .pipe(Effect.mapError(ioError(context)));
-      if (!isInside(packageDirectory, target)) {
-        continue;
-      }
-      const bytes = yield* fileSystem
-        .readFile(filePath)
-        .pipe(Effect.mapError(ioError(context)));
-      const content = decodeText(bytes);
-      if (content !== undefined) {
-        references.push({
-          content,
-          path: `references/${file.split(path.sep).join("/")}`,
-        });
+      visited.add(real);
+      const names = yield* fileSystem
+        .readDirectory(path.join(directory, parent))
+        .pipe(Effect.mapError(ioError("Could not list Flow documents")));
+      for (const name of names.toSorted()) {
+        const file = parent === "" ? name : `${parent}/${name}`;
+        if (!isFlowDocumentArea(file)) {
+          continue;
+        }
+        const absolute = path.join(directory, file);
+        const target = yield* fileSystem
+          .realPath(absolute)
+          .pipe(Effect.mapError(ioError(`Could not resolve ${file}`)));
+        const targetRelative = path
+          .relative(realRoot, target)
+          .split(path.sep)
+          .join("/");
+        if (
+          !isInside(realRoot, target) ||
+          !isFlowDocumentArea(targetRelative)
+        ) {
+          continue;
+        }
+        const info = yield* fileSystem
+          .stat(absolute)
+          .pipe(Effect.mapError(ioError(`Could not inspect ${file}`)));
+        if (info.type === "Directory") {
+          pending.push(file);
+        } else if (info.type === "File" && isSupportingDocument(file)) {
+          const content = decodeText(
+            yield* fileSystem
+              .readFile(absolute)
+              .pipe(Effect.mapError(ioError(`Could not read ${file}`)))
+          );
+          if (content !== undefined) {
+            documents.push({ content, path: file });
+          }
+        }
       }
     }
-    return references;
+    return documents.toSorted((a, b) => a.path.localeCompare(b.path));
   });
 
   const readPackage = Effect.fnUntraced(function* readFlowSkillPackage(
@@ -360,6 +376,27 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         );
       }
       return yield* readPackage(root, name);
+    }),
+    readDocument: Effect.fnUntraced(function* readDocument(name, documentPath) {
+      if (!isSupportingDocument(documentPath)) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            `Not a supporting document path: ${documentPath}`
+          )
+        );
+      }
+      const skill = yield* readPackage(selected, name);
+      const file = skill.files.find((entry) => entry.path === documentPath);
+      if (file === undefined) {
+        return yield* Effect.fail(
+          catalogError(
+            "agent_catalog_invalid",
+            `Supporting document ${documentPath} was not found in Flow ${name}.`
+          )
+        );
+      }
+      return file;
     }),
     root: () => selected,
     select: Effect.fnUntraced(function* selectCatalogRoot(root) {

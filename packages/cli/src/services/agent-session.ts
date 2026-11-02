@@ -166,6 +166,7 @@ import type {
   PendingBoundary,
 } from "./execution-boundary.ts";
 import { resolveFlowDirectory } from "./flow-catalog-layout.ts";
+import type { FlowDocumentDelivery } from "./flow-documents.ts";
 import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import type { SavedPlatformRequirements } from "./platform-requirements.ts";
@@ -249,7 +250,7 @@ export interface AgentSessionServiceOptions {
   readonly videoFastForward?: RunVideoFastForward;
 }
 
-export interface AgentSessionStartInput {
+export interface AgentSessionStartInput extends FlowDocumentDelivery {
   readonly group?: string | undefined;
   readonly requiredBrowserState?: readonly RequiredBrowserModification[];
   /** Set only by the MCP Guided Run entry point. */
@@ -632,7 +633,10 @@ export interface AgentSessionService {
   readonly startPrepared: <E>(
     request: AgentSessionStartRequest,
     prepare: Effect.Effect<AgentSessionStartInput, E>
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError | E>;
+  ) => Effect.Effect<
+    AgentSessionSnapshot & FlowDocumentDelivery,
+    AgentSessionError | E
+  >;
   /**
    * Enter a Variable the user supplied to this Run into one element. The agent
    * names the Variable, never the value.
@@ -648,6 +652,9 @@ export interface AgentSessionService {
     sessionId: AgentSessionId,
     prepare: Effect.Effect<
       {
+        readonly flowDocuments?: NonNullable<
+          FlowDocumentDelivery["flowDocuments"]
+        >;
         readonly instruction?: string | undefined;
         readonly skills: readonly {
           readonly flowSkillName: FlowSkillName;
@@ -660,7 +667,10 @@ export interface AgentSessionService {
     >,
     operationId: OperationId,
     requestInput: string
-  ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError | E>;
+  ) => Effect.Effect<
+    AgentSessionSnapshot & FlowDocumentDelivery,
+    AgentSessionError | E
+  >;
   readonly assessTask: (
     sessionId: AgentSessionId,
     input: Omit<AgentTaskAssessment, "submittedAt">,
@@ -9118,16 +9128,36 @@ const makeAgentSession = (
             // A retry reads the session as it is now, so a Run that has since
             // ended answers with its closed state rather than a stale start.
             if (replayed?._tag === "replay") {
-              return (
+              const current =
                 Ref.getUnsafe(sessions).get(replayed.snapshot.id)?.snapshot ??
-                replayed.snapshot
-              );
+                replayed.snapshot;
+              return replayed.snapshot.flowDocuments === undefined
+                ? current
+                : {
+                    ...current,
+                    flowDocuments: replayed.snapshot.flowDocuments,
+                  };
             }
             const input = yield* prepare;
-            return yield* startUnlocked(
+            const snapshot = yield* startUnlocked(
               { ...input, operationId: request.operationId },
               request.request
             );
+            if (input.flowDocuments === undefined) {
+              return snapshot;
+            }
+            const delivered = {
+              ...snapshot,
+              flowDocuments: input.flowDocuments,
+            };
+            yield* ledger.rememberSession(
+              request.operationId,
+              "start",
+              "start",
+              request.request,
+              delivered
+            );
+            return delivered;
           })
         ),
       startTeachingRecording: (sessionId, operationId) =>
@@ -9269,7 +9299,9 @@ const makeAgentSession = (
                   input.skills.flatMap((skill) => skill.hosts)
                 ) ?? Effect.void
               );
-              return next;
+              return input.flowDocuments === undefined
+                ? next
+                : { ...next, flowDocuments: input.flowDocuments };
             })
         ),
       userNavigate: (sessionId, action) =>

@@ -20,6 +20,7 @@ import type {
 import { Effect, Schema } from "effect";
 
 import { AgentSession } from "./agent-session.ts";
+import { FlowDocuments } from "./flow-documents.ts";
 
 /**
  * The optional `view` parameter of every tool that answers with an Agent
@@ -36,6 +37,11 @@ export const sessionViewParameter = optionalNullable(AgentSessionView);
 const eventFields = {
   events: Schema.optional(Schema.Array(SessionEvent)),
   eventsTruncated: Schema.optional(Schema.Boolean),
+  flowDocuments: Schema.optional(
+    Schema.Array(
+      Schema.Struct({ flowSkillName: Schema.String, ...FlowDocuments.fields })
+    )
+  ),
 };
 export const SessionResult = Schema.Union([
   Schema.Struct({ ...TeachingSessionSnapshot.fields, ...eventFields }),
@@ -56,14 +62,17 @@ export const workspaceLinkGuidance = (viewUrl: string) => ({
 export const SessionStartResult = Schema.Union([
   Schema.Struct({
     ...WorkspaceLinkGuidance.fields,
+    flowDocuments: eventFields.flowDocuments,
     ...TeachingSessionSnapshot.fields,
   }),
   Schema.Struct({
     ...WorkspaceLinkGuidance.fields,
+    flowDocuments: eventFields.flowDocuments,
     ...RunSessionSnapshot.fields,
   }),
   Schema.Struct({
     ...WorkspaceLinkGuidance.fields,
+    flowDocuments: eventFields.flowDocuments,
     ...AgentSessionCompact.fields,
   }),
 ]);

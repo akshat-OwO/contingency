@@ -101,6 +101,11 @@ it.effect(
                     '---\nname: some-other-flow\ndescription:\n---\n\n# Set the delivery area\n\n1. Choose the button named "Confirm delivery area".\n',
                   path: "flow.md",
                 },
+                {
+                  content: "# Inputs\nUse {{missing}}.",
+                  path: "knowledge/deep/inputs.md",
+                },
+                { content: "{{also_missing}}", path: "ignored.txt" },
               ],
               operationId: OperationId.make("invalid-package-save"),
               recordingId,
@@ -115,10 +120,15 @@ it.effect(
       expect(failure.diagnostics.map((entry) => entry.code)).toEqual([
         "flow_skill_name_mismatch",
         "flow_skill_missing_description",
+        "flow_skill_undeclared_input",
         "flow_skill_missing_completion_condition",
       ]);
       expect(
-        failure.diagnostics.every((entry) => entry.path[0] === "flow.md")
+        failure.diagnostics.some(
+          (entry) =>
+            entry.path[0] === "knowledge/deep/inputs.md" &&
+            entry.message.includes("missing")
+        )
       ).toBe(true);
       // Nothing was staged, so the recording is still claimed rather than
       // drafted, and the package on disk is the one that was already there.

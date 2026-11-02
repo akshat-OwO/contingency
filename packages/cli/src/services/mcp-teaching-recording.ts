@@ -19,6 +19,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { flowDocuments, SupportingDocument } from "./flow-documents.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   UnpublishedEmulation,
@@ -233,11 +234,13 @@ const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
       Schema.Struct({
         files: Schema.Array(FlowSkillFile),
         flowSkillName: FlowSkillName,
+        supportingDocuments: Schema.Array(SupportingDocument),
       })
     ),
     recordingId: TeachingRecordingId,
     session: UnpublishedSession,
     skillPath: Schema.String.check(Schema.isMinLength(1)),
+    supportingDocuments: Schema.Array(SupportingDocument),
   }),
 });
 
@@ -286,9 +289,12 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         }).pipe(Effect.mapError(failure));
         return {
           ...workspaceLinkGuidance(started.session.viewUrl),
-          files: started.files,
+          ...flowDocuments(started.files),
           flowSkillName: started.manifest.flowSkillName,
-          prerequisites: started.prerequisites,
+          prerequisites: started.prerequisites.map((skill) => ({
+            flowSkillName: skill.flowSkillName,
+            ...flowDocuments(skill.files),
+          })),
           recordingId: started.manifest.recordingId,
           session: yield* encodeUnpublishedSession(
             params.view === "compact"

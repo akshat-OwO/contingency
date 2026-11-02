@@ -1,3 +1,5 @@
+import nodePath from "node:path";
+
 import type {
   FlowSkillDiagnostic,
   FlowSkillFile,
@@ -823,7 +825,17 @@ const checkLinks = (
     const resolved = target.startsWith("references/")
       ? target
       : `references/${target.replace(/^\.\//u, "")}`;
-    if (!(known.has(target) || known.has(resolved))) {
+    if (
+      !(
+        known.has(
+          nodePath.posix.normalize(
+            nodePath.posix.join(nodePath.posix.dirname(file.path), target)
+          )
+        ) ||
+        known.has(target) ||
+        known.has(resolved)
+      )
+    ) {
       report(
         diagnostic(
           "flow_skill_missing_reference",

@@ -4,6 +4,8 @@ import {
   AgentCatalogSelect,
   AgentPendingDecisionResolve,
   FlowSkillList,
+  FlowSkillName,
+  FlowSkillFile,
   TeachingInstructionRecord,
   TeachingScan,
   optionalNullable,
@@ -97,6 +99,20 @@ const FlowSkillsListTool = readOnly(
   })
 );
 
+const FlowDocumentGetTool = readOnly(
+  Tool.make("agent_flow_document_get", {
+    dependencies: [FlowSkillCatalog],
+    description:
+      "Read one supporting Markdown document from a Flow in the selected catalog. Use the supportingDocuments index returned when starting or updating a Run. Paths are relative to the Flow; evidence and paths outside its document area are refused.",
+    failure: AgentCatalogFailure,
+    parameters: Schema.Struct({
+      flowSkillName: FlowSkillName,
+      path: Schema.String,
+    }),
+    success: FlowSkillFile,
+  })
+);
+
 const GuidedRunQuestionAskTool = Tool.make("agent_guided_run_question_ask", {
   dependencies: [AgentSession],
   description:
@@ -158,6 +174,7 @@ export const AgentCatalogTools = withStrictParameters(
     AgentCatalogGetTool,
     AgentCatalogSelectTool,
     FlowSkillsListTool,
+    FlowDocumentGetTool,
     TeachingInstructionRecordTool,
     GuidedRunQuestionAskTool,
     AgentPendingDecisionResolveTool
@@ -185,6 +202,13 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       const catalog = yield* FlowSkillCatalog;
       return yield* catalog
         .select(params.root, params.operationId)
+        .pipe(Effect.mapError(failure));
+    }),
+  agent_flow_document_get: (params) =>
+    Effect.gen(function* readDocument() {
+      const catalog = yield* FlowSkillCatalog;
+      return yield* catalog
+        .readDocument(params.flowSkillName, params.path)
         .pipe(Effect.mapError(failure));
     }),
   agent_flow_skills_list: () =>

@@ -37,6 +37,7 @@ import {
   maintainCatalogGitignore,
   RESERVED_FLOW_NAMES,
 } from "./flow-catalog-layout.ts";
+import { isFlowDocument, isFlowDocumentArea } from "./flow-documents.ts";
 import {
   SKILL_FILE,
   stampFlowSkillProvenance,
@@ -87,10 +88,7 @@ export const parameterizeVariables = (
     "gu"
   );
   return files.map((file) => {
-    if (
-      file.path !== SKILL_FILE &&
-      !(file.path.startsWith("references/") && file.path.endsWith(".md"))
-    ) {
+    if (file.path !== SKILL_FILE && !file.path.endsWith(".md")) {
       return file;
     }
     const prefix =
@@ -172,23 +170,9 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
-const isSafeSkillPath = (filePath: string): boolean => {
-  if (filePath.includes("\\")) {
-    return false;
-  }
-  const normalized = path.posix.normalize(filePath);
-  return (
-    normalized === filePath &&
-    (filePath === SKILL_FILE ||
-      filePath.startsWith("references/") ||
-      ["checks.json", "scans.json", "browser-state.json"].includes(filePath)) &&
-    !filePath.endsWith("/") &&
-    (filePath === SKILL_FILE ||
-      !filePath.split("/").some((part) => RESERVED_FLOW_NAMES.has(part))) &&
-    !path.posix.isAbsolute(filePath) &&
-    !filePath.split("/").includes("..")
-  );
-};
+const isSafeSkillPath = (filePath: string): boolean =>
+  isFlowDocumentArea(filePath) &&
+  (filePath === SKILL_FILE || !filePath.split("/").includes(SKILL_FILE));
 
 const pathDiagnostic = (
   code: string,
@@ -208,18 +192,23 @@ const validateFiles = (
     return Effect.fail(invalidPackage([missingSkillFile]));
   }
   const names = new Set<string>();
+  const documents: FlowSkillFile[] = [];
   for (const file of files) {
+    if (!file.path.endsWith(".md") && !isFlowDocument(file.path)) {
+      continue;
+    }
     if (!isSafeSkillPath(file.path)) {
       return Effect.fail(
         invalidPackage([
           pathDiagnostic(
             "flow_skill_unsafe_path",
-            `Flow Skill file ${file.path} must be flow.md, a contract, or a file under references/.`,
+            `Flow Skill file ${file.path} must stay in the Flow document area, outside runs/ and recordings/.`,
             file.path
           ),
         ])
       );
     }
+    documents.push(file);
     if (file.content.trim().length === 0) {
       return Effect.fail(
         invalidPackage([
@@ -245,7 +234,7 @@ const validateFiles = (
     names.add(file.path);
   }
   return names.has(SKILL_FILE)
-    ? Effect.succeed(files)
+    ? Effect.succeed(documents)
     : Effect.fail(invalidPackage([missingSkillFile]));
 };
 
@@ -787,9 +776,8 @@ const makeTeachingRecordingLearning = Effect.fn(
               if (
                 relative.startsWith("..") ||
                 path.isAbsolute(relative) ||
-                ["recordings", "runs"].includes(
-                  relative.split(path.sep)[0] ?? ""
-                )
+                (relative !== "" &&
+                  !isFlowDocumentArea(relative.split(path.sep).join("/")))
               ) {
                 return yield* Effect.fail(
                   learningError(
@@ -814,15 +802,19 @@ const makeTeachingRecordingLearning = Effect.fn(
                 path.join(target, directory)
               )) {
                 const relative = path.join(directory, name);
-                if (relative !== "references" && !isSafeSkillPath(relative)) {
+                if (!isSafeSkillPath(relative.split(path.sep).join("/"))) {
                   continue;
                 }
                 const file = path.join(target, relative);
-                yield* requireInside(file);
                 const info = yield* fileSystem.stat(file);
                 if (info.type === "Directory") {
+                  yield* requireInside(file);
                   pending.push(relative);
-                } else if (info.type === "File") {
+                } else if (
+                  info.type === "File" &&
+                  isFlowDocument(relative.split(path.sep).join("/"))
+                ) {
+                  yield* requireInside(file);
                   previous.set(relative, yield* fileSystem.readFile(file));
                 }
               }

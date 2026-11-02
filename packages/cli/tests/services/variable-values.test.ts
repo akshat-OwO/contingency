@@ -161,18 +161,19 @@ it("shows the Teaching literal and writes its reference into learned Markdown", 
       path: "references/data.json",
     },
     { content: "test-password", path: "references/value.txt" },
-    { content: "test-password", path: "README.md" },
   ];
   const files = parameterizeVariables(
     [
       { content, path: "flow.md" },
       { content: "Use test-password", path: "references/login.md" },
+      { content: "test-password", path: "README.md" },
       ...untouched,
     ],
     events
   );
-  expect(JSON.stringify(files.slice(0, 2))).not.toContain("test-password");
-  expect(files.slice(2)).toEqual(untouched);
+  expect(JSON.stringify(files.slice(0, 3))).not.toContain("test-password");
+  expect(files.slice(3)).toEqual(untouched);
+  expect(files[2]?.content).toBe("{{PASSWORD}}");
   expect(files[0]?.content.split("1. Enter")[0]).toBe(
     content.split("1. Enter")[0]
   );

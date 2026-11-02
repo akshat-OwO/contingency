@@ -430,7 +430,11 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          expect(failedRun.files.map((file) => file.path)).toContain("flow.md");
+          expect(failedRun.files.map((file) => file.path)).toEqual(["flow.md"]);
+          expect(failedRun.supportingDocuments).toContainEqual({
+            heading: "Accessibility targets",
+            path: "references/accessibility.md",
+          });
           const beforeNavigation = yield* sessionTool("agent_browser_act", {
             action: { type: "navigate", url: fixtures.url("settle.html") },
             operationId: OperationId.make("delivery-dry-navigate-later"),
@@ -955,6 +959,18 @@ it.live(
             operationId: OperationId.make("delivery-run-start"),
             url: fixtures.url("delivery.html"),
           });
+          expect(run.flowDocuments).toEqual([
+            {
+              files: [expect.objectContaining({ path: "flow.md" })],
+              flowSkillName: "set-delivery-area",
+              supportingDocuments: [
+                {
+                  heading: "Accessibility targets",
+                  path: "references/accessibility.md",
+                },
+              ],
+            },
+          ]);
           expect(run.run).toHaveProperty("schemaVersion", 3);
           expect(run.run).not.toHaveProperty("steps");
           // The Run reproduces the device the journey was demonstrated on, so
