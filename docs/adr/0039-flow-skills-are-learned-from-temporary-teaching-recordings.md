@@ -1,5 +1,7 @@
 # Flow skills are learned from temporary Teaching recordings
 
+> Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
+
 > Supersedes ADRs [0025](./0025-agent-flow-is-compiled-from-a-demonstration.md), [0028](./0028-approved-agent-flows-are-immutable-revisions.md), [0032](./0032-external-agents-receive-a-bounded-teaching-feed.md), and [0033](./0033-agent-flow-catalog-stores-versioned-evidence-packages.md). Supersedes the authoring and approval model in [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) and [ADR 0037](./0037-pending-decisions-relay-user-consent-over-mcp.md).
 
 > [ADR 0042](./0042-agent-controlled-teaching-setup.md) changes who may control the browser during setup. The Start and Stop capture boundary remains unchanged.
