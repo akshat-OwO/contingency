@@ -1154,10 +1154,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
       const verificationPath = path.join(skillDirectory, VERIFICATION_FILE);
       const inputs = result.inputs.map(
-        ({ changed, name, value }) =>
-          `- ${name}${changed ? " (changed)" : ""}: ${
-            value === null ? "<redacted>" : JSON.stringify(value)
-          }`
+        ({ changed, name }) => `- ${name}${changed ? " (changed)" : ""}`
       );
       const contents = [
         "# Last Dry Run",
