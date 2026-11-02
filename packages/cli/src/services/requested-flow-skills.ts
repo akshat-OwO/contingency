@@ -7,6 +7,7 @@ import { Effect } from "effect";
 
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
+import { readFlowSkillFrontmatter, SKILL_FILE } from "./flow-skill-package.ts";
 import {
   browserCapabilities,
   browserRequirements,
@@ -21,21 +22,22 @@ const invalid = (message: string) => ({
   message,
 });
 
-/**
- * Whether the user verified a package: verification stamps
- * `references/verification.md` with a `- Verified:` line.
- */
+/** Whether frontmatter records explicit user verification on this platform. */
 export const isVerifiedFlowSkill = (
   files: readonly { readonly content: string; readonly path: string }[],
   platform: PlatformIdentity = "web"
 ): boolean =>
-  files.some(
-    (file) =>
-      file.path === "references/verification.md" &&
-      /^- Verified: .+$/mu.test(file.content) &&
-      (/^- Platform: (?<platform>\S+)$/mu.exec(file.content)?.groups
-        ?.platform ?? "web") === platform
-  );
+  files.some((file) => {
+    if (file.path !== SKILL_FILE) {
+      return false;
+    }
+    const stamp = readFlowSkillFrontmatter(file.content)?.verification;
+    return (
+      stamp?.outcome === "passed" &&
+      (stamp.verifiedAt?.length ?? 0) > 0 &&
+      stamp.platform === platform
+    );
+  });
 
 /** Resolve only explicitly requested, user-verified catalog packages. */
 export const readRequestedSkills = (names: readonly FlowSkillName[]) =>

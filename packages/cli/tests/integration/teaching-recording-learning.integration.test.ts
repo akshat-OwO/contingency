@@ -377,7 +377,7 @@ it.live(
           const skillDirectory = path.join(root, "learn-anvil");
           yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
           yield* fileSystem.writeFileString(
-            path.join(skillDirectory, "SKILL.md"),
+            path.join(skillDirectory, "flow.md"),
             "# Previous package\n"
           );
           const refusedSave = yield* Effect.flip(
@@ -391,7 +391,7 @@ it.live(
           expect(refusedSave.code).toBe("teaching_recording_invalid");
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "SKILL.md")
+              path.join(skillDirectory, "flow.md")
             )
           ).toBe("# Previous package\n");
 
@@ -399,7 +399,7 @@ it.live(
             teachingRecordingTool("agent_flow_skill_save", {
               claimOperationId,
               files: [
-                { content: "# Learn anvil\n\nClick e12.\n", path: "SKILL.md" },
+                { content: "# Learn anvil\n\nClick e12.\n", path: "flow.md" },
               ],
               operationId: OperationId.make("learning-save-uncontracted"),
               recordingId,
@@ -411,11 +411,11 @@ it.live(
             "flow_skill_missing_frontmatter"
           );
           expect(
-            diagnostics.every((entry) => entry.path[0] === "SKILL.md")
+            diagnostics.every((entry) => entry.path[0] === "flow.md")
           ).toBe(true);
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "SKILL.md")
+              path.join(skillDirectory, "flow.md")
             )
           ).toBe("# Previous package\n");
 
@@ -430,7 +430,7 @@ it.live(
                   "2. Choose",
                   `2. Enter ${privateFieldValue}, then choose`
                 ),
-                path: "SKILL.md",
+                path: "flow.md",
               },
               {
                 content: `${LEARN_ANVIL_ACCESSIBILITY}\nExample password: ${privateFieldValue}`,
@@ -445,16 +445,16 @@ it.live(
             saveInput
           );
           expect(saved.files).toEqual([
-            "SKILL.md",
+            "flow.md",
             "references/accessibility.md",
           ]);
           expect(
             yield* fileSystem.readFileString(
-              path.join(root, "learn-anvil", "SKILL.md")
+              path.join(root, "learn-anvil", "flow.md")
             )
           ).toContain("# Learn anvil");
           const learnedSkill = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "SKILL.md")
+            path.join(skillDirectory, "flow.md")
           );
           const learnedReference = yield* fileSystem.readFileString(
             path.join(skillDirectory, "references/accessibility.md")
@@ -473,7 +473,7 @@ it.live(
               files: [
                 {
                   content: "# This package was never written\n",
-                  path: "SKILL.md",
+                  path: "flow.md",
                 },
               ],
             })

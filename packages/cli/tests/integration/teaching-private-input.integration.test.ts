@@ -208,7 +208,7 @@ for (const variant of [
               {
                 content:
                   "---\nname: spread-code\ndescription: Enter the verification code.\ninputs:\n  - otp\n---\n\n1. Enter {{otp}} in the first code box.\n   Done when: Continue appears.\n",
-                path: "SKILL.md",
+                path: "flow.md",
               },
             ],
             operationId: OperationId.make("seed-save"),

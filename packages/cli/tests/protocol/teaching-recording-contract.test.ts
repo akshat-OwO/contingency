@@ -37,7 +37,7 @@ const progressive = {
   dryRunSessionId: "agent-dry-run",
   dryRunStartedAt: at,
   readyAt: at,
-  skillPath: "checkout-flow/SKILL.md",
+  skillPath: "checkout-flow/flow.md",
   startedAt: at,
   stoppedAt: at,
   verifiedAt: at,
@@ -169,11 +169,11 @@ test("learning-agent contracts use recording ids and bounded references", () => 
   ).toBe("png");
   expect(
     decodeSkillSave({
-      files: ["SKILL.md", "references/accessibility.md"],
+      files: ["flow.md", "references/accessibility.md"],
       flowSkillName: "checkout-flow",
       recordingId: "recording-checkout",
     }).files
-  ).toEqual(["SKILL.md", "references/accessibility.md"]);
+  ).toEqual(["flow.md", "references/accessibility.md"]);
 });
 
 test("a completed cleanup requires a verified recording", () => {
@@ -297,25 +297,25 @@ test("a Flow Skill diagnostic names the file and field it belongs to", () => {
   const diagnostic = decodeDiagnostic({
     code: "flow_skill_name_mismatch",
     message:
-      'SKILL.md declares name "other" but the package is saved as "checkout-flow".',
-    path: ["SKILL.md", "frontmatter", "name"],
+      'flow.md declares name "other" but the package is saved as "checkout-flow".',
+    path: ["flow.md", "frontmatter", "name"],
   });
 
-  expect(diagnostic.path[0]).toBe("SKILL.md");
+  expect(diagnostic.path[0]).toBe("flow.md");
   // The path is a file route, not a JSON pointer into a Flow Skill, so
   // an index would tell the agent nothing about which line to fix.
   expect(() =>
     decodeDiagnostic({
       code: "flow_skill_name_mismatch",
       message: "The name is wrong.",
-      path: ["SKILL.md", 0],
+      path: ["flow.md", 0],
     })
   ).toThrow();
   expect(() =>
     decodeDiagnostic({
       code: "flow_skill_name_mismatch",
       message: "",
-      path: ["SKILL.md"],
+      path: ["flow.md"],
     })
   ).toThrow();
 });

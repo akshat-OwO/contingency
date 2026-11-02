@@ -158,8 +158,8 @@ const learn = Effect.gen(function* learnRequirements() {
     claimOperationId,
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Submit once and require the four typed root scalar responses.\ninputs:\n---\n\n1. Click the Submit scalars button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](references/browser-checks.json). Done when: all four checks pass and Submitted 1 time(s) is visible.\n`,
-        path: "SKILL.md",
+        content: `---\nname: ${flowSkillName}\ndescription: Submit once and require the four typed root scalar responses.\ninputs:\n---\n\n1. Click the Submit scalars button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Submitted 1 time(s) is visible.\n`,
+        path: "flow.md",
       },
       {
         content: JSON.stringify(
@@ -167,7 +167,7 @@ const learn = Effect.gen(function* learnRequirements() {
           null,
           2
         ),
-        path: "references/browser-checks.json",
+        path: "checks.json",
       },
     ],
     operationId: operation(),
@@ -180,7 +180,7 @@ const learn = Effect.gen(function* learnRequirements() {
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
           flowSkillName,
-          "references/browser-checks.json"
+          "checks.json"
         ),
         "utf-8"
       )

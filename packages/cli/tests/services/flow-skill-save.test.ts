@@ -44,7 +44,7 @@ it.effect(
       const skillDirectory = path.join(root, flowSkillName);
       yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
       yield* fileSystem.writeFileString(
-        path.join(skillDirectory, "SKILL.md"),
+        path.join(skillDirectory, "flow.md"),
         PREVIOUS_SKILL
       );
 
@@ -99,7 +99,7 @@ it.effect(
                 {
                   content:
                     '---\nname: some-other-flow\ndescription:\n---\n\n# Set the delivery area\n\n1. Choose the button named "Confirm delivery area".\n',
-                  path: "SKILL.md",
+                  path: "flow.md",
                 },
               ],
               operationId: OperationId.make("invalid-package-save"),
@@ -118,16 +118,108 @@ it.effect(
         "flow_skill_missing_completion_condition",
       ]);
       expect(
-        failure.diagnostics.every((entry) => entry.path[0] === "SKILL.md")
+        failure.diagnostics.every((entry) => entry.path[0] === "flow.md")
       ).toBe(true);
       // Nothing was staged, so the recording is still claimed rather than
       // drafted, and the package on disk is the one that was already there.
       expect(lifecycle).toBe("learning");
       expect(
-        yield* fileSystem.readFileString(path.join(skillDirectory, "SKILL.md"))
+        yield* fileSystem.readFileString(path.join(skillDirectory, "flow.md"))
       ).toBe(PREVIOUS_SKILL);
       expect(
         yield* fileSystem.exists(path.join(root, ".flow-skill.lock"))
       ).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
+  it.effect(
+    `refuses saving a ${scenario} Flow without changing the catalog`,
+    () =>
+      Effect.gen(function* refuseInvalidLayout() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        const name =
+          scenario === "runs" || scenario === "recordings" ? scenario : "guest";
+        const content = `---\nname: ${name}\ndescription: Open the store.\n---\n1. Open the store. Done when: the store is visible.\n`;
+        if (scenario === "duplicate") {
+          yield* fs.makeDirectory(path.join(root, "shop", name), {
+            recursive: true,
+          });
+          yield* fs.writeFileString(
+            path.join(root, "shop", name, "flow.md"),
+            content
+          );
+        }
+        const storeLayer = makeTeachingRecordingStoreLayer({
+          root: () => root,
+        });
+        const layer = Layer.mergeAll(
+          storeLayer,
+          TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
+        );
+        yield* Effect.gen(function* save() {
+          const store = yield* TeachingRecordingStore;
+          const learning = yield* TeachingRecordingLearning;
+          const begun = yield* store.begin({
+            emulation: null,
+            flowSkillName: FlowSkillName.make(name),
+            operationId: OperationId.make("layout-begin"),
+            recordingId,
+            sessionId: AgentSessionId.make("agent-layout-session"),
+          });
+          yield* store.start({
+            emulation: begun.emulation,
+            operationId: OperationId.make("layout-start"),
+            recordingId,
+          });
+          yield* fs.writeFileString(
+            path.join(store.directory(recordingId), "events.jsonl"),
+            ""
+          );
+          yield* store.stop({
+            artifacts: [
+              {
+                capturedAt: "2026-11-02",
+                hash: ContentHash.make(`sha256-${"a".repeat(64)}`),
+                id: "events",
+                kind: "events",
+                path: "events.jsonl",
+              },
+            ],
+            operationId: OperationId.make("layout-stop"),
+            recordingId,
+          });
+          yield* store.startLearning({
+            operationId: claimOperationId,
+            recordingId,
+          });
+          const files = [{ content, path: "flow.md" }];
+          if (scenario === "nested") {
+            files.push({ content, path: "references/child/flow.md" });
+          }
+          const error = yield* Effect.flip(
+            learning.save({
+              claimOperationId,
+              files,
+              operationId: OperationId.make("layout-save"),
+              recordingId,
+            })
+          );
+          if (scenario === "duplicate") {
+            expect(error.message).toContain(path.join(root, "shop", name));
+            expect(error.message).toContain(path.join(root, name));
+            expect(
+              yield* fs.readFileString(path.join(root, "shop", name, "flow.md"))
+            ).toBe(content);
+          } else {
+            expect(error.code).toBe("teaching_recording_invalid");
+          }
+          expect(yield* fs.exists(path.join(root, name))).toBe(false);
+          expect(yield* fs.exists(path.join(root, ".flow-skill.lock"))).toBe(
+            false
+          );
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.provide(NodeServices.layer))
+  );
+}

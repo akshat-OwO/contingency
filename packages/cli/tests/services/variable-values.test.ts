@@ -136,7 +136,7 @@ it("shows the Teaching literal and writes its reference into learned Markdown", 
   );
   expect(overlapping[0]?.content).toBe("{{PASSWORD}} {{PASSWORD}} {{OTHER}}");
   const bounded = parameterizeVariables(
-    [{ content: "1. Sign in as admin, not administrator.", path: "SKILL.md" }],
+    [{ content: "1. Sign in as admin, not administrator.", path: "flow.md" }],
     [
       {
         ...action,
@@ -165,7 +165,7 @@ it("shows the Teaching literal and writes its reference into learned Markdown", 
   ];
   const files = parameterizeVariables(
     [
-      { content, path: "SKILL.md" },
+      { content, path: "flow.md" },
       { content: "Use test-password", path: "references/login.md" },
       ...untouched,
     ],

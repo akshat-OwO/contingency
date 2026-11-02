@@ -9,12 +9,12 @@ import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
  * Which directory an MCP process takes its Catalog Root from (ADR 0049).
  *
  * A permanent registration serves every project, so each session uses its
- * current project's `.contingency` catalog. The Agent Harness that spawned the
+ * current project's `contingency` catalog. The Agent Harness that spawned the
  * process names that directory (`AgentHarness.currentProjectDirectory`);
  * direct use takes the working directory.
  *
  * Discovery and catalog access are separate. A usable directory without
- * `.contingency` simply gets a new catalog when work is first saved, and a
+ * `contingency` simply gets a new catalog when work is first saved, and a
  * permission failure there is reported there. Only the absence of a usable
  * project directory selects the original onboarding directory, and the
  * selection says so, so the agent can name it before using it.

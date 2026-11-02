@@ -18,6 +18,7 @@ import {
   makeCatalogBrowserLayer,
 } from "../../src/services/catalog-browser.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import { taskRunSummary } from "../helpers/task-run.ts";
 
 const skillFile = (name: string, host: string) => `---
@@ -33,7 +34,14 @@ hosts:
    Done when: the cart shows one item.
 `;
 
-const VERIFIED = "# Verification\n\n- Verified: 2026-10-01T00:00:00.000Z\n";
+const VERIFIED = {
+  completedAt: "2026-10-01",
+  inputs: [],
+  observableOutcome: "Ready",
+  outcome: "passed" as const,
+  platform: "web" as const,
+  verifiedAt: "2026-10-01",
+};
 
 const manifest = (recordingId: string, flowSkillName: string) => ({
   artifacts: [
@@ -117,15 +125,11 @@ const writeSkill = (root: string, name: string, verified: boolean) =>
       recursive: true,
     });
     yield* fileSystem.writeFileString(
-      path.join(directory, "SKILL.md"),
-      skillFile(name, "shop.example.com")
+      path.join(directory, "flow.md"),
+      verified
+        ? stampFlowVerification(skillFile(name, "shop.example.com"), VERIFIED)
+        : skillFile(name, "shop.example.com")
     );
-    if (verified) {
-      yield* fileSystem.writeFileString(
-        path.join(directory, "references", "verification.md"),
-        VERIFIED
-      );
-    }
   });
 
 /** A local root with a verified skill, a draft, Runs, and one bad Summary. */
@@ -134,7 +138,7 @@ const seedLocal = (root: string) =>
     const fileSystem = yield* FileSystem.FileSystem;
     yield* writeSkill(root, "browse-catalogue", true);
     yield* writeSkill(root, "draft-cart", false);
-    // A directory without SKILL.md is not a Flow Skill and is not listed.
+    // A directory without flow.md is not a Flow Skill and is not listed.
     yield* fileSystem.makeDirectory(path.join(root, "notes"), {
       recursive: true,
     });
@@ -307,10 +311,7 @@ it.effect("reads one skill's files and procedure from either root", () =>
       name: "browse-catalogue",
       verified: true,
     });
-    expect(localSkill.files.map((file) => file.path)).toEqual([
-      "SKILL.md",
-      "references/verification.md",
-    ]);
+    expect(localSkill.files.map((file) => file.path)).toEqual(["flow.md"]);
     expect(localSkill.steps).toEqual([
       {
         description:
@@ -403,11 +404,11 @@ it.effect("leaves out a reference that links outside its package", () =>
     }).pipe(Effect.provide(browserFor(local)));
     expect(listing.roots[0]?.flowSkills[0]?.verified).toBe(false);
     expect(skill.entry.verified).toBe(false);
-    expect(skill.files.map((file) => file.path)).toEqual(["SKILL.md"]);
+    expect(skill.files.map((file) => file.path)).toEqual(["flow.md"]);
   }).pipe(Effect.provide(NodeServices.layer))
 );
 
-it.effect("lists a skill as unverified when its stamp cannot be read", () =>
+it.effect("lists a Flow as unverified when its stamp is malformed", () =>
   Effect.gen(function* listUnreadableStamp() {
     const fileSystem = yield* FileSystem.FileSystem;
     const workspace = yield* fileSystem.makeTempDirectoryScoped({
@@ -416,9 +417,12 @@ it.effect("lists a skill as unverified when its stamp cannot be read", () =>
     const local = path.join(workspace, ".contingency");
     yield* writeSkill(local, "browse-catalogue", true);
     yield* writeSkill(local, "update-cart", true);
-    yield* fileSystem.chmod(
-      path.join(local, "browse-catalogue", "references", "verification.md"),
-      0o000
+    yield* fileSystem.writeFileString(
+      path.join(local, "browse-catalogue", "flow.md"),
+      skillFile("browse-catalogue", "shop.example.com").replace(
+        "---\nname:",
+        "---\nverification: broken\nname:"
+      )
     );
     const result = yield* Effect.gen(function* browse() {
       const browser = yield* CatalogBrowser;

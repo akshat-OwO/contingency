@@ -62,7 +62,7 @@ const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
     dependencies: [AgentSession, FlowSkillCatalog, McpProcessDiagnostics],
     description:
-      "Read the Workspace URL, Catalog Root, Flow Skill count, and process capabilities. It defaults to the workspace's .contingency directory; no tool reads a user-global catalog. Read the returned guide before other work.",
+      "Read the Workspace URL, Catalog Root, Flow Skill count, and process capabilities. It defaults to the workspace's contingency directory; no tool reads a user-global catalog. Read the returned guide before other work.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
@@ -90,7 +90,7 @@ const FlowSkillsListTool = readOnly(
   Tool.make("agent_flow_skills_list", {
     dependencies: [FlowSkillCatalog],
     description:
-      "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from SKILL.md, each declared input with its description when SKILL.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested skill names; use agent_run_update to consult another requested skill in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
+      "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from flow.md, each declared input with its description when flow.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested skill names; use agent_run_update to consult another requested skill in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: FlowSkillList,

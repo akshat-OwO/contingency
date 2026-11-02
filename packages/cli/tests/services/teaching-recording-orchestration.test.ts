@@ -17,6 +17,10 @@ import { Effect, Exit, FileSystem, Layer, Schema } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import type { AgentSessionStartInput } from "../../src/services/agent-session.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import {
+  stampFlowVerification,
+  readFlowSkillFrontmatter,
+} from "../../src/services/flow-skill-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
 import {
   decideFlowSkill,
@@ -61,7 +65,7 @@ const writeSkill = (
     });
     const placeholders = inputs.map((input) => `{{${input}}}`).join(" and ");
     yield* files.writeFileString(
-      path.join(root, name, "SKILL.md"),
+      path.join(root, name, "flow.md"),
       `---\nname: ${name}\ndescription: Prepare ${name}.\ninputs:\n${inputs
         .map((input) => `  - ${input}\n`)
         .join(
@@ -79,8 +83,18 @@ const writeSkill = (
     );
     if (verified) {
       yield* files.writeFileString(
-        path.join(root, name, "references/verification.md"),
-        "- Verified: 2026-10-02T00:00:00.000Z\n"
+        path.join(root, name, "flow.md"),
+        stampFlowVerification(
+          yield* files.readFileString(path.join(root, name, "flow.md")),
+          {
+            completedAt: "2026-10-02",
+            inputs: [],
+            observableOutcome: "Ready",
+            outcome: "passed",
+            platform: "web",
+            verifiedAt: "2026-10-02",
+          }
+        )
       );
     }
   });
@@ -122,10 +136,10 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
     yield* writeSkill(root, flowSkillName, ["sku", "PASSWORD"], false);
     yield* store.saveSkill({
       claimOperationId: step("learn"),
-      files: ["SKILL.md"],
+      files: ["flow.md"],
       operationId: step("save"),
       recordingId,
-      skillPath: `${flowSkillName}/SKILL.md`,
+      skillPath: `${flowSkillName}/flow.md`,
     });
   });
 
@@ -312,10 +326,10 @@ it.effect(
 
         const started = yield* startDryRun(startInput(recordingId));
         expect(started.manifest.lifecycle._tag).toBe("dry-running");
-        expect(started.skillPath).toBe("cart/SKILL.md");
+        expect(started.skillPath).toBe("cart/flow.md");
         // The package is read through the catalog, text references included.
         expect(started.files.map((file) => file.path)).toEqual([
-          "SKILL.md",
+          "flow.md",
           "references/notes.txt",
         ]);
         expect(
@@ -504,9 +518,11 @@ it.effect(
         });
         expect(failed.cleanup).not.toMatchObject({ failure: null });
         const verification = yield* files.readFileString(
-          path.join(root, "cart/references/verification.md")
+          path.join(root, "cart/flow.md")
         );
-        expect(verification).toMatch(/^- Verified: /mu);
+        expect(
+          readFlowSkillFrontmatter(verification)?.verification?.verifiedAt
+        ).toBeDefined();
 
         const stillLocked = yield* decideFlowSkill({
           decision: "retry-cleanup",

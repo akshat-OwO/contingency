@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { json } from "./runtime.mjs";
@@ -116,10 +116,17 @@ runtime: ${JSON.stringify(requirements)}
 3. Activate Place mock order.
    Done when: Order confirmed and the submitted shopper are visible.
 `;
-  await writeFile(path.join(skill, "SKILL.md"), content);
+  await writeFile(path.join(skill, "flow.md"), content);
+  const unverifiedContent = await readFile(
+    path.join(skill, "flow.md"),
+    "utf-8"
+  );
   await writeFile(
-    path.join(skill, "references/verification.md"),
-    "- Verified: 2026-10-01T00:00:00.000Z\n- Platform: android\n"
+    path.join(skill, "flow.md"),
+    unverifiedContent.replace(
+      /^---\n/u,
+      '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"android"}\n'
+    )
   );
   json(path.join(options.directory, "seed.json"), {
     method: "task-proof disposable verified package",

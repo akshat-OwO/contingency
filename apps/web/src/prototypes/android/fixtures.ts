@@ -304,7 +304,7 @@ const passedCapture = {
   dryRunSessionId: AgentSessionId.make("agent-android-dry-run"),
   dryRunStartedAt: AT,
   readyAt: AT,
-  skillPath: "checkout/SKILL.md",
+  skillPath: "checkout/flow.md",
   startedAt: AT,
   stoppedAt: AT,
 } as const;

@@ -203,11 +203,11 @@ export type DemoSiteId = typeof DemoSiteId.Type;
 export const FlowSkillListEntry = Schema.Struct({
   /** Present when every taught host belongs to a bundled demo site. */
   demo: Schema.optional(DemoSiteId),
-  /** Declared in SKILL.md frontmatter; the task and when to run it. */
+  /** Declared in flow.md frontmatter; the task and when to run it. */
   description: Schema.String,
   /**
    * The declared `{{placeholder}}` inputs, in frontmatter order. A description
-   * is present only when SKILL.md declared the input in its mapping form.
+   * is present only when flow.md declared the input in its mapping form.
    */
   inputs: Schema.Array(
     Schema.Struct({

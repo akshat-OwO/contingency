@@ -41,6 +41,7 @@ import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
+import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -559,13 +560,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             if (command.kind === "run") {
-              const verified = skill.files.find(
-                (file) => file.path === "references/verification.md"
-              );
-              if (
-                !verified?.content.includes("- Platform: android") ||
-                !verified.content.includes("- Verified:")
-              ) {
+              if (!isVerifiedFlowSkill(skill.files, "android")) {
                 return yield* denied(
                   "A later Android Run requires explicit Android verification."
                 );

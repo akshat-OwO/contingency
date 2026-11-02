@@ -675,7 +675,7 @@ try {
     files: [
       {
         content: `---\nname: ${flowSkillName}\ndescription: Sign in to the fixture shop, add an Anvil, and place a mock order. Use when checking the experimental Android checkout.\ninputs:\n---\n\n# Mock checkout\n\n1. Enter ${shopper} in the Shopper name field. Done when: the field shows ${shopper}.\n2. Activate Sign in. Done when: Catalog is visible.\n3. Activate Add Anvil to cart. Done when: Cart: 1 item is visible.\n4. Activate Open cart. Done when: Place mock order is visible.\n5. Activate Place mock order. Done when: Order confirmed is visible.\n`,
-        path: "SKILL.md",
+        path: "flow.md",
       },
     ],
     operationId: operation(),
@@ -685,7 +685,7 @@ try {
     instance.stateDir,
     "catalog",
     flowSkillName,
-    "SKILL.md"
+    "flow.md"
   );
   const saved = await readFile(skillFile, "utf-8");
   assert.ok(saved.includes('"platform":"android"'));
@@ -773,15 +773,10 @@ try {
   );
   await snapshot("verified-cleanup");
   const verification = await readFile(
-    path.join(
-      instance.stateDir,
-      "catalog",
-      flowSkillName,
-      "references/verification.md"
-    ),
+    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
     "utf-8"
   );
-  assert.ok(verification.includes("- Platform: android"));
+  assert.ok(verification.includes('"platform":"android"'));
   receipt.coverage.dryRun = {
     assessment: passed.assessment,
     freshStart: true,

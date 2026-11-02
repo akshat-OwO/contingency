@@ -317,7 +317,7 @@ it.live(
           const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
             claimOperationId,
             files: [
-              { content: DELIVERY_SKILL, path: "SKILL.md" },
+              { content: DELIVERY_SKILL, path: "flow.md" },
               {
                 content: DELIVERY_ACCESSIBILITY,
                 path: "references/accessibility.md",
@@ -330,7 +330,7 @@ it.live(
 
           const skillDirectory = path.join(root, "set-delivery-area");
           const skill = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "SKILL.md")
+            path.join(skillDirectory, "flow.md")
           );
           const accessibility = yield* fileSystem.readFileString(
             path.join(skillDirectory, "references", "accessibility.md")
@@ -428,9 +428,7 @@ it.live(
             flowSkillName: "set-delivery-area",
             recordingId,
           });
-          expect(failedRun.files.map((file) => file.path)).toContain(
-            "SKILL.md"
-          );
+          expect(failedRun.files.map((file) => file.path)).toContain("flow.md");
           const beforeNavigation = yield* sessionTool("agent_browser_act", {
             action: { type: "navigate", url: fixtures.url("settle.html") },
             operationId: OperationId.make("delivery-dry-navigate-later"),
@@ -637,7 +635,7 @@ it.live(
             {
               claimOperationId,
               files: [
-                { content: DELIVERY_SKILL, path: "SKILL.md" },
+                { content: DELIVERY_SKILL, path: "flow.md" },
                 {
                   content: DELIVERY_ACCESSIBILITY,
                   path: "references/accessibility.md",
@@ -864,17 +862,19 @@ it.live(
             demonstratedKeyframes.filter((name) => name.endsWith(".png"))
           ).not.toHaveLength(0);
           expect(
-            yield* fileSystem.exists(path.join(skillDirectory, "SKILL.md"))
+            yield* fileSystem.exists(path.join(skillDirectory, "flow.md"))
           ).toBe(true);
           expect(
             yield* fileSystem.exists(
               path.join(skillDirectory, "references", "verification.md")
             )
-          ).toBe(true);
+          ).toBe(false);
           const verification = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "references", "verification.md")
+            path.join(skillDirectory, "flow.md")
           );
-          expect(verification).toContain("Observable outcome:");
+          expect(
+            readFlowSkillFrontmatter(verification)?.verification?.verifiedAt
+          ).toBeDefined();
           expect(verification).toContain(
             "The complete delivery status is visible."
           );

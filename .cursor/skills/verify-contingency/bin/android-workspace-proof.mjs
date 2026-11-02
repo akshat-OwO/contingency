@@ -306,14 +306,14 @@ try {
     files: [
       {
         content: `---\nname: ${flowSkillName}\ndescription: Enter a public fixture name and sign in to the disposable Android checkout app. Use when checking experimental Workspace input.\ninputs:\n---\n\n# Enter public fixture text\n\n1. Enter ${publicText} in Shopper name. Done when: ${publicText} is visible.\n2. Activate Sign in. Done when: Catalog is visible.\n`,
-        path: "SKILL.md",
+        path: "flow.md",
       },
     ],
     operationId: operation(),
     recordingId,
   });
   const saved = await readFile(
-    path.join(instance.stateDir, "catalog", flowSkillName, "SKILL.md"),
+    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
     "utf-8"
   );
   assert.ok(
@@ -408,17 +408,12 @@ try {
     false
   );
   const verification = await readFile(
-    path.join(
-      instance.stateDir,
-      "catalog",
-      flowSkillName,
-      "references/verification.md"
-    ),
+    path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
     "utf-8"
   );
   assert.ok(
-    verification.includes("- Platform: android") &&
-      verification.includes("- Verified:")
+    verification.includes('"platform":"android"') &&
+      verification.includes('"verifiedAt":')
   );
   receipt.coverage.verification = {
     dryRunId: dry.id,

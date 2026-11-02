@@ -291,7 +291,7 @@ test("restores retained Runs and orphan recordings when the filter clears", asyn
   expect(
     screen.getByRole("button", { name: /recording-retained/u })
   ).toBeVisible();
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
 });
 
 test("opens global-only orphan recordings with no nonexistent skill action", async () => {
@@ -369,7 +369,7 @@ test("refresh replaces a removed selected skill with retained history, then empt
     "aria-pressed",
     "true"
   );
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   rpc.browse = browse([decodeRoot({ ...retained, runs: [] })]);
   await userEvent.click(
     screen.getByRole("button", { name: "Refresh catalog" })
@@ -610,7 +610,7 @@ test("narrow navigation preserves filter, folder, Details selection and keyboard
       <ObserveSelection />
     </TestRegistry>
   );
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.type(screen.getByLabelText("Filter skills"), "1mg");
   const row = screen.getByRole("button", { name: /1mg mobile login/u });
   row.focus();
@@ -619,8 +619,8 @@ test("narrow navigation preserves filter, folder, Details selection and keyboard
   expect(
     screen.getByRole("heading", { name: "1mg mobile login" })
   ).toHaveFocus();
-  await userEvent.click(screen.getByRole("button", { name: "SKILL.md" }));
-  expect(screen.getByRole("button", { name: "SKILL.md" })).toHaveAttribute(
+  await userEvent.click(screen.getByRole("button", { name: "flow.md" }));
+  expect(screen.getByRole("button", { name: "flow.md" })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
@@ -631,9 +631,9 @@ test("narrow navigation preserves filter, folder, Details selection and keyboard
   expect(
     screen.getByRole("button", { name: /1mg mobile login/u })
   ).toHaveFocus();
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.keyboard("{Enter}");
-  expect(screen.getByRole("button", { name: "SKILL.md" })).toHaveAttribute(
+  expect(screen.getByRole("button", { name: "flow.md" })).toHaveAttribute(
     "aria-pressed",
     "true"
   );
@@ -654,7 +654,7 @@ test("resizing keeps the focused navigation view and selected folder usable", as
   expect(
     screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
   ).toHaveFocus();
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.keyboard("{Enter}");
   resizeNavigation(1);
   expect(
@@ -710,12 +710,12 @@ test("narrow no-match recovery retains the chosen folder and restores history", 
   expect(
     screen.getByRole("button", { name: /Other recordings/u })
   ).toBeVisible();
-  expect(screen.queryByRole("button", { name: "SKILL.md" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "flow.md" })).toBeNull();
   await userEvent.click(
     screen.getByRole("button", { name: /Ridgeline Boulder cart/u })
   );
   expect(
     screen.getByRole("heading", { name: "Ridgeline Boulder cart" })
   ).toHaveFocus();
-  expect(screen.getByRole("button", { name: "SKILL.md" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "flow.md" })).toBeVisible();
 });

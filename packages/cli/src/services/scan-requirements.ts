@@ -6,7 +6,7 @@ import type {
 } from "@contingency/protocol";
 import { Effect, Result, Schema } from "effect";
 
-export const SCANS_FILE = "references/scans.json";
+export const SCANS_FILE = "scans.json";
 const document = Schema.Struct({
   requirements: Schema.Array(ScanRequirement),
   schemaVersion: Schema.Literal(1),
@@ -25,7 +25,7 @@ export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
     const { requirements } = Schema.decodeUnknownSync(document)(
       JSON.parse(file.content)
     );
-    const skill = files.find((candidate) => candidate.path === "SKILL.md");
+    const skill = files.find((candidate) => candidate.path === "flow.md");
     const ids = new Set<string>();
     for (const requirement of requirements) {
       if (ids.has(requirement.id)) {
@@ -67,7 +67,7 @@ export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
       ) {
         return Result.fail(
           invalid(
-            `Link ${SCANS_FILE} and name scan ${requirement.id} in SKILL.md.`
+            `Link ${SCANS_FILE} and name scan ${requirement.id} in flow.md.`
           )
         );
       }
@@ -126,7 +126,7 @@ export const validateTaughtScans = (
     if (starts.length !== parsed.success.length) {
       return yield* Effect.fail(
         invalid(
-          "Preserve every taught scan in references/scans.json; do not invent additional scans."
+          "Preserve every taught scan in scans.json; do not invent additional scans."
         )
       );
     }

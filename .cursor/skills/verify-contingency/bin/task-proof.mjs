@@ -325,7 +325,7 @@ const dryProof = (catalog, url) =>
       {
         content:
           "---\nname: dry-proof\ndescription: Add one anvil to the local cart.\ninputs:\n  - area\n---\n\n# Add an anvil\n\n1. Add an anvil for {{area}}.\n   Done when: Cart has 1 items is visible.\n",
-        path: "SKILL.md",
+        path: "flow.md",
       },
     ];
     const save = () =>
@@ -452,11 +452,8 @@ const dryProof = (catalog, url) =>
         });
         assert.ok(
           (yield* io(() =>
-            readFile(
-              path.join(catalog, "dry-proof", "references/verification.md"),
-              "utf-8"
-            )
-          )).includes("- Verified:")
+            readFile(path.join(catalog, "dry-proof", "flow.md"), "utf-8")
+          )).includes('"verifiedAt":')
         );
         const listing = yield* call("agent_flow_skills_list", {}, null);
         if (listing.exitCode === 0) {
@@ -683,12 +680,19 @@ const main = Effect.gen(function* main() {
     yield* io(async () => {
       await mkdir(path.join(skill, "references"), { recursive: true });
       await writeFile(
-        path.join(skill, "SKILL.md"),
+        path.join(skill, "flow.md"),
         `---\nname: ${name}\ndescription: Exercise the local cart and help page.\ninputs:\n  - area\n  - PASSWORD\n  - UNUSED\nhosts:\n  - ${host}\nemulation:\n  userAgentProfile: default\n  viewport: ${width}x480@1\n---\n\n# ${name}\n\n1. Sign in using {{PASSWORD}}.\n   Done when: Signed in is visible.\n2. Add an anvil and open help, using {{area}} when requested.\n   Done when: The cart has one item and help is open.\n3. Continue the rest of the skill when requested using {{UNUSED}}.\n   Done when: The requested continuation is complete.\n`
       );
+      const unverifiedContent = await readFile(
+        path.join(skill, "flow.md"),
+        "utf-8"
+      );
       await writeFile(
-        path.join(skill, "references/verification.md"),
-        "- Verified: 2026-10-01T00:00:00.000Z\n"
+        path.join(skill, "flow.md"),
+        unverifiedContent.replace(
+          /^---\n/u,
+          '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"web"}\n'
+        )
       );
     });
   }

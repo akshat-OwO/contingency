@@ -14,6 +14,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import {
   agentProcessLayer,
   awaitRunVideo,
@@ -45,7 +46,7 @@ const saveSkill = (
       recursive: true,
     });
     yield* files.writeFileString(
-      path.join(directory, "SKILL.md"),
+      path.join(directory, "flow.md"),
       `---
 name: ${name}
 description: Use ${name} to investigate the cart.
@@ -66,8 +67,18 @@ inputs:
 `
     );
     yield* files.writeFileString(
-      path.join(directory, "references/verification.md"),
-      "- Verified: 2026-10-01T00:00:00.000Z\n"
+      path.join(directory, "flow.md"),
+      stampFlowVerification(
+        yield* files.readFileString(path.join(directory, "flow.md")),
+        {
+          completedAt: "2026-10-02",
+          inputs: [],
+          observableOutcome: "Ready",
+          outcome: "passed",
+          platform: "web",
+          verifiedAt: "2026-10-02",
+        }
+      )
     );
   });
 
@@ -83,7 +94,7 @@ it.live(
       for (const state of ["granted", "denied"] as const) {
         const name = `phone-${state}`;
         yield* saveSkill(root, name, 390);
-        const file = path.join(root, name, "SKILL.md");
+        const file = path.join(root, name, "flow.md");
         yield* files.writeFileString(
           file,
           (yield* files.readFileString(file)).replace(
@@ -194,7 +205,7 @@ it.live(
           expect(refused.message).toContain("different emulation");
           expect(refused.message).toContain("separate Runs");
           expect(fixture.requests).toEqual([]);
-          const file = path.join(root, "phone", "SKILL.md");
+          const file = path.join(root, "phone", "flow.md");
           yield* files.writeFileString(
             file,
             (yield* files.readFileString(file)).replace("390x480@1", "wide")
@@ -603,7 +614,7 @@ it.live(
             fixture.url("task-session.html?tab=help")
           );
           // Updating an existing input does not reapply its skill's environment.
-          const firstSkillFile = path.join(root, "flow1", "SKILL.md");
+          const firstSkillFile = path.join(root, "flow1", "flow.md");
           yield* files.writeFileString(
             firstSkillFile,
             (yield* files.readFileString(firstSkillFile)).replace(

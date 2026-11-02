@@ -30,7 +30,11 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
-import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import { maintainCatalogGitignore } from "./flow-catalog-layout.ts";
+import {
+  readFlowSkillFrontmatter,
+  stampFlowVerification,
+} from "./flow-skill-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
@@ -39,8 +43,7 @@ const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
 /** Final manifests of purged Recordings, written before their directories are deleted. */
 const PURGED_DIRECTORY = ".purged";
-const VERIFICATION_FILE = "references/verification.md";
-const VERIFIED_REFERENCE_PATTERN = /^- Verified: /mu;
+const VERIFICATION_FILE = "flow.md";
 
 interface TeachingRecordingStoreDomainError {
   readonly _tag: "TeachingRecordingStoreError";
@@ -438,6 +441,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         .pipe(Effect.mapError(() => conflict));
       return Effect.gen(function* lockManifest() {
         if (createDirectory) {
+          yield* maintainCatalogGitignore(
+            rootFor(recordingId),
+            fileSystem
+          ).pipe(
+            Effect.mapError(ioError("Could not maintain catalog ignores"))
+          );
           yield* fileSystem
             .makeDirectory(directory, { recursive: true })
             .pipe(
@@ -1153,35 +1162,28 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         path.join(rootFor(manifest.recordingId), manifest.lifecycle.skillPath)
       );
       const verificationPath = path.join(skillDirectory, VERIFICATION_FILE);
-      const inputs = result.inputs.map(
-        ({ changed, name }) => `- ${name}${changed ? " (changed)" : ""}`
-      );
-      const contents = [
-        "# Last Dry Run",
-        "",
-        `- Completed: ${result.completedAt}`,
-        `- Result: ${result.outcome}`,
-        `- Observable outcome: ${result.observableOutcome}`,
-        "",
-        "## Inputs",
-        "",
-        ...inputs,
-        "",
-      ].join("\n");
-      return fileSystem
-        .makeDirectory(path.dirname(verificationPath), { recursive: true })
-        .pipe(
-          Effect.andThen(
-            fileSystem.writeFileString(verificationPath, contents, {
-              mode: 0o600,
-            })
-          ),
-          Effect.mapError(
-            ioError(
-              `Could not persist the Dry Run result for ${manifest.recordingId}`
-            )
+      return fileSystem.readFileString(verificationPath).pipe(
+        Effect.flatMap((content) =>
+          fileSystem.writeFileString(
+            verificationPath,
+            stampFlowVerification(content, {
+              completedAt: result.completedAt,
+              inputs: result.inputs.map(({ changed, name }) => ({
+                changed,
+                name,
+              })),
+              observableOutcome: result.observableOutcome,
+              outcome: result.outcome,
+            }),
+            { mode: 0o600 }
           )
-        );
+        ),
+        Effect.mapError(
+          ioError(
+            `Could not persist the Dry Run result for ${manifest.recordingId}`
+          )
+        )
+      );
     };
 
     const reportDryRun = (
@@ -1287,11 +1289,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
       return Effect.gen(function* writeVerificationReference() {
         const origin = yield* SessionEventOrigin;
-        const skillPath = path.join(
-          path.dirname(verificationPath),
-          "..",
-          "SKILL.md"
-        );
+        const skillPath = verificationPath;
         const content = yield* fileSystem
           .readFileString(skillPath)
           .pipe(
@@ -1315,20 +1313,33 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             )
           );
         }
-        return yield* fileSystem.readFileString(verificationPath).pipe(
-          Effect.flatMap((contents) =>
-            fileSystem.writeFileString(
-              verificationPath,
-              `${contents.trimEnd()}\n- Verified: ${verifiedAt}\n- Platform: ${manifest.runtime?.platform ?? "web"}\n- Verification origin: ${origin}\n`,
-              { mode: 0o600 }
+        const previous = readFlowSkillFrontmatter(content)?.verification;
+        if (previous === undefined || previous.outcome !== "passed") {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_conflict",
+              "The saved Flow has no passing Dry Run stamp."
             )
-          ),
-          Effect.mapError(
-            ioError(
-              `Could not persist verification for ${manifest.recordingId}`
-            )
+          );
+        }
+        return yield* fileSystem
+          .writeFileString(
+            verificationPath,
+            stampFlowVerification(content, {
+              ...previous,
+              origin,
+              platform: manifest.runtime?.platform ?? "web",
+              verifiedAt,
+            }),
+            { mode: 0o600 }
           )
-        );
+          .pipe(
+            Effect.mapError(
+              ioError(
+                `Could not persist verification for ${manifest.recordingId}`
+              )
+            )
+          );
       });
     };
 
@@ -1625,8 +1636,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
             return fileSystem.readFileString(verificationPath).pipe(
               Effect.flatMap((contents) =>
-                VERIFIED_REFERENCE_PATTERN.test(contents)
-                  ? verify({
+                readFlowSkillFrontmatter(contents)?.verification?.verifiedAt ===
+                undefined
+                  ? Effect.void
+                  : verify({
                       operationId: OperationId.make(
                         `verification-recovery-${manifest.recordingId}`
                       ),
@@ -1634,12 +1647,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                     }).pipe(
                       Effect.provideService(
                         SessionEventOrigin,
-                        /^- Verification origin: agent$/mu.test(contents)
+                        readFlowSkillFrontmatter(contents)?.verification
+                          ?.origin === "agent"
                           ? "agent"
                           : "workspace"
                       )
                     )
-                  : Effect.void
               ),
               Effect.ignore
             );

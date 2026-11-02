@@ -6,7 +6,7 @@ It is not a [Setting](./settings.md): no `config.json` holds a Variable value.
 
 ## Declare inputs
 
-Declare every input in the `inputs` list of the Flow Skill's `SKILL.md` frontmatter. Each entry is a bare name or a mapping with an optional description:
+Declare every input in the `inputs` list of the Flow Skill's `flow.md` frontmatter. Each entry is a bare name or a mapping with an optional description:
 
 ```yaml
 ---

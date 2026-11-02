@@ -393,11 +393,18 @@ it.effect.each([
         });
         yield* store.saveSkill({
           claimOperationId: operation("learn"),
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: operation("save"),
           recordingId,
-          skillPath: "browse-catalogue/SKILL.md",
+          skillPath: "browse-catalogue/flow.md",
         });
+        yield* files.makeDirectory(path.join(root, "browse-catalogue"), {
+          recursive: true,
+        });
+        yield* files.writeFileString(
+          path.join(root, "browse-catalogue", "flow.md"),
+          "---\nname: browse-catalogue\n---\n"
+        );
         yield* store.startDryRun({
           inputs: [],
           operationId: operation("dry"),

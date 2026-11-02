@@ -13,7 +13,7 @@ import {
 } from "effect";
 
 import packageJson from "../../package.json" with { type: "json" };
-import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
+import { GLOBAL_CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
 
 /**
  * Settings read from `config.json` in the Catalog Root and in
@@ -382,7 +382,7 @@ export const makeSettingsProvider = (layers: SettingsLayers) => {
 };
 
 export const userSettingsPath = (home: string = os.homedir()) =>
-  path.join(home, CATALOG_DIRECTORY, SETTINGS_FILE);
+  path.join(home, GLOBAL_CATALOG_DIRECTORY, SETTINGS_FILE);
 
 export const projectSettingsPath = (catalogRoot: string) =>
   path.join(catalogRoot, SETTINGS_FILE);

@@ -108,10 +108,17 @@ export const prepareJourney = async (options) => {
     const skill = path.join(catalog, "eval-checkout");
     await mkdir(path.join(skill, "references"), { recursive: true });
     const { writeFile } = await import("node:fs/promises");
-    await writeFile(path.join(skill, "SKILL.md"), checkoutSkill);
+    await writeFile(path.join(skill, "flow.md"), checkoutSkill);
+    const unverifiedContent = await readFile(
+      path.join(skill, "flow.md"),
+      "utf-8"
+    );
     await writeFile(
-      path.join(skill, "references/verification.md"),
-      "- Verified: 2026-10-01T00:00:00.000Z\n"
+      path.join(skill, "flow.md"),
+      unverifiedContent.replace(
+        /^---\n/u,
+        '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"web"}\n'
+      )
     );
     json(path.join(directory, "seed.json"), {
       literalPersisted: false,
@@ -192,7 +199,7 @@ export const prepareJourney = async (options) => {
       await (task === "dry-run"
         ? mcp.operation("agent_flow_skill_save", {
             claimOperationId,
-            files: [{ content: deliverySkill, path: "SKILL.md" }],
+            files: [{ content: deliverySkill, path: "flow.md" }],
             operationId: op(),
             recordingId: state.recordingId,
           })

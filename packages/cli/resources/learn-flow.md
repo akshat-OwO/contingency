@@ -13,7 +13,7 @@ Learn one Contingency Teaching Recording and write its Flow Skill.
    - Missing capture metadata is not proof of readiness.
    - Use later evidence to establish destination content, and give the Flow Skill an observable completion condition beyond the URL.
 
-4. Write SKILL.md: YAML frontmatter with name equal to the Flow Skill name, a description that states the task and its trigger, and an inputs list naming every value a later run may change.
+4. Write flow.md: YAML frontmatter with name equal to the Flow Skill name, a description that states the task and its trigger, and an inputs list naming every value a later run may change.
 
    Declare each input either as a bare name (`- sku`) or as a mapping that opens with `- name: sku` and carries an indented `description:` line saying what the value is. Use {{placeholder}} for each declared input and end every numbered step with a "Done when:" line.
 
@@ -24,13 +24,13 @@ Learn one Contingency Teaching Recording and write its Flow Skill.
    - A Dry Run's prerequisites are execution settings; they are not automatically added to the saved skill.
    - Ask the user to authorize a named setup skill when it is needed in a later Run.
 
-5. Put conditional target detail in references/accessibility.md, as `- role=<role> name="<name>" context="<context>"` entries, plus a "Why these targets are stable" heading. Link every reference file from SKILL.md.
+5. Put conditional target detail in references/accessibility.md, as `- role=<role> name="<name>" context="<context>"` entries, plus a "Why these targets are stable" heading. Link every reference file from flow.md.
 
    Browser Checks and Guided Run proposals:
 
    - For a Guided Run, dialogue.proposal is unconfirmed intent, never a requirement.
    - Copy checks only from confirmed answer Instructions carrying scan or attachments; rejected and unanswered proposals contribute no checks.
-   - When Teaching instructions carry attachments, copy every attachment.requirement exactly into references/browser-checks.json as {"schemaVersion":1,"requirements":[...]}, keeping its ID, storage format, types, predicates, request pattern, timing, timeout, and demonstrated flag.
+   - When Teaching instructions carry attachments, copy every attachment.requirement exactly into checks.json as {"schemaVersion":1,"requirements":[...]}, keeping its ID, storage format, types, predicates, request pattern, timing, timeout, and demonstrated flag.
    - Context attachments have no requirement and do not constrain Runs.
    - Link the file and check IDs at the triggering procedure points.
    - Browser Checks survive Recording Cleanup.
@@ -44,7 +44,7 @@ Learn one Contingency Teaching Recording and write its Flow Skill.
 
    Scan Requirements:
 
-   - When instructions carry scan settings, preserve each start ID and mode in references/scans.json: {"schemaVersion":1,"requirements":[{"id":"<taught-id>","mode":"accessibility|reload|navigation|timespan","when":"<observable journey condition>","endWhen":"<timespan stop condition>","expectedUrl":"<navigation destination>"}]}.
+   - When instructions carry scan settings, preserve each start ID and mode in scans.json: {"schemaVersion":1,"requirements":[{"id":"<taught-id>","mode":"accessibility|reload|navigation|timespan","when":"<observable journey condition>","endWhen":"<timespan stop condition>","expectedUrl":"<navigation destination>"}]}.
    - Only timespans have endWhen; navigation requires expectedUrl.
    - Infer conditions from ordered comments, targets, and recording evidence, and ask for clarification if ambiguous.
    - Link the file and IDs at the relevant procedure points.
@@ -56,7 +56,7 @@ Learn one Contingency Teaching Recording and write its Flow Skill.
    - Guided Run browser-modification events are required state.
    - Preserve their order, journey outcomes, and removals in the procedure.
    - Active setup state is anchored at Start.
-   - Saving stamps references/browser-state.json and its link from the recording.
+   - Saving stamps browser-state.json and its link from the recording.
    - Apply these commands at their named outcomes in the Dry Run, with fresh operation IDs and current removal IDs.
    - A failed or omitted saved command prevents a pass.
    - The Dry Run may also make agent-initiated modifications; these are flagged beside the Assessment and do not cap it.

@@ -126,7 +126,7 @@ test("keeps Verify flow reachable after the Dry Run session closes", () => {
       dryRunSessionId: AgentSessionId.make("agent-dry-run"),
       dryRunStartedAt: pending.startedAt,
       readyAt: pending.startedAt,
-      skillPath: "android-checkout/SKILL.md",
+      skillPath: "android-checkout/flow.md",
       startedAt: pending.startedAt,
       stoppedAt: pending.startedAt,
     },

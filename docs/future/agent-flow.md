@@ -138,7 +138,7 @@ The Run Summary reports assessment counts separately from coverage. It embeds th
 
 ## Catalog and retention
 
-The explicitly selected **Catalog Root** defaults to the workspace's `.contingency` directory. The agent never scans a user-global catalog implicitly. Catalog search supports deterministic filters and local full-text search over title, description, tags, and Agent Step descriptions ([ADR 0033](../adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
+The explicitly selected **Catalog Root** defaults to the workspace's `contingency` directory. The agent never scans a user-global catalog implicitly. Catalog search supports deterministic filters and local full-text search over title, description, tags, and Agent Step descriptions ([ADR 0033](../adr/0033-agent-flow-catalog-stores-versioned-evidence-packages.md)).
 
 Before Teaching, the agent searches for close matches and asks whether to run an approved revision, revise an existing Agent Flow, or create a distinct one. Archive is the default removal operation; permanent deletion requires direct confirmation.
 

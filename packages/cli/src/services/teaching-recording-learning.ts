@@ -33,6 +33,12 @@ import type { PlatformError } from "effect/PlatformError";
 import { validateTaughtBrowserChecks } from "./browser-check-requirements.ts";
 import { webHost } from "./domain-scope.ts";
 import {
+  discoverFlows,
+  maintainCatalogGitignore,
+  RESERVED_FLOW_NAMES,
+} from "./flow-catalog-layout.ts";
+import {
+  SKILL_FILE,
   stampFlowSkillProvenance,
   validateFlowSkillPackage,
 } from "./flow-skill-package.ts";
@@ -47,7 +53,6 @@ import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 import type { TeachingRecordingStoreError } from "./teaching-recording-store.ts";
 
 const EVENTS_FILE_KIND = "events";
-const SKILL_FILE = "SKILL.md";
 
 /** Shorter values match ordinary prose too often to rewrite safely. */
 const MIN_PARAMETERIZED_LENGTH = 4;
@@ -174,8 +179,12 @@ const isSafeSkillPath = (filePath: string): boolean => {
   const normalized = path.posix.normalize(filePath);
   return (
     normalized === filePath &&
-    (filePath === SKILL_FILE || filePath.startsWith("references/")) &&
+    (filePath === SKILL_FILE ||
+      filePath.startsWith("references/") ||
+      ["checks.json", "scans.json", "browser-state.json"].includes(filePath)) &&
     !filePath.endsWith("/") &&
+    (filePath === SKILL_FILE ||
+      !filePath.split("/").some((part) => RESERVED_FLOW_NAMES.has(part))) &&
     !path.posix.isAbsolute(filePath) &&
     !filePath.split("/").includes("..")
   );
@@ -192,7 +201,7 @@ const validateFiles = (
 ): Effect.Effect<readonly FlowSkillFile[], TeachingRecordingLearningError> => {
   const missingSkillFile = pathDiagnostic(
     "flow_skill_missing_skill_file",
-    "A Flow Skill package must contain SKILL.md.",
+    "A Flow Skill package must contain flow.md.",
     SKILL_FILE
   );
   if (files.length === 0) {
@@ -205,7 +214,7 @@ const validateFiles = (
         invalidPackage([
           pathDiagnostic(
             "flow_skill_unsafe_path",
-            `Flow Skill file ${file.path} must be SKILL.md or a file under references/.`,
+            `Flow Skill file ${file.path} must be flow.md, a contract, or a file under references/.`,
             file.path
           ),
         ])
@@ -719,10 +728,48 @@ const makeTeachingRecordingLearning = Effect.fn(
       return yield* withSkillLock(
         catalogRoot,
         Effect.gen(function* replaceSkillAtomically() {
+          const target = path.join(catalogRoot, manifest.flowSkillName);
+          if (RESERVED_FLOW_NAMES.has(manifest.flowSkillName)) {
+            return yield* Effect.fail(
+              learningError(
+                "teaching_recording_invalid",
+                `Reserved Flow name at ${target}.`
+              )
+            );
+          }
+          const flows = yield* discoverFlows(catalogRoot, fileSystem).pipe(
+            Effect.mapError((cause) =>
+              learningError("teaching_recording_invalid", cause.message)
+            )
+          );
+          const collision = flows.get(manifest.flowSkillName);
+          if (collision !== undefined && collision.directory !== target) {
+            return yield* Effect.fail(
+              learningError(
+                "teaching_recording_conflict",
+                `Duplicate Flow name "${manifest.flowSkillName}" at ${collision.directory} and ${target}.`
+              )
+            );
+          }
+          if (
+            collision === undefined &&
+            (yield* fileSystem
+              .exists(target)
+              .pipe(Effect.mapError(ioError(`Could not inspect ${target}`))))
+          ) {
+            return yield* Effect.fail(
+              learningError(
+                "teaching_recording_conflict",
+                `${target} is an existing Group, not a Flow.`
+              )
+            );
+          }
+          yield* maintainCatalogGitignore(catalogRoot, fileSystem).pipe(
+            Effect.mapError(ioError("Could not maintain catalog ignores"))
+          );
           const nonce = randomUUID();
           const temporary = path.join(catalogRoot, `.flow-skill-${nonce}.tmp`);
           const backup = path.join(catalogRoot, `.flow-skill-${nonce}.backup`);
-          const target = path.join(catalogRoot, manifest.flowSkillName);
           yield* fileSystem
             .makeDirectory(temporary, { mode: 0o700, recursive: true })
             .pipe(Effect.mapError(ioError("Could not stage the Flow Skill")));

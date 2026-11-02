@@ -509,7 +509,7 @@ try {
   const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
   await tool("agent_flow_skill_save", {
     claimOperationId: claim,
-    files: [{ content, path: "SKILL.md" }],
+    files: [{ content, path: "flow.md" }],
     operationId: operation(),
     recordingId,
   });
@@ -779,20 +779,15 @@ try {
       assert.equal(verified.captureState._tag, "verified");
       assert.equal(verified.cleanup._tag, "purged");
       const skill = await readFile(
-        path.join(instance.stateDir, "catalog", flowSkillName, "SKILL.md"),
+        path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
         "utf-8"
       );
       assert.match(skill, /"platform":"ios"/u);
       const verification = await readFile(
-        path.join(
-          instance.stateDir,
-          "catalog",
-          flowSkillName,
-          "references/verification.md"
-        ),
+        path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
         "utf-8"
       );
-      assert.match(verification, /- Platform: ios/u);
+      assert.match(verification, /"platform":"ios"/u);
       receipt.coverage.verificationAndPurge = true;
       await snapshot("verified-purged");
     }

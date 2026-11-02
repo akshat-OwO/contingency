@@ -10,7 +10,7 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
   const progressive = {
     draftedAt: "2026-09-16T10:00:00.000Z",
     readyAt: "2026-09-16T10:00:00.000Z",
-    skillPath: "set-delivery-area/SKILL.md",
+    skillPath: "set-delivery-area/flow.md",
     startedAt: "2026-09-16T10:00:00.000Z",
     stoppedAt: "2026-09-16T10:00:00.000Z",
   };

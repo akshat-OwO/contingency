@@ -149,8 +149,8 @@ const learn = Effect.gen(function* learnRequirements() {
     claimOperationId,
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Submit once and confirm a ready order with a newly created checkout cookie.\ninputs:\n---\n\n1. Click the Submit button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](references/browser-checks.json). Done when: both checks pass and Confirmation ready with Submitted 1 time(s) is visible.\n`,
-        path: "SKILL.md",
+        content: `---\nname: ${flowSkillName}\ndescription: Submit once and confirm a ready order with a newly created checkout cookie.\ninputs:\n---\n\n1. Click the Submit button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: both checks pass and Confirmation ready with Submitted 1 time(s) is visible.\n`,
+        path: "flow.md",
       },
       {
         content: JSON.stringify(
@@ -158,7 +158,7 @@ const learn = Effect.gen(function* learnRequirements() {
           null,
           2
         ),
-        path: "references/browser-checks.json",
+        path: "checks.json",
       },
     ],
     operationId: operation(),
@@ -194,7 +194,7 @@ const later = Effect.gen(function* laterRun() {
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
           state.flowSkillName,
-          "references/browser-checks.json"
+          "checks.json"
         ),
         "utf-8"
       )

@@ -145,7 +145,7 @@ it.live(
               {
                 content:
                   "---\nname: guided-state\ndescription: Inspect the fixture.\ninputs:\n---\n\n1. Use capture-header-literal. Done when: fixture is visible.\n",
-                path: "SKILL.md",
+                path: "flow.md",
               },
             ],
             operationId: operation("refused-save"),
@@ -159,20 +159,20 @@ it.live(
             {
               content:
                 "---\nname: guided-state\ndescription: Inspect the QA fixture when testing saved browser state.\ninputs:\n---\n\n1. Apply the recorded state and inspect the fixture. Done when: the required mock responds with learned response.\n",
-              path: "SKILL.md",
+              path: "flow.md",
             },
           ],
           operationId: operation("save"),
           recordingId,
         });
-        expect(saved.files).toContain("references/browser-state.json");
-        const skill = yield* fs.readFileString(`${root}/guided-state/SKILL.md`);
+        expect(saved.files).toContain("browser-state.json");
+        const skill = yield* fs.readFileString(`${root}/guided-state/flow.md`);
         expect(skill).toContain("Delegated: Inspect fixture");
-        expect(skill).toContain("references/browser-state.json");
+        expect(skill).toContain("browser-state.json");
         // Emulation at Start remains the baseline; the capture change is a command.
         expect(skill).not.toContain("textScale: 150");
         const required = yield* fs.readFileString(
-          `${root}/guided-state/references/browser-state.json`
+          `${root}/guided-state/browser-state.json`
         );
         expect(required).toContain("capture-mock");
         const dry = yield* teachingRecordingTool(

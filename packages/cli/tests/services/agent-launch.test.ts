@@ -52,7 +52,7 @@ it("supplies a session-only server on an available port for this directory", () 
     ],
     command: "/usr/local/bin/node",
     env: {
-      CONTINGENCY_CATALOG_ROOT: "/work/my app/.contingency",
+      CONTINGENCY_CATALOG_ROOT: "/work/my app/contingency",
       CONTINGENCY_MCP_PORT: "0",
     },
   });
@@ -246,7 +246,7 @@ it.effect("passes Codex TOML overrides and keeps the prompt last", () =>
         "-c",
         'mcp_servers.contingency.args=["/opt/contingency/dist/index.js", "mcp", "--agent", "codex", "--fallback-directory", "/work/app", "--session-only"]',
         "-c",
-        'mcp_servers.contingency.env={ CONTINGENCY_CATALOG_ROOT = "/work/app/.contingency", CONTINGENCY_MCP_PORT = "0" }',
+        'mcp_servers.contingency.env={ CONTINGENCY_CATALOG_ROOT = "/work/app/contingency", CONTINGENCY_MCP_PORT = "0" }',
         "-c",
         "mcp_servers.contingency.startup_timeout_sec=60",
         "exec",

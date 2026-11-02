@@ -164,6 +164,7 @@ import type {
   BoundaryCheck,
   PendingBoundary,
 } from "./execution-boundary.ts";
+import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import type { SavedPlatformRequirements } from "./platform-requirements.ts";
 import {
@@ -1332,7 +1333,6 @@ const runIsOver = (snapshot: AgentSessionSnapshot): boolean =>
 
 const TIMELINE_LIMIT = 200;
 const SETUP_VARIABLE_LIMIT = 64;
-const VERIFIED_REFERENCE_PATTERN = /^- Verified: (?<verifiedAt>.+)$/mu;
 
 /**
  * The action the agent has dispatched to the browser right now, if any. A user
@@ -2131,12 +2131,12 @@ const makeAgentSession = (
                     path.dirname(
                       path.join(catalogRoot, snapshot.captureState.skillPath)
                     ),
-                    "references/verification.md"
+                    "flow.md"
                   );
                   return fileSystem.readFileString(verificationFile).pipe(
                     Effect.flatMap((contents) => {
                       const verifiedAt =
-                        VERIFIED_REFERENCE_PATTERN.exec(contents)?.groups
+                        readFlowSkillFrontmatter(contents)?.verification
                           ?.verifiedAt;
                       if (verifiedAt === undefined) {
                         return Effect.succeed(snapshot);
@@ -2144,7 +2144,8 @@ const makeAgentSession = (
                       sessionEvents.observeVerification(
                         sessionId,
                         verifiedAt,
-                        /^- Verification origin: agent$/mu.test(contents)
+                        readFlowSkillFrontmatter(contents)?.verification
+                          ?.origin === "agent"
                           ? "agent"
                           : "workspace"
                       );

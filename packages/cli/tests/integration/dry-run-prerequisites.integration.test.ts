@@ -7,6 +7,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
   agentProcessLayer,
@@ -125,13 +126,23 @@ it.live(
           recursive: true,
         });
         yield* files.writeFileString(
-          path.join(root, name, "SKILL.md"),
+          path.join(root, name, "flow.md"),
           `---\nname: ${name}\ndescription: Prepare ${name}.\ninputs:\n  - area\n  - PASSWORD\nhosts:\n  - localhost\nemulation:\n  viewport: 390x844@1\n---\n\n1. Use {{area}} and {{PASSWORD}}. Done when: Setup is ready.\n`
         );
         if (name !== "unverified") {
           yield* files.writeFileString(
-            path.join(root, name, "references/verification.md"),
-            "- Verified: 2026-10-02T00:00:00.000Z\n"
+            path.join(root, name, "flow.md"),
+            stampFlowVerification(
+              yield* files.readFileString(path.join(root, name, "flow.md")),
+              {
+                completedAt: "2026-10-02",
+                inputs: [],
+                observableOutcome: "Ready",
+                outcome: "passed",
+                platform: "web",
+                verifiedAt: "2026-10-02",
+              }
+            )
           );
         }
       }
@@ -176,7 +187,7 @@ it.live(
               {
                 content:
                   "---\nname: cart\ndescription: Add an anvil to the cart.\ninputs:\n  - sku\n  - PASSWORD\n---\n\n1. Add {{sku}} after setup using {{PASSWORD}} if needed. Done when: The cart contains one anvil.\n",
-                path: "SKILL.md",
+                path: "flow.md",
               },
             ],
             operationId: operation("prereq-save"),

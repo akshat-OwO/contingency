@@ -83,7 +83,7 @@ it.effect("uses Claude's reported project directory", () =>
       });
       expect(choice).toEqual({
         fallback: undefined,
-        root: path.join(project, ".contingency"),
+        root: path.join(project, "contingency"),
       });
     })
   )
@@ -99,7 +99,7 @@ it.effect("never lets an inherited Claude variable redirect Codex", () =>
         home,
         projectDirectory: yield* harnessProject("codex", { cwd: project, env }),
       });
-      expect(choice.root).toBe(path.join(project, ".contingency"));
+      expect(choice.root).toBe(path.join(project, "contingency"));
       expect(choice.fallback).toBeUndefined();
     })
   )
@@ -115,7 +115,7 @@ it.effect("creates nothing to choose a fresh project's catalog", () =>
         home,
         projectDirectory: project,
       });
-      expect(choice.root).toBe(path.join(project, ".contingency"));
+      expect(choice.root).toBe(path.join(project, "contingency"));
       // Discovery is separate from catalog access: the catalog appears when
       // work is first saved there.
       expect(yield* fileSystem.exists(choice.root)).toBe(false);
@@ -139,7 +139,7 @@ it.effect(
             home,
             projectDirectory,
           });
-          expect(choice.root).toBe(path.join(fallback, ".contingency"));
+          expect(choice.root).toBe(path.join(fallback, "contingency"));
           expect(choice.fallback?.directory).toBe(fallback);
           expect(choice.fallback?.reason).toContain(
             "No usable current project directory"
@@ -158,7 +158,7 @@ it.effect("keeps direct use and explicit roots unchanged", () =>
         home,
         projectDirectory: project,
       });
-      expect(direct.root).toBe(path.join(project, ".contingency"));
+      expect(direct.root).toBe(path.join(project, "contingency"));
       const configured = yield* resolveCatalogDirectory({
         env: { CONTINGENCY_CATALOG_ROOT: path.join(project, "catalog") },
         fallbackDirectory: fallback,
