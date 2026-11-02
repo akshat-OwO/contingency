@@ -13,7 +13,7 @@ import type {
   TeachingRecordingManifest,
   TeachingRecordingSummary,
 } from "@contingency/protocol";
-import { Effect, FileSystem, Option } from "effect";
+import { Effect, Option } from "effect";
 
 import { AgentSession } from "./agent-session.ts";
 import { requestedBrowserChecks } from "./browser-check-requirements.ts";
@@ -254,7 +254,6 @@ export const startDryRun = (input: DryRunStartInput) =>
     const store = yield* TeachingRecordingStore;
     const sessions = yield* AgentSession;
     const catalog = yield* FlowSkillCatalog;
-    const fileSystem = yield* FileSystem.FileSystem;
     const manifest = yield* store
       .read(input.recordingId)
       .pipe(Effect.mapError(fromCause));
@@ -287,9 +286,7 @@ export const startDryRun = (input: DryRunStartInput) =>
     }
     // The package lives under the Catalog Root that holds the recording, which
     // may not be the root this process selected since.
-    const recordingCatalogRoot = path.dirname(
-      path.dirname(store.directory(manifest.recordingId))
-    );
+    const recordingCatalogRoot = store.catalogRoot(manifest.recordingId);
     const skill = yield* catalog
       .read(manifest.flowSkillName, recordingCatalogRoot)
       .pipe(
@@ -440,25 +437,10 @@ export const startDryRun = (input: DryRunStartInput) =>
         })),
       ],
     });
-    const evidenceDirectory = path.join(
-      store.directory(manifest.recordingId),
-      "dry-run"
-    );
-    // The previous evidence is replaced only for a new start: a retry replays
-    // its session, and a changed request conflicts before it.
+    const evidenceDirectory = yield* store
+      .prepareDryRun(manifest.recordingId, run.runId)
+      .pipe(Effect.mapError(fromCause));
     const prepare = Effect.gen(function* prepareDryRun() {
-      if (!replay) {
-        yield* fileSystem
-          .remove(evidenceDirectory, { force: true, recursive: true })
-          .pipe(
-            Effect.mapError((cause) =>
-              orchestrationError(
-                "teaching_recording_io",
-                `Could not replace the previous Dry Run evidence: ${cause.message}`
-              )
-            )
-          );
-      }
       return {
         activity: "run" as const,
         artifactDirectory: evidenceDirectory,

@@ -63,6 +63,7 @@ const startRecording = (name: string) =>
       activity: "teaching",
       clientName: "integration-recorder",
       clientVersion: "1.0.0",
+      group: "",
       name,
       operationId: OperationId.make(`${name}-start-session`),
       url: fixtures.url("typing-burst.html"),

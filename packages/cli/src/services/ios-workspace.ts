@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  AgentRunId,
   AgentSessionId,
   OperationId,
   TeachingRecordingId,
@@ -276,6 +277,7 @@ export const IosWorkspace = Context.Service<IosWorkspaceService>(
 /** Selected-device mirror and capture. There is no stock hub, raw input route, or automatic replay. */
 export const makeIosWorkspaceLayer = (options: {
   readonly root: () => string;
+  readonly createRun?: typeof createIosRun;
 }) =>
   Layer.effect(
     IosWorkspace,
@@ -565,9 +567,7 @@ export const makeIosWorkspaceLayer = (options: {
           } else {
             const recordingRoot =
               command.kind === "dry-run" && command.recordingId !== null
-                ? path.dirname(
-                    path.dirname(store.directory(command.recordingId))
-                  )
+                ? store.catalogRoot(command.recordingId)
                 : undefined;
             const skill = yield* catalog.read(
               command.flowSkillName,
@@ -679,7 +679,7 @@ export const makeIosWorkspaceLayer = (options: {
               taught,
               teaching: command.kind === "teaching",
             };
-            const create = createIosRun(
+            const create = (options.createRun ?? createIosRun)(
               selection.appPath === undefined
                 ? startup
                 : { ...startup, appPath: selection.appPath }
@@ -692,14 +692,28 @@ export const makeIosWorkspaceLayer = (options: {
             const run = created.success;
             const root =
               command.kind === "dry-run" && recordingId !== null
-                ? path.dirname(path.dirname(store.directory(recordingId)))
+                ? store.catalogRoot(recordingId)
                 : catalog.root();
-            let directory = path.join(root, "agent-runs", id);
+            let directory = path.join(root, "runs", id);
             if (recordingId !== null) {
-              directory =
-                command.kind === "teaching"
-                  ? store.directory(recordingId)
-                  : path.join(store.directory(recordingId), "ios-runs", id);
+              if (command.kind === "teaching") {
+                yield* store
+                  .begin({
+                    emulation: null,
+                    flowSkillName: command.flowSkillName,
+                    group: command.group,
+                    operationId: command.operationId,
+                    recordingId,
+                    runtime: taught,
+                    sessionId: id,
+                  })
+                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+                directory = store.directory(recordingId);
+              } else {
+                directory = yield* store
+                  .prepareDryRun(recordingId, AgentRunId.make(`agentrun-${id}`))
+                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+              }
             }
             const summary: IosWorkspaceSummary = {
               assessment: null,
@@ -783,16 +797,6 @@ export const makeIosWorkspaceLayer = (options: {
             const initialized = yield* Effect.result(
               Effect.gen(function* initializeCapture() {
                 yield* io(fs.makeDirectory(directory, { recursive: true }));
-                if (recordingId !== null && command.kind === "teaching") {
-                  yield* store.begin({
-                    emulation: null,
-                    flowSkillName: command.flowSkillName,
-                    operationId: command.operationId,
-                    recordingId,
-                    runtime: taught,
-                    sessionId: id,
-                  });
-                }
                 if (recordingId !== null && command.kind === "dry-run") {
                   yield* store.startDryRun({
                     inputs: inputs.map(({ name }) => ({

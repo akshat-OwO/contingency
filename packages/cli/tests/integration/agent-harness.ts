@@ -19,7 +19,15 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import type { Clock } from "effect";
-import { Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
+import {
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Predicate,
+  Schema,
+  Stream,
+} from "effect";
 import type { Tool, Toolkit } from "effect/ai";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -27,6 +35,7 @@ import type { AgentBrowserFactory } from "../../src/services/agent-browser-contr
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { discoverFlows } from "../../src/services/flow-catalog-layout.ts";
 import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
 import {
   AgentRunToolHandlersLive,
@@ -474,4 +483,25 @@ export const awaitRunVideo = (directory: string) =>
     const renderer = yield* RunVideoRenderer;
     yield* renderer.settled(directory).pipe(Effect.timeout("120 seconds"));
     return yield* renderer.status(directory);
+  });
+
+/** Locate persisted evidence after a Flow move, without creating directories. */
+export const evidenceDirectory = (
+  root: string,
+  kind: "recordings" | "runs",
+  id: string | null
+) =>
+  Effect.gen(function* locateEvidence() {
+    if (id === null) {
+      return yield* Effect.die("Expected an evidence identity");
+    }
+    const fs = yield* FileSystem.FileSystem;
+    const flows = yield* discoverFlows(root, fs);
+    for (const flow of flows.values()) {
+      const directory = path.join(flow.directory, kind, id);
+      if (yield* fs.exists(directory)) {
+        return directory;
+      }
+    }
+    return path.join(root, kind, id);
   });

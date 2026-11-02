@@ -35,13 +35,13 @@ test("tracks Flow Skill files under the Catalog Root", () => {
 
 test("ignores Teaching Recordings, save scratch, and Run evidence", () => {
   for (const ignored of [
-    "contingency/.recordings/recording-1/manifest.json",
-    "contingency/.recordings/recording-1/trace.zip",
-    "contingency/.recordings/recording-1/recording.webm",
+    "contingency/cart/recordings/recording-1/manifest.json",
+    "contingency/cart/recordings/recording-1/trace.zip",
+    "contingency/cart/recordings/recording-1/recording.webm",
     "contingency/.flow-skill.lock",
     "contingency/.flow-skill-abc.tmp",
     "contingency/.flow-skill-abc.backup",
-    "contingency/agent-runs/agentrun-1/summary.json",
+    "contingency/runs/agentrun-1/summary.json",
   ]) {
     expect(isIgnored(ignored), ignored).toBe(true);
   }

@@ -16,6 +16,7 @@ import { Effect, FileSystem } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   awaitRunVideo,
   catalogTool,
@@ -512,7 +513,11 @@ it.live(
           for (const [index, segment] of segments.entries()) {
             expect(segment.runFromMs).toBe(segments[index - 1]?.runToMs ?? 0);
           }
-          const runDirectory = path.join(root, "agent-runs", run.runId);
+          const runDirectory = yield* evidenceDirectory(
+            root,
+            "runs",
+            run.runId
+          );
           expect(yield* awaitRunVideo(runDirectory)).toEqual({
             condensed: true,
             path: path.resolve(runDirectory, "run.webm"),
@@ -526,7 +531,9 @@ it.live(
             summary
           );
           expect(
-            yield* files.readDirectory(path.join(root, "agent-runs", run.runId))
+            yield* files.readDirectory(
+              yield* evidenceDirectory(root, "runs", run.runId)
+            )
           ).toEqual(artifacts);
           expect((yield* runTool("agent_run_start", request)).phase).toBe(
             "closed"
@@ -673,7 +680,11 @@ it.live(
           expect(
             taskRun(yield* runTool("agent_run_update", update)).instructions
           ).toHaveLength(1);
-          yield* files.remove(path.join(root, "flow1"), { recursive: true });
+          // Replace catalog documents while retaining the active Run’s evidence.
+          yield* files.writeFileString(
+            path.join(root, "flow1", "flow.md"),
+            "# Replaced Flow\n"
+          );
           yield* files.remove(path.join(root, "flow2"), { recursive: true });
           expect(yield* runTool("agent_run_update", update)).toEqual(updated);
           const redirected = yield* runTool("agent_run_update", {
@@ -849,9 +860,9 @@ it.live(
             requestedTask: "Inspect the cart",
             url: fixture.url("task-session.html"),
           });
-          const directory = path.join(
+          const directory = yield* evidenceDirectory(
             root,
-            "agent-runs",
+            "runs",
             taskRun(started).runId
           );
           const summaryFile = path.join(directory, "summary.json");
@@ -896,4 +907,31 @@ it.live(
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("refuses more Run evidence after its Flow moves", () =>
+  Effect.gen(function* moveDuringRun() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    const fixture = yield* fixtureServer;
+    yield* saveSkill(root, "moving-flow");
+    yield* Effect.gen(function* startAndMove() {
+      const sessions = yield* AgentSession;
+      const started = yield* runTool("agent_run_start", {
+        inputs: [],
+        operationId: operation("move-run-start"),
+        referencedSkills: [FlowSkillName.make("moving-flow")],
+        requestedTask: "Inspect the shop",
+        url: fixture.url("agent-login.html"),
+      });
+      const previous = path.join(root, "moving-flow");
+      yield* fs.makeDirectory(path.join(root, "new-group"));
+      yield* fs.rename(previous, path.join(root, "new-group", "moving-flow"));
+      const refused = yield* sessions.snapshot(started.id).pipe(Effect.result);
+      expect(refused._tag).toBe("Failure");
+      expect(JSON.stringify(refused)).toContain("moved or disappeared");
+      yield* sessions.closeAll();
+      expect(yield* fs.exists(previous)).toBe(false);
+    }).pipe(Effect.provide(agentProcessLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

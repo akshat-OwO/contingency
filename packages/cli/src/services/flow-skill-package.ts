@@ -665,7 +665,7 @@ const RESIDUE = [
   "trace.zip",
   "recording.webm",
   "events.jsonl",
-  ".recordings/",
+  "recordings/",
 ] as const;
 const IMAGE_SUFFIXES = [".png", ".jpg", ".jpeg", ".webm", ".webp"] as const;
 

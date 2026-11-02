@@ -40,6 +40,7 @@ export const saveDownload = (
   event: BrowserDownloadEvent,
   options: {
     readonly directory: string | undefined;
+    readonly ownerDirectory?: string | undefined;
     readonly index: number;
     readonly requests: readonly BrowserNetworkRequest[];
     readonly secrets: readonly string[];
@@ -74,13 +75,17 @@ export const saveDownload = (
       } satisfies SavedDownload;
     }
     const file = path.join(directory, base.id);
-    const saved = yield* fs
-      .makeDirectory(directory, { recursive: true })
-      .pipe(
-        Effect.andThen(Effect.tryPromise(() => download.saveAs(file))),
-        Effect.andThen(fs.stat(file)),
-        Effect.result
-      );
+    const saved = yield* (
+      options.ownerDirectory === undefined
+        ? Effect.void
+        : fs.stat(options.ownerDirectory)
+    ).pipe(
+      Effect.andThen(fs.makeDirectory(directory, { recursive: true })),
+
+      Effect.andThen(Effect.tryPromise(() => download.saveAs(file))),
+      Effect.andThen(fs.stat(file)),
+      Effect.result
+    );
     if (Result.isFailure(saved)) {
       const reason = yield* Effect.tryPromise(() => download.failure()).pipe(
         Effect.orElseSucceed(() => null)

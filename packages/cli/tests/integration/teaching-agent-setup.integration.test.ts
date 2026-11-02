@@ -8,6 +8,7 @@ import { Effect, FileSystem } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   findNode,
@@ -102,6 +103,7 @@ it.live(
             activity: "teaching",
             clientName: "integration-agent",
             clientVersion: "1.0.0",
+            group: "",
             name: "confirm-delivery-area",
             operationId: OperationId.make("agent-setup-start"),
             url: fixtures.url("delivery.html"),
@@ -114,9 +116,9 @@ it.live(
           if (started.recordingId === null) {
             return yield* Effect.die("Teaching did not allocate a recording.");
           }
-          const recordingDirectory = path.join(
+          const recordingDirectory = yield* evidenceDirectory(
             root,
-            ".recordings",
+            "recordings",
             started.recordingId
           );
           const service = yield* AgentSession;
@@ -219,7 +221,10 @@ it.live(
             }
           }
           const events = yield* fileSystem.readFileString(
-            path.join(root, ".recordings", recordingId, "events.jsonl")
+            path.join(
+              yield* evidenceDirectory(root, "recordings", recordingId),
+              "events.jsonl"
+            )
           );
           expect(events).not.toContain("Choose delivery area");
           expect(events).not.toContain("Select manually");

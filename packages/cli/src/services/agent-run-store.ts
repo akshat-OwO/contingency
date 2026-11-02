@@ -1,12 +1,18 @@
 import path from "node:path";
 
 import { AgentRunSummary } from "@contingency/protocol";
-import type { AgentRunId } from "@contingency/protocol";
+import type { AgentRunId, FlowSkillName } from "@contingency/protocol";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
+import {
+  discoverFlows,
+  maintainCatalogGitignore,
+  resolveFlowDirectory,
+} from "./flow-catalog-layout.ts";
+
 /** One directory per Interactive Run, under the selected Catalog Root. */
-export const AGENT_RUNS_DIRECTORY = "agent-runs";
+export const AGENT_RUNS_DIRECTORY = "runs";
 
 const SUMMARY_FILE = "summary.json";
 export const AGENT_RUN_VIDEO_FILE = "run.webm";
@@ -37,7 +43,8 @@ export interface AgentRunStoreService {
    * into it so a finished Run is one self-contained package.
    */
   readonly prepare: (
-    runId: AgentRunId
+    runId: AgentRunId,
+    flows?: readonly FlowSkillName[]
   ) => Effect.Effect<string, AgentRunStoreError>;
   readonly read: (
     runId: AgentRunId
@@ -68,20 +75,81 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
 
-  const runDirectory = (runId: AgentRunId): string =>
-    path.join(options.root(), AGENT_RUNS_DIRECTORY, runId);
+  // Pin ownership at Start. Resolve the owner's name for every later write.
+  const owners = new Map<
+    AgentRunId,
+    { root: string; flow: FlowSkillName | null }
+  >();
+  const catalogError = (cause: { readonly message: string }) =>
+    storeError("agent_run_invalid", cause.message);
 
-  const prepare = (runId: AgentRunId) =>
-    fileSystem
-      .makeDirectory(runDirectory(runId), { recursive: true })
-      .pipe(
-        Effect.mapError(ioError(`Could not create the directory for ${runId}`)),
-        Effect.as(runDirectory(runId))
+  const locate = (runId: AgentRunId) =>
+    Effect.gen(function* locateRun() {
+      const owner = owners.get(runId);
+      const root = owner?.root ?? options.root();
+      if (owner !== undefined) {
+        const directory =
+          owner.flow === null
+            ? root
+            : yield* resolveFlowDirectory(root, owner.flow, fileSystem).pipe(
+                Effect.mapError(catalogError)
+              );
+        return path.join(directory, AGENT_RUNS_DIRECTORY, runId);
+      }
+      const candidates = [path.join(root, AGENT_RUNS_DIRECTORY, runId)];
+      const flows = yield* discoverFlows(root, fileSystem).pipe(
+        Effect.mapError(catalogError)
       );
+      for (const flow of flows.values()) {
+        candidates.push(path.join(flow.directory, AGENT_RUNS_DIRECTORY, runId));
+      }
+      const existing: string[] = [];
+      for (const candidate of candidates) {
+        if (
+          yield* fileSystem
+            .exists(candidate)
+            .pipe(Effect.mapError(ioError("Could not locate Run")))
+        ) {
+          existing.push(candidate);
+        }
+      }
+      if (existing.length > 1) {
+        return yield* Effect.fail(
+          storeError(
+            "agent_run_invalid",
+            `Run ${runId} exists in several directories.`
+          )
+        );
+      }
+      return existing[0] ?? path.join(root, AGENT_RUNS_DIRECTORY, runId);
+    });
+
+  const prepare = (runId: AgentRunId, flows?: readonly FlowSkillName[]) =>
+    Effect.gen(function* prepareRun() {
+      if (flows !== undefined && !owners.has(runId)) {
+        owners.set(runId, {
+          flow: flows.length === 1 ? (flows[0] ?? null) : null,
+          root: options.root(),
+        });
+      }
+      const directory = yield* locate(runId);
+      yield* maintainCatalogGitignore(
+        owners.get(runId)?.root ?? options.root(),
+        fileSystem
+      ).pipe(Effect.mapError(ioError("Could not maintain catalog ignores")));
+      yield* fileSystem
+        .makeDirectory(directory, { recursive: true })
+        .pipe(
+          Effect.mapError(
+            ioError(`Could not create the directory for ${runId}`)
+          )
+        );
+      return directory;
+    });
 
   const read = (runId: AgentRunId) =>
     Effect.gen(function* readSummary() {
-      const file = path.join(runDirectory(runId), SUMMARY_FILE);
+      const file = path.join(yield* locate(runId), SUMMARY_FILE);
       const exists = yield* fileSystem
         .exists(file)
         .pipe(Effect.mapError(ioError(`Could not inspect Run ${runId}`)));
@@ -140,35 +208,32 @@ const makeAgentRunStore = Effect.fn("AgentRunStore.make")(function* makeStore(
   // so containment is checked on read too: a path that escapes the Run
   // directory resolves to no video rather than to a file elsewhere on disk.
   const videoFile = (runId: AgentRunId) =>
-    read(runId).pipe(
-      Effect.map((summary) => {
-        if (summary.videoPath === null) {
-          return null;
-        }
-        const directory = runDirectory(runId);
-        const resolved = path.resolve(directory, summary.videoPath);
-        const relative = path.relative(directory, resolved);
-        return relative.startsWith("..") || path.isAbsolute(relative)
-          ? null
-          : resolved;
-      })
-    );
+    Effect.gen(function* resolveVideoFile() {
+      const summary = yield* read(runId);
+      if (summary.videoPath === null) {
+        return null;
+      }
+      const directory = yield* locate(runId);
+      const resolved = path.resolve(directory, summary.videoPath);
+      const relative = path.relative(directory, resolved);
+      return relative.startsWith("..") || path.isAbsolute(relative)
+        ? null
+        : resolved;
+    });
 
   const scanFile = (runId: AgentRunId, reportId: string) =>
-    read(runId).pipe(
-      Effect.map((summary) => {
-        if (summary.schemaVersion !== 3) {
-          return null;
-        }
-        const report = summary.scanReports?.find(
-          (scan) => scan.id === reportId
-        );
-        return report?.reportPath === `scans/${reportId}.json` &&
-          /^scan-[a-f0-9-]+$/u.test(reportId)
-          ? path.join(runDirectory(runId), report.reportPath)
-          : null;
-      })
-    );
+    Effect.gen(function* resolveScanFile() {
+      const summary = yield* read(runId);
+      if (summary.schemaVersion !== 3) {
+        return null;
+      }
+      const report = summary.scanReports?.find((scan) => scan.id === reportId);
+      return report?.reportPath === `scans/${reportId}.json` &&
+        /^scan-[a-f0-9-]+$/u.test(reportId)
+        ? path.join(yield* locate(runId), report.reportPath)
+        : null;
+    });
+
   return AgentRunStore.of({ prepare, read, scanFile, videoFile, write });
 });
 

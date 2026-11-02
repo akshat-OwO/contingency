@@ -123,7 +123,7 @@ export interface FlowSkillCatalogOptions {
 }
 
 /** Directories the Catalog Root owns that are never Flow Skills. */
-const RESERVED = new Set([TEACHING_RECORDINGS_DIRECTORY, "agent-runs"]);
+const RESERVED = new Set([TEACHING_RECORDINGS_DIRECTORY, "runs"]);
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
@@ -171,7 +171,7 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
       )
     );
     const flow = flows.get(name);
-    if (flow === undefined) {
+    if (flow === undefined || flow.kind === "draft") {
       return yield* Effect.fail(
         catalogError(
           "flow_skill_not_found",
@@ -299,6 +299,9 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     for (const [name, flow] of [...flows].toSorted(([a], [b]) =>
       a.localeCompare(b)
     )) {
+      if (flow.kind === "draft") {
+        continue;
+      }
       const frontmatter = readFlowSkillFrontmatter(flow.content);
       const entry: Mutable<FlowSkillListEntry> = {
         description: frontmatter?.description ?? name,

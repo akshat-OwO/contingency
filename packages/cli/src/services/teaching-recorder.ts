@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type {
@@ -410,7 +411,10 @@ export const makeTeachingRecorder = (
         () =>
           Effect.tryPromise({
             catch: () => null,
-            try: () => target.context.tracing.stop({ path: traceFile }),
+            try: () =>
+              target.context.tracing.stop(
+                existsSync(options.directory) ? { path: traceFile } : undefined
+              ),
           }).pipe(Effect.ignore)
       )
     );
@@ -538,6 +542,16 @@ export const makeTeachingRecorder = (
               traceFile,
               videoFile,
             };
+          }
+          if (
+            !(yield* fileSystem
+              .exists(options.directory)
+              .pipe(Effect.orElseSucceed(() => false)))
+          ) {
+            yield* Ref.set(
+              failure,
+              "Teaching evidence directory moved or disappeared. Stop and restart capture in the Flow’s current Group."
+            );
           }
           stopped = true;
           yield* Fiber.interrupt(capture);

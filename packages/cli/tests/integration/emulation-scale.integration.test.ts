@@ -304,6 +304,7 @@ it.live(
         const service = yield* AgentSession;
         const session = yield* service.start({
           activity: "teaching",
+          group: "",
           name: "scale",
           openedBy: "agent",
           operationId: "scale-teaching",

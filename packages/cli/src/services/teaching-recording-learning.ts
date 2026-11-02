@@ -724,11 +724,11 @@ const makeTeachingRecordingLearning = Effect.fn(
           : file
       );
       const recordingDirectory = store.directory(input.recordingId);
-      const catalogRoot = path.dirname(path.dirname(recordingDirectory));
+      const catalogRoot = store.catalogRoot(input.recordingId);
       return yield* withSkillLock(
         catalogRoot,
         Effect.gen(function* replaceSkillAtomically() {
-          const target = path.join(catalogRoot, manifest.flowSkillName);
+          const target = path.dirname(path.dirname(recordingDirectory));
           if (RESERVED_FLOW_NAMES.has(manifest.flowSkillName)) {
             return yield* Effect.fail(
               learningError(
@@ -767,111 +767,146 @@ const makeTeachingRecordingLearning = Effect.fn(
           yield* maintainCatalogGitignore(catalogRoot, fileSystem).pipe(
             Effect.mapError(ioError("Could not maintain catalog ignores"))
           );
-          const nonce = randomUUID();
-          const temporary = path.join(catalogRoot, `.flow-skill-${nonce}.tmp`);
-          const backup = path.join(catalogRoot, `.flow-skill-${nonce}.backup`);
+          // Stage documents only. Evidence writers do not take the catalog lock,
+          // so the Flow directory and its evidence must remain in place.
+          const temporary = path.join(
+            catalogRoot,
+            `.flow-skill-${randomUUID()}.tmp`
+          );
           yield* fileSystem
-            .makeDirectory(temporary, { mode: 0o700, recursive: true })
-            .pipe(Effect.mapError(ioError("Could not stage the Flow Skill")));
-          const staged = yield* Effect.result(
-            Effect.forEach(
-              stamped,
-              (file) => {
-                const destination = path.join(temporary, file.path);
-                return fileSystem
-                  .makeDirectory(path.dirname(destination), { recursive: true })
-                  .pipe(
-                    Effect.andThen(
-                      fileSystem.writeFileString(destination, file.content, {
-                        mode: 0o600,
-                      })
-                    ),
-                    Effect.mapError(
-                      ioError(`Could not stage Flow Skill file ${file.path}`)
-                    )
-                  );
-              },
-              { discard: true }
-            )
-          );
-          if (Result.isFailure(staged)) {
-            yield* fileSystem
-              .remove(temporary, { force: true, recursive: true })
-              .pipe(Effect.ignore);
-            return yield* Effect.fail(staged.failure);
-          }
-          const hadPrevious = yield* fileSystem
-            .exists(target)
-            .pipe(Effect.mapError(ioError("Could not inspect the Flow Skill")));
-          if (hadPrevious) {
-            const backedUp = yield* Effect.result(
-              fileSystem
-                .rename(target, backup)
-                .pipe(
-                  Effect.mapError(ioError("Could not back up the Flow Skill"))
+            .makeDirectory(temporary, { mode: 0o700 })
+            .pipe(Effect.mapError(ioError("Could not stage Flow documents")));
+          const install = Effect.gen(function* installDocuments() {
+            const previous = new Map<string, Uint8Array>();
+            const realTarget = yield* fileSystem.realPath(target);
+            const requireInside = Effect.fnUntraced(function* requireInside(
+              file: string
+            ) {
+              const real = yield* fileSystem.realPath(file);
+              const relative = path.relative(realTarget, real);
+              if (
+                relative.startsWith("..") ||
+                path.isAbsolute(relative) ||
+                ["recordings", "runs"].includes(
+                  relative.split(path.sep)[0] ?? ""
                 )
-            );
-            if (Result.isFailure(backedUp)) {
-              yield* fileSystem
-                .remove(temporary, { force: true, recursive: true })
-                .pipe(Effect.ignore);
-              return yield* Effect.fail(backedUp.failure);
-            }
-          }
-          const installed = yield* Effect.result(
-            fileSystem
-              .rename(temporary, target)
-              .pipe(
-                Effect.mapError(ioError("Could not install the Flow Skill"))
-              )
-          );
-          if (Result.isFailure(installed)) {
-            yield* fileSystem
-              .remove(temporary, { force: true, recursive: true })
-              .pipe(Effect.ignore);
-            if (hadPrevious) {
-              yield* fileSystem
-                .rename(backup, target)
-                .pipe(
-                  Effect.mapError(
-                    ioError("Could not restore the previous Flow Skill")
+              ) {
+                return yield* Effect.fail(
+                  learningError(
+                    "teaching_recording_invalid",
+                    `Flow document is outside its document directories: ${file}`
                   )
                 );
-            }
-            return yield* Effect.fail(installed.failure);
-          }
-          const recorded = yield* Effect.result(
-            store.saveSkill({
-              claimOperationId: input.claimOperationId,
-              files: stamped.map((file) => file.path),
-              operationId: input.operationId,
-              recordingId: input.recordingId,
-            })
-          );
-          if (Result.isFailure(recorded)) {
-            yield* fileSystem
-              .remove(target, { force: true, recursive: true })
-              .pipe(
-                Effect.mapError(
-                  ioError("Could not remove the refused Flow Skill")
-                )
+              }
+            });
+            const pending = [""];
+            const visitedDirectories = new Set<string>();
+            while (pending.length > 0) {
+              const directory = pending.pop() ?? "";
+              const real = yield* fileSystem.realPath(
+                path.join(target, directory)
               );
-            if (hadPrevious) {
-              yield* fileSystem
-                .rename(backup, target)
-                .pipe(
-                  Effect.mapError(
-                    ioError("Could not restore the previous Flow Skill")
-                  )
-                );
+              if (visitedDirectories.has(real)) {
+                continue;
+              }
+              visitedDirectories.add(real);
+              for (const name of yield* fileSystem.readDirectory(
+                path.join(target, directory)
+              )) {
+                const relative = path.join(directory, name);
+                if (relative !== "references" && !isSafeSkillPath(relative)) {
+                  continue;
+                }
+                const file = path.join(target, relative);
+                yield* requireInside(file);
+                const info = yield* fileSystem.stat(file);
+                if (info.type === "Directory") {
+                  pending.push(relative);
+                } else if (info.type === "File") {
+                  previous.set(relative, yield* fileSystem.readFile(file));
+                }
+              }
             }
-            return yield* Effect.fail(fromStoreError(recorded.failure));
-          }
-          if (hadPrevious) {
-            yield* fileSystem
-              .remove(backup, { force: true, recursive: true })
-              .pipe(Effect.ignore);
-          }
+            for (const file of stamped) {
+              const destination = path.join(temporary, file.path);
+              yield* fileSystem.makeDirectory(path.dirname(destination), {
+                recursive: true,
+              });
+              yield* fileSystem.writeFileString(destination, file.content, {
+                mode: 0o600,
+              });
+            }
+            const changed: string[] = [];
+            const installed = yield* Effect.result(
+              Effect.gen(function* commitDocuments() {
+                for (const file of stamped) {
+                  const destination = path.join(target, file.path);
+                  let parent = path.dirname(destination);
+                  while (!(yield* fileSystem.exists(parent))) {
+                    parent = path.dirname(parent);
+                  }
+                  yield* requireInside(parent);
+                  yield* fileSystem.makeDirectory(path.dirname(destination), {
+                    recursive: true,
+                  });
+                  yield* requireInside(path.dirname(destination));
+                  yield* fileSystem.rename(
+                    path.join(temporary, file.path),
+                    destination
+                  );
+                  changed.push(file.path);
+                }
+                const incoming = new Set(stamped.map((file) => file.path));
+                for (const relative of previous.keys()) {
+                  if (!incoming.has(relative)) {
+                    yield* fileSystem.remove(path.join(target, relative));
+                    changed.push(relative);
+                  }
+                }
+                return yield* store
+                  .saveSkill({
+                    claimOperationId: input.claimOperationId,
+                    files: stamped.map((file) => file.path),
+                    operationId: input.operationId,
+                    recordingId: input.recordingId,
+                  })
+                  .pipe(Effect.mapError(fromStoreError));
+              }).pipe(
+                Effect.mapError((cause) =>
+                  cause._tag === "TeachingRecordingLearningError"
+                    ? cause
+                    : ioError("Could not install Flow documents")(cause)
+                )
+              )
+            );
+            if (Result.isFailure(installed)) {
+              for (const relative of changed.toReversed()) {
+                const destination = path.join(target, relative);
+                const bytes = previous.get(relative);
+                if (bytes === undefined) {
+                  yield* fileSystem.remove(destination, { force: true });
+                } else {
+                  const restore = path.join(temporary, "restore");
+                  yield* fileSystem.writeFile(restore, bytes, { mode: 0o600 });
+                  yield* fileSystem.rename(restore, destination);
+                }
+              }
+              return yield* Effect.fail(installed.failure);
+            }
+          }).pipe(
+            Effect.mapError((cause) =>
+              cause._tag === "TeachingRecordingLearningError"
+                ? cause
+                : ioError("Could not replace Flow documents")(cause)
+            ),
+            Effect.ensuring(
+              fileSystem
+                .remove(temporary, { force: true, recursive: true })
+                .pipe(Effect.ignore)
+            ),
+            Effect.uninterruptible
+          );
+          yield* install;
           return {
             files: stamped.map((file) => file.path),
             flowSkillName: manifest.flowSkillName,

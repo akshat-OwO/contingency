@@ -65,6 +65,7 @@ it.live("waits for a claimable recording after Workspace Stop", () =>
         activity: "teaching",
         clientName: "integration-stop-wait",
         clientVersion: "1.0.0",
+        group: "",
         name: "stop-wait",
         operationId: OperationId.make("stop-wait-session"),
         url: fixtures.url("agent-login.html"),
@@ -162,6 +163,7 @@ it.live(
             activity: "teaching",
             clientName: "integration-recorder",
             clientVersion: "1.0.0",
+            group: "",
             name: "learn-anvil",
             operationId: OperationId.make("learning-start-session"),
             url,
@@ -481,4 +483,46 @@ it.live(
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("refuses capture writes after a Flow moves between Groups", () =>
+  Effect.gen(function* movedRecording() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    const fixtures = yield* fixtureServer;
+    yield* Effect.gen(function* captureAndMove() {
+      const sessions = yield* AgentSession;
+      const store = yield* TeachingRecordingStore;
+      const started = yield* startUserTeaching({
+        activity: "teaching",
+        clientName: "move-proof",
+        clientVersion: "1",
+        group: "",
+        name: "move-proof",
+        operationId: OperationId.make("move-proof-start"),
+        url: fixtures.url("agent-login.html"),
+        viewport: agentViewport,
+      });
+      yield* sessions.startTeachingRecording(
+        started.id,
+        OperationId.make("move-proof-record")
+      );
+      if (started.recordingId === null) {
+        return yield* Effect.die("Expected recording");
+      }
+      const previous = path.dirname(
+        path.dirname(store.directory(started.recordingId))
+      );
+      const group = path.join(root, "moved");
+      yield* fs.makeDirectory(group);
+      yield* fs.rename(previous, path.join(group, "move-proof"));
+      const result = yield* sessions.snapshot(started.id).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      expect(JSON.stringify(result)).toContain("moved or disappeared");
+      yield* sessions
+        .stopTeachingRecording(started.id, OperationId.make("move-proof-stop"))
+        .pipe(Effect.ignore);
+      expect(yield* fs.exists(previous)).toBe(false);
+    }).pipe(Effect.provide(agentProcessLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

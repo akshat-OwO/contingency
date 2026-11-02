@@ -11,6 +11,7 @@ import { Effect, FileSystem } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   findNode,
@@ -55,6 +56,7 @@ it.live(
             activity: "teaching",
             clientName: "setup-test",
             clientVersion: "1",
+            group: "",
             name: "private-setup",
             operationId: OperationId.make("start"),
             url: fixture.url("agent-login.html"),
@@ -156,6 +158,7 @@ it.live(
             activity: "teaching",
             clientName: "setup-test",
             clientVersion: "1",
+            group: "",
             name: "other-setup",
             operationId: OperationId.make("other-start"),
             url: fixture.url("agent-login.html"),
@@ -234,9 +237,9 @@ it.live(
             sessionId,
             OperationId.make("stop")
           );
-          const directory = path.join(
+          const directory = yield* evidenceDirectory(
             root,
-            ".recordings",
+            "recordings",
             started.recordingId ?? "missing"
           );
           const events = yield* fs.readFileString(
@@ -276,6 +279,7 @@ it.live("serializes pending supply and entry against setup handoff", () =>
           activity: "teaching",
           clientName: "race",
           clientVersion: "1",
+          group: "",
           name: "race-setup",
           operationId: OperationId.make("race-start"),
           url: fixture.url("agent-login.html"),
@@ -336,6 +340,7 @@ it.live("serializes pending supply and entry against setup handoff", () =>
           activity: "teaching",
           clientName: "race",
           clientVersion: "1",
+          group: "",
           name: "supplied-race",
           operationId: OperationId.make("supplied-race-start"),
           url: fixture.url("agent-login.html"),

@@ -1,9 +1,18 @@
 import path from "node:path";
 
+import { FlowSkillName } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 
+import {
+  CatalogBrowser,
+  makeCatalogBrowserLayer,
+} from "../../src/services/catalog-browser.ts";
+import {
+  discoverFlows,
+  resolveFlowDirectory,
+} from "../../src/services/flow-catalog-layout.ts";
 import {
   FlowSkillCatalog,
   makeFlowSkillCatalogLayer,
@@ -33,7 +42,8 @@ it.effect(
       yield* writeFlow(root, "shop/checkout/guest");
       yield* writeFlow(workspace, ".contingency/legacy");
       yield* writeFlow(root, ".recordings/recording/hidden");
-      yield* writeFlow(root, "agent-runs/run/hidden");
+      yield* writeFlow(root, "runs/run/hidden");
+      yield* writeFlow(root, "shop/checkout/guest/recordings/hidden");
       yield* Effect.gen(function* read() {
         const catalog = yield* FlowSkillCatalog;
         expect(
@@ -68,11 +78,7 @@ it.effect("refuses duplicate names with both paths", () =>
 
 for (const relative of [
   "invalid+name",
-  "runs",
-  "recordings",
   "flow.md",
-  "runs/guest",
-  "recordings/guest",
   "flow.md/guest",
   "parent/child",
 ]) {
@@ -120,19 +126,64 @@ it.effect(
     }).pipe(Effect.provide(NodeServices.layer))
 );
 
+it.effect("discovers Flows in every ordinary Group", () =>
+  Effect.gen(function* test() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    yield* writeFlow(root, "group/ordinary");
+    yield* writeFlow(root, "another/visible");
+    yield* Effect.gen(function* read() {
+      const catalog = yield* FlowSkillCatalog;
+      expect(
+        (yield* catalog.list()).flowSkills.map((flow) => flow.name)
+      ).toEqual(["ordinary", "visible"]);
+    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
 it.effect(
-  "allows an agent-runs Flow inside a Group while excluding root evidence",
+  "keeps recording drafts as owners but excludes them from both listings and reads",
   () =>
-    Effect.gen(function* test() {
+    Effect.gen(function* draftOwnership() {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped();
-      yield* writeFlow(root, "group/agent-runs");
-      yield* writeFlow(root, "agent-runs/hidden");
-      yield* Effect.gen(function* read() {
+      const directory = path.join(root, "shop", "checkout");
+      yield* fs.makeDirectory(path.join(directory, "recordings"), {
+        recursive: true,
+      });
+      expect((yield* discoverFlows(root, fs)).get("checkout")).toEqual({
+        directory,
+        kind: "draft",
+      });
+      expect(
+        yield* resolveFlowDirectory(root, FlowSkillName.make("checkout"), fs)
+      ).toBe(directory);
+      yield* Effect.gen(function* listings() {
         const catalog = yield* FlowSkillCatalog;
-        expect(
-          (yield* catalog.list()).flowSkills.map((flow) => flow.name)
-        ).toEqual(["agent-runs"]);
+        expect((yield* catalog.list()).flowSkills).toEqual([]);
+        expect((yield* Effect.flip(catalog.read("checkout"))).code).toBe(
+          "flow_skill_not_found"
+        );
       }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      yield* Effect.gen(function* workspaceListing() {
+        const browser = yield* CatalogBrowser;
+        expect((yield* browser.browse()).roots[0]?.flowSkills).toEqual([]);
+        expect(
+          (yield* Effect.flip(
+            browser.flowSkill("local", FlowSkillName.make("checkout"))
+          )).code
+        ).toBe("flow_skill_not_found");
+      }).pipe(
+        Effect.provide(
+          makeCatalogBrowserLayer({
+            globalRoot: root,
+            localRoot: () => root,
+          }).pipe(Layer.provide(makeFlowSkillCatalogLayer({ root })))
+        )
+      );
+      yield* writeFlow(root, "other/checkout");
+      const collision = yield* Effect.flip(discoverFlows(root, fs));
+      expect(collision.message).toContain("Duplicate Flow name");
+      expect(collision.message).toContain(directory);
     }).pipe(Effect.provide(NodeServices.layer))
 );

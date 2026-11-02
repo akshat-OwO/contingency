@@ -92,7 +92,6 @@ export const defaultGlobalCatalogRoot = (): string => {
 
 const SUMMARY_FILE = "summary.json";
 const MANIFEST_FILE = "manifest.json";
-const DRY_RUN_DIRECTORY = "dry-run";
 /** Enough to keep a large catalog responsive without exhausting descriptors. */
 const READ_CONCURRENCY = 8;
 
@@ -229,10 +228,14 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     );
     return [...flows]
       .toSorted(([a], [b]) => a.localeCompare(b))
-      .map(([name, flow]) =>
-        catalogFlowSkillEntry(FlowSkillName.make(name), flow.content, [
-          { content: flow.content, path: SKILL_FILE },
-        ])
+      .flatMap(([name, flow]) =>
+        flow.kind === "draft"
+          ? []
+          : [
+              catalogFlowSkillEntry(FlowSkillName.make(name), flow.content, [
+                { content: flow.content, path: SKILL_FILE },
+              ]),
+            ]
       );
   });
 
@@ -245,38 +248,46 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     scope: CatalogRootScope,
     root: string
   ) {
-    const recordingsDirectory = path.join(root, TEACHING_RECORDINGS_DIRECTORY);
-    const runsDirectory = path.join(root, AGENT_RUNS_DIRECTORY);
-    const recordingIds = (yield* directoryNames(recordingsDirectory)).filter(
-      (name) => !name.startsWith(".")
+    const flows = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.orElseSucceed(() => new Map<string, { directory: string }>())
     );
-    const runIds = (yield* directoryNames(runsDirectory)).filter(
-      (name) => !name.startsWith(".")
-    );
-    const [skills, manifests, runs, dryRuns] = yield* Effect.all(
+    const recordingDirectories: string[] = [];
+    for (const flow of flows.values()) {
+      const directory = path.join(
+        flow.directory,
+        TEACHING_RECORDINGS_DIRECTORY
+      );
+      for (const id of yield* directoryNames(directory)) {
+        if (!id.startsWith(".")) {
+          recordingDirectories.push(path.join(directory, id));
+        }
+      }
+    }
+    const runFiles: string[] = [];
+    for (const directory of [
+      root,
+      ...[...flows.values()].map((flow) => flow.directory),
+    ]) {
+      const runsDirectory = path.join(directory, AGENT_RUNS_DIRECTORY);
+      for (const id of yield* directoryNames(runsDirectory)) {
+        if (!id.startsWith(".")) {
+          runFiles.push(path.join(runsDirectory, id, SUMMARY_FILE));
+        }
+      }
+    }
+    const [skills, manifests, runs] = yield* Effect.all(
       [
         flowSkills(root),
         Effect.forEach(
-          recordingIds,
-          (id) =>
-            readJson(
-              path.join(recordingsDirectory, id, MANIFEST_FILE),
-              decodeManifest
-            ),
+          recordingDirectories,
+          (id) => readJson(path.join(id, MANIFEST_FILE), decodeManifest),
           { concurrency: READ_CONCURRENCY }
         ),
-        summaries(
-          runIds.map((id) => path.join(runsDirectory, id, SUMMARY_FILE))
-        ),
-        summaries(
-          recordingIds.map((id) =>
-            path.join(recordingsDirectory, id, DRY_RUN_DIRECTORY, SUMMARY_FILE)
-          )
-        ),
+        summaries(runFiles),
       ],
       { concurrency: "unbounded" }
     );
-    const unreadable = [...manifests, ...runs, ...dryRuns].filter(
+    const unreadable = [...manifests, ...runs].filter(
       (entry) => entry._tag === "unreadable"
     ).length;
     return {
@@ -286,9 +297,7 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       recordings: readValues(manifests)
         .map(catalogRecordingEntry)
         .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      runs: newestFirst(
-        [...readValues(runs), ...readValues(dryRuns)].map(catalogRunEntry)
-      ),
+      runs: newestFirst(readValues(runs).map(catalogRunEntry)),
       scope,
       unreadable,
     } satisfies CatalogRootView;

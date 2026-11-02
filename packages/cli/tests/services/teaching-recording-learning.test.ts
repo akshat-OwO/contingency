@@ -10,7 +10,14 @@ import {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  PlatformError,
+} from "effect";
 
 import {
   TeachingRecordingLearning,
@@ -446,6 +453,184 @@ for (const value of ["login", "anvil"]) {
             yield* fs.readFileString(path.join(root, "login", "checks.json"))
           ).toBe(structured);
         }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}
+
+for (const failure of ["none", "document", "receipt"] as const) {
+  const refuse = failure !== "none";
+  it.effect(
+    `preserves concurrent evidence with ${failure} failure during document installation`,
+    () =>
+      Effect.gen(function* concurrentEvidence() {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        const target = path.join(root, "scope");
+        const entered = yield* Deferred.make<boolean>();
+        const resume = yield* Deferred.make<boolean>();
+        let held = false;
+        const adapted: FileSystem.FileSystem = {
+          ...fs,
+          rename: (source, destination) =>
+            Effect.gen(function* gatedInstall() {
+              // Both the former directory swap and the per-document install reach
+              // this boundary after staging. The concurrent writer finishes first.
+              if (
+                !held &&
+                ((source === target && destination.endsWith(".backup")) ||
+                  (source.includes(".flow-skill-") &&
+                    destination === path.join(target, "flow.md")))
+              ) {
+                held = true;
+                yield* Deferred.succeed(entered, true);
+                yield* Deferred.await(resume);
+              }
+              if (
+                failure === "document" &&
+                destination === path.join(target, "references", "new.md")
+              ) {
+                return yield* Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "Unknown",
+                    method: "rename",
+                    module: "FileSystem",
+                  })
+                );
+              }
+              return yield* fs.rename(source, destination);
+            }),
+          writeFileString: (file, contents, options) =>
+            failure === "receipt" && contents.includes('"skill-drafted"')
+              ? Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "Unknown",
+                    method: "writeFileString",
+                    module: "FileSystem",
+                  })
+                )
+              : fs.writeFileString(file, contents, options),
+        };
+        const storeLayer = makeTeachingRecordingStoreLayer({
+          root: () => root,
+        });
+        const layer = Layer.mergeAll(
+          storeLayer,
+          TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
+        );
+        yield* Effect.gen(function* saveAlongsideEvidence() {
+          const store = yield* TeachingRecordingStore;
+          const learning = yield* TeachingRecordingLearning;
+          yield* store.begin({
+            emulation: null,
+            flowSkillName: FlowSkillName.make("scope"),
+            operationId: OperationId.make("begin"),
+            recordingId,
+            sessionId: AgentSessionId.make("agent-save"),
+          });
+          yield* store.start({
+            emulation: null,
+            operationId: OperationId.make("start"),
+            recordingId,
+          });
+          yield* fs.writeFileString(
+            path.join(store.directory(recordingId), "events.jsonl"),
+            ""
+          );
+          yield* store.stop({
+            artifacts: [
+              {
+                capturedAt: "2026-10-23T00:00:00.000Z",
+                hash: ContentHash.make(`sha256-${"a".repeat(64)}`),
+                id: "events",
+                kind: "events",
+                path: "events.jsonl",
+              },
+            ],
+            operationId: OperationId.make("stop"),
+            recordingId,
+          });
+          const claimOperationId = OperationId.make("claim");
+          yield* store.startLearning({
+            operationId: claimOperationId,
+            recordingId,
+          });
+          yield* fs.writeFileString(
+            path.join(target, "flow.md"),
+            "old document"
+          );
+          yield* fs.makeDirectory(path.join(target, "references"));
+          yield* fs.writeFileString(
+            path.join(target, "references", "old.md"),
+            "old support"
+          );
+          const saving = yield* learning
+            .save({
+              claimOperationId,
+              files: [
+                {
+                  content:
+                    "---\nname: scope\ndescription: Inspect the shop.\ninputs:\n---\n\n1. Open the shop. Done when: the shop appears.\n",
+                  path: "flow.md",
+                },
+                { content: "new support", path: "references/new.md" },
+              ],
+              operationId: OperationId.make("save"),
+              recordingId,
+            })
+            .pipe(Effect.result, Effect.forkChild);
+          yield* Deferred.await(entered).pipe(
+            Effect.raceFirst(
+              Fiber.join(saving).pipe(
+                Effect.flatMap((result) => Effect.die(JSON.stringify(result)))
+              )
+            )
+          );
+          const otherId = TeachingRecordingId.make("recording-concurrent");
+          yield* store.begin({
+            emulation: null,
+            flowSkillName: FlowSkillName.make("scope"),
+            operationId: OperationId.make("other-begin"),
+            recordingId: otherId,
+            sessionId: AgentSessionId.make("agent-other"),
+          });
+          yield* store.start({
+            emulation: null,
+            operationId: OperationId.make("other-start"),
+            recordingId: otherId,
+          });
+          const runFile = path.join(
+            target,
+            "runs",
+            "agentrun-concurrent",
+            "summary.json"
+          );
+          yield* fs.makeDirectory(path.dirname(runFile), { recursive: true });
+          yield* fs.writeFileString(runFile, "concurrent Run evidence");
+          yield* Deferred.succeed(resume, true);
+          const result = yield* Fiber.join(saving);
+          expect(result._tag).toBe(refuse ? "Failure" : "Success");
+          expect((yield* store.read(otherId)).lifecycle._tag).toBe("recording");
+          expect(yield* fs.readFileString(runFile)).toBe(
+            "concurrent Run evidence"
+          );
+          expect(
+            yield* fs.readFileString(path.join(target, "flow.md"))
+          ).toContain(refuse ? "old document" : "Inspect the shop");
+          expect(
+            yield* fs.exists(path.join(target, "references", "old.md"))
+          ).toBe(refuse);
+          expect(
+            yield* fs.exists(path.join(target, "references", "new.md"))
+          ).toBe(!refuse);
+        }).pipe(
+          Effect.provide(layer),
+          Effect.provideService(FileSystem.FileSystem, adapted)
+        );
+        expect(
+          (yield* fs.readDirectory(root)).some((name) =>
+            name.startsWith(".flow-skill-")
+          )
+        ).toBe(false);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 }

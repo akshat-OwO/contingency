@@ -154,6 +154,7 @@ it.live(
             activity: "teaching",
             clientName: "test",
             clientVersion: "1",
+            group: "",
             name: "cart",
             operationId: operation("prereq-teach"),
             url: fixture.url("task-session.html"),
@@ -272,6 +273,20 @@ it.live(
           if (session.run === null || !("schemaVersion" in session.run)) {
             return yield* Effect.die("Expected a task Dry Run.");
           }
+          expect(
+            yield* files.exists(
+              path.join(root, "cart", "runs", session.run.runId)
+            )
+          ).toBe(true);
+          expect(
+            yield* files.exists(
+              path.join(
+                store.directory(recordingId),
+                "dry-runs",
+                session.run.runId
+              )
+            )
+          ).toBe(true);
           expect(
             started.prerequisites.map((skill) => skill.flowSkillName)
           ).toEqual(["location", "login"]);

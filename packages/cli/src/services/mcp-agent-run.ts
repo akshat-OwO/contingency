@@ -320,7 +320,12 @@ export const startTaskRun = (
           const { emulation, source, runtimeRequirements } =
             yield* startingRunEmulation(skills);
           const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
-          const artifactDirectory = yield* store.prepare(runId);
+          const artifactDirectory = yield* store.prepare(
+            runId,
+            resolution.origin === "example"
+              ? []
+              : skills.map((skill) => skill.name)
+          );
           const startedAt = new Date().toISOString();
           const run: TaskAgentRunState = markDemoWork(hosts, {
             assessment: null,

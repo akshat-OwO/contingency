@@ -6,6 +6,7 @@ import { Effect, FileSystem } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   runTool,
@@ -29,6 +30,7 @@ it.live(
         const sessions = yield* AgentSession;
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-state"),
           operationId: operation("start"),
           url: fixture.url("devtools.html"),
@@ -109,7 +111,7 @@ it.live(
         );
         yield* sessions.stopTeachingRecording(started.id, operation("stop"));
         const recorded = yield* fs.readFileString(
-          `${root}/.recordings/${recordingId}/events.jsonl`
+          `${yield* evidenceDirectory(root, "recordings", recordingId)}/events.jsonl`
         );
         expect(recorded).not.toContain("setup-cookie-literal");
         expect(recorded).not.toContain("capture-header-literal");

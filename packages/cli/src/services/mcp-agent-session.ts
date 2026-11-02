@@ -140,6 +140,7 @@ const AgentSessionStartParameters = Schema.Struct({
   clientName: AgentSessionStart.fields.clientName,
   clientVersion: AgentSessionStart.fields.clientVersion,
   emulation: AgentSessionStart.fields.emulation,
+  group: optionalNullable(Schema.String),
   name: AgentSessionStart.fields.name,
   operationId: AgentSessionStart.fields.operationId,
   url: AgentSessionStart.fields.url,
@@ -236,6 +237,7 @@ const AgentGuidedRunStartTool = Tool.make("agent_guided_run_start", {
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     emulation: AgentSessionStart.fields.emulation,
+    group: Schema.String,
     name: FlowSkillName,
     operationId: OperationId,
     platform: optionalNullable(Schema.Literals(["web", "android"])),
@@ -603,6 +605,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               activity: "teaching",
               domainScope: { hosts: [host] },
               emulation: params.emulation,
+              group: params.group,
               name: params.name,
               openedBy: "agent",
               operationId: params.operationId,
@@ -706,6 +709,20 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
         }),
       agent_session_start: ({ view, ...params }) =>
         Effect.gen(function* startAgentSession() {
+          if (
+            params.activity === "teaching" &&
+            (params.name === undefined ||
+              params.name === null ||
+              params.group === undefined)
+          ) {
+            return yield* Effect.fail(
+              new AgentSessionFailure({
+                code: "agent_session_invalid",
+                message:
+                  "Teaching requires a Flow name and Group before Start. Use an empty Group for the Catalog Root.",
+              })
+            );
+          }
           const service = yield* AgentSession;
           return yield* service
             .start({ ...params, openedBy: "agent" })

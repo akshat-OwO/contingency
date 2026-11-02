@@ -27,6 +27,7 @@ import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-brow
 import { PursuitToolHandlersLive } from "../../src/services/mcp-pursuit.ts";
 import { SystemOne } from "../../src/services/system-one.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   catalogTool,
@@ -51,6 +52,7 @@ it.live(
       yield* Effect.gen(function* recordAndLearn() {
         const sessions = yield* AgentSession;
         const params = {
+          group: "",
           name: FlowSkillName.make("guided-delivery"),
           operationId: operation("guided-start"),
           url: fixtures.url("delivery.html"),
@@ -79,7 +81,11 @@ it.live(
         if (started.recordingId === null) {
           return yield* Effect.die("No recording");
         }
-        const directory = path.join(root, ".recordings", started.recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          started.recordingId
+        );
         const first = yield* sessionTool("agent_browser_snapshot", {
           sessionId: started.id,
         });
@@ -395,6 +401,7 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
         yield* Effect.gen(function* recordInterruptedAttempt() {
           const sessions = yield* AgentSession;
           const started = yield* sessionTool("agent_guided_run_start", {
+            group: "",
             name: FlowSkillName.make("guided-close"),
             operationId: operation("start"),
             url: fixtures.url("delivery.html"),
@@ -487,7 +494,10 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
             reason: "session-closed",
           });
           const events = yield* fs.readFileString(
-            path.join(root, ".recordings", started.recordingId, "events.jsonl")
+            path.join(
+              yield* evidenceDirectory(root, "recordings", started.recordingId),
+              "events.jsonl"
+            )
           );
           expect(events).toContain('"outcome":"failed"');
           expect(yield* sessions.get(started.id)).toMatchObject({
@@ -558,6 +568,7 @@ it.live(
       yield* Effect.gen(function* demonstrate() {
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-email"),
           operationId: operation("start"),
           url: fixtures.url("agent-login.html"),
@@ -688,7 +699,11 @@ it.live(
           },
           { actor: "agent" },
         ]);
-        const directory = path.join(root, ".recordings", recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          recordingId
+        );
         expect(
           yield* fs.readFileString(path.join(directory, "events.jsonl"))
         ).toContain(secret);
@@ -810,6 +825,7 @@ it.live(
         const second = url.replace("127.0.0.1", "localhost");
         const third = "http://unapproved.example/";
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-hosts"),
           operationId: operation("start"),
           url,
@@ -917,7 +933,10 @@ it.live(
         const manifest = Schema.decodeUnknownSync(TeachingRecordingManifest)(
           JSON.parse(
             yield* fs.readFileString(
-              path.join(root, ".recordings", recordingId, "manifest.json")
+              path.join(
+                yield* evidenceDirectory(root, "recordings", recordingId),
+                "manifest.json"
+              )
             )
           )
         );
@@ -989,6 +1008,7 @@ it.live(
       yield* Effect.gen(function* captureChecks() {
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-checks"),
           operationId: operation("start-checks"),
           url: fixtures.url("delivery.html"),
@@ -1273,6 +1293,7 @@ it.live(
           activity: "teaching",
           clientName: "checks-test",
           clientVersion: "1",
+          group: "",
           name: FlowSkillName.make("ordinary-checks"),
           operationId: operation("ordinary"),
           url: fixtures.url("delivery.html"),

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -125,7 +126,7 @@ import type {
   AgentBrowserFactory,
   PrivateInputTarget,
 } from "./agent-browser-contract.ts";
-import { AGENT_RUNS_DIRECTORY, AgentRunStore } from "./agent-run-store.ts";
+import { AgentRunStore } from "./agent-run-store.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import { agentSessionError as error } from "./agent-session-error.ts";
 import type { AgentSessionError } from "./agent-session-error.ts";
@@ -249,6 +250,7 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  readonly group?: string | undefined;
   readonly requiredBrowserState?: readonly RequiredBrowserModification[];
   /** Set only by the MCP Guided Run entry point. */
   readonly origin?: TeachingRecordingManifest["origin"];
@@ -915,6 +917,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     clientVersion: input.clientVersion?.trim() || "unknown",
     domainScope: input.domainScope ?? null,
     emulation: input.emulation ?? null,
+    group: input.group ?? "",
     name: input.name?.trim() || null,
     origin: input.origin ?? "teaching",
     run: input.run?.runId ?? null,
@@ -3018,7 +3021,9 @@ const makeAgentSession = (
               Effect.tryPromise({
                 catch: () => null,
                 try: () =>
-                  target.value.context.tracing.stop({ path: traceFile }),
+                  target.value.context.tracing.stop(
+                    existsSync(directory) ? { path: traceFile } : undefined
+                  ),
               }).pipe(Effect.ignore)
           )
         );
@@ -3109,6 +3114,19 @@ const makeAgentSession = (
       sessionId: AgentSessionId
     ): Effect.Effect<SessionRecord, AgentSessionError> =>
       read(sessionId).pipe(
+        Effect.tap((record) =>
+          Effect.suspend(() =>
+            record.artifactDirectory !== undefined &&
+            !existsSync(record.artifactDirectory)
+              ? Effect.fail(
+                  error(
+                    "agent_session_conflict",
+                    "The Flow evidence directory moved or disappeared. Close this session and start again in the Flow's current Group."
+                  )
+                )
+              : Effect.void
+          )
+        ),
         Effect.flatMap((record) =>
           isLive(record.snapshot.phase) && !record.control.closing
             ? Effect.succeed(record)
@@ -3485,9 +3503,12 @@ const makeAgentSession = (
         return undefined;
       }
       const { run } = record.snapshot;
-      return run !== null && isTaskRun(run)
-        ? path.join(root, AGENT_RUNS_DIRECTORY, run.runId, "downloads")
-        : path.join(root, ".devtools", "downloads", record.snapshot.id);
+      if (run !== null && isTaskRun(run)) {
+        return record.artifactDirectory === undefined
+          ? undefined
+          : path.join(record.artifactDirectory, "downloads");
+      }
+      return path.join(root, ".devtools", "downloads", record.snapshot.id);
     };
     const saveSessionDownload = (
       sessionId: AgentSessionId,
@@ -3506,6 +3527,7 @@ const makeAgentSession = (
           at: now().toISOString(),
           directory: downloadDirectory(record),
           index,
+          ownerDirectory: record.artifactDirectory,
           requests,
           secrets: [],
         }).pipe(
@@ -3710,6 +3732,7 @@ const makeAgentSession = (
           .begin({
             emulation,
             flowSkillName: identity.flowSkillName,
+            group: startInput.group,
             operationId: OperationId.make(
               startInput.operationId ?? `start-${startSessionId}`
             ),
