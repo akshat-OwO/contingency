@@ -37,6 +37,7 @@ import {
   maintainCatalogGitignore,
   resolveFlowDirectory,
 } from "./flow-catalog-layout.ts";
+import { readFlowContractFiles } from "./flow-contract-files.ts";
 import {
   readFlowSkillFrontmatter,
   stampFlowVerification,
@@ -1449,6 +1450,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             )
           );
         }
+        const contracts = yield* readFlowContractFiles(
+          path.dirname(verificationPath),
+          fileSystem
+        ).pipe(
+          Effect.mapError(ioError("Could not read contracts for verification"))
+        );
         const previous = readFlowSkillFrontmatter(content)?.verification;
         if (previous === undefined || previous.outcome !== "passed") {
           return yield* Effect.fail(
@@ -1461,12 +1468,16 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         return yield* fileSystem
           .writeFileString(
             verificationPath,
-            stampFlowVerification(content, {
-              ...previous,
-              origin,
-              platform: manifest.runtime?.platform ?? "web",
-              verifiedAt,
-            }),
+            stampFlowVerification(
+              content,
+              {
+                ...previous,
+                origin,
+                platform: manifest.runtime?.platform ?? "web",
+                verifiedAt,
+              },
+              contracts
+            ),
             { mode: 0o600 }
           )
           .pipe(

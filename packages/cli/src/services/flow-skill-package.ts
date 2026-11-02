@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import nodePath from "node:path";
 
 import type {
   FlowSkillDiagnostic,
   FlowSkillFile,
   PlatformRequirements,
+  PlatformIdentity,
 } from "@contingency/protocol";
 import { Option, Result, Schema } from "effect";
 
@@ -47,6 +49,17 @@ const diagnostic = (
 /** Durable Dry Run evidence contains input names, never their values. */
 const verificationSchema = Schema.Struct({
   completedAt: Schema.String,
+  digests: Schema.optional(
+    Schema.Struct({
+      contracts: Schema.Struct({
+        "browser-state.json": Schema.NullOr(Schema.String),
+        "checks.json": Schema.NullOr(Schema.String),
+        "scans.json": Schema.NullOr(Schema.String),
+      }),
+      procedure: Schema.String,
+      version: Schema.Literal(1),
+    })
+  ),
   inputs: Schema.Array(
     Schema.Struct({ changed: Schema.Boolean, name: Schema.String })
   ),
@@ -542,6 +555,61 @@ const withoutStampedKeys = (block: string): string[] => {
   return kept;
 };
 
+/** Reserved contracts whose presence and content belong to verification. */
+export const FLOW_CONTRACT_FILES = [
+  "checks.json",
+  "scans.json",
+  "browser-state.json",
+] as const;
+
+const normalizedText = (content: string): string =>
+  content.replaceAll("\r\n", "\n");
+const sha256 = (content: string): string =>
+  `sha256:${createHash("sha256").update(content, "utf-8").digest("hex")}`;
+
+/** Version 1 hashes LF-normalized authored frontmatter and the unchanged body. */
+export const flowVerificationDigests = (
+  content: string,
+  files: readonly FlowSkillFile[] = []
+): NonNullable<FlowVerification["digests"]> => {
+  const normalized = normalizedText(content);
+  const match = FRONTMATTER.exec(normalized);
+  const authored =
+    match === null
+      ? normalized
+      : `---\n${withoutStampedKeys(match.groups?.block ?? "").join("\n")}\n---\n${normalized.slice(match[0].length)}`;
+  const contractDigest = (name: string) => {
+    const file = files.find((entry) => entry.path === name);
+    return file === undefined ? null : sha256(normalizedText(file.content));
+  };
+  return {
+    contracts: {
+      "browser-state.json": contractDigest("browser-state.json"),
+      "checks.json": contractDigest("checks.json"),
+      "scans.json": contractDigest("scans.json"),
+    },
+    procedure: sha256(authored),
+    version: 1,
+  };
+};
+
+export const matchesFlowVerificationDigests = (
+  content: string,
+  files: readonly FlowSkillFile[],
+  recorded: FlowVerification["digests"]
+): boolean => {
+  if (recorded === undefined) {
+    return false;
+  }
+  const current = flowVerificationDigests(content, files);
+  return (
+    recorded.procedure === current.procedure &&
+    FLOW_CONTRACT_FILES.every(
+      (name) => recorded.contracts[name] === current.contracts[name]
+    )
+  );
+};
+
 const emulationLines = (emulation: FlowSkillEmulation): string[] => {
   const lines: string[] = [];
   // 100% is the browser default; omit it so older Flow Skills round-trip.
@@ -633,7 +701,8 @@ export const stampFlowSkillProvenance = (
 
 export const stampFlowVerification = (
   content: string,
-  verification: FlowVerification
+  verification: FlowVerification,
+  files: readonly FlowSkillFile[] = []
 ): string => {
   const match = FRONTMATTER.exec(content);
   if (match === null) {
@@ -651,7 +720,7 @@ export const stampFlowVerification = (
       kept.push(raw);
     }
   }
-  return `---\n${kept.join("\n")}\nverification: ${JSON.stringify(verification)}\n---\n${content.slice(match[0].length)}`;
+  return `---\n${kept.join("\n")}\nverification: ${JSON.stringify({ ...verification, digests: flowVerificationDigests(content, files) })}\n---\n${content.slice(match[0].length)}`;
 };
 
 const PLACEHOLDER = /\{\{\s*(?<input>[A-Za-z][\w-]*)\s*\}\}/gu;
@@ -1122,3 +1191,21 @@ export const flowSkillProcedureSteps = (
     name: firstLine(step.block),
   }));
 };
+
+/** Whether frontmatter records explicit user verification on this platform. */
+export const isVerifiedFlowSkill = (
+  files: readonly { readonly content: string; readonly path: string }[],
+  platform: PlatformIdentity = "web"
+): boolean =>
+  files.some((file) => {
+    if (file.path !== SKILL_FILE) {
+      return false;
+    }
+    const stamp = readFlowSkillFrontmatter(file.content)?.verification;
+    return (
+      stamp?.outcome === "passed" &&
+      (stamp.verifiedAt?.length ?? 0) > 0 &&
+      stamp.platform === platform &&
+      matchesFlowVerificationDigests(file.content, files, stamp.digests)
+    );
+  });

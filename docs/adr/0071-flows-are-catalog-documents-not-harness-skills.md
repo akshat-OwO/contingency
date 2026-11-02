@@ -17,3 +17,11 @@ A Flow Skill was shaped like a harness skill, with a `SKILL.md` and a `reference
 - **Keep the skill shape and move it into `.claude/` or `.agents/`.** We rejected this. Harnesses would load Flows automatically, bypassing the Execution Boundary and the Run lifecycle.
 - **Use the relative path as the Flow's identity.** We rejected this. Every regrouping would rename the Flow and break Dry Run prerequisites and Suite membership.
 - **Migrate existing `.contingency` catalogs.** We rejected this. The old layout is ignored, and no compatibility documentation is kept.
+
+## Verification digests
+
+`flow.md`'s existing `verification` frontmatter stamp contains `digests` version `1`. Each digest is `sha256:<lowercase hex>` over UTF-8 text with CRLF converted to LF. The procedure digest covers authored frontmatter and the complete body. It excludes the top-level `hosts`, `emulation`, `runtime`, and `verification` fields and their indented blocks. Trailing blank lines in the remaining frontmatter are removed, and the frontmatter delimiters use LF. Other authored whitespace remains significant.
+
+The stamp also records a separate digest for each reserved contract: `checks.json`, `scans.json`, and `browser-state.json`. An absent contract is recorded as `null`, so adding or deleting a contract also invalidates verification. Contract JSON formatting remains significant. Supporting documents are excluded.
+
+Readers compare current content with the recorded digests without changing any files. A missing digest, including a pre-existing verification stamp, reads as drafted and requires a new user verification. There is no migration. MCP listings expose this result as `verified`, and the Flows Drawer and Run startup use the same comparison. Run write restrictions remain a separate implementation slice.

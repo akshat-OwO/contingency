@@ -264,6 +264,7 @@ export interface AndroidWorkspaceService {
     command: AndroidWorkspaceCommand,
     source: "agent" | "user"
   ) => Effect.Effect<AndroidWorkspaceSnapshot, AndroidWorkspaceError>;
+  readonly activeRunFlowNames: () => Effect.Effect<readonly string[]>;
   readonly list: () => Effect.Effect<
     readonly AndroidWorkspaceSummary[],
     AndroidWorkspaceError
@@ -1529,6 +1530,20 @@ export const makeAndroidWorkspaceLayer = (options: {
           };
         });
       return AndroidWorkspace.of({
+        activeRunFlowNames: () =>
+          Effect.sync(() => {
+            const names: string[] = [];
+            for (const session of sessions.values()) {
+              const { summary } = state(session);
+              if (
+                summary.kind !== "teaching" &&
+                ["pending", "running", "paused"].includes(summary.phase)
+              ) {
+                names.push(summary.flowSkillName);
+              }
+            }
+            return names;
+          }),
         execute: (command, source) =>
           Effect.suspend(() => {
             if (command._tag === "start") {

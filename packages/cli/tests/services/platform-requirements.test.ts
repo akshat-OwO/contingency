@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect";
 import {
   readFlowSkillFrontmatter,
   stampFlowSkillProvenance,
+  stampFlowVerification,
 } from "../../src/services/flow-skill-package.ts";
 import {
   browserRequirements,
@@ -95,26 +96,26 @@ it.effect(
     })
 );
 
+const verified = (platform: "web" | "android") => [
+  {
+    content: stampFlowVerification("---\nname: test\n---\n", {
+      completedAt: "now",
+      inputs: [],
+      observableOutcome: "Ready",
+      outcome: "passed",
+      platform,
+      verifiedAt: "now",
+    }),
+    path: "flow.md",
+  },
+];
+
 it.effect("verification is platform-specific", () =>
   Effect.sync(() => {
-    const files = [
-      {
-        content:
-          '---\nverification: {"completedAt":"now","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"now","platform":"web"}\n---\n',
-        path: "flow.md",
-      },
-    ];
-    expect(isVerifiedFlowSkill(files, "web")).toBe(true);
-    expect(isVerifiedFlowSkill(files, "android")).toBe(false);
-    const android = [
-      {
-        content:
-          '---\nverification: {"completedAt":"now","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"now","platform":"android"}\n---\n',
-        path: "flow.md",
-      },
-    ];
-    expect(isVerifiedFlowSkill(android, "android")).toBe(true);
-    expect(isVerifiedFlowSkill(android, "web")).toBe(false);
+    expect(isVerifiedFlowSkill(verified("web"), "web")).toBe(true);
+    expect(isVerifiedFlowSkill(verified("web"), "android")).toBe(false);
+    expect(isVerifiedFlowSkill(verified("android"), "android")).toBe(true);
+    expect(isVerifiedFlowSkill(verified("android"), "web")).toBe(false);
   })
 );
 

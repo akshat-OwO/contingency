@@ -47,6 +47,7 @@ it.effect("lists a Flow Skill without naming the Catalog Root", () =>
         inputs: [{ description: "The delivery area to set.", name: "area" }],
         name: "set-delivery-area",
         stepCount: 2,
+        verified: false,
       },
     ]);
     // The Catalog Root is the MCP process's business, not the caller's.

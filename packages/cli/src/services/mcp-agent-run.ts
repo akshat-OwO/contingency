@@ -191,7 +191,7 @@ const AgentTaskAssessTool = Tool.make("agent_run_assess", {
 const AgentTaskFindingTool = Tool.make("agent_run_finding", {
   dependencies: [AgentSession],
   description:
-    "Append an evidence-backed finding without ending the Run or replacing its task assessment. Cite a Snapshot or attempt produced by this Run.",
+    "Append an evidence-backed finding without ending the Run or replacing its task assessment. Cite a Snapshot or attempt produced by this Run. Runs cannot edit Flow documents or contracts. To propose a change, put the Flow name, relative document or contract path, rationale, and proposed text or diff in explanation. The proposal is retained in the Run Summary and shown to the user in Workspace findings; it is never applied to the Flow.",
   failure: AgentRunFailure,
   parameters: taskReportParameters,
   success: SessionResult,

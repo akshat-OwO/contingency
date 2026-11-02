@@ -435,6 +435,43 @@ it.live(
             heading: "Accessibility targets",
             path: "targets.md",
           });
+          const originalFlow = yield* fileSystem.readFileString(
+            path.join(skillDirectory, "flow.md")
+          );
+          for (const documentPath of ["flow.md", "checks.json", "setup.md"]) {
+            const refused = yield* Effect.result(
+              teachingRecordingTool("agent_flow_skill_save", {
+                claimOperationId,
+                files: [
+                  { content: "Run must not write this", path: documentPath },
+                ],
+                operationId: OperationId.make(
+                  `delivery-refused-${documentPath}`
+                ),
+                recordingId,
+              })
+            );
+            expect(Result.isFailure(refused)).toBe(true);
+            if (Result.isFailure(refused)) {
+              expect(refused.failure.message).toContain(
+                "An active Run uses this Flow"
+              );
+            }
+            expect(
+              yield* fileSystem.readFileString(
+                path.join(skillDirectory, "flow.md")
+              )
+            ).toBe(originalFlow);
+            if (documentPath !== "flow.md") {
+              expect(
+                yield* fileSystem.exists(
+                  path.join(skillDirectory, documentPath)
+                )
+              ).toBe(false);
+            }
+          }
+          const proposal =
+            "Flow set-delivery-area; setup.md; explain delayed navigation; proposed text: Wait for the delivery page to arrive.";
           const beforeNavigation = yield* sessionTool("agent_browser_act", {
             action: { type: "navigate", url: fixtures.url("settle.html") },
             operationId: OperationId.make("delivery-dry-navigate-later"),
@@ -470,7 +507,7 @@ it.live(
           expect(afterNavigation.url).toBe(arrivedUrl);
           const assessedAfterNavigation = yield* runTool("agent_run_finding", {
             evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
-            explanation: "The delayed navigation arrived.",
+            explanation: proposal,
             operationId: OperationId.make("delivery-dry-assess-later"),
             outcome: "working",
             sessionId: failedRun.session.id,
@@ -489,6 +526,14 @@ it.live(
               sessionId: failedRun.session.id,
             })).currentUrl
           ).toBe(arrivedUrl);
+          expect(
+            yield* fileSystem.readFileString(
+              path.join(skillDirectory, "flow.md")
+            )
+          ).toBe(originalFlow);
+          expect(
+            yield* fileSystem.exists(path.join(skillDirectory, "setup.md"))
+          ).toBe(false);
           yield* assessDryRunOutcome(failedRun.session.id, "not-working");
           const replayedFailedRun = yield* teachingRecordingTool(
             "agent_flow_skill_dry_run_start",
@@ -564,6 +609,16 @@ it.live(
             expect(
               failedManifest.lifecycle.dryRunSummary?.assessment?.outcome
             ).toBe("not-working");
+          }
+          if (
+            failedManifest.lifecycle._tag === "dry-run-failed" &&
+            failedManifest.lifecycle.dryRunSummary?.schemaVersion === 3
+          ) {
+            expect(
+              failedManifest.lifecycle.dryRunSummary.findings.map(
+                (finding) => finding.explanation
+              )
+            ).toContain(proposal);
           }
           const dryRunDirectory = yield* evidenceDirectory(
             root,

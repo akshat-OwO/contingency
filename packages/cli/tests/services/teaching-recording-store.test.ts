@@ -15,7 +15,11 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 
-import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
+import {
+  FLOW_CONTRACT_FILES,
+  flowVerificationDigests,
+  readFlowSkillFrontmatter,
+} from "../../src/services/flow-skill-package.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -297,6 +301,12 @@ it.effect.each([
         expect(mismatched.code).toBe("teaching_recording_conflict");
         expect(mismatched.message).toContain("platform requirements");
         yield* fileSystem.writeFileString(skillFile, passingContent);
+        for (const contract of FLOW_CONTRACT_FILES) {
+          yield* fileSystem.writeFileString(
+            path.join(flowDirectory, contract),
+            "{}\n"
+          );
+        }
         yield* store.verify(verification);
         yield* store.verify(verification);
         const cleanup = {
@@ -381,11 +391,16 @@ it.effect.each([
           );
         }
       }
-      const saved = readFlowSkillFrontmatter(
-        yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
+      const savedContent = yield* fileSystem.readFileString(
+        path.join(flowDirectory, "flow.md")
       );
+      const saved = readFlowSkillFrontmatter(savedContent);
       expect(saved?.verification).toEqual({
         completedAt: at,
+        digests: flowVerificationDigests(
+          savedContent,
+          FLOW_CONTRACT_FILES.map((name) => ({ content: "{}\n", path: name }))
+        ),
         inputs: [
           { changed: true, name: "account" },
           { changed: false, name: "region" },

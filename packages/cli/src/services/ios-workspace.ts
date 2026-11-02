@@ -265,6 +265,7 @@ export interface IosWorkspaceService {
     command: IosWorkspaceCommand,
     source: "agent" | "user"
   ) => Effect.Effect<IosWorkspaceSnapshot, IosWorkspaceError>;
+  readonly activeRunFlowNames: () => Effect.Effect<readonly string[]>;
   readonly list: () => Effect.Effect<
     readonly IosWorkspaceSummary[],
     IosWorkspaceError
@@ -1599,6 +1600,20 @@ export const makeIosWorkspaceLayer = (options: {
           };
         });
       return IosWorkspace.of({
+        activeRunFlowNames: () =>
+          Effect.sync(() => {
+            const names: string[] = [];
+            for (const session of sessions.values()) {
+              const { summary } = state(session);
+              if (
+                summary.kind !== "teaching" &&
+                ["pending", "running", "paused"].includes(summary.phase)
+              ) {
+                names.push(summary.flowSkillName);
+              }
+            }
+            return names;
+          }),
         execute: (command, source) =>
           Effect.suspend(() => {
             if (command._tag === "start") {

@@ -7,6 +7,7 @@ import {
   readFlowSkillFrontmatter,
   stampFlowSkillProvenance,
   stampFlowVerification,
+  flowVerificationDigests,
   validateFlowSkillPackage,
 } from "../../src/services/flow-skill-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
@@ -525,7 +526,10 @@ test("round-trips every Contingency stamp in flow.md and clears verification on 
   };
   const content = stampFlowVerification(stamped, verification);
   const read = readFlowSkillFrontmatter(content);
-  expect(read?.verification).toEqual(verification);
+  expect(read?.verification).toEqual({
+    ...verification,
+    digests: flowVerificationDigests(stamped),
+  });
   expect(read?.hosts).toEqual(["shop.example.com"]);
   expect(read?.emulation?.viewport).toEqual({
     deviceScaleFactor: 2,

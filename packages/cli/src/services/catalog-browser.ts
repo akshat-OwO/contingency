@@ -22,6 +22,7 @@ import type { Mutable } from "effect/Types";
 import { AGENT_RUNS_DIRECTORY } from "./agent-run-store.ts";
 import { DEMO_SITE_ID, isDemoHosts } from "./demo-site.ts";
 import { discoverFlows } from "./flow-catalog-layout.ts";
+import { readFlowContractFiles } from "./flow-contract-files.ts";
 import {
   GLOBAL_CATALOG_DIRECTORY,
   FlowSkillCatalog,
@@ -226,17 +227,25 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     const flows = yield* discoverFlows(root, fileSystem).pipe(
       Effect.mapError((cause) => browserError("catalog_io", cause.message))
     );
-    return [...flows]
-      .toSorted(([a], [b]) => a.localeCompare(b))
-      .flatMap(([name, flow]) =>
-        flow.kind === "draft"
-          ? []
-          : [
-              catalogFlowSkillEntry(FlowSkillName.make(name), flow.content, [
-                { content: flow.content, path: SKILL_FILE },
-              ]),
-            ]
+    const entries: CatalogFlowSkillEntry[] = [];
+    for (const [name, flow] of [...flows].toSorted(([a], [b]) =>
+      a.localeCompare(b)
+    )) {
+      if (flow.kind === "draft") {
+        continue;
+      }
+      const contracts = yield* readFlowContractFiles(
+        flow.directory,
+        fileSystem
+      ).pipe(Effect.orElseSucceed(() => null));
+      const entry = catalogFlowSkillEntry(
+        FlowSkillName.make(name),
+        flow.content,
+        [{ content: flow.content, path: SKILL_FILE }, ...(contracts ?? [])]
       );
+      entries.push(contracts === null ? { ...entry, verified: false } : entry);
+    }
+    return entries;
   });
 
   const summaries = (files: readonly string[]) =>
