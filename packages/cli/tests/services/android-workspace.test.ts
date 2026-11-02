@@ -797,6 +797,16 @@ it.effect(
           "agent"
         );
         expect(later.kind).toBe("run");
+        expect(yield* workspace.activeRunFlowNames()).toContain(flowSkillName);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-later-run"),
+            sessionId: later.id,
+          },
+          "user"
+        );
+        expect(yield* workspace.activeRunFlowNames()).toEqual([]);
       })
     )
 );

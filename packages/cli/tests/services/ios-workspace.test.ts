@@ -174,6 +174,7 @@ for (const existing of [false, true]) {
             command.group = "shop";
           }
           const started = yield* workspace.execute(command, "user");
+          expect(yield* workspace.activeRunFlowNames()).toEqual([]);
           if (started.recordingId === null) {
             return yield* Effect.die("Teaching must own a recording");
           }

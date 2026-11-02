@@ -18,6 +18,7 @@ import type { TeachingRecordingManifest } from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
+import { isFlowInActiveRun } from "./active-flow-runs.ts";
 import { AgentSession } from "./agent-session.ts";
 import { flowDocuments, SupportingDocument } from "./flow-documents.ts";
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
@@ -315,26 +316,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         const manifest = yield* store
           .read(params.recordingId)
           .pipe(Effect.mapError(failure));
-        const sessions = yield* AgentSession;
-        const active = yield* sessions.list();
-        if (
-          active.some((session) => {
-            if (session.activity !== "run") {
-              return false;
-            }
-            const { run } = session;
-            return (
-              session.flowSkillName === manifest.flowSkillName ||
-              session.dryRun?.flowSkillName === manifest.flowSkillName ||
-              (run !== null &&
-                ("referencedSkills" in run
-                  ? run.referencedSkills.some(
-                      (skill) => skill.flowSkillName === manifest.flowSkillName
-                    )
-                  : run.flowSkillName === manifest.flowSkillName))
-            );
-          })
-        ) {
+        if (yield* isFlowInActiveRun(manifest.flowSkillName)) {
           return yield* Effect.fail(
             new TeachingRecordingFailure({
               code: "teaching_recording_conflict",

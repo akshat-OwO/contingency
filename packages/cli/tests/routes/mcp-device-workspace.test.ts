@@ -51,6 +51,7 @@ it.live("routes public iOS calls to iOS without accessing Android", () =>
     });
   }).pipe(
     Effect.provideService(IosWorkspace, {
+      activeRunFlowNames: () => Effect.succeed([]),
       execute: () =>
         Effect.fail({
           code: "ios_workspace_refused",
