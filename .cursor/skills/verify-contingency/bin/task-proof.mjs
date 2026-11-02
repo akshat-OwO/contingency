@@ -92,10 +92,9 @@ const call = (tool, params = {}, refusal = false) =>
   Effect.gen(function* callTool() {
     // The proof supplies secrets itself; journal them redacted so the leak
     // check below still covers every server response.
-    const publicParams =
-      typeof params.value === "string" && secrets.includes(params.value)
-        ? { ...params, value: "[redacted]" }
-        : params;
+    const publicParams = secrets.includes(params.value)
+      ? { ...params, value: "[redacted]" }
+      : params;
     journal.push({ entryPoint: "mcp call", params: publicParams, tool });
     const result = yield* io(async () => {
       try {
