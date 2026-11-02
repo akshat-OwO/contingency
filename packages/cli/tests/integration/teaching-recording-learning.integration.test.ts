@@ -450,7 +450,11 @@ it.live(
             "agent_flow_skill_save",
             saveInput
           );
-          expect(saved.files).toEqual(["flow.md", "setup.md", "targets.md"]);
+          expect(saved.files.toSorted()).toEqual([
+            "flow.md",
+            "setup.md",
+            "targets.md",
+          ]);
           expect(
             yield* fileSystem.readFileString(
               path.join(root, "learn-anvil", "flow.md")
