@@ -40,7 +40,7 @@ const saveFlow = (
   width = 640,
   host = "127.0.0.1"
 ) =>
-  Effect.gen(function* saveVerifiedSkill() {
+  Effect.gen(function* saveVerifiedFlow() {
     const files = yield* FileSystem.FileSystem;
     const directory = path.join(root, name);
     yield* files.makeDirectory(path.join(directory, "references"), {
@@ -111,7 +111,7 @@ it.live(
               operationId: operation(`saved-${state}`),
               referencedFlows: [FlowName.make(name)],
               requestedTask: "Read the saved environment",
-              url: fixture.url("skill-environment.html"),
+              url: fixture.url("flow-environment.html"),
             });
             expect(taskRun(opened).emulationSource).toEqual({
               flowName: name,
@@ -152,7 +152,7 @@ it.live(
             );
             const document = fixture.requestHeaders
               .slice(startIndex)
-              .find((request) => request.url === "/skill-environment.html");
+              .find((request) => request.url === "/flow-environment.html");
             expect(document?.headers["user-agent"]).toContain("Android");
             expect(document?.headers["sec-ch-ua-mobile"]).toBe("?1");
             expect(document?.headers["accept-language"]).toContain("de-DE");
@@ -199,8 +199,8 @@ it.live(
                 FlowName.make("phone"),
                 FlowName.make("desktop"),
               ],
-              requestedTask: "Use both skills",
-              url: fixture.url("skill-environment.html"),
+              requestedTask: "Use both flows",
+              url: fixture.url("flow-environment.html"),
             })
           );
           expect(refused.message).toContain("different emulation");
@@ -216,8 +216,8 @@ it.live(
               inputs: [],
               operationId: operation("invalid-start"),
               referencedFlows: [FlowName.make("phone")],
-              requestedTask: "Use phone skill",
-              url: fixture.url("skill-environment.html"),
+              requestedTask: "Use phone flow",
+              url: fixture.url("flow-environment.html"),
             })
           );
           expect(invalid.message).toContain("invalid emulation");
@@ -236,7 +236,7 @@ it.live(
         prefix: "contingency-authority-",
       });
       const fixture = yield* fixtureServer;
-      yield* saveFlow(root, "later-skill", 640, "localhost");
+      yield* saveFlow(root, "later-flow", 640, "localhost");
       yield* Effect.scoped(
         Effect.gen(function* checkAuthority() {
           const started = yield* runTool("agent_run_start", {
@@ -296,9 +296,9 @@ it.live(
           });
           yield* runTool("agent_run_update", {
             inputs: [],
-            instruction: "Use the later skill too",
-            operationId: operation("authority-request-skill"),
-            referencedFlows: [FlowName.make("later-skill")],
+            instruction: "Use the later flow too",
+            operationId: operation("authority-request-flow"),
+            referencedFlows: [FlowName.make("later-flow")],
             sessionId,
           });
           const admitted = yield* sessionTool("agent_browser_act", {
@@ -362,7 +362,7 @@ it.live(
 );
 
 it.live(
-  "keeps a zero-skill task live across failure, changed instructions, retry, and explicit completion",
+  "keeps a zero-flow task live across failure, changed instructions, retry, and explicit completion",
   () =>
     Effect.gen(function* taskLifecycle() {
       const files = yield* FileSystem.FileSystem;
@@ -552,12 +552,12 @@ it.live(
 );
 
 it.live(
-  "composes partial skills without resetting the cart or Emulation, and requests scoped inputs lazily",
+  "composes partial flows without resetting the cart or Emulation, and requests scoped inputs lazily",
   () =>
-    Effect.gen(function* composeSkills() {
+    Effect.gen(function* composeFlows() {
       const files = yield* FileSystem.FileSystem;
       const root = yield* files.makeTempDirectoryScoped({
-        prefix: "contingency-task-skills-",
+        prefix: "contingency-task-flows-",
       });
       const fixture = yield* fixtureServer;
       yield* saveFlow(root, "flow1");
@@ -620,11 +620,11 @@ it.live(
           expect(tabsBefore.map((tab) => tab.url)).toContain(
             fixture.url("task-session.html?tab=help")
           );
-          // Updating an existing input does not reapply its skill's environment.
-          const firstSkillFile = path.join(root, "flow1", "flow.md");
+          // Updating an existing input does not reapply its flow's environment.
+          const firstFlowFile = path.join(root, "flow1", "flow.md");
           yield* files.writeFileString(
-            firstSkillFile,
-            (yield* files.readFileString(firstSkillFile)).replace(
+            firstFlowFile,
+            (yield* files.readFileString(firstFlowFile)).replace(
               "640x480@1",
               "wide"
             )
@@ -690,7 +690,7 @@ it.live(
           const redirected = yield* runTool("agent_run_update", {
             inputs: [],
             instruction:
-              "Investigate the current cart without consulting another skill",
+              "Investigate the current cart without consulting another flow",
             operationId: operation("compose-redirect"),
             referencedFlows: [],
             sessionId: started.id,

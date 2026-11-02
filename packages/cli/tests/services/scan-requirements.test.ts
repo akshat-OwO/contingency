@@ -66,7 +66,7 @@ it.effect("learning cannot drop a taught scan or its taught stop", () =>
   })
 );
 
-it("coverage requires completed reports matching skill and stable requirement ID", () => {
+it("coverage requires completed reports matching flow and stable requirement ID", () => {
   const reference = {
     ...requirement,
     endWhen: "Cart total is visible",

@@ -154,7 +154,7 @@ it.effect("persists declared Android preparation in saved requirements", () =>
   })
 );
 
-it("reads Android skills saved with the retired activation allowlist", () => {
+it("reads Android flows saved with the retired activation allowlist", () => {
   const environment = {
     androidVersion: "16",
     appBuild: "2",

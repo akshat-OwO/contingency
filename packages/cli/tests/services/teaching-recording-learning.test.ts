@@ -335,7 +335,7 @@ for (const value of ["login", "anvil"]) {
           storeLayer,
           TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
         );
-        yield* Effect.gen(function* saveVariableSkill() {
+        yield* Effect.gen(function* saveVariableFlow() {
           const store = yield* TeachingRecordingStore;
           const learning = yield* TeachingRecordingLearning;
           const begun = yield* store.begin({

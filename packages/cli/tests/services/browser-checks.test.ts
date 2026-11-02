@@ -204,7 +204,7 @@ it.effect(
       );
     })
 );
-it("coverage requires local results for each skill and check, with the latest failure retained", () => {
+it("coverage requires local results for each flow and check, with the latest failure retained", () => {
   const reference = { check, flowName: "submit" };
   const passed = {
     at: "2026-10-07T00:00:00Z",

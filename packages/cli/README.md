@@ -1,6 +1,6 @@
 # @contingencyhq/cli
 
-Monitor whether your product's features still work. Teach a journey once by demonstrating it in a real browser, let an agent learn a reusable Flow Skill from the recording, and run that Flow Skill whenever you want to know the journey still holds.
+Monitor whether your product's features still work. Teach a journey once by demonstrating it in a real browser, let an agent learn a reusable Flow from the recording, and run that Flow whenever you want to know the journey still holds.
 
 ## Install
 
@@ -27,11 +27,11 @@ npx @contingencyhq/cli start --demo
 
 Install Claude Code, Codex, or OpenCode V2 (`npm install -g @opencode/cli`; verified with 2.0.26) first. OpenCode V1 is not supported. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports. OpenCode starts with `--standalone`, a private server for that launch, because its shared background service never sees a session-only connection; `start` refuses `--server`.
 
-Without `--demo`, the agent reads the [Getting started](./docs/getting-started.md) guide and works on your own website: it lists your saved Flow Skills and unfinished Teaching, runs verified Flow Skills to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
+Without `--demo`, the agent reads the [Getting started](./docs/getting-started.md) guide and works on your own website: it lists your saved Flows and unfinished Teaching, runs verified Flows to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
 
 ### Guided demo
 
-With `--demo`, the agent offers bundled Examples on Ridgeline Hardware, a local demo store. Watch an Example, teach your own variation, and let the agent learn it and automatically start a fresh Dry Run. After a passing result, choose **Verify flow** in Workspace. Examples are read-only and remain separate from your saved Flow Skills. Demo skills retain their demo label when you return to the project.
+With `--demo`, the agent offers bundled Examples on Ridgeline Hardware, a local demo store. Watch an Example, teach your own variation, and let the agent learn it and automatically start a fresh Dry Run. After a passing result, choose **Verify flow** in Workspace. Examples are read-only and remain separate from your saved Flows. Demo flows retain their demo label when you return to the project.
 
 Supply private demo passwords in Workspace. During a return Teaching recording, click the store's Password field, then use **Demo password** and **Enter demo password**. The recording retains `DEMO_PASSWORD` in place of its value.
 
@@ -67,9 +67,9 @@ This runs one local MCP server and serves the Workspace, the interface where you
 
 When stdin is not a terminal, Contingency automatically assigns an available Workspace port to each process. This includes MCP clients, Docker without `-t`, systemd, and CI. Headless HTTP callers that require a fixed endpoint must set the `mcp.port` Setting, for example `CONTINGENCY_MCP_PORT=7777`. A launch with terminal stdin defaults to port 7777. Use the Workspace URL the server returns.
 
-During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow Skill to `contingency/<flow-name>/flow.md`, and proves the skill with a Dry Run in a fresh browser context. You verify the Flow Skill in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
+During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow to `contingency/<group…>/<flow>/flow.md`, and proves the flow with a Dry Run in a fresh browser context. You verify the Flow in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
 
-Once verified, the agent runs the Flow Skill within an Execution Boundary: it may only visit the hosts you demonstrated on, and an irreversible browser action waits for your confirmation every time. The Run also reopens the browser under the Emulation you taught it, so a journey demonstrated on a phone runs as a phone. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.
+Once verified, the agent runs the Flow within an Execution Boundary: it may only visit the hosts you demonstrated on, and an irreversible browser action waits for your confirmation every time. The Run also reopens the browser under the Emulation you taught it, so a journey demonstrated on a phone runs as a phone. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.
 
 ## Workspace without MCP
 
@@ -97,7 +97,7 @@ The [Settings reference](./docs/settings.md) lists every key, its environment va
 | --- | --- |
 | [Settings](./docs/settings.md) | Every Setting, where Contingency reads it, and precedence |
 | [Capabilities](./docs/capabilities.md) | Platform Runtimes, Teaching, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, the Execution Boundary, and what each one can't do |
-| [Variables](./docs/variables.md) | Declaring Flow Skill inputs, `secret` and `runtime`, and how values are supplied |
+| [Variables](./docs/variables.md) | Declaring Flow inputs, `secret` and `runtime`, and how values are supplied |
 | [Limits](./docs/limits.md) | Fixed limits on sessions, recordings, observation, and programs |
 
 ### Agent guides
@@ -106,7 +106,7 @@ Every connected agent reads [Getting started](./docs/getting-started.md) before 
 
 | Guide | Read when |
 | --- | --- |
-| [Run Flow Skills](./docs/run.md) | Checking a feature with saved Flow Skills |
+| [Run Flows](./docs/run.md) | Checking a feature with saved Flows |
 | [Teach a journey](./docs/teach.md) | The user demonstrates a new journey |
 | [Guided Run](./docs/guided-run.md) | Learning from the user's Source Document |
 | [Device sessions](./docs/device.md) | Working on Android or iOS |
@@ -120,9 +120,9 @@ A Teaching session keeps a local video and Playwright Trace, and a Run keeps its
 
 ## Teaching Recording cleanup
 
-A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow Skill learned from it deletes its video, Trace, events, and keyframes; the Flow directory and its supporting documents remain.
+A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow learned from it deletes its video, Trace, events, and keyframes; the Flow directory and its supporting documents remain.
 
-Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the verified Flow Skill stands and the Workspace names the retained sensitive files and offers a retry. Rejecting a drafted Flow Skill keeps every Teaching artifact so the agent can try again.
+Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the verified Flow stands and the Workspace names the retained sensitive files and offers a retry. Rejecting a drafted Flow keeps every Teaching artifact so the agent can try again.
 
 ## Claude Code channels
 

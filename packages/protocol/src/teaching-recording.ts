@@ -661,7 +661,7 @@ export type TeachingCaptureLimits = typeof TeachingCaptureLimits.Type;
 /**
  * The content address of one captured keyframe's bytes. Keyframes live only in
  * the owning process and in the recording directory; they never enter a Flow
- * Skill package (ADR 0039).
+ * Flow package (ADR 0039).
  */
 export const KeyframeHash = Schema.String.check(
   Schema.isPattern(/^sha256-[a-f0-9]{64}$/u)

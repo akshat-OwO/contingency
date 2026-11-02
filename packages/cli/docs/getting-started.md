@@ -1,6 +1,6 @@
 # Getting started
 
-Contingency owns a local browser, its Workspace, and the Flow Skills in the Catalog Root. Run Flow Skills to check features and learn new ones from journeys the user demonstrates.
+Contingency owns a local browser, its Workspace, and the Flows in the Catalog Root. Run Flows to check features and learn new ones from journeys the user demonstrates.
 
 ## Start
 
@@ -20,8 +20,8 @@ Follow each tool's contract and `nextAction`.
 ## Always follow
 
 - Share each new session's returned `viewUrl` as a clickable **Open Workspace** link in a user-visible message before the next browser action.
-- Repeat the current link when you ask the user to demonstrate, supply a private value, confirm an action, or verify a Flow Skill.
-- Variables are ordinary visible values. You may use a value supplied in chat; a saved Flow Skill names the Variable without storing its value.
+- Repeat the current link when you ask the user to demonstrate, supply a private value, confirm an action, or verify a Flow.
+- Variables are ordinary visible values. You may use a value supplied in chat; a saved Flow names the Variable without storing its value.
 - For a Pending Decision, describe the action and ask the user to reply "allow" or "refuse". Call `agent_pending_decision_resolve` after their answer. Follow the tool contract for retries and control.
 - If the website is broken, report evidence and ask before changing application code.
 - Do not run `contingency register` or edit agent configuration unless asked.
@@ -30,10 +30,16 @@ Follow each tool's contract and `nextAction`.
 
 | Resource | Read when |
 | --- | --- |
-| `contingency://docs/run` | Running Flow Skills or using System One Pursuits. |
+| `contingency://docs/run` | Running Flows or using System One Pursuits. |
 | `contingency://docs/teach` | Teaching a journey. |
 | `contingency://docs/guided-run` | Following the user's Source Document. |
 | `contingency://docs/device` | Starting an Android or iOS device session. |
 | `contingency://docs/browser-state` | Inspecting devtools or changing browser state. |
 | `contingency://prompt/learn-flow` | Learning and verifying a Teaching Recording. |
-| `contingency://reference/writing` | Writing a Flow Skill. |
+| `contingency://reference/writing` | Writing a Flow. |
+
+## Catalog layout
+
+The Catalog Root defaults to the project’s `contingency/` directory. Open **Flows** in Workspace to browse its Group tree in the **Flows Drawer**. Groups are plain directories and may nest.
+
+Each Flow has `contingency/<group…>/<flow>/flow.md`, optional supporting Markdown, `recordings/`, and `runs/`. A Run started with no Flow or several Flows belongs in `contingency/runs/`. The read-only user catalog remains `~/.contingency`.

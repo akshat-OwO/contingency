@@ -15,7 +15,7 @@
  *   PURSUIT_MODE              "flow" (default): every step in one call;
  *                             "steps": one call per step
  *   JEV_SCENARIOS             "demo" (default), "catalog", or "all", with the
- *                             JEV_SKILL_* variables of jev-fast-loop.ts
+ *                             JEV_FLOW_* variables of jev-fast-loop.ts
  *   PURSUIT_BENCHMARK_LABEL   the results file name (default "pursuit")
  */
 import path from "node:path";
@@ -117,17 +117,17 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
   Effect.gen(function* startRun() {
     const fs = yield* FileSystem.FileSystem;
     const operationId = OperationId.make(`${tag}-start`);
-    if (scenario.skill.kind === "example") {
-      const skill = yield* fs.readFileString(
+    if (scenario.flow.kind === "example") {
+      const flow = yield* fs.readFileString(
         path.resolve(
           import.meta.dirname,
           "../examples",
-          scenario.skill.example,
+          scenario.flow.example,
           "flow.md"
         )
       );
       const started = yield* exampleTool("agent_example_run_start", {
-        example: FlowName.make(scenario.skill.example),
+        example: FlowName.make(scenario.flow.example),
         inputs: Object.entries(scenario.inputs).map(([name, value]) => ({
           name,
           value,
@@ -135,24 +135,24 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
         operationId,
       });
       return {
-        flowName: FlowName.make(scenario.skill.example),
+        flow,
+        flowName: FlowName.make(scenario.flow.example),
         sessionId: started.id,
-        skill,
       };
     }
-    const skill = yield* fs.readFileString(
-      path.join(scenario.skill.directory, "flow.md")
+    const flow = yield* fs.readFileString(
+      path.join(scenario.flow.directory, "flow.md")
     );
-    const name = readFlowFrontmatter(skill)?.name;
+    const name = readFlowFrontmatter(flow)?.name;
     if (name === undefined) {
       return yield* Effect.die(
-        new Error(`${scenario.skill.directory} has no Flow name.`)
+        new Error(`${scenario.flow.directory} has no Flow name.`)
       );
     }
     const flowName = FlowName.make(name);
-    const copy = path.join(root, path.basename(scenario.skill.directory));
+    const copy = path.join(root, path.basename(scenario.flow.directory));
     if (!(yield* fs.exists(copy))) {
-      yield* fs.copy(scenario.skill.directory, copy);
+      yield* fs.copy(scenario.flow.directory, copy);
     }
     const started = yield* runTool("agent_run_start", {
       clientName: "pursuit-loop",
@@ -164,9 +164,9 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
       operationId,
       referencedFlows: [flowName],
       requestedTask: `Run the ${name} Flow.`,
-      url: scenario.skill.url,
+      url: scenario.flow.url,
     });
-    return { flowName, sessionId: started.id, skill };
+    return { flow, flowName, sessionId: started.id };
   });
 
 interface StepCue {
@@ -211,7 +211,7 @@ const runScenario = (
   mode: "flow" | "steps"
 ) =>
   Effect.gen(function* runFlow() {
-    const { flowName, sessionId, skill } = yield* startScenario(
+    const { flowName, sessionId, flow } = yield* startScenario(
       scenario,
       tag,
       root
@@ -221,7 +221,7 @@ const runScenario = (
     const pages: string[] = [];
     let finalPage = "";
     let failure: string | undefined;
-    const cues = cuesFor(skill, scenario.inputs);
+    const cues = cuesFor(flow, scenario.inputs);
     for (const batch of batches(cues, mode)) {
       const [first] = batch;
       if (first === undefined) {

@@ -39,7 +39,7 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
  *
  * A Flow holds `flow.md`, supporting markdown at any depth, and local
  * evidence in `recordings/` and `runs/`. The Flow is the reusable format
- * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * ([ADR 0071](../../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  * This service only selects the root and reads what is already on disk;
  * writing a package belongs to Teaching Recording learning, which is the only
  * path that may produce one.

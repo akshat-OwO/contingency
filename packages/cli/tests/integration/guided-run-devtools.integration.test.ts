@@ -168,11 +168,11 @@ it.live(
           recordingId,
         });
         expect(saved.files).toContain("browser-state.json");
-        const skill = yield* fs.readFileString(`${root}/guided-state/flow.md`);
-        expect(skill).toContain("Delegated: Inspect fixture");
-        expect(skill).toContain("browser-state.json");
+        const flow = yield* fs.readFileString(`${root}/guided-state/flow.md`);
+        expect(flow).toContain("Delegated: Inspect fixture");
+        expect(flow).toContain("browser-state.json");
         // Emulation at Start remains the baseline; the capture change is a command.
-        expect(skill).not.toContain("textScale: 150");
+        expect(flow).not.toContain("textScale: 150");
         const required = yield* fs.readFileString(
           `${root}/guided-state/browser-state.json`
         );

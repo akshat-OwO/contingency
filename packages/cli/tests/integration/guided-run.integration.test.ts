@@ -557,7 +557,7 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
 }
 
 it.live(
-  "Guided Run Takeover captures user actions and literal Variable values for reusable skills",
+  "Guided Run Takeover captures user actions and literal Variable values for reusable flows",
   () =>
     Effect.gen(function* guidedTakeover() {
       const fs = yield* FileSystem.FileSystem;
@@ -749,11 +749,11 @@ inputs:
           operationId: operation("save"),
           recordingId,
         });
-        const savedSkill = yield* fs.readFileString(
+        const savedFlow = yield* fs.readFileString(
           path.join(root, "guided-email", "flow.md")
         );
-        expect(savedSkill).toContain("{{EMAIL}}");
-        expect(savedSkill).not.toContain(secret);
+        expect(savedFlow).toContain("{{EMAIL}}");
+        expect(savedFlow).not.toContain(secret);
         const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
           inputs: [{ changed: true, name: "EMAIL", secret: true }],
           operationId: operation("dry-start"),

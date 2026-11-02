@@ -14,7 +14,7 @@ import { taskRunSummary } from "../helpers/task-run.ts";
 const decodeSummary = Schema.decodeUnknownSync(AgentRunSummary);
 const decodeTask = Schema.decodeUnknownSync(TaskAgentRunSummary);
 
-test("a composed task preserves redirection, findings, and skill-scoped inputs", () => {
+test("a composed task preserves redirection, findings, and flow-scoped inputs", () => {
   const decoded = decodeSummary(taskRunSummary);
   expect(decoded).toEqual(taskRunSummary);
   expect(Schema.encodeSync(AgentRunSummary)(decoded)).toEqual(taskRunSummary);
@@ -25,7 +25,7 @@ test("a composed task preserves redirection, findings, and skill-scoped inputs",
 });
 
 test.each(AgentTaskRunOutcome.literals)(
-  "%s never invents a task assessment for a skill-free Run",
+  "%s never invents a task assessment for a flow-free Run",
   (outcome) => {
     const decoded = decodeTask({
       ...taskRunSummary,
@@ -68,7 +68,7 @@ test("task reports require an explanation and browser evidence", () => {
   ).toThrow();
 });
 
-test("input identities reject unknown skills and duplicates", () => {
+test("input identities reject unknown flows and duplicates", () => {
   for (const inputs of [
     [{ flowName: "unrequested", name: "product", value: "Mug" }],
     [taskRunSummary.inputs[0], taskRunSummary.inputs[0]],
@@ -116,7 +116,7 @@ test("a Dry Run task summary stays owned by its Teaching Recording", () => {
   expect(lifecycle).toHaveProperty("dryRunSummary", summary);
 });
 
-test("task session contract exposes no singular skill or active-step requirement", () => {
+test("task session contract exposes no singular flow or active-step requirement", () => {
   const schema = JSON.stringify(
     Schema.toJsonSchemaDocument(TaskRunSessionSnapshot)
   );

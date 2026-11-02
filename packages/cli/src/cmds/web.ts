@@ -81,7 +81,7 @@ export const webCommand = Command.make(
             })
           )
         );
-        // The Skills drawer reads this root and the user's global one.
+        // The Flows Drawer reads this root and the user's global one.
         const catalogBrowser = Layer.succeedContext(
           yield* Layer.build(
             makeCatalogBrowserLayer({

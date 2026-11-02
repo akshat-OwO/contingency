@@ -17,11 +17,11 @@
  *   JEV_BENCHMARK_REPEATS  repeats of every scenario (default 1)
  *   JEV_LOOKAHEAD=0        ask about the current step only
  *   JEV_SCENARIOS          "demo" (default), "catalog", or "all"
- *   JEV_SKILL_DIR          a verified Flow directory, copied into a
+ *   JEV_FLOW_DIR          a verified Flow directory, copied into a
  *                          throwaway Catalog Root for the "catalog" scenario
- *   JEV_SKILL_URL          where its Run starts
- *   JEV_SKILL_INPUTS       NAME=value pairs separated by ";"
- *   JEV_SKILL_EXPECT       phrases the final page must show, separated by ";";
+ *   JEV_FLOW_URL          where its Run starts
+ *   JEV_FLOW_INPUTS       NAME=value pairs separated by ";"
+ *   JEV_FLOW_EXPECT       phrases the final page must show, separated by ";";
  *                          alternatives within one phrase separated by "|"
  *   JEV_PROVIDER=local     a local System One server such as Kev, at JEV_URL
  *                          (default http://127.0.0.1:8009/v1/systemone)
@@ -470,38 +470,38 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
   Effect.gen(function* startRun() {
     const fs = yield* FileSystem.FileSystem;
     const operationId = OperationId.make(`${tag}-start`);
-    if (scenario.skill.kind === "example") {
-      const skill = yield* fs.readFileString(
+    if (scenario.flow.kind === "example") {
+      const flow = yield* fs.readFileString(
         path.resolve(
           import.meta.dirname,
           "../examples",
-          scenario.skill.example,
+          scenario.flow.example,
           "flow.md"
         )
       );
       const started = yield* exampleTool("agent_example_run_start", {
-        example: FlowName.make(scenario.skill.example),
+        example: FlowName.make(scenario.flow.example),
         inputs: Object.entries(scenario.inputs).map(([name, value]) => ({
           name,
           value,
         })),
         operationId,
       });
-      return { sessionId: started.id, skill };
+      return { flow, sessionId: started.id };
     }
-    const skill = yield* fs.readFileString(
-      path.join(scenario.skill.directory, "flow.md")
+    const flow = yield* fs.readFileString(
+      path.join(scenario.flow.directory, "flow.md")
     );
-    const name = readFlowFrontmatter(skill)?.name;
+    const name = readFlowFrontmatter(flow)?.name;
     if (name === undefined) {
       return yield* Effect.fail(
-        new Error(`${scenario.skill.directory} has no Flow name.`)
+        new Error(`${scenario.flow.directory} has no Flow name.`)
       );
     }
     const flowName = FlowName.make(name);
-    const copy = path.join(root, path.basename(scenario.skill.directory));
+    const copy = path.join(root, path.basename(scenario.flow.directory));
     if (!(yield* fs.exists(copy))) {
-      yield* fs.copy(scenario.skill.directory, copy);
+      yield* fs.copy(scenario.flow.directory, copy);
     }
     const started = yield* runTool("agent_run_start", {
       clientName: "jev-fast-loop",
@@ -513,9 +513,9 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
       operationId,
       referencedFlows: [flowName],
       requestedTask: `Run the ${name} Flow.`,
-      url: scenario.skill.url,
+      url: scenario.flow.url,
     });
-    return { sessionId: started.id, skill };
+    return { flow, sessionId: started.id };
   });
 
 const runScenario = (
@@ -529,7 +529,7 @@ const runScenario = (
   }
 ) =>
   Effect.gen(function* runFlow() {
-    const { sessionId, skill } = yield* startScenario(scenario, tag, root);
+    const { sessionId, flow } = yield* startScenario(scenario, tag, root);
     const startedAt = yield* now;
     const snapshot = yield* readSnapshot(sessionId);
     const context: RunContext = {
@@ -545,7 +545,7 @@ const runScenario = (
       snapshot,
       tag,
     };
-    const stopped = yield* runSteps(context, cuesFor(skill, scenario.inputs));
+    const stopped = yield* runSteps(context, cuesFor(flow, scenario.inputs));
     const totalMs = yield* elapsedSince(startedAt);
     yield* runTool("agent_run_complete", {
       operationId: OperationId.make(`${tag}-complete`),
@@ -585,14 +585,10 @@ const runScenario = (
 /** Print the first request without calling Jev, to check its shape and size. */
 const dryRun = (scenario: Scenario, root: string, model: string) =>
   Effect.gen(function* printFirstRequest() {
-    const { sessionId, skill } = yield* startScenario(
-      scenario,
-      "jev-dry",
-      root
-    );
+    const { sessionId, flow } = yield* startScenario(scenario, "jev-dry", root);
     const snapshot = yield* readSnapshot(sessionId);
     const space = actionSpace(snapshot);
-    const [current, next] = cuesFor(skill, scenario.inputs);
+    const [current, next] = cuesFor(flow, scenario.inputs);
     if (current === undefined) {
       return;
     }

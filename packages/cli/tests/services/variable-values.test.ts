@@ -192,7 +192,7 @@ it.effect(
   "accepts supplied inputs and on-demand Variables regardless of case",
   () =>
     Effect.gen(function* caseIndependentInputs() {
-      const skill = {
+      const flow = {
         directory: "/catalog/login",
         emulation: undefined,
         files: [],
@@ -206,17 +206,17 @@ it.effect(
         title: "login",
       };
       yield* validateTaskInputs(
-        [skill],
+        [flow],
         [
           {
-            flowName: skill.name,
+            flowName: flow.name,
             name: "PASSWORD",
             value: "visible-test-value",
           },
         ]
       );
       expect(
-        taskVariables(skill).map(({ name, ...variable }) => ({
+        taskVariables(flow).map(({ name, ...variable }) => ({
           ...variable,
           name: name.toLowerCase(),
         }))

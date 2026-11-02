@@ -155,14 +155,14 @@ it.effect(
           variableNames: { "HEADER_x-auth": "ACCOUNT_TOKEN" },
         },
       ];
-      const skill =
+      const flow =
         "---\nname: test\ndescription: Test\ninputs:\n  - name: ACCOUNT_TOKEN\n    description: Account token\n---\n\n1. Sign in with {{ACCOUNT_TOKEN}}. Done when: the account page is visible.";
       const files = yield* stampBrowserState(
-        [{ content: skill, path: "flow.md" }],
+        [{ content: flow, path: "flow.md" }],
         events
       );
       const stamped = files.find((file) => file.path === "flow.md")?.content;
-      expect(stamped?.startsWith(skill)).toBe(true);
+      expect(stamped?.startsWith(flow)).toBe(true);
       const state = yield* readBrowserState(files);
       expect(state[0]?.command).toMatchObject({
         headers: { "x-auth": "{{ACCOUNT_TOKEN}}" },

@@ -52,13 +52,13 @@ const storeLayer = (root: string) =>
   }).pipe(Layer.provideMerge(NodeServices.layer));
 
 /** Write a saved package, verified by the user when `verified` is set. */
-const writeSkill = (
+const writeFlow = (
   root: string,
   name: string,
   inputs: readonly string[],
   verified: boolean
 ) =>
-  Effect.gen(function* writeFlow() {
+  Effect.gen(function* writeSavedFlow() {
     const files = yield* FileSystem.FileSystem;
     yield* files.makeDirectory(path.join(root, name, "references"), {
       recursive: true,
@@ -133,7 +133,7 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
       recordingId,
     });
     yield* store.startLearning({ operationId: step("learn"), recordingId });
-    yield* writeSkill(root, flowName, ["sku", "PASSWORD"], false);
+    yield* writeFlow(root, flowName, ["sku", "PASSWORD"], false);
     yield* store.saveFlow({
       claimOperationId: step("learn"),
       files: ["flow.md"],
@@ -264,7 +264,7 @@ const startInput = (
 });
 
 it.effect(
-  "fixes prerequisites and skill-scoped inputs at startup and conflicts on a changed replay",
+  "fixes prerequisites and flow-scoped inputs at startup and conflicts on a changed replay",
   () =>
     Effect.gen(function* startWithPrerequisites() {
       const files = yield* FileSystem.FileSystem;
@@ -275,9 +275,9 @@ it.effect(
       const sessions = recordingSessions();
       yield* Effect.gen(function* exercise() {
         yield* draftedRecording(root, recordingId);
-        yield* writeSkill(root, "location", ["area"], true);
-        yield* writeSkill(root, "login", ["area", "PASSWORD"], true);
-        yield* writeSkill(root, "unverified", ["area"], false);
+        yield* writeFlow(root, "location", ["area"], true);
+        yield* writeFlow(root, "login", ["area", "PASSWORD"], true);
+        yield* writeFlow(root, "unverified", ["area"], false);
 
         const refusals: readonly [string, Partial<DryRunStartInput>][] = [
           ["unverified", { prerequisites: [FlowName.make("unverified")] }],
@@ -287,7 +287,7 @@ it.effect(
               prerequisites: [FlowName.make("login"), FlowName.make("login")],
             },
           ],
-          ["tested skill", { prerequisites: [flowName] }],
+          ["tested flow", { prerequisites: [flowName] }],
           [
             "incomplete inputs",
             { inputs: startInput(recordingId).inputs.slice(0, 1) },
@@ -333,7 +333,7 @@ it.effect(
           "flow.md",
           "references/notes.md",
         ]);
-        expect(started.prerequisites.map((skill) => skill.flowName)).toEqual([
+        expect(started.prerequisites.map((flow) => flow.flowName)).toEqual([
           "location",
           "login",
         ]);
@@ -358,7 +358,7 @@ it.effect(
             )
           )
         ).toBe(true);
-        // Inputs keep the skill that declared them, and a secret never leaves
+        // Inputs keep the flow that declared them, and a secret never leaves
         // the request as a literal.
         expect(run.inputs).toEqual([
           { flowName: "location", name: "area", value: "North" },

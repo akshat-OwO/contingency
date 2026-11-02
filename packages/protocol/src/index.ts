@@ -408,7 +408,7 @@ export const AgentSessionClosed = AgentSessionCloseResult;
 
 /**
  * Start and Stop are the Teaching privacy boundary ([ADR
- * 0039](../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * 0071](../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  * Nothing is captured until the user starts a recording, and every capture
  * source stops against one end timestamp. `operationId` makes each gesture
  * safe to retry: a repeated id returns the same recording rather than opening
@@ -976,7 +976,7 @@ const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   success: AgentRunSummaryResult,
 });
 /**
- * The Workspace's Skills drawer. Both are read-only: browsing never writes to
+ * The Workspace's Flows Drawer. Both are read-only: browsing never writes to
  * either Catalog Root, and neither is an MCP tool (ADR 0051).
  */
 const CatalogBrowseGetRpc = Rpc.make("catalog.browse.get", {

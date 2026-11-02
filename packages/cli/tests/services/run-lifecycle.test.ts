@@ -98,7 +98,7 @@ it.effect(
 );
 
 it.effect(
-  "task redirection preserves findings and replaces inputs only within their skill",
+  "task redirection preserves findings and replaces inputs only within their flow",
   () =>
     Effect.gen(function* redirectTask() {
       const run = runningTask();

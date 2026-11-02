@@ -1,7 +1,7 @@
 import { TaskAgentRunSummary } from "@contingency/protocol";
 import { Schema } from "effect";
 
-/** Two skills use the same input name with different values in one task. */
+/** Two flows use the same input name with different values in one task. */
 export const taskRunSummary = Schema.decodeUnknownSync(TaskAgentRunSummary)({
   assessment: {
     evidence: [{ id: "snapshot-cart", kind: "snapshot" }],

@@ -295,7 +295,7 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("persists an unassessed skill-free task after process exit", () =>
+it.effect("persists an unassessed flow-free task after process exit", () =>
   Effect.gen(function* persistUnassessedTask() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({

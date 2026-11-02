@@ -25,7 +25,7 @@ const recordingId = TeachingRecordingId.make("recording-invalid-package");
 const flowName = FlowName.make("set-delivery-area");
 const claimOperationId = OperationId.make("invalid-package-claim");
 
-const PREVIOUS_SKILL = "# The package that was already saved\n";
+const PREVIOUS_FLOW = "# The package that was already saved\n";
 
 it.effect(
   "refuses a package that breaks the contract and leaves the previous one in place",
@@ -41,11 +41,11 @@ it.effect(
         TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
       ).pipe(Layer.provideMerge(NodeServices.layer));
 
-      const skillDirectory = path.join(root, flowName);
-      yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
+      const flowDirectory = path.join(root, flowName);
+      yield* fileSystem.makeDirectory(flowDirectory, { recursive: true });
       yield* fileSystem.writeFileString(
-        path.join(skillDirectory, "flow.md"),
-        PREVIOUS_SKILL
+        path.join(flowDirectory, "flow.md"),
+        PREVIOUS_FLOW
       );
 
       const { failure, lifecycle } = yield* Effect.gen(
@@ -134,8 +134,8 @@ it.effect(
       // drafted, and the package on disk is the one that was already there.
       expect(lifecycle).toBe("learning");
       expect(
-        yield* fileSystem.readFileString(path.join(skillDirectory, "flow.md"))
-      ).toBe(PREVIOUS_SKILL);
+        yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
+      ).toBe(PREVIOUS_FLOW);
       expect(yield* fileSystem.exists(path.join(root, ".flow.lock"))).toBe(
         false
       );

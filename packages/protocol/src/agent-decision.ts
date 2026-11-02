@@ -44,7 +44,7 @@ export type AgentPendingDecisionId = typeof AgentPendingDecisionId.Type;
  * The two decisions that protect execution. Both belong to a live Agent
  * Session: nothing here authorizes a stored artifact, because a Flow is
  * verified by the user in the Workspace rather than approved over MCP
- * ([ADR 0039](../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * ([ADR 0071](../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  */
 export const AgentPendingDecisionKind = Schema.Literals([
   "boundary",

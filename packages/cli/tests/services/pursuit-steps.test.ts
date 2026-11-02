@@ -13,19 +13,19 @@ import {
 import type { ScopeInput } from "../../src/services/mcp-pursuit.ts";
 import { actionSpace } from "../../src/services/system-one-request.ts";
 
-const skill = FlowName.make("1mg mweb adding a sku to cart");
+const flow = FlowName.make("1mg mweb adding a sku to cart");
 const other = FlowName.make("1mg mweb manual location");
 
 const scope = (...inputs: readonly ScopeInput[]) =>
   new Map(inputs.map((input) => [input.name, input]));
-const value = (name: string, text: string, owner = skill): ScopeInput => ({
+const value = (name: string, text: string, owner = flow): ScopeInput => ({
   flowName: owner,
   kind: "value",
   name,
   value: text,
 });
 const variable = (name: string): ScopeInput => ({
-  flowName: skill,
+  flowName: flow,
   kind: "variable",
   name,
   supplied: true,

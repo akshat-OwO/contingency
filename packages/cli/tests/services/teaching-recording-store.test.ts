@@ -286,10 +286,10 @@ it.effect.each([
           operationId: OperationId.make("verification-once"),
           recordingId,
         };
-        const skillFile = path.join(flowDirectory, "flow.md");
-        const passingContent = yield* fileSystem.readFileString(skillFile);
+        const flowFile = path.join(flowDirectory, "flow.md");
+        const passingContent = yield* fileSystem.readFileString(flowFile);
         yield* fileSystem.writeFileString(
-          skillFile,
+          flowFile,
           `---\nname: checkout-flow\nruntime: ${JSON.stringify({ capabilities: [], environment: { androidVersion: "16", appBuild: "42", appId: "example.app", startingState: "baseline" }, platform: "android" })}\n---\n`
         );
         const mismatched = yield* Effect.flip(
@@ -300,7 +300,7 @@ it.effect.each([
         );
         expect(mismatched.code).toBe("teaching_recording_conflict");
         expect(mismatched.message).toContain("platform requirements");
-        yield* fileSystem.writeFileString(skillFile, passingContent);
+        yield* fileSystem.writeFileString(flowFile, passingContent);
         for (const contract of FLOW_CONTRACT_FILES) {
           yield* fileSystem.writeFileString(
             path.join(flowDirectory, contract),
@@ -476,7 +476,7 @@ it.effect(
         retainedId
       );
       const artifactFile = path.join(directory, "events.jsonl");
-      const skillFile = path.join(root, "delivery-flow", "flow.md");
+      const flowFile = path.join(root, "delivery-flow", "flow.md");
       const result = yield* Effect.gen(function* exerciseDryRuns() {
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
@@ -511,11 +511,11 @@ it.effect(
           operationId: OperationId.make("retention-learn"),
           recordingId: retainedId,
         });
-        yield* fileSystem.makeDirectory(path.dirname(skillFile), {
+        yield* fileSystem.makeDirectory(path.dirname(flowFile), {
           recursive: true,
         });
         yield* fileSystem.writeFileString(
-          skillFile,
+          flowFile,
           "---\nname: delivery-flow\n---\n# Delivery flow\n"
         );
         yield* store.saveFlow({
@@ -1267,7 +1267,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
     });
     const claimedId = TeachingRecordingId.make("recording-claim-lifetime");
     const claim = OperationId.make("lifetime-claim");
-    const skillFile = path.join(root, "lifetime-flow", "flow.md");
+    const flowFile = path.join(root, "lifetime-flow", "flow.md");
     yield* Effect.gen(function* exerciseClaimLifetime() {
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
@@ -1310,10 +1310,10 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         operationId: claim,
         recordingId: claimedId,
       });
-      yield* fileSystem.makeDirectory(path.dirname(skillFile), {
+      yield* fileSystem.makeDirectory(path.dirname(flowFile), {
         recursive: true,
       });
-      yield* fileSystem.writeFileString(skillFile, "# Lifetime flow\n");
+      yield* fileSystem.writeFileString(flowFile, "# Lifetime flow\n");
       yield* store.saveFlow({
         claimOperationId: claim,
         files: ["flow.md"],

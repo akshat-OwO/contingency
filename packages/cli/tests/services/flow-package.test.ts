@@ -12,16 +12,16 @@ import {
 } from "../../src/services/flow-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
 
-const FLOW_SKILL_NAME = "set-delivery-area";
+const FLOW_FLOW_NAME = "set-delivery-area";
 
 /**
  * The package a learning agent produces from the delivery-location recording,
- * written the way the vendored authoring skills teach. Every mutation below
+ * written the way the packaged writing guidance teaches. Every mutation below
  * changes exactly one property of this package, so each test fails if its own
  * check is deleted from the validator.
  */
-const GOLDEN_SKILL = `---
-name: ${FLOW_SKILL_NAME}
+const GOLDEN_FLOW = `---
+name: ${FLOW_FLOW_NAME}
 description: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.
 inputs:
   - city
@@ -55,22 +55,22 @@ the same name elsewhere on the page.
 `;
 
 export const goldenFlowFiles = (): readonly FlowFile[] => [
-  { content: GOLDEN_SKILL, path: "flow.md" },
+  { content: GOLDEN_FLOW, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
-const withSkill = (content: string): readonly FlowFile[] => [
+const withFlow = (content: string): readonly FlowFile[] => [
   { content, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
 const withAccessibility = (content: string): readonly FlowFile[] => [
-  { content: GOLDEN_SKILL, path: "flow.md" },
+  { content: GOLDEN_FLOW, path: "flow.md" },
   { content, path: "targets.md" },
 ];
 
 const codesFor = (files: readonly FlowFile[]): readonly string[] => {
-  const outcome = validateFlowPackage(FLOW_SKILL_NAME, files);
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   return Result.isFailure(outcome)
     ? outcome.failure.map((diagnostic) => diagnostic.code)
     : [];
@@ -80,7 +80,7 @@ const pathFor = (
   files: readonly FlowFile[],
   code: string
 ): readonly string[] => {
-  const outcome = validateFlowPackage(FLOW_SKILL_NAME, files);
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   if (Result.isSuccess(outcome)) {
     return [];
   }
@@ -91,7 +91,7 @@ const pathFor = (
 
 test("accepts a parameterized package and returns the submitted bytes unchanged", () => {
   const files = goldenFlowFiles();
-  const outcome = validateFlowPackage(FLOW_SKILL_NAME, files);
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   expect(Result.isSuccess(outcome)).toBe(true);
   if (Result.isSuccess(outcome)) {
     expect(outcome.success).toEqual(files);
@@ -105,7 +105,7 @@ test("refuses a package with no flow.md", () => {
 });
 
 test("refuses flow.md without frontmatter", () => {
-  const files = withSkill(GOLDEN_SKILL.slice(GOLDEN_SKILL.indexOf("\n# ")));
+  const files = withFlow(GOLDEN_FLOW.slice(GOLDEN_FLOW.indexOf("\n# ")));
   expect(codesFor(files)).toContain("flow_missing_frontmatter");
   expect(pathFor(files, "flow_missing_frontmatter")).toEqual([
     "flow.md",
@@ -114,8 +114,8 @@ test("refuses flow.md without frontmatter", () => {
 });
 
 test("refuses a frontmatter name that is not the Flow directory", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(`name: ${FLOW_SKILL_NAME}`, "name: set_delivery_area")
+  const files = withFlow(
+    GOLDEN_FLOW.replace(`name: ${FLOW_FLOW_NAME}`, "name: set_delivery_area")
   );
   expect(codesFor(files)).toContain("flow_name_mismatch");
   expect(pathFor(files, "flow_name_mismatch")).toEqual([
@@ -126,8 +126,8 @@ test("refuses a frontmatter name that is not the Flow directory", () => {
 });
 
 test("refuses a package with no description to trigger on", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(/^description: .*$/mu, "description:")
+  const files = withFlow(
+    GOLDEN_FLOW.replace(/^description: .*$/mu, "description:")
   );
   expect(codesFor(files)).toContain("flow_missing_description");
   expect(pathFor(files, "flow_missing_description")).toEqual([
@@ -138,7 +138,7 @@ test("refuses a package with no description to trigger on", () => {
 });
 
 test("refuses a placeholder that no declared input covers", () => {
-  const files = withSkill(GOLDEN_SKILL.replace("  - delivery_area\n", ""));
+  const files = withFlow(GOLDEN_FLOW.replace("  - delivery_area\n", ""));
   expect(codesFor(files)).toContain("flow_undeclared_input");
   expect(pathFor(files, "flow_undeclared_input")).toEqual([
     "flow.md",
@@ -161,8 +161,8 @@ test("refuses an undeclared placeholder that only a reference file uses", () => 
 });
 
 test("refuses an undeclared placeholder that only the description uses", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       "description: Set the shop's",
       "description: Set {{region}} for the shop's"
     )
@@ -177,15 +177,15 @@ test("refuses an undeclared placeholder that only the description uses", () => {
 });
 
 test("refuses a flow.md that carries no numbered procedure", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL.slice(0, GOLDEN_SKILL.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
+  const files = withFlow(
+    `${GOLDEN_FLOW.slice(0, GOLDEN_FLOW.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
   );
   expect(codesFor(files)).toContain("flow_missing_steps");
 });
 
 test("refuses a step with no completion condition", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       '2. Choose the button named "Select manually". Done when: a textbox named "Search for your delivery area" is on the page.',
       '2. Choose the button named "Select manually".'
     )
@@ -199,18 +199,15 @@ test("refuses a step with no completion condition", () => {
 });
 
 test("refuses a short-lived element reference", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
-      'the button named "Select manually"',
-      "the element e17"
-    )
+  const files = withFlow(
+    GOLDEN_FLOW.replace('the button named "Select manually"', "the element e17")
   );
   expect(codesFor(files)).toContain("flow_element_ref");
 });
 
 test("refuses a generated selector", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       'the button named "Confirm delivery area"',
       "the button #confirm-area"
     )
@@ -219,15 +216,15 @@ test("refuses a generated selector", () => {
 });
 
 test("refuses recording artifacts the Flow outlives", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL}\nReplay trace.zip when a step is unclear.\n`
+  const files = withFlow(
+    `${GOLDEN_FLOW}\nReplay trace.zip when a step is unclear.\n`
   );
   expect(codesFor(files)).toContain("flow_recording_residue");
 });
 
 test("refuses an embedded screenshot", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL}\n![The delivery panel](references/delivery.png)\n`
+  const files = withFlow(
+    `${GOLDEN_FLOW}\n![The delivery panel](references/delivery.png)\n`
   );
   expect(codesFor(files)).toContain("flow_embedded_image");
 });
@@ -240,8 +237,8 @@ test("refuses private model reasoning", () => {
 });
 
 test("refuses a captured credential literal", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace("inputs:", "inputs:\n  - password\n").replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace("inputs:", "inputs:\n  - password\n").replace(
       "# Set the delivery area",
       "# Set the delivery area\n\nSign in with password: hunter2-from-the-demo"
     )
@@ -252,7 +249,7 @@ test("refuses a captured credential literal", () => {
 test("refuses a link to a reference file the package does not carry", () => {
   const files = [
     {
-      content: GOLDEN_SKILL.replace("targets.md", "missing-targets.md"),
+      content: GOLDEN_FLOW.replace("targets.md", "missing-targets.md"),
       path: "flow.md",
     },
     { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
@@ -425,7 +422,7 @@ test("reads an input declared as a mapping with a description", () => {
 });
 
 test("accepts a package whose inputs use the mapping shape", () => {
-  const mapped = GOLDEN_SKILL.replace(
+  const mapped = GOLDEN_FLOW.replace(
     "inputs:\n  - city\n  - delivery_area",
     [
       "inputs:",
@@ -434,12 +431,12 @@ test("accepts a package whose inputs use the mapping shape", () => {
       "  - name: delivery_area",
     ].join("\n")
   );
-  expect(codesFor(withSkill(mapped))).toEqual([]);
+  expect(codesFor(withFlow(mapped))).toEqual([]);
 });
 
 test("names the shape when an inputs entry is neither form", () => {
-  const broken = GOLDEN_SKILL.replace("  - city\n", "  - label: city\n");
-  const codes = codesFor(withSkill(broken));
+  const broken = GOLDEN_FLOW.replace("  - city\n", "  - label: city\n");
+  const codes = codesFor(withFlow(broken));
   expect(codes).toContain("flow_invalid_input");
   // The undeclared-input check still fires for the placeholder that now has
   // no declaration, but the shape problem is reported beside it.
@@ -447,13 +444,13 @@ test("names the shape when an inputs entry is neither form", () => {
 });
 
 test("still refuses a placeholder no accepted shape declares", () => {
-  const undeclared = GOLDEN_SKILL.replace("  - delivery_area\n", "");
-  const codes = codesFor(withSkill(undeclared));
+  const undeclared = GOLDEN_FLOW.replace("  - delivery_area\n", "");
+  const codes = codesFor(withFlow(undeclared));
   expect(codes).toEqual(["flow_undeclared_input"]);
 });
 
 test("ends the last step at the section that follows the procedure", () => {
-  const withSection = `${GOLDEN_SKILL}
+  const withSection = `${GOLDEN_FLOW}
 ## Reading the result
 
 The status only appears once the shop accepts the area.
@@ -468,7 +465,7 @@ The status only appears once the shop accepts the area.
 });
 
 test("keeps a fenced comment inside the step that carries it", () => {
-  const withFence = GOLDEN_SKILL.replace(
+  const withFence = GOLDEN_FLOW.replace(
     '5. Choose the button named "Confirm delivery area". Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".\n',
     [
       '5. Choose the button named "Confirm delivery area".',
@@ -490,8 +487,8 @@ test("keeps a fenced comment inside the step that carries it", () => {
 });
 
 test("refuses Source Document frontmatter in a learned Flow", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace("inputs:", "source: private-runbook.md\ninputs:")
+  const files = withFlow(
+    GOLDEN_FLOW.replace("inputs:", "source: private-runbook.md\ninputs:")
   );
   expect(codesFor(files)).toContain("flow_source_forbidden");
   expect(pathFor(files, "flow_source_forbidden")).toEqual([
@@ -502,7 +499,7 @@ test("refuses Source Document frontmatter in a learned Flow", () => {
 });
 
 test("round-trips every Contingency stamp in flow.md and clears verification on save", () => {
-  const stamped = stampFlowProvenance(GOLDEN_SKILL, {
+  const stamped = stampFlowProvenance(GOLDEN_FLOW, {
     emulation: {
       colorScheme: "dark",
       geolocation: undefined,

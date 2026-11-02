@@ -207,7 +207,6 @@ it.live(
       expect(instructions).toBe(procedure);
       expect(learningResource.result.contents[0]?.text).toBe(procedure);
       expect(uris).toContain(LEARN_FLOW_URI);
-      expect(uris).not.toContain("contingency://prompt/learn-flow-skill");
       expect(instructions).toContain(WRITING_RESOURCE_URI);
       expect(instructions).not.toContain("contingency://skill/");
       expect(instructions).toContain("agent_run_assess");

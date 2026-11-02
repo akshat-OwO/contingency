@@ -21,7 +21,7 @@ const decodeClaim = Schema.decodeUnknownSync(TeachingRecordingClaim);
 const decodeList = Schema.decodeUnknownSync(TeachingRecordingList);
 const decodeTimeline = Schema.decodeUnknownSync(TeachingTimeline);
 const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeFile);
-const decodeSkillSave = Schema.decodeUnknownSync(FlowSaveResult);
+const decodeFlowSave = Schema.decodeUnknownSync(FlowSaveResult);
 const decodeDiagnostic = Schema.decodeUnknownSync(FlowDiagnostic);
 const at = "2026-09-13T10:00:00.000Z";
 
@@ -167,7 +167,7 @@ test("learning-agent contracts use recording ids and bounded references", () => 
     }).format
   ).toBe("png");
   expect(
-    decodeSkillSave({
+    decodeFlowSave({
       files: ["flow.md", "targets.md"],
       flowName: "checkout-flow",
       recordingId: "recording-checkout",

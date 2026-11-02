@@ -145,21 +145,23 @@ it("leaves every published JSON Schema unchanged", () => {
   }
 });
 
-it.effect("refuses the old Flow name parameter before reading a document", () =>
-  Effect.gen(function* refuseOldFlowParameter() {
-    const built = yield* AgentCatalogTools;
-    // SAFETY: the old parameter is intentionally sent to prove strict refusal.
-    const refused = yield* Effect.flip(
-      built.handle("agent_flow_document_get", {
-        flowName: "checkout",
-        flowSkillName: "checkout",
-        path: "setup.md",
-      } as never)
-    );
-    expect(refused.message).toContain("flowSkillName");
-  }).pipe(
-    Effect.provide(
-      AgentCatalogToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
+it.effect(
+  "refuses an unknown Flow name parameter before reading a document",
+  () =>
+    Effect.gen(function* refuseOldFlowParameter() {
+      const built = yield* AgentCatalogTools;
+      // SAFETY: the old parameter is intentionally sent to prove strict refusal.
+      const refused = yield* Effect.flip(
+        built.handle("agent_flow_document_get", {
+          flowName: "checkout",
+          path: "setup.md",
+          unknownFlowName: "checkout",
+        } as never)
+      );
+      expect(refused.message).toContain("unknownFlowName");
+    }).pipe(
+      Effect.provide(
+        AgentCatalogToolHandlersLive.pipe(Layer.provideMerge(untouchedServices))
+      )
     )
-  )
 );

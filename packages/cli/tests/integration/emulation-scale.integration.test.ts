@@ -369,9 +369,9 @@ it.live(
           operationId: OperationId.make("scale-save"),
           recordingId,
         });
-        const skill = yield* fs.readFileString(`${root}/scale/flow.md`);
-        expect(skill).toContain("pageZoom: 400");
-        expect(skill).toContain("textScale: 200");
+        const flow = yield* fs.readFileString(`${root}/scale/flow.md`);
+        expect(flow).toContain("pageZoom: 400");
+        expect(flow).toContain("textScale: 200");
         const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
           inputs: [],
           operationId: OperationId.make("scale-dry"),

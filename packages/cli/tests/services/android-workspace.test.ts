@@ -82,7 +82,7 @@ const op = OperationId.make;
 const flowName = FlowName.make("android-edit");
 const image =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
-const skill = `---\nname: android-edit\ndescription: Edit a public fixture field and return Home. Use when testing the Android fixture.\ninputs:\n---\n\n# Edit the fixture\n\n1. Activate the button named Edit. Done when: the public field is visible.\n2. Enter public fixture text. Done when: the field shows the value.\n3. Go back. Done when: Home is visible.\n`;
+const flow = `---\nname: android-edit\ndescription: Edit a public fixture field and return Home. Use when testing the Android fixture.\ninputs:\n---\n\n# Edit the fixture\n\n1. Activate the button named Edit. Done when: the public field is visible.\n2. Enter public fixture text. Done when: the field shows the value.\n3. Go back. Done when: Home is visible.\n`;
 
 interface CaptureGate {
   readonly entered: Deferred.Deferred<boolean>;
@@ -393,7 +393,7 @@ const taught = Effect.gen(function* recordAndLearn() {
   expect(JSON.stringify(timeline)).toContain("Activate button Edit");
   yield* learning.save({
     claimOperationId: op("claim"),
-    files: [{ content: skill, path: "flow.md" }],
+    files: [{ content: flow, path: "flow.md" }],
     operationId: op("save"),
     recordingId: stopped.recordingId,
   });
@@ -1488,7 +1488,7 @@ const privateNodes: AndroidObservation["nodes"] = [
   },
 ];
 const privateSelection = { ...selection, privateInput: true };
-const privateSkill = `---\nname: android-edit\ndescription: Log in with a private password. Use when testing private login.\ninputs:\n  - password\n---\n\n# Log in\n\n1. Enter {{password}} in the password field. Done when: Home is visible.\n`;
+const privateFlow = `---\nname: android-edit\ndescription: Log in with a private password. Use when testing private login.\ninputs:\n  - password\n---\n\n# Log in\n\n1. Enter {{password}} in the password field. Done when: Home is visible.\n`;
 const requestPrivate = (
   workspace: AndroidWorkspaceService,
   sessionId: AgentSessionId,
@@ -1685,7 +1685,7 @@ it.effect(
         expect(events).toContain('"valueWithheld":null');
         const saved = yield* learning.save({
           claimOperationId: op("private-claim"),
-          files: [{ content: privateSkill, path: "flow.md" }],
+          files: [{ content: privateFlow, path: "flow.md" }],
           operationId: op("private-save"),
           recordingId,
         });
@@ -2235,7 +2235,7 @@ for (const existing of [false, true]) {
             yield* fs.makeDirectory(owner, { recursive: true });
             yield* fs.writeFileString(
               path.join(owner, "flow.md"),
-              skill.replaceAll("android-edit", "checkout")
+              flow.replaceAll("android-edit", "checkout")
             );
           }
           const workspace = yield* AndroidWorkspace;

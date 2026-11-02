@@ -277,7 +277,7 @@ it.live(
               )
             )
           ).toBe(true);
-          expect(started.prerequisites.map((skill) => skill.flowName)).toEqual([
+          expect(started.prerequisites.map((flow) => flow.flowName)).toEqual([
             "location",
             "login",
           ]);

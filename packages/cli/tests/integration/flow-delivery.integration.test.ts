@@ -166,7 +166,7 @@ const assessDryRunOutcome = (
  * and the delivery area as inputs rather than repeating the demonstrated pair,
  * so a later Dry Run can change either one without the recording.
  */
-const DELIVERY_SKILL = `---
+const DELIVERY_FLOW = `---
 name: set-delivery-area
 description: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.
 inputs:
@@ -319,7 +319,7 @@ it.live(
           const saved = yield* teachingRecordingTool("agent_flow_save", {
             claimOperationId,
             files: [
-              { content: DELIVERY_SKILL, path: "flow.md" },
+              { content: DELIVERY_FLOW, path: "flow.md" },
               {
                 content: DELIVERY_ACCESSIBILITY,
                 path: "targets.md",
@@ -330,30 +330,30 @@ it.live(
           });
           expect(saved.flowName).toBe("set-delivery-area");
 
-          const skillDirectory = path.join(root, "set-delivery-area");
-          const skill = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+          const flowDirectory = path.join(root, "set-delivery-area");
+          const flow = yield* fileSystem.readFileString(
+            path.join(flowDirectory, "flow.md")
           );
           const accessibility = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "targets.md")
+            path.join(flowDirectory, "targets.md")
           );
           // The package must be followable once the recording is deleted: it
           // carries no element reference, no artifact path, and no demonstrated
           // literal standing in for an input.
-          for (const content of [skill, accessibility]) {
+          for (const content of [flow, accessibility]) {
             expect(content).not.toMatch(/(?<![\w-])e\d+(?![\w-])/u);
             expect(content).not.toContain("trace.zip");
             expect(content).not.toContain("recording.webm");
             expect(content).not.toContain(root);
           }
-          expect(skill).not.toContain(DEMONSTRATED_CITY);
-          expect(skill).not.toContain(DEMONSTRATED_AREA);
-          expect(skill).toContain("{{city}}");
-          expect(skill).toContain("{{delivery_area}}");
+          expect(flow).not.toContain(DEMONSTRATED_CITY);
+          expect(flow).not.toContain(DEMONSTRATED_AREA);
+          expect(flow).toContain("{{city}}");
+          expect(flow).toContain("{{delivery_area}}");
           // Contingency stamps the demonstrated ceiling and device into the
           // package, because the recording that proves them is deleted once
           // the user verifies.
-          const stamped = readFlowFrontmatter(skill);
+          const stamped = readFlowFrontmatter(flow);
           expect(stamped?.hosts).toContain("127.0.0.1");
           expect(stamped?.emulation?.viewport).toEqual(agentViewport);
 
@@ -436,7 +436,7 @@ it.live(
             path: "targets.md",
           });
           const originalFlow = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+            path.join(flowDirectory, "flow.md")
           );
           for (const documentPath of ["flow.md", "checks.json", "setup.md"]) {
             const refused = yield* Effect.result(
@@ -459,14 +459,12 @@ it.live(
             }
             expect(
               yield* fileSystem.readFileString(
-                path.join(skillDirectory, "flow.md")
+                path.join(flowDirectory, "flow.md")
               )
             ).toBe(originalFlow);
             if (documentPath !== "flow.md") {
               expect(
-                yield* fileSystem.exists(
-                  path.join(skillDirectory, documentPath)
-                )
+                yield* fileSystem.exists(path.join(flowDirectory, documentPath))
               ).toBe(false);
             }
           }
@@ -528,11 +526,11 @@ it.live(
           ).toBe(arrivedUrl);
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "flow.md")
+              path.join(flowDirectory, "flow.md")
             )
           ).toBe(originalFlow);
           expect(
-            yield* fileSystem.exists(path.join(skillDirectory, "setup.md"))
+            yield* fileSystem.exists(path.join(flowDirectory, "setup.md"))
           ).toBe(false);
           yield* assessDryRunOutcome(failedRun.session.id, "not-working");
           const replayedFailedRun = yield* teachingRecordingTool(
@@ -706,7 +704,7 @@ it.live(
           const resaved = yield* teachingRecordingTool("agent_flow_save", {
             claimOperationId,
             files: [
-              { content: DELIVERY_SKILL, path: "flow.md" },
+              { content: DELIVERY_FLOW, path: "flow.md" },
               {
                 content: DELIVERY_ACCESSIBILITY,
                 path: "targets.md",
@@ -933,15 +931,15 @@ it.live(
             demonstratedKeyframes.filter((name) => name.endsWith(".png"))
           ).not.toHaveLength(0);
           expect(
-            yield* fileSystem.exists(path.join(skillDirectory, "flow.md"))
+            yield* fileSystem.exists(path.join(flowDirectory, "flow.md"))
           ).toBe(true);
           expect(
             yield* fileSystem.exists(
-              path.join(skillDirectory, "references", "verification.md")
+              path.join(flowDirectory, "references", "verification.md")
             )
           ).toBe(false);
           const verification = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+            path.join(flowDirectory, "flow.md")
           );
           expect(
             readFlowFrontmatter(verification)?.verification?.verifiedAt
@@ -955,7 +953,7 @@ it.live(
       );
 
       yield* Effect.scoped(
-        Effect.gen(function* runVerifiedSkillAfterRestart() {
+        Effect.gen(function* runVerifiedFlowAfterRestart() {
           const restarted = yield* sessionTool("agent_session_start", {
             clientName: "integration-restart",
             clientVersion: "1.0.0",

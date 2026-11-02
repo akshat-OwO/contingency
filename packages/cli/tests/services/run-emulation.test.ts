@@ -8,7 +8,7 @@ import {
   flowRunEmulation,
 } from "../../src/services/run-emulation.ts";
 
-const skill = (name: string, block: string) => ({
+const flow = (name: string, block: string) => ({
   emulation: readFlowFrontmatter(
     `---\nname: ${name}\n${block}\n---\nprocedure\n`
   )?.emulation,
@@ -16,12 +16,12 @@ const skill = (name: string, block: string) => ({
 });
 
 it.effect(
-  "uses the declared environment even when the first legacy skill has none",
+  "uses the declared environment even when the first legacy flow has none",
   () =>
     Effect.gen(function* chooseSaved() {
       const selected = yield* startingRunEmulation([
-        skill("legacy", ""),
-        skill(
+        flow("legacy", ""),
+        flow(
           "phone",
           "emulation:\n  viewport: 390x844@2\n  userAgentProfile: chrome-android-mobile\n  locale: en-IN"
         ),
@@ -54,7 +54,7 @@ it.effect(
         "  viewport: 390x844@1\n  permissions:\n    - {invalid}",
       ]) {
         const error = yield* Effect.flip(
-          flowRunEmulation(skill("invalid", `emulation:\n${declaration}`))
+          flowRunEmulation(flow("invalid", `emulation:\n${declaration}`))
         );
         expect(error.code).toBe("flow_invalid");
         expect(error.message).toContain("invalid emulation");
@@ -63,16 +63,16 @@ it.effect(
 );
 
 it.effect(
-  "rejects conflicting starting skills and ignores permission list order",
+  "rejects conflicting starting flows and ignores permission list order",
   () =>
     Effect.gen(function* requireOneEnvironment() {
       const base = "emulation:\n  viewport: 390x844@1\n  permissions:\n";
       const same = yield* startingRunEmulation([
-        skill(
+        flow(
           "one",
           `${base}    - geolocation granted\n    - notifications denied`
         ),
-        skill(
+        flow(
           "two",
           `${base}    - notifications denied\n    - geolocation granted`
         ),
@@ -80,8 +80,8 @@ it.effect(
       expect(same.source).toBe("one");
       const conflict = yield* Effect.flip(
         startingRunEmulation([
-          skill("one", "emulation:\n  viewport: 390x844@1"),
-          skill("two", "emulation:\n  viewport: 1280x800@1"),
+          flow("one", "emulation:\n  viewport: 390x844@1"),
+          flow("two", "emulation:\n  viewport: 1280x800@1"),
         ])
       );
       expect(conflict.message).toContain("viewport");
@@ -95,7 +95,7 @@ it.effect(
     Effect.gen(function* validateScale() {
       const base = "emulation:\n  viewport: 1280x800@1";
       const selected = yield* startingRunEmulation([
-        skill("scaled", `${base}\n  pageZoom: 400\n  textScale: 200`),
+        flow("scaled", `${base}\n  pageZoom: 400\n  textScale: 200`),
       ]);
       expect(selected.emulation).toMatchObject({
         pageZoom: 400,
@@ -103,8 +103,8 @@ it.effect(
       });
       expect(
         (yield* startingRunEmulation([
-          skill("legacy", base),
-          skill("explicit", `${base}\n  pageZoom: 100\n  textScale: 100`),
+          flow("legacy", base),
+          flow("explicit", `${base}\n  pageZoom: 100\n  textScale: 100`),
         ])).source
       ).toBe("legacy");
       for (const declaration of [
@@ -117,15 +117,15 @@ it.effect(
       ]) {
         expect(
           yield* Effect.flip(
-            flowRunEmulation(skill("invalid", `${base}\n  ${declaration}`))
+            flowRunEmulation(flow("invalid", `${base}\n  ${declaration}`))
           )
         ).toHaveProperty("code", "flow_invalid");
       }
       expect(
         (yield* Effect.flip(
           startingRunEmulation([
-            skill("base", base),
-            skill("scaled", `${base}\n  textScale: 200`),
+            flow("base", base),
+            flow("scaled", `${base}\n  textScale: 200`),
           ])
         )).message
       ).toContain("textScale");

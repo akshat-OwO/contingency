@@ -1859,7 +1859,7 @@ const makeAgentSession = (
      * never reach it — so each recorded action carries one, stored among the
      * recording's artifacts and referenced from the semantic timeline by id and
      * hash alone
-     * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+     * ([ADR 0071](../../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
      *
      * Best effort: a Page that navigated out from under the screenshot leaves
      * the action recorded without an image rather than failing the gesture the
@@ -2542,7 +2542,7 @@ const makeAgentSession = (
      * Throwing away a recording the user does not want to keep. Deletion is a
      * user gesture, never an agent one: the Workspace is the only caller, and
      * it returns the session to `setup` so the same browser setup records
-     * again without carrying the discarded evidence (ADR 0039).
+     * again without carrying the discarded evidence (ADR 0071).
      */
     const discardTeachingRecordingUnlocked = Effect.fn(
       "AgentSession.discardTeachingRecording"

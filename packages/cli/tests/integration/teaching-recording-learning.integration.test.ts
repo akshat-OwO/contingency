@@ -22,10 +22,10 @@ import { fixtureServer } from "./harness.ts";
 
 /**
  * The package a learning agent submits after reading Contingency's authoring
- * skills. It meets the Flow contract, so the save path is exercised the
+ * flows. It meets the Flow contract, so the save path is exercised the
  * way a real learning run reaches it rather than through a bare heading.
  */
-const LEARN_ANVIL_SKILL = `---
+const LEARN_ANVIL_FLOW = `---
 name: learn-anvil
 description: Sign in to the Anvil Works shop and confirm the account page. Use when a run must reach the signed-in shop.
 inputs:
@@ -376,10 +376,10 @@ it.live(
             image.bytes
           );
 
-          const skillDirectory = path.join(root, "learn-anvil");
-          yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
+          const flowDirectory = path.join(root, "learn-anvil");
+          yield* fileSystem.makeDirectory(flowDirectory, { recursive: true });
           yield* fileSystem.writeFileString(
-            path.join(skillDirectory, "flow.md"),
+            path.join(flowDirectory, "flow.md"),
             "# Previous package\n"
           );
           const refusedSave = yield* Effect.flip(
@@ -393,7 +393,7 @@ it.live(
           expect(refusedSave.code).toBe("teaching_recording_invalid");
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "flow.md")
+              path.join(flowDirectory, "flow.md")
             )
           ).toBe("# Previous package\n");
 
@@ -417,7 +417,7 @@ it.live(
           ).toBe(true);
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "flow.md")
+              path.join(flowDirectory, "flow.md")
             )
           ).toBe("# Previous package\n");
 
@@ -429,7 +429,7 @@ it.live(
                 path: "setup.md",
               },
               {
-                content: LEARN_ANVIL_SKILL.replace(
+                content: LEARN_ANVIL_FLOW.replace(
                   "  - account",
                   "  - account\n  - name: PASSWORD\n    secret: true"
                 ).replace(
@@ -460,24 +460,24 @@ it.live(
               path.join(root, "learn-anvil", "flow.md")
             )
           ).toContain("# Learn anvil");
-          const learnedSkill = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+          const learnedFlow = yield* fileSystem.readFileString(
+            path.join(flowDirectory, "flow.md")
           );
           const learnedReference = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "targets.md")
+            path.join(flowDirectory, "targets.md")
           );
-          expect(learnedSkill).toContain("[starting state](setup.md)");
-          expect(learnedSkill).toContain(
+          expect(learnedFlow).toContain("[starting state](setup.md)");
+          expect(learnedFlow).toContain(
             "[the accessibility targets](targets.md)"
           );
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "setup.md")
+              path.join(flowDirectory, "setup.md")
             )
           ).toBe("# Setup\nStart at the shop with an empty cart.\n");
-          expect(learnedSkill).toContain("{{PASSWORD}}");
-          expect(learnedSkill).not.toContain("secret:");
-          expect(learnedSkill).not.toContain(privateFieldValue);
+          expect(learnedFlow).toContain("{{PASSWORD}}");
+          expect(learnedFlow).not.toContain("secret:");
+          expect(learnedFlow).not.toContain(privateFieldValue);
           expect(learnedReference).toContain("{{PASSWORD}}");
           expect(learnedReference).not.toContain(privateFieldValue);
           expect(

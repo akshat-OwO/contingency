@@ -13,7 +13,7 @@ emulation:
 
 # Identify a broken cart
 
-This is a bundled Example Flow Skill for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [targets.md](targets.md).
+This is a bundled Example Flow for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [targets.md](targets.md).
 
 The Example Run opens the store with a deliberate fault: Add to cart looks successful but leaves the cart unchanged. A banner named "Demo fault" says so. The banner is a label, not proof. Prove the outcome from the cart itself.
 

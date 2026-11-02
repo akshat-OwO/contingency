@@ -580,7 +580,7 @@ it.live(
     Effect.gen(function* composedEvidence() {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped({
-        prefix: "modification-skills-",
+        prefix: "modification-flows-",
       });
       const fixture = yield* fixtureServer;
       for (const name of ["first", "second"]) {
@@ -612,7 +612,7 @@ it.live(
           inputs: [],
           operationId: OperationId.make("composed-start"),
           referencedFlows: [FlowName.make("first")],
-          requestedTask: "Inspect both skills",
+          requestedTask: "Inspect both flows",
           url: fixture.url("shop.html"),
         });
         yield* Effect.addFinalizer(() => sessions.closeAll());
@@ -660,7 +660,7 @@ it.live(
         });
         yield* runTool("agent_run_update", {
           inputs: [],
-          instruction: "Continue with the second skill",
+          instruction: "Continue with the second flow",
           operationId: OperationId.make("reference-second"),
           referencedFlows: [FlowName.make("second")],
           sessionId: run.id,

@@ -13,7 +13,7 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Navigation observations and keyframes marked capture:transitional do not prove that the destination rendered.
    - Each keyframe URL describes its own capture instant.
    - Missing capture metadata is not proof of readiness.
-   - Use later evidence to establish destination content, and give the Flow Skill an observable completion condition beyond the URL.
+   - Use later evidence to establish destination content, and give the Flow an observable completion condition beyond the URL.
 
 4. Write flow.md: YAML frontmatter with name equal to the Flow name, a description that states the task and its trigger, and an inputs list naming every value a later run may change.
 
@@ -23,8 +23,8 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
    - Their names are known at startup; their values can be supplied when needed.
    - Keep the starting-state requirement before the numbered steps. Link setup.md when supporting setup detail exists.
    - Keep setup actions outside the recorded procedure.
-   - A Dry Run's prerequisites are execution settings; they are not automatically added to the saved skill.
-   - Ask the user to authorize a named setup skill when it is needed in a later Run.
+   - A Dry Run's prerequisites are execution settings; they are not automatically added to the saved flow.
+   - Ask the user to authorize a named setup flow when it is needed in a later Run.
 
 5. Write supporting documents only when the Teaching evidence supports their content. Omit documents with no supported knowledge. Resolve ambiguities with the user before turning them into requirements.
 
@@ -85,21 +85,21 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
 7. Ask for ordinary inputs again and change at least one demonstrated input when the task permits it. Start a fresh-context Dry Run with agent_flow_dry_run_start.
 
-   For an on-demand input omit its value; ask the user to supply it in the returned Workspace, then use its uppercase Variable name with agent_variable_enter. Follow the saved skill outcome under its Teaching hosts and Emulation; you may explore, recover, or choose another route.
+   For an on-demand input omit its value; ask the user to supply it in the returned Workspace, then use its uppercase Variable name with agent_variable_enter. Follow the saved flow outcome under its Teaching hosts and Emulation; you may explore, recover, or choose another route.
 
-   - Request a declared on-demand Variable of the tested skill when needed with agent_variable_request, using its uppercase Variable name.
+   - Request a declared on-demand Variable of the tested flow when needed with agent_variable_request, using its uppercase Variable name.
    - The existing Dry Run Variables field in Workspace accepts the value; this request returns no Pending Decision.
    - Set replace:true to invalidate a previous value and reopen that field without restarting the browser.
    - A new input declaration requires revising the package and starting a fresh Dry Run.
 
-   - If setup requires user-requested verified Flow Skills, pass their names in prerequisites and all their ordinary inputs in prerequisiteInputs, scoped by flowName and name.
+   - If setup requires user-requested verified Flows, pass their names in prerequisites and all their ordinary inputs in prerequisiteInputs, scoped by flowName and name.
    - This set is fixed at startup; changes require a fresh Dry Run.
    - The start result includes their procedures.
    - Request prerequisite on-demand inputs on demand with agent_variable_request, have the user supply or refuse them in Workspace, and enter them with agent_variable_enter using their declaring flowName.
    - Set replace:true to request a fresh value for a retry.
-   - Prerequisites share the tested skill's fresh context, Teaching hosts, and Emulation; they do not replace its complete outcome or widen Domain Scope.
+   - Prerequisites share the tested flow's fresh context, Teaching hosts, and Emulation; they do not replace its complete outcome or widen Domain Scope.
 
-8. Report your model judgment of the complete skill outcome with agent_run_assess: outcome, explanation, evidence as Snapshot or attempt references produced by this Dry Run, and outcomeComplete explicitly true or false. Findings and assessments leave the browser open.
+8. Report your model judgment of the complete flow outcome with agent_run_assess: outcome, explanation, evidence as Snapshot or attempt references produced by this Dry Run, and outcomeComplete explicitly true or false. Findings and assessments leave the browser open.
 
    A partial attempt or any user Takeover cannot pass. When finished, call agent_run_complete to seal the report, close the browser, and persist the Dry Run result.
 
