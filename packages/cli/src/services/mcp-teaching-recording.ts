@@ -180,9 +180,13 @@ const TeachingKeyframeGetTool = readOnly(
 );
 
 const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
-  dependencies: [TeachingRecordingLearning],
+  dependencies: [
+    TeachingRecordingLearning,
+    TeachingRecordingStore,
+    AgentSession,
+  ],
   description:
-    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. A save is refused while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
+    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. A save is refused while any active Run uses this Flow, while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
@@ -307,6 +311,39 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
     agent_flow_skill_save: (params) =>
       Effect.gen(function* saveFlowSkill() {
         const learning = yield* TeachingRecordingLearning;
+        const store = yield* TeachingRecordingStore;
+        const manifest = yield* store
+          .read(params.recordingId)
+          .pipe(Effect.mapError(failure));
+        const sessions = yield* AgentSession;
+        const active = yield* sessions.list();
+        if (
+          active.some((session) => {
+            if (session.activity !== "run") {
+              return false;
+            }
+            const { run } = session;
+            return (
+              session.flowSkillName === manifest.flowSkillName ||
+              session.dryRun?.flowSkillName === manifest.flowSkillName ||
+              (run !== null &&
+                ("referencedSkills" in run
+                  ? run.referencedSkills.some(
+                      (skill) => skill.flowSkillName === manifest.flowSkillName
+                    )
+                  : run.flowSkillName === manifest.flowSkillName))
+            );
+          })
+        ) {
+          return yield* Effect.fail(
+            new TeachingRecordingFailure({
+              code: "teaching_recording_conflict",
+              diagnostics: [],
+              message:
+                "An active Run uses this Flow. Propose changes with agent_run_finding; save only after the Run ends.",
+            })
+          );
+        }
         return yield* learning.save(params).pipe(Effect.mapError(failure));
       }),
     agent_teaching_keyframe_get: (params) =>
