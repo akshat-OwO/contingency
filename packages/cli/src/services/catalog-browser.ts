@@ -245,11 +245,22 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     scope: CatalogRootScope,
     root: string
   ) {
-    const recordingsDirectory = path.join(root, TEACHING_RECORDINGS_DIRECTORY);
-    const runsDirectory = path.join(root, AGENT_RUNS_DIRECTORY);
-    const recordingIds = (yield* directoryNames(recordingsDirectory)).filter(
-      (name) => !name.startsWith(".")
+    const flows = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.orElseSucceed(() => new Map<string, { directory: string }>())
     );
+    const recordingDirectories: string[] = [];
+    for (const flow of flows.values()) {
+      const directory = path.join(
+        flow.directory,
+        TEACHING_RECORDINGS_DIRECTORY
+      );
+      for (const id of yield* directoryNames(directory)) {
+        if (!id.startsWith(".")) {
+          recordingDirectories.push(path.join(directory, id));
+        }
+      }
+    }
+    const runsDirectory = path.join(root, AGENT_RUNS_DIRECTORY);
     const runIds = (yield* directoryNames(runsDirectory)).filter(
       (name) => !name.startsWith(".")
     );
@@ -257,20 +268,16 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       [
         flowSkills(root),
         Effect.forEach(
-          recordingIds,
-          (id) =>
-            readJson(
-              path.join(recordingsDirectory, id, MANIFEST_FILE),
-              decodeManifest
-            ),
+          recordingDirectories,
+          (id) => readJson(path.join(id, MANIFEST_FILE), decodeManifest),
           { concurrency: READ_CONCURRENCY }
         ),
         summaries(
           runIds.map((id) => path.join(runsDirectory, id, SUMMARY_FILE))
         ),
         summaries(
-          recordingIds.map((id) =>
-            path.join(recordingsDirectory, id, DRY_RUN_DIRECTORY, SUMMARY_FILE)
+          recordingDirectories.map((id) =>
+            path.join(id, DRY_RUN_DIRECTORY, SUMMARY_FILE)
           )
         ),
       ],

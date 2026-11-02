@@ -490,7 +490,12 @@ it.effect(
       const retriedId = TeachingRecordingId.make("recording-cleanup-retry");
       const restartedId = TeachingRecordingId.make("recording-cleanup-restart");
       const directory = (recordingId: TeachingRecordingId) =>
-        path.join(root, TEACHING_RECORDINGS_DIRECTORY, recordingId);
+        path.join(
+          root,
+          flowSkillName,
+          TEACHING_RECORDINGS_DIRECTORY,
+          recordingId
+        );
       const lockedFor = (recordingId: TeachingRecordingId) =>
         path.join(directory(recordingId), "locked");
       const lock = (recordingId: TeachingRecordingId) =>

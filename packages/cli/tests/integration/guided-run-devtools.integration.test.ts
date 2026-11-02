@@ -29,6 +29,7 @@ it.live(
         const sessions = yield* AgentSession;
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-state"),
           operationId: operation("start"),
           url: fixture.url("devtools.html"),

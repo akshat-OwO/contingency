@@ -71,6 +71,7 @@ it.effect.each([
         );
       const artifactDirectory = path.join(
         root,
+        "checkout-flow",
         TEACHING_RECORDINGS_DIRECTORY,
         recordingId
       );
@@ -248,7 +249,9 @@ it.effect.each([
       });
       expect(files).toContain("flow.md");
       expect(files).not.toContain(path.join("references", "verification.md"));
-      for (const file of files) {
+      for (const file of files.filter(
+        (name) => !name.startsWith("recordings/")
+      )) {
         const target = path.join(flowDirectory, file);
         if ((yield* fileSystem.stat(target)).type === "File") {
           expect(yield* fileSystem.readFileString(target), file).not.toContain(
@@ -331,6 +334,7 @@ it.effect(
       );
       const directory = path.join(
         root,
+        "delivery-flow",
         TEACHING_RECORDINGS_DIRECTORY,
         retainedId
       );
@@ -438,6 +442,7 @@ it.effect.each([false, true])(
       const recoveryId = TeachingRecordingId.make("recording-purge-recovery");
       const directory = path.join(
         root,
+        "recovery-flow",
         TEACHING_RECORDINGS_DIRECTORY,
         recoveryId
       );
@@ -542,7 +547,12 @@ it.effect("keeps a verified Flow Skill retryable when cleanup fails", () =>
       prefix: "contingency-cleanup-failure-",
     });
     const failureId = TeachingRecordingId.make("recording-cleanup-failure");
-    const directory = path.join(root, TEACHING_RECORDINGS_DIRECTORY, failureId);
+    const directory = path.join(
+      root,
+      "cleanup-failure-flow",
+      TEACHING_RECORDINGS_DIRECTORY,
+      failureId
+    );
     const lockedDirectory = path.join(directory, "locked");
     yield* fileSystem.makeDirectory(lockedDirectory, { recursive: true });
     yield* fileSystem.writeFileString(
@@ -989,6 +999,7 @@ it.effect(
       });
       const directory = path.join(
         root,
+        "checkout-flow",
         TEACHING_RECORDINGS_DIRECTORY,
         recordingId
       );
@@ -1043,6 +1054,7 @@ it.effect("renames before capture and discards a recording back to setup", () =>
     const discardedId = TeachingRecordingId.make("recording-store-discard");
     const artifactDirectory = path.join(
       root,
+      "second-name",
       TEACHING_RECORDINGS_DIRECTORY,
       discardedId
     );
@@ -1271,6 +1283,124 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
         recordingId: claimedId,
       });
       expect(released.lifecycle._tag).toBe("ready");
+    }).pipe(Effect.provide(layerFor(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect.each(["", "shop/checkout"])(
+  "files a draft in Group %s and recovers it after regrouping",
+  (group) =>
+    Effect.gen(function* regroupDraft() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "contingency-recording-group-",
+      });
+      const name = FlowSkillName.make("grouped-flow");
+      yield* Effect.gen(function* firstProcess() {
+        const store = yield* TeachingRecordingStore;
+        yield* store.begin({
+          emulation,
+          flowSkillName: name,
+          group,
+          operationId: OperationId.make("group-begin"),
+          recordingId,
+          sessionId,
+        });
+        yield* store.start({
+          emulation,
+          operationId: OperationId.make("group-start"),
+          recordingId,
+        });
+        expect(store.directory(recordingId)).toBe(
+          path.join(root, group, name, "recordings", recordingId)
+        );
+        yield* fs.makeDirectory(path.join(root, "moved"));
+        yield* fs.rename(
+          path.join(root, group, name),
+          path.join(root, "moved", name)
+        );
+        yield* store.stop({
+          artifacts: [],
+          operationId: OperationId.make("group-stop"),
+          recordingId,
+        });
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe("ready");
+      }).pipe(Effect.provide(layerFor(root)));
+      yield* Effect.gen(function* secondProcess() {
+        const store = yield* TeachingRecordingStore;
+        expect(
+          (yield* store.listReady()).map((manifest) => manifest.recordingId)
+        ).toEqual([recordingId]);
+        expect(store.directory(recordingId)).toBe(
+          path.join(root, "moved", name, "recordings", recordingId)
+        );
+      }).pipe(Effect.provide(layerFor(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect.each(["runs", "recordings", "flow.md"])(
+  "refuses reserved Flow name %s",
+  (name) =>
+    Effect.gen(function* refuseReserved() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({
+        prefix: "contingency-recording-name-",
+      });
+      yield* Effect.gen(function* attempt() {
+        const store = yield* TeachingRecordingStore;
+        const result = yield* Effect.flip(
+          store.begin({
+            emulation,
+            flowSkillName: FlowSkillName.make(name),
+            group: "",
+            operationId: OperationId.make("reserved-begin"),
+            recordingId,
+            sessionId,
+          })
+        );
+        expect(result.code).toBe("teaching_recording_invalid");
+        expect(yield* fs.exists(path.join(root, name))).toBe(false);
+      }).pipe(Effect.provide(layerFor(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("refuses duplicate names and Groups inside draft Flows", () =>
+  Effect.gen(function* refuseCollisions() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-recording-collision-",
+    });
+    yield* Effect.gen(function* attempt() {
+      const store = yield* TeachingRecordingStore;
+      const input = {
+        emulation,
+        flowSkillName: FlowSkillName.make("checkout"),
+        group: "shop",
+        operationId: OperationId.make("collision-begin"),
+        recordingId,
+        sessionId,
+      };
+      yield* store.begin(input);
+      for (const rejected of [
+        { ...input, group: "other" },
+        {
+          ...input,
+          flowSkillName: FlowSkillName.make("another"),
+          group: "shop/checkout/nested",
+        },
+      ]) {
+        const result = yield* Effect.flip(
+          store.begin({
+            ...rejected,
+            recordingId: TeachingRecordingId.make("recording-collision"),
+          })
+        );
+        expect(result.code).toBe("teaching_recording_invalid");
+      }
+      expect(yield* fs.exists(path.join(root, "other"))).toBe(false);
+      expect(
+        yield* fs.exists(path.join(root, "shop", "checkout", "nested"))
+      ).toBe(false);
     }).pipe(Effect.provide(layerFor(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

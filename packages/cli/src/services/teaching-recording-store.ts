@@ -31,6 +31,8 @@ import {
 import type { PlatformError } from "effect/PlatformError";
 
 import {
+  discoverFlows,
+  RESERVED_FLOW_NAMES,
   maintainCatalogGitignore,
   resolveFlowDirectory,
 } from "./flow-catalog-layout.ts";
@@ -41,7 +43,7 @@ import {
 import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
-export const TEACHING_RECORDINGS_DIRECTORY = ".recordings";
+export const TEACHING_RECORDINGS_DIRECTORY = "recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
 /** Final manifests of purged Recordings, written before their directories are deleted. */
@@ -73,6 +75,7 @@ const ioError = (context: string) => (cause: PlatformError) =>
   storeError("teaching_recording_io", `${context}: ${cause.message}`);
 
 export interface TeachingRecordingBegin {
+  readonly group?: string | undefined;
   readonly origin?: TeachingRecordingManifest["origin"];
   readonly emulation: DraftEmulation | null;
   readonly runtime?: TeachingRecordingManifest["runtime"];
@@ -150,6 +153,7 @@ export interface TeachingRecordingStoreService {
   readonly discard: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  readonly catalogRoot: (recordingId: TeachingRecordingId) => string;
   readonly directory: (recordingId: TeachingRecordingId) => string;
   readonly listReady: () => Effect.Effect<
     readonly TeachingRecordingManifest[],
@@ -364,12 +368,59 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const rootFor = (recordingId: TeachingRecordingId): string =>
       recordingRoots.get(recordingId) ?? options.root();
-    const recordingsDirectory = (root = options.root()): string =>
-      path.join(root, TEACHING_RECORDINGS_DIRECTORY);
+    const directories = new Map<TeachingRecordingId, string>();
     const recordingDirectory = (
       recordingId: TeachingRecordingId,
-      root = rootFor(recordingId)
-    ): string => path.join(recordingsDirectory(root), recordingId);
+      _root = rootFor(recordingId)
+    ): string =>
+      directories.get(recordingId) ??
+      path.join(_root, "recordings", recordingId);
+    const refresh = (recordingId: TeachingRecordingId) =>
+      Effect.gen(function* locateRecording() {
+        const root = rootFor(recordingId);
+        const flows = yield* discoverFlows(root, fileSystem).pipe(
+          Effect.mapError((cause) =>
+            storeError(
+              cause._tag === "FlowSkillCatalogError"
+                ? "teaching_recording_invalid"
+                : "teaching_recording_io",
+              cause.message
+            )
+          )
+        );
+        for (const flow of flows.values()) {
+          const candidate = path.join(
+            flow.directory,
+            "recordings",
+            recordingId
+          );
+          if (
+            yield* fileSystem
+              .exists(path.join(candidate, MANIFEST_FILE))
+              .pipe(Effect.mapError(ioError("Could not locate recording")))
+          ) {
+            directories.set(recordingId, candidate);
+            return;
+          }
+          if (
+            yield* fileSystem
+              .exists(
+                path.join(
+                  flow.directory,
+                  "recordings",
+                  PURGED_DIRECTORY,
+                  `${recordingId}.json`
+                )
+              )
+              .pipe(
+                Effect.mapError(ioError("Could not locate recording receipt"))
+              )
+          ) {
+            directories.set(recordingId, candidate);
+            return;
+          }
+        }
+      });
     const manifestFile = (
       recordingId: TeachingRecordingId,
       root = rootFor(recordingId)
@@ -380,7 +431,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       root = rootFor(recordingId)
     ): string =>
       path.join(
-        recordingsDirectory(root),
+        path.dirname(recordingDirectory(recordingId, root)),
         PURGED_DIRECTORY,
         `${recordingId}.json`
       );
@@ -511,7 +562,13 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       createDirectory = false
     ): Effect.Effect<A, E | TeachingRecordingStoreError> =>
       lockFor(recordingId).withPermit(
-        withDiskLock(recordingId, operation, createDirectory)
+        refresh(recordingId).pipe(
+          Effect.andThen(
+            Effect.suspend(() =>
+              withDiskLock(recordingId, operation, createDirectory)
+            )
+          )
+        )
       );
 
     const readAt = (
@@ -651,7 +708,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         return Effect.succeed(completed);
       }
       const root = rootFor(recordingId);
-      return readAndRecoverAt(recordingId, root).pipe(
+      return refresh(recordingId).pipe(
+        Effect.andThen(
+          Effect.suspend(() => readAndRecoverAt(recordingId, root))
+        ),
         Effect.catchIf(
           (failure) => failure.code === "teaching_recording_not_found",
           (failure) =>
@@ -716,60 +776,118 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
 
     const begin = (input: TeachingRecordingBegin) =>
-      withRecordingLock(
-        input.recordingId,
-        Effect.gen(function* beginRecording() {
-          const root = options.root();
-          recordingRoots.set(input.recordingId, root);
-          const exists = yield* fileSystem
-            .exists(manifestFile(input.recordingId, root))
-            .pipe(
-              Effect.mapError(
-                ioError(
-                  `Could not inspect Teaching Recording ${input.recordingId}`
+      Effect.gen(function* prepareFlow() {
+        const root = options.root();
+        const group = input.group ?? "";
+        const parts = group === "" ? [] : group.split("/");
+        if (
+          RESERVED_FLOW_NAMES.has(input.flowSkillName) ||
+          path.isAbsolute(group) ||
+          parts.some(
+            (part) =>
+              part === "" ||
+              part === "." ||
+              part === ".." ||
+              part.startsWith(".") ||
+              part.includes("\\") ||
+              RESERVED_FLOW_NAMES.has(part)
+          )
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_invalid",
+              "Invalid Flow name or Group."
+            )
+          );
+        }
+        const target = path.join(root, ...parts, input.flowSkillName);
+        const flows = yield* discoverFlows(root, fileSystem).pipe(
+          Effect.mapError((cause) =>
+            storeError(
+              cause._tag === "FlowSkillCatalogError"
+                ? "teaching_recording_invalid"
+                : "teaching_recording_io",
+              cause.message
+            )
+          )
+        );
+        const existingFlow = flows.get(input.flowSkillName);
+        if (
+          (existingFlow !== undefined && existingFlow.directory !== target) ||
+          [...flows.values()].some((flow) =>
+            target.startsWith(`${flow.directory}${path.sep}`)
+          )
+        ) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_invalid",
+              "Flow name is already used or Group is inside a Flow."
+            )
+          );
+        }
+        recordingRoots.set(input.recordingId, root);
+        directories.set(
+          input.recordingId,
+          path.join(
+            existingFlow?.directory ?? target,
+            "recordings",
+            input.recordingId
+          )
+        );
+        return yield* withRecordingLock(
+          input.recordingId,
+          Effect.gen(function* beginRecording() {
+            recordingRoots.set(input.recordingId, root);
+            const exists = yield* fileSystem
+              .exists(manifestFile(input.recordingId, root))
+              .pipe(
+                Effect.mapError(
+                  ioError(
+                    `Could not inspect Teaching Recording ${input.recordingId}`
+                  )
                 )
-              )
-            );
-          if (exists) {
-            const existing = yield* readAt(input.recordingId, root);
-            if (
-              existing.flowSkillName === input.flowSkillName &&
-              hasReceipt(existing, "begin", input.operationId)
-            ) {
-              return existing;
+              );
+            if (exists) {
+              const existing = yield* readAt(input.recordingId, root);
+              if (
+                existing.flowSkillName === input.flowSkillName &&
+                hasReceipt(existing, "begin", input.operationId)
+              ) {
+                return existing;
+              }
+              return yield* Effect.fail(
+                storeError(
+                  "teaching_recording_conflict",
+                  `Teaching Recording ${input.recordingId} already exists.`
+                )
+              );
             }
-            return yield* Effect.fail(
-              storeError(
-                "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} already exists.`
-              )
-            );
-          }
-          const at = now().toISOString();
-          return yield* persist({
-            artifacts: [],
-            cleanup: { _tag: "pending" },
-            createdAt: at,
-            emulation: input.emulation,
-            flowSkillName: input.flowSkillName,
-            lifecycle: { _tag: "setup", requestedAt: at },
-            origin: input.origin ?? "teaching",
-            receipts: [
-              {
-                completedAt: at,
-                operation: "begin",
-                operationId: input.operationId,
-              },
-            ],
-            recordingId: input.recordingId,
-            runtime: input.runtime ?? browserRequirements,
-            schemaVersion: 1,
-            sessionId: input.sessionId,
-            updatedAt: at,
-          });
-        }),
-        true
-      );
+            const at = now().toISOString();
+            return yield* persist({
+              artifacts: [],
+              cleanup: { _tag: "pending" },
+              createdAt: at,
+              emulation: input.emulation,
+              flowSkillName: input.flowSkillName,
+              lifecycle: { _tag: "setup", requestedAt: at },
+              origin: input.origin ?? "teaching",
+              receipts: [
+                {
+                  completedAt: at,
+                  operation: "begin",
+                  operationId: input.operationId,
+                },
+              ],
+              recordingId: input.recordingId,
+              runtime: input.runtime ?? browserRequirements,
+              schemaVersion: 1,
+              sessionId: input.sessionId,
+              updatedAt: at,
+            });
+          }),
+          true
+        );
+      });
 
     const start = (input: TeachingRecordingStart) =>
       withRecordingLock(
@@ -1481,19 +1599,69 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     };
 
     const rename = (input: TeachingRecordingRename) =>
-      mutate(input.recordingId, "rename", input.operationId, (manifest) =>
-        manifest.lifecycle._tag === "setup"
-          ? Effect.succeed({
-              ...manifest,
-              flowSkillName: input.flowSkillName,
-            })
-          : Effect.fail(
-              storeError(
-                "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot be renamed from ${manifest.lifecycle._tag}.`
-              )
+      Effect.gen(function* renameRecording() {
+        yield* read(input.recordingId);
+        const previous = recordingDirectory(input.recordingId);
+        const flowDirectory = path.dirname(path.dirname(previous));
+        const targetFlow = path.join(
+          path.dirname(flowDirectory),
+          input.flowSkillName
+        );
+        if (RESERVED_FLOW_NAMES.has(input.flowSkillName)) {
+          return yield* Effect.fail(
+            storeError("teaching_recording_invalid", "Reserved Flow name.")
+          );
+        }
+        const flows = yield* discoverFlows(
+          rootFor(input.recordingId),
+          fileSystem
+        ).pipe(
+          Effect.mapError((cause) =>
+            storeError("teaching_recording_invalid", cause.message)
+          )
+        );
+        const collision = flows.get(input.flowSkillName);
+        if (collision !== undefined && collision.directory !== flowDirectory) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_invalid",
+              "Flow name is already used."
             )
-      );
+          );
+        }
+        const renamed = yield* mutate(
+          input.recordingId,
+          "rename",
+          input.operationId,
+          (manifest) =>
+            manifest.lifecycle._tag === "setup"
+              ? Effect.succeed({
+                  ...manifest,
+                  flowSkillName: input.flowSkillName,
+                })
+              : Effect.fail(
+                  storeError(
+                    "teaching_recording_conflict",
+                    `Teaching Recording ${input.recordingId} cannot be renamed from ${manifest.lifecycle._tag}.`
+                  )
+                )
+        );
+        if (flowDirectory !== targetFlow) {
+          const destination = path.join(
+            targetFlow,
+            "recordings",
+            input.recordingId
+          );
+          yield* fileSystem
+            .makeDirectory(path.dirname(destination), { recursive: true })
+            .pipe(Effect.mapError(ioError("Could not create renamed Flow")));
+          yield* fileSystem
+            .rename(previous, destination)
+            .pipe(Effect.mapError(ioError("Could not rename recording")));
+          directories.set(input.recordingId, destination);
+        }
+        return renamed;
+      });
 
     const discard = (input: TeachingRecordingMutation) =>
       mutate(input.recordingId, "discard", input.operationId, (manifest, at) =>
@@ -1584,22 +1752,39 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     const listReady = () =>
       Effect.gen(function* listReadyRecordings() {
         const root = options.root();
-        const directory = recordingsDirectory(root);
-        const exists = yield* fileSystem
-          .exists(directory)
-          .pipe(
-            Effect.mapError(ioError("Could not inspect Teaching Recordings"))
-          );
-        if (!exists) {
-          return [];
+        const flows = yield* discoverFlows(root, fileSystem).pipe(
+          Effect.mapError((cause) =>
+            storeError(
+              cause._tag === "FlowSkillCatalogError"
+                ? "teaching_recording_invalid"
+                : "teaching_recording_io",
+              cause.message
+            )
+          )
+        );
+        const recordingIds: TeachingRecordingId[] = [];
+        for (const flow of flows.values()) {
+          const directory = path.join(flow.directory, "recordings");
+          if (
+            !(yield* fileSystem
+              .exists(directory)
+              .pipe(Effect.mapError(ioError("Could not inspect recordings"))))
+          ) {
+            continue;
+          }
+          const entries = yield* fileSystem
+            .readDirectory(directory)
+            .pipe(Effect.mapError(ioError("Could not list recordings")));
+          for (const entry of entries) {
+            const decoded =
+              Schema.decodeUnknownOption(RecordingIdSchema)(entry);
+            if (Option.isSome(decoded)) {
+              recordingIds.push(decoded.value);
+              directories.set(decoded.value, path.join(directory, entry));
+              recordingRoots.set(decoded.value, root);
+            }
+          }
         }
-        const entries = yield* fileSystem
-          .readDirectory(directory)
-          .pipe(Effect.mapError(ioError("Could not list Teaching Recordings")));
-        const recordingIds = entries.flatMap((entry) => {
-          const decoded = Schema.decodeUnknownOption(RecordingIdSchema)(entry);
-          return Option.isSome(decoded) ? [decoded.value] : [];
-        });
         const manifests = yield* Effect.all(
           recordingIds.map((recordingId) =>
             readAndRecoverAt(recordingId, root)
@@ -1696,6 +1881,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     return TeachingRecordingStore.of({
       attachDryRunSummary,
       begin,
+      catalogRoot: rootFor,
       cleanup,
       directory: recordingDirectory,
       discard,

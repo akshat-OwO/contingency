@@ -51,6 +51,7 @@ it.live(
       yield* Effect.gen(function* recordAndLearn() {
         const sessions = yield* AgentSession;
         const params = {
+          group: "",
           name: FlowSkillName.make("guided-delivery"),
           operationId: operation("guided-start"),
           url: fixtures.url("delivery.html"),
@@ -395,6 +396,7 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
         yield* Effect.gen(function* recordInterruptedAttempt() {
           const sessions = yield* AgentSession;
           const started = yield* sessionTool("agent_guided_run_start", {
+            group: "",
             name: FlowSkillName.make("guided-close"),
             operationId: operation("start"),
             url: fixtures.url("delivery.html"),
@@ -558,6 +560,7 @@ it.live(
       yield* Effect.gen(function* demonstrate() {
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-email"),
           operationId: operation("start"),
           url: fixtures.url("agent-login.html"),
@@ -810,6 +813,7 @@ it.live(
         const second = url.replace("127.0.0.1", "localhost");
         const third = "http://unapproved.example/";
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-hosts"),
           operationId: operation("start"),
           url,
@@ -989,6 +993,7 @@ it.live(
       yield* Effect.gen(function* captureChecks() {
         const sessions = yield* AgentSession;
         const started = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("guided-checks"),
           operationId: operation("start-checks"),
           url: fixtures.url("delivery.html"),

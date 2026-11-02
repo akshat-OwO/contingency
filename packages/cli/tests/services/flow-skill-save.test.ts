@@ -161,13 +161,20 @@ for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
         yield* Effect.gen(function* save() {
           const store = yield* TeachingRecordingStore;
           const learning = yield* TeachingRecordingLearning;
-          const begun = yield* store.begin({
+          const beginInput = {
             emulation: null,
             flowSkillName: FlowSkillName.make(name),
             operationId: OperationId.make("layout-begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-layout-session"),
-          });
+          };
+          if (scenario !== "nested") {
+            const refused = yield* Effect.flip(store.begin(beginInput));
+            expect(refused.code).toBe("teaching_recording_invalid");
+            expect(yield* fs.exists(path.join(root, name))).toBe(false);
+            return;
+          }
+          const begun = yield* store.begin(beginInput);
           yield* store.start({
             emulation: begun.emulation,
             operationId: OperationId.make("layout-start"),
@@ -206,16 +213,10 @@ for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
               recordingId,
             })
           );
-          if (scenario === "duplicate") {
-            expect(error.message).toContain(path.join(root, "shop", name));
-            expect(error.message).toContain(path.join(root, name));
-            expect(
-              yield* fs.readFileString(path.join(root, "shop", name, "flow.md"))
-            ).toBe(content);
-          } else {
-            expect(error.code).toBe("teaching_recording_invalid");
-          }
-          expect(yield* fs.exists(path.join(root, name))).toBe(false);
+          expect(error.code).toBe("teaching_recording_invalid");
+          expect(yield* fs.exists(path.join(root, name, "flow.md"))).toBe(
+            false
+          );
           expect(yield* fs.exists(path.join(root, ".flow-skill.lock"))).toBe(
             false
           );

@@ -256,6 +256,7 @@ it.live(
           url: fixture.url("devtools.html"),
         });
         const guided = yield* sessionTool("agent_guided_run_start", {
+          group: "",
           name: FlowSkillName.make("eval-guided"),
           operationId: OperationId.make("guided"),
           url: fixture.url("devtools.html"),

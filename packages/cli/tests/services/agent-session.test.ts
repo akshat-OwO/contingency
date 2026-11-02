@@ -1117,6 +1117,7 @@ it.effect(
           yield* fileSystem.writeFileString(
             path.join(
               root,
+              started.flowSkillName,
               TEACHING_RECORDINGS_DIRECTORY,
               started.recordingId,
               "trace.zip"
@@ -1158,6 +1159,7 @@ it.effect(
           yield* fileSystem.readFileString(
             path.join(
               root,
+              closed.finished.flowSkillName,
               TEACHING_RECORDINGS_DIRECTORY,
               closed.recordingId,
               "manifest.json"
@@ -1279,6 +1281,7 @@ it.effect(
           yield* fileSystem.readFileString(
             path.join(
               root,
+              started.flowSkillName,
               TEACHING_RECORDINGS_DIRECTORY,
               started.recordingId,
               "manifest.json"

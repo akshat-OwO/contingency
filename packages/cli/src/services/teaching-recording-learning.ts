@@ -724,11 +724,11 @@ const makeTeachingRecordingLearning = Effect.fn(
           : file
       );
       const recordingDirectory = store.directory(input.recordingId);
-      const catalogRoot = path.dirname(path.dirname(recordingDirectory));
+      const catalogRoot = store.catalogRoot(input.recordingId);
       return yield* withSkillLock(
         catalogRoot,
         Effect.gen(function* replaceSkillAtomically() {
-          const target = path.join(catalogRoot, manifest.flowSkillName);
+          const target = path.dirname(path.dirname(recordingDirectory));
           if (RESERVED_FLOW_NAMES.has(manifest.flowSkillName)) {
             return yield* Effect.fail(
               learningError(
@@ -773,6 +773,24 @@ const makeTeachingRecordingLearning = Effect.fn(
           yield* fileSystem
             .makeDirectory(temporary, { mode: 0o700, recursive: true })
             .pipe(Effect.mapError(ioError("Could not stage the Flow Skill")));
+          // Keep evidence alongside the replacement documents. The catalog lock
+          // serializes saves; the recording remains available after the swap.
+          for (const evidence of ["recordings", "runs"]) {
+            const source = path.join(target, evidence);
+            if (
+              yield* fileSystem
+                .exists(source)
+                .pipe(
+                  Effect.mapError(ioError("Could not inspect Flow evidence"))
+                )
+            ) {
+              yield* fileSystem
+                .copy(source, path.join(temporary, evidence))
+                .pipe(
+                  Effect.mapError(ioError("Could not preserve Flow evidence"))
+                );
+            }
+          }
           const staged = yield* Effect.result(
             Effect.forEach(
               stamped,

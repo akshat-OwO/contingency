@@ -1,6 +1,6 @@
 # Learn flow
 
-Learn one Contingency Teaching Recording and write its Flow Skill.
+Learn one Contingency Teaching Recording and write its Flow Skill. The agent chooses its Flow name and Group before Start. Recording evidence lives in `<flow>/recordings/<recordingId>/`, including while the Flow is still a draft.
 
 1. Read contingency://reference/writing from this server for technical writing, natural prose, and agent instructions.
 

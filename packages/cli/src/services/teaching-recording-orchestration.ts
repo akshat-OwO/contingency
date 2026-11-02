@@ -287,9 +287,7 @@ export const startDryRun = (input: DryRunStartInput) =>
     }
     // The package lives under the Catalog Root that holds the recording, which
     // may not be the root this process selected since.
-    const recordingCatalogRoot = path.dirname(
-      path.dirname(store.directory(manifest.recordingId))
-    );
+    const recordingCatalogRoot = store.catalogRoot(manifest.recordingId);
     const skill = yield* catalog
       .read(manifest.flowSkillName, recordingCatalogRoot)
       .pipe(

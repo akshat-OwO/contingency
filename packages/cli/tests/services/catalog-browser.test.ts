@@ -155,11 +155,18 @@ const seedLocal = (root: string) =>
     });
     const recordingId = "recording-draft-cart";
     yield* writeJson(
-      path.join(root, ".recordings", recordingId, "manifest.json"),
+      path.join(root, "draft-cart", "recordings", recordingId, "manifest.json"),
       JSON.stringify(manifest(recordingId, "draft-cart"))
     );
     yield* writeJson(
-      path.join(root, ".recordings", recordingId, "dry-run", "summary.json"),
+      path.join(
+        root,
+        "draft-cart",
+        "recordings",
+        recordingId,
+        "dry-run",
+        "summary.json"
+      ),
       JSON.stringify(dryRunSummary(recordingId))
     );
   });
@@ -439,10 +446,17 @@ it.effect("lists a Flow as unverified when its stamp is malformed", () =>
 const extraDocuments = (root: string) =>
   [
     path.join(root, "runs", "agentrun-extra", "summary.json"),
-    path.join(root, ".recordings", "recording-extra", "manifest.json"),
     path.join(
       root,
-      ".recordings",
+      "draft-cart",
+      "recordings",
+      "recording-extra",
+      "manifest.json"
+    ),
+    path.join(
+      root,
+      "draft-cart",
+      "recordings",
       "recording-extra",
       "dry-run",
       "summary.json"

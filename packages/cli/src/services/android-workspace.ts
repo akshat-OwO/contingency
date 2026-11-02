@@ -536,9 +536,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           } else {
             const recordingRoot =
               command.kind === "dry-run" && command.recordingId !== null
-                ? path.dirname(
-                    path.dirname(store.directory(command.recordingId))
-                  )
+                ? store.catalogRoot(command.recordingId)
                 : undefined;
             const skill = yield* catalog.read(
               command.flowSkillName,
@@ -659,13 +657,18 @@ export const makeAndroidWorkspaceLayer = (options: {
             const run = created.success;
             const root =
               command.kind === "dry-run" && recordingId !== null
-                ? path.dirname(path.dirname(store.directory(recordingId)))
+                ? store.catalogRoot(recordingId)
                 : catalog.root();
             let directory = path.join(root, "agent-runs", id);
             if (recordingId !== null) {
               directory =
                 command.kind === "teaching"
-                  ? store.directory(recordingId)
+                  ? path.join(
+                      root,
+                      command.flowSkillName,
+                      "recordings",
+                      recordingId
+                    )
                   : path.join(store.directory(recordingId), "android-runs", id);
             }
             const summary: AndroidWorkspaceSummary = {

@@ -249,6 +249,7 @@ export interface AgentSessionServiceOptions {
 }
 
 export interface AgentSessionStartInput {
+  readonly group?: string | undefined;
   readonly requiredBrowserState?: readonly RequiredBrowserModification[];
   /** Set only by the MCP Guided Run entry point. */
   readonly origin?: TeachingRecordingManifest["origin"];
@@ -915,6 +916,7 @@ const normalizedStartInput = (input: AgentSessionStartInput): string =>
     clientVersion: input.clientVersion?.trim() || "unknown",
     domainScope: input.domainScope ?? null,
     emulation: input.emulation ?? null,
+    group: input.group ?? "",
     name: input.name?.trim() || null,
     origin: input.origin ?? "teaching",
     run: input.run?.runId ?? null,
@@ -3710,6 +3712,7 @@ const makeAgentSession = (
           .begin({
             emulation,
             flowSkillName: identity.flowSkillName,
+            group: startInput.group,
             operationId: OperationId.make(
               startInput.operationId ?? `start-${startSessionId}`
             ),
