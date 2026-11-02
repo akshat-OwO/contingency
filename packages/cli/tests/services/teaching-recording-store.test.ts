@@ -44,7 +44,7 @@ const layerFor = (root: string) =>
   }).pipe(Layer.provideMerge(NodeServices.layer));
 
 it.effect(
-  "start, stop, and cleanup retries converge without duplicate state",
+  "verifies a Flow without persisting input values and retries lifecycle operations safely",
   () =>
     Effect.gen(function* retryTeachingLifecycle() {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -57,6 +57,7 @@ it.effect(
         recordingId
       );
       const artifactFile = path.join(artifactDirectory, "keyframe-1.png");
+      const inputValue = "verification-input-must-stay-private-622";
       const exercise = Effect.gen(function* exerciseStore() {
         const store = yield* TeachingRecordingStore;
         const begin = {
@@ -142,13 +143,17 @@ it.effect(
             ?.files
         ).toEqual(["SKILL.md"]);
         yield* store.startDryRun({
-          inputs: [{ changed: true, name: "city", value: "Pune" }],
+          inputs: [
+            { changed: true, name: "account", value: inputValue },
+            { changed: false, name: "region", value: inputValue },
+            { changed: false, name: "password", value: null },
+          ],
           operationId: OperationId.make("dry-run-once"),
           recordingId,
           sessionId,
         });
         yield* store.passDryRun({
-          observableOutcome: "The delivery area is Pune.",
+          observableOutcome: "The order is confirmed.",
           operationId: OperationId.make("dry-run-pass-once"),
           recordingId,
         });
@@ -207,11 +212,27 @@ it.effect(
         "cleanup",
       ]);
       expect(yield* fileSystem.exists(artifactFile)).toBe(false);
+      const flowDirectory = path.join(root, "checkout-flow");
+      const files = yield* fileSystem.readDirectory(flowDirectory, {
+        recursive: true,
+      });
+      expect(files).toContain("SKILL.md");
+      expect(files).toContain(path.join("references", "verification.md"));
+      for (const file of files) {
+        const target = path.join(flowDirectory, file);
+        if ((yield* fileSystem.stat(target)).type === "File") {
+          expect(yield* fileSystem.readFileString(target), file).not.toContain(
+            inputValue
+          );
+        }
+      }
       expect(
         yield* fileSystem.readFileString(
           path.join(root, "checkout-flow", "references", "verification.md")
         )
-      ).toContain(`- Verified: ${at}`);
+      ).toBe(
+        `# Last Dry Run\n\n- Completed: ${at}\n- Result: passed\n- Observable outcome: The order is confirmed.\n\n## Inputs\n\n- account (changed)\n- region\n- password\n- Verified: ${at}\n- Platform: web\n- Verification origin: workspace\n`
+      );
       expect(yield* fileSystem.exists(artifactDirectory)).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
