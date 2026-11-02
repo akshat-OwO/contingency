@@ -322,7 +322,9 @@ export const startTaskRun = (
           const runId = AgentRunId.make(`agentrun-${randomUUID()}`);
           const artifactDirectory = yield* store.prepare(
             runId,
-            skills.map((skill) => skill.name)
+            resolution.origin === "example"
+              ? []
+              : skills.map((skill) => skill.name)
           );
           const startedAt = new Date().toISOString();
           const run: TaskAgentRunState = markDemoWork(hosts, {

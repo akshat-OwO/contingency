@@ -142,18 +142,17 @@ const seedLocal = (root: string) =>
       recursive: true,
     });
     yield* writeJson(
-      path.join(root, "agent-runs", taskRunSummary.runId, "summary.json"),
+      path.join(root, "runs", taskRunSummary.runId, "summary.json"),
       JSON.stringify(encodeSummary(taskRunSummary))
     );
     yield* writeJson(
-      path.join(root, "agent-runs", "agentrun-broken", "summary.json"),
+      path.join(root, "runs", "agentrun-broken", "summary.json"),
       JSON.stringify({ schemaVersion: 99 })
     );
     // A Run still in progress has no Summary yet and is simply absent.
-    yield* fileSystem.makeDirectory(
-      path.join(root, "agent-runs", "agentrun-live"),
-      { recursive: true }
-    );
+    yield* fileSystem.makeDirectory(path.join(root, "runs", "agentrun-live"), {
+      recursive: true,
+    });
     const recordingId = "recording-draft-cart";
     yield* writeJson(
       path.join(root, ".recordings", recordingId, "manifest.json"),
@@ -439,7 +438,7 @@ it.effect("lists a Flow as unverified when its stamp is malformed", () =>
 /** Three independent JSON documents, alongside the healthy seeded history. */
 const extraDocuments = (root: string) =>
   [
-    path.join(root, "agent-runs", "agentrun-extra", "summary.json"),
+    path.join(root, "runs", "agentrun-extra", "summary.json"),
     path.join(root, ".recordings", "recording-extra", "manifest.json"),
     path.join(
       root,
