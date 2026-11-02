@@ -136,6 +136,7 @@ inputs:
           ],
           name: "input-forms",
           stepCount: 1,
+          verified: false,
         },
       ],
     };

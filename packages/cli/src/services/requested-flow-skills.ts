@@ -1,13 +1,9 @@
-import type {
-  AgentRunTaskInput,
-  FlowSkillName,
-  PlatformIdentity,
-} from "@contingency/protocol";
+import type { AgentRunTaskInput, FlowSkillName } from "@contingency/protocol";
 import { Effect } from "effect";
 
 import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import type { FlowSkillPackage } from "./flow-skill-catalog.ts";
-import { readFlowSkillFrontmatter, SKILL_FILE } from "./flow-skill-package.ts";
+import { isVerifiedFlowSkill } from "./flow-skill-package.ts";
 import {
   browserCapabilities,
   browserRequirements,
@@ -22,22 +18,7 @@ const invalid = (message: string) => ({
   message,
 });
 
-/** Whether frontmatter records explicit user verification on this platform. */
-export const isVerifiedFlowSkill = (
-  files: readonly { readonly content: string; readonly path: string }[],
-  platform: PlatformIdentity = "web"
-): boolean =>
-  files.some((file) => {
-    if (file.path !== SKILL_FILE) {
-      return false;
-    }
-    const stamp = readFlowSkillFrontmatter(file.content)?.verification;
-    return (
-      stamp?.outcome === "passed" &&
-      (stamp.verifiedAt?.length ?? 0) > 0 &&
-      stamp.platform === platform
-    );
-  });
+export { isVerifiedFlowSkill } from "./flow-skill-package.ts";
 
 /** Resolve only explicitly requested, user-verified catalog packages. */
 export const readRequestedSkills = (names: readonly FlowSkillName[]) =>

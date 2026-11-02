@@ -219,6 +219,8 @@ export const FlowSkillListEntry = Schema.Struct({
   name: nonEmptyString,
   /** How many numbered steps the procedure carries. */
   stepCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** Explicit verification still matches the current procedure and contracts. */
+  verified: Schema.Boolean,
 });
 export type FlowSkillListEntry = typeof FlowSkillListEntry.Type;
 

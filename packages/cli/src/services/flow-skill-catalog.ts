@@ -17,9 +17,11 @@ import {
   discoverFlows,
   maintainCatalogGitignore,
 } from "./flow-catalog-layout.ts";
+import { readFlowContractFiles } from "./flow-contract-files.ts";
 import { isFlowDocumentArea, isSupportingDocument } from "./flow-documents.ts";
 import {
   flowSkillProcedureSteps,
+  isVerifiedFlowSkill,
   readFlowSkillFrontmatter,
   SKILL_FILE,
 } from "./flow-skill-package.ts";
@@ -258,33 +260,13 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   ) {
     const skill = yield* readSkillFile(root, name);
     const references = yield* readReferences(skill.directory);
-    for (const contractName of [
-      "checks.json",
-      "scans.json",
-      "browser-state.json",
-    ]) {
-      const file = path.join(skill.directory, contractName);
-      if (
-        yield* fileSystem
-          .exists(file)
-          .pipe(Effect.mapError(ioError(`Could not inspect ${file}`)))
-      ) {
-        const target = yield* fileSystem
-          .realPath(file)
-          .pipe(Effect.mapError(ioError(`Could not read ${file}`)));
-        const real = yield* fileSystem
-          .realPath(skill.directory)
-          .pipe(Effect.mapError(ioError(`Could not read ${skill.directory}`)));
-        if (isInside(real, target)) {
-          references.push({
-            content: yield* fileSystem
-              .readFileString(file)
-              .pipe(Effect.mapError(ioError(`Could not read ${file}`))),
-            path: contractName,
-          });
-        }
-      }
-    }
+    references.push(
+      ...(yield* readFlowContractFiles(skill.directory, fileSystem).pipe(
+        Effect.mapError(
+          ioError(`Could not read contracts in ${skill.directory}`)
+        )
+      ))
+    );
     const frontmatter = readFlowSkillFrontmatter(skill.content);
     return {
       directory: skill.directory,
@@ -320,6 +302,14 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         continue;
       }
       const frontmatter = readFlowSkillFrontmatter(flow.content);
+      const contracts = yield* readFlowContractFiles(
+        flow.directory,
+        fileSystem
+      ).pipe(
+        Effect.mapError(
+          ioError(`Could not read contracts in ${flow.directory}`)
+        )
+      );
       const entry: Mutable<FlowSkillListEntry> = {
         description: frontmatter?.description ?? name,
         inputs: (frontmatter?.inputs ?? []).map(
@@ -330,6 +320,10 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
         ),
         name,
         stepCount: flowSkillProcedureSteps(flow.content).length,
+        verified: isVerifiedFlowSkill(
+          [{ content: flow.content, path: SKILL_FILE }, ...contracts],
+          frontmatter?.runtime.requirements.platform
+        ),
       };
       if (isDemoHosts(frontmatter?.hosts ?? [])) {
         entry.demo = DEMO_SITE_ID;
