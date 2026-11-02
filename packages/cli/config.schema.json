@@ -47,7 +47,7 @@
       "properties": {
         "first": {
           "type": "boolean",
-          "description": "Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without a configured endpoint or installed Local System One.",
+          "description": "Tell the agent to try a System One Pursuit for each Flow step first. Has no effect without a configured endpoint or installed Local System One.",
           "default": false
         },
         "local": {

@@ -112,7 +112,7 @@ it.live(
         const run = await tools.agent_run_start({
           inputs: [],
           operationId: "single-tool-start",
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Add an anvil to the cart",
           url: ${JSON.stringify(fixture.url("task-session.html"))},
           view: "compact",
@@ -321,7 +321,7 @@ it.live(
           `const run = await tools.agent_run_start({
             inputs: [],
             operationId: "cancel-start",
-            referencedSkills: [],
+            referencedFlows: [],
             requestedTask: "Add an anvil to the cart",
             url: ${JSON.stringify(fixture.url("cancel-cart.html"))},
             view: "compact",

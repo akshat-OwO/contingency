@@ -2,9 +2,9 @@ import path from "node:path";
 
 import {
   AgentElementRef,
-  FlowSkillName,
+  FlowName,
   TeachingRecordingId,
-  flowSkillNameRule,
+  flowNameRule,
   makeBrowserRpcError,
   OperationId,
   SessionId,
@@ -703,7 +703,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     const run = yield* service.start(startInput("start-run-no-capture"));
     expect(run).toMatchObject({
       captureState: null,
-      flowSkillName: null,
+      flowName: null,
       recordingId: null,
       teaching: null,
     });
@@ -725,7 +725,7 @@ it.effect("records a Demonstration only for a Teaching session", () =>
     });
     expect(teaching).toMatchObject({
       captureState: { _tag: "setup" },
-      flowSkillName: "add-first-item",
+      flowName: "add-first-item",
       recordingId: expect.stringMatching(/^recording-/u),
       teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
     });
@@ -973,7 +973,7 @@ it.effect("names the characters a Teaching name may not contain", () =>
     // rather than having to guess at the shape (#242).
     expect(refused.code).toBe("agent_session_invalid");
     expect(refused.message).toContain('"(", ")"');
-    expect(refused.message).toContain(flowSkillNameRule);
+    expect(refused.message).toContain(flowNameRule);
   })
 );
 
@@ -1117,7 +1117,7 @@ it.effect(
           yield* fileSystem.writeFileString(
             path.join(
               root,
-              started.flowSkillName,
+              started.flowName,
               TEACHING_RECORDINGS_DIRECTORY,
               started.recordingId,
               "trace.zip"
@@ -1159,7 +1159,7 @@ it.effect(
           yield* fileSystem.readFileString(
             path.join(
               root,
-              closed.finished.flowSkillName,
+              closed.finished.flowName,
               TEACHING_RECORDINGS_DIRECTORY,
               closed.recordingId,
               "manifest.json"
@@ -1281,7 +1281,7 @@ it.effect(
           yield* fileSystem.readFileString(
             path.join(
               root,
-              started.flowSkillName,
+              started.flowName,
               TEACHING_RECORDINGS_DIRECTORY,
               started.recordingId,
               "manifest.json"
@@ -1825,7 +1825,7 @@ for (const ending of ["close", "interrupt"] as const) {
             dryRun:
               mode === "dry-run"
                 ? {
-                    flowSkillName: FlowSkillName.make("dry"),
+                    flowName: FlowName.make("dry"),
                     inputs: [],
                     recordingId: TeachingRecordingId.make("recording-dry"),
                   }

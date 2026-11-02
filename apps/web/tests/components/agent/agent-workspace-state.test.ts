@@ -27,7 +27,7 @@ const teaching = (
     controller: "user",
     createdAt: "2026-09-18T00:00:00.000Z",
     currentUrl: "https://example.com/",
-    flowSkillName: "add-anvil",
+    flowName: "add-anvil",
     id: "agent-one",
     interruptedAction: null,
     ownerProcessId: "mcp-test",
@@ -109,7 +109,7 @@ const run = (dryRun: RunSnapshot["dryRun"]): RunSnapshot =>
     createdAt: "2026-09-18T00:00:00.000Z",
     currentUrl: "https://example.com/",
     dryRun,
-    flowSkillName: dryRun === null ? null : dryRun.flowSkillName,
+    flowName: dryRun === null ? null : dryRun.flowName,
     id: AgentSessionId.make("agent-run"),
     interruptedAction: null,
     ownerProcessId: "mcp-test",
@@ -123,9 +123,9 @@ const run = (dryRun: RunSnapshot["dryRun"]): RunSnapshot =>
     viewUrl: "http://127.0.0.1:7777/?session=agent-run",
   }) satisfies RunSnapshot;
 
-test("labels a Dry Run with the Flow Skill it rehearses", () => {
+test("labels a Dry Run with the Flow it rehearses", () => {
   const rehearsal = run({
-    flowSkillName: "add-anvil",
+    flowName: "add-anvil",
     recordingId: "recording-39cd",
     startedAt: "2026-09-18T00:00:06.000Z",
   });

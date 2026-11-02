@@ -311,7 +311,7 @@ const runningSession = {
     },
     coverage: { complete: false, executed: 1, total: 2, unexecuted: 1 },
     endedAt: null,
-    flowSkillName: "browse-catalogue",
+    flowName: "browse-catalogue",
     inputs: [],
     // The agent has just acted, so the dock has no idleness to report.
     lastAgentActivityAt: new Date().toISOString(),
@@ -368,7 +368,7 @@ const taskRunSession = {
     lastAgentActivityAt: new Date().toISOString(),
     lifecycle: { phase: "running" },
     purpose: { kind: "interactive" },
-    referencedSkills: [],
+    referencedFlows: [],
     requestedTask: "Check that the catalogue lists products.",
     runId: "agentrun-task",
     scanReports: [],
@@ -405,12 +405,12 @@ const endedTaskSummary = {
 
 rpc.endedRunSummary = endedTaskSummary;
 
-/** One live Dry Run, rehearsing a drafted Flow Skill with a changed input. */
+/** One live Dry Run, rehearsing a drafted Flow with a changed input. */
 const dryRunSession = {
   ...session,
-  clientName: "flow-skill-dry-run",
+  clientName: "flow-dry-run",
   dryRun: {
-    flowSkillName: "add-anvil",
+    flowName: "add-anvil",
     inputs: [
       { changed: true, name: "product", value: "Anvil" },
       { changed: false, name: "quantity", value: "1" },
@@ -596,7 +596,7 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
-  // The Flow Skill, which Agent Step it is on, and coverage. The step's name
+  // The Flow, which Agent Step it is on, and coverage. The step's name
   // and its "Done when:" line are behind the counter, not in the row (#238).
   expect(dock).toHaveTextContent("browse-catalogue");
   expect(dock).toHaveTextContent("Agent Step 2 of 2.");
@@ -635,9 +635,9 @@ test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", 
   const user = userEvent.setup();
   renderWorkspace(resultFor([dryRunSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+  expect(dock).toHaveTextContent("Rehearsing the Flow add-anvil.");
   expect(dock).toHaveTextContent("Changed inputs: product");
-  // The picker shows the Flow Skill; its option names the activity too.
+  // The picker shows the Flow; its option names the activity too.
   expect(sessionPicker()).toHaveTextContent("add-anvil");
   await openSessionPicker(user);
   expect(
@@ -671,17 +671,17 @@ test("keeps a prerequisite refusal visible after its request closes", async () =
           instructions: [],
           lifecycle: { phase: "running" },
           purpose: {
-            flowSkillName: "add-anvil",
+            flowName: "add-anvil",
             kind: "dry-run",
             recordingId: "recording-add-anvil",
             takeoverOccurred: false,
           },
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Add an anvil.",
           schemaVersion: 3,
           variables: [
             {
-              flowSkillName: "login",
+              flowName: "login",
               lastAnswer: "refused",
               name: "PASSWORD",
               runtime: true,
@@ -833,20 +833,20 @@ test("names who holds the browser in the dock", async () => {
   expect(dock).toHaveTextContent("The agent has control.");
 });
 
-test("names the drafted Flow Skill in the Teaching dock", async () => {
+test("names the drafted Flow in the Teaching dock", async () => {
   renderWorkspace(
     resultFor([
       {
         ...session,
         activity: "teaching",
         captureState: {
-          _tag: "skill-drafted",
+          _tag: "flow-drafted",
           draftedAt: "2026-08-31T00:00:05.000Z",
           readyAt: "2026-08-31T00:00:04.000Z",
           startedAt: "2026-08-31T00:00:01.000Z",
           stoppedAt: "2026-08-31T00:00:03.000Z",
         },
-        flowSkillName: "browse-catalogue",
+        flowName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
         teaching: { actionCount: 4, instructionCount: 2, instructions: [] },
       } satisfies unknown,
@@ -854,7 +854,7 @@ test("names the drafted Flow Skill in the Teaching dock", async () => {
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Flow skill drafted");
+  expect(dock).toHaveTextContent("Flow drafted");
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
   ).toHaveTextContent("browse-catalogue");
@@ -914,7 +914,7 @@ test("offers no control exchange during a user-led Demonstration", async () => {
           startedAt: "2026-08-31T00:00:01.000Z",
         },
         controller: "user",
-        flowSkillName: "browse-catalogue",
+        flowName: "browse-catalogue",
         recordingId: "recording-browse-catalogue",
         teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
       } satisfies unknown,
@@ -947,7 +947,7 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
       requestedAt: "2026-08-31T00:00:00.000Z",
     },
     controller: "user",
-    flowSkillName: "browse-catalogue",
+    flowName: "browse-catalogue",
     recordingId: "recording-browse-catalogue",
     teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
   } satisfies unknown;
@@ -1039,7 +1039,7 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
           _tag: "recording",
           startedAt: "2026-08-31T00:00:01.000Z",
         },
-        flowSkillName: "private-variable-flow",
+        flowName: "private-variable-flow",
         recordingId: "recording-private-variable-flow",
         teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
       } satisfies unknown,
@@ -1126,7 +1126,7 @@ const teachingSetup = {
   activity: "teaching",
   captureState: { _tag: "setup", requestedAt: "2026-08-31T00:00:00.000Z" },
   controller: "user",
-  flowSkillName: "browse-catalogue",
+  flowName: "browse-catalogue",
   recordingId: "recording-browse-catalogue",
   teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
 } satisfies unknown;
@@ -1141,7 +1141,7 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   expect(dock).toHaveTextContent("Contingency");
   expect(dock).toHaveTextContent("Recording");
-  // A Teaching session is the Flow Skill name; the state lives in the badge.
+  // A Teaching session is the Flow name; the state lives in the badge.
   expect(
     within(dock).getByRole("combobox", { name: "Agent Session" })
   ).toHaveTextContent("browse-catalogue");
@@ -1274,10 +1274,7 @@ test("isolates Guided Run answer drafts by session and question", async () => {
     teaching: { actionCount: 0, instructionCount: 2, instructions: questions },
   };
   renderWorkspace(
-    resultFor([
-      guided,
-      { ...guided, flowSkillName: "other-cart", id: "agent-two" },
-    ]),
+    resultFor([guided, { ...guided, flowName: "other-cart", id: "agent-two" }]),
     session.id
   );
   await screen.findByRole("region", { name: "Guided Run questions" });
@@ -1592,7 +1589,7 @@ test("offers Rename flow in setup and deletion once a recording is saved", async
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingSetup]), session.id);
   await user.click(await screen.findByRole("button", { name: "Rename flow" }));
-  const name = screen.getByLabelText("Flow skill name");
+  const name = screen.getByLabelText("Flow name");
   await user.clear(name);
   await user.type(name, "place-order");
   await user.click(screen.getByRole("button", { name: "Save name" }));
@@ -1673,7 +1670,7 @@ const teachingReady = {
 const teachingDrafted = {
   ...teachingSetup,
   captureState: {
-    _tag: "skill-drafted",
+    _tag: "flow-drafted",
     draftedAt: "2026-08-31T00:00:06.000Z",
     readyAt: "2026-08-31T00:00:04.000Z",
     startedAt: "2026-08-31T00:00:01.000Z",
@@ -1692,7 +1689,7 @@ test("leaves the hand-off to an agent to the user's own prompt", async () => {
 
   cleanup();
   renderWorkspace(resultFor([teachingDrafted]), session.id);
-  await screen.findByText("Flow skill drafted");
+  await screen.findByText("Flow drafted");
   expect(screen.queryByRole("button", { name: /^Copy/u })).toBeNull();
   // A button reading "Dry run" started nothing, which read as a broken
   // build (#210).
@@ -1715,7 +1712,7 @@ const dryRunPassedSession = {
     startedAt: "2026-08-31T00:00:01.000Z",
     stoppedAt: "2026-08-31T00:00:03.000Z",
   },
-  flowSkillName: "add-anvil",
+  flowName: "add-anvil",
   recordingId: "recording-add-anvil",
   teaching: { actionCount: 4, instructionCount: 0, instructions: [] },
 } satisfies unknown;
@@ -1766,7 +1763,7 @@ test("shows a Dry Run's assessments and video beside verification", async () => 
     },
     coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
     endedAt: "2026-08-31T00:00:08.000Z",
-    flowSkillName: "add-anvil",
+    flowName: "add-anvil",
     inputs: [],
     outcome: "completed",
     runId: "agentrun-dry-test",
@@ -1959,7 +1956,7 @@ test("applies a verification only to the Teaching session it was asked for", asy
   const user = userEvent.setup();
   const otherDryRunPassed = {
     ...dryRunPassedSession,
-    flowSkillName: "remove-anvil",
+    flowName: "remove-anvil",
     id: "agent-two",
     recordingId: "recording-remove-anvil",
   } satisfies unknown;
@@ -2229,7 +2226,7 @@ test("says an ended Run's Summary was not written rather than missing from the c
 test("follows a Teaching Dry Run and returns to its owner instead of the first session", async () => {
   const unrelated = {
     ...teachingSetup,
-    flowSkillName: "other-flow",
+    flowName: "other-flow",
     id: "agent-unrelated",
   };
   const teaching = { ...teachingDrafted, recordingId: "recording-add-anvil" };
@@ -2265,7 +2262,7 @@ test("follows a Teaching Dry Run and returns to its owner instead of the first s
     expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
     expect(
       screen.getByRole("region", { name: "Workspace dock" })
-    ).toHaveTextContent("Rehearsing the flow skill add-anvil.");
+    ).toHaveTextContent("Rehearsing the Flow add-anvil.");
   });
   await refreshWorkspace();
   expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
@@ -2289,7 +2286,7 @@ test("does not follow another Teaching session's Dry Run", async () => {
 test("deletes the selected session through the dock and shows the remaining session", async () => {
   const other = {
     ...teachingSetup,
-    flowSkillName: "other-flow",
+    flowName: "other-flow",
     id: "agent-other",
   };
   renderWorkspace(resultFor([teachingSetup, other]), teachingSetup.id);
@@ -2297,7 +2294,7 @@ test("deletes the selected session through the dock and shows the remaining sess
   await openSessionPicker(user);
   await user.click(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   );
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
@@ -2325,7 +2322,7 @@ test("clears the route after deleting the last session", async () => {
   await openSessionPicker(user);
   await user.click(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   );
   rpc.sessionsResult = resultFor([]);
@@ -2342,7 +2339,7 @@ test("keeps a session available when deletion fails", async () => {
   await openSessionPicker(user);
   await user.click(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   );
   expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -2369,7 +2366,7 @@ test("preserves a manual choice of Teaching while its Dry Run remains live", asy
   const user = userEvent.setup();
   await chooseSessionAt(user, 0);
   await refreshWorkspace();
-  expect(sessionPicker()).toHaveTextContent(teaching.flowSkillName);
+  expect(sessionPicker()).toHaveTextContent(teaching.flowName);
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
 });
 
@@ -2393,14 +2390,14 @@ test("preserves Teaching selected from an unrelated session across fresh polls",
   await chooseSessionAt(user, 1);
   rpc.sessionsResult = resultFor([unrelated, teaching, rehearsal]);
   await refreshWorkspace();
-  expect(sessionPicker()).toHaveTextContent(teaching.flowSkillName);
+  expect(sessionPicker()).toHaveTextContent(teaching.flowName);
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
 });
 
 test("deletes another session from its picker row without selecting it", async () => {
   const other = {
     ...teachingSetup,
-    flowSkillName: "other-flow",
+    flowName: "other-flow",
     id: "agent-other",
   };
   renderWorkspace(resultFor([teachingSetup, other]), teachingSetup.id);
@@ -2411,13 +2408,13 @@ test("deletes another session from its picker row without selecting it", async (
   );
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
   expect(rpc.closeCalls[0]).toMatchObject({ payload: { sessionId: other.id } });
-  expect(sessionPicker()).toHaveTextContent(teachingSetup.flowSkillName);
+  expect(sessionPicker()).toHaveTextContent(teachingSetup.flowName);
   expect(
     screen.queryByRole("button", { name: "Delete session other-flow" })
   ).toBeNull();
   expect(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   ).toBeVisible();
 });
@@ -2440,7 +2437,7 @@ test("clears a deleted route when polling removes the last session before close 
   await openSessionPicker(user);
   await user.click(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   );
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
@@ -2475,7 +2472,7 @@ test("preserves a newer route choice when an old close response settles after po
   await openSessionPicker(user);
   await user.click(
     screen.getByRole("button", {
-      name: `Delete session ${teachingSetup.flowSkillName}`,
+      name: `Delete session ${teachingSetup.flowName}`,
     })
   );
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));

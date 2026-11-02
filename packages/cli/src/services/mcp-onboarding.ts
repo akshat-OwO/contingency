@@ -8,7 +8,7 @@ import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import { DemoSite } from "./demo-site.ts";
 import type { DemoSiteService } from "./demo-site.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 import { AgentRunFailure, startTaskRun } from "./mcp-agent-run.ts";
 import {
   SessionStartResult,
@@ -17,17 +17,17 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import {
-  EXAMPLE_FLOW_SKILL_NAMES,
+  EXAMPLE_FLOW_FLOW_NAMES,
   describeOnboardingExamples,
   findOnboardingExample,
-  readExampleSkills,
+  readExampleFlows,
 } from "./onboarding-examples.ts";
 
 /**
  * The `contingency start` surface. Every server serves the work prompt, the
  * procedure for a session-only launch on the user's own website. A demo
  * server adds the onboarding starter prompt, the demo store's examples for
- * this process, and the one tool that runs a bundled Example Flow Skill
+ * this process, and the one tool that runs a bundled Example Flow
  * (ADR 0050). Teaching, learning, Dry Runs, and verification keep their
  * ordinary tools; nothing here shortens them.
  */
@@ -56,12 +56,12 @@ export const workPromptPath = resolveOnboardingPromptPath(
 );
 
 const ExampleRunStartTool = Tool.make("agent_example_run_start", {
-  dependencies: [AgentSession, FlowSkillCatalog, AgentRunStore, DemoSite],
+  dependencies: [AgentSession, FlowCatalog, AgentRunStore, DemoSite],
   description:
     "Start a read-only demo Example in a clean context. Follow nextAction. Scope: demo host only. Not Teaching or verification. Inputs: contingency://onboarding/examples. Then use the ordinary Run tools.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
-    example: Schema.Literals(EXAMPLE_FLOW_SKILL_NAMES),
+    example: Schema.Literals(EXAMPLE_FLOW_FLOW_NAMES),
     inputs: Schema.Array(
       Schema.Struct({
         name: AgentRunTaskInput.fields.name,
@@ -95,12 +95,12 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
       if (entry === undefined) {
         return yield* Effect.fail(
           exampleFailure({
-            code: "flow_skill_invalid",
-            message: `${example} is not a bundled Example Flow Skill.`,
+            code: "flow_invalid",
+            message: `${example} is not a bundled Example Flow.`,
           })
         );
       }
-      const skills = yield* readExampleSkills([example]).pipe(
+      const flows = yield* readExampleFlows([example]).pipe(
         Effect.mapError(exampleFailure)
       );
       return yield* startTaskRun(
@@ -108,14 +108,14 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
           clientName: "contingency-example",
           inputs: inputs.map((input) => ({
             ...input,
-            flowSkillName: entry.flowSkillName,
+            flowName: entry.flowName,
           })),
           operationId,
-          referencedSkills: [entry.flowSkillName],
+          referencedFlows: [entry.flowName],
           requestedTask: `Example: ${entry.title}`,
           url: `${demo.origin}${entry.startPath}`,
         },
-        { origin: "example", skills }
+        { flows, origin: "example" }
       ).pipe(inStartView(view));
     }),
 });
@@ -136,7 +136,7 @@ const makeWorkPromptLayer = (launchContext?: string) =>
     audience: ["assistant"],
     content: readPrompt(workPromptPath, launchContext),
     description:
-      "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flow Skills, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
+      "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flows, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
     mimeType: "text/markdown",
     name: "start/work-prompt",
     uri: WORK_PROMPT_URI,

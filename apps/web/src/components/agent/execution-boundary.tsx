@@ -15,7 +15,7 @@ import { boundaryTitle } from "./dock-requests-state";
 
 const domainApprovalSummary = (session: AgentSessionSnapshot): string =>
   session.activity === "teaching" && session.origin === "guided-run"
-    ? "Allowing this exact host adds it to this Guided Run and the saved Flow Skill's Domain Scope."
+    ? "Allowing this exact host adds it to this Guided Run and the saved Flow's Domain Scope."
     : "Allowing this exact host covers this Run. The saved Domain Scope stays unchanged.";
 
 /** The user resolves the exact pending boundary in the Workspace dock. */

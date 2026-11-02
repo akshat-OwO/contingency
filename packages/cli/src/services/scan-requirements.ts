@@ -1,6 +1,6 @@
 import { ScanRequirement, openTeachingTimespan } from "@contingency/protocol";
 import type {
-  FlowSkillFile,
+  FlowFile,
   ScanReference,
   TeachingScan,
 } from "@contingency/protocol";
@@ -12,11 +12,11 @@ const document = Schema.Struct({
   schemaVersion: Schema.Literal(1),
 });
 const invalid = (message: string) => ({
-  code: "flow_skill_invalid" as const,
+  code: "flow_invalid" as const,
   message,
 });
 
-export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
+export const parseScanRequirements = (files: readonly FlowFile[]) => {
   const file = files.find((candidate) => candidate.path === SCANS_FILE);
   if (file === undefined) {
     return Result.succeed<readonly ScanRequirement[]>([]);
@@ -25,7 +25,7 @@ export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
     const { requirements } = Schema.decodeUnknownSync(document)(
       JSON.parse(file.content)
     );
-    const skill = files.find((candidate) => candidate.path === "flow.md");
+    const flow = files.find((candidate) => candidate.path === "flow.md");
     const ids = new Set<string>();
     for (const requirement of requirements) {
       if (ids.has(requirement.id)) {
@@ -62,8 +62,8 @@ export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
         }
       }
       if (
-        !skill?.content.includes(SCANS_FILE) ||
-        !skill.content.includes(requirement.id)
+        !flow?.content.includes(SCANS_FILE) ||
+        !flow.content.includes(requirement.id)
       ) {
         return Result.fail(
           invalid(
@@ -79,16 +79,16 @@ export const parseScanRequirements = (files: readonly FlowSkillFile[]) => {
 };
 
 export const requestedScans = (
-  skills: readonly {
+  flows: readonly {
     readonly name: string;
-    readonly files: readonly FlowSkillFile[];
+    readonly files: readonly FlowFile[];
   }[],
   ready = true
 ) =>
   Effect.gen(function* loadScanRequirements() {
     const references: ScanReference[] = [];
-    for (const skill of skills) {
-      const parsed = parseScanRequirements(skill.files);
+    for (const flow of flows) {
+      const parsed = parseScanRequirements(flow.files);
       if (Result.isFailure(parsed)) {
         return yield* Effect.fail(parsed.failure);
       }
@@ -104,7 +104,7 @@ export const requestedScans = (
             )
           );
         }
-        references.push({ ...requirement, flowSkillName: skill.name });
+        references.push({ ...requirement, flowName: flow.name });
       }
     }
     return references;
@@ -112,7 +112,7 @@ export const requestedScans = (
 
 /** A learning agent may infer timing, but cannot omit or change an explicit taught mode. */
 export const validateTaughtScans = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   events: readonly { readonly scan?: TeachingScan | undefined }[]
 ) =>
   Effect.gen(function* validateTaughtRequirements() {

@@ -102,10 +102,10 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
  * capture check caught first.
  */
 export const WorkspaceEmptyDock = ({
-  skills = null,
+  flows = null,
 }: {
-  /** The Skills drawer entry, beside the wordmark. */
-  readonly skills?: React.ReactNode;
+  /** The Flows drawer entry, beside the wordmark. */
+  readonly flows?: React.ReactNode;
 }) => (
   <DockShell
     status={
@@ -118,7 +118,7 @@ export const WorkspaceEmptyDock = ({
     <span className="pl-1">
       <Wordmark />
     </span>
-    {skills}
+    {flows}
   </DockShell>
 );
 
@@ -183,7 +183,7 @@ export const TeachingRecordingDock = ({
   captureState,
   cleanup,
   controller,
-  flowSkillName,
+  flowName,
   origin,
   instructions,
   onComment,
@@ -197,7 +197,7 @@ export const TeachingRecordingDock = ({
   requests,
   selectedSessionId,
   sessions,
-  skills = null,
+  flows = null,
 }: {
   readonly control?: React.ReactNode;
   readonly controlStatus?: string;
@@ -208,7 +208,7 @@ export const TeachingRecordingDock = ({
   /** Who holds the browser. Start waits for the agent's setup handoff. */
   readonly controller: AgentSessionController;
   readonly origin?: "teaching" | "guided-run";
-  readonly flowSkillName: string;
+  readonly flowName: string;
   /**
    * Every Teaching instruction this recording has collected, oldest first,
    * whether attached through inspect or relayed over MCP.
@@ -230,8 +230,8 @@ export const TeachingRecordingDock = ({
   readonly requests?: React.ReactNode;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
-  /** The Skills drawer entry, beside the session picker, or nothing. */
-  readonly skills?: React.ReactNode;
+  /** The Flows drawer entry, beside the session picker, or nothing. */
+  readonly flows?: React.ReactNode;
 }) => {
   const presentation = teachingRecordingPresentation(
     captureState,
@@ -243,7 +243,7 @@ export const TeachingRecordingDock = ({
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);
   const startRename = () => {
-    setRename(flowSkillName);
+    setRename(flowName);
     setRenaming(true);
   };
   return (
@@ -263,7 +263,7 @@ export const TeachingRecordingDock = ({
             }}
           >
             <Input
-              aria-label="Flow skill name"
+              aria-label="Flow name"
               className="h-8 min-w-0 flex-1"
               onChange={(event) => setRename(event.target.value)}
               value={rename}
@@ -336,7 +336,7 @@ export const TeachingRecordingDock = ({
         selectedSessionId={selectedSessionId}
         sessions={sessions}
       />
-      {skills}
+      {flows}
       <DockSpacer />
       {presentation.showsInspect ? (
         <CommentTrigger

@@ -138,7 +138,7 @@ assert.ok(
   "Supply the explicitly authorized device declarations."
 );
 const prepareName = "Prepare selected emulator";
-const flowSkillName = `android-stream-${process.pid}`;
+const flowName = `android-stream-${process.pid}`;
 const receipt = {
   blockers: [],
   coverage: {},
@@ -216,13 +216,11 @@ await execute("adb", [
 ]);
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowSkillName, snapshot);
+  await openAndroidSheet(control, selection, flowName, snapshot);
   const sessions = await tool("agent_device_sessions_list", {
     platform: "android",
   });
-  sessionId = sessions.find(
-    (session) => session.flowSkillName === flowSkillName
-  )?.id;
+  sessionId = sessions.find((session) => session.flowName === flowName)?.id;
   assert.ok(sessionId);
   const selected = await command({ _tag: "read", sessionId });
   assert.deepEqual(selected.selection.device, selection.device);
@@ -370,7 +368,7 @@ try {
     });
     for (const session of owned.filter(
       (entry) =>
-        entry.flowSkillName === flowSkillName &&
+        entry.flowName === flowName &&
         ["pending", "running", "paused"].includes(entry.phase)
     )) {
       await control(

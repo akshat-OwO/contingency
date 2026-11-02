@@ -5,7 +5,7 @@ import {
   AgentSessionSnapshot,
   BrowserModification,
   BrowserTab,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
 } from "@contingency/protocol";
@@ -80,7 +80,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("run"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Use browser tools",
           url: fixture.url("browser-tools.html"),
         });
@@ -475,7 +475,7 @@ it.live(
         const dry = yield* sessions.start({
           activity: "run",
           dryRun: {
-            flowSkillName: FlowSkillName.make("dry"),
+            flowName: FlowName.make("dry"),
             inputs: [],
             recordingId: TeachingRecordingId.make("recording-dry"),
           },
@@ -486,7 +486,7 @@ it.live(
         const run = yield* runTool("agent_run_start", {
           inputs: [],
           operationId: OperationId.make("run"),
-          referencedSkills: [],
+          referencedFlows: [],
           requestedTask: "Upload a receipt",
           url: fixture.url("browser-tools.html"),
         });

@@ -1,9 +1,9 @@
 import type {
-  CatalogFlowSkillResult,
+  CatalogFlowResult,
   CatalogRecordingEntry,
   CatalogRootScope,
   CatalogRunEntry,
-  FlowSkillName,
+  FlowName,
 } from "@contingency/protocol";
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { createHighlighter } from "@tanstack/highlight/core";
@@ -21,8 +21,8 @@ import {
 import type { ReactNode } from "react";
 
 import { HighlightedCode } from "@/components/browser/highlighted-code";
-import type { SkillsSelection } from "@/components/catalog/skills-drawer-state";
-import { skillsSelectionAtom } from "@/components/catalog/skills-drawer-state";
+import type { FlowsSelection } from "@/components/catalog/flows-drawer-state";
+import { flowsSelectionAtom } from "@/components/catalog/flows-drawer-state";
 import {
   recordingPhaseLabel,
   runDuration,
@@ -30,8 +30,8 @@ import {
   runVerdict,
   stepInstruction,
   when,
-} from "@/components/catalog/skills-format";
-import { OutcomeDot } from "@/components/catalog/skills-parts";
+} from "@/components/catalog/flows-format";
+import { OutcomeDot } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -70,25 +70,24 @@ const ScopeBadge = ({ scope }: { readonly scope: CatalogRootScope }) => (
   </Badge>
 );
 
-/** A skill name that opens that skill's package in the same panel. */
-const SkillLink = ({
+/** A flow name that opens that flow's package in the same panel. */
+const FlowLink = ({
   name,
   scope,
 }: {
-  readonly name: FlowSkillName;
+  readonly name: FlowName;
   readonly scope: CatalogRootScope;
 }) => {
   const { catalogBrowseAtom } = useRpcDependencies();
-  const select = useAtomSet(skillsSelectionAtom);
+  const select = useAtomSet(flowsSelectionAtom);
   const result = useAtomValue(catalogBrowseAtom);
   const listed =
     result._tag === "Success" &&
     result.value.roots.some(
       (root) =>
-        root.scope === scope &&
-        root.flowSkills.some((skill) => skill.name === name)
+        root.scope === scope && root.flows.some((flow) => flow.name === name)
     );
-  // A Run can name a skill this root no longer holds, or a bundled Example
+  // A Run can name a flow this root no longer holds, or a bundled Example
   // that was never in it; that name is shown, not offered as a link.
   if (!listed) {
     return (
@@ -102,7 +101,7 @@ const SkillLink = ({
       render={
         <button
           onClick={() => {
-            select({ kind: "skill", name, scope });
+            select({ kind: "flow", name, scope });
           }}
           type="button"
         />
@@ -114,17 +113,17 @@ const SkillLink = ({
   );
 };
 
-const SkillPackage = ({
+const FlowPackage = ({
   scope,
-  skill,
+  flow,
 }: {
   readonly scope: CatalogRootScope;
-  readonly skill: CatalogFlowSkillResult;
+  readonly flow: CatalogFlowResult;
 }) => (
   <article className="space-y-5">
     <header className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        {skill.entry.verified ? (
+        {flow.entry.verified ? (
           <Badge variant="secondary">
             <ShieldCheckIcon data-icon="inline-start" />
             Verified
@@ -133,17 +132,17 @@ const SkillPackage = ({
           <Badge variant="outline">Drafted</Badge>
         )}
         <ScopeBadge scope={scope} />
-        {skill.entry.demo === undefined ? null : (
+        {flow.entry.demo === undefined ? null : (
           <Badge variant="outline">Demo site</Badge>
         )}
       </div>
       <h2 className="text-lg font-semibold tracking-tight">
-        {skill.entry.name}
+        {flow.entry.name}
       </h2>
-      <p className="text-muted-foreground text-sm">{skill.entry.description}</p>
-      {skill.entry.hosts.length === 0 ? null : (
+      <p className="text-muted-foreground text-sm">{flow.entry.description}</p>
+      {flow.entry.hosts.length === 0 ? null : (
         <div className="flex flex-wrap gap-1">
-          {skill.entry.hosts.map((host) => (
+          {flow.entry.hosts.map((host) => (
             <code className="bg-muted rounded px-1.5 py-0.5 text-xs" key={host}>
               {host}
             </code>
@@ -154,16 +153,16 @@ const SkillPackage = ({
     <Tabs defaultValue="procedure">
       <TabsList variant="line">
         <TabsTrigger value="procedure">Procedure</TabsTrigger>
-        <TabsTrigger value="files">Files · {skill.files.length}</TabsTrigger>
+        <TabsTrigger value="files">Files · {flow.files.length}</TabsTrigger>
       </TabsList>
       <TabsContent className="pt-3" value="procedure">
-        {skill.steps.length === 0 ? (
+        {flow.steps.length === 0 ? (
           <p className="text-muted-foreground text-sm">
             This flow.md has no numbered procedure.
           </p>
         ) : (
           <ol className="space-y-4">
-            {skill.steps.map((step, index) => (
+            {flow.steps.map((step, index) => (
               <li
                 className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-2"
                 key={step.description}
@@ -190,7 +189,7 @@ const SkillPackage = ({
         )}
       </TabsContent>
       <TabsContent className="space-y-3 pt-3" value="files">
-        {skill.files.map((file) => (
+        {flow.files.map((file) => (
           <div className="overflow-hidden rounded-lg border" key={file.path}>
             <p className="bg-muted/40 text-muted-foreground flex items-center gap-2 border-b px-3 py-1.5 font-mono text-xs">
               <FileTextIcon aria-hidden="true" className="size-3.5" />
@@ -211,15 +210,15 @@ const SkillPackage = ({
   </article>
 );
 
-const SkillDetail = ({
+const FlowDetail = ({
   name,
   scope,
 }: {
-  readonly name: FlowSkillName;
+  readonly name: FlowName;
   readonly scope: CatalogRootScope;
 }) => {
-  const { catalogFlowSkillAtom } = useRpcDependencies();
-  const result = useAtomValue(catalogFlowSkillAtom(scope)(name));
+  const { catalogFlowAtom } = useRpcDependencies();
+  const result = useAtomValue(catalogFlowAtom(scope)(name));
   if (result._tag === "Initial") {
     return <p className="text-muted-foreground text-sm">Reading flow.md…</p>;
   }
@@ -227,14 +226,14 @@ const SkillDetail = ({
     return (
       <Alert variant="destructive">
         <CircleAlertIcon aria-hidden="true" />
-        <AlertTitle>This skill could not be read</AlertTitle>
+        <AlertTitle>This flow could not be read</AlertTitle>
         <AlertDescription>
           {refusal(result) ?? "Its flow.md is no longer there."}
         </AlertDescription>
       </Alert>
     );
   }
-  return <SkillPackage scope={scope} skill={result.value} />;
+  return <FlowPackage scope={scope} flow={result.value} />;
 };
 
 const RunDetail = ({
@@ -264,15 +263,15 @@ const RunDetail = ({
         <span className="font-mono">{run.runId}</span>
       </p>
     </header>
-    <Section title="Flow Skills">
-      {run.flowSkillNames.length === 0 ? (
+    <Section title="Flows">
+      {run.flowNames.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          This Run referenced no Flow Skill.
+          This Run referenced no Flow.
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
-          {run.flowSkillNames.map((name) => (
-            <SkillLink key={name} name={name} scope={scope} />
+          {run.flowNames.map((name) => (
+            <FlowLink key={name} name={name} scope={scope} />
           ))}
         </div>
       )}
@@ -319,25 +318,25 @@ const RecordingDetail = ({
         Taught {when(recording.createdAt)} · {recording.keyframeCount} keyframes
       </p>
     </header>
-    <Section title="Flow Skill">
-      <SkillLink name={recording.flowSkillName} scope={scope} />
+    <Section title="Flow">
+      <FlowLink name={recording.flowName} scope={scope} />
     </Section>
     <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
       {recording.cleanup === "purged"
         ? "Cleanup removed the video, Trace, and events after verification. Only the manifest is left."
-        : "Sensitive learning evidence. Cleanup deletes it once the Flow Skill is verified."}
+        : "Sensitive learning evidence. Cleanup deletes it once the Flow is verified."}
     </p>
   </article>
 );
 
 /** The details panel beside the browser, for whatever the drawer picked. */
-export const SkillDetails = ({
+export const FlowDetails = ({
   selection,
 }: {
-  readonly selection: SkillsSelection;
+  readonly selection: FlowsSelection;
 }) => {
-  if (selection.kind === "skill") {
-    return <SkillDetail name={selection.name} scope={selection.scope} />;
+  if (selection.kind === "flow") {
+    return <FlowDetail name={selection.name} scope={selection.scope} />;
   }
   if (selection.kind === "run") {
     return <RunDetail run={selection.run} scope={selection.scope} />;

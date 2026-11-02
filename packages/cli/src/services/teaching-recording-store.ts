@@ -6,8 +6,8 @@ import type {
   AgentSessionId,
   AgentRunSummary,
   DraftEmulation,
-  FlowSkillDryRunResult,
-  FlowSkillName,
+  FlowDryRunResult,
+  FlowName,
   TeachingLearningClaim,
   TeachingRecordingArtifact,
   TeachingRecordingId,
@@ -38,10 +38,7 @@ import {
   resolveFlowDirectory,
 } from "./flow-catalog-layout.ts";
 import { readFlowContractFiles } from "./flow-contract-files.ts";
-import {
-  readFlowSkillFrontmatter,
-  stampFlowVerification,
-} from "./flow-skill-package.ts";
+import { readFlowFrontmatter, stampFlowVerification } from "./flow-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
@@ -81,7 +78,7 @@ export interface TeachingRecordingBegin {
   readonly origin?: TeachingRecordingManifest["origin"];
   readonly emulation: DraftEmulation | null;
   readonly runtime?: TeachingRecordingManifest["runtime"];
-  readonly flowSkillName: FlowSkillName;
+  readonly flowName: FlowName;
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
   readonly sessionId: AgentSessionId;
@@ -102,7 +99,7 @@ export interface TeachingRecordingStart extends TeachingRecordingMutation {
 }
 
 export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
-  readonly inputs: FlowSkillDryRunResult["inputs"];
+  readonly inputs: FlowDryRunResult["inputs"];
   readonly sessionId: AgentSessionId;
 }
 
@@ -120,7 +117,7 @@ export interface TeachingRecordingStop extends TeachingRecordingMutation {
   readonly failure?: string | undefined;
 }
 
-export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
+export interface TeachingRecordingFlowDraft extends TeachingRecordingMutation {
   readonly claimOperationId: OperationId;
   readonly files: readonly string[];
 }
@@ -134,7 +131,7 @@ export interface TeachingRecordingLearningFailure extends TeachingRecordingClaim
 }
 
 export interface TeachingRecordingRename extends TeachingRecordingMutation {
-  readonly flowSkillName: FlowSkillName;
+  readonly flowName: FlowName;
 }
 
 export interface TeachingRecordingStoreService {
@@ -182,7 +179,7 @@ export interface TeachingRecordingStoreService {
   readonly releaseLearning: (
     input: TeachingRecordingClaimMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
-  /** Rename the Flow Skill a bundle is for, before anything is captured. */
+  /** Rename the Flow a bundle is for, before anything is captured. */
   readonly rename: (
     input: TeachingRecordingRename
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
@@ -204,8 +201,8 @@ export interface TeachingRecordingStoreService {
   readonly reject: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
-  readonly saveSkill: (
-    input: TeachingRecordingSkillDraft
+  readonly saveFlow: (
+    input: TeachingRecordingFlowDraft
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
   readonly verify: (
     input: TeachingRecordingMutation
@@ -292,7 +289,7 @@ const claimOf = (
     case "learning": {
       return lifecycle.claim;
     }
-    case "skill-drafted":
+    case "flow-drafted":
     case "dry-running":
     case "dry-run-failed":
     case "dry-run-passed": {
@@ -312,7 +309,7 @@ type ClaimedLifecycle = Extract<
       | "dry-run-passed"
       | "dry-running"
       | "learning"
-      | "skill-drafted";
+      | "flow-drafted";
   }
 >;
 
@@ -320,7 +317,7 @@ const isClaimedLifecycle = (
   lifecycle: TeachingRecordingManifest["lifecycle"]
 ): lifecycle is ClaimedLifecycle =>
   lifecycle._tag === "learning" ||
-  lifecycle._tag === "skill-drafted" ||
+  lifecycle._tag === "flow-drafted" ||
   lifecycle._tag === "dry-running" ||
   lifecycle._tag === "dry-run-failed" ||
   lifecycle._tag === "dry-run-passed";
@@ -388,7 +385,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const flows = yield* discoverFlows(root, fileSystem).pipe(
           Effect.mapError((cause) =>
             storeError(
-              cause._tag === "FlowSkillCatalogError"
+              cause._tag === "FlowCatalogError"
                 ? "teaching_recording_invalid"
                 : "teaching_recording_io",
               cause.message
@@ -788,7 +785,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const group = input.group ?? "";
         const parts = group === "" ? [] : group.split("/");
         if (
-          RESERVED_FLOW_NAMES.has(input.flowSkillName) ||
+          RESERVED_FLOW_NAMES.has(input.flowName) ||
           path.isAbsolute(group) ||
           parts.some(
             (part) =>
@@ -807,18 +804,18 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             )
           );
         }
-        const target = path.join(root, ...parts, input.flowSkillName);
+        const target = path.join(root, ...parts, input.flowName);
         const flows = yield* discoverFlows(root, fileSystem).pipe(
           Effect.mapError((cause) =>
             storeError(
-              cause._tag === "FlowSkillCatalogError"
+              cause._tag === "FlowCatalogError"
                 ? "teaching_recording_invalid"
                 : "teaching_recording_io",
               cause.message
             )
           )
         );
-        const existingFlow = flows.get(input.flowSkillName);
+        const existingFlow = flows.get(input.flowName);
         if (
           (input.group !== undefined &&
             existingFlow !== undefined &&
@@ -859,7 +856,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             if (exists) {
               const existing = yield* readAt(input.recordingId, root);
               if (
-                existing.flowSkillName === input.flowSkillName &&
+                existing.flowName === input.flowName &&
                 hasReceipt(existing, "begin", input.operationId)
               ) {
                 return existing;
@@ -877,7 +874,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               cleanup: { _tag: "pending" },
               createdAt: at,
               emulation: input.emulation,
-              flowSkillName: input.flowSkillName,
+              flowName: input.flowName,
               lifecycle: { _tag: "setup", requestedAt: at },
               origin: input.origin ?? "teaching",
               receipts: [
@@ -1053,7 +1050,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             });
           }
           if (
-            lifecycle._tag === "skill-drafted" ||
+            lifecycle._tag === "flow-drafted" ||
             lifecycle._tag === "dry-run-failed"
           ) {
             if (
@@ -1186,10 +1183,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         }
       );
 
-    const saveSkill = (input: TeachingRecordingSkillDraft) =>
+    const saveFlow = (input: TeachingRecordingFlowDraft) =>
       mutate(
         input.recordingId,
-        "save-skill",
+        "save-flow",
         input.operationId,
         (manifest, at) => {
           const state = claimStateOf(manifest, input.claimOperationId);
@@ -1211,7 +1208,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot save a Flow Skill while a Dry Run is running.`
+                `Teaching Recording ${input.recordingId} cannot save a Flow while a Dry Run is running.`
               )
             );
           }
@@ -1219,14 +1216,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             return Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot save a Flow Skill after a passing Dry Run. Relay the user's choice with agent_flow_skill_decide: decision "reject" or decision "verify".`
+                `Teaching Recording ${input.recordingId} cannot save a Flow after a passing Dry Run. Relay the user's choice with agent_flow_decide: decision "reject" or decision "verify".`
               )
             );
           }
           return Effect.succeed({
             ...manifest,
             lifecycle: {
-              _tag: "skill-drafted" as const,
+              _tag: "flow-drafted" as const,
               claim: lifecycle.claim,
               draftedAt: at,
               readyAt: lifecycle.readyAt,
@@ -1246,7 +1243,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         (manifest, at) => {
           const { lifecycle } = manifest;
           if (
-            lifecycle._tag !== "skill-drafted" &&
+            lifecycle._tag !== "flow-drafted" &&
             lifecycle._tag !== "dry-run-failed"
           ) {
             return Effect.fail(
@@ -1274,25 +1271,25 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       );
 
     const verificationFileFor = (
-      manifest: Pick<TeachingRecordingManifest, "recordingId" | "flowSkillName">
+      manifest: Pick<TeachingRecordingManifest, "recordingId" | "flowName">
     ) =>
       resolveFlowDirectory(
         rootFor(manifest.recordingId),
-        manifest.flowSkillName,
+        manifest.flowName,
         fileSystem
       ).pipe(
         Effect.map((directory) => path.join(directory, VERIFICATION_FILE)),
         Effect.mapError((cause) =>
           storeError(
             "teaching_recording_io",
-            `Could not resolve Flow ${manifest.flowSkillName}: ${cause.message}`
+            `Could not resolve Flow ${manifest.flowName}: ${cause.message}`
           )
         )
       );
 
     const persistDryRunReference = (
       manifest: PendingTeachingRecordingManifest,
-      result: FlowSkillDryRunResult
+      result: FlowDryRunResult
     ) => {
       if (manifest.lifecycle._tag !== "dry-running") {
         return Effect.fail(
@@ -1332,7 +1329,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
 
     const reportDryRun = (
       input: TeachingRecordingDryRunReport,
-      outcome: FlowSkillDryRunResult["outcome"]
+      outcome: FlowDryRunResult["outcome"]
     ) =>
       mutate(
         input.recordingId,
@@ -1349,7 +1346,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 )
               );
             }
-            const result: FlowSkillDryRunResult = {
+            const result: FlowDryRunResult = {
               completedAt: at,
               inputs: lifecycle.dryRunInputs,
               observableOutcome: input.observableOutcome,
@@ -1430,9 +1427,9 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const content = yield* fileSystem
           .readFileString(verificationPath)
           .pipe(
-            Effect.mapError(ioError("Could not read the skill being verified"))
+            Effect.mapError(ioError("Could not read the flow being verified"))
           );
-        const runtime = readFlowSkillFrontmatter(content)?.runtime;
+        const runtime = readFlowFrontmatter(content)?.runtime;
         if (
           runtime === undefined ||
           runtime.diagnostics.length > 0 ||
@@ -1446,7 +1443,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           return yield* Effect.fail(
             storeError(
               "teaching_recording_conflict",
-              "The saved skill's platform requirements do not match this Dry Run. Restore the requirements and run a fresh Dry Run before verification."
+              "The saved flow's platform requirements do not match this Dry Run. Restore the requirements and run a fresh Dry Run before verification."
             )
           );
         }
@@ -1456,7 +1453,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         ).pipe(
           Effect.mapError(ioError("Could not read contracts for verification"))
         );
-        const previous = readFlowSkillFrontmatter(content)?.verification;
+        const previous = readFlowFrontmatter(content)?.verification;
         if (previous === undefined || previous.outcome !== "passed") {
           return yield* Effect.fail(
             storeError(
@@ -1497,7 +1494,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           ? Effect.succeed({
               ...manifest,
               lifecycle: {
-                _tag: "skill-drafted" as const,
+                _tag: "flow-drafted" as const,
                 claim: lifecycle.claim,
                 draftedAt: lifecycle.draftedAt,
                 readyAt: lifecycle.readyAt,
@@ -1508,7 +1505,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           : Effect.fail(
               storeError(
                 "teaching_recording_conflict",
-                `Teaching Recording ${input.recordingId} cannot reject a Flow Skill from ${lifecycle._tag}.`
+                `Teaching Recording ${input.recordingId} cannot reject a Flow from ${lifecycle._tag}.`
               )
             );
       });
@@ -1523,7 +1520,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           const manifest = yield* readAt(recordingId, rootFor(recordingId));
           const flow = yield* resolveFlowDirectory(
             rootFor(recordingId),
-            manifest.flowSkillName,
+            manifest.flowName,
             fileSystem
           ).pipe(
             Effect.mapError((cause) =>
@@ -1671,9 +1668,9 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const flowDirectory = path.dirname(path.dirname(previous));
         const targetFlow = path.join(
           path.dirname(flowDirectory),
-          input.flowSkillName
+          input.flowName
         );
-        if (RESERVED_FLOW_NAMES.has(input.flowSkillName)) {
+        if (RESERVED_FLOW_NAMES.has(input.flowName)) {
           return yield* Effect.fail(
             storeError("teaching_recording_invalid", "Reserved Flow name.")
           );
@@ -1686,7 +1683,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             storeError("teaching_recording_invalid", cause.message)
           )
         );
-        const collision = flows.get(input.flowSkillName);
+        const collision = flows.get(input.flowName);
         if (collision !== undefined && collision.directory !== flowDirectory) {
           return yield* Effect.fail(
             storeError(
@@ -1703,7 +1700,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             manifest.lifecycle._tag === "setup"
               ? Effect.succeed({
                   ...manifest,
-                  flowSkillName: input.flowSkillName,
+                  flowName: input.flowName,
                 })
               : Effect.fail(
                   storeError(
@@ -1795,7 +1792,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                   (artifact) => artifact.path
                 ),
               },
-              // A verified Flow Skill needs no learning claim: the recording
+              // A verified Flow needs no learning claim: the recording
               // is finished and its artifacts are on their way out.
               lifecycle: {
                 _tag: "verified" as const,
@@ -1821,7 +1818,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const flows = yield* discoverFlows(root, fileSystem).pipe(
           Effect.mapError((cause) =>
             storeError(
-              cause._tag === "FlowSkillCatalogError"
+              cause._tag === "FlowCatalogError"
                 ? "teaching_recording_invalid"
                 : "teaching_recording_io",
               cause.message
@@ -1862,7 +1859,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             manifest.lifecycle._tag === "recording" ||
             manifest.lifecycle._tag === "ready" ||
             manifest.lifecycle._tag === "learning" ||
-            manifest.lifecycle._tag === "skill-drafted" ||
+            manifest.lifecycle._tag === "flow-drafted" ||
             manifest.lifecycle._tag === "dry-running" ||
             manifest.lifecycle._tag === "dry-run-failed" ||
             manifest.lifecycle._tag === "dry-run-passed" ||
@@ -1889,7 +1886,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 fileSystem.readFileString(verificationPath)
               ),
               Effect.flatMap((contents) =>
-                readFlowSkillFrontmatter(contents)?.verification?.verifiedAt ===
+                readFlowFrontmatter(contents)?.verification?.verifiedAt ===
                 undefined
                   ? Effect.void
                   : verify({
@@ -1900,8 +1897,8 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                     }).pipe(
                       Effect.provideService(
                         SessionEventOrigin,
-                        readFlowSkillFrontmatter(contents)?.verification
-                          ?.origin === "agent"
+                        readFlowFrontmatter(contents)?.verification?.origin ===
+                          "agent"
                           ? "agent"
                           : "workspace"
                       )
@@ -1961,7 +1958,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       reject,
       releaseLearning,
       rename,
-      saveSkill,
+      saveFlow,
       start,
       startDryRun,
       startLearning,

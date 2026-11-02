@@ -36,14 +36,14 @@ import { acquireAndroidStream } from "./android-stream.ts";
 import type { AndroidDeviceStream } from "./android-stream.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
-import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
-import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
+import { isVerifiedFlow } from "./requested-flows.ts";
+import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
 export interface AndroidWorkspaceError {
@@ -283,7 +283,7 @@ export const makeAndroidWorkspaceLayer = (options: {
     Effect.gen(function* makeWorkspace() {
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -540,27 +540,24 @@ export const makeAndroidWorkspaceLayer = (options: {
               command.kind === "dry-run" && command.recordingId !== null
                 ? store.catalogRoot(command.recordingId)
                 : undefined;
-            const skill = yield* catalog.read(
-              command.flowSkillName,
-              recordingRoot
-            );
+            const flow = yield* catalog.read(command.flowName, recordingRoot);
             if (
-              skill.runtime?.diagnostics.length !== 0 ||
-              skill.runtime.requirements.platform !== "android"
+              flow.runtime?.diagnostics.length !== 0 ||
+              flow.runtime.requirements.platform !== "android"
             ) {
               return yield* denied(
-                "Select a valid Android Flow Skill. Browser verification cannot authorize Android."
+                "Select a valid Android Flow. Browser verification cannot authorize Android."
               );
             }
-            taught = skill.runtime.requirements;
-            ({ inputs } = skill);
-            if (!supportsWorkspaceRequirements(taught, skill.inputs)) {
+            taught = flow.runtime.requirements;
+            ({ inputs } = flow);
+            if (!supportsWorkspaceRequirements(taught, flow.inputs)) {
               return yield* denied(
                 "This Android journey requires declared preparation and outcomes and supports named private inputs only."
               );
             }
             if (command.kind === "run") {
-              if (!isVerifiedFlowSkill(skill.files, "android")) {
+              if (!isVerifiedFlow(flow.files, "android")) {
                 return yield* denied(
                   "A later Android Run requires explicit Android verification."
                 );
@@ -574,14 +571,14 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
               const manifest = yield* store.read(recordingId);
               if (
-                manifest.flowSkillName !== command.flowSkillName ||
+                manifest.flowName !== command.flowName ||
                 JSON.stringify(manifest.runtime) !== JSON.stringify(taught) ||
                 manifest.runtime?.platform !== "android" ||
-                (manifest.lifecycle._tag !== "skill-drafted" &&
+                (manifest.lifecycle._tag !== "flow-drafted" &&
                   manifest.lifecycle._tag !== "dry-run-failed")
               ) {
                 return yield* denied(
-                  "The Android recording is not ready for this Flow Skill's Dry Run."
+                  "The Android recording is not ready for this Flow's Dry Run."
                 );
               }
             }
@@ -667,7 +664,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 yield* store
                   .begin({
                     emulation: null,
-                    flowSkillName: command.flowSkillName,
+                    flowName: command.flowName,
                     group: command.group,
                     operationId: command.operationId,
                     recordingId,
@@ -691,7 +688,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                   ? "user"
                   : "agent",
               error: null,
-              flowSkillName: command.flowSkillName,
+              flowName: command.flowName,
               id,
               kind: command.kind,
               phase: "pending",
@@ -731,7 +728,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               variables: Atom.make<readonly PrivateVariable[]>(
                 inputs.map(({ name }) => ({
                   name: name.toUpperCase(),
-                  purpose: `Private input for ${command.flowSkillName}`,
+                  purpose: `Private input for ${command.flowName}`,
                   requestId: randomUUID(),
                   setup: false,
                   status: "requested" as const,
@@ -879,7 +876,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               session.boundary,
               "android",
               command,
-              summary.flowSkillName,
+              summary.flowName,
               selectedTarget
             );
             if (check !== undefined) {
@@ -1231,7 +1228,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Verification and rejection require an explicit Workspace choice."
               );
             }
-            const decided = yield* decideFlowSkill({
+            const decided = yield* decideFlow({
               ...command,
               recordingId: summary.recordingId,
             }).pipe(Effect.provideService(TeachingRecordingStore, store));
@@ -1289,7 +1286,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               (variables.length >= 64 && !existing)
             ) {
               return yield* denied(
-                "Select a declared Flow Skill input; Teaching supports at most 64 Variables."
+                "Select a declared Flow input; Teaching supports at most 64 Variables."
               );
             }
             if (!existing || command.replace) {
@@ -1539,7 +1536,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 summary.kind !== "teaching" &&
                 ["pending", "running", "paused"].includes(summary.phase)
               ) {
-                names.push(summary.flowSkillName);
+                names.push(summary.flowName);
               }
             }
             return names;
@@ -1567,7 +1564,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                       "Verification and Cleanup require an explicit Workspace choice for its recording."
                     );
                   }
-                  yield* decideFlowSkill({
+                  yield* decideFlow({
                     ...command,
                     recordingId: summary.recordingId,
                   }).pipe(Effect.provideService(TeachingRecordingStore, store));

@@ -16,7 +16,7 @@ export const RuntimeVariables = ({
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {
-  if (session.dryRun?.flowSkillName !== undefined) {
+  if (session.dryRun?.flowName !== undefined) {
     return (
       <DryRunPrerequisiteVariables collapse={collapse} session={session} />
     );

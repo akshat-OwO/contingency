@@ -17,7 +17,7 @@ import {
   AgentSessionTakeover,
   AgentTeachingSetupHandoff,
   AgentSetupVariableRequest,
-  FlowSkillName,
+  FlowName,
   OperationId,
   SetupVariableName,
   AgentVariableEnter,
@@ -224,7 +224,7 @@ const AgentSessionsGetTool = readOnly(
 const AgentSessionStartTool = Tool.make("agent_session_start", {
   dependencies: [AgentSession],
   description:
-    "Start a session. Follow nextAction. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow Skill name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
+    "Start a session. Follow nextAction. Teaching begins in agent-held setup. Prepare prerequisites with agent_browser_act, then hand off with agent_teaching_setup_handoff; setup is unrecorded. emulation overrides the default identity and viewport. Teaching name becomes the Flow name: 1-128 letters, numbers, spaces, dots, dashes, or underscores, starting with a letter or number.",
   failure: AgentSessionFailure,
   parameters: AgentSessionStartParameters,
   success: SessionStartResult,
@@ -233,12 +233,12 @@ const AgentSessionStartTool = Tool.make("agent_session_start", {
 const AgentGuidedRunStartTool = Tool.make("agent_guided_run_start", {
   dependencies: [AgentSession],
   description:
-    "Start one browser Guided Run per named Flow Skill. Only you read the Source Document; never send it to Contingency. Skills have no source field. Split several journeys and let the user pick one. Follow nextAction. Prepare setup, call agent_teaching_setup_handoff, then await Workspace Start with agent_session_get. Only post-Start actions are recorded, with actors. Domain Scope starts at the starting host. A new top-level host pauses for a Pending Decision in Workspace or conversation. Allow adds that exact host to this Run and its saved skill; agent_browser_resume resumes the stored attempt. Refuse preserves scope. Irreversible actions need separate Confirmation. Android, Browser Modifications, and Pursuits are refused. Request Takeover during capture; the user takes and returns control in Workspace. User actions retain Variable names and literal values. Questions stay open during Takeover. User input outranks the document. Stop or close finalizes partial recordings; claim, learn, save, and Dry Run.",
+    "Start one browser Guided Run per named Flow. Only you read the Source Document; never send it to Contingency. Flows have no source field. Split several journeys and let the user pick one. Follow nextAction. Prepare setup, call agent_teaching_setup_handoff, then await Workspace Start with agent_session_get. Only post-Start actions are recorded, with actors. Domain Scope starts at the starting host. A new top-level host pauses for a Pending Decision in Workspace or conversation. Allow adds that exact host to this Run and its saved flow; agent_browser_resume resumes the stored attempt. Refuse preserves scope. Irreversible actions need separate Confirmation. Android, Browser Modifications, and Pursuits are refused. Request Takeover during capture; the user takes and returns control in Workspace. User actions retain Variable names and literal values. Questions stay open during Takeover. User input outranks the document. Stop or close finalizes partial recordings; claim, learn, save, and Dry Run.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
     emulation: AgentSessionStart.fields.emulation,
     group: Schema.String,
-    name: FlowSkillName,
+    name: FlowName,
     operationId: OperationId,
     platform: optionalNullable(Schema.Literals(["web", "android"])),
     url: Schema.String.check(Schema.isMinLength(1)),
@@ -287,7 +287,7 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Snapshot. diagnostics:true adds up to 50 request summaries, 50 console levels, and 50 names per storage kind, with headers, payloads, console content, query values, and storage values withheld. Console observations begin with the first diagnostics read. Pass checkIds:[{flowSkillName,id}] for saved current-state storage checks. Response and creation/change checks belong on the triggering action. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
+      'Read a bounded Snapshot. diagnostics:true adds up to 50 request summaries, 50 console levels, and 50 names per storage kind, with headers, payloads, console content, query values, and storage values withheld. Console observations begin with the first diagnostics read. Pass checkIds:[{flowName,id}] for saved current-state storage checks. Response and creation/change checks belong on the triggering action. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
     success: AgentBrowserSnapshot,
@@ -308,7 +308,7 @@ const AgentBrowserScreenshotTool = readOnly(
 const AgentBrowserActTool = Tool.make("agent_browser_act", {
   dependencies: [AgentSession],
   description:
-    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. Pass checkIds:[{flowSkillName,id}] for saved Browser Checks tied to this action. Watches arm before dispatch, evaluate locally within the saved deadlines, and return browserCheckResults. A failed or inconclusive check stops dependent actions; observe or take over to investigate and start a fresh Run to retry. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
+    'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. Pass checkIds:[{flowName,id}] for saved Browser Checks tied to this action. Watches arm before dispatch, evaluate locally within the saved deadlines, and return browserCheckResults. A failed or inconclusive check stops dependent actions; observe or take over to investigate and start a fresh Run to retry. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
   success: Schema.Unknown.pipe(Schema.decodeTo(AgentActionResult)),
@@ -359,10 +359,10 @@ const AgentTeachingSetupHandoffTool = Tool.make(
 const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
   dependencies: [AgentSession],
   description:
-    "Enter a supplied Variable into one element from the latest Browser Snapshot. The value is visible in journey evidence. During agent-held Teaching setup, request it with agent_variable_request and omit flowSkillName. For a task Run, supply flowSkillName and name; request inputs with agent_variable_request and follow its Workspace instructions or relay its decision. Dry Run Variables are supplied in Workspace. Setup access ends at handoff.",
+    "Enter a supplied Variable into one element from the latest Browser Snapshot. The value is visible in journey evidence. During agent-held Teaching setup, request it with agent_variable_request and omit flowName. For a task Run, supply flowName and name; request inputs with agent_variable_request and follow its Workspace instructions or relay its decision. Dry Run Variables are supplied in Workspace. Setup access ends at handoff.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
-    flowSkillName: AgentVariableEnter.fields.flowSkillName,
+    flowName: AgentVariableEnter.fields.flowName,
     name: AgentVariableEnter.fields.name,
     operationId: AgentVariableEnter.fields.operationId,
     ref: AgentVariableEnter.fields.ref,
@@ -374,10 +374,10 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
 const AgentSetupVariableRequestTool = Tool.make("agent_variable_request", {
   dependencies: [AgentSession],
   description:
-    "Request a Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowSkillName. The user supplies or refuses it directly in Workspace; Variable values are visible in journey evidence. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowSkillName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow Skill.",
+    "Request a Variable. Scope follows the session activity: Teaching setup requires purpose; a Run requires flowName. The user supplies or refuses it directly in Workspace; Variable values are visible in journey evidence. Set replace:true to invalidate the old usable value and request a fresh one, otherwise reuse an existing request or supplied value. Enter it with agent_variable_enter, including flowName for a Run and omitting it for Teaching setup. Handoff ends setup access. Setup inputs are never declared in the learned Flow.",
   failure: AgentSessionFailure,
   parameters: Schema.Struct({
-    flowSkillName: optionalNullable(FlowSkillName),
+    flowName: optionalNullable(FlowName),
     name: SetupVariableName,
     operationId: AgentSetupVariableRequest.fields.operationId,
     purpose: optionalNullable(AgentSetupVariableRequest.fields.purpose),
@@ -773,7 +773,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               params.name,
               params.ref,
               params.operationId,
-              params.flowSkillName
+              params.flowName
             )
             .pipe(Effect.mapError(failure));
         }),
@@ -802,18 +802,18 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
               })
               .pipe(Effect.mapError(failure), inView(params.view));
           }
-          if (params.flowSkillName === undefined) {
+          if (params.flowName === undefined) {
             return yield* Effect.fail(
               new AgentSessionFailure({
                 code: "agent_session_invalid",
-                message: "Run Variables require flowSkillName.",
+                message: "Run Variables require flowName.",
               })
             );
           }
           return yield* service
             .requestTaskVariable(
               params.sessionId,
-              params.flowSkillName,
+              params.flowName,
               params.name,
               params.operationId,
               params.replace ?? false

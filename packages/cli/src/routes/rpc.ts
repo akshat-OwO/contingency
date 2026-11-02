@@ -32,7 +32,7 @@ import type {
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
 import {
-  decideFlowSkill,
+  decideFlow,
   stopDryRun,
 } from "../services/teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
@@ -105,7 +105,7 @@ const runStoreUnavailable = <A>(
   );
 
 /**
- * The Skills drawer's read-only catalog view. It is optional for the same
+ * The Flows Drawer's read-only catalog view. It is optional for the same
  * reason the Run store is: a process may serve no Catalog Root.
  */
 const catalogBrowserUnavailable = <A>(
@@ -119,7 +119,7 @@ const catalogBrowserUnavailable = <A>(
         ? operation(service.value).pipe(
             Effect.mapError((cause) =>
               makeBrowserRpcError(
-                cause.code === "flow_skill_not_found"
+                cause.code === "flow_not_found"
                   ? "agent_flow_not_found"
                   : "agent_catalog_invalid",
                 cause.message
@@ -371,15 +371,15 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         ),
       "agent.teaching.flow.reject": (data) =>
         teachingRecordingUnavailable(
-          decideFlowSkill({ ...data, decision: "reject" })
+          decideFlow({ ...data, decision: "reject" })
         ).pipe(Effect.map(recordingState)),
       "agent.teaching.flow.verify": (data) =>
         teachingRecordingUnavailable(
-          decideFlowSkill({ ...data, decision: "verify" })
+          decideFlow({ ...data, decision: "verify" })
         ).pipe(Effect.map(recordingState)),
       "agent.teaching.cleanup.retry": (data) =>
         teachingRecordingUnavailable(
-          decideFlowSkill({ ...data, decision: "retry-cleanup" })
+          decideFlow({ ...data, decision: "retry-cleanup" })
         ).pipe(Effect.map(recordingState)),
       /*
         The Workspace's own instruction path. It is the same Teaching
@@ -402,7 +402,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         ).pipe(Effect.map((session) => ({ session }))),
       "agent.teaching.flow.rename": (data) =>
         agentUnavailable((service) =>
-          service.renameFlowSkill(data.sessionId, data.name, data.operationId)
+          service.renameFlow(data.sessionId, data.name, data.operationId)
         ).pipe(Effect.map((session) => ({ session }))),
       "agent.browser.element.inspect": (data) =>
         agentUnavailable((service) =>
@@ -527,9 +527,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         }),
       "catalog.browse.get": () =>
         catalogBrowserUnavailable((service) => service.browse()),
-      "catalog.flow-skill.get": (data) =>
+      "catalog.flow.get": (data) =>
         catalogBrowserUnavailable((service) =>
-          service.flowSkill(data.scope, data.name)
+          service.flow(data.scope, data.name)
         ),
     };
   })

@@ -1,13 +1,13 @@
 import path from "node:path";
 
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, FileSystem, Result } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
-import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
+import { readFlowFrontmatter } from "../../src/services/flow-package.ts";
 import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
   evidenceDirectory,
@@ -22,7 +22,7 @@ import {
 } from "./agent-harness.ts";
 import { fixtureServer, SETTLE_GATE } from "./harness.ts";
 
-/** The demonstrated pair. A learned Flow Skill must reach a different one. */
+/** The demonstrated pair. A learned Flow must reach a different one. */
 const DEMONSTRATED_CITY = "Gurugram";
 const DEMONSTRATED_AREA = "Sector 14";
 
@@ -76,7 +76,7 @@ const driveDeliveryAsAgent = (
   operationPrefix: string,
   variableArea = false
 ) =>
-  Effect.gen(function* driveDeliveryFlowSkill() {
+  Effect.gen(function* driveDeliveryFlow() {
     const first = yield* sessionTool("agent_browser_snapshot", { sessionId });
     const choose = findNode(first.nodes, "button", "Choose delivery area");
     const choosing = yield* sessionTool("agent_browser_act", {
@@ -166,7 +166,7 @@ const assessDryRunOutcome = (
  * and the delivery area as inputs rather than repeating the demonstrated pair,
  * so a later Dry Run can change either one without the recording.
  */
-const DELIVERY_SKILL = `---
+const DELIVERY_FLOW = `---
 name: set-delivery-area
 description: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.
 inputs:
@@ -201,9 +201,9 @@ next without relying on position.
 `;
 
 it.live(
-  "learns a parameterized delivery-location Flow Skill from a user-led recording",
+  "learns a parameterized delivery-location Flow from a user-led recording",
   () =>
-    Effect.gen(function* learnDeliveryLocationFlowSkill() {
+    Effect.gen(function* learnDeliveryLocationFlow() {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "contingency-delivery-learning-",
@@ -276,7 +276,7 @@ it.live(
             "agent_teaching_recording_claim",
             { action: "take", operationId: claimOperationId, recordingId }
           );
-          expect(claimed.claim?.flowSkillName).toBe("set-delivery-area");
+          expect(claimed.claim?.flowName).toBe("set-delivery-area");
           const timeline = yield* teachingRecordingTool(
             "agent_teaching_timeline_get",
             { claimOperationId, recordingId }
@@ -285,7 +285,7 @@ it.live(
           expect(serialized).toContain("Confirm delivery area");
           expect(serialized).toContain(DEMONSTRATED_AREA);
           // A reference means nothing outside its session and dies with the
-          // document, and the Flow Skill contract rejects a step that names
+          // document, and the Flow contract rejects a step that names
           // one. Every demonstrated click must therefore reach the learning
           // agent as the role and accessible name of what the user hit.
           const clicks = timeline.entries.filter(
@@ -316,10 +316,10 @@ it.live(
             expect(entry.description).not.toMatch(/"/u);
           }
 
-          const saved = yield* teachingRecordingTool("agent_flow_skill_save", {
+          const saved = yield* teachingRecordingTool("agent_flow_save", {
             claimOperationId,
             files: [
-              { content: DELIVERY_SKILL, path: "flow.md" },
+              { content: DELIVERY_FLOW, path: "flow.md" },
               {
                 content: DELIVERY_ACCESSIBILITY,
                 path: "targets.md",
@@ -328,32 +328,32 @@ it.live(
             operationId: OperationId.make("delivery-save"),
             recordingId,
           });
-          expect(saved.flowSkillName).toBe("set-delivery-area");
+          expect(saved.flowName).toBe("set-delivery-area");
 
-          const skillDirectory = path.join(root, "set-delivery-area");
-          const skill = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+          const flowDirectory = path.join(root, "set-delivery-area");
+          const flow = yield* fileSystem.readFileString(
+            path.join(flowDirectory, "flow.md")
           );
           const accessibility = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "targets.md")
+            path.join(flowDirectory, "targets.md")
           );
           // The package must be followable once the recording is deleted: it
           // carries no element reference, no artifact path, and no demonstrated
           // literal standing in for an input.
-          for (const content of [skill, accessibility]) {
+          for (const content of [flow, accessibility]) {
             expect(content).not.toMatch(/(?<![\w-])e\d+(?![\w-])/u);
             expect(content).not.toContain("trace.zip");
             expect(content).not.toContain("recording.webm");
             expect(content).not.toContain(root);
           }
-          expect(skill).not.toContain(DEMONSTRATED_CITY);
-          expect(skill).not.toContain(DEMONSTRATED_AREA);
-          expect(skill).toContain("{{city}}");
-          expect(skill).toContain("{{delivery_area}}");
+          expect(flow).not.toContain(DEMONSTRATED_CITY);
+          expect(flow).not.toContain(DEMONSTRATED_AREA);
+          expect(flow).toContain("{{city}}");
+          expect(flow).toContain("{{delivery_area}}");
           // Contingency stamps the demonstrated ceiling and device into the
           // package, because the recording that proves them is deleted once
           // the user verifies.
-          const stamped = readFlowSkillFrontmatter(skill);
+          const stamped = readFlowFrontmatter(flow);
           expect(stamped?.hosts).toContain("127.0.0.1");
           expect(stamped?.emulation?.viewport).toEqual(agentViewport);
 
@@ -363,7 +363,7 @@ it.live(
             recordingId
           );
           const offScope = yield* Effect.result(
-            teachingRecordingTool("agent_flow_skill_dry_run_start", {
+            teachingRecordingTool("agent_flow_dry_run_start", {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
                 {
@@ -382,7 +382,7 @@ it.live(
           const demonstratedKeyframes =
             yield* fileSystem.readDirectory(recordingDirectory);
           const failedRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 {
@@ -407,16 +407,16 @@ it.live(
             `[Open Workspace](${failedRun.session.viewUrl})`
           );
 
-          // A Dry Run proves the Flow Skill in a context the demonstration
+          // A Dry Run proves the Flow in a context the demonstration
           // never touched, so it must not reuse the Teaching session.
           expect(failedRun.session.id).not.toBe(teachingSessionId);
           expect(failedRun.session.activity).toBe("run");
           // A Dry Run session says what it rehearses, so reading it back is
           // enough to tell it from an Interactive Run (#202).
-          expect(failedRun.session.flowSkillName).toBe("set-delivery-area");
+          expect(failedRun.session.flowName).toBe("set-delivery-area");
           expect(failedRun.session.recordingId).toBe(recordingId);
           expect(failedRun.session.dryRun).toMatchObject({
-            flowSkillName: "set-delivery-area",
+            flowName: "set-delivery-area",
             recordingId,
           });
           expect(failedRun.session.run).toHaveProperty("schemaVersion", 3);
@@ -424,10 +424,10 @@ it.live(
           const reread = yield* sessionTool("agent_session_get", {
             sessionId: failedRun.session.id,
           });
-          expect(reread.flowSkillName).toBe("set-delivery-area");
+          expect(reread.flowName).toBe("set-delivery-area");
           expect(reread.recordingId).toBe(recordingId);
           expect(reread.dryRun).toMatchObject({
-            flowSkillName: "set-delivery-area",
+            flowName: "set-delivery-area",
             recordingId,
           });
           expect(failedRun.files.map((file) => file.path)).toEqual(["flow.md"]);
@@ -436,11 +436,11 @@ it.live(
             path: "targets.md",
           });
           const originalFlow = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+            path.join(flowDirectory, "flow.md")
           );
           for (const documentPath of ["flow.md", "checks.json", "setup.md"]) {
             const refused = yield* Effect.result(
-              teachingRecordingTool("agent_flow_skill_save", {
+              teachingRecordingTool("agent_flow_save", {
                 claimOperationId,
                 files: [
                   { content: "Run must not write this", path: documentPath },
@@ -459,14 +459,12 @@ it.live(
             }
             expect(
               yield* fileSystem.readFileString(
-                path.join(skillDirectory, "flow.md")
+                path.join(flowDirectory, "flow.md")
               )
             ).toBe(originalFlow);
             if (documentPath !== "flow.md") {
               expect(
-                yield* fileSystem.exists(
-                  path.join(skillDirectory, documentPath)
-                )
+                yield* fileSystem.exists(path.join(flowDirectory, documentPath))
               ).toBe(false);
             }
           }
@@ -528,15 +526,15 @@ it.live(
           ).toBe(arrivedUrl);
           expect(
             yield* fileSystem.readFileString(
-              path.join(skillDirectory, "flow.md")
+              path.join(flowDirectory, "flow.md")
             )
           ).toBe(originalFlow);
           expect(
-            yield* fileSystem.exists(path.join(skillDirectory, "setup.md"))
+            yield* fileSystem.exists(path.join(flowDirectory, "setup.md"))
           ).toBe(false);
           yield* assessDryRunOutcome(failedRun.session.id, "not-working");
           const replayedFailedRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
@@ -570,7 +568,7 @@ it.live(
             { recursive: true }
           );
           const conflictedDryRun = yield* Effect.flip(
-            teachingRecordingTool("agent_flow_skill_dry_run_start", {
+            teachingRecordingTool("agent_flow_dry_run_start", {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
                 {
@@ -653,7 +651,7 @@ it.live(
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
 
           const endedEarly = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
@@ -679,7 +677,7 @@ it.live(
           );
 
           const partialRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
@@ -703,25 +701,22 @@ it.live(
           // A failed Dry Run keeps the learning claim, so the agent that
           // learned the flow fixes its package and saves again with the same
           // claim operation id.
-          const resaved = yield* teachingRecordingTool(
-            "agent_flow_skill_save",
-            {
-              claimOperationId,
-              files: [
-                { content: DELIVERY_SKILL, path: "flow.md" },
-                {
-                  content: DELIVERY_ACCESSIBILITY,
-                  path: "targets.md",
-                },
-              ],
-              operationId: OperationId.make("delivery-save-after-failure"),
-              recordingId,
-            }
-          );
-          expect(resaved.flowSkillName).toBe("set-delivery-area");
+          const resaved = yield* teachingRecordingTool("agent_flow_save", {
+            claimOperationId,
+            files: [
+              { content: DELIVERY_FLOW, path: "flow.md" },
+              {
+                content: DELIVERY_ACCESSIBILITY,
+                path: "targets.md",
+              },
+            ],
+            operationId: OperationId.make("delivery-save-after-failure"),
+            recordingId,
+          });
+          expect(resaved.flowName).toBe("set-delivery-area");
 
           const passedRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 {
@@ -793,10 +788,10 @@ it.live(
           const afterActing = yield* sessionTool("agent_session_get", {
             sessionId: passedRun.session.id,
           });
-          expect(afterActing.flowSkillName).toBe("set-delivery-area");
+          expect(afterActing.flowName).toBe("set-delivery-area");
           expect(afterActing.recordingId).toBe(recordingId);
           expect(afterActing.dryRun).toMatchObject({
-            flowSkillName: "set-delivery-area",
+            flowName: "set-delivery-area",
             recordingId,
           });
           yield* assessDryRunOutcome(passedRun.session.id, "working");
@@ -825,19 +820,16 @@ it.live(
             failedRun.session.run?.runId
           );
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
-          const rejected = yield* teachingRecordingTool(
-            "agent_flow_skill_decide",
-            {
-              decision: "reject",
-              operationId: OperationId.make("delivery-reject"),
-              recordingId,
-            }
-          );
-          expect(rejected.lifecycle).toBe("skill-drafted");
+          const rejected = yield* teachingRecordingTool("agent_flow_decide", {
+            decision: "reject",
+            operationId: OperationId.make("delivery-reject"),
+            recordingId,
+          });
+          expect(rejected.lifecycle).toBe("flow-drafted");
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
 
           const takeoverRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
@@ -870,7 +862,7 @@ it.live(
           // Run ceilings are gone (ADR 0043), so no clock ends a Dry Run:
           // only the agent or the user does.
           const idleRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 { changed: true, name: "city", secret: false, value: "Pune" },
@@ -898,7 +890,7 @@ it.live(
           );
 
           const finalRun = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
+            "agent_flow_dry_run_start",
             {
               inputs: [
                 {
@@ -926,14 +918,11 @@ it.live(
             "delivery-dry-final"
           );
           yield* assessDryRunOutcome(finalRun.session.id, "working");
-          const verified = yield* teachingRecordingTool(
-            "agent_flow_skill_decide",
-            {
-              decision: "verify",
-              operationId: OperationId.make("delivery-verify"),
-              recordingId,
-            }
-          );
+          const verified = yield* teachingRecordingTool("agent_flow_decide", {
+            decision: "verify",
+            operationId: OperationId.make("delivery-verify"),
+            recordingId,
+          });
           expect(verified.cleanup._tag).toBe("purged");
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(false);
           // Keyframes are raw Teaching evidence: verification is what
@@ -942,18 +931,18 @@ it.live(
             demonstratedKeyframes.filter((name) => name.endsWith(".png"))
           ).not.toHaveLength(0);
           expect(
-            yield* fileSystem.exists(path.join(skillDirectory, "flow.md"))
+            yield* fileSystem.exists(path.join(flowDirectory, "flow.md"))
           ).toBe(true);
           expect(
             yield* fileSystem.exists(
-              path.join(skillDirectory, "references", "verification.md")
+              path.join(flowDirectory, "references", "verification.md")
             )
           ).toBe(false);
           const verification = yield* fileSystem.readFileString(
-            path.join(skillDirectory, "flow.md")
+            path.join(flowDirectory, "flow.md")
           );
           expect(
-            readFlowSkillFrontmatter(verification)?.verification?.verifiedAt
+            readFlowFrontmatter(verification)?.verification?.verifiedAt
           ).toBeDefined();
           expect(verification).toContain(
             "The complete delivery status is visible."
@@ -964,7 +953,7 @@ it.live(
       );
 
       yield* Effect.scoped(
-        Effect.gen(function* runVerifiedSkillAfterRestart() {
+        Effect.gen(function* runVerifiedFlowAfterRestart() {
           const restarted = yield* sessionTool("agent_session_start", {
             clientName: "integration-restart",
             clientVersion: "1.0.0",
@@ -983,10 +972,10 @@ it.live(
           // stamped ceiling is what the user actually showed, so a foreign
           // start URL is refused rather than silently becoming the new scope.
           const foreign = yield* Effect.result(
-            runTool("agent_flow_skill_run_start", {
+            runTool("agent_flow_run_start", {
               clientName: "integration-restart",
               clientVersion: "1.0.0",
-              flowSkillName: FlowSkillName.make("set-delivery-area"),
+              flowName: FlowName.make("set-delivery-area"),
               inputs: [
                 { name: "city", value: "Pune" },
                 { name: "delivery_area", value: "Baner" },
@@ -997,16 +986,14 @@ it.live(
           );
           expect(Result.isFailure(foreign)).toBe(true);
           if (Result.isFailure(foreign)) {
-            expect(JSON.stringify(foreign.failure)).toContain(
-              "flow_skill_invalid"
-            );
+            expect(JSON.stringify(foreign.failure)).toContain("flow_invalid");
             expect(JSON.stringify(foreign.failure)).toContain("localhost");
           }
 
-          const run = yield* runTool("agent_flow_skill_run_start", {
+          const run = yield* runTool("agent_flow_run_start", {
             clientName: "integration-restart",
             clientVersion: "1.0.0",
-            flowSkillName: FlowSkillName.make("set-delivery-area"),
+            flowName: FlowName.make("set-delivery-area"),
             inputs: [
               { name: "city", value: "Pune" },
               { name: "delivery_area", value: "Baner" },
@@ -1017,7 +1004,7 @@ it.live(
           expect(run.flowDocuments).toEqual([
             {
               files: [expect.objectContaining({ path: "flow.md" })],
-              flowSkillName: "set-delivery-area",
+              flowName: "set-delivery-area",
               supportingDocuments: [
                 {
                   heading: "Accessibility targets",

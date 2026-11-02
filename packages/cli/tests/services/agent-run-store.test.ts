@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   AgentRunId,
   AgentSessionId,
-  FlowSkillName,
+  FlowName,
   LegacyAgentFlowRunSummary,
 } from "@contingency/protocol";
 import type { LegacyAgentRunSummary as AgentRunSummary } from "@contingency/protocol";
@@ -38,7 +38,7 @@ const summaryFor = (root: string): AgentRunSummary =>
     },
     coverage: { complete: false, executed: 2, total: 3, unexecuted: 1 },
     endedAt: "2026-09-04T00:02:00.000Z",
-    flowSkillName: FlowSkillName.make("browse-catalogue"),
+    flowName: FlowName.make("browse-catalogue"),
     inputs: [{ name: "product", value: "Mug" }],
     outcome: "ended-early",
     runId,
@@ -157,9 +157,12 @@ it.effect(
       const current = summaryFor(root);
       // Written the way a Runner with ceilings wrote it: a `ceilings` block,
       // a `timed-out` outcome, and the interrupted Step marked `timed-out`.
+      const { flowName, ...versionTwo } = current;
       const legacy = {
-        ...current,
+        ...versionTwo,
         ceilings: { extensions: 1, runMs: 900_000, stepMs: 120_000 },
+        // Version 2 files predate ADR 0071 and keep their on-disk key.
+        flowSkillName: flowName,
         outcome: "timed-out",
         steps: current.steps.map((step) =>
           step.index === 2
@@ -229,7 +232,7 @@ it.effect(
       const current = summaryFor(root);
       const {
         agentAccount,
-        flowSkillName: _flowSkillName,
+        flowName: _flowName,
         inputs: _inputs,
         ...shared
       } = current;
@@ -258,7 +261,7 @@ it.effect(
         const read = yield* store.read(historical.runId);
         expect(read).toEqual(historical);
         expect(read).not.toHaveProperty("requestedTask");
-        expect(read).not.toHaveProperty("flowSkillName");
+        expect(read).not.toHaveProperty("flowName");
         yield* store.write(read);
       }).pipe(Effect.provide(layerFor(root)));
       const persisted = JSON.parse(
@@ -295,7 +298,7 @@ it.effect(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("persists an unassessed skill-free task after process exit", () =>
+it.effect("persists an unassessed flow-free task after process exit", () =>
   Effect.gen(function* persistUnassessedTask() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
@@ -309,7 +312,7 @@ it.effect("persists an unassessed skill-free task after process exit", () =>
         findings: [],
         inputs: [],
         outcome: "process-exited" as const,
-        referencedSkills: [],
+        referencedFlows: [],
         variables: [],
       };
       yield* store.write(summary);
@@ -362,7 +365,7 @@ it.effect("keeps Run ownership through regrouping and store restart", () =>
   Effect.gen(function* regroupRun() {
     const fs = yield* FileSystem.FileSystem;
     const root = yield* fs.makeTempDirectoryScoped();
-    const name = FlowSkillName.make("checkout");
+    const name = FlowName.make("checkout");
     const original = path.join(root, "shop", name);
     const moved = path.join(root, "sales", name);
     yield* fs.makeDirectory(original, { recursive: true });
@@ -398,10 +401,10 @@ for (const names of [[], ["checkout", "login"]]) {
         expect(
           yield* store.prepare(
             runId,
-            names.map((name) => FlowSkillName.make(name))
+            names.map((name) => FlowName.make(name))
           )
         ).toBe(directory);
-        expect(yield* store.prepare(runId, [FlowSkillName.make("later")])).toBe(
+        expect(yield* store.prepare(runId, [FlowName.make("later")])).toBe(
           directory
         );
       }).pipe(Effect.provide(layerFor(root)));

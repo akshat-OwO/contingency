@@ -13,10 +13,10 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     startedAt: "2026-09-16T10:00:00.000Z",
     stoppedAt: "2026-09-16T10:00:00.000Z",
   };
-  // A Dry Run needs inputs the dock cannot collect, so `skill-drafted` leaves
+  // A Dry Run needs inputs the dock cannot collect, so `flow-drafted` leaves
   // it to the user's agent instead of a button that starts nothing.
   const drafted = teachingRecordingPresentation({
-    _tag: "skill-drafted",
+    _tag: "flow-drafted",
     ...progressive,
   });
   expect(drafted.action).toBeNull();

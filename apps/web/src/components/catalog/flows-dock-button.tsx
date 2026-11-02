@@ -2,28 +2,28 @@ import { useAtom, useAtomValue } from "@effect/atom-react";
 import { BookOpenIcon } from "lucide-react";
 
 import {
-  skillCount,
-  skillsDrawerOpenAtom,
-} from "@/components/catalog/skills-drawer-state";
+  flowCount,
+  flowsDrawerOpenAtom,
+} from "@/components/catalog/flows-drawer-state";
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 /**
- * The dock's way into the Skills drawer. It sits beside the session picker,
+ * The dock's way into the Flows drawer. It sits beside the session picker,
  * because it is navigation, and leaves the right of the row to the state's
  * own actions. Its label gives way before anything else as the stage narrows.
  */
-export const SkillsDockButton = () => {
+export const FlowsDockButton = () => {
   const { catalogBrowseAtom } = useRpcDependencies();
-  const [open, setOpen] = useAtom(skillsDrawerOpenAtom);
+  const [open, setOpen] = useAtom(flowsDrawerOpenAtom);
   const result = useAtomValue(catalogBrowseAtom);
   const count =
-    result._tag === "Success" ? skillCount(result.value.roots) : undefined;
+    result._tag === "Success" ? flowCount(result.value.roots) : undefined;
   return (
     <Button
       aria-expanded={open}
-      aria-label={count === undefined ? "Skills" : `Skills, ${count}`}
+      aria-label={count === undefined ? "Flows" : `Flows, ${count}`}
       className={cn(open && "bg-muted")}
       onClick={() => {
         setOpen(!open);
@@ -33,7 +33,7 @@ export const SkillsDockButton = () => {
       variant="ghost"
     >
       <BookOpenIcon aria-hidden="true" />
-      <span className="hidden @xl:inline">Skills</span>
+      <span className="hidden @xl:inline">Flows</span>
       {count === undefined ? null : (
         <span className="text-muted-foreground tabular-nums">{count}</span>
       )}

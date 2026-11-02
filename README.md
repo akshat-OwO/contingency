@@ -1,6 +1,6 @@
 # Contingency
 
-Monitor whether your product's features still work. You demonstrate a journey once, an agent learns a reusable Flow Skill from the recording, and you verify it after a Dry Run before it runs on its own.
+Monitor whether your product's features still work. You demonstrate a journey once, an agent learns a reusable Flow from the recording, and you verify it after a Dry Run before it runs on its own.
 
 ```sh
 npx @contingencyhq/cli start --demo

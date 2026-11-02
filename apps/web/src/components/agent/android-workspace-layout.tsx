@@ -2,17 +2,17 @@ import { useAtom } from "@effect/atom-react";
 import { useEffect } from "react";
 
 import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
-import { SkillDetails } from "@/components/catalog/skill-details";
-import { SkillsDrawer } from "@/components/catalog/skills-drawer";
+import { FlowDetails } from "@/components/catalog/flow-details";
+import { FlowsDrawer } from "@/components/catalog/flows-drawer";
 import {
-  showsSkillsEntry,
-  skillsDrawerOpenAtom,
-  skillsSelectionAtom,
-} from "@/components/catalog/skills-drawer-state";
-import type { SkillsSessionView } from "@/components/catalog/skills-drawer-state";
+  showsFlowsEntry,
+  flowsDrawerOpenAtom,
+  flowsSelectionAtom,
+} from "@/components/catalog/flows-drawer-state";
+import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
 
 /**
- * The Workspace between the Skills drawer on its left and, on its right,
+ * The Workspace between the Flows drawer on its left and, on its right,
  * either what the drawer picked or an ended Run's Summary. Details the user
  * opened take the right panel while they are open; closing them brings the
  * Run Summary back. Browser and Android sessions share it, so the drawer and
@@ -21,25 +21,25 @@ import type { SkillsSessionView } from "@/components/catalog/skills-drawer-state
 export const WorkspaceLayout = ({
   children,
   sessionId,
-  skillsSession,
+  flowsSession,
   summary,
 }: {
   readonly children: React.ReactNode;
   readonly sessionId: string | undefined;
-  readonly skillsSession: SkillsSessionView | undefined;
+  readonly flowsSession: FlowsSessionView | undefined;
   readonly summary:
     | { readonly label: string; readonly summary: React.ReactNode }
     | null
     | undefined;
 }) => {
-  const [open, setOpen] = useAtom(skillsDrawerOpenAtom);
-  const [selection, setSelection] = useAtom(skillsSelectionAtom);
+  const [open, setOpen] = useAtom(flowsDrawerOpenAtom);
+  const [selection, setSelection] = useAtom(flowsSelectionAtom);
   // Details belong to what the user was looking at; another session starts
-  // with the drawer open on its own skill instead.
+  // with the drawer open on its own flow instead.
   useEffect(() => {
     setSelection(null);
   }, [sessionId, setSelection]);
-  const allowed = showsSkillsEntry(skillsSession);
+  const allowed = showsFlowsEntry(flowsSession);
   // Capture closes the drawer rather than hiding it, so Stop does not bring
   // it back over the page the user just proved.
   useEffect(() => {
@@ -57,12 +57,9 @@ export const WorkspaceLayout = ({
         drawerOpen
           ? {
               content: (
-                <SkillsDrawer
-                  key={sessionId ?? "none"}
-                  session={skillsSession}
-                />
+                <FlowsDrawer key={sessionId ?? "none"} session={flowsSession} />
               ),
-              label: "Skills",
+              label: "Flows Drawer",
               onClose: () => {
                 setOpen(false);
                 setSelection(null);
@@ -81,7 +78,7 @@ export const WorkspaceLayout = ({
         details === null ? (
           (summary?.summary ?? null)
         ) : (
-          <SkillDetails selection={details} />
+          <FlowDetails selection={details} />
         )
       }
     >

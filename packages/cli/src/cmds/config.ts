@@ -1,7 +1,7 @@
 import { Console, Effect } from "effect";
 import { CliError, Command } from "effect/cli";
 
-import { defaultCatalogRoot } from "../services/flow-skill-catalog.ts";
+import { defaultCatalogRoot } from "../services/flow-catalog.ts";
 import { initSettingsFile } from "../services/settings.ts";
 
 const initCommand = Command.make("init", {}, () =>

@@ -80,8 +80,8 @@ const outcomes = {
   "start-mismatch": ["failed", "failed", "failed", "passed"],
   "start-pass": ["passed", "passed", "passed", "passed"],
 };
-const skill = (flowSkillName, checks) =>
-  `---\nname: ${flowSkillName}\ndescription: Save the order once and require its stored local and session state.\ninputs:\n---\n\n1. Click the Save order button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Saved 1 time(s) is visible.\n`;
+const skill = (flowName, checks) =>
+  `---\nname: ${flowName}\ndescription: Save the order once and require its stored local and session state.\ninputs:\n---\n\n1. Click the Save order button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Saved 1 time(s) is visible.\n`;
 const readState = () =>
   io(async () =>
     JSON.parse(await readFile(path.join(artifacts, "state.json"), "utf-8"))
@@ -129,7 +129,7 @@ const learn = Effect.gen(function* learnRequirements() {
     operationId: claimOperationId,
     recordingId,
   });
-  const { flowSkillName } = claimed.claim;
+  const { flowName } = claimed.claim;
   const timeline = yield* call("agent_teaching_timeline_get", {
     claimOperationId,
     recordingId,
@@ -177,11 +177,11 @@ const learn = Effect.gen(function* learnRequirements() {
     index === 0 ? { ...check, format: "raw" } : check
   );
   const refusal = yield* call(
-    "agent_flow_skill_save",
+    "agent_flow_save",
     {
       claimOperationId,
       files: [
-        { content: skill(flowSkillName, checks), path: "flow.md" },
+        { content: skill(flowName, checks), path: "flow.md" },
         {
           content: JSON.stringify({
             requirements: rawWithPath,
@@ -196,11 +196,11 @@ const learn = Effect.gen(function* learnRequirements() {
     true
   );
   assert.ok(refusal.includes("Raw storage values are strings"), refusal);
-  yield* call("agent_flow_skill_save", {
+  yield* call("agent_flow_save", {
     claimOperationId,
     files: [
       {
-        content: skill(flowSkillName, checks),
+        content: skill(flowName, checks),
         path: "flow.md",
       },
       {
@@ -221,7 +221,7 @@ const learn = Effect.gen(function* learnRequirements() {
         path.join(
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
-          flowSkillName,
+          flowName,
           "checks.json"
         ),
         "utf-8"
@@ -233,7 +233,7 @@ const learn = Effect.gen(function* learnRequirements() {
   yield* save("state.json", {
     checks,
     claimOperationId,
-    flowSkillName,
+    flowName,
     recordingId,
     url,
   });
@@ -242,7 +242,7 @@ const launch = Effect.gen(function* launchDryRun() {
   const state = yield* readState();
   const failure = phase !== "start-pass";
   const mode = phase.slice("start-".length);
-  const dry = yield* call("agent_flow_skill_dry_run_start", {
+  const dry = yield* call("agent_flow_dry_run_start", {
     inputs: [],
     operationId: operation(),
     recordingId: state.recordingId,
@@ -273,7 +273,7 @@ const finish = Effect.gen(function* finishDryRun() {
   const params = {
     action: { ref: button.ref, type: "click" },
     checkIds: state.checks.map((check) => ({
-      flowSkillName: state.flowSkillName,
+      flowName: state.flowName,
       id: check.id,
     })),
     format: "structured",

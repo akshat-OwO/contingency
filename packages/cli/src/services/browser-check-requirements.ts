@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { BrowserCheck } from "@contingency/protocol";
 import type {
   BrowserCheckReference,
-  FlowSkillFile,
+  FlowFile,
   TeachingBrowserAttachment,
   TeachingInstruction,
 } from "@contingency/protocol";
@@ -15,7 +15,7 @@ const document = Schema.Struct({
   schemaVersion: Schema.Literal(1),
 });
 const invalid = (message: string) => ({
-  code: "flow_skill_invalid" as const,
+  code: "flow_invalid" as const,
   message,
 });
 const variableReference = /^\{\{[A-Za-z_][A-Za-z0-9_]*\}\}$/u;
@@ -239,7 +239,7 @@ export const validateTeachingAttachments = (
     }
     return replacing;
   });
-export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
+export const parseBrowserChecks = (files: readonly FlowFile[]) => {
   const file = files.find(
     (candidate) => candidate.path === BROWSER_CHECKS_FILE
   );
@@ -248,7 +248,7 @@ export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
   }
   try {
     const parsed = Schema.decodeUnknownSync(document)(JSON.parse(file.content));
-    const skill = files.find((candidate) => candidate.path === "flow.md");
+    const flow = files.find((candidate) => candidate.path === "flow.md");
     const ids = new Set<string>();
     for (const requirement of parsed.requirements) {
       const problem = validateBrowserCheck(requirement);
@@ -260,8 +260,8 @@ export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
       }
       ids.add(requirement.id);
       if (
-        !skill?.content.includes(BROWSER_CHECKS_FILE) ||
-        !skill.content.includes(requirement.id)
+        !flow?.content.includes(BROWSER_CHECKS_FILE) ||
+        !flow.content.includes(requirement.id)
       ) {
         return Result.fail(
           invalid(
@@ -280,20 +280,20 @@ export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
   }
 };
 export const requestedBrowserChecks = (
-  skills: readonly {
+  flows: readonly {
     readonly name: string;
-    readonly files: readonly FlowSkillFile[];
+    readonly files: readonly FlowFile[];
   }[]
 ) =>
   Effect.gen(function* loadBrowserChecks() {
     const references: BrowserCheckReference[] = [];
-    for (const skill of skills) {
-      const parsed = parseBrowserChecks(skill.files);
+    for (const flow of flows) {
+      const parsed = parseBrowserChecks(flow.files);
       if (Result.isFailure(parsed)) {
         return yield* Effect.fail(parsed.failure);
       }
       references.push(
-        ...parsed.success.map((check) => ({ check, flowSkillName: skill.name }))
+        ...parsed.success.map((check) => ({ check, flowName: flow.name }))
       );
     }
     if (references.length > 100) {
@@ -304,7 +304,7 @@ export const requestedBrowserChecks = (
     return references;
   });
 export const validateTaughtBrowserChecks = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   events: readonly {
     readonly attachments?: readonly TeachingBrowserAttachment[] | undefined;
   }[]

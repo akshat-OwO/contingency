@@ -25,7 +25,7 @@ const hostOf = (url: string): string => {
 /**
  * The site's bot protection refused the session's browser. Without this, a
  * blocked login just resets its form, and the user blames the site or the
- * Flow Skill (#266). Only the latest block shows: one refusal usually brings
+ * Flow (#266). Only the latest block shows: one refusal usually brings
  * several requests down with it, and they all say the same thing.
  */
 export const BotProtectionNotice = ({
@@ -41,7 +41,7 @@ export const BotProtectionNotice = ({
     <AlertDescription>
       {PROVIDER_NAMES[block.provider]} bot protection refused a request with
       HTTP {block.status}. The site is turning away automated browsers, so the
-      page is not broken and neither is the Flow Skill.
+      page is not broken and neither is the Flow.
     </AlertDescription>
     <AlertAction>
       <Button

@@ -4,12 +4,12 @@ import { isDeepStrictEqual } from "node:util";
 import { BrowserDevtoolsCommand } from "@contingency/protocol";
 import type {
   BrowserModification,
-  FlowSkillFile,
+  FlowFile,
   TeachingEvent,
 } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 
-import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
+import { readFlowFrontmatter } from "./flow-package.ts";
 
 export const BROWSER_STATE_FILE = "browser-state.json";
 const VARIABLE_SLOT = /^\{\{[A-Za-z_][A-Za-z0-9_]*\}\}$/u;
@@ -75,7 +75,7 @@ export const browserValueDigest = (value: string): string =>
   createHash("sha256").update(value).digest("hex");
 
 const literalValidationError = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   replacements: ReadonlyMap<string, string>,
   events: readonly TeachingEvent[]
 ): string | undefined => {
@@ -121,7 +121,7 @@ const literalValidationError = (
 
 /** State is stamped from evidence; an author cannot silently omit a mock. */
 export const stampBrowserState = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   events: readonly TeachingEvent[]
 ) =>
   Effect.gen(function* stampRequiredState() {
@@ -130,7 +130,7 @@ export const stampBrowserState = (
     const names = new Set(
       files.flatMap((file) =>
         file.path === "flow.md"
-          ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
+          ? (readFlowFrontmatter(file.content)?.inputs ?? []).map(
               (input) => input.name
             )
           : []
@@ -206,7 +206,7 @@ export const stampBrowserState = (
     const declared = new Set(
       files.flatMap((file) =>
         file.path === "flow.md"
-          ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
+          ? (readFlowFrontmatter(file.content)?.inputs ?? []).map(
               (input) => input.name
             )
           : []
@@ -246,7 +246,7 @@ export const stampBrowserState = (
     ];
   });
 
-export const readBrowserState = (files: readonly FlowSkillFile[]) => {
+export const readBrowserState = (files: readonly FlowFile[]) => {
   const file = files.find((entry) => entry.path === BROWSER_STATE_FILE);
   return file === undefined
     ? Effect.succeed<readonly RequiredBrowserModification[]>([])

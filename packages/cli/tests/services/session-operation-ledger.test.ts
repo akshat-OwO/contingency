@@ -18,7 +18,7 @@ const snapshot = Schema.decodeUnknownSync(AgentSessionSnapshot)({
   createdAt: "2026-10-03T00:00:00Z",
   currentUrl: "about:blank",
   dryRun: null,
-  flowSkillName: null,
+  flowName: null,
   id: "agent-ledger",
   interruptedAction: null,
   ownerProcessId: "ledger-test",

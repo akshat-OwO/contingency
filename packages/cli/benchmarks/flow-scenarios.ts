@@ -1,19 +1,19 @@
 /**
  * The demo and catalog scenarios the System One benchmarks drive, each with
- * an outcome checked in code, and the Flow Skill steps they turn into cues.
+ * an outcome checked in code, and the Flow steps they turn into cues.
  */
 import path from "node:path";
 
 import type { AgentBrowserSnapshot } from "@contingency/protocol";
 import { Config, Effect } from "effect";
 
-import { flowSkillProcedureSteps } from "../src/services/flow-skill-package.ts";
+import { flowProcedureSteps } from "../src/services/flow-package.ts";
 import type { Cue } from "../src/services/system-one-request.ts";
 
 export interface Scenario {
   readonly inputs: Readonly<Record<string, string>>;
   readonly label: string;
-  readonly skill:
+  readonly flow:
     | {
         readonly example: "example-broken-cart" | "example-delivery-cart";
         readonly kind: "example";
@@ -32,9 +32,9 @@ export const deliveryCart = (
   city: string,
   area: string
 ): Scenario => ({
+  flow: { example: "example-delivery-cart", kind: "example" },
   inputs: { area, city, product },
   label: "example-delivery-cart",
-  skill: { example: "example-delivery-cart", kind: "example" },
   verify: (_pages, final) =>
     final.includes("Your cart") &&
     final.includes(product) &&
@@ -46,9 +46,9 @@ export const DEMO_SCENARIOS: readonly Scenario[] = [
   deliveryCart("Trail Hammer", "Boulder", "Pearl Street"),
   deliveryCart("Garden Trowel", "Golden", "Pleasant View"),
   {
+    flow: { example: "example-broken-cart", kind: "example" },
     inputs: { product: "Cedar Pull Saw" },
     label: "example-broken-cart",
-    skill: { example: "example-broken-cart", kind: "example" },
     verify: (pages, final) =>
       pages.some((page) => page.includes("Your cart is empty")) &&
       !final.includes("Demo fault"),
@@ -67,23 +67,23 @@ export const parsePairs = (text: string): Record<string, string> =>
       )
   );
 
-/** A verified Flow Skill from a real catalog, described by the environment. */
+/** A verified Flow from a real catalog, described by the environment. */
 export const catalogScenario = Effect.gen(function* readCatalogScenario() {
-  const directory = yield* Config.String("JEV_SKILL_DIR");
-  const url = yield* Config.String("JEV_SKILL_URL");
+  const directory = yield* Config.String("JEV_FLOW_DIR");
+  const url = yield* Config.String("JEV_FLOW_URL");
   const inputs = parsePairs(
-    yield* Config.String("JEV_SKILL_INPUTS").pipe(Config.withDefault(""))
+    yield* Config.String("JEV_FLOW_INPUTS").pipe(Config.withDefault(""))
   );
-  const expected = (yield* Config.String("JEV_SKILL_EXPECT").pipe(
+  const expected = (yield* Config.String("JEV_FLOW_EXPECT").pipe(
     Config.withDefault("")
   ))
     .split(";")
     .map((phrase) => phrase.split("|").map((option) => option.trim()))
     .filter((options) => options.some((option) => option !== ""));
   return {
+    flow: { directory: path.resolve(directory), kind: "catalog", url },
     inputs,
     label: path.basename(directory),
-    skill: { directory: path.resolve(directory), kind: "catalog", url },
     verify: (_pages, final) =>
       expected.every((options) =>
         options.some((option) => final.includes(option))
@@ -106,10 +106,10 @@ export const fillPlaceholders = (
 };
 
 export const cuesFor = (
-  skill: string,
+  flow: string,
   inputs: Readonly<Record<string, string>>
 ): readonly Cue[] =>
-  flowSkillProcedureSteps(skill).map((step) => ({
+  flowProcedureSteps(flow).map((step) => ({
     doneWhen: fillPlaceholders(step.doneWhen, inputs),
     inputs,
     instruction: fillPlaceholders(

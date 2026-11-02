@@ -2,7 +2,7 @@ import {
   AgentElementRef,
   AgentRunTaskInput,
   AgentSnapshotId,
-  FlowSkillName,
+  FlowName,
   TeachingVariableInput,
   UserAgentProfileId,
   Variable,
@@ -11,13 +11,13 @@ import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import {
-  readFlowSkillFrontmatter,
-  stampFlowSkillProvenance,
-} from "../../src/services/flow-skill-package.ts";
+  readFlowFrontmatter,
+  stampFlowProvenance,
+} from "../../src/services/flow-package.ts";
 import {
   taskVariables,
   validateTaskInputs,
-} from "../../src/services/requested-flow-skills.ts";
+} from "../../src/services/requested-flows.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import { teachingEventsFor } from "../../src/services/teaching-recorder.ts";
 import { parameterizeVariables } from "../../src/services/teaching-recording-learning.ts";
@@ -31,13 +31,13 @@ it("accepts and drops legacy secret keys even with strict excess-property checks
   expect(Schema.encodeSync(Variable)(declaration)).toEqual(decoded);
   expect(
     Schema.decodeUnknownSync(AgentRunTaskInput, { onExcessProperty: "error" })({
-      flowSkillName: "login",
+      flowName: "login",
       name: "PASSWORD",
       secret: true,
       value: "test-password",
     })
   ).toEqual({
-    flowSkillName: "login",
+    flowName: "login",
     name: "PASSWORD",
     value: "test-password",
   });
@@ -178,12 +178,12 @@ it("shows the Teaching literal and writes its reference into learned Markdown", 
     content.split("1. Enter")[0]
   );
   expect(files[1]?.content).toBe("Use {{PASSWORD}}");
-  const stamped = stampFlowSkillProvenance(files[0]?.content ?? "", {
+  const stamped = stampFlowProvenance(files[0]?.content ?? "", {
     emulation: null,
     hosts: ["shop.test"],
   });
   expect(stamped).not.toContain("secret:");
-  expect(readFlowSkillFrontmatter(stamped)?.inputs).toEqual([
+  expect(readFlowFrontmatter(stamped)?.inputs).toEqual([
     { description: undefined, name: "PASSWORD" },
   ]);
 });
@@ -192,7 +192,7 @@ it.effect(
   "accepts supplied inputs and on-demand Variables regardless of case",
   () =>
     Effect.gen(function* caseIndependentInputs() {
-      const skill = {
+      const flow = {
         directory: "/catalog/login",
         emulation: undefined,
         files: [],
@@ -201,34 +201,34 @@ it.effect(
           { description: undefined, name: "PASSWORD" },
           { description: undefined, name: "password" },
         ],
-        name: FlowSkillName.make("login"),
+        name: FlowName.make("login"),
         steps: [],
         title: "login",
       };
       yield* validateTaskInputs(
-        [skill],
+        [flow],
         [
           {
-            flowSkillName: skill.name,
+            flowName: flow.name,
             name: "PASSWORD",
             value: "visible-test-value",
           },
         ]
       );
       expect(
-        taskVariables(skill).map(({ name, ...variable }) => ({
+        taskVariables(flow).map(({ name, ...variable }) => ({
           ...variable,
           name: name.toLowerCase(),
         }))
       ).toEqual([
         {
-          flowSkillName: "login",
+          flowName: "login",
           name: "password",
           runtime: true,
           supplied: false,
         },
         {
-          flowSkillName: "login",
+          flowName: "login",
           name: "password",
           runtime: true,
           supplied: false,

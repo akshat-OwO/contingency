@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   AgentSessionId,
   ContentHash,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
   UserAgentProfileId,
@@ -22,10 +22,10 @@ import {
 } from "../../src/services/teaching-recording-store.ts";
 
 const recordingId = TeachingRecordingId.make("recording-invalid-package");
-const flowSkillName = FlowSkillName.make("set-delivery-area");
+const flowName = FlowName.make("set-delivery-area");
 const claimOperationId = OperationId.make("invalid-package-claim");
 
-const PREVIOUS_SKILL = "# The package that was already saved\n";
+const PREVIOUS_FLOW = "# The package that was already saved\n";
 
 it.effect(
   "refuses a package that breaks the contract and leaves the previous one in place",
@@ -41,11 +41,11 @@ it.effect(
         TeachingRecordingLearningLive.pipe(Layer.provide(storeLayer))
       ).pipe(Layer.provideMerge(NodeServices.layer));
 
-      const skillDirectory = path.join(root, flowSkillName);
-      yield* fileSystem.makeDirectory(skillDirectory, { recursive: true });
+      const flowDirectory = path.join(root, flowName);
+      yield* fileSystem.makeDirectory(flowDirectory, { recursive: true });
       yield* fileSystem.writeFileString(
-        path.join(skillDirectory, "flow.md"),
-        PREVIOUS_SKILL
+        path.join(flowDirectory, "flow.md"),
+        PREVIOUS_FLOW
       );
 
       const { failure, lifecycle } = yield* Effect.gen(
@@ -59,7 +59,7 @@ it.effect(
               userAgentProfile: UserAgentProfileId.make("default"),
               viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
             },
-            flowSkillName,
+            flowName,
             operationId: OperationId.make("invalid-package-begin"),
             recordingId,
             sessionId: AgentSessionId.make("agent-invalid-package"),
@@ -118,10 +118,10 @@ it.effect(
 
       expect(failure.code).toBe("teaching_recording_invalid");
       expect(failure.diagnostics.map((entry) => entry.code)).toEqual([
-        "flow_skill_name_mismatch",
-        "flow_skill_missing_description",
-        "flow_skill_undeclared_input",
-        "flow_skill_missing_completion_condition",
+        "flow_name_mismatch",
+        "flow_missing_description",
+        "flow_undeclared_input",
+        "flow_missing_completion_condition",
       ]);
       expect(
         failure.diagnostics.some(
@@ -134,11 +134,11 @@ it.effect(
       // drafted, and the package on disk is the one that was already there.
       expect(lifecycle).toBe("learning");
       expect(
-        yield* fileSystem.readFileString(path.join(skillDirectory, "flow.md"))
-      ).toBe(PREVIOUS_SKILL);
-      expect(
-        yield* fileSystem.exists(path.join(root, ".flow-skill.lock"))
-      ).toBe(false);
+        yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
+      ).toBe(PREVIOUS_FLOW);
+      expect(yield* fileSystem.exists(path.join(root, ".flow.lock"))).toBe(
+        false
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
@@ -173,7 +173,7 @@ for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
           const learning = yield* TeachingRecordingLearning;
           const beginInput = {
             emulation: null,
-            flowSkillName: FlowSkillName.make(name),
+            flowName: FlowName.make(name),
             group: "",
             operationId: OperationId.make("layout-begin"),
             recordingId,
@@ -228,9 +228,7 @@ for (const scenario of ["duplicate", "runs", "recordings", "nested"]) {
           expect(yield* fs.exists(path.join(root, name, "flow.md"))).toBe(
             false
           );
-          expect(yield* fs.exists(path.join(root, ".flow-skill.lock"))).toBe(
-            false
-          );
+          expect(yield* fs.exists(path.join(root, ".flow.lock"))).toBe(false);
         }).pipe(Effect.provide(layer));
       }).pipe(Effect.provide(NodeServices.layer))
   );

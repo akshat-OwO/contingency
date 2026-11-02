@@ -39,6 +39,7 @@ const summary = {
   },
   coverage: { complete: true, executed: 1, total: 1, unexecuted: 0 },
   endedAt: "2026-09-04T00:01:00.000Z",
+  // Version 2 files predate ADR 0071 and keep their on-disk key.
   flowSkillName: "browse-catalogue",
   inputs: [{ name: "product", value: "Mug" }],
   outcome: "completed",
@@ -68,7 +69,7 @@ const summary = {
   videoPath: "run.webm",
 };
 
-test("only a working Agent Assessment advances a Flow Skill", () => {
+test("only a working Agent Assessment advances a Flow", () => {
   const outcomes = AgentAssessmentOutcome.literals;
   expect(outcomes.filter((outcome) => advancesAgentRun(outcome))).toEqual([
     "working",
@@ -110,6 +111,17 @@ test("a Run Summary persisted while Runs had ceilings still decodes", () => {
   expect(decoded.outcome).toBe("timed-out");
   expect(decoded.ceilings?.runMs).toBe(900_000);
   expect(decoded.steps[0]?.assessment).toBeNull();
+});
+
+test("a version 2 Run Summary reads its historical Flow key", () => {
+  expect(decodeSummary(summary).flowName).toBe("browse-catalogue");
+  expect(() =>
+    decodeSummary({ ...summary, flowName: "browse-catalogue" })
+  ).not.toThrow();
+  const { flowSkillName: _removed, ...renamed } = summary;
+  expect(() =>
+    decodeSummary({ ...renamed, flowName: "browse-catalogue" })
+  ).toThrow();
 });
 
 test("a new Run Summary carries no ceilings", () => {

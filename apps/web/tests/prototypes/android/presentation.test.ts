@@ -1,4 +1,4 @@
-import { AgentSessionId, FlowSkillName } from "@contingency/protocol";
+import { AgentSessionId, FlowName } from "@contingency/protocol";
 import type { AndroidWorkspaceSnapshot } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
@@ -16,7 +16,7 @@ const pending = {
   completedAt: null,
   controller: "user",
   error: null,
-  flowSkillName: FlowSkillName.make("android-checkout"),
+  flowName: FlowName.make("android-checkout"),
   id: AgentSessionId.make("agent-android"),
   kind: "teaching",
   observation: null,

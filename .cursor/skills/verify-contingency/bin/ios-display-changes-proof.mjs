@@ -397,15 +397,15 @@ const mirrorPackets = async (sessionId, count) => {
 
 const loginName = "Test Shopper";
 const password = "fixture-password";
-const flowSkillName = `ios-display-${mode}`;
+const flowName = `ios-display-${mode}`;
 const sessions = [];
 let device;
 let selection;
-const startTeaching = async (name = flowSkillName) => {
+const startTeaching = async (name = flowName) => {
   const started = await call(
     {
       _tag: "start",
-      flowSkillName: name,
+      flowName: name,
       kind: "teaching",
       operationId: operation(),
       recordingId: null,
@@ -509,8 +509,8 @@ const agentSignIn = async (sessionId) => {
 };
 const learn = async (recordingId) => {
   const { claim, entries } = await timeline(recordingId);
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS display-change fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Login and account across display changes\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
-  await tool("agent_flow_skill_save", {
+  const content = `---\nname: ${flowName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS display-change fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Login and account across display changes\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
+  await tool("agent_flow_save", {
     claimOperationId: claim,
     files: [{ content, path: "flow.md" }],
     operationId: operation(),
@@ -576,7 +576,7 @@ const rotationCase = async () => {
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? stopped.recordingId : null,
@@ -686,7 +686,7 @@ const foldCase = async () => {
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? stopped.recordingId : null,
@@ -814,7 +814,7 @@ const displayRefusalCase = async () => {
 // Fire an input from a second client, then press Stop in Workspace once the
 // backend reports the chosen stage. Product serialization decides the order.
 const stopRace = async (stage) => {
-  const teaching = await startTeaching(`${flowSkillName}-${stage}`);
+  const teaching = await startTeaching(`${flowName}-${stage}`);
   const before = await observe(teaching);
   const field = find(before, "text-field", "Login name");
   const baseline = await dispatched();

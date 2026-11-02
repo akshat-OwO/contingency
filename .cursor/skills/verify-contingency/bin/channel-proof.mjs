@@ -28,7 +28,7 @@ await Effect.runPromise(
       return await response.json();
     });
     assert.deepEqual(capture.capabilities.experimental["claude/channel"], {});
-    const expected = process.argv[2] ?? "flow-skill-verified";
+    const expected = process.argv[2] ?? "flow-verified";
     const matching = capture.messages.filter((frame) =>
       frame.params.content.includes(expected)
     );

@@ -13,7 +13,7 @@ import {
 } from "effect";
 
 import packageJson from "../../package.json" with { type: "json" };
-import { GLOBAL_CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
+import { GLOBAL_CATALOG_DIRECTORY } from "./flow-catalog.ts";
 
 /**
  * Settings read from `config.json` in the Catalog Root and in
@@ -53,7 +53,7 @@ const SystemOneSettings = Schema.Struct({
     Schema.Boolean.annotate({
       default: false,
       description:
-        "Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without a configured endpoint or installed Local System One.",
+        "Tell the agent to try a System One Pursuit for each Flow step first. Has no effect without a configured endpoint or installed Local System One.",
     })
   ),
   local: Schema.optionalKey(

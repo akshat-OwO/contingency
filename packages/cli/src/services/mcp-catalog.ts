@@ -4,9 +4,9 @@ import {
   AgentSessionId,
   AgentCatalogSelect,
   AgentPendingDecisionResolve,
-  FlowSkillList,
-  FlowSkillName,
-  FlowSkillFile,
+  FlowList,
+  FlowName,
+  FlowFile,
   TeachingInstructionRecord,
   TeachingScan,
   optionalNullable,
@@ -16,8 +16,8 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
-import type { FlowSkillCatalogError } from "./flow-skill-catalog.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
+import type { FlowCatalogError } from "./flow-catalog.ts";
 import { GETTING_STARTED_URI } from "./mcp-docs.ts";
 import { McpProcessDiagnostics, McpProcessInfo } from "./mcp-process-info.ts";
 import {
@@ -31,13 +31,13 @@ import { readExampleDocument } from "./onboarding-examples.ts";
 import { fromAgent } from "./session-events.ts";
 
 /**
- * The Catalog Root, the Flow Skills inside it, and the two decisions that
+ * The Catalog Root, the Flows inside it, and the two decisions that
  * protect execution.
  *
- * Nothing here authors a reusable artifact. A Flow Skill is written by a
+ * Nothing here authors a reusable artifact. A Flow is written by a
  * learning agent from a Teaching Recording and kept only when the user
  * verifies it
- * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)),
+ * ([ADR 0039](../../../../docs/adr/0039-flow-flows-are-learned-from-temporary-teaching-recordings.md)),
  * so this surface reads the catalog and relays consent.
  */
 
@@ -52,7 +52,7 @@ class AgentCatalogFailure extends Schema.Error<AgentCatalogFailure>(
   message: Schema.String,
 }) {}
 
-const failure = (cause: AgentSessionError | FlowSkillCatalogError) =>
+const failure = (cause: AgentSessionError | FlowCatalogError) =>
   new AgentCatalogFailure({
     code: cause.code,
     message: `${cause.message} (${cause.code})`,
@@ -64,9 +64,9 @@ const NoParameters = Schema.Record(Schema.String, Schema.Unknown);
 
 const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
-    dependencies: [AgentSession, FlowSkillCatalog, McpProcessDiagnostics],
+    dependencies: [AgentSession, FlowCatalog, McpProcessDiagnostics],
     description:
-      "Read the Workspace URL, Catalog Root, Flow Skill count, and process capabilities. It defaults to the workspace's contingency directory; no tool reads a user-global catalog. Read the returned guide before other work.",
+      "Read the Workspace URL, Catalog Root, Flow count, and process capabilities. It defaults to the workspace's contingency directory; no tool reads a user-global catalog. Read the returned guide before other work.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
@@ -79,9 +79,9 @@ const AgentCatalogGetTool = readOnly(
 );
 
 const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
-  dependencies: [FlowSkillCatalog],
+  dependencies: [FlowCatalog],
   description:
-    "Select the Catalog Root that bounds Flow Skill discovery and Teaching Recording storage for this MCP process. `root` must be an absolute directory path.",
+    "Select the Catalog Root that bounds Flow discovery and Teaching Recording storage for this MCP process. `root` must be an absolute directory path.",
   failure: AgentCatalogFailure,
   parameters: Schema.Struct({
     operationId: AgentCatalogSelect.fields.operationId,
@@ -90,29 +90,29 @@ const AgentCatalogSelectTool = Tool.make("agent_catalog_select", {
   success: AgentCatalogInfo,
 });
 
-const FlowSkillsListTool = readOnly(
-  Tool.make("agent_flow_skills_list", {
-    dependencies: [FlowSkillCatalog],
+const FlowsListTool = readOnly(
+  Tool.make("agent_flows_list", {
+    dependencies: [FlowCatalog],
     description:
-      "List the Flow Skills saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from flow.md, each declared input with its description when flow.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested skill names; use agent_run_update to consult another requested skill in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
+      "List the Flows saved in the selected Catalog Root before teaching a journey again. Each entry names the directory, the description from flow.md, each declared input with its description when flow.md gives one, and how many numbered steps the procedure carries. Use agent_run_start with the user's requested task and optional requested flow names; use agent_run_update to consult another requested flow in the same browser. The listing never reports the Catalog Root or a filesystem path; call agent_catalog_get when you need the selected root.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
-    success: FlowSkillList,
+    success: FlowList,
   })
 );
 
 const FlowDocumentGetTool = readOnly(
   Tool.make("agent_flow_document_get", {
-    dependencies: [FlowSkillCatalog, AgentSession],
+    dependencies: [FlowCatalog, AgentSession],
     description:
       "Read one supporting Markdown document. Pass sessionId when following a Run to resolve the referenced Flow from its original catalog or bundled Example origin. Without sessionId, read the selected catalog. Use the supportingDocuments index returned at Run start or update. Evidence and paths outside the document area are refused.",
     failure: AgentCatalogFailure,
     parameters: Schema.Struct({
-      flowSkillName: FlowSkillName,
+      flowName: FlowName,
       path: Schema.String,
       sessionId: optionalNullable(AgentSessionId),
     }),
-    success: FlowSkillFile,
+    success: FlowFile,
   })
 );
 
@@ -176,7 +176,7 @@ export const AgentCatalogTools = withStrictParameters(
   Toolkit.make(
     AgentCatalogGetTool,
     AgentCatalogSelectTool,
-    FlowSkillsListTool,
+    FlowsListTool,
     FlowDocumentGetTool,
     TeachingInstructionRecordTool,
     GuidedRunQuestionAskTool,
@@ -187,7 +187,7 @@ export const AgentCatalogTools = withStrictParameters(
 export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
   agent_catalog_get: () =>
     Effect.gen(function* readCatalog() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       const session = yield* AgentSession;
       const workspaceUrl = yield* session.workspaceUrl.pipe(
         Effect.mapError(failure)
@@ -202,14 +202,14 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
     }),
   agent_catalog_select: (params) =>
     Effect.gen(function* selectCatalog() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       return yield* catalog
         .select(params.root, params.operationId)
         .pipe(Effect.mapError(failure));
     }),
   agent_flow_document_get: (params) =>
     Effect.gen(function* readDocument() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       if (params.sessionId !== undefined) {
         const session = yield* AgentSession;
         const snapshot = yield* session
@@ -218,23 +218,20 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
         const { run } = snapshot;
         const reference =
           run !== null && "schemaVersion" in run
-            ? run.referencedSkills.find(
-                (skill) => skill.flowSkillName === params.flowSkillName
+            ? run.referencedFlows.find(
+                (flow) => flow.flowName === params.flowName
               )
             : undefined;
         if (reference === undefined) {
           return yield* Effect.fail(
             new AgentCatalogFailure({
               code: "agent_catalog_invalid",
-              message: `Flow ${params.flowSkillName} is not referenced by this Run.`,
+              message: `Flow ${params.flowName} is not referenced by this Run.`,
             })
           );
         }
         if (reference.origin === "example") {
-          return yield* readExampleDocument(
-            params.flowSkillName,
-            params.path
-          ).pipe(
+          return yield* readExampleDocument(params.flowName, params.path).pipe(
             Effect.mapError(
               (cause) =>
                 new AgentCatalogFailure({
@@ -246,12 +243,12 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
         }
       }
       return yield* catalog
-        .readDocument(params.flowSkillName, params.path)
+        .readDocument(params.flowName, params.path)
         .pipe(Effect.mapError(failure));
     }),
-  agent_flow_skills_list: () =>
-    Effect.gen(function* listFlowSkills() {
-      const catalog = yield* FlowSkillCatalog;
+  agent_flows_list: () =>
+    Effect.gen(function* listFlows() {
+      const catalog = yield* FlowCatalog;
       return yield* catalog.list().pipe(Effect.mapError(failure));
     }),
   agent_guided_run_question_ask: (params) =>

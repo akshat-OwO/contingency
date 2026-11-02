@@ -78,14 +78,14 @@ export const validatePlatformRequirements = (
     const { requirements, diagnostics } = saved;
     if (diagnostics.length > 0) {
       return yield* Effect.fail({
-        code: "flow_skill_invalid" as const,
+        code: "flow_invalid" as const,
         message: diagnostics.join(" "),
       });
     }
     if (requirements.platform !== platform) {
       return yield* Effect.fail({
-        code: "flow_skill_invalid" as const,
-        message: `This runtime supports ${platform}, but the Flow Skill requires ${requirements.platform}. Select a supported ${requirements.platform} runtime and verify that platform separately.`,
+        code: "flow_invalid" as const,
+        message: `This runtime supports ${platform}, but the Flow requires ${requirements.platform}. Select a supported ${requirements.platform} runtime and verify that platform separately.`,
       });
     }
     const available = new Set(capabilities);
@@ -94,7 +94,7 @@ export const validatePlatformRequirements = (
     );
     if (missing.length > 0) {
       return yield* Effect.fail({
-        code: "flow_skill_invalid" as const,
+        code: "flow_invalid" as const,
         message: `The ${platform} runtime is missing required capabilities: ${missing.join(", ")}. Use a runtime that supports them.`,
       });
     }

@@ -108,7 +108,7 @@ await Effect.runPromise(
     const url = new URL("eval.html", instance.ecommerceUrl).href;
     const run = yield* program(
       "start",
-      `const s = await tools.agent_run_start({inputs:[],referencedSkills:[],requestedTask:"Inspect the disposable account and confirm each delete attempt",url:${JSON.stringify(url)},operationId:"eval-proof-start",view:"compact"}); return {id:s.id,viewUrl:s.viewUrl};`
+      `const s = await tools.agent_run_start({inputs:[],referencedFlows:[],requestedTask:"Inspect the disposable account and confirm each delete attempt",url:${JSON.stringify(url)},operationId:"eval-proof-start",view:"compact"}); return {id:s.id,viewUrl:s.viewUrl};`
     );
     const sid = JSON.stringify(run.id);
     const evaluate = (operationId, mode, script) =>

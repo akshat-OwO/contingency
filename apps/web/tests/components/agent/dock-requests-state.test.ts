@@ -28,7 +28,7 @@ const snapshot = (overrides: Readonly<Record<string, Schema.Json>>) =>
     createdAt: at,
     currentUrl: "https://shop.example.com/",
     dryRun: null,
-    flowSkillName: "checkout",
+    flowName: "checkout",
     id: "agent-one",
     interruptedAction: null,
     ownerProcessId: "mcp-test",
@@ -105,7 +105,7 @@ test("counts Dry Run secrets still to supply", () => {
   const request = dockRequests(
     snapshot({
       dryRun: {
-        flowSkillName: "checkout",
+        flowName: "checkout",
         inputs: [],
         recordingId: "recording-checkout",
         startedAt: at,
@@ -153,7 +153,7 @@ test("drops Dry Run secrets from the dock once every one is supplied", () => {
     dockRequests(
       snapshot({
         dryRun: {
-          flowSkillName: "checkout",
+          flowName: "checkout",
           inputs: [],
           recordingId: "recording-checkout",
           startedAt: at,
@@ -178,7 +178,7 @@ test("a new Guided Run question opens a folded tier and answered pairs remain re
   const guided = {
     activity: "teaching",
     captureState: { _tag: "recording", startedAt: at },
-    flowSkillName: "cart",
+    flowName: "cart",
     origin: "guided-run",
     recordingId: "recording-cart",
     teaching: { actionCount: 0, instructionCount: 1, instructions: [question] },

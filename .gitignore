@@ -53,6 +53,6 @@ packages/cli/tests/calibration/results.json
 contingency/**/runs/
 contingency/**/recordings/
 contingency/runs/
-contingency/.flow-skill.lock
-contingency/.flow-skill-*.tmp
-contingency/.flow-skill-*.backup
+contingency/.flow.lock
+contingency/.flow-*.tmp
+contingency/.flow-*.backup

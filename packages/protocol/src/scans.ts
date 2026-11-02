@@ -27,7 +27,7 @@ export const ScanRequirement = Schema.Struct({
 export type ScanRequirement = typeof ScanRequirement.Type;
 export const ScanReference = Schema.Struct({
   ...ScanRequirement.fields,
-  flowSkillName: text,
+  flowName: text,
   outsideScope: Schema.optionalKey(text),
 });
 export type ScanReference = typeof ScanReference.Type;
@@ -35,7 +35,7 @@ export type ScanReference = typeof ScanReference.Type;
 export const ScanReport = Schema.Struct({
   durationMs: Schema.optionalKey(Schema.Number),
   endedAt: Schema.optionalKey(text),
-  flowSkillName: text,
+  flowName: text,
   id: text,
   mode: ScanMode,
   reportPath: Schema.optionalKey(text),
@@ -64,7 +64,7 @@ export const scanCoverage = (run: {
   const fulfilled = applicable.filter((scan) =>
     (run.scanReports ?? []).some(
       (report) =>
-        report.flowSkillName === scan.flowSkillName &&
+        report.flowName === scan.flowName &&
         report.requirementId === scan.id &&
         report.status === "completed"
     )

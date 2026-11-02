@@ -1,6 +1,6 @@
 import {
   AgentSessionId,
-  FlowSkillName,
+  FlowName,
   OperationId,
   TeachingRecordingId,
   UserAgentProfileId,
@@ -37,7 +37,7 @@ const program = Effect.gen(function* runProcessCheck() {
         userAgentProfile: UserAgentProfileId.make("default"),
         viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
       },
-      flowSkillName: FlowSkillName.make("checkout-flow"),
+      flowName: FlowName.make("checkout-flow"),
       operationId: OperationId.make("process-begin"),
       recordingId,
       sessionId: AgentSessionId.make("agent-process-restart"),

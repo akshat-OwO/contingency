@@ -1,27 +1,27 @@
-import type { FlowSkillFile } from "@contingency/protocol";
+import type { FlowFile } from "@contingency/protocol";
 import { Result } from "effect";
 import { expect, test } from "vitest";
 
 import {
-  flowSkillProcedureSteps,
-  readFlowSkillFrontmatter,
-  stampFlowSkillProvenance,
+  flowProcedureSteps,
+  readFlowFrontmatter,
+  stampFlowProvenance,
   stampFlowVerification,
   flowVerificationDigests,
-  validateFlowSkillPackage,
-} from "../../src/services/flow-skill-package.ts";
+  validateFlowPackage,
+} from "../../src/services/flow-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
 
-const FLOW_SKILL_NAME = "set-delivery-area";
+const FLOW_FLOW_NAME = "set-delivery-area";
 
 /**
  * The package a learning agent produces from the delivery-location recording,
- * written the way the vendored authoring skills teach. Every mutation below
+ * written the way the packaged writing guidance teaches. Every mutation below
  * changes exactly one property of this package, so each test fails if its own
  * check is deleted from the validator.
  */
-const GOLDEN_SKILL = `---
-name: ${FLOW_SKILL_NAME}
+const GOLDEN_FLOW = `---
+name: ${FLOW_FLOW_NAME}
 description: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.
 inputs:
   - city
@@ -54,33 +54,33 @@ re-renders in place, so the enclosing heading separates a repeated name from
 the same name elsewhere on the page.
 `;
 
-export const goldenFlowSkillFiles = (): readonly FlowSkillFile[] => [
-  { content: GOLDEN_SKILL, path: "flow.md" },
+export const goldenFlowFiles = (): readonly FlowFile[] => [
+  { content: GOLDEN_FLOW, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
-const withSkill = (content: string): readonly FlowSkillFile[] => [
+const withFlow = (content: string): readonly FlowFile[] => [
   { content, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
 ];
 
-const withAccessibility = (content: string): readonly FlowSkillFile[] => [
-  { content: GOLDEN_SKILL, path: "flow.md" },
+const withAccessibility = (content: string): readonly FlowFile[] => [
+  { content: GOLDEN_FLOW, path: "flow.md" },
   { content, path: "targets.md" },
 ];
 
-const codesFor = (files: readonly FlowSkillFile[]): readonly string[] => {
-  const outcome = validateFlowSkillPackage(FLOW_SKILL_NAME, files);
+const codesFor = (files: readonly FlowFile[]): readonly string[] => {
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   return Result.isFailure(outcome)
     ? outcome.failure.map((diagnostic) => diagnostic.code)
     : [];
 };
 
 const pathFor = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   code: string
 ): readonly string[] => {
-  const outcome = validateFlowSkillPackage(FLOW_SKILL_NAME, files);
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   if (Result.isSuccess(outcome)) {
     return [];
   }
@@ -90,8 +90,8 @@ const pathFor = (
 };
 
 test("accepts a parameterized package and returns the submitted bytes unchanged", () => {
-  const files = goldenFlowSkillFiles();
-  const outcome = validateFlowSkillPackage(FLOW_SKILL_NAME, files);
+  const files = goldenFlowFiles();
+  const outcome = validateFlowPackage(FLOW_FLOW_NAME, files);
   expect(Result.isSuccess(outcome)).toBe(true);
   if (Result.isSuccess(outcome)) {
     expect(outcome.success).toEqual(files);
@@ -101,24 +101,24 @@ test("accepts a parameterized package and returns the submitted bytes unchanged"
 test("refuses a package with no flow.md", () => {
   expect(
     codesFor([{ content: GOLDEN_ACCESSIBILITY, path: "targets.md" }])
-  ).toEqual(["flow_skill_missing_skill_file"]);
+  ).toEqual(["flow_missing_flow_file"]);
 });
 
 test("refuses flow.md without frontmatter", () => {
-  const files = withSkill(GOLDEN_SKILL.slice(GOLDEN_SKILL.indexOf("\n# ")));
-  expect(codesFor(files)).toContain("flow_skill_missing_frontmatter");
-  expect(pathFor(files, "flow_skill_missing_frontmatter")).toEqual([
+  const files = withFlow(GOLDEN_FLOW.slice(GOLDEN_FLOW.indexOf("\n# ")));
+  expect(codesFor(files)).toContain("flow_missing_frontmatter");
+  expect(pathFor(files, "flow_missing_frontmatter")).toEqual([
     "flow.md",
     "frontmatter",
   ]);
 });
 
-test("refuses a frontmatter name that is not the Flow Skill directory", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(`name: ${FLOW_SKILL_NAME}`, "name: set_delivery_area")
+test("refuses a frontmatter name that is not the Flow directory", () => {
+  const files = withFlow(
+    GOLDEN_FLOW.replace(`name: ${FLOW_FLOW_NAME}`, "name: set_delivery_area")
   );
-  expect(codesFor(files)).toContain("flow_skill_name_mismatch");
-  expect(pathFor(files, "flow_skill_name_mismatch")).toEqual([
+  expect(codesFor(files)).toContain("flow_name_mismatch");
+  expect(pathFor(files, "flow_name_mismatch")).toEqual([
     "flow.md",
     "frontmatter",
     "name",
@@ -126,11 +126,11 @@ test("refuses a frontmatter name that is not the Flow Skill directory", () => {
 });
 
 test("refuses a package with no description to trigger on", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(/^description: .*$/mu, "description:")
+  const files = withFlow(
+    GOLDEN_FLOW.replace(/^description: .*$/mu, "description:")
   );
-  expect(codesFor(files)).toContain("flow_skill_missing_description");
-  expect(pathFor(files, "flow_skill_missing_description")).toEqual([
+  expect(codesFor(files)).toContain("flow_missing_description");
+  expect(pathFor(files, "flow_missing_description")).toEqual([
     "flow.md",
     "frontmatter",
     "description",
@@ -138,9 +138,9 @@ test("refuses a package with no description to trigger on", () => {
 });
 
 test("refuses a placeholder that no declared input covers", () => {
-  const files = withSkill(GOLDEN_SKILL.replace("  - delivery_area\n", ""));
-  expect(codesFor(files)).toContain("flow_skill_undeclared_input");
-  expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
+  const files = withFlow(GOLDEN_FLOW.replace("  - delivery_area\n", ""));
+  expect(codesFor(files)).toContain("flow_undeclared_input");
+  expect(pathFor(files, "flow_undeclared_input")).toEqual([
     "flow.md",
     "frontmatter",
     "inputs",
@@ -152,8 +152,8 @@ test("refuses an undeclared placeholder that only a reference file uses", () => 
   const files = withAccessibility(
     `${GOLDEN_ACCESSIBILITY}\nAsk for {{postcode}} when the area is ambiguous.\n`
   );
-  expect(codesFor(files)).toContain("flow_skill_undeclared_input");
-  expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
+  expect(codesFor(files)).toContain("flow_undeclared_input");
+  expect(pathFor(files, "flow_undeclared_input")).toEqual([
     "targets.md",
     "inputs",
     "postcode",
@@ -161,14 +161,14 @@ test("refuses an undeclared placeholder that only a reference file uses", () => 
 });
 
 test("refuses an undeclared placeholder that only the description uses", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       "description: Set the shop's",
       "description: Set {{region}} for the shop's"
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_undeclared_input");
-  expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
+  expect(codesFor(files)).toContain("flow_undeclared_input");
+  expect(pathFor(files, "flow_undeclared_input")).toEqual([
     "flow.md",
     "frontmatter",
     "inputs",
@@ -177,21 +177,21 @@ test("refuses an undeclared placeholder that only the description uses", () => {
 });
 
 test("refuses a flow.md that carries no numbered procedure", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL.slice(0, GOLDEN_SKILL.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
+  const files = withFlow(
+    `${GOLDEN_FLOW.slice(0, GOLDEN_FLOW.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
   );
-  expect(codesFor(files)).toContain("flow_skill_missing_steps");
+  expect(codesFor(files)).toContain("flow_missing_steps");
 });
 
 test("refuses a step with no completion condition", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       '2. Choose the button named "Select manually". Done when: a textbox named "Search for your delivery area" is on the page.',
       '2. Choose the button named "Select manually".'
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_missing_completion_condition");
-  expect(pathFor(files, "flow_skill_missing_completion_condition")).toEqual([
+  expect(codesFor(files)).toContain("flow_missing_completion_condition");
+  expect(pathFor(files, "flow_missing_completion_condition")).toEqual([
     "flow.md",
     "steps",
     "2",
@@ -199,66 +199,63 @@ test("refuses a step with no completion condition", () => {
 });
 
 test("refuses a short-lived element reference", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
-      'the button named "Select manually"',
-      "the element e17"
-    )
+  const files = withFlow(
+    GOLDEN_FLOW.replace('the button named "Select manually"', "the element e17")
   );
-  expect(codesFor(files)).toContain("flow_skill_element_ref");
+  expect(codesFor(files)).toContain("flow_element_ref");
 });
 
 test("refuses a generated selector", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace(
       'the button named "Confirm delivery area"',
       "the button #confirm-area"
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_generated_selector");
+  expect(codesFor(files)).toContain("flow_generated_selector");
 });
 
-test("refuses recording artifacts the Flow Skill outlives", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL}\nReplay trace.zip when a step is unclear.\n`
+test("refuses recording artifacts the Flow outlives", () => {
+  const files = withFlow(
+    `${GOLDEN_FLOW}\nReplay trace.zip when a step is unclear.\n`
   );
-  expect(codesFor(files)).toContain("flow_skill_recording_residue");
+  expect(codesFor(files)).toContain("flow_recording_residue");
 });
 
 test("refuses an embedded screenshot", () => {
-  const files = withSkill(
-    `${GOLDEN_SKILL}\n![The delivery panel](references/delivery.png)\n`
+  const files = withFlow(
+    `${GOLDEN_FLOW}\n![The delivery panel](references/delivery.png)\n`
   );
-  expect(codesFor(files)).toContain("flow_skill_embedded_image");
+  expect(codesFor(files)).toContain("flow_embedded_image");
 });
 
 test("refuses private model reasoning", () => {
   const files = withAccessibility(
     `${GOLDEN_ACCESSIBILITY}\nI think the status line is the most stable target.\n`
   );
-  expect(codesFor(files)).toContain("flow_skill_private_reasoning");
+  expect(codesFor(files)).toContain("flow_private_reasoning");
 });
 
 test("refuses a captured credential literal", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace("inputs:", "inputs:\n  - password\n").replace(
+  const files = withFlow(
+    GOLDEN_FLOW.replace("inputs:", "inputs:\n  - password\n").replace(
       "# Set the delivery area",
       "# Set the delivery area\n\nSign in with password: hunter2-from-the-demo"
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_secret_literal");
+  expect(codesFor(files)).toContain("flow_secret_literal");
 });
 
 test("refuses a link to a reference file the package does not carry", () => {
   const files = [
     {
-      content: GOLDEN_SKILL.replace("targets.md", "missing-targets.md"),
+      content: GOLDEN_FLOW.replace("targets.md", "missing-targets.md"),
       path: "flow.md",
     },
     { content: GOLDEN_ACCESSIBILITY, path: "targets.md" },
   ];
-  expect(codesFor(files)).toContain("flow_skill_missing_reference");
-  expect(pathFor(files, "flow_skill_missing_reference")).toEqual([
+  expect(codesFor(files)).toContain("flow_missing_reference");
+  expect(pathFor(files, "flow_missing_reference")).toEqual([
     "flow.md",
     "missing-targets.md",
   ]);
@@ -271,7 +268,7 @@ test("refuses an accessibility reference with no stability rationale", () => {
       GOLDEN_ACCESSIBILITY.indexOf("## Why these targets are stable")
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_missing_stability_rationale");
+  expect(codesFor(files)).toContain("flow_missing_stability_rationale");
 });
 
 test("refuses an accessibility target without nearby context", () => {
@@ -281,14 +278,14 @@ test("refuses an accessibility target without nearby context", () => {
       '- role=button name="Select manually"'
     )
   );
-  expect(codesFor(files)).toContain("flow_skill_incomplete_target");
+  expect(codesFor(files)).toContain("flow_incomplete_target");
 });
 
 test("refuses an accessibility reference that lists no target at all", () => {
   const files = withAccessibility(
     "# Accessibility targets\n\n## Why these targets are stable\n\nThe labels are visible.\n"
   );
-  expect(codesFor(files)).toContain("flow_skill_missing_target");
+  expect(codesFor(files)).toContain("flow_missing_target");
 });
 
 test("stamps the demonstrated hosts and Emulation over whatever the agent wrote", () => {
@@ -306,7 +303,7 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
     "",
     "1. Do the thing. Done when: it is done.",
   ].join("\n");
-  const stamped = stampFlowSkillProvenance(authored, {
+  const stamped = stampFlowProvenance(authored, {
     emulation: {
       colorScheme: "dark",
       geolocation: { accuracy: 50, latitude: 28.4718, longitude: 77.0456 },
@@ -327,7 +324,7 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
     },
     hosts: ["127.0.0.1", "shop.example.com"],
   });
-  const frontmatter = readFlowSkillFrontmatter(stamped);
+  const frontmatter = readFlowFrontmatter(stamped);
   // The agent's asserted host is replaced, not merged: only what the recording
   // observed may widen a Run's ceiling.
   expect(frontmatter?.hosts).toEqual(["127.0.0.1", "shop.example.com"]);
@@ -369,7 +366,7 @@ test("stamps the demonstrated hosts and Emulation over whatever the agent wrote"
 });
 
 test("reads a package saved before Contingency stamped provenance", () => {
-  const frontmatter = readFlowSkillFrontmatter(
+  const frontmatter = readFlowFrontmatter(
     "---\nname: set-delivery-area\ndescription: Set it.\ninputs:\n  - city\n---\n\n1. Go. Done when: done.\n"
   );
   expect(frontmatter?.hosts).toEqual([]);
@@ -377,7 +374,7 @@ test("reads a package saved before Contingency stamped provenance", () => {
 });
 
 test("reads a permission entry written without a state as granted", () => {
-  const frontmatter = readFlowSkillFrontmatter(
+  const frontmatter = readFlowFrontmatter(
     "---\nname: x\nemulation:\n  permissions:\n    - geolocation\n  locale: en-IN\n---\n\nbody\n"
   );
   expect(frontmatter?.emulation?.permissions).toEqual([
@@ -388,21 +385,21 @@ test("reads a permission entry written without a state as granted", () => {
 });
 
 test("ignores a geolocation scalar it cannot read back", () => {
-  const frontmatter = readFlowSkillFrontmatter(
+  const frontmatter = readFlowFrontmatter(
     "---\nname: x\nemulation:\n  geolocation: 128.0,77.0\n---\n\nbody\n"
   );
   expect(frontmatter?.emulation?.geolocation).toBeUndefined();
 });
 
 test("ignores a viewport scalar it cannot read back", () => {
-  const frontmatter = readFlowSkillFrontmatter(
+  const frontmatter = readFlowFrontmatter(
     "---\nname: x\nemulation:\n  viewport: wide\n---\n\nbody\n"
   );
   expect(frontmatter?.emulation?.viewport).toBeUndefined();
 });
 
 test("reads an input declared as a mapping with a description", () => {
-  const frontmatter = readFlowSkillFrontmatter(
+  const frontmatter = readFlowFrontmatter(
     [
       "---",
       "name: add-anvil",
@@ -420,12 +417,12 @@ test("reads an input declared as a mapping with a description", () => {
     { description: "The product SKU added to the cart.", name: "sku" },
     { description: undefined, name: "quantity" },
   ]);
-  // An input's own description never becomes the Flow Skill's.
+  // An input's own description never becomes the Flow's.
   expect(frontmatter?.description).toBe("Add an anvil to the cart.");
 });
 
 test("accepts a package whose inputs use the mapping shape", () => {
-  const mapped = GOLDEN_SKILL.replace(
+  const mapped = GOLDEN_FLOW.replace(
     "inputs:\n  - city\n  - delivery_area",
     [
       "inputs:",
@@ -434,31 +431,31 @@ test("accepts a package whose inputs use the mapping shape", () => {
       "  - name: delivery_area",
     ].join("\n")
   );
-  expect(codesFor(withSkill(mapped))).toEqual([]);
+  expect(codesFor(withFlow(mapped))).toEqual([]);
 });
 
 test("names the shape when an inputs entry is neither form", () => {
-  const broken = GOLDEN_SKILL.replace("  - city\n", "  - label: city\n");
-  const codes = codesFor(withSkill(broken));
-  expect(codes).toContain("flow_skill_invalid_input");
+  const broken = GOLDEN_FLOW.replace("  - city\n", "  - label: city\n");
+  const codes = codesFor(withFlow(broken));
+  expect(codes).toContain("flow_invalid_input");
   // The undeclared-input check still fires for the placeholder that now has
   // no declaration, but the shape problem is reported beside it.
-  expect(codes).toContain("flow_skill_undeclared_input");
+  expect(codes).toContain("flow_undeclared_input");
 });
 
 test("still refuses a placeholder no accepted shape declares", () => {
-  const undeclared = GOLDEN_SKILL.replace("  - delivery_area\n", "");
-  const codes = codesFor(withSkill(undeclared));
-  expect(codes).toEqual(["flow_skill_undeclared_input"]);
+  const undeclared = GOLDEN_FLOW.replace("  - delivery_area\n", "");
+  const codes = codesFor(withFlow(undeclared));
+  expect(codes).toEqual(["flow_undeclared_input"]);
 });
 
 test("ends the last step at the section that follows the procedure", () => {
-  const withSection = `${GOLDEN_SKILL}
+  const withSection = `${GOLDEN_FLOW}
 ## Reading the result
 
 The status only appears once the shop accepts the area.
 `;
-  const steps = flowSkillProcedureSteps(withSection);
+  const steps = flowProcedureSteps(withSection);
   expect(steps).toHaveLength(5);
   expect(steps.at(-1)?.description).toBe(
     '5. Choose the button named "Confirm delivery area". Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".'
@@ -468,7 +465,7 @@ The status only appears once the shop accepts the area.
 });
 
 test("keeps a fenced comment inside the step that carries it", () => {
-  const withFence = GOLDEN_SKILL.replace(
+  const withFence = GOLDEN_FLOW.replace(
     '5. Choose the button named "Confirm delivery area". Done when: the status reads "Delivering to {{delivery_area}}, {{city}}".\n',
     [
       '5. Choose the button named "Confirm delivery area".',
@@ -481,7 +478,7 @@ test("keeps a fenced comment inside the step that carries it", () => {
       "",
     ].join("\n")
   );
-  const steps = flowSkillProcedureSteps(withFence);
+  const steps = flowProcedureSteps(withFence);
   expect(steps).toHaveLength(5);
   expect(steps.at(-1)?.description).toContain("# not a heading");
   expect(steps.at(-1)?.doneWhen).toBe(
@@ -489,12 +486,12 @@ test("keeps a fenced comment inside the step that carries it", () => {
   );
 });
 
-test("refuses Source Document frontmatter in a learned Flow Skill", () => {
-  const files = withSkill(
-    GOLDEN_SKILL.replace("inputs:", "source: private-runbook.md\ninputs:")
+test("refuses Source Document frontmatter in a learned Flow", () => {
+  const files = withFlow(
+    GOLDEN_FLOW.replace("inputs:", "source: private-runbook.md\ninputs:")
   );
-  expect(codesFor(files)).toContain("flow_skill_source_forbidden");
-  expect(pathFor(files, "flow_skill_source_forbidden")).toEqual([
+  expect(codesFor(files)).toContain("flow_source_forbidden");
+  expect(pathFor(files, "flow_source_forbidden")).toEqual([
     "flow.md",
     "frontmatter",
     "source",
@@ -502,7 +499,7 @@ test("refuses Source Document frontmatter in a learned Flow Skill", () => {
 });
 
 test("round-trips every Contingency stamp in flow.md and clears verification on save", () => {
-  const stamped = stampFlowSkillProvenance(GOLDEN_SKILL, {
+  const stamped = stampFlowProvenance(GOLDEN_FLOW, {
     emulation: {
       colorScheme: "dark",
       geolocation: undefined,
@@ -525,7 +522,7 @@ test("round-trips every Contingency stamp in flow.md and clears verification on 
     verifiedAt: "2026-11-02",
   };
   const content = stampFlowVerification(stamped, verification);
-  const read = readFlowSkillFrontmatter(content);
+  const read = readFlowFrontmatter(content);
   expect(read?.verification).toEqual({
     ...verification,
     digests: flowVerificationDigests(stamped),
@@ -538,15 +535,15 @@ test("round-trips every Contingency stamp in flow.md and clears verification on 
   });
   expect(read?.runtime.requirements.platform).toBe("web");
   expect(
-    readFlowSkillFrontmatter(
-      stampFlowSkillProvenance(content, { emulation: null, hosts: [] })
+    readFlowFrontmatter(
+      stampFlowProvenance(content, { emulation: null, hosts: [] })
     )?.verification
   ).toBeUndefined();
 });
 
 test("resolves supporting links relative to their document, including references directories", () => {
   const files = [
-    ...goldenFlowSkillFiles(),
+    ...goldenFlowFiles(),
     {
       content: "Read [setup](../setup.md) and [notes](notes.md).",
       path: "references/index.md",
@@ -566,5 +563,5 @@ test("resolves supporting links relative to their document, including references
           : file
       )
     )
-  ).toContain("flow_skill_missing_reference");
+  ).toContain("flow_missing_reference");
 });

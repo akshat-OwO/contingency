@@ -119,7 +119,7 @@ const learn = Effect.gen(function* learnRequirements() {
     operationId: claimOperationId,
     recordingId,
   });
-  const { flowSkillName } = claimed.claim;
+  const { flowName } = claimed.claim;
   const timeline = yield* call("agent_teaching_timeline_get", {
     claimOperationId,
     recordingId,
@@ -145,11 +145,11 @@ const learn = Effect.gen(function* learnRequirements() {
   );
   const { url } = timeline.entries.find((entry) => entry._tag === "started");
   yield* save("timeline.json", timeline);
-  yield* call("agent_flow_skill_save", {
+  yield* call("agent_flow_save", {
     claimOperationId,
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Submit once and confirm a ready order with a newly created checkout cookie.\ninputs:\n---\n\n1. Click the Submit button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: both checks pass and Confirmation ready with Submitted 1 time(s) is visible.\n`,
+        content: `---\nname: ${flowName}\ndescription: Submit once and confirm a ready order with a newly created checkout cookie.\ninputs:\n---\n\n1. Click the Submit button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: both checks pass and Confirmation ready with Submitted 1 time(s) is visible.\n`,
         path: "flow.md",
       },
       {
@@ -167,7 +167,7 @@ const learn = Effect.gen(function* learnRequirements() {
   yield* save("state.json", {
     checks,
     claimOperationId,
-    flowSkillName,
+    flowName,
     recordingId,
     url,
   });
@@ -175,7 +175,7 @@ const learn = Effect.gen(function* learnRequirements() {
 const launch = Effect.gen(function* launchDryRun() {
   const state = yield* readState();
   const failure = phase === "start-failure";
-  const dry = yield* call("agent_flow_skill_dry_run_start", {
+  const dry = yield* call("agent_flow_dry_run_start", {
     inputs: [],
     operationId: operation(),
     recordingId: state.recordingId,
@@ -193,7 +193,7 @@ const later = Effect.gen(function* laterRun() {
         path.join(
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
-          state.flowSkillName,
+          state.flowName,
           "checks.json"
         ),
         "utf-8"
@@ -204,7 +204,7 @@ const later = Effect.gen(function* laterRun() {
   const session = yield* call("agent_run_start", {
     inputs: [],
     operationId: operation(),
-    referencedSkills: [state.flowSkillName],
+    referencedFlows: [state.flowName],
     requestedTask:
       "Submit once, wait for the required browser effects, and confirm readiness.",
     url: phase === "start-takeover" ? `${state.url}?failure=1` : state.url,
@@ -227,7 +227,7 @@ const takeover = Effect.gen(function* proveTakeover() {
   const params = {
     action: { ref: button.ref, type: "click" },
     checkIds: state.checks.map((check) => ({
-      flowSkillName: state.flowSkillName,
+      flowName: state.flowName,
       id: check.id,
     })),
     operationId: operation(),
@@ -258,7 +258,7 @@ const finish = Effect.gen(function* finishDryRun() {
   const params = {
     action: { ref: button.ref, type: "click" },
     checkIds: state.checks.map((check) => ({
-      flowSkillName: state.flowSkillName,
+      flowName: state.flowName,
       id: check.id,
     })),
     format: "structured",

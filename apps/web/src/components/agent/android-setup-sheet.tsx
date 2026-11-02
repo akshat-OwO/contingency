@@ -1,4 +1,4 @@
-import { FlowSkillName } from "@contingency/protocol";
+import { FlowName } from "@contingency/protocol";
 import type {
   AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
@@ -60,7 +60,7 @@ interface Condition {
 interface SetupForm {
   readonly app: string | null;
   readonly device: string | null;
-  readonly flowSkillName: string;
+  readonly flowName: string;
   readonly privateInput: boolean;
   readonly permissions: Readonly<Record<string, "grant" | "revoke">>;
   readonly outcome: Condition;
@@ -71,7 +71,7 @@ interface SetupForm {
 const INITIAL_FORM: SetupForm = {
   app: null,
   device: null,
-  flowSkillName: "new-flow",
+  flowName: "new-flow",
   outcome: { name: "", role: "text" },
   permissions: {},
   privateInput: false,
@@ -477,7 +477,7 @@ export const AndroidSetupSheet = ({
 }: {
   readonly discovery?: typeof androidSetupDiscovery;
   readonly onOpen: (
-    flowSkillName: FlowSkillName,
+    flowName: FlowName,
     selection: AndroidWorkspaceSelection
   ) => void;
   readonly onOpenChange: (open: boolean) => void;
@@ -504,8 +504,8 @@ export const AndroidSetupSheet = ({
   );
   const apps = device === null ? null : loadedApps;
   const app = selectedApp(apps, form.app);
-  const name = form.flowSkillName.trim();
-  const validName = Schema.is(FlowSkillName)(name);
+  const name = form.flowName.trim();
+  const validName = Schema.is(FlowName)(name);
   const start = { name: form.start.name.trim(), role: form.start.role };
   const outcome = { name: form.outcome.name.trim(), role: form.outcome.role };
   const permissions = Object.entries(form.permissions).map(
@@ -554,14 +554,14 @@ export const AndroidSetupSheet = ({
         >
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
             <label className="grid gap-1.5 text-sm font-medium">
-              Flow skill name
+              Flow name
               <Input
                 aria-invalid={!validName}
                 onChange={(event) => {
                   const { value } = event.currentTarget;
-                  setForm((current) => ({ ...current, flowSkillName: value }));
+                  setForm((current) => ({ ...current, flowName: value }));
                 }}
-                value={form.flowSkillName}
+                value={form.flowName}
               />
             </label>
             <Step done={device !== null} index={1} title="Device">

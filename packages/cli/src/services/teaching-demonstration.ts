@@ -19,7 +19,7 @@ import { webHost } from "./domain-scope.ts";
  * The record stays inside the owning process. A learning agent reads the
  * durable Teaching Recording — `events.jsonl`, keyframes, the paged semantic
  * timeline — not this value
- * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * ([ADR 0071](../../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  */
 export interface Demonstration {
   readonly actions: readonly CapturedAction[];

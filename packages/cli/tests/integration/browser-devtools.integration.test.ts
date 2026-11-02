@@ -3,7 +3,7 @@ import {
   BrowserTabId,
   BrowserNetworkRequestDetail,
   OperationId,
-  FlowSkillName,
+  FlowName,
   TeachingRecordingId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -312,7 +312,7 @@ it.live("observes fresh Dry Run contexts without granting page writes", () =>
         const session = yield* sessions.start({
           activity: "run",
           dryRun: {
-            flowSkillName: FlowSkillName.make("observe"),
+            flowName: FlowName.make("observe"),
             inputs: [],
             recordingId: TeachingRecordingId.make("recording-observe"),
           },

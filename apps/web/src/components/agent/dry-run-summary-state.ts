@@ -4,11 +4,11 @@ import type {
   AgentRunSummary,
   AgentTaskRunOutcome,
   AgentTaskRunPurpose,
-  FlowSkillDryRunResult,
+  FlowDryRunResult,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
-/** A persisted task record whose purpose was a Dry Run of one Flow Skill. */
+/** A persisted task record whose purpose was a Dry Run of one Flow. */
 export type TaskDryRunSummary = TaskAgentRunSummary & {
   readonly purpose: Extract<AgentTaskRunPurpose, { readonly kind: "dry-run" }>;
 };
@@ -182,7 +182,7 @@ export type DryRunVerdict = "checks-passed" | "failed" | "passed";
 
 export const dryRunVerdict = (
   summary: TaskDryRunSummary,
-  result: FlowSkillDryRunResult | undefined
+  result: FlowDryRunResult | undefined
 ): DryRunVerdict => {
   if (result?.outcome === "failed" || !dryRunChecksPass(summary)) {
     return "failed";

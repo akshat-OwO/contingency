@@ -14,7 +14,7 @@ import {
   workInitialMessage,
 } from "../services/agent-launch.ts";
 import type { ReadyHarness } from "../services/agent-launch.ts";
-import { CATALOG_DIRECTORY } from "../services/flow-skill-catalog.ts";
+import { CATALOG_DIRECTORY } from "../services/flow-catalog.ts";
 import { loadSettings } from "../services/settings.ts";
 
 const pickHarness = (ready: readonly ReadyHarness[]) =>

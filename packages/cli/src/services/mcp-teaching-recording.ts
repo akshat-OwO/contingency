@@ -2,10 +2,10 @@ import {
   Variable,
   AgentRunTaskInput,
   compactAgentSession,
-  FlowSkillName,
-  FlowSkillDiagnostic,
-  FlowSkillFile,
-  FlowSkillSaveResult,
+  FlowName,
+  FlowDiagnostic,
+  FlowFile,
+  FlowSaveResult,
   OperationId,
   optionalNullable,
   TeachingKeyframeFile,
@@ -20,8 +20,8 @@ import { McpServer, Tool, Toolkit } from "effect/ai";
 
 import { isFlowInActiveRun } from "./active-flow-runs.ts";
 import { AgentSession } from "./agent-session.ts";
+import { FlowCatalog } from "./flow-catalog.ts";
 import { flowDocuments, SupportingDocument } from "./flow-documents.ts";
-import { FlowSkillCatalog } from "./flow-skill-catalog.ts";
 import {
   UnpublishedEmulation,
   UnpublishedRuntimeRequirements,
@@ -42,7 +42,7 @@ import {
 } from "./teaching-recording-learning.ts";
 import type { TeachingRecordingLearningError } from "./teaching-recording-learning.ts";
 import {
-  decideFlowSkill,
+  decideFlow,
   startDryRun,
   teachingRecordingSummary,
 } from "./teaching-recording-orchestration.ts";
@@ -56,7 +56,7 @@ class TeachingRecordingFailure extends Schema.Error<TeachingRecordingFailure>(
   "TeachingRecordingFailure"
 )({
   code: Schema.String,
-  diagnostics: Schema.Array(FlowSkillDiagnostic),
+  diagnostics: Schema.Array(FlowDiagnostic),
   message: Schema.String,
 }) {}
 
@@ -121,7 +121,7 @@ const TeachingRecordingsListTool = readOnly(
   Tool.make("agent_teaching_recordings_list", {
     dependencies: [TeachingRecordingLearning],
     description:
-      "List process-independent Teaching Recordings for Flow Skill learning. Name recordingId to filter one recording. Returns immediately. For a session owned by this MCP process, wait with agent_session_get. Otherwise retry the same recordingId about once per second while the list is empty or its lifecycle is recording. Learn when ready; inspect failed capture errors. Stop retrying if the user cancels.",
+      "List process-independent Teaching Recordings for Flow learning. Name recordingId to filter one recording. Returns immediately. For a session owned by this MCP process, wait with agent_session_get. Otherwise retry the same recordingId about once per second while the list is empty or its lifecycle is recording. Learn when ready; inspect failed capture errors. Stop retrying if the user cancels.",
     failure: TeachingRecordingFailure,
     parameters: Schema.Struct({
       recordingId: Schema.optional(Schema.NullOr(TeachingRecordingId)),
@@ -133,7 +133,7 @@ const TeachingRecordingsListTool = readOnly(
 const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   dependencies: [TeachingRecordingStore],
   description:
-    'Move this process\'s learning claim on one Teaching Recording. `action:"take"` claims a ready recording and answers with the claim; the durable claim is exclusive across processes and lasts through saving, Dry Runs, and a rejection. `action:"release"` ends the claim and returns the recording to ready for another attempt, from any claimed state including a drafted or dry-run-failed Flow Skill. `action:"fail"` ends the claim and records `error`, why this process could not learn the Flow Skill; the failed recording stays discoverable and accepts a later claim. Release and fail need the original claimOperationId beside a fresh operationId; take needs only its own operationId, and replaying it rereads the same claim. An abandoned claim returns to ready after its owner exits.',
+    'Move this process\'s learning claim on one Teaching Recording. `action:"take"` claims a ready recording and answers with the claim; the durable claim is exclusive across processes and lasts through saving, Dry Runs, and a rejection. `action:"release"` ends the claim and returns the recording to ready for another attempt, from any claimed state including a drafted or dry-run-failed Flow. `action:"fail"` ends the claim and records `error`, why this process could not learn the Flow; the failed recording stays discoverable and accepts a later claim. Release and fail need the original claimOperationId beside a fresh operationId; take needs only its own operationId, and replaying it rereads the same claim. An abandoned claim returns to ready after its owner exits.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     action: Schema.Literals(["take", "release", "fail"]),
@@ -180,22 +180,22 @@ const TeachingKeyframeGetTool = readOnly(
   })
 );
 
-const FlowSkillSaveTool = Tool.make("agent_flow_skill_save", {
+const FlowSaveTool = Tool.make("agent_flow_save", {
   dependencies: [
     TeachingRecordingLearning,
     TeachingRecordingStore,
     AgentSession,
   ],
   description:
-    'Atomically save a proposed Flow Skill package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to skill-drafted. A save is refused while any active Run uses this Flow, while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow Skill, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
+    'Atomically save a proposed Flow package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to flow-drafted. A save is refused while any active Run uses this Flow, while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
-    files: Schema.Array(FlowSkillFile),
+    files: Schema.Array(FlowFile),
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),
-  success: FlowSkillSaveResult,
+  success: FlowSaveResult,
 });
 
 const DryRunInput = Schema.Union([
@@ -212,47 +212,47 @@ const DryRunInput = Schema.Union([
   }),
 ]);
 
-const FlowSkillDryRunStartTool = Tool.make("agent_flow_skill_dry_run_start", {
+const FlowDryRunStartTool = Tool.make("agent_flow_dry_run_start", {
   dependencies: [
     AgentSession,
     FileSystem.FileSystem,
     TeachingRecordingStore,
-    FlowSkillCatalog,
+    FlowCatalog,
   ],
   description:
-    "Start a saved Flow Skill in a fresh context with Teaching Emulation. Follow nextAction. The saved skill outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Pass explicitly user-requested verified skill names in prerequisites and their declared ordinary inputs in prerequisiteInputs, scoped by flowSkillName and name. All ordinary prerequisite inputs are fixed at startup. The result includes prerequisite procedures; they share this fresh context without widening Teaching hosts or replacing its outcome. Request prerequisite Variables on demand with agent_variable_request; the user supplies or refuses them in Workspace. Changes to prerequisites or ordinary inputs require a fresh Dry Run. Ask for ordinary inputs again. For an on-demand input, omit its value; the user supplies its value in the returned Workspace when needed. Request or replace a declared tested-skill on-demand Variable during this same Dry Run with agent_variable_request; its existing Workspace field reopens on replace:true and no Pending Decision is created. New input declarations require a revised package and fresh Dry Run. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete skill outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
+    "Start a saved Flow in a fresh context with Teaching Emulation. Follow nextAction. The saved flow outcome is the requested task; explore, recover, or choose another route within Teaching hosts. Pass explicitly user-requested verified flow names in prerequisites and their declared ordinary inputs in prerequisiteInputs, scoped by flowName and name. All ordinary prerequisite inputs are fixed at startup. The result includes prerequisite procedures; they share this fresh context without widening Teaching hosts or replacing its outcome. Request prerequisite Variables on demand with agent_variable_request; the user supplies or refuses them in Workspace. Changes to prerequisites or ordinary inputs require a fresh Dry Run. Ask for ordinary inputs again. For an on-demand input, omit its value; the user supplies its value in the returned Workspace when needed. Request or replace a declared tested-flow on-demand Variable during this same Dry Run with agent_variable_request; its existing Workspace field reopens on replace:true and no Pending Decision is created. New input declarations require a revised package and fresh Dry Run. The Variable name for agent_variable_enter is the input name uppercased with underscores preserved (password becomes PASSWORD); invalid names or collisions are refused. Mark changed inputs when the task permits it. Report the complete flow outcome with agent_run_assess, explanation, Run-owned evidence, and explicit outcomeComplete. A partial attempt or any user Takeover cannot pass. Assessments and findings leave the browser open; agent_run_complete seals the report. A passing report requires Workspace user verification before Cleanup. It has no wall-clock limit.",
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     inputs: Schema.Array(DryRunInput),
     operationId: OperationId,
     prerequisiteInputs: optionalNullable(Schema.Array(AgentRunTaskInput)),
-    prerequisites: optionalNullable(Schema.Array(FlowSkillName)),
+    prerequisites: optionalNullable(Schema.Array(FlowName)),
     recordingId: TeachingRecordingId,
     url: Schema.String.check(Schema.isMinLength(1)),
     view: sessionViewParameter,
   }),
   success: Schema.Struct({
     ...WorkspaceLinkGuidance.fields,
-    files: Schema.Array(FlowSkillFile),
-    flowSkillName: FlowSkillName,
+    files: Schema.Array(FlowFile),
+    flowName: FlowName,
+    flowPath: Schema.String.check(Schema.isMinLength(1)),
     prerequisites: Schema.Array(
       Schema.Struct({
-        files: Schema.Array(FlowSkillFile),
-        flowSkillName: FlowSkillName,
+        files: Schema.Array(FlowFile),
+        flowName: FlowName,
         supportingDocuments: Schema.Array(SupportingDocument),
       })
     ),
     recordingId: TeachingRecordingId,
     session: UnpublishedSession,
-    skillPath: Schema.String.check(Schema.isMinLength(1)),
     supportingDocuments: Schema.Array(SupportingDocument),
   }),
 });
 
-const FlowSkillDecideTool = Tool.make("agent_flow_skill_decide", {
+const FlowDecideTool = Tool.make("agent_flow_decide", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    'Relay the user\'s explicit choice about a Flow Skill whose Dry Run passed. `decision:"verify"` keeps the flow: verification marks cleanup purge-pending before deleting the raw Teaching artifacts, and it ends the learning claim. `decision:"reject"` returns the Flow Skill to drafted with every Teaching artifact and the learning claim intact, so agent_flow_skill_save under the same claim operation id can edit the package for another Dry Run. Never send either without the user\'s explicit choice. `decision:"retry-cleanup"` is not a user choice: it resumes deletion for an already verified Flow Skill whose cleanup is still purge-pending, and the verified Flow Skill is never rolled back when deletion fails.',
+    'Relay the user\'s explicit choice about a Flow whose Dry Run passed. `decision:"verify"` keeps the flow: verification marks cleanup purge-pending before deleting the raw Teaching artifacts, and it ends the learning claim. `decision:"reject"` returns the Flow to drafted with every Teaching artifact and the learning claim intact, so agent_flow_save under the same claim operation id can edit the package for another Dry Run. Never send either without the user\'s explicit choice. `decision:"retry-cleanup"` is not a user choice: it resumes deletion for an already verified Flow whose cleanup is still purge-pending, and the verified Flow is never rolled back when deletion fails.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     decision: Schema.Literals(["verify", "reject", "retry-cleanup"]),
@@ -268,22 +268,22 @@ export const TeachingRecordingTools = withStrictParameters(
     TeachingRecordingClaimTool,
     TeachingTimelineGetTool,
     TeachingKeyframeGetTool,
-    FlowSkillSaveTool,
-    FlowSkillDryRunStartTool,
-    FlowSkillDecideTool
+    FlowSaveTool,
+    FlowDryRunStartTool,
+    FlowDecideTool
   )
 );
 
 export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
   {
-    agent_flow_skill_decide: (params) =>
-      decideFlowSkill(params).pipe(
+    agent_flow_decide: (params) =>
+      decideFlow(params).pipe(
         fromAgent,
         Effect.mapError(failure),
         Effect.flatMap(summaryOf)
       ),
-    agent_flow_skill_dry_run_start: (params) =>
-      Effect.gen(function* startFlowSkillDryRun() {
+    agent_flow_dry_run_start: (params) =>
+      Effect.gen(function* startFlowDryRun() {
         const started = yield* startDryRun({
           inputs: params.inputs,
           operationId: params.operationId,
@@ -295,10 +295,11 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         return {
           ...workspaceLinkGuidance(started.session.viewUrl),
           ...flowDocuments(started.files),
-          flowSkillName: started.manifest.flowSkillName,
-          prerequisites: started.prerequisites.map((skill) => ({
-            flowSkillName: skill.flowSkillName,
-            ...flowDocuments(skill.files),
+          flowName: started.manifest.flowName,
+          flowPath: started.flowPath,
+          prerequisites: started.prerequisites.map((flow) => ({
+            flowName: flow.flowName,
+            ...flowDocuments(flow.files),
           })),
           recordingId: started.manifest.recordingId,
           session: yield* encodeUnpublishedSession(
@@ -306,17 +307,16 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
               ? compactAgentSession(started.session)
               : started.session
           ),
-          skillPath: started.skillPath,
         };
       }),
-    agent_flow_skill_save: (params) =>
-      Effect.gen(function* saveFlowSkill() {
+    agent_flow_save: (params) =>
+      Effect.gen(function* saveFlow() {
         const learning = yield* TeachingRecordingLearning;
         const store = yield* TeachingRecordingStore;
         const manifest = yield* store
           .read(params.recordingId)
           .pipe(Effect.mapError(failure));
-        if (yield* isFlowInActiveRun(manifest.flowSkillName)) {
+        if (yield* isFlowInActiveRun(manifest.flowName)) {
           return yield* Effect.fail(
             new TeachingRecordingFailure({
               code: "teaching_recording_conflict",
@@ -365,7 +365,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           return {
             claim: {
               claimedAt: manifest.lifecycle.claim.claimedAt,
-              flowSkillName: manifest.flowSkillName,
+              flowName: manifest.flowName,
               operationId: manifest.lifecycle.claim.operationId,
               recordingId: manifest.recordingId,
             },

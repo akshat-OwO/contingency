@@ -135,19 +135,19 @@ export const TaskRunDetails = ({
           </ol>
         )}
       </section>
-      <section aria-label="Referenced skills" className="space-y-2">
-        <h3 className="text-sm leading-5 font-semibold">Referenced skills</h3>
-        {run.referencedSkills.length === 0 ? (
-          <p>No Flow Skills referenced.</p>
+      <section aria-label="Referenced flows" className="space-y-2">
+        <h3 className="text-sm leading-5 font-semibold">Referenced flows</h3>
+        {run.referencedFlows.length === 0 ? (
+          <p>No Flows referenced.</p>
         ) : (
           <ul className="space-y-1">
-            {run.referencedSkills.map((skill) => (
+            {run.referencedFlows.map((flow) => (
               <li
                 className="flex flex-wrap items-center gap-2 wrap-anywhere"
-                key={skill.flowSkillName}
+                key={flow.flowName}
               >
-                {skill.flowSkillName}
-                {skill.origin === "example" ? (
+                {flow.flowName}
+                {flow.origin === "example" ? (
                   <Badge variant="outline">Example</Badge>
                 ) : null}
               </li>
@@ -185,8 +185,8 @@ export const TaskRunDetails = ({
         {run.purpose.kind === "dry-run" ? (
           <p className="text-muted-foreground text-xs">
             {run.assessment?.outcomeComplete === true
-              ? "The agent reports a complete skill outcome attempt."
-              : "The agent did not report a complete skill outcome attempt."}
+              ? "The agent reports a complete flow outcome attempt."
+              : "The agent did not report a complete flow outcome attempt."}
             {run.purpose.takeoverOccurred
               ? " User Takeover prevents this Dry Run from passing."
               : ""}

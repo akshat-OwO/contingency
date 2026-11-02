@@ -98,7 +98,7 @@ await Effect.runPromise(
     const url = new URL("shop.html", instance.ecommerceUrl).href;
     const run = yield* program(
       "start",
-      `const session = await tools.agent_run_start({inputs:[],referencedSkills:[],requestedTask:"Inspect browser modifications",url:${JSON.stringify(url)},operationId:"modifications-start",view:"compact"}); return {id:session.id,viewUrl:session.viewUrl};`
+      `const session = await tools.agent_run_start({inputs:[],referencedFlows:[],requestedTask:"Inspect browser modifications",url:${JSON.stringify(url)},operationId:"modifications-start",view:"compact"}); return {id:session.id,viewUrl:session.viewUrl};`
     );
     const sid = JSON.stringify(run.id);
     yield* command("browser", "goto", "--url", run.viewUrl);

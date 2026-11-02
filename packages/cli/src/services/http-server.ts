@@ -81,7 +81,7 @@ export interface HttpServerOptions {
    * and the read-only viewer. Absent in a process that serves no Runs.
    */
   readonly agentRunStore?: Layer.Layer<AgentRunStoreService>;
-  /** The Skills drawer's read-only view of the Catalog Roots. */
+  /** The Flows Drawer's read-only view of the Catalog Roots. */
   readonly catalogBrowser?: Layer.Layer<CatalogBrowserService>;
   /** Condenses Run footage, and reports a video's readiness to the Workspace. */
   readonly runVideoRenderer: Layer.Layer<RunVideoRendererService>;

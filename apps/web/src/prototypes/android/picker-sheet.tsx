@@ -50,7 +50,7 @@ import { WorkspaceLayout } from "./layout";
 import { ExperimentalBadge, PrototypeSummary, StateBadges } from "./parts";
 import {
   androidDockPresentation,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
 } from "./presentation";
 import {
   decide,
@@ -102,7 +102,7 @@ const SessionMenu = ({
           type="button"
         >
           <SmartphoneIcon className="size-4" />
-          <span className="flex-1 truncate">{session.flowSkillName}</span>
+          <span className="flex-1 truncate">{session.flowName}</span>
           <span className="text-muted-foreground text-xs">{session.kind}</span>
         </button>
       ))}
@@ -232,7 +232,7 @@ export const PickerSheetPrototype = ({
       {sheet}
       <WorkspaceLayout
         sessionId={session.id}
-        skillsSession={androidSkillsSessionView(session)}
+        flowsSession={androidFlowsSessionView(session)}
         summary={
           ended
             ? {
@@ -306,7 +306,7 @@ export const PickerSheetPrototype = ({
             <DockWordmark />
             <SessionMenu
               onNewAndroid={() => setSheetOpen(true)}
-              selected={session.flowSkillName}
+              selected={session.flowName}
             />
             <DockSpacer />
             {pending === undefined ? null : (

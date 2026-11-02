@@ -135,7 +135,7 @@ const endedRunSentences = (session: RunSessionSnapshot): readonly string[] =>
 
 /**
  * How the Workspace dock presents one live Run session. A Dry Run names the
- * Flow Skill it rehearses and what it changed; an Interactive Run names the
+ * Flow it rehearses and what it changed; an Interactive Run names the
  * flow and which Agent Step it is on. Both end with who holds the browser,
  * because the dock's one control exchanges exactly that (#209).
  *
@@ -161,11 +161,11 @@ export const runDockPresentation = (
 
   if (dryRun === null) {
     if (run === null) {
-      sentences.push("This session has no flow skill run yet.");
+      sentences.push("This session has no Flow run yet.");
     } else if ("schemaVersion" in run) {
       sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
     } else {
-      sentences.push(`Running the flow skill ${run.flowSkillName}.`);
+      sentences.push(`Running the Flow ${run.flowName}.`);
       const active = activeStep(run);
       if (active === undefined) {
         const outcome =
@@ -182,7 +182,7 @@ export const runDockPresentation = (
     }
   } else {
     sentences.push(
-      `Rehearsing the flow skill ${dryRun.flowSkillName}.`,
+      `Rehearsing the Flow ${dryRun.flowName}.`,
       changedInputsSentence(dryRun.inputs)
     );
     if (run !== null && "schemaVersion" in run) {

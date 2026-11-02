@@ -15,7 +15,7 @@ const RootLayout = () => (
     <TooltipProvider>
       <div className="bg-background text-foreground h-svh overflow-hidden">
         {/*
-          The header is not unconditional. The recorded Flow Skill Workspace is
+          The header is not unconditional. The recorded Flow Workspace is
           one floating dock over a full-bleed browser, so the wordmark and the
           navigation move into the dock there and the header band steps aside
           (#191). A Run Summary and an Interactive Run keep it.

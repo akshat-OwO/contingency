@@ -28,14 +28,12 @@ export const isFlowInActiveRun = (flowName: string) =>
         }
         const { run } = session;
         return (
-          session.flowSkillName === flowName ||
-          session.dryRun?.flowSkillName === flowName ||
+          session.flowName === flowName ||
+          session.dryRun?.flowName === flowName ||
           (run !== null &&
-            ("referencedSkills" in run
-              ? run.referencedSkills.some(
-                  (skill) => skill.flowSkillName === flowName
-                )
-              : run.flowSkillName === flowName))
+            ("referencedFlows" in run
+              ? run.referencedFlows.some((flow) => flow.flowName === flowName)
+              : run.flowName === flowName))
         );
       })
     );

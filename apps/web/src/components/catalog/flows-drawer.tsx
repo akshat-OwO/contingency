@@ -1,7 +1,4 @@
-import type {
-  CatalogFlowSkillEntry,
-  CatalogRootView,
-} from "@contingency/protocol";
+import type { CatalogFlowEntry, CatalogRootView } from "@contingency/protocol";
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
@@ -20,13 +17,13 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import type {
-  SessionSkills,
-  SkillsFolder,
-  SkillsSessionView,
-} from "@/components/catalog/skills-drawer-state";
+  SessionFlows,
+  FlowsFolder,
+  FlowsSessionView,
+} from "@/components/catalog/flows-drawer-state";
 import {
   availableFolder,
   defaultFolder,
@@ -35,21 +32,21 @@ import {
   matchesQuery,
   opensGlobal,
   orphanRecordings,
-  recordingsForSkill,
+  recordingsForFlow,
   runCountLabel,
-  runsForSkill,
+  runsForFlow,
   sameFolder,
   sameSelection,
-  sessionSkills,
-  skillsSelectionAtom,
-} from "@/components/catalog/skills-drawer-state";
+  sessionFlows,
+  flowsSelectionAtom,
+} from "@/components/catalog/flows-drawer-state";
 import {
   InlineEmpty,
   OutcomeDot,
   RecordingRow,
   RunRow,
   SectionLabel,
-} from "@/components/catalog/skills-parts";
+} from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,24 +72,25 @@ import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
-const SkillRow = ({
+const FlowRow = ({
   label,
   onSelect,
   root,
   selected,
-  skill,
+  flow,
 }: {
   readonly label: string | undefined;
   readonly onSelect: () => void;
   readonly root: CatalogRootView;
   readonly selected: boolean;
-  readonly skill: CatalogFlowSkillEntry;
+  readonly flow: CatalogFlowEntry;
 }) => {
-  const runs = runsForSkill(root, skill.name);
+  const runs = runsForFlow(root, flow.name);
   const latest = runs.at(0);
   return (
     <button
-      aria-pressed={selected}
+      role="treeitem"
+      aria-selected={selected}
       className={cn(
         "hover:bg-muted flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100",
         selected && "bg-primary text-primary-foreground hover:bg-primary"
@@ -108,14 +106,14 @@ const SkillRow = ({
         )}
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm">{skill.name}</span>
+        <span className="block truncate text-sm">{flow.name}</span>
         <span
           className={cn(
             "block truncate text-xs",
             selected ? "text-primary-foreground/70" : "text-muted-foreground"
           )}
         >
-          {skill.verified ? "Verified" : "Drafted"} ·{" "}
+          {flow.verified ? "Verified" : "Drafted"} ·{" "}
           {runCountLabel(runs.length)}
           {label === undefined ? null : (
             <span
@@ -135,7 +133,7 @@ const SkillRow = ({
   );
 };
 
-/** The skill being taught has no folder yet; it holds its place anyway. */
+/** The flow being taught has no folder yet; it holds its place anyway. */
 const PendingRow = ({
   name,
   onSelect,
@@ -167,28 +165,107 @@ const PendingRow = ({
   </button>
 );
 
-const RootSkills = ({
+const GroupBranch = ({
+  name,
+  children,
+}: {
+  readonly name: string;
+  readonly children: React.ReactNode;
+}) => {
+  const groupId = useId();
+  const [openAtom] = useState(() => Atom.make(true));
+  const [open, setOpen] = useAtom(openAtom);
+  return (
+    <li role="none">
+      <button
+        type="button"
+        role="treeitem"
+        aria-label={name}
+        aria-expanded={open}
+        aria-owns={open ? groupId : undefined}
+        className="text-muted-foreground flex w-full items-center gap-2 px-2 py-1 text-xs"
+        onClick={() => setOpen(!open)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            setOpen(event.key === "ArrowRight");
+          }
+        }}
+      >
+        <ChevronRightIcon
+          aria-hidden="true"
+          className={cn("size-3.5", open && "rotate-90")}
+        />
+        {name}
+      </button>
+      {open ? (
+        <ul id={groupId} role="group" className="ml-3 border-l pl-1">
+          {children}
+        </ul>
+      ) : null}
+    </li>
+  );
+};
+
+/** Groups retain their directory hierarchy; Flow identity stays its name. */
+const GroupTree = ({
+  entries,
+  depth = 0,
+  renderFlow,
+}: {
+  readonly entries: readonly CatalogFlowEntry[];
+  readonly depth?: number;
+  readonly renderFlow: (flow: CatalogFlowEntry) => React.ReactNode;
+}) => {
+  const groups = [
+    ...new Set(entries.flatMap((flow) => flow.groupPath?.[depth] ?? [])),
+  ].toSorted();
+  return (
+    <>
+      {groups.map((group) => (
+        <GroupBranch name={group} key={group}>
+          <GroupTree
+            entries={entries.filter((flow) => flow.groupPath[depth] === group)}
+            depth={depth + 1}
+            renderFlow={renderFlow}
+          />
+        </GroupBranch>
+      ))}
+      {entries.flatMap((flow) =>
+        flow.groupPath.length === depth
+          ? [
+              <li role="none" key={flow.name}>
+                {renderFlow(flow)}
+              </li>,
+            ]
+          : []
+      )}
+    </>
+  );
+};
+
+const RootFlows = ({
   folder,
   onFolder,
   query,
   root,
-  skills,
+  flows,
 }: {
-  readonly folder: SkillsFolder | undefined;
-  readonly onFolder: (folder: SkillsFolder) => void;
+  readonly folder: FlowsFolder | undefined;
+  readonly onFolder: (folder: FlowsFolder) => void;
   readonly query: string;
   readonly root: CatalogRootView;
-  readonly skills: SessionSkills;
+  readonly flows: SessionFlows;
 }) => {
-  const listed = root.flowSkills.filter((skill) => matchesQuery(skill, query));
+  const listed = root.flows.filter((flow) => matchesQuery(flow, query));
   const loose = looseRuns(root);
   const orphans = orphanRecordings(root);
   const filtering = query.trim() !== "";
   const pending =
     root.scope === "local" &&
-    skills.pending !== undefined &&
-    !root.flowSkills.some((skill) => skill.name === skills.pending)
-      ? skills.pending
+    flows.pending !== undefined &&
+    !root.flows.some((flow) => flow.name === flows.pending)
+      ? flows.pending
       : undefined;
   if (!root.present && pending === undefined) {
     return (
@@ -198,8 +275,8 @@ const RootSkills = ({
       </InlineEmpty>
     );
   }
-  const looseFolder: SkillsFolder = { kind: "loose", scope: root.scope };
-  const recordingsFolder: SkillsFolder = {
+  const looseFolder: FlowsFolder = { kind: "loose", scope: root.scope };
+  const recordingsFolder: FlowsFolder = {
     kind: "recordings",
     scope: root.scope,
   };
@@ -209,41 +286,73 @@ const RootSkills = ({
         <PendingRow
           name={pending}
           onSelect={() => {
-            onFolder({ kind: "skill", name: pending, scope: root.scope });
+            onFolder({ kind: "flow", name: pending, scope: root.scope });
           }}
           selected={sameFolder(folder, {
-            kind: "skill",
+            kind: "flow",
             name: pending,
             scope: root.scope,
           })}
         />
       )}
-      {listed.map((skill) => {
-        const target: SkillsFolder = {
-          kind: "skill",
-          name: skill.name,
-          scope: root.scope,
-        };
-        return (
-          <SkillRow
-            key={skill.name}
-            label={skills.labels.get(skill.name)}
-            onSelect={() => {
-              onFolder(target);
-            }}
-            root={root}
-            selected={sameFolder(folder, target)}
-            skill={skill}
-          />
-        );
-      })}
+      <ul
+        role="tree"
+        aria-label={`${root.scope} Flow Groups`}
+        onKeyDown={(event) => {
+          const tree = event.currentTarget;
+          const items = [...tree.querySelectorAll<HTMLButtonElement>("button")];
+          const active = document.activeElement;
+          const index =
+            active instanceof HTMLButtonElement ? items.indexOf(active) : -1;
+          let target: HTMLButtonElement | undefined;
+          if (event.key === "ArrowDown") {
+            target = items[index + 1];
+          }
+          if (event.key === "ArrowUp") {
+            target = items[index - 1];
+          }
+          if (event.key === "Home") {
+            target = items.at(0);
+          }
+          if (event.key === "End") {
+            target = items.at(-1);
+          }
+          if (target !== undefined) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
+      >
+        <GroupTree
+          entries={listed}
+          renderFlow={(flow) => {
+            const target: FlowsFolder = {
+              kind: "flow",
+              name: flow.name,
+              scope: root.scope,
+            };
+            return (
+              <FlowRow
+                key={flow.name}
+                label={flows.labels.get(flow.name)}
+                onSelect={() => {
+                  onFolder(target);
+                }}
+                root={root}
+                selected={sameFolder(folder, target)}
+                flow={flow}
+              />
+            );
+          }}
+        />
+      </ul>
       {listed.length === 0 &&
       pending === undefined &&
       (filtering || !hasBrowsableEntries(root)) ? (
         <InlineEmpty>
           {filtering
             ? `Nothing here matches “${query.trim()}”.`
-            : "No Flow Skills here yet."}
+            : "No Flows here yet."}
         </InlineEmpty>
       ) : null}
       {loose.length === 0 || filtering ? null : (
@@ -259,7 +368,7 @@ const RootSkills = ({
           type="button"
         >
           <PlayIcon aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 wrap-anywhere">Other runs</span>
+          <span className="min-w-0 flex-1 wrap-anywhere">Root Runs</span>
           <span className="shrink-0 text-xs tabular-nums">{loose.length}</span>
         </button>
       )}
@@ -298,7 +407,7 @@ const FilterInput = ({
       <SearchIcon aria-hidden="true" />
     </InputGroupAddon>
     <InputGroupInput
-      aria-label="Filter skills"
+      aria-label="Filter flows"
       onChange={(event) => {
         setQuery(event.target.value);
       }}
@@ -327,25 +436,25 @@ const CatalogColumn = ({
   query,
   roots,
   setQuery,
-  skills,
+  flows,
 }: {
-  readonly folder: SkillsFolder | undefined;
-  readonly onFolder: (folder: SkillsFolder) => void;
+  readonly folder: FlowsFolder | undefined;
+  readonly onFolder: (folder: FlowsFolder) => void;
   readonly query: string;
   readonly roots: readonly CatalogRootView[];
   readonly setQuery: (query: string) => void;
-  readonly skills: SessionSkills;
+  readonly flows: SessionFlows;
 }) => {
   const [local, global] = roots;
   const openGlobal =
-    folder?.scope === "global" || opensGlobal(roots, query, skills);
+    folder?.scope === "global" || opensGlobal(roots, query, flows);
   const globalHistoryHits =
     global === undefined || query.trim() !== ""
       ? 0
       : looseRuns(global).length + orphanRecordings(global).length;
   const globalHits =
-    (global?.flowSkills.filter((skill) => matchesQuery(skill, query)).length ??
-      0) + globalHistoryHits;
+    (global?.flows.filter((flow) => matchesQuery(flow, query)).length ?? 0) +
+    globalHistoryHits;
   return (
     <section aria-label="Catalog" className="flex min-h-0 min-w-0 flex-col">
       <div className="border-b p-1.5">
@@ -353,7 +462,7 @@ const CatalogColumn = ({
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1.5">
         {local === undefined ? null : (
-          <section aria-label="Local skills" className="space-y-1">
+          <section aria-label="Local flows" className="space-y-1">
             <p
               className="flex items-center gap-1.5 px-2 pt-1 text-xs font-medium"
               title={local.path}
@@ -361,12 +470,12 @@ const CatalogColumn = ({
               <HardDriveIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Local
             </p>
-            <RootSkills
+            <RootFlows
               folder={folder}
               onFolder={onFolder}
               query={query}
               root={local}
-              skills={skills}
+              flows={flows}
             />
           </section>
         )}
@@ -391,12 +500,12 @@ const CatalogColumn = ({
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-1">
-              <RootSkills
+              <RootFlows
                 folder={folder}
                 onFolder={onFolder}
                 query={query}
                 root={global}
-                skills={skills}
+                flows={flows}
               />
             </CollapsibleContent>
           </Collapsible>
@@ -410,37 +519,37 @@ const FolderContents = ({
   folder,
   root,
 }: {
-  readonly folder: SkillsFolder;
+  readonly folder: FlowsFolder;
   readonly root: CatalogRootView;
 }) => {
-  const [selection, setSelection] = useAtom(skillsSelectionAtom);
+  const [selection, setSelection] = useAtom(flowsSelectionAtom);
   const historyRuns = folder.kind === "loose" ? looseRuns(root) : [];
   const historyRecordings =
     folder.kind === "recordings" ? orphanRecordings(root) : [];
   const runs =
-    folder.kind === "skill" ? runsForSkill(root, folder.name) : historyRuns;
+    folder.kind === "flow" ? runsForFlow(root, folder.name) : historyRuns;
   const recordings =
-    folder.kind === "skill"
-      ? recordingsForSkill(root, folder.name)
+    folder.kind === "flow"
+      ? recordingsForFlow(root, folder.name)
       : historyRecordings;
-  const skill =
-    folder.kind === "skill"
-      ? root.flowSkills.find((entry) => entry.name === folder.name)
+  const flow =
+    folder.kind === "flow"
+      ? root.flows.find((entry) => entry.name === folder.name)
       : undefined;
   return (
     <div className="space-y-3 p-1.5">
-      {skill === undefined ? null : (
+      {flow === undefined ? null : (
         <button
           aria-pressed={sameSelection(selection, {
-            kind: "skill",
-            name: skill.name,
+            kind: "flow",
+            name: flow.name,
             scope: root.scope,
           })}
           className="hover:bg-muted aria-pressed:bg-muted flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors duration-100"
           onClick={() => {
             setSelection({
-              kind: "skill",
-              name: skill.name,
+              kind: "flow",
+              name: flow.name,
               scope: root.scope,
             });
           }}
@@ -463,7 +572,7 @@ const FolderContents = ({
           {runs.length === 0 ? (
             <InlineEmpty>
               Not run yet.{" "}
-              {skill?.verified === false
+              {flow?.verified === false
                 ? "A passing Dry Run is the next step."
                 : "Ask your agent to run it."}
             </InlineEmpty>
@@ -515,16 +624,16 @@ const ContentsColumn = ({
   onClearQuery,
   query,
   roots,
-  skills,
+  flows,
 }: {
-  readonly folder: SkillsFolder | undefined;
+  readonly folder: FlowsFolder | undefined;
   readonly onClearQuery: () => void;
   readonly query: string;
   readonly roots: readonly CatalogRootView[];
-  readonly skills: SessionSkills;
+  readonly flows: SessionFlows;
 }) => {
   const hits = roots.flatMap((root) =>
-    root.flowSkills.filter((skill) => matchesQuery(skill, query))
+    root.flows.filter((flow) => matchesQuery(flow, query))
   );
   if (query.trim() !== "" && hits.length === 0) {
     return (
@@ -533,14 +642,14 @@ const ContentsColumn = ({
           <EmptyMedia variant="icon">
             <SearchIcon aria-hidden="true" />
           </EmptyMedia>
-          <EmptyTitle>No skill matches &ldquo;{query.trim()}&rdquo;</EmptyTitle>
+          <EmptyTitle>No flow matches &ldquo;{query.trim()}&rdquo;</EmptyTitle>
           <EmptyDescription>
             Searched Local and Global by name.
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
           <Button onClick={onClearQuery} size="sm" variant="outline">
-            Show all skills
+            Show all flows
           </Button>
         </EmptyContent>
       </Empty>
@@ -554,15 +663,15 @@ const ContentsColumn = ({
           <EmptyMedia variant="icon">
             <FolderSearchIcon aria-hidden="true" />
           </EmptyMedia>
-          <EmptyDescription>Pick a skill to see its runs.</EmptyDescription>
+          <EmptyDescription>Pick a flow to see its runs.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
   }
   if (
-    folder.kind === "skill" &&
-    folder.name === skills.pending &&
-    !root.flowSkills.some((skill) => skill.name === folder.name)
+    folder.kind === "flow" &&
+    folder.name === flows.pending &&
+    !root.flows.some((flow) => flow.name === folder.name)
   ) {
     return (
       <div className="p-3">
@@ -586,10 +695,10 @@ const ContentsColumn = ({
 };
 
 /** Nothing on disk in either root, and nothing being taught. */
-const NoSkillsAnywhere = ({
+const NoFlowsAnywhere = ({
   session,
 }: {
-  readonly session: SkillsSessionView | undefined;
+  readonly session: FlowsSessionView | undefined;
 }) => (
   <div className="min-h-0 flex-1 p-4">
     <Empty className="h-full border border-dashed">
@@ -597,17 +706,17 @@ const NoSkillsAnywhere = ({
         <EmptyMedia variant="icon">
           <BookOpenIcon aria-hidden="true" />
         </EmptyMedia>
-        <EmptyTitle>No Flow Skills yet</EmptyTitle>
+        <EmptyTitle>No Flows yet</EmptyTitle>
         <EmptyDescription>
           Contingency looks in this workspace&rsquo;s <code>contingency</code>{" "}
-          and in <code>~/.contingency</code>. Neither has a skill.
+          and in <code>~/.contingency</code>. Neither has a flow.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <p className="text-muted-foreground text-xs">
           {session?.activity === "run"
-            ? "This Run uses no skill. Teach one to rerun the journey later."
-            : "Skills you teach and verify appear here."}
+            ? "This Run uses no flow. Teach one to rerun the journey later."
+            : "Flows you teach and verify appear here."}
         </p>
       </EmptyContent>
     </Empty>
@@ -615,15 +724,15 @@ const NoSkillsAnywhere = ({
 );
 
 /** Selection survives switching between the two narrow navigation views. */
-const SkillsNavigation = ({
+const FlowsNavigation = ({
   roots,
-  skills,
+  flows,
 }: {
   readonly roots: readonly CatalogRootView[];
-  readonly skills: SessionSkills;
+  readonly flows: SessionFlows;
 }) => {
   const [queryAtom] = useState(() => Atom.make(""));
-  const [folderAtom] = useState(() => Atom.make<SkillsFolder | null>(null));
+  const [folderAtom] = useState(() => Atom.make<FlowsFolder | null>(null));
   const [viewAtom] = useState(() =>
     Atom.make<"catalog" | "contents">("catalog")
   );
@@ -676,21 +785,22 @@ const SkillsNavigation = ({
       '[aria-label="Catalog"]'
     );
     const target =
-      catalog?.querySelector<HTMLElement>('button[aria-pressed="true"]') ??
-      catalog?.querySelector<HTMLElement>("input");
+      catalog?.querySelector<HTMLElement>(
+        'button[aria-selected="true"], button[aria-pressed="true"]'
+      ) ?? catalog?.querySelector<HTMLElement>("input");
     target?.focus({ preventScroll: true });
   }, [narrow, view]);
 
   const folder =
-    availableFolder(chosen, roots, skills) ?? defaultFolder(roots, skills);
+    availableFolder(chosen, roots, flows) ?? defaultFolder(roots, flows);
   const historyName =
-    folder?.kind === "recordings" ? "Other recordings" : "Other runs";
-  const folderName = folder?.kind === "skill" ? folder.name : historyName;
+    folder?.kind === "recordings" ? "Other recordings" : "Root Runs";
+  const folderName = folder?.kind === "flow" ? folder.name : historyName;
   return (
-    <div className="@container/skills relative flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="@container/flows relative flex min-h-0 min-w-0 flex-1 flex-col">
       <span
         aria-hidden="true"
-        className="pointer-events-none invisible absolute h-px w-0 @min-[36rem]/skills:w-px"
+        className="pointer-events-none invisible absolute h-px w-0 @min-[36rem]/flows:w-px"
         ref={breakpointRef}
       />
       <div
@@ -713,7 +823,7 @@ const SkillsNavigation = ({
             query={query}
             roots={roots}
             setQuery={setQuery}
-            skills={skills}
+            flows={flows}
           />
         ) : null}
         {!narrow || view === "contents" ? (
@@ -749,7 +859,7 @@ const SkillsNavigation = ({
                 }}
                 query={query}
                 roots={roots}
-                skills={skills}
+                flows={flows}
               />
             </div>
           </section>
@@ -762,20 +872,20 @@ const SkillsNavigation = ({
 /**
  * Read-only Catalog Roots and their contents. Details open beside the browser.
  */
-export const SkillsDrawer = ({
+export const FlowsDrawer = ({
   session,
 }: {
-  readonly session: SkillsSessionView | undefined;
+  readonly session: FlowsSessionView | undefined;
 }) => {
   const { catalogBrowseAtom } = useRpcDependencies();
   const result = useAtomValue(catalogBrowseAtom);
   const refresh = useAtomRefresh(catalogBrowseAtom);
-  // Each opening reads the catalog again: an agent may have saved a skill
+  // Each opening reads the catalog again: an agent may have saved a flow
   // or finished a Run since the drawer was last open.
   useEffect(() => {
     refresh();
   }, [refresh]);
-  const skills = sessionSkills(session);
+  const flows = sessionFlows(session);
 
   if (result._tag === "Initial") {
     return (
@@ -810,19 +920,19 @@ export const SkillsDrawer = ({
     );
   if (
     roots.every((root) => !hasBrowsableEntries(root)) &&
-    skills.pending === undefined
+    flows.pending === undefined
   ) {
     return (
       <>
         {warning}
-        <NoSkillsAnywhere session={session} />
+        <NoFlowsAnywhere session={session} />
       </>
     );
   }
   return (
     <>
       {warning}
-      <SkillsNavigation roots={roots} skills={skills} />
+      <FlowsNavigation roots={roots} flows={flows} />
     </>
   );
 };

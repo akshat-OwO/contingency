@@ -39,8 +39,8 @@ import { BrowserRpcError } from "./browser-rpc-error.ts";
 import {
   CatalogBrowseGet,
   CatalogBrowseResult,
-  CatalogFlowSkillGet,
-  CatalogFlowSkillResult,
+  CatalogFlowGet,
+  CatalogFlowResult,
 } from "./catalog-browser.ts";
 import {
   Geolocation,
@@ -63,7 +63,7 @@ import {
 } from "./storage.ts";
 import {
   GuidedRunCheckDecision,
-  FlowSkillName,
+  FlowName,
   TeachingCaptureState,
   TeachingRecordingCleanupState,
   TeachingRecordingId,
@@ -195,7 +195,7 @@ export type BrowserConsoleEntry = typeof BrowserConsoleEntry.Type;
 /**
  * A site's bot protection rejected a request from the session's browser. The
  * Workspace says so, because a blocked login otherwise looks like a broken
- * site or a broken Flow Skill (#266).
+ * site or a broken Flow (#266).
  */
 export const BrowserBotProtectionBlock = Schema.Struct({
   provider: Schema.Literal("cloudflare"),
@@ -408,7 +408,7 @@ export const AgentSessionClosed = AgentSessionCloseResult;
 
 /**
  * Start and Stop are the Teaching privacy boundary ([ADR
- * 0039](../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * 0071](../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  * Nothing is captured until the user starts a recording, and every capture
  * source stops against one end timestamp. `operationId` makes each gesture
  * safe to retry: a repeated id returns the same recording rather than opening
@@ -501,9 +501,9 @@ export const AgentTeachingInstructionRecorded = Schema.Struct({
   session: AgentSessionSnapshot,
 });
 
-/** Renaming the Flow Skill a Teaching session is about to demonstrate. */
+/** Renaming the Flow a Teaching session is about to demonstrate. */
 export const AgentTeachingFlowRenameRequest = Schema.Struct({
-  name: FlowSkillName,
+  name: FlowName,
   operationId: AgentSessionClose.fields.operationId,
   sessionId: AgentSessionClose.fields.sessionId,
 });
@@ -976,7 +976,7 @@ const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   success: AgentRunSummaryResult,
 });
 /**
- * The Workspace's Skills drawer. Both are read-only: browsing never writes to
+ * The Workspace's Flows Drawer. Both are read-only: browsing never writes to
  * either Catalog Root, and neither is an MCP tool (ADR 0051).
  */
 const CatalogBrowseGetRpc = Rpc.make("catalog.browse.get", {
@@ -984,10 +984,10 @@ const CatalogBrowseGetRpc = Rpc.make("catalog.browse.get", {
   payload: CatalogBrowseGet,
   success: CatalogBrowseResult,
 });
-const CatalogFlowSkillGetRpc = Rpc.make("catalog.flow-skill.get", {
+const CatalogFlowGetRpc = Rpc.make("catalog.flow.get", {
   error: BrowserRpcError,
-  payload: CatalogFlowSkillGet,
-  success: CatalogFlowSkillResult,
+  payload: CatalogFlowGet,
+  success: CatalogFlowResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("ios.devices.list", {
@@ -1082,7 +1082,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserStorageClearRpc,
   AgentRunSummaryGetRpc,
   CatalogBrowseGetRpc,
-  CatalogFlowSkillGetRpc
+  CatalogFlowGetRpc
 ) {}
 
 /** Browser devtools operations available only through agent_code_execute. */

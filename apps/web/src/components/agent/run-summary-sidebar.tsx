@@ -215,7 +215,7 @@ export interface WorkspaceLeading {
  * left and nothing ends up underneath the dock (#296).
  *
  * The Workspace panel is always rendered in the same place, so a summary
- * arriving or leaving never remounts the live browser canvas. The Skills
+ * arriving or leaving never remounts the live browser canvas. The Flows
  * drawer docks to the left the same way.
  */
 export const WorkspaceWithRunSummary = ({
@@ -248,7 +248,7 @@ export const WorkspaceWithRunSummary = ({
   );
   const shownLeading = leadingPresence.rendered;
   const shownSummary = summaryPresence.rendered;
-  // Skills, Workspace, and Details must fit together even with enlarged
+  // Flows, Workspace, and Details must fit together even with enlarged
   // text. Three root-relative minima can otherwise force Details closed.
   const sharingSpace = shownLeading !== undefined && shownSummary !== undefined;
   const leadingMinimum = mobile ? "12rem" : "24rem";

@@ -96,16 +96,16 @@ it.live(
       expect(starter).not.toContain("agent_teaching_recording_claim");
 
       const learn = yield* read(request, LEARN_FLOW_URI);
-      expect(learn).toContain("agent_flow_skill_save");
+      expect(learn).toContain("agent_flow_save");
       expect(learn).toContain("agent_session_get");
       expect(learn).toContain("afterCursor:eventCursor");
       expect(learn).toContain(
-        "Relay a conversation choice with agent_flow_skill_decide"
+        "Relay a conversation choice with agent_flow_decide"
       );
 
       const examples = yield* read(request, EXAMPLES_URI);
       for (const example of ONBOARDING_EXAMPLES) {
-        expect(examples).toContain(example.flowSkillName);
+        expect(examples).toContain(example.flowName);
       }
       const origin = /http:\/\/ridgeline\.localhost:(?<port>\d+)\//u.exec(
         examples

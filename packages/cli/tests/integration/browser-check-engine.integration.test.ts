@@ -17,7 +17,7 @@ import { registeredSleeps } from "../helpers/registered-sleeps.ts";
 
 const reference = (check: BrowserCheck): BrowserCheckReference => ({
   check,
-  flowSkillName: "submit",
+  flowName: "submit",
 });
 
 const observeChecks = (

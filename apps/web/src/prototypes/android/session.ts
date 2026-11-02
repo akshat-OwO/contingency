@@ -1,4 +1,4 @@
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
@@ -117,7 +117,7 @@ export const startWithSelection = (
 ) =>
   dispatch({
     _tag: "start",
-    flowSkillName: FlowSkillName.make("checkout"),
+    flowName: FlowName.make("checkout"),
     kind: "teaching",
     operationId: nextOperationId(),
     recordingId: null,
@@ -128,7 +128,7 @@ export const startWithSelection = (
 export const startSession = (dispatch: Dispatch, helper: boolean) =>
   dispatch({
     _tag: "start",
-    flowSkillName: FlowSkillName.make("checkout"),
+    flowName: FlowName.make("checkout"),
     kind: "teaching",
     operationId: nextOperationId(),
     recordingId: null,

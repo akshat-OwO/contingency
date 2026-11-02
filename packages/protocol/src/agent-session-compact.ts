@@ -33,7 +33,7 @@ import {
 import type { AgentSessionSnapshot } from "./agent-session.ts";
 import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation } from "./emulation.ts";
-import { FlowSkillName } from "./flow-skill-identifiers.ts";
+import { FlowName } from "./flow-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { PlatformIdentity } from "./platform.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
@@ -61,8 +61,8 @@ const CompactTaskRun = Schema.Struct({
   emulationChanges: Schema.optionalKey(Schema.Array(RunEmulationChange)),
   emulationConflicts: Schema.optional(Schema.Array(RunEmulationConflict)),
   emulationSource: Schema.optional(RunEmulationSource),
-  /** Bundled Example Flow Skills among the referenced skills (ADR 0050). */
-  exampleSkills: Schema.optional(Schema.Array(FlowSkillName)),
+  /** Bundled Example Flows among the referenced flows (ADR 0050). */
+  exampleFlows: Schema.optional(Schema.Array(FlowName)),
   findings: latestOf(AgentTaskFinding),
   /** Identities only: the agent already holds the values it supplied. */
   inputs: Schema.Array(AgentRunInputIdentity),
@@ -76,7 +76,7 @@ const CompactTaskRun = Schema.Struct({
     }),
   ]),
   purpose: AgentTaskRunPurpose,
-  referencedSkills: Schema.Array(FlowSkillName),
+  referencedFlows: Schema.Array(FlowName),
   requestedTask: Schema.String,
   runId: AgentRunId,
   scanReports: scanReportsField,
@@ -89,7 +89,7 @@ const CompactTaskRun = Schema.Struct({
 const CompactOrderedRun = Schema.Struct({
   activeStepIndex: Schema.NullOr(nonNegativeInt),
   coverage: AgentRunCoverage,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   kind: Schema.Literal("ordered"),
   outcome: Schema.NullOr(AgentRunOutcome),
   runId: AgentRunId,
@@ -100,14 +100,14 @@ const CompactTeaching = Schema.Struct({
   actionCount: nonNegativeInt,
   /** The `_tag` of the Teaching capture state, such as `recording` or `ready`. */
   captureState: Schema.String,
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   instructionCount: nonNegativeInt,
   origin: TeachingRecordingOrigin,
   recordingId: TeachingRecordingId,
 });
 
 const CompactDryRun = Schema.Struct({
-  flowSkillName: FlowSkillName,
+  flowName: FlowName,
   recordingId: TeachingRecordingId,
   variables: Schema.Array(AgentSessionVariableState),
 });
@@ -167,8 +167,8 @@ const compactRun = (
       emulationChanges: run.emulationChanges ?? [],
       emulationConflicts: run.emulationConflicts ?? [],
       findings: latest(run.findings),
-      inputs: run.inputs.map(({ flowSkillName, name }) => ({
-        flowSkillName,
+      inputs: run.inputs.map(({ flowName, name }) => ({
+        flowName,
         name,
       })),
       instructions: latest(run.instructions),
@@ -178,9 +178,7 @@ const compactRun = (
           ? { phase: "running" }
           : { outcome: run.lifecycle.outcome, phase: "ended" },
       purpose: run.purpose,
-      referencedSkills: run.referencedSkills.map(
-        (skill) => skill.flowSkillName
-      ),
+      referencedFlows: run.referencedFlows.map((flow) => flow.flowName),
       requestedTask: run.requestedTask,
       runId: run.runId,
       scanReports: run.scanReports ?? [],
@@ -194,18 +192,18 @@ const compactRun = (
     if (run.emulationSource !== undefined) {
       compact.emulationSource = run.emulationSource;
     }
-    const exampleSkills = run.referencedSkills.flatMap((skill) =>
-      skill.origin === "example" ? [skill.flowSkillName] : []
+    const exampleFlows = run.referencedFlows.flatMap((flow) =>
+      flow.origin === "example" ? [flow.flowName] : []
     );
-    if (exampleSkills.length > 0) {
-      compact.exampleSkills = exampleSkills;
+    if (exampleFlows.length > 0) {
+      compact.exampleFlows = exampleFlows;
     }
     return compact;
   }
   return {
     activeStepIndex: run.activeStepIndex,
     coverage: run.coverage,
-    flowSkillName: run.flowSkillName,
+    flowName: run.flowName,
     kind: "ordered",
     outcome: run.outcome,
     runId: run.runId,
@@ -226,7 +224,7 @@ export const compactAgentSession = (
     snapshot.dryRun === null
       ? null
       : {
-          flowSkillName: snapshot.dryRun.flowSkillName,
+          flowName: snapshot.dryRun.flowName,
           recordingId: snapshot.dryRun.recordingId,
           variables: snapshot.dryRun.variables,
         },
@@ -250,7 +248,7 @@ export const compactAgentSession = (
       ? {
           actionCount: snapshot.teaching.actionCount,
           captureState: snapshot.captureState._tag,
-          flowSkillName: snapshot.flowSkillName,
+          flowName: snapshot.flowName,
           instructionCount: snapshot.teaching.instructionCount,
           origin: snapshot.origin,
           recordingId: snapshot.recordingId,

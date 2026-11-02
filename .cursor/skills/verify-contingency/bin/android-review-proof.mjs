@@ -120,7 +120,7 @@ try {
       await adb("shell", "pm", "clear", "--user", "0", appId),
       "Success"
     );
-    const flowSkillName = `${prefix}-${decision}`;
+    const flowName = `${prefix}-${decision}`;
     const selection = {
       device,
       environment: {
@@ -141,15 +141,13 @@ try {
       },
     };
     await control("browser", "goto", "--url", instance.mcpUrl);
-    await openAndroidSheet(control, selection, flowSkillName, (name) =>
+    await openAndroidSheet(control, selection, flowName, (name) =>
       snapshot(`${decision}-${name}`)
     );
     const sessions = await tool("agent_device_sessions_list", {
       platform: "android",
     });
-    const session = sessions.find(
-      (entry) => entry.flowSkillName === flowSkillName
-    );
+    const session = sessions.find((entry) => entry.flowName === flowName);
     assert.ok(session);
     assert.deepEqual(
       session.selection.environment.permissions,
@@ -233,7 +231,7 @@ try {
         "--role",
         "option",
         "--name",
-        `${flowSkillName} · Android Teaching`
+        `${flowName} · Android Teaching`
       );
       await wait("button", "Recover same emulator");
       await snapshot("reopened-paused");
@@ -262,7 +260,7 @@ try {
       "--role",
       "option",
       "--name",
-      `${flowSkillName} · Android Teaching`
+      `${flowName} · Android Teaching`
     );
     await wait("button", "New session");
     await snapshot(`${decision}-reopened-summary`);
@@ -277,7 +275,7 @@ try {
       platform: "android",
     })) {
       if (
-        session.flowSkillName.startsWith(prefix) &&
+        session.flowName.startsWith(prefix) &&
         ["pending", "running", "paused"].includes(session.phase)
       ) {
         await control(

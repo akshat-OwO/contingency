@@ -307,11 +307,11 @@ export const makeSessionEvents = (
       let kind: SessionEvent["kind"] | undefined;
       switch (receipt.operation) {
         case "verification": {
-          kind = "flow-skill-verified";
+          kind = "flow-verified";
           break;
         }
         case "reject": {
-          kind = "flow-skill-rejected";
+          kind = "flow-rejected";
           break;
         }
         case "fail-dry-run": {
@@ -335,7 +335,7 @@ export const makeSessionEvents = (
       }
       if (kind !== undefined) {
         log = append(log, kind, receipt.completedAt);
-        if (kind === "flow-skill-verified") {
+        if (kind === "flow-verified") {
           log = { ...log, verifiedAt: receipt.completedAt };
         }
         if (kind === "cleanup-completed") {
@@ -409,7 +409,7 @@ export const makeSessionEvents = (
     const receipts = new Set(log.receipts).add(key);
     // The manifest may already have delivered verification before deletion.
     if (origin === "workspace" && log.verifiedAt !== at) {
-      log = { ...append(log, "flow-skill-verified", at), verifiedAt: at };
+      log = { ...append(log, "flow-verified", at), verifiedAt: at };
     }
     if (origin === "workspace" && !log.cleanupCompleted) {
       log = { ...append(log, "cleanup-completed", at), cleanupCompleted: true };

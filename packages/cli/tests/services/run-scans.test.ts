@@ -11,7 +11,7 @@ import { makeRunScans } from "../../src/services/run-scans.ts";
 import { taskRunSummary } from "../helpers/task-run.ts";
 
 const requirement = {
-  flowSkillName: "shop",
+  flowName: "shop",
   id: "load",
   mode: "reload" as const,
   when: "Home is loaded",

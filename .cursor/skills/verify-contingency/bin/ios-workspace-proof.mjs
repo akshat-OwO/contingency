@@ -160,7 +160,7 @@ const snapshot = async (name) => {
   );
 };
 const sessions = [];
-const flowSkillName = "ios-login";
+const flowName = "ios-login";
 const loginName = "Test Shopper";
 const password = "fixture-password";
 let selection;
@@ -330,7 +330,7 @@ try {
   };
   const probe = (probeDevice, kind = "teaching") => ({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind,
     operationId: operation(),
     recordingId: null,
@@ -364,7 +364,7 @@ try {
   // Teaching starts through the actual Workspace setup controls.
   await control("browser", "goto", "--url", instance.mcpUrl);
   await control("browser", "click", "--role", "button", "--name", "iOS");
-  await fill("Flow skill name", flowSkillName);
+  await fill("Flow name", flowName);
   await control(
     "browser",
     "select",
@@ -386,7 +386,7 @@ try {
   }
   await click("Open session");
   const list = await iosRpc(instance.mcpUrl, "ios.workspace.list", {});
-  const teaching = list.find((entry) => entry.flowSkillName === flowSkillName);
+  const teaching = list.find((entry) => entry.flowName === flowName);
   assert.ok(teaching);
   sessions.push(teaching.id);
   await view(teaching.id);
@@ -506,15 +506,15 @@ try {
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)
   );
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
-  await tool("agent_flow_skill_save", {
+  const content = `---\nname: ${flowName}\ndescription: Sign in with test inputs, open account details, and return. Use for the iOS Workspace fixture.\ninputs:\n  - name: PASSWORD\n    description: Test account password\n---\n\n# Public login and account\n\n1. Enter ${loginName} in Login name. Done when: the field shows ${loginName}.\n2. Fill Password with {{PASSWORD}}. Readback is unavailable for the secure field. Done when: Sign in privately is visible.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Activate Return to account. Done when: Signed in as ${loginName} is visible.\n`;
+  await tool("agent_flow_save", {
     claimOperationId: claim,
     files: [{ content, path: "flow.md" }],
     operationId: operation(),
     recordingId,
   });
   receipt.coverage.learning = true;
-  process.stdout.write("iOS Teaching and Flow Skill learning passed\n");
+  process.stdout.write("iOS Teaching and Flow learning passed\n");
   // Existing data must survive later sessions on this selected device.
   const dataContainer = await execute("xcrun", [
     "simctl",
@@ -547,7 +547,7 @@ try {
     try {
       repeated = await call({
         _tag: "start",
-        flowSkillName,
+        flowName,
         kind: "dry-run",
         operationId: operation(),
         recordingId,
@@ -598,7 +598,7 @@ try {
   for (const kind of ["dry-run", "run"]) {
     const started = await call({
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? recordingId : null,
@@ -779,12 +779,12 @@ try {
       assert.equal(verified.captureState._tag, "verified");
       assert.equal(verified.cleanup._tag, "purged");
       const skill = await readFile(
-        path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
+        path.join(instance.stateDir, "catalog", flowName, "flow.md"),
         "utf-8"
       );
       assert.match(skill, /"platform":"ios"/u);
       const verification = await readFile(
-        path.join(instance.stateDir, "catalog", flowSkillName, "flow.md"),
+        path.join(instance.stateDir, "catalog", flowName, "flow.md"),
         "utf-8"
       );
       assert.match(verification, /"platform":"ios"/u);
@@ -796,7 +796,7 @@ try {
   // A separate limits Run keeps refusals out of the successful journey Run.
   const limits = await call({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind: "run",
     operationId: operation(),
     recordingId: null,

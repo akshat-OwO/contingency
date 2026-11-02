@@ -83,7 +83,7 @@ const start = async (kind = "run") => {
   const session = await call(
     {
       _tag: "start",
-      flowSkillName: "ios-login",
+      flowName: "ios-login",
       kind,
       operationId: operation(),
       recordingId: null,
@@ -137,7 +137,7 @@ try {
   receipt.limits.oneBinding = await refusal(
     {
       _tag: "start",
-      flowSkillName: "ios-login",
+      flowName: "ios-login",
       kind: "run",
       operationId: operation(),
       recordingId: null,

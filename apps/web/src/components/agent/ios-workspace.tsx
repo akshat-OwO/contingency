@@ -1,9 +1,5 @@
 /* oxlint-disable eslint/no-await-in-loop -- Decode each transport packet in order and release its reader on cancellation. */
-import {
-  AgentSessionId,
-  FlowSkillName,
-  OperationId,
-} from "@contingency/protocol";
+import { AgentSessionId, FlowName, OperationId } from "@contingency/protocol";
 import type {
   IosWorkspaceCommand,
   IosObservationRefusal,
@@ -295,7 +291,7 @@ const IosSetupSheet = ({
           const appPath = text(data, "path");
           send({
             _tag: "start",
-            flowSkillName: FlowSkillName.make(text(data, "flow")),
+            flowName: FlowName.make(text(data, "flow")),
             kind: "teaching",
             operationId: operationId(),
             recordingId: null,
@@ -304,7 +300,7 @@ const IosSetupSheet = ({
         }}
       >
         <label>
-          Flow skill name
+          Flow name
           <Input name="flow" required />
         </label>
         <label>
@@ -515,7 +511,7 @@ const IosDock = ({
       <Wordmark />
       <p role="status">
         {session
-          ? `${session.flowSkillName} · ${recording ? "Recording" : (session.captureState?._tag ?? session.phase)} · ${session.kind}`
+          ? `${session.flowName} · ${recording ? "Recording" : (session.captureState?._tag ?? session.phase)} · ${session.kind}`
           : "No iOS session"}
       </p>
       {gesture.error ? <p role="alert">{gesture.error}</p> : null}
@@ -584,7 +580,7 @@ const IosDock = ({
             <option value="">New iOS session</option>
             {choices.map((entry) => (
               <option key={entry.id} value={entry.id}>
-                {entry.flowSkillName} · {entry.kind}
+                {entry.flowName} · {entry.kind}
               </option>
             ))}
           </select>
@@ -699,7 +695,7 @@ const IosDock = ({
       ) : null}
       {session?.cleanup?._tag === "purged" ? (
         <p className="text-muted-foreground text-pretty">
-          Recording deleted. Verified Flow Skill retained.
+          Recording deleted. Verified Flow retained.
         </p>
       ) : null}
       {session ? (

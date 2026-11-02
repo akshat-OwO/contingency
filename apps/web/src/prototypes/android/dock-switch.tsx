@@ -336,7 +336,7 @@ export const DockSwitchPrototype = ({
         >
           <DockWordmark />
           <PlatformSwitch />
-          <span className="truncate px-1 text-sm">{session.flowSkillName}</span>
+          <span className="truncate px-1 text-sm">{session.flowName}</span>
           <DockSpacer />
           {presentation.rejectable ? (
             <Button

@@ -91,7 +91,7 @@ export const PlatformRequirements = Schema.Union([
     outcomes: Schema.optionalKey(Schema.Array(AndroidStartingCondition)),
     platform: Schema.Literal("android"),
     preparation: Schema.optionalKey(AndroidPreparation),
-    /** Skills saved before ADR 0067 carry this allowlist; read, then discarded. */
+    /** Flows saved before ADR 0067 carry this allowlist; read, then discarded. */
     reversibleActions: Schema.optionalKey(Schema.Unknown).pipe(
       Schema.decodeTo(Schema.optionalKey(Schema.Unknown), {
         decode: SchemaGetter.omit(),

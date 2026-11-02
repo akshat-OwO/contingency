@@ -1,7 +1,7 @@
 import { TaskAgentRunSummary } from "@contingency/protocol";
 import { Schema } from "effect";
 
-/** Two skills use the same input name with different values in one task. */
+/** Two flows use the same input name with different values in one task. */
 export const taskRunSummary = Schema.decodeUnknownSync(TaskAgentRunSummary)({
   assessment: {
     evidence: [{ id: "snapshot-cart", kind: "snapshot" }],
@@ -29,8 +29,8 @@ export const taskRunSummary = Schema.decodeUnknownSync(TaskAgentRunSummary)({
     },
   ],
   inputs: [
-    { flowSkillName: "browse-catalogue", name: "product", value: "Mug" },
-    { flowSkillName: "update-cart", name: "product", value: "Blue mug" },
+    { flowName: "browse-catalogue", name: "product", value: "Mug" },
+    { flowName: "update-cart", name: "product", value: "Blue mug" },
   ],
   instructions: [
     {
@@ -40,12 +40,12 @@ export const taskRunSummary = Schema.decodeUnknownSync(TaskAgentRunSummary)({
   ],
   outcome: "completed",
   purpose: { kind: "interactive" },
-  referencedSkills: [
+  referencedFlows: [
     {
-      flowSkillName: "browse-catalogue",
+      flowName: "browse-catalogue",
       referencedAt: "2026-10-01T00:00:00.000Z",
     },
-    { flowSkillName: "update-cart", referencedAt: "2026-10-01T00:00:30.000Z" },
+    { flowName: "update-cart", referencedAt: "2026-10-01T00:00:30.000Z" },
   ],
   requestedTask: "Browse the catalogue and add a mug to the cart.",
   runId: "agentrun-task-store",
@@ -71,7 +71,7 @@ export const taskRunSummary = Schema.decodeUnknownSync(TaskAgentRunSummary)({
   tracePath: "run.trace.zip",
   variables: [
     {
-      flowSkillName: "browse-catalogue",
+      flowName: "browse-catalogue",
       name: "TOKEN",
       runtime: true,
       secret: true,

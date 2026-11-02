@@ -8,9 +8,9 @@ import {
   TeachingEvent,
 } from "@contingency/protocol";
 import type {
-  FlowSkillDiagnostic,
-  FlowSkillFile,
-  FlowSkillSaveResult,
+  FlowDiagnostic,
+  FlowFile,
+  FlowSaveResult,
   OperationId,
   TeachingKeyframeFile,
   TeachingRecordingId,
@@ -39,10 +39,10 @@ import {
 } from "./flow-catalog-layout.ts";
 import { isFlowDocument, isFlowDocumentArea } from "./flow-documents.ts";
 import {
-  SKILL_FILE,
-  stampFlowSkillProvenance,
-  validateFlowSkillPackage,
-} from "./flow-skill-package.ts";
+  FLOW_FILE,
+  stampFlowProvenance,
+  validateFlowPackage,
+} from "./flow-package.ts";
 import {
   parameterizeBrowserCommand,
   stampBrowserState,
@@ -58,11 +58,11 @@ const EVENTS_FILE_KIND = "events";
 /** Shorter values match ordinary prose too often to rewrite safely. */
 const MIN_PARAMETERIZED_LENGTH = 4;
 
-/** A reusable skill stores the declared Variable reference, never its example value. */
+/** A reusable flow stores the declared Variable reference, never its example value. */
 export const parameterizeVariables = (
-  files: readonly FlowSkillFile[],
+  files: readonly FlowFile[],
   events: readonly TeachingEvent[]
-): readonly FlowSkillFile[] => {
+): readonly FlowFile[] => {
   const values = events
     .flatMap((event) =>
       event._tag === "action" &&
@@ -88,11 +88,11 @@ export const parameterizeVariables = (
     "gu"
   );
   return files.map((file) => {
-    if (file.path !== SKILL_FILE && !file.path.endsWith(".md")) {
+    if (file.path !== FLOW_FILE && !file.path.endsWith(".md")) {
       return file;
     }
     const prefix =
-      file.path === SKILL_FILE
+      file.path === FLOW_FILE
         ? (/^---\r?\n[\s\S]*?\r?\n---\r?\n?/u.exec(file.content)?.[0] ?? "")
         : "";
     const body = file.content.slice(prefix.length).replace(pattern, (match) => {
@@ -105,7 +105,7 @@ export const parameterizeVariables = (
     return { ...file, content: prefix + body };
   });
 };
-const SKILL_LOCK_FILE = ".flow-skill.lock";
+const FLOW_LOCK_FILE = ".flow.lock";
 
 interface TeachingRecordingLearningDomainError {
   readonly _tag: "TeachingRecordingLearningError";
@@ -117,7 +117,7 @@ interface TeachingRecordingLearningDomainError {
     | "teaching_recording_timeout"
     | "teaching_recording_unclaimed"
     | "teaching_timeline_too_large";
-  readonly diagnostics: readonly FlowSkillDiagnostic[];
+  readonly diagnostics: readonly FlowDiagnostic[];
   readonly message: string;
 }
 export type TeachingRecordingLearningError =
@@ -138,12 +138,12 @@ const learningError = (
  * file and field rather than guessing at the whole package again.
  */
 const invalidPackage = (
-  diagnostics: readonly FlowSkillDiagnostic[]
+  diagnostics: readonly FlowDiagnostic[]
 ): TeachingRecordingLearningError => ({
   _tag: "TeachingRecordingLearningError",
   code: "teaching_recording_invalid",
   diagnostics,
-  message: `The Flow Skill package was not saved: ${diagnostics
+  message: `The Flow package was not saved: ${diagnostics
     .map(
       (entry) => `${entry.code} at ${entry.path.join(" > ")}: ${entry.message}`
     )
@@ -170,39 +170,39 @@ const processIsStale = (pid: number): boolean => {
   }
 };
 
-const isSafeSkillPath = (filePath: string): boolean =>
+const isSafeFlowPath = (filePath: string): boolean =>
   isFlowDocumentArea(filePath) &&
-  (filePath === SKILL_FILE || !filePath.split("/").includes(SKILL_FILE));
+  (filePath === FLOW_FILE || !filePath.split("/").includes(FLOW_FILE));
 
 const pathDiagnostic = (
   code: string,
   message: string,
   filePath: string
-): FlowSkillDiagnostic => ({ code, message, path: [filePath] });
+): FlowDiagnostic => ({ code, message, path: [filePath] });
 
 const validateFiles = (
-  files: readonly FlowSkillFile[]
-): Effect.Effect<readonly FlowSkillFile[], TeachingRecordingLearningError> => {
-  const missingSkillFile = pathDiagnostic(
-    "flow_skill_missing_skill_file",
-    "A Flow Skill package must contain flow.md.",
-    SKILL_FILE
+  files: readonly FlowFile[]
+): Effect.Effect<readonly FlowFile[], TeachingRecordingLearningError> => {
+  const missingFlowFile = pathDiagnostic(
+    "flow_missing_flow_file",
+    "A Flow package must contain flow.md.",
+    FLOW_FILE
   );
   if (files.length === 0) {
-    return Effect.fail(invalidPackage([missingSkillFile]));
+    return Effect.fail(invalidPackage([missingFlowFile]));
   }
   const names = new Set<string>();
-  const documents: FlowSkillFile[] = [];
+  const documents: FlowFile[] = [];
   for (const file of files) {
     if (!file.path.endsWith(".md") && !isFlowDocument(file.path)) {
       continue;
     }
-    if (!isSafeSkillPath(file.path)) {
+    if (!isSafeFlowPath(file.path)) {
       return Effect.fail(
         invalidPackage([
           pathDiagnostic(
-            "flow_skill_unsafe_path",
-            `Flow Skill file ${file.path} must stay in the Flow document area, outside runs/ and recordings/.`,
+            "flow_unsafe_path",
+            `Flow file ${file.path} must stay in the Flow document area, outside runs/ and recordings/.`,
             file.path
           ),
         ])
@@ -213,8 +213,8 @@ const validateFiles = (
       return Effect.fail(
         invalidPackage([
           pathDiagnostic(
-            "flow_skill_empty_file",
-            `Flow Skill file ${file.path} must not be empty.`,
+            "flow_empty_file",
+            `Flow file ${file.path} must not be empty.`,
             file.path
           ),
         ])
@@ -224,8 +224,8 @@ const validateFiles = (
       return Effect.fail(
         invalidPackage([
           pathDiagnostic(
-            "flow_skill_duplicate_file",
-            `Flow Skill file ${file.path} appears more than once.`,
+            "flow_duplicate_file",
+            `Flow file ${file.path} appears more than once.`,
             file.path
           ),
         ])
@@ -233,9 +233,9 @@ const validateFiles = (
     }
     names.add(file.path);
   }
-  return names.has(SKILL_FILE)
+  return names.has(FLOW_FILE)
     ? Effect.succeed(documents)
-    : Effect.fail(invalidPackage([missingSkillFile]));
+    : Effect.fail(invalidPackage([missingFlowFile]));
 };
 
 /** Project the durable events into bounded Timeline pages. */
@@ -329,9 +329,9 @@ const eventProjection = (
   }
 };
 
-export interface SaveFlowSkillInput {
+export interface SaveFlowInput {
   readonly claimOperationId: OperationId;
-  readonly files: readonly FlowSkillFile[];
+  readonly files: readonly FlowFile[];
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
 }
@@ -353,8 +353,8 @@ export interface TeachingRecordingLearningService {
     TeachingRecordingLearningError
   >;
   readonly save: (
-    input: SaveFlowSkillInput
-  ) => Effect.Effect<FlowSkillSaveResult, TeachingRecordingLearningError>;
+    input: SaveFlowInput
+  ) => Effect.Effect<FlowSaveResult, TeachingRecordingLearningError>;
   readonly timeline: (
     input: TeachingTimelineInput
   ) => Effect.Effect<TeachingTimeline, TeachingRecordingLearningError>;
@@ -531,14 +531,14 @@ const makeTeachingRecordingLearning = Effect.fn(
       } satisfies TeachingKeyframeFile;
     });
 
-  const withSkillLock = <A>(
+  const withFlowLock = <A>(
     catalogRoot: string,
     operation: Effect.Effect<A, TeachingRecordingLearningError>
   ): Effect.Effect<A, TeachingRecordingLearningError> => {
-    const lockPath = path.join(catalogRoot, SKILL_LOCK_FILE);
+    const lockPath = path.join(catalogRoot, FLOW_LOCK_FILE);
     const conflict = learningError(
       "teaching_recording_conflict",
-      "Another process is saving a Flow Skill in this Catalog Root."
+      "Another process is saving a Flow in this Catalog Root."
     );
     const create = fileSystem
       .writeFileString(lockPath, `${process.pid}\n`, {
@@ -546,7 +546,7 @@ const makeTeachingRecordingLearning = Effect.fn(
         mode: 0o600,
       })
       .pipe(Effect.mapError(() => conflict));
-    return Effect.gen(function* lockSkillCatalog() {
+    return Effect.gen(function* lockFlowCatalog() {
       yield* fileSystem
         .makeDirectory(catalogRoot, { recursive: true })
         .pipe(Effect.mapError(ioError("Could not prepare the Catalog Root")));
@@ -581,15 +581,15 @@ const makeTeachingRecordingLearning = Effect.fn(
     });
   };
 
-  const save = (input: SaveFlowSkillInput) =>
-    Effect.gen(function* saveFlowSkillPackage() {
+  const save = (input: SaveFlowInput) =>
+    Effect.gen(function* saveFlowPackage() {
       const files = yield* validateFiles(input.files);
       const existing = yield* store
         .read(input.recordingId)
         .pipe(Effect.mapError(fromStoreError));
       const replay = existing.receipts.find(
         (receipt) =>
-          receipt.operation === "save-skill" &&
+          receipt.operation === "save-flow" &&
           receipt.operationId === input.operationId
       );
       if (replay !== undefined) {
@@ -603,9 +603,9 @@ const makeTeachingRecordingLearning = Effect.fn(
         }
         return {
           files: replay.files,
-          flowSkillName: existing.flowSkillName,
+          flowName: existing.flowName,
           recordingId: existing.recordingId,
-        } satisfies FlowSkillSaveResult;
+        } satisfies FlowSaveResult;
       }
       const manifest = yield* store
         .readClaimed(input.recordingId, input.claimOperationId)
@@ -622,14 +622,11 @@ const makeTeachingRecordingLearning = Effect.fn(
       // The package contract is checked here, in the same pre-write window as
       // the path rules: an invalid package must never become the live
       // directory, so nothing is staged until every property holds.
-      const validated = validateFlowSkillPackage(
-        manifest.flowSkillName,
-        learnedFiles
-      );
+      const validated = validateFlowPackage(manifest.flowName, learnedFiles);
       if (Result.isFailure(validated)) {
         return yield* Effect.fail(invalidPackage(validated.failure));
       }
-      // A verified Flow Skill outlives its recording, so the demonstrated host
+      // A verified Flow outlives its recording, so the demonstrated host
       // ceiling and device are stamped into the package now, while the event
       // stream is still on disk to prove them.
       yield* validateTaughtBrowserChecks(
@@ -666,10 +663,10 @@ const makeTeachingRecordingLearning = Effect.fn(
           ? [...new Set(manifest.approvedHosts)].toSorted()
           : [...visited].toSorted();
       const stamped = learnedFiles.map((file) =>
-        file.path === SKILL_FILE
+        file.path === FLOW_FILE
           ? {
               ...file,
-              content: stampFlowSkillProvenance(file.content, {
+              content: stampFlowProvenance(file.content, {
                 emulation:
                   manifest.emulation === null
                     ? null
@@ -714,11 +711,11 @@ const makeTeachingRecordingLearning = Effect.fn(
       );
       const recordingDirectory = store.directory(input.recordingId);
       const catalogRoot = store.catalogRoot(input.recordingId);
-      return yield* withSkillLock(
+      return yield* withFlowLock(
         catalogRoot,
-        Effect.gen(function* replaceSkillAtomically() {
+        Effect.gen(function* replaceFlowAtomically() {
           const target = path.dirname(path.dirname(recordingDirectory));
-          if (RESERVED_FLOW_NAMES.has(manifest.flowSkillName)) {
+          if (RESERVED_FLOW_NAMES.has(manifest.flowName)) {
             return yield* Effect.fail(
               learningError(
                 "teaching_recording_invalid",
@@ -731,12 +728,12 @@ const makeTeachingRecordingLearning = Effect.fn(
               learningError("teaching_recording_invalid", cause.message)
             )
           );
-          const collision = flows.get(manifest.flowSkillName);
+          const collision = flows.get(manifest.flowName);
           if (collision !== undefined && collision.directory !== target) {
             return yield* Effect.fail(
               learningError(
                 "teaching_recording_conflict",
-                `Duplicate Flow name "${manifest.flowSkillName}" at ${collision.directory} and ${target}.`
+                `Duplicate Flow name "${manifest.flowName}" at ${collision.directory} and ${target}.`
               )
             );
           }
@@ -758,10 +755,7 @@ const makeTeachingRecordingLearning = Effect.fn(
           );
           // Stage documents only. Evidence writers do not take the catalog lock,
           // so the Flow directory and its evidence must remain in place.
-          const temporary = path.join(
-            catalogRoot,
-            `.flow-skill-${randomUUID()}.tmp`
-          );
+          const temporary = path.join(catalogRoot, `.flow-${randomUUID()}.tmp`);
           yield* fileSystem
             .makeDirectory(temporary, { mode: 0o700 })
             .pipe(Effect.mapError(ioError("Could not stage Flow documents")));
@@ -802,7 +796,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                 path.join(target, directory)
               )) {
                 const relative = path.join(directory, name);
-                if (!isSafeSkillPath(relative.split(path.sep).join("/"))) {
+                if (!isSafeFlowPath(relative.split(path.sep).join("/"))) {
                   continue;
                 }
                 const file = path.join(target, relative);
@@ -856,7 +850,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                   }
                 }
                 return yield* store
-                  .saveSkill({
+                  .saveFlow({
                     claimOperationId: input.claimOperationId,
                     files: stamped.map((file) => file.path),
                     operationId: input.operationId,
@@ -901,9 +895,9 @@ const makeTeachingRecordingLearning = Effect.fn(
           yield* install;
           return {
             files: stamped.map((file) => file.path),
-            flowSkillName: manifest.flowSkillName,
+            flowName: manifest.flowName,
             recordingId: manifest.recordingId,
-          } satisfies FlowSkillSaveResult;
+          } satisfies FlowSaveResult;
         })
       );
     });

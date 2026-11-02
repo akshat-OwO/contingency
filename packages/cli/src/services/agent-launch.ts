@@ -11,7 +11,7 @@ import type {
 import { AgentLaunchError } from "./agent-launch-error.ts";
 import type { ServerSpec } from "./agent-registration.ts";
 import { SERVER_NAME } from "./agent-registration.ts";
-import { CATALOG_DIRECTORY } from "./flow-skill-catalog.ts";
+import { CATALOG_DIRECTORY } from "./flow-catalog.ts";
 import { STARTER_PROMPT_URI, WORK_PROMPT_URI } from "./mcp-onboarding.ts";
 
 /**

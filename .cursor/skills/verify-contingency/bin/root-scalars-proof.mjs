@@ -116,7 +116,7 @@ const learn = Effect.gen(function* learnRequirements() {
     operationId: claimOperationId,
     recordingId,
   });
-  const { flowSkillName } = claimed.claim;
+  const { flowName } = claimed.claim;
   const timeline = yield* call("agent_teaching_timeline_get", {
     claimOperationId,
     recordingId,
@@ -154,11 +154,11 @@ const learn = Effect.gen(function* learnRequirements() {
   assert.equal(contexts[0].candidate.demonstrated, false);
   const { url } = timeline.entries.find((entry) => entry._tag === "started");
   yield* save("timeline.json", timeline);
-  yield* call("agent_flow_skill_save", {
+  yield* call("agent_flow_save", {
     claimOperationId,
     files: [
       {
-        content: `---\nname: ${flowSkillName}\ndescription: Submit once and require the four typed root scalar responses.\ninputs:\n---\n\n1. Click the Submit scalars button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Submitted 1 time(s) is visible.\n`,
+        content: `---\nname: ${flowName}\ndescription: Submit once and require the four typed root scalar responses.\ninputs:\n---\n\n1. Click the Submit scalars button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Submitted 1 time(s) is visible.\n`,
         path: "flow.md",
       },
       {
@@ -179,7 +179,7 @@ const learn = Effect.gen(function* learnRequirements() {
         path.join(
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
-          flowSkillName,
+          flowName,
           "checks.json"
         ),
         "utf-8"
@@ -191,7 +191,7 @@ const learn = Effect.gen(function* learnRequirements() {
   yield* save("state.json", {
     checks,
     claimOperationId,
-    flowSkillName,
+    flowName,
     recordingId,
     url,
   });
@@ -199,7 +199,7 @@ const learn = Effect.gen(function* learnRequirements() {
 const launch = Effect.gen(function* launchDryRun() {
   const state = yield* readState();
   const failure = phase === "start-failure";
-  const dry = yield* call("agent_flow_skill_dry_run_start", {
+  const dry = yield* call("agent_flow_dry_run_start", {
     inputs: [],
     operationId: operation(),
     recordingId: state.recordingId,
@@ -224,7 +224,7 @@ const finish = Effect.gen(function* finishDryRun() {
   const params = {
     action: { ref: button.ref, type: "click" },
     checkIds: state.checks.map((check) => ({
-      flowSkillName: state.flowSkillName,
+      flowName: state.flowName,
       id: check.id,
     })),
     format: "structured",

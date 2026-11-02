@@ -70,7 +70,7 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
 });
 
 /**
- * Whether the Workspace is showing the full-bleed recorded Flow Skill chrome.
+ * Whether the Workspace is showing the full-bleed recorded Flow chrome.
  * The app header reads it so one View can own the whole viewport without a
  * second header band above its dock (#191).
  */
@@ -90,7 +90,7 @@ export const appendConsoleEntry = (
 
 /**
  * What a session is doing, in the words the Workspace uses for it. A Dry Run
- * rehearses a saved Flow Skill and an Interactive Run replays a verified one,
+ * rehearses a saved Flow and an Interactive Run replays a verified one,
  * so they read as different work rather than both as "run" (#202).
  */
 export const agentSessionActivityLabel = (
@@ -103,7 +103,7 @@ export const agentSessionActivityLabel = (
 };
 
 /**
- * How a session reads in a picker. A Teaching label is the Flow Skill name
+ * How a session reads in a picker. A Teaching label is the Flow name
  * alone: the capture state has its own badge in the dock, and a raw session id
  * is never a label a person can act on (#191). A Dry Run names the flow it
  * rehearses for the same reason (#202), and an Interactive Run names the flow
@@ -113,16 +113,16 @@ export const agentSessionActivityLabel = (
 export const agentSessionLabel = (session: AgentSessionSnapshot): string => {
   if (session.activity === "teaching") {
     return session.origin === "guided-run"
-      ? `${session.flowSkillName} · Guided Run`
-      : session.flowSkillName;
+      ? `${session.flowName} · Guided Run`
+      : session.flowName;
   }
   if (session.dryRun) {
-    return `${session.dryRun.flowSkillName} · Dry Run`;
+    return `${session.dryRun.flowName} · Dry Run`;
   }
   const name =
     session.run !== null && "schemaVersion" in session.run
       ? session.run.title
-      : (session.run?.flowSkillName ?? session.flowSkillName);
+      : (session.run?.flowName ?? session.flowName);
   return `${name ?? session.clientName} · Interactive Run`;
 };
 

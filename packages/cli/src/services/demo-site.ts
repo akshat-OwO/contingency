@@ -17,7 +17,7 @@ export const DEMO_SITE_ID: DemoSiteId = "ridgeline";
 export const DEMO_SITE_NAME = "Ridgeline Hardware";
 export const DEMO_HOST = "ridgeline.localhost";
 
-/** Whether a Flow Skill's taught hosts all belong to the demo store. */
+/** Whether a Flow's taught hosts all belong to the demo store. */
 export const isDemoHosts = (hosts: readonly string[]): boolean =>
   hosts.length > 0 && hosts.every((host) => host === DEMO_HOST);
 

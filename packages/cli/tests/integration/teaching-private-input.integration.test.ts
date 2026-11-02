@@ -204,7 +204,7 @@ for (const variant of [
             captured.entries.find((entry) => entry._tag === "action")
           ).toMatchObject({ target: { value: OTP }, variableName: "OTP" });
           expect(JSON.stringify(captured)).toContain(OTP);
-          yield* teachingRecordingTool("agent_flow_skill_save", {
+          yield* teachingRecordingTool("agent_flow_save", {
             claimOperationId,
             files: [
               {
@@ -216,15 +216,12 @@ for (const variant of [
             operationId: OperationId.make("seed-save"),
             recordingId,
           });
-          const dry = yield* teachingRecordingTool(
-            "agent_flow_skill_dry_run_start",
-            {
-              inputs: [{ changed: true, name: "otp", secret: true }],
-              operationId: OperationId.make("dry-start"),
-              recordingId,
-              url: `${fixtures.url("spread-otp.html")}?variant=${variant}`,
-            }
-          );
+          const dry = yield* teachingRecordingTool("agent_flow_dry_run_start", {
+            inputs: [{ changed: true, name: "otp", secret: true }],
+            operationId: OperationId.make("dry-start"),
+            recordingId,
+            url: `${fixtures.url("spread-otp.html")}?variant=${variant}`,
+          });
           const sessionId = dry.session.id;
           yield* session.supplyDryRunVariable(sessionId, "OTP", OTP);
           const before = yield* sessionTool("agent_browser_snapshot", {

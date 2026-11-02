@@ -50,7 +50,7 @@ System One, which pursues delegated sub-goals.
 
 | Key | Environment variable | Type | Default | Description |
 | --- | --- | --- | --- | --- |
-| `systemOne.first` | `CONTINGENCY_SYSTEM_ONE_FIRST` | boolean | `false` | Tell the agent to try a System One Pursuit for each Flow Skill step first. Has no effect without a configured endpoint or installed Local System One. |
+| `systemOne.first` | `CONTINGENCY_SYSTEM_ONE_FIRST` | boolean | `false` | Tell the agent to try a System One Pursuit for each Flow step first. Has no effect without a configured endpoint or installed Local System One. |
 | `systemOne.local` | `CONTINGENCY_SYSTEM_ONE_LOCAL` | boolean | `true` | Automatically use an installed Local System One when no endpoint is configured. Setup is always a user terminal action. |
 | `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` | string | — | The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests, and the API key, there. User file only: a project file that sets it fails validation. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY). |
 
@@ -82,4 +82,4 @@ These Settings may be set in the environment or in the user file, but not in a p
 | --- | --- |
 | `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` |
 
-A Variable value, such as a password a Flow Skill uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).
+A Variable value, such as a password a Flow uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).

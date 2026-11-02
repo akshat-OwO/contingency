@@ -24,22 +24,22 @@ In Teaching, you perform a journey in the Workspace while Contingency records it
 
 During recording, the agent only observes. You can relay Instructions, such as why to skip an optional popup, and attach a request, response, cookie, or storage value to an Instruction.
 
-Teaching produces a Teaching Recording. The agent then learns a Flow Skill from it.
+Teaching produces a Teaching Recording. The agent then learns a Flow from it.
 
 What it can't do:
 
 - Share control during recording. The user drives the browser from Start to Stop, and Takeover is not available.
 - Capture anything before **Start recording** or after **Stop**.
-- Keep the recording. Verifying the learned Flow Skill deletes its video, Trace, events, and keyframes.
+- Keep the recording. Verifying the learned Flow deletes its video, Trace, events, and keyframes.
 - Hide sensitive data completely. Videos and Traces are unredacted. Variable values remain visible in all journey evidence.
 
 ## Guided Run
 
-The external agent can follow your Source Document in a browser with `agent_guided_run_start`, producing a Teaching Recording for one named Flow Skill. For a document containing several journeys, the agent proposes a split and you pick one before starting.
+The external agent can follow your Source Document in a browser with `agent_guided_run_start`, producing a Teaching Recording for one named Flow. For a document containing several journeys, the agent proposes a split and you pick one before starting.
 
-Start one Guided Run per Flow Skill. Only the external agent reads the document.
+Start one Guided Run per Flow. Only the external agent reads the document.
 
-Contingency neither receives, parses, stores, nor links it, and a saved Flow Skill has no `source:` frontmatter.
+Contingency neither receives, parses, stores, nor links it, and a saved Flow has no `source:` frontmatter.
 
 Setup works like Teaching, including Setup Variables. The agent prepares prerequisites, then calls `agent_teaching_setup_handoff`.
 
@@ -49,11 +49,11 @@ Start returns browser control to the agent, and its existing action tools record
 
 Stop in Workspace, or close the session, to finalize a partial or complete recording with its stop reason. Capture limits and failures also finalize it.
 
-Claim and learn the recording, save the Flow Skill, and perform the mandatory fresh Dry Run before user verification and Cleanup.
+Claim and learn the recording, save the Flow, and perform the mandatory fresh Dry Run before user verification and Cleanup.
 
 During capture, you can click **Take control**, or the agent can request Takeover. Only you return control with **Return control**.
 
-Capture continues with `actor: "user"` actions. Use the Variable input to enter secrets, whose values remain visible in the Timeline; saved skills store `{{name}}` references.
+Capture continues with `actor: "user"` actions. Use the Variable input to enter secrets, whose values remain visible in the Timeline; saved flows store `{{name}}` references.
 
 Agent action tools are disabled during Takeover. A dispatched action may already have happened; `interruptedAction` discloses that attempt.
 
@@ -81,13 +81,13 @@ The agent can relay your explicit choice with `agent_teaching_instruction_record
 
 Rejected and unanswered proposals create no requirement. After Stop, pending proposals read **Unconfirmed when recording stopped**.
 
-The learned Flow Skill preserves only confirmed checks; a later Run tracks their scan and Browser Check results. Confirmation does not establish that a Browser Check was observed.
+The learned Flow preserves only confirmed checks; a later Run tracks their scan and Browser Check results. Confirmation does not establish that a Browser Check was observed.
 
 Unobserved expectations stay Not demonstrated.
 
 Domain Scope starts at the starting host. A new top-level host pauses for **Allow** or **Refuse** in Workspace, or a user decision relayed over MCP.
 
-Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow Skill for its Dry Run.
+Allow admits that exact host; the agent resumes the stored attempt with `agent_browser_resume`. The finalized recording retains the starting host and approved hosts, which Contingency stamps into the saved Flow for its Dry Run.
 
 Embedded subframes do not grow this scope. Irreversible actions still require separate Confirmation.
 
@@ -98,9 +98,9 @@ Current limits:
 
 ## Dry Run
 
-A Dry Run proves a drafted Flow Skill. The agent attempts the skill's complete outcome in a fresh browser context, under the Emulation it was taught with, with fresh inputs.
+A Dry Run proves a drafted Flow. The agent attempts the flow's complete outcome in a fresh browser context, under the Emulation it was taught with, with fresh inputs.
 
-The agent chooses its own route and reports an evidence-backed Agent Assessment. After a passing Dry Run, you verify or reject the Flow Skill in the Workspace or in the conversation.
+The agent chooses its own route and reports an evidence-backed Agent Assessment. After a passing Dry Run, you verify or reject the Flow in the Workspace or in the conversation.
 
 What it can't do:
 
@@ -108,17 +108,17 @@ What it can't do:
 - Visit a host outside its stamped Domain Scope without a Pending Decision.
 - Make a Browser Modification, such as a mocked route or an injected cookie.
 - Change its prerequisites or ordinary inputs after it starts. Start a fresh Dry Run.
-- Verify the Flow Skill itself. Only the user verifies.
+- Verify the Flow itself. Only the user verifies.
 
 ## Interactive Run
 
-An Interactive Run is an agent-controlled attempt at a task you ask for in a live MCP conversation. It can use several Verified Flow Skills in one browser context.
+An Interactive Run is an agent-controlled attempt at a task you ask for in a live MCP conversation. It can use several Verified Flows in one browser context.
 
 You can redirect the task, and you can take over the browser in the Workspace. A failure leaves the browser open for investigation until the agent completes the Run, you close it, or the process exits.
 
 What it can't do:
 
-- Use a Flow Skill that is not verified, except a bundled Example on the demo store.
+- Use a Flow that is not verified, except a bundled Example on the demo store.
 - Run on a schedule. Use CI or cron to invoke an agent connected to Contingency.
 - Act while you hold control in a Takeover.
 - End on a wall-clock limit. A Run ends only when the agent completes it, you close it, or the process exits.
@@ -167,9 +167,9 @@ What it can't do:
 
 The Execution Boundary limits what an agent may do in an Interactive Run, a Guided Run, or a Dry Run:
 
-- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is its saved Flow Skill's stamped hosts.
+- **Domain Scope.** The agent may navigate only to the hosts in scope without pausing. A Dry Run's scope is its saved Flow's stamped hosts.
 
-  A Guided Run starts at its starting host and adds exact hosts you approve. An Interactive Run's scope is the hosts of the Flow Skills you asked for, or the starting host.
+  A Guided Run starts at its starting host and adds exact hosts you approve. An Interactive Run's scope is the hosts of the Flows you asked for, or the starting host.
 
 - **Confirmation.** An irreversible or high-impact browser action, such as placing an order, pauses for your approval every time.
 

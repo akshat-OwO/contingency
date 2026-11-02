@@ -1,5 +1,5 @@
 /**
- * Spike: how fast can a System One model drive a Flow Skill?
+ * Spike: how fast can a System One model drive a Flow?
  *
  * Each cycle reads one Browser Snapshot and asks Jev one request. The request
  * checks the current step's `Done when:` outcome and picks its next operation,
@@ -17,11 +17,11 @@
  *   JEV_BENCHMARK_REPEATS  repeats of every scenario (default 1)
  *   JEV_LOOKAHEAD=0        ask about the current step only
  *   JEV_SCENARIOS          "demo" (default), "catalog", or "all"
- *   JEV_SKILL_DIR          a verified Flow Skill directory, copied into a
+ *   JEV_FLOW_DIR          a verified Flow directory, copied into a
  *                          throwaway Catalog Root for the "catalog" scenario
- *   JEV_SKILL_URL          where its Run starts
- *   JEV_SKILL_INPUTS       NAME=value pairs separated by ";"
- *   JEV_SKILL_EXPECT       phrases the final page must show, separated by ";";
+ *   JEV_FLOW_URL          where its Run starts
+ *   JEV_FLOW_INPUTS       NAME=value pairs separated by ";"
+ *   JEV_FLOW_EXPECT       phrases the final page must show, separated by ";";
  *                          alternatives within one phrase separated by "|"
  *   JEV_PROVIDER=local     a local System One server such as Kev, at JEV_URL
  *                          (default http://127.0.0.1:8009/v1/systemone)
@@ -30,7 +30,7 @@
  */
 import path from "node:path";
 
-import { FlowSkillName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId } from "@contingency/protocol";
 import type {
   AgentActionEffect,
   AgentBrowserSnapshot,
@@ -47,7 +47,7 @@ import {
 } from "effect/http";
 
 import { makeDemoSiteLayer } from "../src/services/demo-site-server.ts";
-import { readFlowSkillFrontmatter } from "../src/services/flow-skill-package.ts";
+import { readFlowFrontmatter } from "../src/services/flow-package.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
@@ -83,8 +83,8 @@ import {
   now,
   pageText,
   percentile,
-} from "./flow-skill-scenarios.ts";
-import type { Scenario } from "./flow-skill-scenarios.ts";
+} from "./flow-scenarios.ts";
+import type { Scenario } from "./flow-scenarios.ts";
 
 const PROVIDERS = {
   local: {
@@ -465,57 +465,57 @@ const runSteps = (context: RunContext, cues: readonly Cue[]) =>
 
 const exampleTool = makeCall(OnboardingTools);
 
-/** Start the scenario's Run and read its Flow Skill. */
+/** Start the scenario's Run and read its Flow. */
 const startScenario = (scenario: Scenario, tag: string, root: string) =>
   Effect.gen(function* startRun() {
     const fs = yield* FileSystem.FileSystem;
     const operationId = OperationId.make(`${tag}-start`);
-    if (scenario.skill.kind === "example") {
-      const skill = yield* fs.readFileString(
+    if (scenario.flow.kind === "example") {
+      const flow = yield* fs.readFileString(
         path.resolve(
           import.meta.dirname,
           "../examples",
-          scenario.skill.example,
+          scenario.flow.example,
           "flow.md"
         )
       );
       const started = yield* exampleTool("agent_example_run_start", {
-        example: FlowSkillName.make(scenario.skill.example),
+        example: FlowName.make(scenario.flow.example),
         inputs: Object.entries(scenario.inputs).map(([name, value]) => ({
           name,
           value,
         })),
         operationId,
       });
-      return { sessionId: started.id, skill };
+      return { flow, sessionId: started.id };
     }
-    const skill = yield* fs.readFileString(
-      path.join(scenario.skill.directory, "flow.md")
+    const flow = yield* fs.readFileString(
+      path.join(scenario.flow.directory, "flow.md")
     );
-    const name = readFlowSkillFrontmatter(skill)?.name;
+    const name = readFlowFrontmatter(flow)?.name;
     if (name === undefined) {
       return yield* Effect.fail(
-        new Error(`${scenario.skill.directory} has no Flow Skill name.`)
+        new Error(`${scenario.flow.directory} has no Flow name.`)
       );
     }
-    const flowSkillName = FlowSkillName.make(name);
-    const copy = path.join(root, path.basename(scenario.skill.directory));
+    const flowName = FlowName.make(name);
+    const copy = path.join(root, path.basename(scenario.flow.directory));
     if (!(yield* fs.exists(copy))) {
-      yield* fs.copy(scenario.skill.directory, copy);
+      yield* fs.copy(scenario.flow.directory, copy);
     }
     const started = yield* runTool("agent_run_start", {
       clientName: "jev-fast-loop",
       inputs: Object.entries(scenario.inputs).map(([input, value]) => ({
-        flowSkillName,
+        flowName,
         name: input,
         value,
       })),
       operationId,
-      referencedSkills: [flowSkillName],
-      requestedTask: `Run the ${name} Flow Skill.`,
-      url: scenario.skill.url,
+      referencedFlows: [flowName],
+      requestedTask: `Run the ${name} Flow.`,
+      url: scenario.flow.url,
     });
-    return { sessionId: started.id, skill };
+    return { flow, sessionId: started.id };
   });
 
 const runScenario = (
@@ -528,8 +528,8 @@ const runScenario = (
     readonly provider: Provider;
   }
 ) =>
-  Effect.gen(function* runFlowSkill() {
-    const { sessionId, skill } = yield* startScenario(scenario, tag, root);
+  Effect.gen(function* runFlow() {
+    const { sessionId, flow } = yield* startScenario(scenario, tag, root);
     const startedAt = yield* now;
     const snapshot = yield* readSnapshot(sessionId);
     const context: RunContext = {
@@ -545,7 +545,7 @@ const runScenario = (
       snapshot,
       tag,
     };
-    const stopped = yield* runSteps(context, cuesFor(skill, scenario.inputs));
+    const stopped = yield* runSteps(context, cuesFor(flow, scenario.inputs));
     const totalMs = yield* elapsedSince(startedAt);
     yield* runTool("agent_run_complete", {
       operationId: OperationId.make(`${tag}-complete`),
@@ -585,14 +585,10 @@ const runScenario = (
 /** Print the first request without calling Jev, to check its shape and size. */
 const dryRun = (scenario: Scenario, root: string, model: string) =>
   Effect.gen(function* printFirstRequest() {
-    const { sessionId, skill } = yield* startScenario(
-      scenario,
-      "jev-dry",
-      root
-    );
+    const { sessionId, flow } = yield* startScenario(scenario, "jev-dry", root);
     const snapshot = yield* readSnapshot(sessionId);
     const space = actionSpace(snapshot);
-    const [current, next] = cuesFor(skill, scenario.inputs);
+    const [current, next] = cuesFor(flow, scenario.inputs);
     if (current === undefined) {
       return;
     }

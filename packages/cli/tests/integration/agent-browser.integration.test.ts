@@ -227,7 +227,7 @@ it.live("names a field by its label rather than its placeholder", () =>
     });
     const named = (name: string) => findNode(observed.nodes, "textbox", name);
 
-    // A bound label outranks the placeholder, so a Flow Skill that asks for
+    // A bound label outranks the placeholder, so a Flow that asks for
     // the field the user sees finds it.
     expect(named("Search the catalogue").name).toBe("Search the catalogue");
     expect(named("SKU").name).toBe("SKU");

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import {
   IosWorkspaceCommand,
-  FlowSkillName,
+  FlowName,
   OperationId,
   IosObservationRefusal,
 } from "@contingency/protocol";
@@ -12,7 +12,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Result, Schema } from "effect";
 import type { Mutable } from "effect/Types";
 
-import { makeFlowSkillCatalogLayer } from "../../src/services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import type {
   IosRunInput,
   IosObservation,
@@ -63,7 +63,7 @@ it.effect(
       // Agents reach Workspace through decoded commands; a physical iPhone must decode.
       const command = Schema.decodeUnknownSync(IosWorkspaceCommand)({
         _tag: "start",
-        flowSkillName: "ios-login",
+        flowName: "ios-login",
         kind: "teaching",
         operationId: "physical-1",
         recordingId: null,
@@ -79,7 +79,7 @@ it.effect(
       const store = makeTeachingRecordingStoreLayer({ root: () => root });
       const workspace = yield* Layer.build(
         makeIosWorkspaceLayer({ root: () => root }).pipe(
-          Layer.provide(Layer.merge(store, makeFlowSkillCatalogLayer({ root })))
+          Layer.provide(Layer.merge(store, makeFlowCatalogLayer({ root })))
         )
       );
       const service = yield* IosWorkspace.pipe(Effect.provide(workspace));
@@ -153,9 +153,7 @@ for (const existing of [false, true]) {
             }),
           root: () => root,
         }).pipe(
-          Layer.provide(
-            Layer.merge(storeLayer, makeFlowSkillCatalogLayer({ root }))
-          )
+          Layer.provide(Layer.merge(storeLayer, makeFlowCatalogLayer({ root })))
         );
         yield* Effect.gen(function* startInGroup() {
           const workspace = yield* IosWorkspace;
@@ -164,7 +162,7 @@ for (const existing of [false, true]) {
             Extract<IosWorkspaceCommand, { _tag: "start" }>
           > = {
             _tag: "start",
-            flowSkillName: FlowSkillName.make("checkout"),
+            flowName: FlowName.make("checkout"),
             kind: "teaching",
             operationId: OperationId.make("grouped-start"),
             recordingId: null,
@@ -182,7 +180,7 @@ for (const existing of [false, true]) {
             path.join(owner, "recordings", started.recordingId)
           );
           expect(yield* fs.exists(path.join(root, "checkout"))).toBe(false);
-          expect((yield* store.read(started.recordingId)).flowSkillName).toBe(
+          expect((yield* store.read(started.recordingId)).flowName).toBe(
             "checkout"
           );
           yield* workspace.execute(

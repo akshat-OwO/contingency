@@ -137,7 +137,7 @@ runtime: ${JSON.stringify(requirements)}
   const session = await options.mcp.operation("agent_device_workspace", {
     command: {
       _tag: "start",
-      flowSkillName: "eval-android-checkout",
+      flowName: "eval-android-checkout",
       kind: "run",
       operationId: "eval-android-start",
       recordingId: null,

@@ -17,7 +17,7 @@ emulation:
 
 # Add a product for delivery
 
-This is a bundled Example Flow Skill for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [targets.md](targets.md).
+This is a bundled Example Flow for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [targets.md](targets.md).
 
 1. Open the store's Shop page, where the Run starts.
 

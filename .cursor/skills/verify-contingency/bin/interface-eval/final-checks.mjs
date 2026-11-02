@@ -158,10 +158,8 @@ const learned = async ({ catalog, mcp, finalText }) => {
     /hosts:/u.test(skill) &&
     /emulation:/u.test(skill)
   );
-  const listing = await mcp.operation("agent_flow_skills_list", {});
-  const listed = listing.flowSkills.some(
-    (entry) => entry.name === "eval-delivery"
-  );
+  const listing = await mcp.operation("agent_flows_list", {});
+  const listed = listing.flows.some((entry) => entry.name === "eval-delivery");
   return {
     complete:
       parameterized && listed && /saved|learned|created/iu.test(finalText),

@@ -44,7 +44,7 @@ import {
   resolveCatalogDirectory,
 } from "../services/catalog-directory.ts";
 import { makeDemoSiteLayer } from "../services/demo-site-server.ts";
-import { makeFlowSkillCatalogLayer } from "../services/flow-skill-catalog.ts";
+import { makeFlowCatalogLayer } from "../services/flow-catalog.ts";
 import {
   makeHttpServerLayer,
   makeNodeServerLayer,
@@ -356,7 +356,7 @@ export const mcpCommand = Command.make(
         // process but never part of shutdown cleanup.
         const catalog = Layer.succeedContext(
           yield* Layer.build(
-            makeFlowSkillCatalogLayer({
+            makeFlowCatalogLayer({
               fallback: catalogDirectory.fallback,
               onSelect: (root: string) => {
                 selectedCatalogRoot = root;
@@ -372,7 +372,7 @@ export const mcpCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
-        // The Workspace's Skills drawer follows the selected root, and also
+        // The Workspace's Flows Drawer follows the selected root, and also
         // lists the user's global root; no tool reads the global one.
         const catalogBrowser = Layer.succeedContext(
           yield* Layer.build(

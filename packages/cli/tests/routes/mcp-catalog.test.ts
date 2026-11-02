@@ -60,7 +60,7 @@ const READ_ONLY_TOOLS = new Set([
   "agent_browser_screenshot",
   "agent_browser_snapshot",
   "agent_catalog_get",
-  "agent_flow_skills_list",
+  "agent_flows_list",
   "agent_flow_document_get",
   "agent_session_get",
   "agent_session_history_get",
@@ -173,7 +173,7 @@ it("tells the agent to try a Pursuit first only under the experimental flag", ()
     { ...systemOne, first: true },
     "native"
   );
-  expect(first).toContain("Try agent_browser_pursue for each Flow Skill step");
+  expect(first).toContain("Try agent_browser_pursue for each Flow step");
   // The experimental line rides on top of the getting-started pointer.
   expect(first.length).toBeLessThan(850);
   const program = makeMcpInstructions(false, { ...systemOne, first: true });

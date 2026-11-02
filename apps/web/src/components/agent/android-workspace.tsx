@@ -3,7 +3,7 @@ import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
-  FlowSkillName,
+  FlowName,
 } from "@contingency/protocol";
 import {
   useAtom,
@@ -29,7 +29,7 @@ import {
   DockStatus,
   DockWordmark,
 } from "@/components/agent/workspace-dock";
-import { SkillsDockButton } from "@/components/catalog/skills-dock-button";
+import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
@@ -47,7 +47,7 @@ import {
 } from "./android-dock";
 import {
   androidDockPresentation,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
   isLiveAndroidSession,
 } from "./android-dock-state";
 import type { AndroidDockGesture } from "./android-dock-state";
@@ -327,7 +327,7 @@ const AndroidDockControls = ({
         selectedSessionId={session.id}
         sessions={sessions}
       />
-      <SkillsDockButton />
+      <FlowsDockButton />
       <Button
         aria-label="Browser Workspace"
         onClick={onBrowser}
@@ -559,7 +559,7 @@ export const AndroidSessionView = ({
   return (
     <WorkspaceLayout
       sessionId={session.id}
-      skillsSession={androidSkillsSessionView(session)}
+      flowsSession={androidFlowsSessionView(session)}
       summary={
         isLiveAndroidSession(session)
           ? null
@@ -662,7 +662,7 @@ export const AndroidSessionView = ({
 
 /**
  * The Android Workspace on the browser Workspace's own dock, state names,
- * Skills drawer, and Run Summary. The device shows only
+ * Flows drawer, and Run Summary. The device shows only
  * what the device shows: a click on it is resolved by the server against a
  * fresh observation and sent as a semantic action, or refused beside the
  * device with nothing sent.
@@ -714,7 +714,7 @@ export const AndroidWorkspace = ({
       {state.session === null ? (
         <WorkspaceLayout
           sessionId={undefined}
-          skillsSession={undefined}
+          flowsSession={undefined}
           summary={undefined}
         >
           <AndroidEmptyState
@@ -742,11 +742,11 @@ export const AndroidWorkspace = ({
         />
       )}
       <AndroidSetupSheet
-        onOpen={(flowSkillName: FlowSkillName, selection) => {
+        onOpen={(flowName: FlowName, selection) => {
           if (
             mutate({
               _tag: "start",
-              flowSkillName,
+              flowName,
               kind: "teaching",
               operationId: operationId(),
               recordingId: null,

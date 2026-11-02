@@ -15,7 +15,7 @@ import {
   DockStatus,
   DockWordmark,
 } from "@/components/agent/workspace-dock";
-import { SkillsDockButton } from "@/components/catalog/skills-dock-button";
+import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -26,7 +26,7 @@ import { WorkspaceLayout } from "./layout";
 import { Permission, PrototypeSummary, StateBadges } from "./parts";
 import {
   androidDockPresentation,
-  androidSkillsSessionView,
+  androidFlowsSessionView,
   isLiveAndroidSession,
 } from "./presentation";
 import {
@@ -92,7 +92,7 @@ export const DirectPrototype = ({
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceLayout
         sessionId={session.id}
-        skillsSession={androidSkillsSessionView(session)}
+        flowsSession={androidFlowsSessionView(session)}
         summary={
           live
             ? null
@@ -144,9 +144,9 @@ export const DirectPrototype = ({
           >
             <DockWordmark />
             <Button className="max-w-56" size="sm" variant="outline">
-              <span className="truncate">{session.flowSkillName}</span>
+              <span className="truncate">{session.flowName}</span>
             </Button>
-            <SkillsDockButton />
+            <FlowsDockButton />
             <DockSpacer />
             {presentation.showsComment ? (
               <Button aria-label="Comment" size="sm" variant="ghost">

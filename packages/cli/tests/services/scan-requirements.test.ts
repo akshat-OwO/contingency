@@ -66,14 +66,14 @@ it.effect("learning cannot drop a taught scan or its taught stop", () =>
   })
 );
 
-it("coverage requires completed reports matching skill and stable requirement ID", () => {
+it("coverage requires completed reports matching flow and stable requirement ID", () => {
   const reference = {
     ...requirement,
     endWhen: "Cart total is visible",
-    flowSkillName: "cart",
+    flowName: "cart",
   };
   const report = {
-    flowSkillName: "cart",
+    flowName: "cart",
     id: "scan-report",
     mode: "timespan" as const,
     requirementId: requirement.id,
@@ -90,7 +90,7 @@ it("coverage requires completed reports matching skill and stable requirement ID
   ).toBe(false);
   expect(
     scanCoverage({
-      scanReports: [{ ...report, flowSkillName: "other", status: "completed" }],
+      scanReports: [{ ...report, flowName: "other", status: "completed" }],
       scanRequirements: [reference],
     }).complete
   ).toBe(false);

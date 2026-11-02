@@ -233,7 +233,7 @@ const appId = "dev.contingency.physicalfixture";
 const loginName = `matrix-${cell}`;
 const api = Number(await prop("ro.build.version.sdk"));
 const release = await prop("ro.build.version.release");
-const flowSkillName = `${feature}-${process.pid}`;
+const flowName = `${feature}-${process.pid}`;
 const selection = {
   device: {
     api,
@@ -447,7 +447,7 @@ try {
   receipt.limits.apiBelow30 = await refusal(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "teaching",
       operationId: operation(),
       recordingId: null,
@@ -460,7 +460,7 @@ try {
   receipt.limits.physicalDevice = await refusal(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "teaching",
       operationId: operation(),
       recordingId: null,
@@ -485,13 +485,12 @@ try {
 
   // Teaching through Workspace: public fill, ordinary Variable fill, two activations, and Back.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowSkillName, snapshot);
+  await openAndroidSheet(control, selection, flowName, snapshot);
   const listed = await tool("agent_device_sessions_list", {
     platform: "android",
   });
   const teaching = listed.find(
-    (session) =>
-      session.flowSkillName === flowSkillName && session.phase !== "closed"
+    (session) => session.flowName === flowName && session.phase !== "closed"
   );
   assert.ok(teaching);
   sessions.push(teaching.id);
@@ -593,8 +592,8 @@ try {
       assert.equal(key in event, false, `Timeline leaks ${key}.`);
     }
   }
-  const content = `---\nname: ${flowSkillName}\ndescription: Sign in with a public login name and a password, open the account, and go back. Use when proving an Android Support Matrix cell.\ninputs:\n  - password\n---\n\n# Sign in and return\n\n1. Enter the public login name ${loginName}. Done when: the login name field shows it.\n2. Enter {{password}} in the password field. Done when: the password field stays masked.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Go back. Done when: Signed in privately is visible.\n`;
-  await tool("agent_flow_skill_save", {
+  const content = `---\nname: ${flowName}\ndescription: Sign in with a public login name and a password, open the account, and go back. Use when proving an Android Support Matrix cell.\ninputs:\n  - password\n---\n\n# Sign in and return\n\n1. Enter the public login name ${loginName}. Done when: the login name field shows it.\n2. Enter {{password}} in the password field. Done when: the password field stays masked.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Go back. Done when: Signed in privately is visible.\n`;
+  await tool("agent_flow_save", {
     claimOperationId: claim,
     files: [{ content, path: "flow.md" }],
     operationId: operation(),
@@ -606,7 +605,7 @@ try {
   const agentJourney = async (kind) => {
     const started = await command({
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind,
       operationId: operation(),
       recordingId: kind === "dry-run" ? recordingId : null,
@@ -695,7 +694,7 @@ try {
   // Documented limits, each refused or paused on a live Run.
   const limits = await command({
     _tag: "start",
-    flowSkillName,
+    flowName,
     kind: "run",
     operationId: operation(),
     recordingId: null,
@@ -706,7 +705,7 @@ try {
   receipt.limits.sameDeviceBound = await refusal(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "run",
       operationId: operation(),
       recordingId: null,
@@ -717,7 +716,7 @@ try {
   receipt.limits.multipleBoundDevices = await refusal(
     {
       _tag: "start",
-      flowSkillName,
+      flowName,
       kind: "run",
       operationId: operation(),
       recordingId: null,

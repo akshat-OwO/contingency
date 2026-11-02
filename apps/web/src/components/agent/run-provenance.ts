@@ -5,7 +5,7 @@ import type {
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
-/** The bundled demo sites, by the id a Run or Flow Skill records. */
+/** The bundled demo sites, by the id a Run or Flow records. */
 const DEMO_SITE_NAMES: Readonly<Record<DemoSiteId, string>> = {
   ridgeline: "Ridgeline Hardware",
 };
@@ -22,7 +22,7 @@ export const hasDemoTeachingPassword = (
 /**
  * Where a Run's authority comes from, so the Workspace never shows demo work
  * as a real website's journey (ADR 0050). An Example Run runs a bundled,
- * read-only Example Flow Skill; demo work is any Run scoped to the demo store,
+ * read-only Example Flow; demo work is any Run scoped to the demo store,
  * including the user's own learned variations.
  */
 export interface RunProvenance {
@@ -35,7 +35,7 @@ export const runProvenance = (
 ): RunProvenance => ({
   demoSiteName:
     run.demoSite === undefined ? undefined : DEMO_SITE_NAMES[run.demoSite],
-  example: run.referencedSkills.some((skill) => skill.origin === "example"),
+  example: run.referencedFlows.some((flow) => flow.origin === "example"),
 });
 
 /** The task Run a session holds, when it holds one. */
@@ -49,7 +49,7 @@ export const sessionTaskRun = (
 /** Whether a live Interactive Run takes private inputs in Workspace. */
 export const takesExampleVariables = (session: AgentSessionSnapshot) =>
   session.dryRun === null &&
-  (sessionTaskRun(session)?.referencedSkills.some(
-    (skill) => skill.origin === "example"
+  (sessionTaskRun(session)?.referencedFlows.some(
+    (flow) => flow.origin === "example"
   ) ??
     false);

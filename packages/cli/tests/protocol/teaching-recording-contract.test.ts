@@ -1,7 +1,7 @@
 import {
   AgentSessionSnapshot,
-  FlowSkillDiagnostic,
-  FlowSkillSaveResult,
+  FlowDiagnostic,
+  FlowSaveResult,
   TEACHING_TIMELINE_BUDGET_CHARACTERS,
   TeachingCaptureState,
   TeachingKeyframeFile,
@@ -21,8 +21,8 @@ const decodeClaim = Schema.decodeUnknownSync(TeachingRecordingClaim);
 const decodeList = Schema.decodeUnknownSync(TeachingRecordingList);
 const decodeTimeline = Schema.decodeUnknownSync(TeachingTimeline);
 const decodeKeyframe = Schema.decodeUnknownSync(TeachingKeyframeFile);
-const decodeSkillSave = Schema.decodeUnknownSync(FlowSkillSaveResult);
-const decodeDiagnostic = Schema.decodeUnknownSync(FlowSkillDiagnostic);
+const decodeFlowSave = Schema.decodeUnknownSync(FlowSaveResult);
+const decodeDiagnostic = Schema.decodeUnknownSync(FlowDiagnostic);
 const at = "2026-09-13T10:00:00.000Z";
 
 const progressive = {
@@ -55,7 +55,7 @@ test("Teaching capture accepts every lifecycle state", () => {
       startedAt: at,
       stoppedAt: at,
     },
-    { _tag: "skill-drafted", ...progressive },
+    { _tag: "flow-drafted", ...progressive },
     {
       _tag: "dry-running",
       ...progressive,
@@ -77,7 +77,7 @@ test("Teaching capture accepts every lifecycle state", () => {
     "finalizing",
     "ready",
     "learning",
-    "skill-drafted",
+    "flow-drafted",
     "dry-running",
     "dry-run-failed",
     "dry-run-passed",
@@ -105,7 +105,7 @@ test("learning-agent contracts use recording ids and bounded references", () => 
       viewport: { deviceScaleFactor: 3, height: 800, width: 360 },
     },
     failure: null,
-    flowSkillName: "checkout-flow",
+    flowName: "checkout-flow",
     lifecycle: "ready",
     recordingId: "recording-checkout",
     updatedAt: at,
@@ -120,7 +120,7 @@ test("learning-agent contracts use recording ids and bounded references", () => 
   expect(
     decodeClaim({
       claimedAt: at,
-      flowSkillName: "checkout-flow",
+      flowName: "checkout-flow",
       operationId: "claim-checkout",
       recordingId: "recording-checkout",
     }).operationId
@@ -167,9 +167,9 @@ test("learning-agent contracts use recording ids and bounded references", () => 
     }).format
   ).toBe("png");
   expect(
-    decodeSkillSave({
+    decodeFlowSave({
       files: ["flow.md", "targets.md"],
-      flowSkillName: "checkout-flow",
+      flowName: "checkout-flow",
       recordingId: "recording-checkout",
     }).files
   ).toEqual(["flow.md", "targets.md"]);
@@ -186,7 +186,7 @@ test("a completed cleanup requires a verified recording", () => {
         userAgentProfile: "default",
         viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
       },
-      flowSkillName: "checkout-flow",
+      flowName: "checkout-flow",
       lifecycle: { _tag: "recording", startedAt: at },
       receipts: [],
       recordingId: "recording-checkout",
@@ -208,7 +208,7 @@ test("a Teaching Recording manifest requires the Agent Session that created it",
         userAgentProfile: "default",
         viewport: { deviceScaleFactor: 1, height: 720, width: 1280 },
       },
-      flowSkillName: "checkout-flow",
+      flowName: "checkout-flow",
       lifecycle: { _tag: "ready", readyAt: at, startedAt: at, stoppedAt: at },
       receipts: [],
       recordingId: "recording-checkout",
@@ -243,7 +243,7 @@ test("session snapshots keep Teaching and Run state in separate variants", () =>
     ...sessionBase,
     activity: "teaching",
     captureState: { _tag: "recording", startedAt: at },
-    flowSkillName: "checkout-flow",
+    flowName: "checkout-flow",
     recordingId: "recording-checkout",
     run: null,
     teaching: { actionCount: 2, draft: null, instructionCount: 1 },
@@ -254,7 +254,7 @@ test("session snapshots keep Teaching and Run state in separate variants", () =>
     activity: "run",
     captureState: null,
     controller: "agent",
-    flowSkillName: null,
+    flowName: null,
     recordingId: null,
     run: null,
     teaching: null,
@@ -271,7 +271,7 @@ test("session snapshots reject mixed Teaching and Run data", () => {
       ...sessionBase,
       activity: "teaching",
       captureState: { _tag: "recording", startedAt: at },
-      flowSkillName: "checkout-flow",
+      flowName: "checkout-flow",
       recordingId: "recording-checkout",
       run: { title: "This must never coexist with Teaching" },
       teaching: { actionCount: 2, draft: null, instructionCount: 1 },
@@ -283,7 +283,7 @@ test("session snapshots reject mixed Teaching and Run data", () => {
       ...sessionBase,
       activity: "run",
       captureState: null,
-      flowSkillName: null,
+      flowName: null,
       recordingId: "recording-checkout",
       run: null,
       teaching: { actionCount: 2, draft: null, instructionCount: 1 },
@@ -292,27 +292,27 @@ test("session snapshots reject mixed Teaching and Run data", () => {
   ).toThrow();
 });
 
-test("a Flow Skill diagnostic names the file and field it belongs to", () => {
+test("a Flow diagnostic names the file and field it belongs to", () => {
   const diagnostic = decodeDiagnostic({
-    code: "flow_skill_name_mismatch",
+    code: "flow_name_mismatch",
     message:
       'flow.md declares name "other" but the package is saved as "checkout-flow".',
     path: ["flow.md", "frontmatter", "name"],
   });
 
   expect(diagnostic.path[0]).toBe("flow.md");
-  // The path is a file route, not a JSON pointer into a Flow Skill, so
+  // The path is a file route, not a JSON pointer into a Flow, so
   // an index would tell the agent nothing about which line to fix.
   expect(() =>
     decodeDiagnostic({
-      code: "flow_skill_name_mismatch",
+      code: "flow_name_mismatch",
       message: "The name is wrong.",
       path: ["flow.md", 0],
     })
   ).toThrow();
   expect(() =>
     decodeDiagnostic({
-      code: "flow_skill_name_mismatch",
+      code: "flow_name_mismatch",
       message: "",
       path: ["flow.md"],
     })
@@ -325,7 +325,7 @@ test("old recordings default to Teaching and user actions; Guided Run attributio
     cleanup: { _tag: "pending" },
     createdAt: at,
     emulation: null,
-    flowSkillName: "guided-cart",
+    flowName: "guided-cart",
     lifecycle: { _tag: "ready", readyAt: at, startedAt: at, stoppedAt: at },
     receipts: [],
     recordingId: "recording-guided",

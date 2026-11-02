@@ -19,7 +19,7 @@ const variableName = Schema.String.check(
 
 /**
  * The exact hosts and explicit wildcard patterns (`*.example.com`) a session
- * may visit without pausing. A Flow Skill Run is scoped to the hosts its
+ * may visit without pausing. A Flow Run is scoped to the hosts its
  * package records, which are the hosts the Teaching Recording visited; a
  * package saved before Contingency stamped them falls back to the host of the
  * page the Run opens. Any other top-level document pauses for the user
@@ -42,9 +42,9 @@ export type AgentPendingDecisionId = typeof AgentPendingDecisionId.Type;
 
 /**
  * The two decisions that protect execution. Both belong to a live Agent
- * Session: nothing here authorizes a stored artifact, because a Flow Skill is
+ * Session: nothing here authorizes a stored artifact, because a Flow is
  * verified by the user in the Workspace rather than approved over MCP
- * ([ADR 0039](../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
+ * ([ADR 0071](../../../docs/adr/0071-flows-are-catalog-documents-not-harness-skills.md)).
  */
 export const AgentPendingDecisionKind = Schema.Literals([
   "boundary",
@@ -84,7 +84,7 @@ export const AgentPendingDecision = Schema.Struct({
    */
   variable: Schema.NullOr(
     Schema.Struct({
-      flowSkillName: optionalNullable(nonEmptyString),
+      flowName: optionalNullable(nonEmptyString),
       name: variableName,
       secret: Variable.fields.secret,
     })
@@ -104,7 +104,7 @@ export const AgentPendingDecisionResolution = Schema.Struct({
   pendingDecisionId: AgentPendingDecisionId,
   source: optionalNullable(Schema.Literals(["workspace", "conversation"])),
   userMessage: optionalNullable(nonEmptyString),
-  variableFlowSkillName: optionalNullable(nonEmptyString),
+  variableFlowName: optionalNullable(nonEmptyString),
   /**
    * The Variable a `supply_variable` decision named. Secret Variable names are
    * audited; their values never are.
@@ -153,7 +153,7 @@ export type AgentSessionVariableState = typeof AgentSessionVariableState.Type;
  * Contingency.
  */
 export const AgentVariableEnter = Schema.Struct({
-  flowSkillName: optionalNullable(nonEmptyString),
+  flowName: optionalNullable(nonEmptyString),
   name: variableName,
   operationId: OperationId,
   ref: AgentElementRef,
@@ -166,7 +166,7 @@ export type AgentVariableEnter = typeof AgentVariableEnter.Type;
 // ---------------------------------------------------------------------------
 
 /**
- * The directory that bounds Flow Skill discovery and Teaching Recording
+ * The directory that bounds Flow discovery and Teaching Recording
  * storage for one MCP process. Contingency never scans a user-global catalog.
  */
 export const AgentCatalogInfo = Schema.Struct({
@@ -181,7 +181,7 @@ export const AgentCatalogInfo = Schema.Struct({
       reason: nonEmptyString,
     })
   ),
-  flowSkillCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  flowCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   root: nonEmptyString,
 });
 export type AgentCatalogInfo = typeof AgentCatalogInfo.Type;
@@ -199,8 +199,8 @@ export type AgentCatalogSelect = typeof AgentCatalogSelect.Type;
 export const DemoSiteId = Schema.Literal("ridgeline");
 export type DemoSiteId = typeof DemoSiteId.Type;
 
-/** One Flow Skill package the selected Catalog Root holds. */
-export const FlowSkillListEntry = Schema.Struct({
+/** One Flow package the selected Catalog Root holds. */
+export const FlowListEntry = Schema.Struct({
   /** Present when every taught host belongs to a bundled demo site. */
   demo: Schema.optional(DemoSiteId),
   /** Declared in flow.md frontmatter; the task and when to run it. */
@@ -215,21 +215,21 @@ export const FlowSkillListEntry = Schema.Struct({
       name: nonEmptyString,
     })
   ),
-  /** The Flow Skill directory's name inside the Catalog Root. */
+  /** The Flow directory's name inside the Catalog Root. */
   name: nonEmptyString,
   /** How many numbered steps the procedure carries. */
   stepCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   /** Explicit verification still matches the current procedure and contracts. */
   verified: Schema.Boolean,
 });
-export type FlowSkillListEntry = typeof FlowSkillListEntry.Type;
+export type FlowListEntry = typeof FlowListEntry.Type;
 
 /**
- * The listing names Flow Skills and never their location: the Catalog Root and
+ * The listing names Flows and never their location: the Catalog Root and
  * every absolute path stay inside the MCP process, and `agent_catalog_get` is
  * the one tool whose job is reporting the root.
  */
-export const FlowSkillList = Schema.Struct({
-  flowSkills: Schema.Array(FlowSkillListEntry),
+export const FlowList = Schema.Struct({
+  flows: Schema.Array(FlowListEntry),
 });
-export type FlowSkillList = typeof FlowSkillList.Type;
+export type FlowList = typeof FlowList.Type;

@@ -1,6 +1,6 @@
 import {
   AgentSessionId,
-  FlowSkillName,
+  FlowName,
   TeachingRecordingId,
   browserModificationSummary,
 } from "@contingency/protocol";
@@ -66,7 +66,7 @@ it("enforces the activity by modification kind authority matrix", () => {
         {
           activity: "run",
           dryRun: {
-            flowSkillName: FlowSkillName.make("dry"),
+            flowName: FlowName.make("dry"),
             inputs: [],
             recordingId: TeachingRecordingId.make("recording-dry"),
             startedAt: "now",

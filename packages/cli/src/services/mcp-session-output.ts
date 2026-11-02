@@ -39,7 +39,7 @@ const eventFields = {
   eventsTruncated: Schema.optional(Schema.Boolean),
   flowDocuments: Schema.optional(
     Schema.Array(
-      Schema.Struct({ flowSkillName: Schema.String, ...FlowDocuments.fields })
+      Schema.Struct({ flowName: Schema.String, ...FlowDocuments.fields })
     )
   ),
 };

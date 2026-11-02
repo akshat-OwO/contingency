@@ -138,7 +138,7 @@ export const PrototypeSummary = ({
       <dt className="text-muted-foreground">Cleanup</dt>
       <dd>
         {session.cleanup?._tag === "purged"
-          ? "Recording deleted. Verified Flow Skill retained."
+          ? "Recording deleted. Verified Flow retained."
           : "Recording kept until the flow is verified."}
       </dd>
     </dl>

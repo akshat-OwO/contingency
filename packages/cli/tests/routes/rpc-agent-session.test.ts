@@ -15,7 +15,7 @@ const snapshot = Schema.decodeUnknownSync(AgentSessionSnapshot)({
   createdAt: "2026-10-10T00:00:00.000Z",
   currentUrl: "about:blank",
   eventCursor: "rpc-session:0",
-  flowSkillName: null,
+  flowName: null,
   id: "agent-rpc",
   interruptedAction: null,
   ownerProcessId: "rpc-process",

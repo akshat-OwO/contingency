@@ -4,13 +4,13 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
-import { flowDocuments } from "../../src/services/flow-documents.ts";
 import {
-  FlowSkillCatalog,
-  makeFlowSkillCatalogLayer,
-} from "../../src/services/flow-skill-catalog.ts";
+  FlowCatalog,
+  makeFlowCatalogLayer,
+} from "../../src/services/flow-catalog.ts";
+import { flowDocuments } from "../../src/services/flow-documents.ts";
 
-const SKILL = `---
+const FLOW = `---
 name: set-delivery-area
 description: Set the delivery area for a store.
 inputs:
@@ -26,22 +26,22 @@ inputs:
    Done when: the field holds the area.
 `;
 
-it.effect("lists a Flow Skill without naming the Catalog Root", () =>
+it.effect("lists a Flow without naming the Catalog Root", () =>
   Effect.gen(function* listWithoutPaths() {
     const fileSystem = yield* FileSystem.FileSystem;
     const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-flow-skill-list-",
+      prefix: "contingency-flow-list-",
     });
     const directory = path.join(root, "set-delivery-area");
     yield* fileSystem.makeDirectory(directory, { recursive: true });
-    yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
+    yield* fileSystem.writeFileString(path.join(directory, "flow.md"), FLOW);
 
     const listing = yield* Effect.gen(function* readListing() {
-      const catalog = yield* FlowSkillCatalog;
+      const catalog = yield* FlowCatalog;
       return yield* catalog.list();
-    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+    }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
 
-    expect(listing.flowSkills).toEqual([
+    expect(listing.flows).toEqual([
       {
         description: "Set the delivery area for a store.",
         inputs: [{ description: "The delivery area to set.", name: "area" }],
@@ -62,13 +62,13 @@ it.effect(
     Effect.gen(function* readWithoutEscapingLink() {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-flow-skill-escape-",
+        prefix: "contingency-flow-escape-",
       });
       const directory = path.join(root, "set-delivery-area");
       yield* fileSystem.makeDirectory(path.join(directory, "references"), {
         recursive: true,
       });
-      yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
+      yield* fileSystem.writeFileString(path.join(directory, "flow.md"), FLOW);
       yield* fileSystem.writeFileString(
         path.join(directory, "targets.md"),
         "# Accessibility\n"
@@ -80,12 +80,12 @@ it.effect(
         path.join(directory, "references", "linked.md")
       );
 
-      const skill = yield* Effect.gen(function* readSkill() {
-        const catalog = yield* FlowSkillCatalog;
+      const flow = yield* Effect.gen(function* readFlow() {
+        const catalog = yield* FlowCatalog;
         return yield* catalog.read("set-delivery-area");
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
 
-      expect(skill.files.map((file) => file.path)).toEqual([
+      expect(flow.files.map((file) => file.path)).toEqual([
         "flow.md",
         "targets.md",
       ]);
@@ -100,7 +100,7 @@ it.effect(
       const root = yield* fs.makeTempDirectoryScoped();
       const directory = path.join(root, "set-delivery-area");
       const files = [
-        { content: SKILL, path: "flow.md" },
+        { content: FLOW, path: "flow.md" },
         {
           content: "Intro\n\n## Starting state\nSecret body",
           path: "setup.md",
@@ -126,15 +126,15 @@ it.effect(
         path.join(directory, "outside.md")
       );
       yield* Effect.gen(function* readDocuments() {
-        const catalog = yield* FlowSkillCatalog;
-        const skill = yield* catalog.read("set-delivery-area");
-        expect(skill.files.map((file) => file.path)).toEqual([
+        const catalog = yield* FlowCatalog;
+        const flow = yield* catalog.read("set-delivery-area");
+        expect(flow.files.map((file) => file.path)).toEqual([
           "flow.md",
           "knowledge/deep/rules.md",
           "setup.md",
         ]);
-        expect(flowDocuments(skill.files)).toEqual({
-          files: [{ content: SKILL, path: "flow.md" }],
+        expect(flowDocuments(flow.files)).toEqual({
+          files: [{ content: FLOW, path: "flow.md" }],
           supportingDocuments: [
             { heading: "Rules", path: "knowledge/deep/rules.md" },
             { heading: "Starting state", path: "setup.md" },
@@ -161,6 +161,6 @@ it.effect(
           );
           expect(error.code).toBe("agent_catalog_invalid");
         }
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+      }).pipe(Effect.provide(makeFlowCatalogLayer({ root })));
     }).pipe(Effect.provide(NodeServices.layer))
 );

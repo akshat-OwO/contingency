@@ -44,7 +44,7 @@ const RETRIES = 2;
  */
 export interface SystemOneConfig {
   readonly apiKey: Option.Option<Redacted.Redacted<string>>;
-  /** Tell the agent to try a Pursuit for each Flow Skill step first. */
+  /** Tell the agent to try a Pursuit for each Flow step first. */
   readonly first: boolean;
   readonly model: string;
   readonly url: string;
