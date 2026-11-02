@@ -7,7 +7,11 @@ import type { FileSystem } from "effect";
 import { SKILL_FILE } from "./flow-skill-package.ts";
 
 export const RESERVED_FLOW_NAMES = new Set(["runs", "recordings", "flow.md"]);
-const excluded = new Set(["agent-runs"]);
+const excluded = new Set(["runs", "recordings"]);
+const skipDirectory = (name: string, atRoot: boolean) =>
+  name.startsWith(".") ||
+  excluded.has(name) ||
+  (atRoot && name === "agent-runs");
 const isFlowName = Schema.is(FlowSkillName);
 const invalid = (message: string) => ({
   _tag: "FlowSkillCatalogError" as const,
@@ -82,7 +86,7 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
       owner = directory;
     }
     for (const name of names.toReversed()) {
-      if (name.startsWith(".") || (directory === root && excluded.has(name))) {
+      if (skipDirectory(name, directory === root)) {
         continue;
       }
       const child = path.join(directory, name);

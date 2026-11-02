@@ -357,3 +357,54 @@ it.effect(
       }).pipe(Effect.provide(layerFor(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.effect("keeps Run ownership through regrouping and store restart", () =>
+  Effect.gen(function* regroupRun() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    const name = FlowSkillName.make("checkout");
+    const original = path.join(root, "shop", name);
+    const moved = path.join(root, "sales", name);
+    yield* fs.makeDirectory(original, { recursive: true });
+    yield* fs.writeFileString(path.join(original, "flow.md"), "Flow");
+    yield* Effect.gen(function* startAndMove() {
+      const store = yield* AgentRunStore;
+      expect(yield* store.prepare(runId, [name])).toBe(
+        path.join(original, "runs", runId)
+      );
+      yield* fs.makeDirectory(path.dirname(moved), { recursive: true });
+      yield* fs.rename(original, moved);
+      yield* store.write(summaryFor(root));
+      expect(yield* store.prepare(runId, [])).toBe(
+        path.join(moved, "runs", runId)
+      );
+      expect(yield* fs.exists(original)).toBe(false);
+    }).pipe(Effect.provide(layerFor(root)));
+    yield* Effect.gen(function* reopen() {
+      const store = yield* AgentRunStore;
+      expect(yield* store.read(runId)).toEqual(summaryFor(root));
+    }).pipe(Effect.provide(layerFor(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+for (const names of [[], ["checkout", "login"]]) {
+  it.effect(`keeps a Run started with ${names.length} Flows at the root`, () =>
+    Effect.gen(function* rootRun() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      yield* Effect.gen(function* start() {
+        const store = yield* AgentRunStore;
+        const directory = path.join(root, "runs", runId);
+        expect(
+          yield* store.prepare(
+            runId,
+            names.map((name) => FlowSkillName.make(name))
+          )
+        ).toBe(directory);
+        expect(yield* store.prepare(runId, [FlowSkillName.make("later")])).toBe(
+          directory
+        );
+      }).pipe(Effect.provide(layerFor(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+}

@@ -33,7 +33,8 @@ it.effect(
       yield* writeFlow(root, "shop/checkout/guest");
       yield* writeFlow(workspace, ".contingency/legacy");
       yield* writeFlow(root, ".recordings/recording/hidden");
-      yield* writeFlow(root, "agent-runs/run/hidden");
+      yield* writeFlow(root, "runs/run/hidden");
+      yield* writeFlow(root, "shop/checkout/guest/recordings/hidden");
       yield* Effect.gen(function* read() {
         const catalog = yield* FlowSkillCatalog;
         expect(
@@ -68,11 +69,7 @@ it.effect("refuses duplicate names with both paths", () =>
 
 for (const relative of [
   "invalid+name",
-  "runs",
-  "recordings",
   "flow.md",
-  "runs/guest",
-  "recordings/guest",
   "flow.md/guest",
   "parent/child",
 ]) {
