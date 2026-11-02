@@ -27,6 +27,7 @@ import { makeChromiumAgentBrowser } from "../../src/services/chromium-agent-brow
 import { PursuitToolHandlersLive } from "../../src/services/mcp-pursuit.ts";
 import { SystemOne } from "../../src/services/system-one.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   catalogTool,
@@ -80,7 +81,11 @@ it.live(
         if (started.recordingId === null) {
           return yield* Effect.die("No recording");
         }
-        const directory = path.join(root, ".recordings", started.recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          started.recordingId
+        );
         const first = yield* sessionTool("agent_browser_snapshot", {
           sessionId: started.id,
         });
@@ -489,7 +494,10 @@ for (const ending of ["close", "interrupt", "takeover"] as const) {
             reason: "session-closed",
           });
           const events = yield* fs.readFileString(
-            path.join(root, ".recordings", started.recordingId, "events.jsonl")
+            path.join(
+              yield* evidenceDirectory(root, "recordings", started.recordingId),
+              "events.jsonl"
+            )
           );
           expect(events).toContain('"outcome":"failed"');
           expect(yield* sessions.get(started.id)).toMatchObject({
@@ -691,7 +699,11 @@ it.live(
           },
           { actor: "agent" },
         ]);
-        const directory = path.join(root, ".recordings", recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          recordingId
+        );
         expect(
           yield* fs.readFileString(path.join(directory, "events.jsonl"))
         ).toContain(secret);
@@ -921,7 +933,10 @@ it.live(
         const manifest = Schema.decodeUnknownSync(TeachingRecordingManifest)(
           JSON.parse(
             yield* fs.readFileString(
-              path.join(root, ".recordings", recordingId, "manifest.json")
+              path.join(
+                yield* evidenceDirectory(root, "recordings", recordingId),
+                "manifest.json"
+              )
             )
           )
         );
@@ -1278,6 +1293,7 @@ it.live(
           activity: "teaching",
           clientName: "checks-test",
           clientVersion: "1",
+          group: "",
           name: FlowSkillName.make("ordinary-checks"),
           operationId: operation("ordinary"),
           url: fixtures.url("delivery.html"),

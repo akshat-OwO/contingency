@@ -11,6 +11,7 @@ import { vi } from "vitest";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   findNode,
@@ -81,6 +82,7 @@ it.live(
             activity: "teaching",
             clientName: "integration-recorder",
             clientVersion: "1.0.0",
+            group: "",
             name: "set-delivery-area",
             operationId: OperationId.make("keyframe-start-session"),
             url: fixtures.url("delivery.html"),
@@ -115,7 +117,11 @@ it.live(
         }).pipe(Effect.provide(agentProcessLayer(root)))
       );
 
-      const recordingDirectory = path.join(root, ".recordings", recordingId);
+      const recordingDirectory = yield* evidenceDirectory(
+        root,
+        "recordings",
+        recordingId
+      );
       const files = yield* fileSystem.readDirectory(recordingDirectory);
       const keyframeFiles = files.filter((name) => name.endsWith(".png"));
       expect(keyframeFiles.length).toBeGreaterThan(0);
@@ -233,6 +239,7 @@ for (const delayed of [false, true]) {
               activity: "teaching",
               clientName: "integration-recorder",
               clientVersion: "1.0.0",
+              group: "",
               name: "navigation-evidence",
               operationId: OperationId.make("navigation-start-session"),
               url: `${fixtures.url("teaching-navigation.html")}${delayed ? "?delayed" : ""}`,

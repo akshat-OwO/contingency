@@ -8,10 +8,8 @@ import { SKILL_FILE } from "./flow-skill-package.ts";
 
 export const RESERVED_FLOW_NAMES = new Set(["runs", "recordings", "flow.md"]);
 const excluded = new Set(["runs", "recordings"]);
-const skipDirectory = (name: string, atRoot: boolean) =>
-  name.startsWith(".") ||
-  excluded.has(name) ||
-  (atRoot && name === "agent-runs");
+const skipDirectory = (name: string) =>
+  name.startsWith(".") || excluded.has(name);
 const isFlowName = Schema.is(FlowSkillName);
 const invalidFlowName = (name: string) =>
   RESERVED_FLOW_NAMES.has(name) || !isFlowName(name);
@@ -97,7 +95,7 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
       owner = directory;
     }
     for (const name of names.toReversed()) {
-      if (skipDirectory(name, directory === root)) {
+      if (skipDirectory(name)) {
         continue;
       }
       const child = path.join(directory, name);
@@ -142,13 +140,12 @@ export const maintainCatalogGitignore = Effect.fnUntraced(
       : "";
     const previous = original
       .split(/\r?\n/u)
-      .filter((line) => line !== ".recordings/")
+      .filter((line) => line !== ".recordings/" && line !== "agent-runs/")
       .join("\n");
     const lines = new Set(previous.split(/\r?\n/u));
     const missing = [
       "**/runs/",
       "**/recordings/",
-      "agent-runs/",
       ".flow-skill.lock",
       ".flow-skill-*.tmp",
       ".flow-skill-*.backup",

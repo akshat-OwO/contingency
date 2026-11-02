@@ -41,7 +41,7 @@ test("ignores Teaching Recordings, save scratch, and Run evidence", () => {
     "contingency/.flow-skill.lock",
     "contingency/.flow-skill-abc.tmp",
     "contingency/.flow-skill-abc.backup",
-    "contingency/agent-runs/agentrun-1/summary.json",
+    "contingency/runs/agentrun-1/summary.json",
   ]) {
     expect(isIgnored(ignored), ignored).toBe(true);
   }

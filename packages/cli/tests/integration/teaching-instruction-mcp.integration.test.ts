@@ -105,6 +105,7 @@ it.live(
           activity: "teaching",
           clientName: "regression",
           clientVersion: "1",
+          group: "",
           name: "mcp-instructions",
           operationId: "instruction-start",
           url: fixtures.url("agent-login.html"),

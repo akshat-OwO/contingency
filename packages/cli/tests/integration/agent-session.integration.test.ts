@@ -17,7 +17,7 @@ import {
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
-import { awaitSession } from "./agent-harness.ts";
+import { evidenceDirectory, awaitSession } from "./agent-harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -167,7 +167,11 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
       });
       const setup = opened.session;
       expect(setup.captureState?._tag).toBe("setup");
-      const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
+      const recordingDirectory = yield* evidenceDirectory(
+        root,
+        "recordings",
+        setup.recordingId
+      );
       expect(yield* fileSystem.readDirectory(recordingDirectory)).toEqual([
         "manifest.json",
       ]);
@@ -226,7 +230,11 @@ it.live("records only between Teaching Start and Stop RPCs", () =>
         interrupted.captureState?._tag,
         JSON.stringify(interrupted.captureState)
       ).toBe("ready");
-      const secondDirectory = `${root}/.recordings/${second.session.recordingId}`;
+      const secondDirectory = yield* evidenceDirectory(
+        root,
+        "recordings",
+        second.session.recordingId
+      );
       const interruptedEvents = yield* fileSystem.readFileString(
         `${secondDirectory}/events.jsonl`
       );
@@ -261,7 +269,11 @@ it.live("ends the recording itself when a capture ceiling is reached", () =>
         viewport,
       });
       const setup = opened.session;
-      const recordingDirectory = `${root}/.recordings/${setup.recordingId}`;
+      const recordingDirectory = yield* evidenceDirectory(
+        root,
+        "recordings",
+        setup.recordingId
+      );
       const started = yield* client("agent.teaching.recording.start", {
         operationId: OperationId.make("start-teaching-ceiling"),
         sessionId: setup.id,

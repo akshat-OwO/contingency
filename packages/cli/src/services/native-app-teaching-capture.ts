@@ -42,7 +42,7 @@ export const makeNativeAppTeachingCapture = <
 >(input: {
   readonly fs: Pick<
     FileSystem.FileSystem,
-    "makeDirectory" | "writeFile" | "writeFileString" | "readFile"
+    "stat" | "makeDirectory" | "writeFile" | "writeFileString" | "readFile"
   >;
   readonly store: Pick<TeachingRecordingStoreService, "stop">;
   readonly state: (session: CaptureSession) => State;
@@ -102,6 +102,7 @@ export const makeNativeAppTeachingCapture = <
       }
       const digest = ContentHash.make(`sha256-${hash(bytes)}`);
       const relative = `keyframes/${digest}.png`;
+      yield* input.io(fs.stat(input.directory(session)));
       yield* input.io(
         fs.makeDirectory(path.join(input.directory(session), "keyframes"), {
           recursive: true,

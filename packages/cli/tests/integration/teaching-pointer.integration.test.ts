@@ -28,6 +28,7 @@ it.live("leaves pointer moves out of the session timeline", () =>
         activity: "teaching",
         clientName: "integration-recorder",
         clientVersion: "1.0.0",
+        group: "",
         name: "sweep-the-pointer",
         operationId: OperationId.make("pointer-start-session"),
         url: fixtures.url("hover.html"),

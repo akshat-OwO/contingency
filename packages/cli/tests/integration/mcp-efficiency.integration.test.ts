@@ -94,6 +94,7 @@ it.live(
                   activity: "teaching",
                   clientName: "link-proof",
                   clientVersion: "1",
+                  group: "",
                   name: `link-${view}`,
                   url: fixture.url("checkout.html"),
                   viewport: { deviceScaleFactor: 1, height: 480, width: 640 },

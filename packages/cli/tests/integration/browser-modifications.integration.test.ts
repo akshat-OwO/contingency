@@ -19,6 +19,7 @@ import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   catalogTool,
@@ -361,6 +362,7 @@ it.live(
         const sessions = yield* AgentSession;
         const teaching = yield* sessions.start({
           activity: "teaching",
+          group: "",
           openedBy: "agent",
           operationId: "teach",
           url: fixture.url("devtools.html"),
@@ -706,7 +708,9 @@ it.live(
         expect(reopened.summary).toMatchObject({
           browserModifications: summaryModifications(summary),
         });
-        const files = yield* fs.readDirectory(`${root}/agent-runs`);
+        const files = yield* fs.readDirectory(
+          yield* evidenceDirectory(root, "runs", summary.runId)
+        );
         expect(files.length).toBeGreaterThan(0);
       }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -723,6 +727,7 @@ it.live("tracks and removes Emulation during agent-held Teaching setup", () =>
       const sessions = yield* AgentSession;
       const teaching = yield* sessions.start({
         activity: "teaching",
+        group: "",
         openedBy: "agent",
         operationId: "teach-scale",
         url: fixture.url("emulation-scale.html"),

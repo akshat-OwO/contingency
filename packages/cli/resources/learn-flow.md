@@ -2,6 +2,8 @@
 
 Learn one Contingency Teaching Recording and write its Flow Skill. The agent chooses its Flow name and Group before Start. Recording evidence lives in `<flow>/recordings/<recordingId>/`, including while the Flow is still a draft.
 
+Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one Flow also lives there; zero or several starting Flows use `contingency/runs/<runId>/`.
+
 1. Read contingency://reference/writing from this server for technical writing, natural prose, and agent instructions.
 
 2. Claim the recording with agent_teaching_recording_claim, action "take".

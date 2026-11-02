@@ -22,6 +22,7 @@ import {
   OnboardingTools,
 } from "../../src/services/mcp-onboarding.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   findNode,
   makeCall,
@@ -333,9 +334,7 @@ it.live(
           });
           const reportFile = yield* files.readFileString(
             path.join(
-              root,
-              "agent-runs",
-              taskRun(reported).runId,
+              yield* evidenceDirectory(root, "runs", taskRun(reported).runId),
               report?.reportPath ?? ""
             )
           );

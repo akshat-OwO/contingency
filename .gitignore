@@ -52,7 +52,7 @@ packages/cli/tests/calibration/results.json
 # Catalog documents are shared source; evidence and save scratch stay local.
 contingency/**/runs/
 contingency/**/recordings/
-contingency/agent-runs/
+contingency/runs/
 contingency/.flow-skill.lock
 contingency/.flow-skill-*.tmp
 contingency/.flow-skill-*.backup

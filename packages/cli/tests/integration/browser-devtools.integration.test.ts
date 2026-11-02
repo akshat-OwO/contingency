@@ -60,6 +60,7 @@ it.live(
             activity: "teaching",
             clientName: "test",
             clientVersion: "1",
+            group: "",
             name: "observe",
             operationId: OperationId.make("start"),
             url: fixture.url("devtools.html"),
@@ -378,6 +379,7 @@ it.live("reads background tab storage without changing the active tab", () =>
         const browser = yield* CreateBrowser;
         const session = yield* sessions.start({
           activity: "teaching",
+          group: "",
           operationId: "background-storage",
           url: fixture.url("devtools.html"),
           viewport: agentViewport,

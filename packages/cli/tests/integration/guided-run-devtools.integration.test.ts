@@ -6,6 +6,7 @@ import { Effect, FileSystem } from "effect";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   runTool,
@@ -110,7 +111,7 @@ it.live(
         );
         yield* sessions.stopTeachingRecording(started.id, operation("stop"));
         const recorded = yield* fs.readFileString(
-          `${root}/.recordings/${recordingId}/events.jsonl`
+          `${yield* evidenceDirectory(root, "recordings", recordingId)}/events.jsonl`
         );
         expect(recorded).not.toContain("setup-cookie-literal");
         expect(recorded).not.toContain("capture-header-literal");

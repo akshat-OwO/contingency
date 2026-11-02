@@ -31,6 +31,8 @@ const fixture = (failSource = false) => {
     fs: {
       makeDirectory: () => Effect.void,
       readFile: (file) => Effect.succeed(files.get(file) ?? new Uint8Array()),
+      // SAFETY: capture only checks stat success; it never reads metadata.
+      stat: () => Effect.succeed({} as never),
       writeFile: (file, bytes) =>
         Effect.sync(() => {
           files.set(file, bytes);

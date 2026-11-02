@@ -123,6 +123,7 @@ export const makeRunScans = (
         );
       }
       const reportPath = `scans/${report.id}.json`;
+      yield* fileSystem.stat(owner.directory).pipe(Effect.mapError(failed));
       yield* fileSystem
         .makeDirectory(path.join(owner.directory, "scans"), {
           mode: 0o700,

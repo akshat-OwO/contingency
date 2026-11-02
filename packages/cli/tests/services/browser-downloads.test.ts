@@ -120,3 +120,27 @@ it.effect("sanitizes filenames without concealing Variable values", () =>
     expect(saved.path).toBeNull();
   }).pipe(Effect.provide(NodeServices.layer))
 );
+
+it.effect("refuses evidence after its Flow moves during a Run", () =>
+  Effect.gen(function* movedRun() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    const flow = path.join(root, "old", "flow");
+    const ownerDirectory = path.join(flow, "runs", "run-one");
+    yield* fs.makeDirectory(ownerDirectory, { recursive: true });
+    yield* fs.makeDirectory(path.join(root, "new"));
+    yield* fs.rename(flow, path.join(root, "new", "flow"));
+    const download = makeDownload();
+    const saved = yield* saveDownload(
+      { download, startedAt: 0, tabId },
+      {
+        ...options,
+        directory: path.join(ownerDirectory, "downloads"),
+        ownerDirectory,
+      }
+    );
+    expect(saved.state).toBe("failed");
+    expect(download.saveAs).not.toHaveBeenCalled();
+    expect(yield* fs.exists(flow)).toBe(false);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

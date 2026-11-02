@@ -10,6 +10,7 @@ import { AgentSession } from "../../src/services/agent-session.ts";
 import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
 import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   awaitRunVideo,
@@ -215,6 +216,7 @@ it.live(
             activity: "teaching",
             clientName: "integration-recorder",
             clientVersion: "1.0.0",
+            group: "",
             name: "set-delivery-area",
             operationId: OperationId.make("delivery-start-session"),
             url: fixtures.url("delivery.html"),
@@ -355,9 +357,9 @@ it.live(
           expect(stamped?.hosts).toContain("127.0.0.1");
           expect(stamped?.emulation?.viewport).toEqual(agentViewport);
 
-          const recordingDirectory = path.join(
+          const recordingDirectory = yield* evidenceDirectory(
             root,
-            ".recordings",
+            "recordings",
             recordingId
           );
           const offScope = yield* Effect.result(
@@ -511,7 +513,11 @@ it.live(
           const agentSessions = yield* AgentSession;
           const sessionsBeforeConflict = yield* agentSessions.list();
           const evidenceBeforeConflict = yield* fileSystem.readDirectory(
-            path.join(recordingDirectory, "dry-run"),
+            yield* evidenceDirectory(
+              root,
+              "runs",
+              failedRun.session.run?.runId ?? "missing"
+            ),
             { recursive: true }
           );
           const conflictedDryRun = yield* Effect.flip(
@@ -536,7 +542,11 @@ it.live(
           );
           expect(
             yield* fileSystem.readDirectory(
-              path.join(recordingDirectory, "dry-run"),
+              yield* evidenceDirectory(
+                root,
+                "runs",
+                failedRun.session.run?.runId ?? "missing"
+              ),
               { recursive: true }
             )
           ).toEqual(evidenceBeforeConflict);
@@ -551,7 +561,11 @@ it.live(
               failedManifest.lifecycle.dryRunSummary?.assessment?.outcome
             ).toBe("not-working");
           }
-          const dryRunDirectory = path.join(recordingDirectory, "dry-run");
+          const dryRunDirectory = yield* evidenceDirectory(
+            root,
+            "runs",
+            failedRun.session.run?.runId ?? "missing"
+          );
           expect(
             yield* fileSystem.exists(path.join(dryRunDirectory, "summary.json"))
           ).toBe(true);
@@ -574,7 +588,7 @@ it.live(
           }
           expect(
             yield* fileSystem.exists(
-              path.join(root, "agent-runs", failedRun.session.run?.runId ?? "")
+              path.join(root, "runs", failedRun.session.run?.runId ?? "")
             )
           ).toBe(false);
           expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
@@ -738,7 +752,14 @@ it.live(
             ).toMatchObject({ outcome: "working", outcomeComplete: true });
           }
           const replacementSummary = yield* fileSystem.readFileString(
-            path.join(dryRunDirectory, "summary.json")
+            path.join(
+              yield* evidenceDirectory(
+                root,
+                "runs",
+                passedRun.session.run?.runId ?? "missing"
+              ),
+              "summary.json"
+            )
           );
           expect(replacementSummary).toContain(passedRun.session.run?.runId);
           expect(replacementSummary).not.toContain(

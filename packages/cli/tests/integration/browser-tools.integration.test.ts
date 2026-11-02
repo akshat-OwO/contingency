@@ -222,9 +222,7 @@ it.live(
           state: "saved",
           type: "text/csv",
         });
-        expect(download?.path?.startsWith(path.join(root, "agent-runs"))).toBe(
-          true
-        );
+        expect(download?.path?.startsWith(path.join(root, "runs"))).toBe(true);
         expect(download?.path).toMatch(/downloads[/\\]download-1$/u);
         expect(yield* fs.readFileString(download?.path ?? "")).toBe(
           "name,total\nanvil,3\n"
@@ -307,6 +305,7 @@ it.live(
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const session = yield* sessions.start({
           activity: "teaching",
+          group: "",
           openedBy: "agent",
           operationId: "profile-session",
           url: fixture.url("browser-tools.html"),
@@ -467,6 +466,7 @@ it.live(
         yield* fs.writeFileString(outsideFile, "outside!");
         const teaching = yield* sessions.start({
           activity: "teaching",
+          group: "",
           openedBy: "agent",
           operationId: "teaching",
           url: fixture.url("browser-tools.html"),

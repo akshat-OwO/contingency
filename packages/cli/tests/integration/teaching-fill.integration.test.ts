@@ -51,6 +51,7 @@ it.live("records typing into one field as one fill named by the field", () =>
         activity: "teaching",
         clientName: "integration-recorder",
         clientVersion: "1.0.0",
+        group: "",
         name: "type-email",
         operationId: OperationId.make("fill-start-session"),
         url: fixtures.url("typing.html"),

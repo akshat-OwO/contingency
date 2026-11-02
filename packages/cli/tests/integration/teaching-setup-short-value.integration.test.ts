@@ -26,6 +26,7 @@ it.live("reloads the actual browser after a one-character setup Variable", () =>
           activity: "teaching",
           clientName: "short-value",
           clientVersion: "1",
+          group: "",
           name: "short-private-setup",
           operationId: OperationId.make("short-start"),
           url: fixtures.url("agent-login.html"),

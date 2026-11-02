@@ -67,6 +67,7 @@ it.live("records typing into a password field as one literal fill", () =>
           activity: "teaching",
           clientName: "integration-recorder",
           clientVersion: "1.0.0",
+          group: "",
           name: "sign-in",
           operationId: OperationId.make("password-start-session"),
           url: fixtures.url("sign-in.html"),

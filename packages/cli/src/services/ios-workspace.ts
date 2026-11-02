@@ -693,7 +693,7 @@ export const makeIosWorkspaceLayer = (options: {
               command.kind === "dry-run" && recordingId !== null
                 ? store.catalogRoot(recordingId)
                 : catalog.root();
-            let directory = path.join(root, "agent-runs", id);
+            let directory = path.join(root, "runs", id);
             if (recordingId !== null) {
               directory =
                 command.kind === "teaching"

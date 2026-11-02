@@ -16,6 +16,7 @@ import type { AgentSessionService } from "../../src/services/agent-session.ts";
 import { evaluateBrowserScript } from "../../src/services/browser-evaluation.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import {
+  evidenceDirectory,
   agentProcessLayer,
   agentViewport,
   runTool,
@@ -231,6 +232,7 @@ it.live(
         yield* Effect.addFinalizer(() => sessions.closeAll());
         const teaching = yield* sessions.start({
           activity: "teaching",
+          group: "",
           openedBy: "agent",
           operationId: "teaching",
           url: fixture.url("devtools.html"),
@@ -394,7 +396,7 @@ it.live(
           OperationId.make("guided-stop")
         );
         const events = yield* fs.readFileString(
-          `${root}/.recordings/${guided.recordingId}/events.jsonl`
+          `${yield* evidenceDirectory(root, "recordings", guided.recordingId)}/events.jsonl`
         );
         expect(events).toContain('"browser-modification"');
         expect(events).toContain("guided-setup");

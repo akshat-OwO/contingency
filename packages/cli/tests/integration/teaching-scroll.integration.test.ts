@@ -63,6 +63,7 @@ it.live.each(["idle", "stop"])(
             activity: "teaching",
             clientName: "integration-recorder",
             clientVersion: "1.0.0",
+            group: "",
             name: "read-catalogue",
             operationId: OperationId.make("scroll-start-session"),
             url: fixtures.url("lazy.html"),

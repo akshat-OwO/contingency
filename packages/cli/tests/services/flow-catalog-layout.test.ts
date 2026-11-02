@@ -117,19 +117,17 @@ it.effect(
     }).pipe(Effect.provide(NodeServices.layer))
 );
 
-it.effect(
-  "allows an agent-runs Flow inside a Group while excluding root evidence",
-  () =>
-    Effect.gen(function* test() {
-      const fs = yield* FileSystem.FileSystem;
-      const root = yield* fs.makeTempDirectoryScoped();
-      yield* writeFlow(root, "group/agent-runs");
-      yield* writeFlow(root, "agent-runs/hidden");
-      yield* Effect.gen(function* read() {
-        const catalog = yield* FlowSkillCatalog;
-        expect(
-          (yield* catalog.list()).flowSkills.map((flow) => flow.name)
-        ).toEqual(["agent-runs"]);
-      }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
-    }).pipe(Effect.provide(NodeServices.layer))
+it.effect("discovers Flows in every ordinary Group", () =>
+  Effect.gen(function* test() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    yield* writeFlow(root, "group/ordinary");
+    yield* writeFlow(root, "another/visible");
+    yield* Effect.gen(function* read() {
+      const catalog = yield* FlowSkillCatalog;
+      expect(
+        (yield* catalog.list()).flowSkills.map((flow) => flow.name)
+      ).toEqual(["ordinary", "visible"]);
+    }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
+  }).pipe(Effect.provide(NodeServices.layer))
 );

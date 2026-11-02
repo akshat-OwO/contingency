@@ -123,7 +123,7 @@ export interface FlowSkillCatalogOptions {
 }
 
 /** Directories the Catalog Root owns that are never Flow Skills. */
-const RESERVED = new Set([TEACHING_RECORDINGS_DIRECTORY, "agent-runs"]);
+const RESERVED = new Set([TEACHING_RECORDINGS_DIRECTORY, "runs"]);
 
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 
