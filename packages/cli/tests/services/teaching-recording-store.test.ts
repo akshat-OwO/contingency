@@ -3,6 +3,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
+  AgentRunId,
   AgentSessionId,
   FlowSkillName,
   ContentHash,
@@ -167,6 +168,70 @@ it.effect.each([
           path.join(root, "checkout-flow", "flow.md"),
           "---\nname: checkout-flow\n---\n"
         );
+        const otherRecordings = ["capturing", "rehearsing"].map((state) =>
+          TeachingRecordingId.make(`recording-other-${state}`)
+        );
+        for (const id of otherRecordings) {
+          yield* store.begin({
+            ...begin,
+            operationId: OperationId.make(`begin-${id}`),
+            recordingId: id,
+            sessionId: AgentSessionId.make(`agent-${id}`),
+          });
+          yield* store.start({
+            ...start,
+            operationId: OperationId.make(`start-${id}`),
+            recordingId: id,
+          });
+          yield* fileSystem.writeFileString(
+            path.join(store.directory(id), "keep.txt"),
+            "other evidence"
+          );
+          if (id === otherRecordings[1]) {
+            yield* store.stop({
+              artifacts: [],
+              operationId: OperationId.make(`stop-${id}`),
+              recordingId: id,
+            });
+            yield* store.startLearning({
+              operationId: OperationId.make(`learn-${id}`),
+              recordingId: id,
+            });
+            yield* store.saveSkill({
+              claimOperationId: OperationId.make(`learn-${id}`),
+              files: ["flow.md"],
+              operationId: OperationId.make(`save-${id}`),
+              recordingId: id,
+            });
+            yield* store.startDryRun({
+              inputs: [],
+              operationId: OperationId.make(`dry-${id}`),
+              recordingId: id,
+              sessionId: AgentSessionId.make("agent-other-session"),
+            });
+            const otherRun = yield* store.prepareDryRun(
+              id,
+              AgentRunId.make("agentrun-other-dry-run")
+            );
+            yield* fileSystem.writeFileString(
+              path.join(otherRun, "keep.txt"),
+              "active Dry Run"
+            );
+          }
+        }
+        const document = path.join(root, "checkout-flow", "support.md");
+        yield* fileSystem.writeFileString(document, "supporting document");
+        const ordinaryRun = path.join(
+          root,
+          "checkout-flow",
+          "runs",
+          "ordinary-run"
+        );
+        yield* fileSystem.makeDirectory(ordinaryRun, { recursive: true });
+        yield* fileSystem.writeFileString(
+          path.join(ordinaryRun, "keep.txt"),
+          "task evidence"
+        );
         if (moveAt === "before-start") {
           yield* moveFlow;
         }
@@ -180,6 +245,28 @@ it.effect.each([
           recordingId,
           sessionId,
         });
+        for (const runId of [
+          "agentrun-dry-attempt-one",
+          "agentrun-dry-attempt-two",
+        ]) {
+          const evidence = yield* store.prepareDryRun(
+            recordingId,
+            AgentRunId.make(runId)
+          );
+          expect(evidence).toBe(
+            path.join(
+              moveAt === "before-start"
+                ? flowDirectory
+                : path.join(root, "checkout-flow"),
+              "runs",
+              runId
+            )
+          );
+          yield* fileSystem.writeFileString(
+            path.join(evidence, "video.webm"),
+            "sensitive"
+          );
+        }
         if (moveAt === "before-pass") {
           yield* moveFlow;
         }
@@ -217,6 +304,41 @@ it.effect.each([
           recordingId,
         };
         yield* store.cleanup(cleanup);
+        for (const id of otherRecordings) {
+          expect(
+            yield* fileSystem.readFileString(
+              path.join(flowDirectory, "recordings", id, "keep.txt")
+            )
+          ).toBe("other evidence");
+        }
+        expect(
+          yield* fileSystem.readFileString(
+            path.join(
+              flowDirectory,
+              "runs",
+              "agentrun-other-dry-run",
+              "keep.txt"
+            )
+          )
+        ).toBe("active Dry Run");
+        expect(
+          yield* fileSystem.readFileString(
+            path.join(flowDirectory, "runs", "ordinary-run", "keep.txt")
+          )
+        ).toBe("task evidence");
+        expect(
+          yield* fileSystem.readFileString(
+            path.join(flowDirectory, "support.md")
+          )
+        ).toBe("supporting document");
+        for (const runId of [
+          "agentrun-dry-attempt-one",
+          "agentrun-dry-attempt-two",
+        ]) {
+          expect(
+            yield* fileSystem.exists(path.join(flowDirectory, "runs", runId))
+          ).toBe(false);
+        }
         const cleaned = yield* store.cleanup(cleanup);
         expect(yield* fileSystem.exists(artifactDirectory)).toBe(false);
         const duplicateCleanup = yield* Effect.flip(

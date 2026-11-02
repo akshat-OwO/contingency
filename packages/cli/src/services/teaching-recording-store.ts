@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type {
+  AgentRunId,
   AgentSessionId,
   AgentRunSummary,
   DraftEmulation,
@@ -139,6 +140,11 @@ export interface TeachingRecordingStoreService {
   readonly begin: (
     input: TeachingRecordingBegin
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  /** Pin an attempt inside its Flow and retain its ID for recording-scoped Cleanup. */
+  readonly prepareDryRun: (
+    recordingId: TeachingRecordingId,
+    runId: AgentRunId
+  ) => Effect.Effect<string, TeachingRecordingStoreError>;
   readonly cleanup: (
     input: TeachingRecordingMutation
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
@@ -1494,6 +1500,38 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             );
       });
 
+    const prepareDryRun = (
+      recordingId: TeachingRecordingId,
+      runId: AgentRunId
+    ) =>
+      withRecordingLock(
+        recordingId,
+        Effect.gen(function* prepareEvidence() {
+          const manifest = yield* readAt(recordingId, rootFor(recordingId));
+          const flow = yield* resolveFlowDirectory(
+            rootFor(recordingId),
+            manifest.flowSkillName,
+            fileSystem
+          ).pipe(
+            Effect.mapError((cause) =>
+              storeError("teaching_recording_io", cause.message)
+            )
+          );
+          const links = path.join(recordingDirectory(recordingId), "dry-runs");
+          yield* fileSystem
+            .makeDirectory(links, { recursive: true })
+            .pipe(Effect.mapError(ioError("Could not link Dry Run")));
+          yield* fileSystem
+            .writeFileString(path.join(links, runId), "")
+            .pipe(Effect.mapError(ioError("Could not link Dry Run")));
+          const directory = path.join(flow, "runs", runId);
+          yield* fileSystem
+            .makeDirectory(directory, { recursive: true })
+            .pipe(Effect.mapError(ioError("Could not prepare Dry Run")));
+          return directory;
+        })
+      );
+
     const cleanup = (input: TeachingRecordingMutation) => {
       const replay = purged.get(input.recordingId);
       if (
@@ -1536,9 +1574,24 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           const sensitiveNames = names.filter(
             (name) => name !== MANIFEST_FILE && name !== LOCK_FILE
           );
-          for (const name of sensitiveNames) {
+          const links = path.join(directory, "dry-runs");
+          const runIds = (yield* fileSystem
+            .exists(links)
+            .pipe(Effect.mapError(ioError("Could not inspect Dry Run links"))))
+            ? yield* fileSystem
+                .readDirectory(links)
+                .pipe(Effect.mapError(ioError("Could not read Dry Run links")))
+            : [];
+          const targets = [
+            ...runIds.map((runId) =>
+              path.join(directory, "..", "..", "runs", runId)
+            ),
+            ...sensitiveNames.map((name) => path.join(directory, name)),
+          ];
+          for (const target of targets) {
+            const name = path.relative(directory, target);
             const removed = yield* Effect.result(
-              fileSystem.remove(path.join(directory, name), {
+              fileSystem.remove(target, {
                 force: true,
                 recursive: true,
               })
@@ -1559,7 +1612,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 cleanup: {
                   _tag: "purge-pending" as const,
                   failure: `Could not delete ${name}: ${removed.failure.message}`,
-                  retainedFiles,
+                  retainedFiles: [...new Set([name, ...retainedFiles])],
                 },
                 eventOrigin: origin,
                 lifecycle,
@@ -1889,6 +1942,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       failLearning,
       listReady,
       passDryRun,
+      prepareDryRun,
       read,
       readClaimed,
       reject,

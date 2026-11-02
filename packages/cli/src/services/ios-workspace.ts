@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import {
+  AgentRunId,
   AgentSessionId,
   OperationId,
   TeachingRecordingId,
@@ -702,7 +703,14 @@ export const makeIosWorkspaceLayer = (options: {
                       "recordings",
                       recordingId
                     )
-                  : path.join(store.directory(recordingId), "ios-runs", id);
+                  : yield* store
+                      .prepareDryRun(
+                        recordingId,
+                        AgentRunId.make(`agentrun-${id}`)
+                      )
+                      .pipe(
+                        Effect.onError(() => Scope.close(scope, Exit.void))
+                      );
             }
             const summary: IosWorkspaceSummary = {
               assessment: null,

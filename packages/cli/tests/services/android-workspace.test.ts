@@ -1290,8 +1290,10 @@ it.effect("Dry Run allows untaught activation", () =>
       const actions = yield* fs.readFileString(
         path.join(
           store.directory(recordingId),
-          "android-runs",
-          prepared.id,
+          "..",
+          "..",
+          "runs",
+          `agentrun-${prepared.id}`,
           "actions.jsonl"
         )
       );

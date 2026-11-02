@@ -344,6 +344,22 @@ it.effect(
         const run = Schema.decodeUnknownSync(TaskAgentRunState)(
           first?.input.run
         );
+        expect(first?.input.artifactDirectory).toBe(
+          path.join(root, "shop", "cart", "runs", run.runId)
+        );
+        expect(
+          yield* files.exists(
+            path.join(
+              root,
+              "shop",
+              "cart",
+              "recordings",
+              recordingId,
+              "dry-runs",
+              run.runId
+            )
+          )
+        ).toBe(true);
         // Inputs keep the skill that declared them, and a secret never leaves
         // the request as a literal.
         expect(run.inputs).toEqual([
