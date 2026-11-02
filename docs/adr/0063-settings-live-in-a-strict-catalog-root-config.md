@@ -4,6 +4,8 @@ status: accepted
 
 # Settings live in a strict Catalog Root config
 
+> Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
+
 A developer or agent cannot discover Contingency's Settings: most exist only as `CONTINGENCY_*` environment variables read in code, and the README names two of them. Contingency will read non-secret Settings from `config.json` in the Catalog Root and from `~/.contingency/config.json`, validate both strictly against one schema, and publish that schema so a `$schema` field gives editors completion and type checking. Committed files become a public contract, so the location, the secret boundary, and the strictness are recorded here.
 
 ## Rules
