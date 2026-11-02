@@ -625,7 +625,6 @@ const dryRunCapture = {
     },
   },
   readyAt: summary.startedAt,
-  skillPath: "browse-catalogue/SKILL.md",
   startedAt: summary.startedAt,
   stoppedAt: summary.endedAt,
 };

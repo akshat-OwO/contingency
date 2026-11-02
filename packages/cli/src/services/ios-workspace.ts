@@ -44,6 +44,7 @@ import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
+import { isVerifiedFlowSkill } from "./requested-flow-skills.ts";
 import { decideFlowSkill } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -588,13 +589,7 @@ export const makeIosWorkspaceLayer = (options: {
               );
             }
             if (command.kind === "run") {
-              const verified = skill.files.find(
-                (file) => file.path === "references/verification.md"
-              );
-              if (
-                !verified?.content.includes("- Platform: ios") ||
-                !verified.content.includes("- Verified:")
-              ) {
+              if (!isVerifiedFlowSkill(skill.files, "ios")) {
                 return yield* denied(
                   "A later iOS Run requires explicit iOS verification."
                 );

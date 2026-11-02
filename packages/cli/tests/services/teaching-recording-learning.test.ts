@@ -291,14 +291,14 @@ for (const variant of [
               {
                 content:
                   "---\nname: scope\ndescription: Inspect the shop.\ninputs:\n---\n\n# Inspect the shop\n\n1. Open the shop. Done when: the shop appears.\n",
-                path: "SKILL.md",
+                path: "flow.md",
               },
             ],
             operationId: OperationId.make("save"),
             recordingId,
           });
           const saved = yield* fs.readFileString(
-            path.join(root, "scope", "SKILL.md")
+            path.join(root, "scope", "flow.md")
           );
           expect(saved).toContain(
             hasApprovedHosts
@@ -418,10 +418,10 @@ for (const value of ["login", "anvil"]) {
             claimOperationId,
             files: [
               {
-                content: `---\nname: login\ndescription: Sign in to login.\ninputs:\n  - USER\n---\n\nRequire product from [checks](references/browser-checks.json) and [notes](references/notes.md).\n\n1. Enter ${value} as {{USER}}. Done when: signed in.\n`,
-                path: "SKILL.md",
+                content: `---\nname: login\ndescription: Sign in to login.\ninputs:\n  - USER\n---\n\nRequire product from [checks](checks.json) and [notes](references/notes.md).\n\n1. Enter ${value} as {{USER}}. Done when: signed in.\n`,
+                path: "flow.md",
               },
-              { content: structured, path: "references/browser-checks.json" },
+              { content: structured, path: "checks.json" },
               {
                 content: `Use ${value} as {{USER}}.`,
                 path: "references/notes.md",
@@ -431,7 +431,7 @@ for (const value of ["login", "anvil"]) {
             recordingId,
           });
           const saved = yield* fs.readFileString(
-            path.join(root, "login", "SKILL.md")
+            path.join(root, "login", "flow.md")
           );
           expect(saved).toContain(
             "name: login\ndescription: Sign in to login."
@@ -443,9 +443,7 @@ for (const value of ["login", "anvil"]) {
             )
           ).toBe("Use {{USER}} as {{USER}}.");
           expect(
-            yield* fs.readFileString(
-              path.join(root, "login", "references/browser-checks.json")
-            )
+            yield* fs.readFileString(path.join(root, "login", "checks.json"))
           ).toBe(structured);
         }).pipe(Effect.provide(layer));
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))

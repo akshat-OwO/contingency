@@ -13,7 +13,7 @@ emulation:
 
 # Check the cart with a scan
 
-This is a bundled Example Flow Skill for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [references/accessibility.md](references/accessibility.md). The required scan is defined in [references/scans.json](references/scans.json).
+This is a bundled Example Flow Skill for the Ridgeline Hardware demo store. It is read-only, it is not user-verified, and its authority ends at the demo store. Targets are listed in [references/accessibility.md](references/accessibility.md). The required scan is defined in [scans.json](scans.json).
 
 The store has one documented accessibility finding: the "Free returns within 30 days of delivery." note on the cart page has low color contrast. The journey still passes when the scan reports it. Cite the Scan Report as evidence.
 

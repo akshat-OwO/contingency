@@ -9,7 +9,7 @@ import type {
 } from "@contingency/protocol";
 import { Effect, Predicate, Result, Schema } from "effect";
 
-export const BROWSER_CHECKS_FILE = "references/browser-checks.json";
+export const BROWSER_CHECKS_FILE = "checks.json";
 const document = Schema.Struct({
   requirements: Schema.Array(BrowserCheck).check(Schema.isMaxLength(50)),
   schemaVersion: Schema.Literal(1),
@@ -248,7 +248,7 @@ export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
   }
   try {
     const parsed = Schema.decodeUnknownSync(document)(JSON.parse(file.content));
-    const skill = files.find((candidate) => candidate.path === "SKILL.md");
+    const skill = files.find((candidate) => candidate.path === "flow.md");
     const ids = new Set<string>();
     for (const requirement of parsed.requirements) {
       const problem = validateBrowserCheck(requirement);
@@ -265,7 +265,7 @@ export const parseBrowserChecks = (files: readonly FlowSkillFile[]) => {
       ) {
         return Result.fail(
           invalid(
-            `Link ${BROWSER_CHECKS_FILE} and name check ${requirement.id} in SKILL.md.`
+            `Link ${BROWSER_CHECKS_FILE} and name check ${requirement.id} in flow.md.`
           )
         );
       }
@@ -334,7 +334,7 @@ export const validateTaughtBrowserChecks = (
     ) {
       return yield* Effect.fail(
         invalid(
-          "Preserve every reviewed Browser Check exactly in references/browser-checks.json. Context attachments are not requirements."
+          "Preserve every reviewed Browser Check exactly in checks.json. Context attachments are not requirements."
         )
       );
     }

@@ -21,11 +21,10 @@ import type { Mutable } from "effect/Types";
 
 import { AGENT_RUNS_DIRECTORY } from "./agent-run-store.ts";
 import { DEMO_SITE_ID, isDemoHosts } from "./demo-site.ts";
+import { discoverFlows } from "./flow-catalog-layout.ts";
 import {
-  CATALOG_DIRECTORY,
+  GLOBAL_CATALOG_DIRECTORY,
   FlowSkillCatalog,
-  isFlowSkillDirectory,
-  isInside,
 } from "./flow-skill-catalog.ts";
 import type { FlowSkillCatalogService } from "./flow-skill-catalog.ts";
 import {
@@ -88,11 +87,10 @@ export const defaultGlobalCatalogRoot = (): string => {
   const configured = process.env.CONTINGENCY_GLOBAL_CATALOG_ROOT?.trim();
   return configured
     ? path.resolve(configured)
-    : path.join(os.homedir(), CATALOG_DIRECTORY);
+    : path.join(os.homedir(), GLOBAL_CATALOG_DIRECTORY);
 };
 
 const SUMMARY_FILE = "summary.json";
-const VERIFICATION_FILE = "references/verification.md";
 const MANIFEST_FILE = "manifest.json";
 const DRY_RUN_DIRECTORY = "dry-run";
 /** Enough to keep a large catalog responsive without exhausting descriptors. */
@@ -149,7 +147,7 @@ export const catalogRecordingEntry = (
   recordingId: manifest.recordingId,
 });
 
-/** A list entry from a skill's SKILL.md and the files beside it. */
+/** A list entry from a skill's flow.md and the files beside it. */
 export const catalogFlowSkillEntry = (
   name: FlowSkillName,
   skillContent: string,
@@ -169,8 +167,6 @@ export const catalogFlowSkillEntry = (
   }
   return entry;
 };
-
-const isFlowSkillName = Schema.is(FlowSkillName);
 
 type Read<A> =
   | { readonly _tag: "absent" }
@@ -227,55 +223,17 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
       );
     }).pipe(Effect.orElseSucceed(documentReadFailure));
 
-  /**
-   * A listing reads only what a list entry shows: SKILL.md, and the
-   * verification stamp in `references/verification.md`. The rest of the
-   * package is read when the user opens the skill.
-   */
-  const listEntry = Effect.fnUntraced(function* readListEntry(
-    root: string,
-    name: FlowSkillName
-  ) {
-    const directory = path.join(root, name);
-    const skillFile = path.join(directory, SKILL_FILE);
-    // A directory without SKILL.md is somebody else's, not a broken Flow
-    // Skill, which is also how the catalog itself lists them.
-    if (!(yield* exists(skillFile))) {
-      return [];
-    }
-    const content = yield* fileSystem
-      .readFileString(skillFile)
-      .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
-    const verificationFile = path.join(directory, VERIFICATION_FILE);
-    // An unreadable stamp leaves this one skill unverified; it must not
-    // hide the rest of the catalog.
-    const verification = yield* Effect.gen(function* readVerification() {
-      if (!(yield* fileSystem.exists(verificationFile))) {
-        return [];
-      }
-      const target = yield* fileSystem.realPath(verificationFile);
-      const packageDirectory = yield* fileSystem.realPath(directory);
-      if (!isInside(packageDirectory, target)) {
-        return [];
-      }
-      const stamp = yield* fileSystem.readFileString(verificationFile);
-      return [{ content: stamp, path: VERIFICATION_FILE }];
-    }).pipe(Effect.orElseSucceed(() => []));
-    return [catalogFlowSkillEntry(name, content, verification)];
-  });
-
   const flowSkills = Effect.fnUntraced(function* listFlowSkills(root: string) {
-    const names = (yield* directoryNames(root))
-      .flatMap((name) =>
-        isFlowSkillDirectory(name) && isFlowSkillName(name) ? [name] : []
-      )
-      .toSorted();
-    const entries = yield* Effect.forEach(
-      names,
-      (name) => listEntry(root, name),
-      { concurrency: READ_CONCURRENCY }
+    const flows = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.mapError((cause) => browserError("catalog_io", cause.message))
     );
-    return entries.flat();
+    return [...flows]
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([name, flow]) =>
+        catalogFlowSkillEntry(FlowSkillName.make(name), flow.content, [
+          { content: flow.content, path: SKILL_FILE },
+        ])
+      );
   });
 
   const summaries = (files: readonly string[]) =>

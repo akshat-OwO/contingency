@@ -17,6 +17,7 @@ import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeBrowserModifications } from "../../src/services/browser-modifications.ts";
 import { CreateBrowser } from "../../src/services/create-browser-contract.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { stampFlowVerification } from "../../src/services/flow-skill-package.ts";
 import {
   agentProcessLayer,
   agentViewport,
@@ -585,12 +586,22 @@ it.live(
           recursive: true,
         });
         yield* fs.writeFileString(
-          `${root}/${name}/SKILL.md`,
+          `${root}/${name}/flow.md`,
           `---\nname: ${name}\ndescription: Inspect the browser.\nhosts:\n  - 127.0.0.1\nemulation:\n  viewport: 1280x720@1\ninputs:\n  - name: PASSWORD\n---\n\n1. Inspect the browser. Done when: The page is visible.\n`
         );
         yield* fs.writeFileString(
-          `${root}/${name}/references/verification.md`,
-          "- Verified: 2026-10-01T00:00:00.000Z\n"
+          `${root}/${name}/flow.md`,
+          stampFlowVerification(
+            yield* fs.readFileString(`${root}/${name}/flow.md`),
+            {
+              completedAt: "2026-10-02",
+              inputs: [],
+              observableOutcome: "Ready",
+              outcome: "passed",
+              platform: "web",
+              verifiedAt: "2026-10-02",
+            }
+          )
         );
       }
       yield* Effect.gen(function* compose() {

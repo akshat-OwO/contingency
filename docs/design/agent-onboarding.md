@@ -12,7 +12,7 @@ Onboarding ends when the user teaches a variation of a bundled example, the agen
 
 The initial launch supplies session-only MCP configuration. After the first Flow Skill is verified, the agent asks whether the user wants permanent registration for ordinary agent sessions. Users may choose the current project or all projects.
 
-The command uses the user's current directory. Its Catalog Root is that directory's `.contingency` folder, and the command shows the resolved path before launching the agent.
+The command uses the user's current directory. Its Catalog Root is that directory's `contingency` folder, and the command shows the resolved path before launching the agent.
 
 New users see bundled examples that show what Contingency can do before they need to invent a journey on their own website. The examples provide concrete tasks and observable outcomes so users can connect those capabilities to their own work. This replaces the earlier requirement to begin on the user's website.
 
@@ -38,7 +38,7 @@ If recording evidence shows that a failed Dry Run followed incorrect Flow Skill 
 
 Permanent registration checks any existing entry. It keeps an equivalent registration and asks before replacing a different one.
 
-For registration across projects, later sessions use their current project's Catalog Root. A new project without `.contingency` gets its own catalog. A session falls back to the original onboarding directory only when no usable current project directory is available. The agent names that directory before using it. See [ADR 0049](../adr/0049-permanent-mcp-registration-keeps-project-local-catalogs.md).
+For registration across projects, later sessions use their current project's Catalog Root. A new project without `contingency` gets its own catalog. A session falls back to the original onboarding directory only when no usable current project directory is available. The agent names that directory before using it. See [ADR 0049](../adr/0049-permanent-mcp-registration-keeps-project-local-catalogs.md).
 
 ## Launch configuration
 
@@ -56,7 +56,7 @@ Claude rejects an existing server name in the same scope. Codex 0.160.0 replaces
 
 The [MCP command](../../packages/cli/src/cmds/mcp.ts) owns the Workspace and serves stdio and HTTP from one process. Non-terminal stdin automatically receives an available Workspace port, including headless HTTP launches; terminal stdin defaults to 7777. Headless HTTP callers needing a fixed endpoint must explicitly set `CONTINGENCY_MCP_PORT`, which overrides either default. If an explicitly selected port is occupied, a spawned stdio process keeps its tools available but cannot serve its Workspace.
 
-The [Catalog Root](../../packages/cli/src/services/flow-skill-catalog.ts) defaults to `.contingency` under the process's current directory. The launch directory determines where Flow Skills and local evidence live.
+The [Catalog Root](../../packages/cli/src/services/flow-skill-catalog.ts) defaults to `contingency` under the process's current directory. The launch directory determines where Flow Skills and local evidence live.
 
 The server already supplies [authoring resources and the learning prompt](../../packages/cli/src/services/mcp-authoring-resources.ts). These include the combined writing reference and `learn-flow`. The starter prompt can introduce the task and refer to the learning procedure without maintaining another copy of it.
 
@@ -72,7 +72,7 @@ Registration uses a Contingency-owned command that checks the requested scope, e
 
 Directory discovery identifies the selected agent explicitly. For Claude, the MCP child reads the documented `CLAUDE_PROJECT_DIR` environment variable. For Codex, registration leaves `cwd` unset so the child inherits the current MCP runtime directory. The Codex CLI workspace mapping needs end-to-end verification; this research does not establish desktop or shared-daemon behavior. An inherited Claude variable must not redirect a Codex registration. See [Claude's stdio environment](https://code.claude.com/docs/en/mcp#option-3-add-a-local-stdio-server) and the [Codex subprocess launcher](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/rmcp-client/src/stdio_server_launcher.rs).
 
-Directory discovery and catalog access are separate operations. Missing `.contingency` initializes a catalog in the selected directory. A permission failure reports an error there; it does not silently switch to the fallback.
+Directory discovery and catalog access are separate operations. Missing `contingency` initializes a catalog in the selected directory. A permission failure reports an error there; it does not silently switch to the fallback.
 
 The learning procedure must be readable by both agents without requiring a user to invoke an MCP prompt manually. If a client cannot retrieve `learn-flow`, expose the same text through an MCP resource or focused read-only tool. Keep one authoritative procedure behind those access methods.
 

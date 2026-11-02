@@ -6,8 +6,10 @@ import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
   stampFlowSkillProvenance,
+  stampFlowVerification,
   validateFlowSkillPackage,
 } from "../../src/services/flow-skill-package.ts";
+import { browserRequirements } from "../../src/services/platform-requirements.ts";
 
 const FLOW_SKILL_NAME = "set-delivery-area";
 
@@ -52,17 +54,17 @@ the same name elsewhere on the page.
 `;
 
 export const goldenFlowSkillFiles = (): readonly FlowSkillFile[] => [
-  { content: GOLDEN_SKILL, path: "SKILL.md" },
+  { content: GOLDEN_SKILL, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
 ];
 
 const withSkill = (content: string): readonly FlowSkillFile[] => [
-  { content, path: "SKILL.md" },
+  { content, path: "flow.md" },
   { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
 ];
 
 const withAccessibility = (content: string): readonly FlowSkillFile[] => [
-  { content: GOLDEN_SKILL, path: "SKILL.md" },
+  { content: GOLDEN_SKILL, path: "flow.md" },
   { content, path: "references/accessibility.md" },
 ];
 
@@ -95,7 +97,7 @@ test("accepts a parameterized package and returns the submitted bytes unchanged"
   }
 });
 
-test("refuses a package with no SKILL.md", () => {
+test("refuses a package with no flow.md", () => {
   expect(
     codesFor([
       { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
@@ -103,11 +105,11 @@ test("refuses a package with no SKILL.md", () => {
   ).toEqual(["flow_skill_missing_skill_file"]);
 });
 
-test("refuses SKILL.md without frontmatter", () => {
+test("refuses flow.md without frontmatter", () => {
   const files = withSkill(GOLDEN_SKILL.slice(GOLDEN_SKILL.indexOf("\n# ")));
   expect(codesFor(files)).toContain("flow_skill_missing_frontmatter");
   expect(pathFor(files, "flow_skill_missing_frontmatter")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
   ]);
 });
@@ -118,7 +120,7 @@ test("refuses a frontmatter name that is not the Flow Skill directory", () => {
   );
   expect(codesFor(files)).toContain("flow_skill_name_mismatch");
   expect(pathFor(files, "flow_skill_name_mismatch")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
     "name",
   ]);
@@ -130,7 +132,7 @@ test("refuses a package with no description to trigger on", () => {
   );
   expect(codesFor(files)).toContain("flow_skill_missing_description");
   expect(pathFor(files, "flow_skill_missing_description")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
     "description",
   ]);
@@ -140,7 +142,7 @@ test("refuses a placeholder that no declared input covers", () => {
   const files = withSkill(GOLDEN_SKILL.replace("  - delivery_area\n", ""));
   expect(codesFor(files)).toContain("flow_skill_undeclared_input");
   expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
     "inputs",
     "delivery_area",
@@ -168,14 +170,14 @@ test("refuses an undeclared placeholder that only the description uses", () => {
   );
   expect(codesFor(files)).toContain("flow_skill_undeclared_input");
   expect(pathFor(files, "flow_skill_undeclared_input")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
     "inputs",
     "region",
   ]);
 });
 
-test("refuses a SKILL.md that carries no numbered procedure", () => {
+test("refuses a flow.md that carries no numbered procedure", () => {
   const files = withSkill(
     `${GOLDEN_SKILL.slice(0, GOLDEN_SKILL.indexOf("1. "))}Open the delivery chooser and confirm the area.\n`
   );
@@ -191,7 +193,7 @@ test("refuses a step with no completion condition", () => {
   );
   expect(codesFor(files)).toContain("flow_skill_missing_completion_condition");
   expect(pathFor(files, "flow_skill_missing_completion_condition")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "steps",
     "2",
   ]);
@@ -255,13 +257,13 @@ test("refuses a link to a reference file the package does not carry", () => {
         "references/accessibility.md",
         "references/targets.md"
       ),
-      path: "SKILL.md",
+      path: "flow.md",
     },
     { content: GOLDEN_ACCESSIBILITY, path: "references/accessibility.md" },
   ];
   expect(codesFor(files)).toContain("flow_skill_missing_reference");
   expect(pathFor(files, "flow_skill_missing_reference")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "references/targets.md",
   ]);
 });
@@ -497,8 +499,48 @@ test("refuses Source Document frontmatter in a learned Flow Skill", () => {
   );
   expect(codesFor(files)).toContain("flow_skill_source_forbidden");
   expect(pathFor(files, "flow_skill_source_forbidden")).toEqual([
-    "SKILL.md",
+    "flow.md",
     "frontmatter",
     "source",
   ]);
+});
+
+test("round-trips every Contingency stamp in flow.md and clears verification on save", () => {
+  const stamped = stampFlowSkillProvenance(GOLDEN_SKILL, {
+    emulation: {
+      colorScheme: "dark",
+      geolocation: undefined,
+      locale: "en-US",
+      permissions: [],
+      timezone: "UTC",
+      userAgentProfile: "default",
+      viewport: { deviceScaleFactor: 2, height: 844, width: 390 },
+    },
+    hosts: ["shop.example.com"],
+    runtime: browserRequirements,
+  });
+  const verification = {
+    completedAt: "2026-11-02",
+    inputs: [{ changed: true, name: "city" }],
+    observableOutcome: "Delivery confirmed",
+    origin: "workspace" as const,
+    outcome: "passed" as const,
+    platform: "web" as const,
+    verifiedAt: "2026-11-02",
+  };
+  const content = stampFlowVerification(stamped, verification);
+  const read = readFlowSkillFrontmatter(content);
+  expect(read?.verification).toEqual(verification);
+  expect(read?.hosts).toEqual(["shop.example.com"]);
+  expect(read?.emulation?.viewport).toEqual({
+    deviceScaleFactor: 2,
+    height: 844,
+    width: 390,
+  });
+  expect(read?.runtime.requirements.platform).toBe("web");
+  expect(
+    readFlowSkillFrontmatter(
+      stampFlowSkillProvenance(content, { emulation: null, hosts: [] })
+    )?.verification
+  ).toBeUndefined();
 });

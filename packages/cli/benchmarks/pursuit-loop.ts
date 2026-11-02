@@ -123,7 +123,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
           import.meta.dirname,
           "../examples",
           scenario.skill.example,
-          "SKILL.md"
+          "flow.md"
         )
       );
       const started = yield* exampleTool("agent_example_run_start", {
@@ -141,7 +141,7 @@ const startScenario = (scenario: Scenario, tag: string, root: string) =>
       };
     }
     const skill = yield* fs.readFileString(
-      path.join(scenario.skill.directory, "SKILL.md")
+      path.join(scenario.skill.directory, "flow.md")
     );
     const name = readFlowSkillFrontmatter(skill)?.name;
     if (name === undefined) {

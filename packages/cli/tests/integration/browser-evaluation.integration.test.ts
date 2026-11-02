@@ -413,14 +413,14 @@ it.live(
             {
               content:
                 "---\nname: eval-guided\ndescription: Check confirmed evaluation on the fixture.\ninputs:\n---\n\n1. Evaluate the recorded scripts. Done when: the fixture count is two.\n",
-              path: "SKILL.md",
+              path: "flow.md",
             },
           ],
           operationId: OperationId.make("save-guided-eval"),
           recordingId: guided.recordingId,
         });
         const saved = yield* fs.readFileString(
-          `${root}/eval-guided/references/browser-state.json`
+          `${root}/eval-guided/browser-state.json`
         );
         expect(saved).toContain("guided-setup");
         expect(saved).toContain("guided-capture");

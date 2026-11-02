@@ -95,27 +95,27 @@ it.effect(
     })
 );
 
-it.effect(
-  "verification is platform-specific and old verification belongs to web",
-  () =>
-    Effect.sync(() => {
-      const files = [
-        {
-          content: "- Verified: 2026-10-12\n",
-          path: "references/verification.md",
-        },
-      ];
-      expect(isVerifiedFlowSkill(files, "web")).toBe(true);
-      expect(isVerifiedFlowSkill(files, "android")).toBe(false);
-      const android = [
-        {
-          content: "- Verified: 2026-10-12\n- Platform: android\n",
-          path: "references/verification.md",
-        },
-      ];
-      expect(isVerifiedFlowSkill(android, "android")).toBe(true);
-      expect(isVerifiedFlowSkill(android, "web")).toBe(false);
-    })
+it.effect("verification is platform-specific", () =>
+  Effect.sync(() => {
+    const files = [
+      {
+        content:
+          '---\nverification: {"completedAt":"now","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"now","platform":"web"}\n---\n',
+        path: "flow.md",
+      },
+    ];
+    expect(isVerifiedFlowSkill(files, "web")).toBe(true);
+    expect(isVerifiedFlowSkill(files, "android")).toBe(false);
+    const android = [
+      {
+        content:
+          '---\nverification: {"completedAt":"now","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"now","platform":"android"}\n---\n',
+        path: "flow.md",
+      },
+    ];
+    expect(isVerifiedFlowSkill(android, "android")).toBe(true);
+    expect(isVerifiedFlowSkill(android, "web")).toBe(false);
+  })
 );
 
 it.effect("persists declared Android preparation in saved requirements", () =>

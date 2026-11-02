@@ -57,7 +57,7 @@ it.effect(
           {
             content:
               "---\nname: test\ndescription: Test\ninputs:\n---\n\n1. Open the fixture. Done when: fixture is visible.",
-            path: "SKILL.md",
+            path: "flow.md",
           },
           {
             content: '{"count":1}',
@@ -69,7 +69,7 @@ it.effect(
       expect(files[1]?.content).toBe('{"count":1}');
       const rejected = yield* Effect.flip(
         stampBrowserState(
-          [{ content: "---\ninputs:\n---\ncookie-literal", path: "SKILL.md" }],
+          [{ content: "---\ninputs:\n---\ncookie-literal", path: "flow.md" }],
           events
         )
       );
@@ -158,10 +158,10 @@ it.effect(
       const skill =
         "---\nname: test\ndescription: Test\ninputs:\n  - name: ACCOUNT_TOKEN\n    description: Account token\n---\n\n1. Sign in with {{ACCOUNT_TOKEN}}. Done when: the account page is visible.";
       const files = yield* stampBrowserState(
-        [{ content: skill, path: "SKILL.md" }],
+        [{ content: skill, path: "flow.md" }],
         events
       );
-      const stamped = files.find((file) => file.path === "SKILL.md")?.content;
+      const stamped = files.find((file) => file.path === "flow.md")?.content;
       expect(stamped?.startsWith(skill)).toBe(true);
       const state = yield* readBrowserState(files);
       expect(state[0]?.command).toMatchObject({

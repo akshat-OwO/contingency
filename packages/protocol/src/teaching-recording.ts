@@ -111,7 +111,6 @@ const SkillDrafted = Schema.TaggedStruct("skill-drafted", {
   claim: Schema.optional(TeachingLearningClaim),
   draftedAt: nonEmptyString,
   readyAt: nonEmptyString,
-  skillPath: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
@@ -128,7 +127,6 @@ const DryRunning = Schema.TaggedStruct("dry-running", {
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
-  skillPath: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
@@ -155,7 +153,6 @@ const DryRunFailed = Schema.TaggedStruct("dry-run-failed", {
   dryRunStartedAt: nonEmptyString,
   dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
   readyAt: nonEmptyString,
-  skillPath: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
@@ -168,7 +165,6 @@ const DryRunPassed = Schema.TaggedStruct("dry-run-passed", {
   dryRunStartedAt: nonEmptyString,
   dryRunSummary: Schema.optional(Schema.suspend(() => AgentRunSummary)),
   readyAt: nonEmptyString,
-  skillPath: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
 });
@@ -179,7 +175,6 @@ const Verified = Schema.TaggedStruct("verified", {
   dryRunSessionId: AgentSessionId,
   dryRunStartedAt: nonEmptyString,
   readyAt: nonEmptyString,
-  skillPath: nonEmptyString,
   startedAt: nonEmptyString,
   stoppedAt: nonEmptyString,
   verifiedAt: nonEmptyString,

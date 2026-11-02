@@ -46,7 +46,6 @@ const verifiedLifecycle = Schema.decodeUnknownSync(TeachingCaptureState)({
   dryRunSessionId: "agent-dry-test",
   dryRunStartedAt: at,
   readyAt: at,
-  skillPath: "cart/SKILL.md",
   startedAt: at,
   stoppedAt: at,
   verifiedAt: at,
@@ -477,7 +476,6 @@ it.effect(
             _tag: "skill-drafted",
             draftedAt: at,
             readyAt: at,
-            skillPath: "cart/SKILL.md",
             startedAt: at,
             stoppedAt: at,
           }

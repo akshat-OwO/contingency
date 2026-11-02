@@ -110,7 +110,6 @@ test("a Dry Run task summary stays owned by its Teaching Recording", () => {
     dryRunStartedAt: taskRunSummary.startedAt,
     dryRunSummary: summary,
     readyAt: taskRunSummary.startedAt,
-    skillPath: "browse-catalogue",
     startedAt: taskRunSummary.startedAt,
     stoppedAt: taskRunSummary.startedAt,
   });

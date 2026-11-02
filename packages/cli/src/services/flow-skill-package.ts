@@ -3,7 +3,7 @@ import type {
   FlowSkillFile,
   PlatformRequirements,
 } from "@contingency/protocol";
-import { Result } from "effect";
+import { Option, Result, Schema } from "effect";
 
 import {
   parseBrowserChecks,
@@ -27,7 +27,7 @@ import { parseScanRequirements, SCANS_FILE } from "./scan-requirements.ts";
  * user's machine, so the same package is accepted or refused everywhere.
  */
 
-export const SKILL_FILE = "SKILL.md";
+export const SKILL_FILE = "flow.md";
 export const ACCESSIBILITY_FILE = "references/accessibility.md";
 
 /** The marker that ends one procedure step with a checkable outcome. */
@@ -42,7 +42,32 @@ const diagnostic = (
   path: readonly string[]
 ): FlowSkillDiagnostic => ({ code, message, path: [...path] });
 
+/** Durable Dry Run evidence contains input names, never their values. */
+const verificationSchema = Schema.Struct({
+  completedAt: Schema.String,
+  inputs: Schema.Array(
+    Schema.Struct({ changed: Schema.Boolean, name: Schema.String })
+  ),
+  observableOutcome: Schema.String,
+  origin: Schema.optional(Schema.Literals(["agent", "workspace"])),
+  outcome: Schema.Literals(["passed", "failed"]),
+  platform: Schema.optional(Schema.Literals(["web", "android", "ios"])),
+  verifiedAt: Schema.optional(Schema.String),
+});
+export type FlowVerification = typeof verificationSchema.Type;
+const readVerification = (
+  value: string | undefined
+): FlowVerification | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  return Option.getOrUndefined(
+    Schema.decodeUnknownOption(Schema.fromJsonString(verificationSchema))(value)
+  );
+};
+
 export interface FlowSkillFrontmatter {
+  readonly verification: FlowVerification | undefined;
   readonly runtime: SavedPlatformRequirements;
   /** Everything after the closing delimiter, where the procedure lives. */
   readonly body: string;
@@ -476,11 +501,12 @@ export const readFlowSkillFrontmatter = (
     malformedInputs,
     name: scalars.name,
     runtime: readPlatformRequirements(runtimeValues),
+    verification: readVerification(scalars.verification),
   };
 };
 
 /**
- * Replace the `hosts`, `emulation`, and `runtime` keys of a SKILL.md's frontmatter with
+ * Replace the `hosts`, `emulation`, and `runtime` keys of a flow.md's frontmatter with
  * what the Teaching Recording actually observed.
  *
  * Contingency stamps these rather than trusting the agent to author them: a
@@ -489,7 +515,7 @@ export const readFlowSkillFrontmatter = (
  * and the recording is deleted once the user verifies, so the package is the
  * only place left to keep them.
  */
-const STAMPED_KEYS = new Set(["emulation", "hosts", "runtime"]);
+const STAMPED_KEYS = new Set(["emulation", "hosts", "runtime", "verification"]);
 
 /** The frontmatter lines that are not part of a key Contingency owns. */
 const withoutStampedKeys = (block: string): string[] => {
@@ -601,6 +627,29 @@ export const stampFlowSkillProvenance = (
         ]),
   ].join("\n");
   return `---\n${stamped}\n---\n${content.slice(matched.length)}`;
+};
+
+export const stampFlowVerification = (
+  content: string,
+  verification: FlowVerification
+): string => {
+  const match = FRONTMATTER.exec(content);
+  if (match === null) {
+    return content;
+  }
+  const lines = (match.groups?.block ?? "").split(/\r?\n/u);
+  const kept: string[] = [];
+  let dropping = false;
+  for (const raw of lines) {
+    const line = readFrontmatterLine(raw);
+    if (line.key !== undefined && !line.indented) {
+      dropping = line.key === "verification";
+    }
+    if (!dropping) {
+      kept.push(raw);
+    }
+  }
+  return `---\n${kept.join("\n")}\nverification: ${JSON.stringify(verification)}\n---\n${content.slice(match[0].length)}`;
 };
 
 const PLACEHOLDER = /\{\{\s*(?<input>[A-Za-z][\w-]*)\s*\}\}/gu;
@@ -716,7 +765,7 @@ const checkResidue = (
     );
   }
   const literalContent =
-    file.path === "SKILL.md"
+    file.path === "flow.md"
       ? withoutLegacySecretDeclarations(file.content)
       : file.content;
   SECRET_LITERAL.lastIndex = 0;
@@ -818,7 +867,7 @@ const checkDeclaredInputs = (
       report(
         diagnostic(
           "flow_skill_undeclared_input",
-          `${file.path} uses {{${input}}} but SKILL.md does not declare ${input} under inputs.`,
+          `${file.path} uses {{${input}}} but flow.md does not declare ${input} under inputs.`,
           file.path === SKILL_FILE
             ? [SKILL_FILE, "frontmatter", "inputs", input]
             : [file.path, "inputs", input]
@@ -927,7 +976,7 @@ export const validateFlowSkillPackage = (
     return Result.fail([
       diagnostic(
         "flow_skill_missing_skill_file",
-        "A Flow Skill package must contain SKILL.md.",
+        "A Flow Skill package must contain flow.md.",
         [SKILL_FILE]
       ),
     ]);
@@ -940,7 +989,7 @@ export const validateFlowSkillPackage = (
     report(
       diagnostic(
         "flow_skill_missing_frontmatter",
-        "SKILL.md must open with a YAML frontmatter block carrying name, description, and inputs.",
+        "flow.md must open with a YAML frontmatter block carrying name, description, and inputs.",
         [SKILL_FILE, "frontmatter"]
       )
     );
@@ -958,7 +1007,7 @@ export const validateFlowSkillPackage = (
       report(
         diagnostic(
           "flow_skill_name_mismatch",
-          `SKILL.md declares name "${frontmatter.name ?? ""}" but the package is saved as "${flowSkillName}".`,
+          `flow.md declares name "${frontmatter.name ?? ""}" but the package is saved as "${flowSkillName}".`,
           [SKILL_FILE, "frontmatter", "name"]
         )
       );
@@ -967,7 +1016,7 @@ export const validateFlowSkillPackage = (
       report(
         diagnostic(
           "flow_skill_missing_description",
-          "SKILL.md must declare a description that states the task and when to run it.",
+          "flow.md must declare a description that states the task and when to run it.",
           [SKILL_FILE, "frontmatter", "description"]
         )
       );
@@ -976,7 +1025,7 @@ export const validateFlowSkillPackage = (
       report(
         diagnostic(
           "flow_skill_invalid_input",
-          `SKILL.md declares the input entry \`- ${entry}\` in a shape Contingency cannot read. Each entry under inputs is either a bare name (\`- sku\`) or a mapping opening with \`- name: sku\` and an optional indented \`description:\` line.`,
+          `flow.md declares the input entry \`- ${entry}\` in a shape Contingency cannot read. Each entry under inputs is either a bare name (\`- sku\`) or a mapping opening with \`- name: sku\` and an optional indented \`description:\` line.`,
           [SKILL_FILE, "frontmatter", "inputs", entry]
         )
       );
@@ -987,7 +1036,7 @@ export const validateFlowSkillPackage = (
       report(
         diagnostic(
           "flow_skill_missing_steps",
-          "SKILL.md must carry a numbered procedure. A how-to without ordered work cannot be followed.",
+          "flow.md must carry a numbered procedure. A how-to without ordered work cannot be followed.",
           [SKILL_FILE, "steps"]
         )
       );
@@ -997,7 +1046,7 @@ export const validateFlowSkillPackage = (
         report(
           diagnostic(
             "flow_skill_missing_completion_condition",
-            `Step ${step.label} of SKILL.md must carry a "${COMPLETION_MARKER} <observable outcome>" line so a later run can tell it finished.`,
+            `Step ${step.label} of flow.md must carry a "${COMPLETION_MARKER} <observable outcome>" line so a later run can tell it finished.`,
             [SKILL_FILE, "steps", step.label]
           )
         );
@@ -1048,7 +1097,7 @@ const completionOf = (block: string): string => {
 };
 
 /**
- * The ordered steps a Run follows, read from the saved `SKILL.md`. The Flow
+ * The ordered steps a Run follows, read from the saved `flow.md`. The Flow
  * Skill is the single reusable format (ADR 0039), so a Run derives its Agent
  * Steps from the same numbered procedure a person reads. Validation already
  * refused a package whose steps lack a completion condition, so a saved

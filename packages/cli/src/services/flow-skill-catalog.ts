@@ -14,6 +14,10 @@ import type { Mutable } from "effect/Types";
 
 import { DEMO_SITE_ID, isDemoHosts } from "./demo-site.ts";
 import {
+  discoverFlows,
+  maintainCatalogGitignore,
+} from "./flow-catalog-layout.ts";
+import {
   flowSkillProcedureSteps,
   readFlowSkillFrontmatter,
   SKILL_FILE,
@@ -30,7 +34,7 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 /**
  * The Catalog Root and the Flow Skill packages inside it.
  *
- * A Flow Skill is a directory of markdown: `SKILL.md` plus optional
+ * A Flow Skill is a directory of markdown: `flow.md` plus optional
  * `references/`. There are no revisions, no heads, and no evidence packages
  * beside it, because the Flow Skill is the single reusable format
  * ([ADR 0039](../../../../docs/adr/0039-flow-skills-are-learned-from-temporary-teaching-recordings.md)).
@@ -40,9 +44,10 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
  */
 
 /** The directory a project's Catalog Root lives in. */
-export const CATALOG_DIRECTORY = ".contingency";
+export const CATALOG_DIRECTORY = "contingency";
+export const GLOBAL_CATALOG_DIRECTORY = ".contingency";
 
-/** The workspace's `.contingency` directory unless the environment names one. */
+/** The workspace's `contingency` directory unless the environment names one. */
 export const defaultCatalogRoot = (cwd: string = process.cwd()): string => {
   const configured = process.env.CONTINGENCY_CATALOG_ROOT?.trim();
   return configured
@@ -86,7 +91,7 @@ export interface FlowSkillCatalogService {
   readonly info: () => Effect.Effect<AgentCatalogInfo, FlowSkillCatalogError>;
   readonly list: () => Effect.Effect<FlowSkillList, FlowSkillCatalogError>;
   /**
-   * Read one saved package, or refuse when the directory holds no SKILL.md.
+   * Read one saved package, or refuse when the directory holds no flow.md.
    * `root` names a Catalog Root other than the selected one, such as the root
    * that holds the Teaching Recording a package was learned from.
    */
@@ -139,7 +144,11 @@ export const isInside = (directory: string, target: string): boolean => {
 
 /** Whether a Catalog Root entry could be a Flow Skill directory. */
 export const isFlowSkillDirectory = (name: string): boolean =>
-  !(name.startsWith(".") || RESERVED.has(name));
+  !(
+    name.startsWith(".") ||
+    RESERVED.has(name) ||
+    ["runs", "recordings", "flow.md"].includes(name)
+  );
 
 const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   options: FlowSkillCatalogOptions
@@ -154,23 +163,23 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
     root: string,
     name: string
   ) {
-    const directory = path.join(root, name);
-    const skillFile = path.join(directory, SKILL_FILE);
-    const present = yield* fileSystem
-      .exists(skillFile)
-      .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
-    if (!present) {
+    const flows = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "FlowSkillCatalogError"
+          ? cause
+          : ioError(`Could not read ${root}`)(cause)
+      )
+    );
+    const flow = flows.get(name);
+    if (flow === undefined) {
       return yield* Effect.fail(
         catalogError(
           "flow_skill_not_found",
-          `${directory} holds no ${SKILL_FILE}, so it is not a Flow Skill.`
+          `${root} holds no Flow named "${name}".`
         )
       );
     }
-    const content = yield* fileSystem
-      .readFileString(skillFile)
-      .pipe(Effect.mapError(ioError(`Could not read ${skillFile}`)));
-    return { content, directory };
+    return flow;
   });
 
   /**
@@ -232,6 +241,33 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   ) {
     const skill = yield* readSkillFile(root, name);
     const references = yield* readReferences(skill.directory);
+    for (const contractName of [
+      "checks.json",
+      "scans.json",
+      "browser-state.json",
+    ]) {
+      const file = path.join(skill.directory, contractName);
+      if (
+        yield* fileSystem
+          .exists(file)
+          .pipe(Effect.mapError(ioError(`Could not inspect ${file}`)))
+      ) {
+        const target = yield* fileSystem
+          .realPath(file)
+          .pipe(Effect.mapError(ioError(`Could not read ${file}`)));
+        const real = yield* fileSystem
+          .realPath(skill.directory)
+          .pipe(Effect.mapError(ioError(`Could not read ${skill.directory}`)));
+        if (isInside(real, target)) {
+          references.push({
+            content: yield* fileSystem
+              .readFileString(file)
+              .pipe(Effect.mapError(ioError(`Could not read ${file}`))),
+            path: contractName,
+          });
+        }
+      }
+    }
     const frontmatter = readFlowSkillFrontmatter(skill.content);
     return {
       directory: skill.directory,
@@ -252,25 +288,18 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
   const entries = Effect.fnUntraced(function* readFlowSkillEntries(
     root: string
   ) {
-    const present = yield* fileSystem
-      .exists(root)
-      .pipe(Effect.mapError(ioError(`Could not read ${root}`)));
-    if (!present) {
-      return [];
-    }
-    const names = yield* fileSystem
-      .readDirectory(root)
-      .pipe(Effect.mapError(ioError(`Could not read ${root}`)));
+    const flows = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "FlowSkillCatalogError"
+          ? cause
+          : ioError(`Could not read ${root}`)(cause)
+      )
+    );
     const found: FlowSkillListEntry[] = [];
-    for (const name of names.filter(isFlowSkillDirectory).toSorted()) {
-      // A directory without a SKILL.md is somebody else's, not a broken Flow
-      // Skill, so it is skipped rather than reported.
-      // A listing needs only SKILL.md, so references are not read here.
-      const read = yield* Effect.result(readSkillFile(root, name));
-      if (read._tag === "Failure") {
-        continue;
-      }
-      const frontmatter = readFlowSkillFrontmatter(read.success.content);
+    for (const [name, flow] of [...flows].toSorted(([a], [b]) =>
+      a.localeCompare(b)
+    )) {
+      const frontmatter = readFlowSkillFrontmatter(flow.content);
       const entry: Mutable<FlowSkillListEntry> = {
         description: frontmatter?.description ?? name,
         inputs: (frontmatter?.inputs ?? []).map(
@@ -280,7 +309,7 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
               : { description, name: inputName }
         ),
         name,
-        stepCount: flowSkillProcedureSteps(read.success.content).length,
+        stepCount: flowSkillProcedureSteps(flow.content).length,
       };
       if (isDemoHosts(frontmatter?.hosts ?? [])) {
         entry.demo = DEMO_SITE_ID;
@@ -343,6 +372,9 @@ const makeCatalog = Effect.fnUntraced(function* makeFlowSkillCatalog(
       yield* fileSystem
         .makeDirectory(resolved, { recursive: true })
         .pipe(Effect.mapError(ioError(`Could not create ${resolved}`)));
+      yield* maintainCatalogGitignore(resolved, fileSystem).pipe(
+        Effect.mapError(ioError(`Could not maintain ${resolved}/.gitignore`))
+      );
       selected = resolved;
       options.onSelect?.(resolved);
       return {

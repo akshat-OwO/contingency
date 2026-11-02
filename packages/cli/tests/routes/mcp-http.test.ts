@@ -35,7 +35,7 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
   if (skillContent !== undefined) {
     yield* fileSystem.makeDirectory(`${catalogRoot}/input-forms`);
     yield* fileSystem.writeFileString(
-      `${catalogRoot}/input-forms/SKILL.md`,
+      `${catalogRoot}/input-forms/flow.md`,
       skillContent
     );
   }

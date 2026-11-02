@@ -11,7 +11,7 @@ import { Effect, Schema } from "effect";
 
 import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 
-export const BROWSER_STATE_FILE = "references/browser-state.json";
+export const BROWSER_STATE_FILE = "browser-state.json";
 const VARIABLE_SLOT = /^\{\{[A-Za-z_][A-Za-z0-9_]*\}\}$/u;
 const requiredModification = Schema.Struct({
   command: BrowserDevtoolsCommand,
@@ -129,7 +129,7 @@ export const stampBrowserState = (
     const delegation: string[] = [];
     const names = new Set(
       files.flatMap((file) =>
-        file.path === "SKILL.md"
+        file.path === "flow.md"
           ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
               (input) => input.name
             )
@@ -190,7 +190,7 @@ export const stampBrowserState = (
       ...(modifications.length === 0
         ? []
         : [
-            "Apply the [required browser state](references/browser-state.json) in order at its recorded journey outcomes. Active setup state applies at Start. Keep each modification until its recorded removal or Run end. Use fresh operation IDs; resolve removal IDs from the Dry Run's modification list. A failed application prevents a passing Dry Run.\n",
+            "Apply the [required browser state](browser-state.json) in order at its recorded journey outcomes. Active setup state applies at Start. Keep each modification until its recorded removal or Run end. Use fresh operation IDs; resolve removal IDs from the Dry Run's modification list. A failed application prevents a passing Dry Run.\n",
           ]),
       ...Array.from(
         requiredNames,
@@ -205,7 +205,7 @@ export const stampBrowserState = (
     }
     const declared = new Set(
       files.flatMap((file) =>
-        file.path === "SKILL.md"
+        file.path === "flow.md"
           ? (readFlowSkillFrontmatter(file.content)?.inputs ?? []).map(
               (input) => input.name
             )
@@ -221,7 +221,7 @@ export const stampBrowserState = (
         return file.path === BROWSER_STATE_FILE
           ? []
           : [
-              file.path === "SKILL.md"
+              file.path === "flow.md"
                 ? {
                     ...file,
                     content:

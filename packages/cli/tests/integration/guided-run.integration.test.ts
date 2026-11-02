@@ -728,14 +728,14 @@ inputs:
 
 1. Enter {{EMAIL}} in Password. Done when: Password is filled.
 `,
-              path: "SKILL.md",
+              path: "flow.md",
             },
           ],
           operationId: operation("save"),
           recordingId,
         });
         const savedSkill = yield* fs.readFileString(
-          path.join(root, "guided-email", "SKILL.md")
+          path.join(root, "guided-email", "flow.md")
         );
         expect(savedSkill).toContain("{{EMAIL}}");
         expect(savedSkill).not.toContain(secret);
@@ -945,14 +945,14 @@ inputs:
 
 1. Open the fixture on localhost. Done when: the fixture page appears.
 `,
-              path: "SKILL.md",
+              path: "flow.md",
             },
           ],
           operationId: operation("save"),
           recordingId,
         });
         const saved = yield* fs.readFileString(
-          path.join(root, "guided-hosts", "SKILL.md")
+          path.join(root, "guided-hosts", "flow.md")
         );
         expect(saved).toContain("hosts:\n  - 127.0.0.1\n  - localhost");
         expect(saved).not.toContain("unapproved.example");
@@ -1171,8 +1171,8 @@ it.live(
         const files = [
           {
             content:
-              "---\nname: guided-checks\ndescription: Inspect delivery state.\ninputs:\n---\n\n# Inspect delivery\n\nRead [scans](references/scans.json) and [Browser Checks](references/browser-checks.json).\n\n1. Select delivery. Done when: delivery is selected. Perform cart-a11y and delivery-state.\n",
-            path: "SKILL.md",
+              "---\nname: guided-checks\ndescription: Inspect delivery state.\ninputs:\n---\n\n# Inspect delivery\n\nRead [scans](scans.json) and [Browser Checks](checks.json).\n\n1. Select delivery. Done when: delivery is selected. Perform cart-a11y and delivery-state.\n",
+            path: "flow.md",
           },
           {
             content: JSON.stringify({
@@ -1181,14 +1181,14 @@ it.live(
               ],
               schemaVersion: 1,
             }),
-            path: "references/scans.json",
+            path: "scans.json",
           },
           {
             content: JSON.stringify({
               requirements: [check],
               schemaVersion: 1,
             }),
-            path: "references/browser-checks.json",
+            path: "checks.json",
           },
         ];
         yield* teachingRecordingTool("agent_flow_skill_save", {
@@ -1200,12 +1200,12 @@ it.live(
         expect(
           JSON.parse(
             yield* fs.readFileString(
-              path.join(root, "guided-checks", "references/browser-checks.json")
+              path.join(root, "guided-checks", "checks.json")
             )
           )
         ).toEqual({ requirements: [check], schemaVersion: 1 });
         const invented = files.map((file) =>
-          file.path === "references/scans.json"
+          file.path === "scans.json"
             ? {
                 ...file,
                 content: JSON.stringify({

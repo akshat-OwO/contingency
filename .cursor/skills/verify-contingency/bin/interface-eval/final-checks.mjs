@@ -147,7 +147,7 @@ const takeover = ({ snapshot, taken, finalText, mcp, timeline }) => {
 };
 const learned = async ({ catalog, mcp, finalText }) => {
   const skill = await readFile(
-    path.join(catalog, "eval-delivery/SKILL.md"),
+    path.join(catalog, "eval-delivery/flow.md"),
     "utf-8"
   ).catch(missing);
   const parameterized = Boolean(
@@ -176,16 +176,23 @@ const dryRun = async (options) => {
   const { catalog, state, verified, finalText, mcp } = options;
   const base = await learned(options);
   const reference = await readFile(
-    path.join(catalog, "eval-delivery/references/verification.md"),
+    path.join(catalog, "eval-delivery/flow.md"),
     "utf-8"
   ).catch(missing);
   const persisted = await files(path.join(catalog, "eval-delivery"));
+  const verification = JSON.parse(
+    /^verification: (?<value>.*)$/mu.exec(reference)?.groups?.value ?? "{}"
+  );
   const changedOutcome =
     JSON.stringify(state.preCompleteSnapshot).includes(
       "Delivering to South, Mumbai"
     ) &&
-    reference.includes('city (changed): "Mumbai"') &&
-    reference.includes('area (changed): "South"');
+    verification.inputs?.some(
+      (input) => input.name === "city" && input.changed
+    ) &&
+    verification.inputs?.some(
+      (input) => input.name === "area" && input.changed
+    );
   const purged = await stat(
     path.join(catalog, ".recordings", state.recordingId)
   ).then(

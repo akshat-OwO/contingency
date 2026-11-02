@@ -11,7 +11,7 @@ Read `contingency://docs/getting-started` first. Follow its guidance for session
 
 Explain that the user can watch a prepared journey, teach a variation, and verify it after a test, all on the demo store. For existing work, follow the appropriate guide; for demo work, read the examples resource for the current origin.
 
-Permanent registrations use the current project's `.contingency` catalog, created when work is first saved. When no usable current project directory exists, Contingency uses the original onboarding directory. If `agent_catalog_get` reports a `fallback`, name that directory before using the catalog.
+Permanent registrations use the current project's `contingency` catalog, created when work is first saved. When no usable current project directory exists, Contingency uses the original onboarding directory. If `agent_catalog_get` reports a `fallback`, name that directory before using the catalog.
 
 ## Show and teach
 

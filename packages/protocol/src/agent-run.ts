@@ -100,7 +100,7 @@ export const AgentRunStep = Schema.Struct({
   attempts: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   confirmation: Schema.Boolean,
   description: nonEmptyString,
-  /** The step's own "Done when:" line, copied from SKILL.md. */
+  /** The step's own "Done when:" line, copied from flow.md. */
   doneWhen: nonEmptyString,
   endedAt: Schema.NullOr(nonEmptyString),
   execution: AgentStepExecution,

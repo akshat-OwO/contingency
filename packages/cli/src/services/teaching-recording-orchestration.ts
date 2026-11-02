@@ -285,12 +285,6 @@ export const startDryRun = (input: DryRunStartInput) =>
         )
       );
     }
-    if (!("skillPath" in manifest.lifecycle)) {
-      return yield* Effect.fail(
-        conflict("The Teaching Recording has no saved Flow Skill package.")
-      );
-    }
-    const { skillPath } = manifest.lifecycle;
     // The package lives under the Catalog Root that holds the recording, which
     // may not be the root this process selected since.
     const recordingCatalogRoot = path.dirname(
@@ -572,6 +566,9 @@ export const startDryRun = (input: DryRunStartInput) =>
         flowSkillName: prerequisite.name,
       })),
       session,
-      skillPath,
+      skillPath: path.relative(
+        recordingCatalogRoot,
+        path.join(skill.directory, "flow.md")
+      ),
     } satisfies DryRunStarted;
   });

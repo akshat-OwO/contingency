@@ -392,7 +392,7 @@ const taught = Effect.gen(function* recordAndLearn() {
   expect(JSON.stringify(timeline)).toContain("Activate button Edit");
   yield* learning.save({
     claimOperationId: op("claim"),
-    files: [{ content: skill, path: "SKILL.md" }],
+    files: [{ content: skill, path: "flow.md" }],
     operationId: op("save"),
     recordingId: stopped.recordingId,
   });
@@ -719,7 +719,7 @@ it.effect(
         const recordingId = yield* taught;
         const fs = yield* FileSystem.FileSystem;
         const packageFile = yield* fs.readFileString(
-          path.join(root, "android-edit", "SKILL.md")
+          path.join(root, "android-edit", "flow.md")
         );
         expect(packageFile).toContain('"platform":"android"');
         expect(packageFile).not.toContain("emulation:");
@@ -782,7 +782,7 @@ it.effect(
           )
         ).toBe(false);
         expect(
-          yield* fs.exists(path.join(root, "android-edit", "SKILL.md"))
+          yield* fs.exists(path.join(root, "android-edit", "flow.md"))
         ).toBe(true);
         const later = yield* workspace.execute(
           {
@@ -1672,7 +1672,7 @@ it.effect(
         expect(events).toContain('"valueWithheld":null');
         const saved = yield* learning.save({
           claimOperationId: op("private-claim"),
-          files: [{ content: privateSkill, path: "SKILL.md" }],
+          files: [{ content: privateSkill, path: "flow.md" }],
           operationId: op("private-save"),
           recordingId,
         });

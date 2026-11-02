@@ -596,7 +596,7 @@ try {
   const content = `---\nname: ${flowSkillName}\ndescription: Sign in with a public login name and a password, open the account, and go back. Use when proving an Android Support Matrix cell.\ninputs:\n  - password\n---\n\n# Sign in and return\n\n1. Enter the public login name ${loginName}. Done when: the login name field shows it.\n2. Enter {{password}} in the password field. Done when: the password field stays masked.\n3. Activate Sign in privately. Done when: Signed in as ${loginName} is visible.\n4. Activate Open account. Done when: Account details is visible.\n5. Go back. Done when: Signed in privately is visible.\n`;
   await tool("agent_flow_skill_save", {
     claimOperationId: claim,
-    files: [{ content, path: "SKILL.md" }],
+    files: [{ content, path: "flow.md" }],
     operationId: operation(),
     recordingId,
   });

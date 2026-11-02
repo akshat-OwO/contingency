@@ -38,13 +38,12 @@ const check: BrowserCheck = {
 };
 const files = (requirements: readonly BrowserCheck[] = [check]) => [
   {
-    content:
-      "Read [checks](references/browser-checks.json). Pass ready after Submit.",
-    path: "SKILL.md",
+    content: "Read [checks](checks.json). Pass ready after Submit.",
+    path: "flow.md",
   },
   {
     content: JSON.stringify({ requirements, schemaVersion: 1 }),
-    path: "references/browser-checks.json",
+    path: "checks.json",
   },
 ];
 

@@ -357,7 +357,7 @@ it.live(
             {
               content:
                 "---\nname: scale\ndescription: Inspect relative text and layout.\n---\n\nRead [targets](references/accessibility.md).\n\n1. Inspect the layout. Done when: Relative text is visible.\n",
-              path: "SKILL.md",
+              path: "flow.md",
             },
             {
               content:
@@ -368,7 +368,7 @@ it.live(
           operationId: OperationId.make("scale-save"),
           recordingId,
         });
-        const skill = yield* fs.readFileString(`${root}/scale/SKILL.md`);
+        const skill = yield* fs.readFileString(`${root}/scale/flow.md`);
         expect(skill).toContain("pageZoom: 400");
         expect(skill).toContain("textScale: 200");
         const dry = yield* teachingRecordingTool(

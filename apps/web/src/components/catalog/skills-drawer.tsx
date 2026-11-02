@@ -193,7 +193,7 @@ const RootSkills = ({
   if (!root.present && pending === undefined) {
     return (
       <InlineEmpty>
-        No <code>.contingency</code> folder at{" "}
+        No <code>contingency</code> folder at{" "}
         <code className="break-all">{root.path}</code>.
       </InlineEmpty>
     );
@@ -450,7 +450,7 @@ const FolderContents = ({
             aria-hidden="true"
             className="text-muted-foreground size-3.5"
           />
-          <span className="flex-1">SKILL.md</span>
+          <span className="flex-1">flow.md</span>
           <ChevronRightIcon
             aria-hidden="true"
             className="text-muted-foreground size-3.5"
@@ -575,8 +575,7 @@ const ContentsColumn = ({
             <EmptyDescription>
               After you stop recording, the agent learns the recording and
               drafts{" "}
-              <code className="wrap-anywhere">{folder.name}/SKILL.md</code>{" "}
-              here.
+              <code className="wrap-anywhere">{folder.name}/flow.md</code> here.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -600,7 +599,7 @@ const NoSkillsAnywhere = ({
         </EmptyMedia>
         <EmptyTitle>No Flow Skills yet</EmptyTitle>
         <EmptyDescription>
-          Contingency looks in this workspace&rsquo;s <code>.contingency</code>{" "}
+          Contingency looks in this workspace&rsquo;s <code>contingency</code>{" "}
           and in <code>~/.contingency</code>. Neither has a skill.
         </EmptyDescription>
       </EmptyHeader>

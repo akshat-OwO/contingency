@@ -15,13 +15,12 @@ const requirement = {
 };
 const files = () => [
   {
-    content:
-      "Read [scans](references/scans.json). Start cart-scan when the drawer opens.",
-    path: "SKILL.md",
+    content: "Read [scans](scans.json). Start cart-scan when the drawer opens.",
+    path: "flow.md",
   },
   {
     content: JSON.stringify({ requirements: [requirement], schemaVersion: 1 }),
-    path: "references/scans.json",
+    path: "scans.json",
   },
 ];
 
@@ -115,7 +114,7 @@ it("coverage requires completed reports matching skill and stable requirement ID
 
 it("navigation scans cannot silently omit their expected destination", () => {
   const malformed = files().map((file) =>
-    file.path === "references/scans.json"
+    file.path === "scans.json"
       ? {
           ...file,
           content: JSON.stringify({

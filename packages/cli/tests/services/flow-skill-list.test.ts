@@ -33,7 +33,7 @@ it.effect("lists a Flow Skill without naming the Catalog Root", () =>
     });
     const directory = path.join(root, "set-delivery-area");
     yield* fileSystem.makeDirectory(directory, { recursive: true });
-    yield* fileSystem.writeFileString(path.join(directory, "SKILL.md"), SKILL);
+    yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
 
     const listing = yield* Effect.gen(function* readListing() {
       const catalog = yield* FlowSkillCatalog;
@@ -66,10 +66,7 @@ it.effect(
       yield* fileSystem.makeDirectory(path.join(directory, "references"), {
         recursive: true,
       });
-      yield* fileSystem.writeFileString(
-        path.join(directory, "SKILL.md"),
-        SKILL
-      );
+      yield* fileSystem.writeFileString(path.join(directory, "flow.md"), SKILL);
       yield* fileSystem.writeFileString(
         path.join(directory, "references", "accessibility.md"),
         "# Accessibility\n"
@@ -87,7 +84,7 @@ it.effect(
       }).pipe(Effect.provide(makeFlowSkillCatalogLayer({ root })));
 
       expect(skill.files.map((file) => file.path)).toEqual([
-        "SKILL.md",
+        "flow.md",
         "references/accessibility.md",
       ]);
     }).pipe(Effect.provide(NodeServices.layer))

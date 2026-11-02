@@ -14,6 +14,7 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 
+import { readFlowSkillFrontmatter } from "../../src/services/flow-skill-package.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -43,14 +44,31 @@ const layerFor = (root: string) =>
     root: () => root,
   }).pipe(Layer.provideMerge(NodeServices.layer));
 
-it.effect(
-  "verifies a Flow without persisting input values and retries lifecycle operations safely",
-  () =>
+it.effect.each([
+  "never",
+  "before-start",
+  "before-pass",
+  "before-verification",
+] as const)(
+  "verifies a Flow without persisting input values and retries lifecycle operations safely (%s)",
+  (moveAt) =>
     Effect.gen(function* retryTeachingLifecycle() {
       const fileSystem = yield* FileSystem.FileSystem;
       const root = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "contingency-teaching-store-",
       });
+      const flowDirectory = path.join(
+        root,
+        ...(moveAt === "never" ? [] : ["shop"]),
+        "checkout-flow"
+      );
+      const moveFlow = fileSystem
+        .makeDirectory(path.join(root, "shop"), { recursive: true })
+        .pipe(
+          Effect.andThen(
+            fileSystem.rename(path.join(root, "checkout-flow"), flowDirectory)
+          )
+        );
       const artifactDirectory = path.join(
         root,
         TEACHING_RECORDINGS_DIRECTORY,
@@ -133,15 +151,24 @@ it.effect(
         });
         const drafted = yield* store.saveSkill({
           claimOperationId: OperationId.make("learning-once"),
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("save-skill-once"),
           recordingId,
-          skillPath: "checkout-flow/SKILL.md",
         });
         expect(
           drafted.receipts.find((receipt) => receipt.operation === "save-skill")
             ?.files
-        ).toEqual(["SKILL.md"]);
+        ).toEqual(["flow.md"]);
+        yield* fileSystem.makeDirectory(path.join(root, "checkout-flow"), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          path.join(root, "checkout-flow", "flow.md"),
+          "---\nname: checkout-flow\n---\n"
+        );
+        if (moveAt === "before-start") {
+          yield* moveFlow;
+        }
         yield* store.startDryRun({
           inputs: [
             { changed: true, name: "account", value: inputValue },
@@ -152,16 +179,23 @@ it.effect(
           recordingId,
           sessionId,
         });
+        if (moveAt === "before-pass") {
+          yield* moveFlow;
+        }
         yield* store.passDryRun({
           observableOutcome: "The order is confirmed.",
           operationId: OperationId.make("dry-run-pass-once"),
           recordingId,
         });
+        if (moveAt === "before-verification") {
+          yield* moveFlow;
+        }
         const verification = {
           operationId: OperationId.make("verification-once"),
           recordingId,
         };
-        const skillFile = path.join(root, "checkout-flow", "SKILL.md");
+        const skillFile = path.join(flowDirectory, "flow.md");
+        const passingContent = yield* fileSystem.readFileString(skillFile);
         yield* fileSystem.writeFileString(
           skillFile,
           `---\nname: checkout-flow\nruntime: ${JSON.stringify({ capabilities: [], environment: { androidVersion: "16", appBuild: "42", appId: "example.app", startingState: "baseline" }, platform: "android" })}\n---\n`
@@ -174,10 +208,7 @@ it.effect(
         );
         expect(mismatched.code).toBe("teaching_recording_conflict");
         expect(mismatched.message).toContain("platform requirements");
-        yield* fileSystem.writeFileString(
-          skillFile,
-          "---\nname: checkout-flow\n---\n"
-        );
+        yield* fileSystem.writeFileString(skillFile, passingContent);
         yield* store.verify(verification);
         yield* store.verify(verification);
         const cleanup = {
@@ -212,12 +243,11 @@ it.effect(
         "cleanup",
       ]);
       expect(yield* fileSystem.exists(artifactFile)).toBe(false);
-      const flowDirectory = path.join(root, "checkout-flow");
       const files = yield* fileSystem.readDirectory(flowDirectory, {
         recursive: true,
       });
-      expect(files).toContain("SKILL.md");
-      expect(files).toContain(path.join("references", "verification.md"));
+      expect(files).toContain("flow.md");
+      expect(files).not.toContain(path.join("references", "verification.md"));
       for (const file of files) {
         const target = path.join(flowDirectory, file);
         if ((yield* fileSystem.stat(target)).type === "File") {
@@ -226,13 +256,22 @@ it.effect(
           );
         }
       }
-      expect(
-        yield* fileSystem.readFileString(
-          path.join(root, "checkout-flow", "references", "verification.md")
-        )
-      ).toBe(
-        `# Last Dry Run\n\n- Completed: ${at}\n- Result: passed\n- Observable outcome: The order is confirmed.\n\n## Inputs\n\n- account (changed)\n- region\n- password\n- Verified: ${at}\n- Platform: web\n- Verification origin: workspace\n`
+      const saved = readFlowSkillFrontmatter(
+        yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
       );
+      expect(saved?.verification).toEqual({
+        completedAt: at,
+        inputs: [
+          { changed: true, name: "account" },
+          { changed: false, name: "region" },
+          { changed: false, name: "password" },
+        ],
+        observableOutcome: "The order is confirmed.",
+        origin: "workspace",
+        outcome: "passed",
+        platform: "web",
+        verifiedAt: at,
+      });
       expect(yield* fileSystem.exists(artifactDirectory)).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
@@ -296,7 +335,7 @@ it.effect(
         retainedId
       );
       const artifactFile = path.join(directory, "events.jsonl");
-      const skillFile = path.join(root, "delivery-flow", "SKILL.md");
+      const skillFile = path.join(root, "delivery-flow", "flow.md");
       const result = yield* Effect.gen(function* exerciseDryRuns() {
         const store = yield* TeachingRecordingStore;
         yield* store.begin({
@@ -334,13 +373,15 @@ it.effect(
         yield* fileSystem.makeDirectory(path.dirname(skillFile), {
           recursive: true,
         });
-        yield* fileSystem.writeFileString(skillFile, "# Delivery flow\n");
+        yield* fileSystem.writeFileString(
+          skillFile,
+          "---\nname: delivery-flow\n---\n# Delivery flow\n"
+        );
         yield* store.saveSkill({
           claimOperationId: OperationId.make("retention-learn"),
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("retention-save"),
           recordingId: retainedId,
-          skillPath: "delivery-flow/SKILL.md",
         });
         yield* store.startDryRun({
           inputs: [{ changed: true, name: "city", value: "Pune" }],
@@ -380,106 +421,118 @@ it.effect(
       expect(yield* fileSystem.exists(artifactFile)).toBe(true);
       expect(
         yield* fileSystem.readFileString(
-          path.join(root, "delivery-flow", "references", "verification.md")
+          path.join(root, "delivery-flow", "flow.md")
         )
       ).toContain("Mumbai");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.effect("retries purge-pending cleanup when a store starts", () =>
-  Effect.gen(function* recoverPurgePending() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-purge-recovery-",
-    });
-    const recoveryId = TeachingRecordingId.make("recording-purge-recovery");
-    const directory = path.join(
-      root,
-      TEACHING_RECORDINGS_DIRECTORY,
-      recoveryId
-    );
-    const artifactFile = path.join(directory, "recording.webm");
-    yield* Effect.gen(function* leavePurgePending() {
-      const store = yield* TeachingRecordingStore;
-      yield* store.begin({
-        emulation,
-        flowSkillName: FlowSkillName.make("recovery-flow"),
-        operationId: OperationId.make("recovery-begin"),
-        recordingId: recoveryId,
-        sessionId,
+it.effect.each([false, true])(
+  "recovers cleanup at startup (verification interrupted before a Flow move: %s)",
+  (recoverVerification) =>
+    Effect.gen(function* recoverPurgePending() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-purge-recovery-",
       });
-      yield* store.start({
-        emulation,
-        operationId: OperationId.make("recovery-start"),
-        recordingId: recoveryId,
-      });
-      yield* fileSystem.writeFileString(artifactFile, "video");
-      yield* store.stop({
-        artifacts: [
-          {
-            capturedAt: at,
-            hash: ContentHash.make(
-              "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-            ),
-            id: "video",
-            kind: "video",
-            path: "recording.webm",
-          },
-        ],
-        operationId: OperationId.make("recovery-stop"),
-        recordingId: recoveryId,
-      });
-      yield* store.startLearning({
-        operationId: OperationId.make("recovery-learn"),
-        recordingId: recoveryId,
-      });
-      yield* store.saveSkill({
-        claimOperationId: OperationId.make("recovery-learn"),
-        files: ["SKILL.md"],
-        operationId: OperationId.make("recovery-save"),
-        recordingId: recoveryId,
-        skillPath: "recovery-flow/SKILL.md",
-      });
-      yield* fileSystem.makeDirectory(path.join(root, "recovery-flow"), {
-        recursive: true,
-      });
-      yield* fileSystem.writeFileString(
-        path.join(root, "recovery-flow", "SKILL.md"),
-        "---\nname: recovery-flow\n---\n"
+      const recoveryId = TeachingRecordingId.make("recording-purge-recovery");
+      const directory = path.join(
+        root,
+        TEACHING_RECORDINGS_DIRECTORY,
+        recoveryId
       );
-      yield* store.startDryRun({
-        inputs: [],
-        operationId: OperationId.make("recovery-dry"),
-        recordingId: recoveryId,
-        sessionId,
-      });
-      yield* store.passDryRun({
-        observableOutcome: "The flow completed.",
-        operationId: OperationId.make("recovery-pass"),
-        recordingId: recoveryId,
-      });
-      const pending = yield* store.verify({
-        operationId: OperationId.make("recovery-verify"),
-        recordingId: recoveryId,
-      });
-      expect(pending.cleanup._tag).toBe("purge-pending");
-    }).pipe(Effect.provide(layerFor(root)));
+      const artifactFile = path.join(directory, "recording.webm");
+      yield* Effect.gen(function* leavePurgePending() {
+        const store = yield* TeachingRecordingStore;
+        yield* store.begin({
+          emulation,
+          flowSkillName: FlowSkillName.make("recovery-flow"),
+          operationId: OperationId.make("recovery-begin"),
+          recordingId: recoveryId,
+          sessionId,
+        });
+        yield* store.start({
+          emulation,
+          operationId: OperationId.make("recovery-start"),
+          recordingId: recoveryId,
+        });
+        yield* fileSystem.writeFileString(artifactFile, "video");
+        yield* store.stop({
+          artifacts: [
+            {
+              capturedAt: at,
+              hash: ContentHash.make(
+                "sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              ),
+              id: "video",
+              kind: "video",
+              path: "recording.webm",
+            },
+          ],
+          operationId: OperationId.make("recovery-stop"),
+          recordingId: recoveryId,
+        });
+        yield* store.startLearning({
+          operationId: OperationId.make("recovery-learn"),
+          recordingId: recoveryId,
+        });
+        yield* store.saveSkill({
+          claimOperationId: OperationId.make("recovery-learn"),
+          files: ["flow.md"],
+          operationId: OperationId.make("recovery-save"),
+          recordingId: recoveryId,
+        });
+        yield* fileSystem.makeDirectory(path.join(root, "recovery-flow"), {
+          recursive: true,
+        });
+        yield* fileSystem.writeFileString(
+          path.join(root, "recovery-flow", "flow.md"),
+          "---\nname: recovery-flow\n---\n"
+        );
+        yield* store.startDryRun({
+          inputs: [],
+          operationId: OperationId.make("recovery-dry"),
+          recordingId: recoveryId,
+          sessionId,
+        });
+        yield* store.passDryRun({
+          observableOutcome: "The flow completed.",
+          operationId: OperationId.make("recovery-pass"),
+          recordingId: recoveryId,
+        });
+        const manifestFile = path.join(directory, "manifest.json");
+        const passedManifest = yield* fileSystem.readFileString(manifestFile);
+        const pending = yield* store.verify({
+          operationId: OperationId.make("recovery-verify"),
+          recordingId: recoveryId,
+        });
+        expect(pending.cleanup._tag).toBe("purge-pending");
+        if (recoverVerification) {
+          // Simulate exit after stamping flow.md but before committing verification.
+          yield* fileSystem.writeFileString(manifestFile, passedManifest);
+          yield* fileSystem.makeDirectory(path.join(root, "shop"));
+          yield* fileSystem.rename(
+            path.join(root, "recovery-flow"),
+            path.join(root, "shop", "recovery-flow")
+          );
+        }
+      }).pipe(Effect.provide(layerFor(root)));
 
-    yield* Effect.gen(function* startRecoveredStore() {
-      yield* TeachingRecordingStore;
-    }).pipe(Effect.provide(layerFor(root)));
+      yield* Effect.gen(function* startRecoveredStore() {
+        yield* TeachingRecordingStore;
+      }).pipe(Effect.provide(layerFor(root)));
 
-    expect(yield* fileSystem.exists(directory)).toBe(false);
-    expect(yield* fileSystem.exists(artifactFile)).toBe(false);
+      expect(yield* fileSystem.exists(directory)).toBe(false);
+      expect(yield* fileSystem.exists(artifactFile)).toBe(false);
 
-    // A later process still reads the outcome after the directory is gone.
-    const reopened = yield* Effect.gen(function* readPurgedRecording() {
-      const store = yield* TeachingRecordingStore;
-      return yield* store.read(recoveryId);
-    }).pipe(Effect.provide(layerFor(root)));
-    expect(reopened.lifecycle._tag).toBe("verified");
-    expect(reopened.cleanup._tag).toBe("purged");
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+      // A later process still reads the outcome after the directory is gone.
+      const reopened = yield* Effect.gen(function* readPurgedRecording() {
+        const store = yield* TeachingRecordingStore;
+        return yield* store.read(recoveryId);
+      }).pipe(Effect.provide(layerFor(root)));
+      expect(reopened.lifecycle._tag).toBe("verified");
+      expect(reopened.cleanup._tag).toBe("purged");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.effect("keeps a verified Flow Skill retryable when cleanup fails", () =>
@@ -521,7 +574,6 @@ it.effect("keeps a verified Flow Skill retryable when cleanup fails", () =>
           dryRunSessionId: sessionId,
           dryRunStartedAt: at,
           readyAt: at,
-          skillPath: "cleanup-failure-flow/SKILL.md",
           startedAt: at,
           stoppedAt: at,
           verifiedAt: at,
@@ -1066,7 +1118,7 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
     });
     const claimedId = TeachingRecordingId.make("recording-claim-lifetime");
     const claim = OperationId.make("lifetime-claim");
-    const skillFile = path.join(root, "lifetime-flow", "SKILL.md");
+    const skillFile = path.join(root, "lifetime-flow", "flow.md");
     yield* Effect.gen(function* exerciseClaimLifetime() {
       const store = yield* TeachingRecordingStore;
       yield* store.begin({
@@ -1091,10 +1143,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       const unclaimed = yield* Effect.result(
         store.saveSkill({
           claimOperationId: claim,
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-unclaimed"),
           recordingId: claimedId,
-          skillPath: "lifetime-flow/SKILL.md",
         })
       );
       expect(unclaimed).toMatchObject({
@@ -1116,10 +1167,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       yield* fileSystem.writeFileString(skillFile, "# Lifetime flow\n");
       yield* store.saveSkill({
         claimOperationId: claim,
-        files: ["SKILL.md"],
+        files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-one"),
         recordingId: claimedId,
-        skillPath: "lifetime-flow/SKILL.md",
       });
       yield* store.startDryRun({
         inputs: [],
@@ -1136,10 +1186,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       // The failure keeps the claim, so the same agent saves its fix.
       const fixed = yield* store.saveSkill({
         claimOperationId: claim,
-        files: ["SKILL.md"],
+        files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-two"),
         recordingId: claimedId,
-        skillPath: "lifetime-flow/SKILL.md",
       });
       expect(fixed.lifecycle._tag).toBe("skill-drafted");
 
@@ -1147,10 +1196,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       const other = yield* Effect.result(
         store.saveSkill({
           claimOperationId: OperationId.make("lifetime-other-claim"),
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-other"),
           recordingId: claimedId,
-          skillPath: "lifetime-flow/SKILL.md",
         })
       );
       expect(other).toMatchObject({
@@ -1168,10 +1216,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       const midRun = yield* Effect.result(
         store.saveSkill({
           claimOperationId: claim,
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-mid-run"),
           recordingId: claimedId,
-          skillPath: "lifetime-flow/SKILL.md",
         })
       );
       expect(midRun).toMatchObject({
@@ -1188,10 +1235,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       const afterPass = yield* Effect.result(
         store.saveSkill({
           claimOperationId: claim,
-          files: ["SKILL.md"],
+          files: ["flow.md"],
           operationId: OperationId.make("lifetime-save-after-pass"),
           recordingId: claimedId,
-          skillPath: "lifetime-flow/SKILL.md",
         })
       );
       expect(afterPass).toMatchObject({
@@ -1212,10 +1258,9 @@ it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
       // A rejection keeps the claim too.
       const revised = yield* store.saveSkill({
         claimOperationId: claim,
-        files: ["SKILL.md"],
+        files: ["flow.md"],
         operationId: OperationId.make("lifetime-save-three"),
         recordingId: claimedId,
-        skillPath: "lifetime-flow/SKILL.md",
       });
       expect(revised.lifecycle._tag).toBe("skill-drafted");
 

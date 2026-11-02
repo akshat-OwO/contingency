@@ -85,7 +85,7 @@ export const registerCommand = Command.make(
     ),
     scope: Flag.Literals("scope", ["project", "user"]).pipe(
       Flag.withDescription(
-        "project: this project only. user: every project, each with its own .contingency catalog."
+        "project: this project only. user: every project, each with its own contingency catalog."
       )
     ),
   },

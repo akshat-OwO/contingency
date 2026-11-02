@@ -46,13 +46,14 @@ yarn-error.log*
 # on the ticket rather than committed
 packages/cli/tests/calibration/results.json
 
-# Catalog Root. A learned Flow Skill is shared source and stays tracked, so the
-# directory is not ignored wholesale. Everything sensitive or per-machine is:
-# Teaching Recordings hold unredacted video, Traces, and events; the Flow Skill
-# lock, staging, and backup entries belong to one save; and a Run package is
-# local evidence of one attempt.
-.contingency/.recordings/
-.contingency/.flow-skill.lock
-.contingency/.flow-skill-*.tmp
-.contingency/.flow-skill-*.backup
-.contingency/agent-runs/
+# Legacy catalogs are no longer read.
+.contingency/
+
+# Catalog documents are shared source; evidence and save scratch stay local.
+contingency/**/runs/
+contingency/**/recordings/
+contingency/.recordings/
+contingency/agent-runs/
+contingency/.flow-skill.lock
+contingency/.flow-skill-*.tmp
+contingency/.flow-skill-*.backup

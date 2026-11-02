@@ -8,7 +8,7 @@ A Setting is a choice about how Contingency itself runs, such as which port to s
 
 Contingency reads `config.json` from two places:
 
-- The project file, `config.json` in the Catalog Root. The Catalog Root is `.contingency` in the project directory, or `CONTINGENCY_CATALOG_ROOT` when it is set.
+- The project file, `config.json` in the Catalog Root. The Catalog Root is `contingency` in the project directory, or `CONTINGENCY_CATALOG_ROOT` when it is set.
 - The user file, `~/.contingency/config.json`.
 
 Both files use one schema. For each Setting, the first source that names it wins:

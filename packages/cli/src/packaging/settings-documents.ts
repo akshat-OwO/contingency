@@ -80,7 +80,7 @@ export const renderSettingsReference = (): string => {
     "",
     `Contingency reads \`${SETTINGS_FILE}\` from two places:`,
     "",
-    `- The project file, \`${SETTINGS_FILE}\` in the Catalog Root. The Catalog Root is \`.contingency\` in the project directory, or \`CONTINGENCY_CATALOG_ROOT\` when it is set.`,
+    `- The project file, \`${SETTINGS_FILE}\` in the Catalog Root. The Catalog Root is \`contingency\` in the project directory, or \`CONTINGENCY_CATALOG_ROOT\` when it is set.`,
     `- The user file, \`~/.contingency/${SETTINGS_FILE}\`.`,
     "",
     "Both files use one schema. For each Setting, the first source that names it wins:",

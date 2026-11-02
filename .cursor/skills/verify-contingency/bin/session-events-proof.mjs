@@ -139,7 +139,7 @@ const learn = Effect.gen(function* learnRecording() {
       {
         content:
           "---\nname: session-event-cart\ndescription: Add one giant anvil to the cart on the disposable shop.\ninputs:\n---\n\n1. Choose Add Giant anvil to cart. Done when: 1 item in cart is visible.\n",
-        path: "SKILL.md",
+        path: "flow.md",
       },
     ],
     operationId: operation(),
@@ -258,12 +258,9 @@ const finish = Effect.gen(function* finishProof() {
   }
   const catalog = path.join(directory, "state/catalog");
   const verified = yield* io(() =>
-    readFile(
-      path.join(catalog, "session-event-cart/references/verification.md"),
-      "utf-8"
-    )
+    readFile(path.join(catalog, "session-event-cart/flow.md"), "utf-8")
   );
-  assert.ok(verified.includes("- Verified:"));
+  assert.ok(verified.includes('"verifiedAt":'));
   const retained = yield* io(() => readdir(path.join(catalog, ".recordings")));
   assert.ok(!retained.includes(state.recordingId));
   yield* save("catalog-reread.json", { retained, verified });

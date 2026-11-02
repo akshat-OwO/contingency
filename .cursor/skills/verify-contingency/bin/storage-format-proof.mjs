@@ -81,7 +81,7 @@ const outcomes = {
   "start-pass": ["passed", "passed", "passed", "passed"],
 };
 const skill = (flowSkillName, checks) =>
-  `---\nname: ${flowSkillName}\ndescription: Save the order once and require its stored local and session state.\ninputs:\n---\n\n1. Click the Save order button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](references/browser-checks.json). Done when: all four checks pass and Saved 1 time(s) is visible.\n`;
+  `---\nname: ${flowSkillName}\ndescription: Save the order once and require its stored local and session state.\ninputs:\n---\n\n1. Click the Save order button, arming Browser Checks ${checks.map((check) => check.id).join(" and ")} from [requirements](checks.json). Done when: all four checks pass and Saved 1 time(s) is visible.\n`;
 const readState = () =>
   io(async () =>
     JSON.parse(await readFile(path.join(artifacts, "state.json"), "utf-8"))
@@ -181,13 +181,13 @@ const learn = Effect.gen(function* learnRequirements() {
     {
       claimOperationId,
       files: [
-        { content: skill(flowSkillName, checks), path: "SKILL.md" },
+        { content: skill(flowSkillName, checks), path: "flow.md" },
         {
           content: JSON.stringify({
             requirements: rawWithPath,
             schemaVersion: 1,
           }),
-          path: "references/browser-checks.json",
+          path: "checks.json",
         },
       ],
       operationId: operation(),
@@ -201,7 +201,7 @@ const learn = Effect.gen(function* learnRequirements() {
     files: [
       {
         content: skill(flowSkillName, checks),
-        path: "SKILL.md",
+        path: "flow.md",
       },
       {
         content: JSON.stringify(
@@ -209,7 +209,7 @@ const learn = Effect.gen(function* learnRequirements() {
           null,
           2
         ),
-        path: "references/browser-checks.json",
+        path: "checks.json",
       },
     ],
     operationId: operation(),
@@ -222,7 +222,7 @@ const learn = Effect.gen(function* learnRequirements() {
           process.env.CONTINGENCY_VERIFY_DIR,
           "state/catalog",
           flowSkillName,
-          "references/browser-checks.json"
+          "checks.json"
         ),
         "utf-8"
       )

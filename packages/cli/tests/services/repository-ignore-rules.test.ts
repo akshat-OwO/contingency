@@ -7,7 +7,7 @@ import { expect, test } from "vitest";
  * The Catalog Root holds two kinds of file. A learned Flow Skill is shared
  * source and must reach a commit; Teaching Recordings, save scratch, and Run
  * evidence are sensitive or per-machine and must not. A blanket
- * `.contingency/` ignore loses the first kind silently, so the rules are
+ * `contingency/` ignore loses the first kind silently, so the rules are
  * checked against sample paths rather than trusted by reading.
  */
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../..");
@@ -26,8 +26,8 @@ const isIgnored = (candidate: string): boolean => {
 
 test("tracks Flow Skill files under the Catalog Root", () => {
   for (const tracked of [
-    ".contingency/set-delivery-area/SKILL.md",
-    ".contingency/set-delivery-area/references/accessibility.md",
+    "contingency/set-delivery-area/flow.md",
+    "contingency/set-delivery-area/references/accessibility.md",
   ]) {
     expect(isIgnored(tracked), tracked).toBe(false);
   }
@@ -35,13 +35,13 @@ test("tracks Flow Skill files under the Catalog Root", () => {
 
 test("ignores Teaching Recordings, save scratch, and Run evidence", () => {
   for (const ignored of [
-    ".contingency/.recordings/recording-1/manifest.json",
-    ".contingency/.recordings/recording-1/trace.zip",
-    ".contingency/.recordings/recording-1/recording.webm",
-    ".contingency/.flow-skill.lock",
-    ".contingency/.flow-skill-abc.tmp",
-    ".contingency/.flow-skill-abc.backup",
-    ".contingency/agent-runs/agentrun-1/summary.json",
+    "contingency/.recordings/recording-1/manifest.json",
+    "contingency/.recordings/recording-1/trace.zip",
+    "contingency/.recordings/recording-1/recording.webm",
+    "contingency/.flow-skill.lock",
+    "contingency/.flow-skill-abc.tmp",
+    "contingency/.flow-skill-abc.backup",
+    "contingency/agent-runs/agentrun-1/summary.json",
   ]) {
     expect(isIgnored(ignored), ignored).toBe(true);
   }

@@ -159,7 +159,7 @@ const SkillPackage = ({
       <TabsContent className="pt-3" value="procedure">
         {skill.steps.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            This SKILL.md has no numbered procedure.
+            This flow.md has no numbered procedure.
           </p>
         ) : (
           <ol className="space-y-4">
@@ -221,7 +221,7 @@ const SkillDetail = ({
   const { catalogFlowSkillAtom } = useRpcDependencies();
   const result = useAtomValue(catalogFlowSkillAtom(scope)(name));
   if (result._tag === "Initial") {
-    return <p className="text-muted-foreground text-sm">Reading SKILL.md…</p>;
+    return <p className="text-muted-foreground text-sm">Reading flow.md…</p>;
   }
   if (result._tag === "Failure") {
     return (
@@ -229,7 +229,7 @@ const SkillDetail = ({
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>This skill could not be read</AlertTitle>
         <AlertDescription>
-          {refusal(result) ?? "Its SKILL.md is no longer there."}
+          {refusal(result) ?? "Its flow.md is no longer there."}
         </AlertDescription>
       </Alert>
     );
