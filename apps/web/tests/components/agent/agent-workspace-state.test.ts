@@ -52,7 +52,6 @@ const dryRunPassed = {
   },
   dryRunStartedAt: "2026-09-18T00:00:06.000Z",
   readyAt: "2026-09-18T00:00:04.000Z",
-  skillPath: "add-anvil/flow.md",
   startedAt: "2026-09-18T00:00:01.000Z",
   stoppedAt: "2026-09-18T00:00:03.000Z",
 } satisfies TeachingSnapshot["captureState"];
@@ -61,7 +60,6 @@ const verified = {
   _tag: "verified",
   draftedAt: "2026-09-18T00:00:05.000Z",
   readyAt: "2026-09-18T00:00:04.000Z",
-  skillPath: "add-anvil/flow.md",
   startedAt: "2026-09-18T00:00:01.000Z",
   stoppedAt: "2026-09-18T00:00:03.000Z",
   verifiedAt: "2026-09-18T00:00:10.000Z",

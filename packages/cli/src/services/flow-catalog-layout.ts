@@ -100,6 +100,23 @@ export const discoverFlows = Effect.fnUntraced(function* discoverFlows(
   return found;
 });
 
+/** Resolve identity at use time so regrouping never invalidates a saved reference. */
+export const resolveFlowDirectory = Effect.fnUntraced(
+  function* resolveFlowDirectory(
+    root: string,
+    name: FlowSkillName,
+    fs: FileSystem.FileSystem
+  ) {
+    const flow = (yield* discoverFlows(root, fs)).get(name);
+    if (flow === undefined) {
+      return yield* Effect.fail(
+        invalid(`${root} holds no Flow named "${name}".`)
+      );
+    }
+    return flow.directory;
+  }
+);
+
 /** Append missing managed rules, preserving the user's other ignore rules. */
 export const maintainCatalogGitignore = Effect.fnUntraced(
   function* maintainCatalogGitignore(root: string, fs: FileSystem.FileSystem) {

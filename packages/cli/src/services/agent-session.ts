@@ -164,6 +164,7 @@ import type {
   BoundaryCheck,
   PendingBoundary,
 } from "./execution-boundary.ts";
+import { resolveFlowDirectory } from "./flow-catalog-layout.ts";
 import { readFlowSkillFrontmatter } from "./flow-skill-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import type { SavedPlatformRequirements } from "./platform-requirements.ts";
@@ -2127,13 +2128,14 @@ const makeAgentSession = (
                       teachingRecordingStore.directory(snapshot.recordingId)
                     )
                   );
-                  const verificationFile = path.join(
-                    path.dirname(
-                      path.join(catalogRoot, snapshot.captureState.skillPath)
+                  return resolveFlowDirectory(
+                    catalogRoot,
+                    snapshot.flowSkillName,
+                    fileSystem
+                  ).pipe(
+                    Effect.flatMap((directory) =>
+                      fileSystem.readFileString(path.join(directory, "flow.md"))
                     ),
-                    "flow.md"
-                  );
-                  return fileSystem.readFileString(verificationFile).pipe(
                     Effect.flatMap((contents) => {
                       const verifiedAt =
                         readFlowSkillFrontmatter(contents)?.verification

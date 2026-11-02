@@ -139,7 +139,6 @@ const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
       files: ["flow.md"],
       operationId: step("save"),
       recordingId,
-      skillPath: `${flowSkillName}/flow.md`,
     });
   });
 
@@ -324,9 +323,14 @@ it.effect(
         }
         expect(sessions.started.size).toBe(0);
 
+        yield* files.makeDirectory(path.join(root, "shop"));
+        yield* files.rename(
+          path.join(root, "cart"),
+          path.join(root, "shop", "cart")
+        );
         const started = yield* startDryRun(startInput(recordingId));
         expect(started.manifest.lifecycle._tag).toBe("dry-running");
-        expect(started.skillPath).toBe("cart/flow.md");
+        expect(started.skillPath).toBe("shop/cart/flow.md");
         // The package is read through the catalog, text references included.
         expect(started.files.map((file) => file.path)).toEqual([
           "flow.md",

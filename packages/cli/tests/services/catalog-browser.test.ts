@@ -72,7 +72,6 @@ const manifest = (recordingId: string, flowSkillName: string) => ({
     _tag: "skill-drafted",
     draftedAt: "2026-10-01T00:02:00.000Z",
     readyAt: "2026-10-01T00:01:00.000Z",
-    skillPath: flowSkillName,
     startedAt: "2026-10-01T00:00:05.000Z",
     stoppedAt: "2026-10-01T00:00:55.000Z",
   },

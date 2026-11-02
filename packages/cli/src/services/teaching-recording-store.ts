@@ -30,7 +30,10 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
-import { maintainCatalogGitignore } from "./flow-catalog-layout.ts";
+import {
+  maintainCatalogGitignore,
+  resolveFlowDirectory,
+} from "./flow-catalog-layout.ts";
 import {
   readFlowSkillFrontmatter,
   stampFlowVerification,
@@ -115,7 +118,6 @@ export interface TeachingRecordingStop extends TeachingRecordingMutation {
 export interface TeachingRecordingSkillDraft extends TeachingRecordingMutation {
   readonly claimOperationId: OperationId;
   readonly files: readonly string[];
-  readonly skillPath: string;
 }
 
 export interface TeachingRecordingClaimMutation extends TeachingRecordingMutation {
@@ -1101,7 +1103,6 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               claim: lifecycle.claim,
               draftedAt: at,
               readyAt: lifecycle.readyAt,
-              skillPath: input.skillPath,
               startedAt: lifecycle.startedAt,
               stoppedAt: lifecycle.stoppedAt,
             },
@@ -1138,12 +1139,28 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               dryRunSessionId: input.sessionId,
               dryRunStartedAt: at,
               readyAt: lifecycle.readyAt,
-              skillPath: lifecycle.skillPath,
               startedAt: lifecycle.startedAt,
               stoppedAt: lifecycle.stoppedAt,
             },
           });
         }
+      );
+
+    const verificationFileFor = (
+      manifest: Pick<TeachingRecordingManifest, "recordingId" | "flowSkillName">
+    ) =>
+      resolveFlowDirectory(
+        rootFor(manifest.recordingId),
+        manifest.flowSkillName,
+        fileSystem
+      ).pipe(
+        Effect.map((directory) => path.join(directory, VERIFICATION_FILE)),
+        Effect.mapError((cause) =>
+          storeError(
+            "teaching_recording_io",
+            `Could not resolve Flow ${manifest.flowSkillName}: ${cause.message}`
+          )
+        )
       );
 
     const persistDryRunReference = (
@@ -1158,29 +1175,29 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           )
         );
       }
-      const skillDirectory = path.dirname(
-        path.join(rootFor(manifest.recordingId), manifest.lifecycle.skillPath)
-      );
-      const verificationPath = path.join(skillDirectory, VERIFICATION_FILE);
-      return fileSystem.readFileString(verificationPath).pipe(
-        Effect.flatMap((content) =>
-          fileSystem.writeFileString(
-            verificationPath,
-            stampFlowVerification(content, {
-              completedAt: result.completedAt,
-              inputs: result.inputs.map(({ changed, name }) => ({
-                changed,
-                name,
-              })),
-              observableOutcome: result.observableOutcome,
-              outcome: result.outcome,
-            }),
-            { mode: 0o600 }
-          )
-        ),
-        Effect.mapError(
-          ioError(
-            `Could not persist the Dry Run result for ${manifest.recordingId}`
+      return verificationFileFor(manifest).pipe(
+        Effect.flatMap((verificationPath) =>
+          fileSystem.readFileString(verificationPath).pipe(
+            Effect.flatMap((content) =>
+              fileSystem.writeFileString(
+                verificationPath,
+                stampFlowVerification(content, {
+                  completedAt: result.completedAt,
+                  inputs: result.inputs.map(({ changed, name }) => ({
+                    changed,
+                    name,
+                  })),
+                  observableOutcome: result.observableOutcome,
+                  outcome: result.outcome,
+                }),
+                { mode: 0o600 }
+              )
+            ),
+            Effect.mapError(
+              ioError(
+                `Could not persist the Dry Run result for ${manifest.recordingId}`
+              )
+            )
           )
         )
       );
@@ -1227,7 +1244,6 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 dryRunStartedAt: lifecycle.dryRunStartedAt,
                 dryRunSummary: input.summary,
                 readyAt: lifecycle.readyAt,
-                skillPath: lifecycle.skillPath,
                 startedAt: lifecycle.startedAt,
                 stoppedAt: lifecycle.stoppedAt,
               },
@@ -1281,17 +1297,11 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           )
         );
       }
-      const verificationPath = path.join(
-        path.dirname(
-          path.join(rootFor(manifest.recordingId), manifest.lifecycle.skillPath)
-        ),
-        VERIFICATION_FILE
-      );
       return Effect.gen(function* writeVerificationReference() {
+        const verificationPath = yield* verificationFileFor(manifest);
         const origin = yield* SessionEventOrigin;
-        const skillPath = verificationPath;
         const content = yield* fileSystem
-          .readFileString(skillPath)
+          .readFileString(verificationPath)
           .pipe(
             Effect.mapError(ioError("Could not read the skill being verified"))
           );
@@ -1354,7 +1364,6 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 claim: lifecycle.claim,
                 draftedAt: lifecycle.draftedAt,
                 readyAt: lifecycle.readyAt,
-                skillPath: lifecycle.skillPath,
                 startedAt: lifecycle.startedAt,
                 stoppedAt: lifecycle.stoppedAt,
               },
@@ -1562,7 +1571,6 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 dryRunSessionId: manifest.lifecycle.dryRunSessionId,
                 dryRunStartedAt: manifest.lifecycle.dryRunStartedAt,
                 readyAt: manifest.lifecycle.readyAt,
-                skillPath: manifest.lifecycle.skillPath,
                 startedAt: manifest.lifecycle.startedAt,
                 stoppedAt: manifest.lifecycle.stoppedAt,
                 verifiedAt: at,
@@ -1625,16 +1633,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
             if (manifest.lifecycle._tag !== "dry-run-passed") {
               return Effect.void;
             }
-            const verificationPath = path.join(
-              path.dirname(
-                path.join(
-                  rootFor(manifest.recordingId),
-                  manifest.lifecycle.skillPath
-                )
+            return verificationFileFor(manifest).pipe(
+              Effect.flatMap((verificationPath) =>
+                fileSystem.readFileString(verificationPath)
               ),
-              VERIFICATION_FILE
-            );
-            return fileSystem.readFileString(verificationPath).pipe(
               Effect.flatMap((contents) =>
                 readFlowSkillFrontmatter(contents)?.verification?.verifiedAt ===
                 undefined

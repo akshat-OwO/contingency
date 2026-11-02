@@ -37,7 +37,6 @@ const progressive = {
   dryRunSessionId: "agent-dry-run",
   dryRunStartedAt: at,
   readyAt: at,
-  skillPath: "checkout-flow/flow.md",
   startedAt: at,
   stoppedAt: at,
   verifiedAt: at,

@@ -396,7 +396,6 @@ it.effect.each([
           files: ["flow.md"],
           operationId: operation("save"),
           recordingId,
-          skillPath: "browse-catalogue/flow.md",
         });
         yield* files.makeDirectory(path.join(root, "browse-catalogue"), {
           recursive: true,

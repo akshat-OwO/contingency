@@ -846,7 +846,6 @@ const makeTeachingRecordingLearning = Effect.fn(
               files: stamped.map((file) => file.path),
               operationId: input.operationId,
               recordingId: input.recordingId,
-              skillPath: `${manifest.flowSkillName}/${SKILL_FILE}`,
             })
           );
           if (Result.isFailure(recorded)) {
