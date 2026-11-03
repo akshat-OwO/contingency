@@ -446,7 +446,8 @@ try {
       path.join(
         instance.stateDir,
         "catalog",
-        ".recordings",
+        flowName,
+        "recordings",
         recordingId,
         "ios-stream.json"
       ),

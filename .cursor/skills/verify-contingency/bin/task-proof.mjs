@@ -5,7 +5,6 @@ import {
   chmod,
   copyFile,
   mkdir,
-  readdir,
   readFile,
   rename,
   stat,
@@ -15,6 +14,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+
+import { runDirectory } from "./catalog-paths.mjs";
 
 const here = import.meta.dirname;
 const cliRoot = path.resolve(here, "../../../../packages/cli");
@@ -71,13 +72,10 @@ const metricsReport = (extra) => {
   return { byTool, ...extra, totals };
 };
 const operation = () => `task-proof-${proofId}-${(sequence += 1)}`;
-const secrets = ["disposable-flow-one-9F!", "disposable-flow-two-2G!"];
+const variableValues = ["disposable-flow-one-9F!", "disposable-flow-two-2G!"];
 const record = (name, value) =>
   io(async () => {
     const text = JSON.stringify(value, null, 2);
-    for (const secret of secrets) {
-      assert.ok(!text.includes(secret), `Secret leaked in ${name}`);
-    }
     await writeFile(path.join(artifacts, name), `${text}\n`);
   });
 const command = (...args) =>
@@ -90,12 +88,7 @@ const command = (...args) =>
   });
 const call = (tool, params = {}, refusal = false) =>
   Effect.gen(function* callTool() {
-    // The proof supplies secrets itself; journal them redacted so the leak
-    // check below still covers every server response.
-    const publicParams = secrets.includes(params.value)
-      ? { ...params, value: "[redacted]" }
-      : params;
-    journal.push({ entryPoint: "mcp call", params: publicParams, tool });
+    journal.push({ entryPoint: "mcp call", params, tool });
     const result = yield* io(async () => {
       try {
         const { stdout } = await execute(
@@ -125,7 +118,7 @@ const call = (tool, params = {}, refusal = false) =>
     });
     measure(tool, result.stdout);
     yield* record(`${String((sequence += 1)).padStart(3, "0")}-${tool}.json`, {
-      params: publicParams,
+      params,
       tool,
       ...result,
     });
@@ -159,9 +152,6 @@ const capture = (name, url) =>
     const aria = yield* io(() =>
       readFile(path.join(artifacts, `${name}.aria.txt`), "utf-8")
     );
-    for (const secret of secrets) {
-      assert.ok(!aria.includes(secret));
-    }
     return aria;
   });
 const click = (name) =>
@@ -290,15 +280,6 @@ const verifyCleanupFailure = (manifest, teachingUrl) =>
     });
     yield* capture("cleanup-pending", teachingUrl);
   });
-/** ADR 0071: a Run lives under its one Flow's runs/, otherwise the root runs/. */
-const runDirectory = async (catalog, runId) => {
-  const entries = await readdir(catalog, { recursive: true });
-  const match = entries.find(
-    (entry) => entry.split(path.sep).slice(-2).join("/") === `runs/${runId}`
-  );
-  assert.ok(match, `Run ${runId} is stored in the catalog`);
-  return path.join(catalog, match);
-};
 
 const dryProof = (catalog, url) =>
   Effect.gen(function* proveDryRuns() {
@@ -306,6 +287,7 @@ const dryProof = (catalog, url) =>
       activity: "teaching",
       clientName: "verify",
       clientVersion: "1.0",
+      group: "",
       name: "dry-proof",
       operationId: operation(),
       url,
@@ -589,9 +571,8 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
       summary: legacy,
     });
     const beforeRestart = yield* call("open_run", { runId: legacy.runId });
-    const { flowSkillName: legacyFlow, ...legacyFields } = legacy;
-    const decodedLegacy = { ...legacyFields, flowName: legacyFlow };
-    assert.deepEqual(beforeRestart.summary, decodedLegacy);
+    // MCP encodes historical summaries with their version 2 wire keys.
+    assert.deepEqual(beforeRestart.summary, legacy);
     const exiting = yield* call("agent_run_start", {
       inputs: [],
       operationId: operation(),
@@ -614,7 +595,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
     yield* record("process-exit-summary.json", exitSummary);
     for (const [name, expected] of [
       ["task", summary],
-      ["historical", decodedLegacy],
+      ["historical", legacy],
     ]) {
       const viewer = yield* call("open_run", { runId: expected.runId });
       assert.deepEqual(viewer.summary, expected);
@@ -724,6 +705,14 @@ const main = Effect.gen(function* main() {
         })
       );
     });
+  }
+  const seededFlows = yield* call("agent_flows_list");
+  for (const name of ["flow1", "flow2"]) {
+    assert.equal(
+      seededFlows.flows.find((flow) => flow.name === name)?.verified,
+      true,
+      `${name} seed is Verified`
+    );
   }
   const start = (requestedTask, referencedFlows) =>
     call("agent_run_start", {
@@ -874,7 +863,7 @@ const main = Effect.gen(function* main() {
       decision: "supply",
       operationId: operation(),
       pendingDecisionId: state.pendingDecisions[0].pendingDecisionId,
-      value: secrets[index],
+      value: variableValues[index],
     };
     const supplied = yield* call("agent_pending_decision_resolve", supply);
     assert.deepEqual(

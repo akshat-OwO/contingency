@@ -7,6 +7,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { runDirectory } from "./catalog-paths.mjs";
+
 const cliRoot = path.resolve(import.meta.dirname, "../../../../packages/cli");
 const { Effect } = await import(
   pathToFileURL(
@@ -100,6 +102,7 @@ const start = Effect.gen(function* startTeaching() {
     activity: "teaching",
     clientName: "browser-check-proof",
     clientVersion: "1",
+    group: "",
     name: "storage-format",
     operationId: operation(),
     url,
@@ -328,10 +331,11 @@ const finish = Effect.gen(function* finishDryRun() {
     JSON.parse(
       await readFile(
         path.join(
-          process.env.CONTINGENCY_VERIFY_DIR,
-          "state/catalog/.recordings",
-          state.recordingId,
-          "dry-run/summary.json"
+          await runDirectory(
+            path.join(process.env.CONTINGENCY_VERIFY_DIR, "state/catalog"),
+            completed.runId
+          ),
+          "summary.json"
         ),
         "utf-8"
       )
@@ -346,8 +350,9 @@ const finish = Effect.gen(function* finishDryRun() {
   const recording = yield* call("agent_teaching_recordings_list", {
     recordingId: state.recordingId,
   });
+  const { recordings } = recording;
   assert.equal(
-    recording.recordings[0].lifecycle,
+    recordings[0].lifecycle,
     state.failure ? "dry-run-failed" : "dry-run-passed"
   );
 });

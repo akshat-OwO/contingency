@@ -15,6 +15,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { runDirectory } from "./catalog-paths.mjs";
+
 const cliRoot = path.resolve(import.meta.dirname, "../../../../packages/cli");
 const { Effect } = await import(
   pathToFileURL(
@@ -123,7 +125,7 @@ await Effect.runPromise(
     const url = new URL("tools.html", instance.ecommerceUrl).href;
     const run = yield* program(
       "start",
-      `const s = await tools.agent_run_start({inputs:[],referencedFlows:[],requestedTask:"Use tabs, downloads, uploads, clipboard, and profiling",url:${JSON.stringify(url)},operationId:"tools-proof-start",view:"compact"}); return {id:s.id,viewUrl:s.viewUrl};`
+      `const s = await tools.agent_run_start({inputs:[],referencedFlows:[],requestedTask:"Use tabs, downloads, uploads, clipboard, and profiling",url:${JSON.stringify(url)},operationId:"tools-proof-start",view:"compact"}); return {id:s.id,viewUrl:s.viewUrl,runId:s.run.runId};`
     );
     const sid = JSON.stringify(run.id);
     const devtools = (request, tabId) =>
@@ -186,7 +188,11 @@ await Effect.runPromise(
     assert.equal(report?.name, "report.csv");
     assert.equal(report.type, "text/csv");
     assert.equal(report.size, 19);
-    assert.ok(report.path.startsWith(path.join(catalog, "agent-runs")));
+    assert.ok(
+      report.path.startsWith(
+        `${yield* io(() => runDirectory(catalog, run.runId))}${path.sep}`
+      )
+    );
     assert.equal((yield* io(() => stat(report.path))).size, 19);
 
     // Catalog Root uploads go straight in; other paths wait for Allow.

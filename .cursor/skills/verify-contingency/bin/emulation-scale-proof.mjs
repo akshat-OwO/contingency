@@ -84,7 +84,7 @@ await Effect.runPromise(
       const url = new URL("emulation-scale.html", instance.ecommerceUrl).href;
       const teaching = yield* program(
         "teaching-start",
-        `const session = await tools.agent_session_start({ activity: "teaching", clientName: "scale-proof", clientVersion: "1", name: "scale-proof", viewport: {width:1280,height:800,deviceScaleFactor:1}, url: ${JSON.stringify(url)}, operationId: "scale-proof-start" }); await tools.agent_teaching_setup_handoff({sessionId: session.id, operationId: "scale-proof-handoff"}); return {id:session.id,viewUrl:session.viewUrl};`
+        `const session = await tools.agent_session_start({ activity: "teaching", group: "", clientName: "scale-proof", clientVersion: "1", name: "scale-proof", viewport: {width:1280,height:800,deviceScaleFactor:1}, url: ${JSON.stringify(url)}, operationId: "scale-proof-start" }); await tools.agent_teaching_setup_handoff({sessionId: session.id, operationId: "scale-proof-handoff"}); return {id:session.id,viewUrl:session.viewUrl};`
       );
       yield* command("browser", "goto", "--url", teaching.viewUrl);
       yield* command(

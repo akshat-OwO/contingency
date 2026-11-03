@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { recordingDirectory } from "./catalog-paths.mjs";
 import { foldWithPanelReadback } from "./ios-display-proof-device.mjs";
 import {
   awaitProofStage,
@@ -328,11 +329,17 @@ const dispatched = async () => {
   const requests = await backendRequests();
   return requests.filter((entry) => inputCommands.has(entry.command));
 };
-const recordingFile = (recordingId, name) =>
-  path.join(instance.stateDir, "catalog", ".recordings", recordingId, name);
+const recordingFile = async (recordingId, name) =>
+  path.join(
+    await recordingDirectory(
+      path.join(instance.stateDir, "catalog"),
+      recordingId
+    ),
+    name
+  );
 const events = async (recordingId) => {
   const contents = await readFile(
-    recordingFile(recordingId, "events.jsonl"),
+    await recordingFile(recordingId, "events.jsonl"),
     "utf-8"
   );
   return contents
@@ -341,7 +348,9 @@ const events = async (recordingId) => {
     .map((line) => JSON.parse(line));
 };
 const interval = async (recordingId) =>
-  JSON.parse(await readFile(recordingFile(recordingId, "ios-stream.json")));
+  JSON.parse(
+    await readFile(await recordingFile(recordingId, "ios-stream.json"))
+  );
 // Read live mirror packets after Stop: the transport continues, the recording does not.
 const mirrorPackets = async (sessionId, count) => {
   const access = await iosRpc(instance.mcpUrl, "ios.stream.access", {

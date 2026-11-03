@@ -463,7 +463,9 @@ try {
     const events = await readFile(
       path.join(
         instance.stateDir,
-        "catalog/.recordings",
+        "catalog",
+        flowName,
+        "recordings",
         recordingId,
         "events.jsonl"
       ),
@@ -761,7 +763,13 @@ try {
   assert.equal(verified.cleanup._tag, "purged");
   assert.equal(
     existsSync(
-      path.join(instance.stateDir, "catalog/.recordings", recordingId)
+      path.join(
+        instance.stateDir,
+        "catalog",
+        flowName,
+        "recordings",
+        recordingId
+      )
     ),
     false
   );

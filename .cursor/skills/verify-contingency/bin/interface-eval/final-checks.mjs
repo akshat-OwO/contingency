@@ -192,7 +192,7 @@ const dryRun = async (options) => {
       (input) => input.name === "area" && input.changed
     );
   const purged = await stat(
-    path.join(catalog, ".recordings", state.recordingId)
+    path.join(catalog, "eval-delivery", "recordings", state.recordingId)
   ).then(
     () => false,
     (error) => {
