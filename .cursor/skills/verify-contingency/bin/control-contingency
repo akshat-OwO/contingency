@@ -801,11 +801,12 @@ const runPageAction = async (page, appUrl, action, flags) => {
             fits: rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 && rect.width > 0 };
         });
         const narrow = bounds.width < 36 * fontSize;
-        return { width: bounds.width, scrollWidth: element.scrollWidth, viewport: innerWidth, fontSize, narrow,
+        const empty = element.textContent.includes("No Flows yet");
+        return { empty, width: bounds.width, scrollWidth: element.scrollWidth, viewport: innerWidth, fontSize, narrow,
           catalog: catalog !== null, back: back !== undefined, clipped, controls,
           focus: { tag: document.activeElement.tagName, text: document.activeElement.textContent, label: document.activeElement.getAttribute("aria-label") },
           ok: element.scrollWidth <= Math.ceil(bounds.width) + 1 && clipped.length === 0 && controls.every((control) => control.fits) &&
-            (!narrow || (catalog !== null) !== (back !== undefined)) };
+            (!narrow || empty || (catalog !== null) !== (back !== undefined)) };
       });
       const destination = resolveEvidencePath(flags.path);
       mkdirSync(destination, { recursive: true });

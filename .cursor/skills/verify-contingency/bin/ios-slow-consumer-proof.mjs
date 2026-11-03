@@ -123,7 +123,8 @@ try {
       path.join(
         instance.stateDir,
         "catalog",
-        ".recordings",
+        "ios-public-login",
+        "recordings",
         lost.recordingId,
         "ios-stream.json"
       ),

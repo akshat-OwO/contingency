@@ -13,7 +13,7 @@ Read `features/README.md`, then the feature file for the behavior under test, be
 
 Helper: `.cursor/skills/verify-contingency/bin/control-contingency` (executable). Examples below assume it is on `PATH` or invoked by that path. Evidence lands in `.cursor/skills/verify-contingency/artifacts/` and survives cleanup.
 
-To change recipes, fixtures, or harness behavior, follow `.cursor/skills/maintain-verification-skill/SKILL.md`.
+To change recipes, fixtures, or harness behavior, follow the `maintain-verification-skill` skill.
 
 ## Launch
 

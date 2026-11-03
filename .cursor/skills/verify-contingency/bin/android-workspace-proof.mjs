@@ -402,7 +402,13 @@ try {
   // Purge removes the Recording directory once the manifest is final.
   assert.equal(
     existsSync(
-      path.join(instance.stateDir, "catalog/.recordings", recordingId)
+      path.join(
+        instance.stateDir,
+        "catalog",
+        flowName,
+        "recordings",
+        recordingId
+      )
     ),
     false
   );

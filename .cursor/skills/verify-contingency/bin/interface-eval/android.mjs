@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { stampFlowVerification } from "../../../../../packages/cli/src/services/flow-package.ts";
 import { json } from "./runtime.mjs";
 import { workspace } from "./workspace.mjs";
 
@@ -123,10 +124,21 @@ runtime: ${JSON.stringify(requirements)}
   );
   await writeFile(
     path.join(skill, "flow.md"),
-    unverifiedContent.replace(
-      /^---\n/u,
-      '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"android"}\n'
-    )
+    stampFlowVerification(unverifiedContent, {
+      completedAt: "2026-11-02",
+      inputs: [],
+      observableOutcome: "Ready",
+      outcome: "passed",
+      platform: "android",
+      verifiedAt: "2026-11-02",
+    })
+  );
+  const seeded = await options.mcp.operation("agent_flows_list", {});
+  assert.equal(
+    seeded.flows.find((flow) => flow.name === "eval-android-checkout")
+      ?.verified,
+    true,
+    "Android seed is Verified"
   );
   json(path.join(options.directory, "seed.json"), {
     method: "task-proof disposable verified package",

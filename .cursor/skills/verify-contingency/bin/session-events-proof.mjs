@@ -72,6 +72,7 @@ const start = Effect.gen(function* startTeaching() {
     activity: "teaching",
     clientName: "session-event-proof",
     clientVersion: "1",
+    group: "",
     name: "session-event-cart",
     operationId: operation(),
     url,
@@ -112,7 +113,7 @@ const learn = Effect.gen(function* learnRecording() {
       await readFile(
         path.join(
           directory,
-          "state/catalog/.recordings",
+          "state/catalog/session-event-cart/recordings",
           teaching.teaching.recordingId,
           "manifest.json"
         ),
@@ -261,7 +262,9 @@ const finish = Effect.gen(function* finishProof() {
     readFile(path.join(catalog, "session-event-cart/flow.md"), "utf-8")
   );
   assert.ok(verified.includes('"verifiedAt":'));
-  const retained = yield* io(() => readdir(path.join(catalog, ".recordings")));
+  const retained = yield* io(() =>
+    readdir(path.join(catalog, "session-event-cart", "recordings"))
+  );
   assert.ok(!retained.includes(state.recordingId));
   yield* save("catalog-reread.json", { retained, verified });
   const byTool = {};

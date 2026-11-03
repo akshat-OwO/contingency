@@ -51,7 +51,7 @@ await Effect.runPromise(
       names.map(async (name) => {
         await mkdir(path.join(root, name), { recursive: true });
         await writeFile(
-          path.join(root, name, "SKILL.md"),
+          path.join(root, name, "flow.md"),
           `---\nname: ${name}\ndescription: Reconcile invoices and verify the receipt.\nhosts:\n  - accounts.example.com\n---\n\n1. Open https://accounts.example.com/workspaces/enterprise/projects/quarter-end-reconciliation.\n   Done when: the invoices are visible.\n`
         );
       })
@@ -83,7 +83,14 @@ await Effect.runPromise(
       }
       await Promise.all(
         summaries.map(async (summary) => {
-          const directory = path.join(root, "agent-runs", summary.runId);
+          const directory = path.join(
+            root,
+            ...(summary.referencedFlows.length === 1
+              ? summary.referencedFlows.map((flow) => flow.flowName)
+              : []),
+            "runs",
+            summary.runId
+          );
           await mkdir(directory, { recursive: true });
           await writeFile(
             path.join(directory, "summary.json"),
@@ -92,7 +99,12 @@ await Effect.runPromise(
         })
       );
       const recordingId = "recording-retained";
-      const directory = path.join(root, ".recordings", recordingId);
+      const directory = path.join(
+        root,
+        "deleted-cart",
+        "recordings",
+        recordingId
+      );
       await mkdir(directory, { recursive: true });
       await writeFile(
         path.join(directory, "manifest.json"),
@@ -106,10 +118,10 @@ await Effect.runPromise(
             _tag: "flow-drafted",
             draftedAt: taskRunSummary.endedAt,
             readyAt: taskRunSummary.endedAt,
-            skillPath: "deleted-cart",
             startedAt: taskRunSummary.startedAt,
             stoppedAt: taskRunSummary.endedAt,
           },
+          origin: "teaching",
           receipts: [],
           recordingId,
           schemaVersion: 1,
@@ -119,16 +131,16 @@ await Effect.runPromise(
       );
     }
     if (mode === "worst") {
-      const directory = path.join(root, "agent-runs", "agentrun-unreadable");
+      const directory = path.join(root, "runs", "agentrun-unreadable");
       await mkdir(directory, { recursive: true });
       await writeFile(path.join(directory, "summary.json"), "{invalid");
       await mkdir(path.join(state, "catalog", "procedure-wrapping"), {
         recursive: true,
       });
       await writeFile(
-        path.join(state, "catalog", "procedure-wrapping", "SKILL.md"),
+        path.join(state, "catalog", "procedure-wrapping", "flow.md"),
         await readFile(
-          new URL("../procedure-wrapping/SKILL.md", import.meta.url),
+          new URL("../procedure-wrapping/flow.md", import.meta.url),
           "utf-8"
         )
       );

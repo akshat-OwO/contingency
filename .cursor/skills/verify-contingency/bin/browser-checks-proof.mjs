@@ -87,6 +87,7 @@ const start = Effect.gen(function* startTeaching() {
     activity: "teaching",
     clientName: "browser-check-proof",
     clientVersion: "1",
+    group: "",
     name: "browser-checks-submit",
     operationId: operation(),
     url,
@@ -316,8 +317,9 @@ const finish = Effect.gen(function* finishDryRun() {
   const recording = yield* call("agent_teaching_recordings_list", {
     recordingId: state.recordingId,
   });
+  const { recordings } = recording;
   assert.equal(
-    recording.recordings[0].lifecycle,
+    recordings[0].lifecycle,
     state.failure ? "dry-run-failed" : "dry-run-passed"
   );
 });

@@ -4,6 +4,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { stampFlowVerification } from "../../../../../packages/cli/src/services/flow-package.ts";
+import { runDirectory } from "../catalog-paths.mjs";
 import { checkJourney, privacyCheck } from "./final-checks.mjs";
 import { json, unpack } from "./runtime.mjs";
 import { workspace } from "./workspace.mjs";
@@ -115,10 +117,20 @@ export const prepareJourney = async (options) => {
     );
     await writeFile(
       path.join(skill, "flow.md"),
-      unverifiedContent.replace(
-        /^---\n/u,
-        '---\nverification: {"completedAt":"2026-11-02","inputs":[],"observableOutcome":"Ready","outcome":"passed","verifiedAt":"2026-11-02","platform":"web"}\n'
-      )
+      stampFlowVerification(unverifiedContent, {
+        completedAt: "2026-11-02",
+        inputs: [],
+        observableOutcome: "Ready",
+        outcome: "passed",
+        platform: "web",
+        verifiedAt: "2026-11-02",
+      })
+    );
+    const seeded = await mcp.operation("agent_flows_list", {});
+    assert.equal(
+      seeded.flows.find((flow) => flow.name === "eval-checkout")?.verified,
+      true,
+      "Checkout seed is Verified"
     );
     json(path.join(directory, "seed.json"), {
       literalPersisted: false,
@@ -132,6 +144,7 @@ export const prepareJourney = async (options) => {
       activity: "teaching",
       clientName: "interface-eval",
       clientVersion: "1",
+      group: "",
       name: "eval-delivery",
       operationId: op(),
       url: new URL("eval-delivery.html", options.url).href,
@@ -398,7 +411,8 @@ export const prepareJourney = async (options) => {
     if (task === "dry-run" && !verified) {
       const manifestPath = path.join(
         catalog,
-        ".recordings",
+        "eval-delivery",
+        "recordings",
         state.recordingId,
         "manifest.json"
       );
@@ -409,10 +423,8 @@ export const prepareJourney = async (options) => {
       state.dryRunSummary = JSON.parse(
         await readFile(
           path.join(
-            catalog,
-            ".recordings",
-            state.recordingId,
-            "dry-run/summary.json"
+            await runDirectory(catalog, manifest.lifecycle.dryRunSummary.runId),
+            "summary.json"
           ),
           "utf-8"
         )
