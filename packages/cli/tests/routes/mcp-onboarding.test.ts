@@ -168,7 +168,7 @@ it.live(
       const tools = Schema.decodeUnknownSync(ToolList)(
         yield* request("tools/list", {})
       ).result.tools.map((tool) => tool.name);
-      expect(tools).toContain("agent_session_start");
+      expect(tools).toEqual(["agent_code_execute"]);
       expect(tools).not.toContain("agent_example_run_start");
 
       const work = yield* read(request, WORK_PROMPT_URI);
@@ -181,40 +181,36 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
-it.live.each(["native", "single-tool"] as const)(
-  "delivers process-local launch context through prompt resources with %s",
-  (mcpInterface) =>
-    Effect.gen(function* processContext() {
-      const first = yield* connectMcp(
-        yield* servingMcpHttp({
-          demo: true,
-          interface: mcpInterface,
-          launchContext:
-            "## Launch context\n\n- Agent: Codex\n- Working directory: /work/first\n- Catalog Root: /work/first/.contingency\n- Connection: session-only\n- Reconnect command: contingency start --agent codex",
-        })
-      );
-      const second = yield* connectMcp(
-        yield* servingMcpHttp({
-          interface: mcpInterface,
-          launchContext:
-            "## Launch context\n\n- Agent: Claude Code\n- Working directory: /work/second\n- Catalog Root: /work/second/.contingency\n- Connection: registered",
-        })
-      );
-      for (const uri of [WORK_PROMPT_URI, STARTER_PROMPT_URI]) {
-        const prompt = yield* read(first.request, uri);
-        expect(prompt).toContain("- Agent: Codex");
-        expect(prompt).toContain("/work/first/.contingency");
-        expect(prompt).toContain("contingency start --agent codex");
-        expect(prompt).toContain("workspaceUrl");
-        expect(prompt).toContain("viewUrl");
-        expect(prompt).not.toContain("/work/second");
-      }
-      const other = yield* read(second.request, WORK_PROMPT_URI);
-      expect(other).toContain("- Agent: Claude Code");
-      expect(other).toContain("/work/second/.contingency");
-      expect(other).toContain("- Connection: registered");
-      expect(other).not.toContain("/work/first");
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+it.live("delivers process-local launch context through prompt resources", () =>
+  Effect.gen(function* processContext() {
+    const first = yield* connectMcp(
+      yield* servingMcpHttp({
+        demo: true,
+        launchContext:
+          "## Launch context\n\n- Agent: Codex\n- Working directory: /work/first\n- Catalog Root: /work/first/.contingency\n- Connection: session-only\n- Reconnect command: contingency start --agent codex",
+      })
+    );
+    const second = yield* connectMcp(
+      yield* servingMcpHttp({
+        launchContext:
+          "## Launch context\n\n- Agent: Claude Code\n- Working directory: /work/second\n- Catalog Root: /work/second/.contingency\n- Connection: registered",
+      })
+    );
+    for (const uri of [WORK_PROMPT_URI, STARTER_PROMPT_URI]) {
+      const prompt = yield* read(first.request, uri);
+      expect(prompt).toContain("- Agent: Codex");
+      expect(prompt).toContain("/work/first/.contingency");
+      expect(prompt).toContain("contingency start --agent codex");
+      expect(prompt).toContain("workspaceUrl");
+      expect(prompt).toContain("viewUrl");
+      expect(prompt).not.toContain("/work/second");
+    }
+    const other = yield* read(second.request, WORK_PROMPT_URI);
+    expect(other).toContain("- Agent: Claude Code");
+    expect(other).toContain("/work/second/.contingency");
+    expect(other).toContain("- Connection: registered");
+    expect(other).not.toContain("/work/first");
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 const SearchResult = Schema.Struct({
@@ -229,14 +225,13 @@ const isPrompt = (value: string) =>
   value === WORK_PROMPT_URI ||
   value.startsWith("contingency://prompt/");
 
-it.live.each(["native", "single-tool"] as const)(
-  "keeps every prompt and docs reference resolvable in the live %s catalog",
-  (mcpInterface) =>
+it.live(
+  "keeps every prompt and docs reference resolvable in the live catalog",
+  () =>
     Effect.gen(function* promptToolContract() {
       const { request } = yield* connectMcp(
         yield* servingMcpHttp({
           demo: true,
-          interface: mcpInterface,
           systemOne: {
             apiKey: Option.none(),
             first: false,
@@ -245,20 +240,14 @@ it.live.each(["native", "single-tool"] as const)(
           },
         })
       );
-      const names =
-        mcpInterface === "native"
-          ? Schema.decodeUnknownSync(ToolList)(
-              yield* request("tools/list", {})
-            ).result.tools.map(({ name }) => name)
-          : Schema.decodeUnknownSync(SearchResult)(
-              yield* request("tools/call", {
-                name: "agent_code_execute",
-                arguments: {
-                  code: 'return search({ query: "", limit: 100 }).items.map(item => item.path.replace("tools.", ""))',
-                },
-              })
-            ).result.structuredContent.value;
-      // Docs topics serve both interfaces, so they may name the single tool.
+      const names = Schema.decodeUnknownSync(SearchResult)(
+        yield* request("tools/call", {
+          name: "agent_code_execute",
+          arguments: {
+            code: 'return search({ query: "", limit: 100 }).items.map(item => item.path.replace("tools.", ""))',
+          },
+        })
+      ).result.structuredContent.value;
       const catalog = new Set([...names, "agent_code_execute"]);
       const uris = Schema.decodeUnknownSync(ResourceList)(
         yield* request("resources/list", {})
@@ -293,11 +282,6 @@ it.live.each(["native", "single-tool"] as const)(
   60_000
 );
 
-const CatalogProcessResult = Schema.Struct({
-  result: Schema.Struct({
-    structuredContent: Schema.Struct({ process: McpProcessInfo }),
-  }),
-});
 const CodeProcessResult = Schema.Struct({
   result: Schema.Struct({
     structuredContent: Schema.Struct({
@@ -305,28 +289,24 @@ const CodeProcessResult = Schema.Struct({
     }),
   }),
 });
-it.live.each(["native", "single-tool"] as const)(
-  "reports the actual %s interface through agent_catalog_get",
-  (mcpInterface) =>
+it.live(
+  "reports process diagnostics through agent_catalog_get",
+  () =>
     Effect.gen(function* catalogProcess() {
-      const { request } = yield* connectMcp(
-        yield* servingMcpHttp({ interface: mcpInterface })
+      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const response = yield* request("tools/call", {
+        name: "agent_code_execute",
+        arguments: { code: "return await tools.agent_catalog_get({})" },
+      });
+      expect(response).not.toHaveProperty(
+        "result.structuredContent.value.process.mcpInterface"
       );
-      const process =
-        mcpInterface === "native"
-          ? Schema.decodeUnknownSync(CatalogProcessResult)(
-              yield* request("tools/call", {
-                name: "agent_catalog_get",
-                arguments: {},
-              })
-            ).result.structuredContent.process
-          : Schema.decodeUnknownSync(CodeProcessResult)(
-              yield* request("tools/call", {
-                name: "agent_code_execute",
-                arguments: { code: "return await tools.agent_catalog_get({})" },
-              })
-            ).result.structuredContent.value.process;
-      expect(process.mcpInterface).toBe(mcpInterface);
+      expect(response).not.toHaveProperty(
+        "result.structuredContent.value.process.settings.fileInterface"
+      );
+      const { process } =
+        Schema.decodeUnknownSync(CodeProcessResult)(response).result
+          .structuredContent.value;
       expect(process.platforms).toEqual(["browser"]);
       expect(process.settings.sources).toEqual(["defaults"]);
       expect(process.settings.restartRequired).toBe(false);

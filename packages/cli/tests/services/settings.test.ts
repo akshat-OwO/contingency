@@ -116,7 +116,6 @@ describe("every v1 key reaches the Setting it stands in for", () => {
     project: {
       mcp: {
         channel: true,
-        interface: "native",
         port: 7790,
         videoFastForward: "fixed",
       },
@@ -134,7 +133,6 @@ describe("every v1 key reaches the Setting it stands in for", () => {
     Effect.gen(function* mcpKeys() {
       expect(yield* mcpConfig(false).parse(provider)).toEqual({
         channel: true,
-        interface: "native",
         port: 7790,
         videoFastForward: "fixed",
       });
@@ -170,6 +168,15 @@ const failures = (json: Schema.Json, scope: SettingsScope = "user") =>
   });
 
 describe("strict validation", () => {
+  it.each(["native", "single-tool"])(
+    "refuses the removed interface setting %s",
+    (value) => {
+      expect(failures({ mcp: { interface: value } })).toEqual([
+        "/mcp/interface: unknown key",
+      ]);
+    }
+  );
+
   it("accepts $schema", () => {
     expect(
       Result.isSuccess(

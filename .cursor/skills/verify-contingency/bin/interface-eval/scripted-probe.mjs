@@ -3,23 +3,20 @@ import assert from "node:assert/strict";
 
 import { unpack } from "./runtime.mjs";
 
-export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
+export const scriptedProbe = async ({ mcp, task, context, url }) => {
   let id = 0;
   const operation = async (name, args = {}) => {
     const request = {
       id: (id += 1),
       jsonrpc: "2.0",
       method: "tools/call",
-      params: { arguments: args, name },
-    };
-    if (iface === "single-tool") {
-      request.params = {
+      params: {
         arguments: {
           code: `return await tools.${name}(${JSON.stringify(args)});`,
         },
         name: "agent_code_execute",
-      };
-    }
+      },
+    };
     const response = await fetch(mcp.url, {
       body: JSON.stringify(request),
       method: "POST",
@@ -28,14 +25,11 @@ export const scriptedProbe = async ({ mcp, task, context, url, iface }) => {
       throw new Error(await response.text());
     }
     const result = unpack(await response.json());
-    if (iface === "single-tool") {
-      if (result.status === "intervention") {
-        return result;
-      }
-      assert.equal(result.status, "completed", JSON.stringify(result));
-      return result.value;
+    if (result.status === "intervention") {
+      return result;
     }
-    return result;
+    assert.equal(result.status, "completed", JSON.stringify(result));
+    return result.value;
   };
   const op = () => `scripted-probe-${id}`;
   const snap = (sessionId) =>

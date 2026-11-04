@@ -27,20 +27,6 @@ import { GLOBAL_CATALOG_DIRECTORY } from "./flow-catalog.ts";
 export const SETTINGS_FILE = "config.json";
 export const SETTINGS_SCHEMA_FILE = "config.schema.json";
 
-/**
- * Which tools a server registers. `single-tool` registers only
- * `agent_code_execute` and offers every native tool inside programs (ADR
- * 0059); `native` registers each tool directly.
- */
-export const MCP_INTERFACES = ["native", "single-tool"] as const;
-export type McpInterface = (typeof MCP_INTERFACES)[number];
-/**
- * The #461 evaluation adopted the single tool: no correctness regression and
- * fewer incorrect operation choices for both evaluated models. Native stays
- * available for clients that load tools on demand.
- */
-export const DEFAULT_MCP_INTERFACE: McpInterface = "single-tool";
-
 /** How Run videos fast-forward Idle Gaps (ADR 0046). */
 export const VIDEO_FAST_FORWARD_MODES = ["capped", "fixed"] as const;
 
@@ -77,13 +63,6 @@ const McpSettings = Schema.Struct({
       default: false,
       description:
         "Push Claude Code channel events when a session changes. Stdio only.",
-    })
-  ),
-  interface: Schema.optionalKey(
-    Schema.Literals(MCP_INTERFACES).annotate({
-      default: DEFAULT_MCP_INTERFACE,
-      description:
-        "Which tools the server registers: single-tool offers every operation inside agent_code_execute; native registers each tool directly.",
     })
   ),
   port: Schema.optionalKey(
@@ -146,7 +125,6 @@ type Section = Exclude<keyof Settings, "$schema">;
 export const SETTING_ENV = {
   mcp: {
     channel: "CONTINGENCY_MCP_CHANNEL",
-    interface: "CONTINGENCY_MCP_INTERFACE",
     port: "CONTINGENCY_MCP_PORT",
     videoFastForward: "CONTINGENCY_MCP_VIDEO_FAST_FORWARD",
   },
@@ -437,7 +415,6 @@ export interface LoadedSettings {
   readonly provider: ConfigProvider.ConfigProvider;
   readonly warnings: readonly string[];
   readonly sources: readonly string[];
-  readonly fileInterface: McpInterface | undefined;
   /** Decoded files only, retained internally to detect edits without exposing values. */
   readonly snapshot: string;
 }
@@ -468,7 +445,6 @@ export const loadSettings = (input: {
       user === undefined ? undefined : schemaVersionWarning(userFile, user),
     ].filter((warning) => warning !== undefined);
     return {
-      fileInterface: project?.mcp?.interface ?? user?.mcp?.interface,
       provider: makeSettingsProvider({
         env: input.env,
         flags: input.flags,

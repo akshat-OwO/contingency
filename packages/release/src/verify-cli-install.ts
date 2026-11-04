@@ -81,7 +81,7 @@ const InitializeResponse = Schema.Struct({
 });
 /** The packed docs ship beside the bundle and are served as resources. */
 const DocsResponse = Schema.Struct({
-  id: Schema.Literal(2),
+  id: Schema.Literal(5),
   result: Schema.Struct({
     contents: Schema.Tuple([
       Schema.Struct({
@@ -226,12 +226,9 @@ const expectResponse = <S extends Schema.Decoder<unknown>>(
 
 export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
   function* handshake(spec: PackedMcpSpec, directory: string) {
-    // The native catalog serves the packed docs as resources (ADR 0063).
-    const native = yield* openPackedMcp(spec, directory, {
-      CONTINGENCY_MCP_INTERFACE: "native",
-    });
-    yield* native.send({
-      id: 2,
+    const single = yield* openPackedMcp(spec, directory, {});
+    yield* single.send({
+      id: 5,
       jsonrpc: "2.0",
       method: "resources/read",
       params: { uri: "contingency://docs/settings" },
@@ -239,12 +236,8 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
     yield* expectResponse(
       DocsResponse,
       "Packed Settings reference is not served",
-      yield* native.take
+      yield* single.take
     );
-
-    // The default interface is the single tool (ADR 0059, #461). Leave the
-    // variable unset so the packed default itself is checked.
-    const single = yield* openPackedMcp(spec, directory, {});
     yield* single.send({
       id: 2,
       jsonrpc: "2.0",
@@ -253,7 +246,7 @@ export const verifyMcpHandshake = Effect.fn("verifyPackedMcpHandshake")(
     });
     yield* expectResponse(
       InterfaceTools,
-      "Packed default catalog is not the single tool",
+      "Packed catalog is not the single tool",
       yield* single.take
     );
     const interpret = (id: number, program: string) =>

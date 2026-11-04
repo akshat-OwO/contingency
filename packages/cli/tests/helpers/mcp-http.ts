@@ -13,7 +13,6 @@ import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
-import type { McpInterface } from "../../src/services/settings.ts";
 import type { SystemOneConfig } from "../../src/services/system-one.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
@@ -22,15 +21,12 @@ const BASE_URL = "http://127.0.0.1:7783";
 /**
  * Serves the production MCP HTTP layer on an ephemeral loopback port, with
  * the demo store only when `demo` is true, as `contingency mcp --demo` does.
- * Route tests exercise the native tools unless they choose an interface;
- * `"default"` serves whatever `contingency mcp` serves without configuration.
  */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
       readonly demo?: boolean;
       readonly launchContext?: string;
-      readonly interface?: McpInterface | "default";
       readonly systemOne?: SystemOneConfig;
     } = {}
   ) {
@@ -41,10 +37,6 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
       HttpRouter.serve(
         makeMcpHttpLayer(allowedOrigins, {
           demoSite: options.demo === true ? makeDemoSiteLayer() : undefined,
-          interface:
-            options.interface === "default"
-              ? undefined
-              : (options.interface ?? "native"),
           launchContext: options.launchContext,
           systemOne: options.systemOne,
         })
@@ -200,3 +192,14 @@ export const statelessMcp = (origin: string) => {
       return { body, status: response.status };
     });
 };
+
+/** Parameters sent to the sole MCP tool to call one operation. */
+export const operationParams = (
+  name: string,
+  args: { readonly [key: string]: JsonValue }
+) => ({
+  arguments: {
+    code: `return await tools[${JSON.stringify(name)}](${JSON.stringify(args)})`,
+  },
+  name: "agent_code_execute",
+});

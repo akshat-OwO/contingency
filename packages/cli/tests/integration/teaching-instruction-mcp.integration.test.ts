@@ -14,6 +14,7 @@ import { HttpRouter, HttpServer } from "effect/http";
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { makeMcpHttpLayer } from "../../src/services/mcp-http.ts";
+import { operationParams } from "../helpers/mcp-http.ts";
 import { agentProcessLayer, agentViewport } from "./agent-harness.ts";
 import { fixtureServer } from "./harness.ts";
 
@@ -26,9 +27,7 @@ it.live(
       const fixtures = yield* fixtureServer;
       const context = yield* Layer.build(
         HttpRouter.serve(
-          makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {
-            interface: "native",
-          })
+          makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {})
         ).pipe(
           Layer.provideMerge(
             Layer.mergeAll(agentProcessLayer(root), makeDemoSiteLayer())
@@ -92,13 +91,18 @@ it.live(
       );
       const call = (name: string, args: Record<string, Schema.Json>) =>
         Effect.gen(function* callMcpTool() {
-          const payload = yield* post("tools/call", { arguments: args, name });
+          const payload = yield* post(
+            "tools/call",
+            operationParams(name, args)
+          );
           expect(payload, JSON.stringify(payload)).toHaveProperty("result");
           const response = yield* Schema.decodeUnknownEffect(
             Schema.Struct({ result: McpSchema.CallToolResult })
           )(payload);
           expect(response.result.isError, name).not.toBe(true);
-          return response.result.structuredContent;
+          return Schema.decodeUnknownSync(
+            Schema.Struct({ value: Schema.Unknown })
+          )(response.result.structuredContent).value;
         });
       const started = yield* Schema.decodeUnknownEffect(AgentSessionSnapshot)(
         yield* call("agent_session_start", {

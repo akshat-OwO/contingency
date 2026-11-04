@@ -72,9 +72,7 @@ const servingSingleTool = Effect.gen(function* serveSingleTool() {
   });
   const context = yield* Layer.build(
     HttpRouter.serve(
-      makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {
-        interface: "single-tool",
-      })
+      makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {})
     ).pipe(
       Layer.provideMerge(agentProcessLayer(root)),
       Layer.provideMerge(

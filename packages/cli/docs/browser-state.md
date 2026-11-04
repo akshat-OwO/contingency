@@ -4,7 +4,7 @@ Use browser devtools and apply the permissions for the current activity.
 
 ## Devtools
 
-Devtools are available only in single-tool mode through the code tool. With the native interface, use Browser Snapshots and screenshots. Tell the user devtools need `mcp.interface: "single-tool"` and a restart.
+Devtools are available through the code tool. Search their signatures before calling them.
 
 Inspect network, console, and storage when useful.
 

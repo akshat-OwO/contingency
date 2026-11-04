@@ -131,7 +131,7 @@ Run `mcp tools --name <name>` to inspect one tool's raw `tools/list` entry from 
 
 `mcp start` also sets `CONTINGENCY_CATALOG_ROOT` to `$CONTINGENCY_VERIFY_DIR/state/catalog`, so Flows saved with `agent_flow_save` and their Teaching Recordings land in the isolated state rather than the repository's `contingency`. `cleanup` removes them with the rest of that state.
 
-The server reads Settings from `$CONTINGENCY_VERIFY_DIR/state/catalog/config.json` and from `~/.contingency/config.json`; an environment variable on `mcp start` overrides both. Write the project file before `mcp start` to prove a Setting, such as `{"mcp":{"interface":"native"}}`, then read `mcp tools`. An invalid file makes `mcp start` fail with the file path and JSON pointer. Agents read the shipped docs with `mcp resource --uri contingency://docs/<topic>`.
+The server reads Settings from `$CONTINGENCY_VERIFY_DIR/state/catalog/config.json` and from `~/.contingency/config.json`; an environment variable on `mcp start` overrides both. Write the project file before `mcp start` to prove a Setting, such as `{"mcp":{"channel":true}}`, then read `mcp tools`. An invalid file makes `mcp start` fail with the file path and JSON pointer. Agents read the shipped docs with `mcp resource --uri contingency://docs/<topic>`.
 
 ## Evidence
 
@@ -173,7 +173,7 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" browser resize --width 390 --height 844
 "$CONTROL" browser select --role combobox --name "Storage format" --value json
 "$CONTROL" mcp start
-"$CONTROL" mcp tools --name agent_run_assess
+"$CONTROL" mcp tools --name agent_code_execute
 "$CONTROL" mcp call --tool agent_sessions_get
 vpx .cursor/skills/verify-contingency/bin/task-proof.mjs
 "$CONTROL" mcp stop
@@ -184,8 +184,8 @@ vpx .cursor/skills/verify-contingency/bin/task-proof.mjs
 
 ## Interface evaluation
 
-Run one isolated model probe with `vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native`, selecting `cart`, `checkout`, `refuse`, `learn`, `dry-run`, `takeover`, `android`, or `calibration`, `haiku` or `sol`, and `native` or `single-tool`. The runner owns its production MCP server, fixture, driver, Catalog Root, and cleanup. It refuses low memory or swap use. Do not combine it with `launch` or another model stack.
+Run one isolated model probe with `vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku`, selecting `cart`, `checkout`, `refuse`, `learn`, `dry-run`, `takeover`, `android`, or `calibration`, `haiku` or `sol`. The runner owns its production MCP server, fixture, driver, Catalog Root, and cleanup. It refuses low memory or swap use. Do not combine it with `launch` or another model stack.
 
-Run `vpx .cursor/skills/verify-contingency/bin/interface-overhead.mjs` separately, with no model stack. This benchmark owns two production processes, uses matched fixture sessions, and alternates 20 pairs of reads and actions. Raw results remain under `artifacts/interface-eval/`. Use `vpx .cursor/skills/verify-contingency/bin/interface-eval/check.mjs` for metric checks and `vpx .cursor/skills/verify-contingency/bin/interface-eval/summarize.mjs` to reprocess logs without launching models. The five browser journeys seed disposable state and drive their scripted user through the Workspace command dispatcher. Read [the model-task recipe](features/workspace.md#interface-evaluation-model-tasks) for seeds, evidence, and Android prerequisites.
+Raw results remain under `artifacts/interface-eval/`. Use `vpx .cursor/skills/verify-contingency/bin/interface-eval/check.mjs` for metric checks and `vpx .cursor/skills/verify-contingency/bin/interface-eval/summarize.mjs` to reprocess logs without launching models. The five browser journeys seed disposable state and drive their scripted user through the Workspace command dispatcher. Read [the model-task recipe](features/workspace.md#interface-evaluation-model-tasks) for seeds, evidence, and Android prerequisites.
 
 Follow the [evaluation plan](reports/interface-evaluation-plan.md) before authorizing model runs. Read the [round 3 report](reports/interface-evaluation-round-3.md) for driver isolation evidence and the round 4 report for later driver corrections and smoke evidence. A passing task result does not establish valid evaluation context.

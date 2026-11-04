@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* oxlint-disable no-await-in-loop -- Copy each evidence file after owned processes stop. */
-// vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku native
+// vpx .cursor/skills/verify-contingency/bin/interface-eval.mjs cart haiku
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
 import {
@@ -101,14 +101,15 @@ const auditResult = async (journey, result, directory) => {
   json(path.join(directory, "result.json"), result);
 };
 
-const [task, model, iface] = process.argv.slice(2);
+const [task, model] = process.argv.slice(2);
+const iface = "single-tool";
 if (
   !["cart", "calibration", "android", ...browserTasks].includes(task) ||
   !["haiku", "sol", ...Object.keys(opencodeModels)].includes(model) ||
-  !["native", "single-tool"].includes(iface)
+  process.argv.slice(4).some((argument) => !argument.startsWith("--"))
 ) {
   throw new Error(
-    `Usage: interface-eval.mjs <task> haiku|sol|glm|deepseek native|single-tool. Remaining tasks: ${JSON.stringify(remaining)}`
+    `Usage: interface-eval.mjs <task> haiku|sol|glm|deepseek. Remaining tasks: ${JSON.stringify(remaining)}`
   );
 }
 const android = task === "android" ? androidPrerequisite() : null;
@@ -139,7 +140,6 @@ await Effect.runPromise(
       site = await fixture(resources);
       mcp = await stack({
         directory: path.join(temporary, "mcp"),
-        iface,
         resources,
       });
       if (browserTasks.includes(task)) {
@@ -199,7 +199,6 @@ await Effect.runPromise(
           ? await scriptedAndroid(mcp, androidContext.androidSessionId)
           : await scriptedProbe({
               context: journey.context,
-              iface,
               mcp,
               task,
               url: site.url,

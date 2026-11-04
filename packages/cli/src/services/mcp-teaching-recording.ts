@@ -16,7 +16,7 @@ import {
 } from "@contingency/protocol";
 import type { TeachingRecordingManifest } from "@contingency/protocol";
 import { Effect, FileSystem, Layer, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/ai";
+import { Tool, Toolkit } from "effect/ai";
 
 import { isFlowInActiveRun } from "./active-flow-runs.ts";
 import { AgentSession } from "./agent-session.ts";
@@ -435,7 +435,3 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
       }),
   }
 ).pipe(Layer.provide(TeachingRecordingLearningLive));
-
-export const McpTeachingRecordingLayer = McpServer.toolkit(
-  TeachingRecordingTools
-).pipe(Layer.provide(TeachingRecordingToolHandlersLive));

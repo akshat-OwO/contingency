@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0072
 ---
 
 # Evaluate one code tool for all agent capabilities
@@ -44,5 +44,7 @@ OpenCode's interpreter creates fresh execution state in the host process and app
 This decision accepts the design and evaluation scope. Changing the default interface requires passing the adoption criteria.
 
 ## Outcome
+
+The retained native option below is superseded by [ADR 0072](./0072-single-tool-is-the-only-mcp-interface.md). The evaluation results remain historical evidence.
 
 The [#461 evaluation](../../.cursor/skills/verify-contingency/reports/interface-evaluation-2026-10-16.md) passed both criteria. Every scripted journey and recovery proof passed on both interfaces with no behavioral difference. Both evaluated models made fewer incorrect operation choices with the single tool (Haiku 7 against 19, Sol 3 against 16) at no lower task completion. Context usage fell 38% for a client that sends the full catalog and rose 33% for one that loads tools on demand. The single tool is therefore the default, and `CONTINGENCY_MCP_INTERFACE=native` keeps the native catalog for clients it suits better.

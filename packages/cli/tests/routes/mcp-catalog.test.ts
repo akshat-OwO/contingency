@@ -42,92 +42,23 @@ const Initialized = Schema.Struct({
 const bytes = (value: ListedTool | readonly ListedTool[]) =>
   JSON.stringify(value).length;
 
-/**
- * The emitted catalog is what every client that lists tools pays for. These
- * budgets fail the build when a schema change inflates it, the way #326 to
- * #331 grew it from 140 KB to 216 KB without anyone noticing (ADR 0045).
- */
-// The Android tools (about 7.3 KB) joined every catalog when Android left its opt-in (#489).
-// Guided Run start adds its strict input schema and lifecycle guidance (#528).
-// Guided Run questions add one tool and a questionId on the Instruction relay (#529).
-// Confirmed checks reuse the typed BrowserCheck proposal schema (+6 KB, #532).
-// Flow supporting documents add a read-only fetch tool and Run document indexes (#625).
-const CATALOG_BUDGET_BYTES = 104_000;
-const TOOL_BUDGET_BYTES = 12_000;
-
-const READ_ONLY_TOOLS = new Set([
-  "agent_device_sessions_list",
-  "agent_browser_screenshot",
-  "agent_browser_snapshot",
-  "agent_catalog_get",
-  "agent_flows_list",
-  "agent_flow_document_get",
-  "agent_session_get",
-  "agent_session_history_get",
-  "agent_sessions_get",
-  "agent_teaching_keyframe_get",
-  "agent_teaching_recordings_list",
-  "agent_teaching_timeline_get",
-  "open_run",
-]);
-
-// Route tests serve native unless they choose; compare like with like.
-const NATIVE_INSTRUCTIONS = makeMcpInstructions(false, undefined, "native");
-
-it.live("lists the bounded device tools without an opt-in", () =>
-  Effect.gen(function* deviceTools() {
-    const origin = yield* servingMcpHttp();
-    const { tools } = Schema.decodeUnknownSync(ToolList)(
-      yield* (yield* connectMcp(origin)).request("tools/list", {})
-    ).result;
-    const device = tools.filter((tool) =>
-      tool.name.startsWith("agent_device_")
-    );
-    expect(device.map((tool) => tool.name).toSorted()).toEqual([
-      "agent_device_sessions_list",
-      "agent_device_workspace",
-    ]);
-    expect(bytes(device)).toBeLessThanOrEqual(10_000);
-    for (const tool of device) {
-      expect(bytes(tool)).toBeLessThanOrEqual(TOOL_BUDGET_BYTES);
-    }
-  }).pipe(Effect.provide(NodeServices.layer))
-);
-
-it.live("keeps the emitted tool catalog inside its byte budget", () =>
+it.live("keeps the sole emitted tool inside its byte budget", () =>
   Effect.gen(function* catalogBudget() {
-    const origin = yield* servingMcpHttp();
-    const { request } = yield* connectMcp(origin);
+    const { request } = yield* connectMcp(yield* servingMcpHttp());
     const { tools } = Schema.decodeUnknownSync(ToolList)(
       yield* request("tools/list", {})
     ).result;
-
-    expect(tools).toHaveLength(40);
-    expect(tools.map((tool) => tool.name)).toContain("agent_variable_request");
-    expect(tools.map((tool) => tool.name)).toContain("agent_guided_run_start");
-    expect(tools.map((tool) => tool.name)).toContain(
-      "agent_guided_run_question_ask"
-    );
-    expect(tools.map((tool) => tool.name)).not.toContain(
-      "agent_run_variable_request"
-    );
-    expect(tools.map((tool) => tool.name)).not.toContain(
-      "agent_teaching_setup_variable_request"
-    );
-    expect(bytes(tools)).toBeLessThanOrEqual(CATALOG_BUDGET_BYTES);
-    for (const tool of tools) {
-      expect(bytes(tool), tool.name).toBeLessThanOrEqual(TOOL_BUDGET_BYTES);
-      // Shared protocol shapes are referenced, never inlined twice.
-      expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
-        '"captureState"'
-      );
-      expect(JSON.stringify(tool.outputSchema ?? {}), tool.name).not.toContain(
-        '"androidVersion"'
-      );
-    }
-    expect(tools.map((tool) => tool.name)).not.toContain(
-      "agent_run_step_assess"
-    );
+    expect(tools.map(({ name }) => name)).toEqual(["agent_code_execute"]);
+    expect(bytes(tools)).toBeLessThanOrEqual(12_000);
+    expect(tools[0]?.annotations?.readOnlyHint).toBe(false);
+    expect(
+      yield* request("tools/call", {
+        arguments: {},
+        name: "agent_sessions_get",
+      })
+    ).toMatchObject({
+      error: { code: -32_602, message: "Tool 'agent_sessions_get' not found" },
+    });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
@@ -138,80 +69,20 @@ const systemOne = {
   url: "http://127.0.0.1:8009/v1/systemone",
 };
 
-it.live("lists agent_browser_pursue only when System One is configured", () =>
-  Effect.gen(function* pursuitAvailability() {
-    const listed = (origin: string) =>
-      Effect.gen(function* listTools() {
-        const { request } = yield* connectMcp(origin);
-        return Schema.decodeUnknownSync(ToolList)(
-          yield* request("tools/list", {})
-        ).result.tools;
-      });
-    const plain = yield* listed(yield* servingMcpHttp());
-    expect(plain.map((tool) => tool.name)).not.toContain(
-      "agent_browser_pursue"
-    );
-    const configured = yield* listed(yield* servingMcpHttp({ systemOne }));
-    const pursue = configured.find(
-      (tool) => tool.name === "agent_browser_pursue"
-    );
-    expect(configured).toHaveLength(plain.length + 1);
-    expect(pursue?.annotations?.readOnlyHint).toBe(false);
-    expect(bytes(configured)).toBeLessThanOrEqual(CATALOG_BUDGET_BYTES);
-    expect(pursue === undefined ? 0 : bytes(pursue)).toBeLessThanOrEqual(
-      TOOL_BUDGET_BYTES
-    );
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
-);
-
 it("tells the agent to try a Pursuit first only under the experimental flag", () => {
-  expect(makeMcpInstructions(false, systemOne, "native")).toBe(
-    NATIVE_INSTRUCTIONS
-  );
-  const first = makeMcpInstructions(
-    false,
-    { ...systemOne, first: true },
-    "native"
-  );
-  expect(first).toContain("Try agent_browser_pursue for each Flow step");
-  // The experimental line rides on top of the getting-started pointer.
-  expect(first.length).toBeLessThan(850);
   const program = makeMcpInstructions(false, { ...systemOne, first: true });
   expect(program).toContain("Try tools.agent_browser_pursue for each");
   expect(makeMcpInstructions(false, systemOne)).not.toContain("pursue");
 });
 
-it.live("annotates read-only tools so hosts may run them concurrently", () =>
-  Effect.gen(function* readOnlyHints() {
-    const origin = yield* servingMcpHttp();
-    const { request } = yield* connectMcp(origin);
-    const { tools } = Schema.decodeUnknownSync(ToolList)(
-      yield* request("tools/list", {})
-    ).result;
-    for (const tool of tools) {
-      const readOnly = READ_ONLY_TOOLS.has(tool.name);
-      expect(
-        {
-          destructive: tool.annotations?.destructiveHint,
-          readOnly: tool.annotations?.readOnlyHint,
-        },
-        tool.name
-      ).toEqual({
-        destructive: !readOnly && tool.name !== "agent_guided_run_start",
-        readOnly,
-      });
-    }
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
-);
-
-it("builds distinct channel instructions within the server budget", () => {
-  const channel = makeMcpInstructions(true, undefined, "native");
-  expect(channel).not.toBe(NATIVE_INSTRUCTIONS);
+it("builds distinct channel instructions", () => {
+  const channel = makeMcpInstructions(true);
+  expect(channel).not.toBe(MCP_INSTRUCTIONS);
   expect(channel).toContain(
     "meta.sessionId and meta.eventCursor as afterCursor"
   );
   expect(channel).toContain("Otherwise wait with afterCursor and waitMs");
-  expect(channel.length).toBeLessThan(800);
+  expect(channel.length).toBeLessThan(1250);
 });
 
 it.live("sends the context-saving habits as server instructions", () =>
@@ -219,11 +90,8 @@ it.live("sends the context-saving habits as server instructions", () =>
     const origin = yield* servingMcpHttp();
     const { initialized } = yield* connectMcp(origin);
     const decoded = Schema.decodeUnknownSync(Initialized)(initialized);
-    expect(decoded.result.instructions).toBe(NATIVE_INSTRUCTIONS);
-    expect(NATIVE_INSTRUCTIONS.length).toBeLessThan(800);
-    expect(MCP_INSTRUCTIONS).toBe(
-      makeMcpInstructions(false, undefined, "single-tool")
-    );
+    expect(decoded.result.instructions).toBe(MCP_INSTRUCTIONS);
+    expect(MCP_INSTRUCTIONS).toBe(makeMcpInstructions(false));
     // The single tool carries the habits its one schema cannot, and the #461
     // evaluation measured this text; its catalog is a tenth of native's. The
     // getting-started pointer (ADR 0069) adds one sentence to that text.
@@ -244,7 +112,7 @@ it.live.each(["2025-06-18", "2025-11-25"])(
       const { tools } = Schema.decodeUnknownSync(ToolList)(
         yield* request("tools/list", {})
       ).result;
-      expect(tools.map((tool) => tool.name)).toContain("agent_run_start");
+      expect(tools.map((tool) => tool.name)).toEqual(["agent_code_execute"]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
@@ -265,12 +133,15 @@ it.live("serves stateless 2026-07-28 requests without initialize", () =>
     const listed = yield* call("tools/list", {});
     expect(listed.status).toBe(200);
     const { tools } = Schema.decodeUnknownSync(ToolList)(listed.body).result;
-    expect(tools.map((tool) => tool.name)).toContain("agent_run_start");
+    expect(tools.map((tool) => tool.name)).toEqual(["agent_code_execute"]);
 
     const catalog = yield* call(
       "tools/call",
-      { arguments: {}, name: "agent_catalog_get" },
-      "agent_catalog_get"
+      {
+        arguments: { code: "return await tools.agent_catalog_get({})" },
+        name: "agent_code_execute",
+      },
+      "agent_code_execute"
     );
     expect(catalog.status).toBe(200);
     expect(JSON.stringify(catalog.body)).toContain('"isError":false');
@@ -301,10 +172,8 @@ it.live(
         yield* servingMcpHttp(absent === undefined ? {} : { systemOne: absent })
       );
       expect(JSON.stringify(discovered)).toBe(JSON.stringify(baseline));
-      for (const mode of ["native", "single-tool"] as const) {
-        expect(makeMcpInstructions(false, absent, mode)).toBe(
-          makeMcpInstructions(false, undefined, mode)
-        );
-      }
+      expect(makeMcpInstructions(false, absent)).toBe(
+        makeMcpInstructions(false)
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

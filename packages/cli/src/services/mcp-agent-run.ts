@@ -19,8 +19,8 @@ import type {
   AgentSessionSnapshot,
   TaskAgentRunState,
 } from "@contingency/protocol";
-import { Effect, Layer, Option, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/ai";
+import { Effect, Option, Schema } from "effect";
+import { Tool, Toolkit } from "effect/ai";
 import type { Mutable } from "effect/Types";
 
 import { AgentRunStore } from "./agent-run-store.ts";
@@ -632,8 +632,3 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
       };
     }),
 });
-
-/** MCP's typed Interactive Run surface. */
-export const McpAgentRunLayer = McpServer.toolkit(AgentRunTools).pipe(
-  Layer.provide(AgentRunToolHandlersLive)
-);

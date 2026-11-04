@@ -28,7 +28,6 @@ await Effect.runPromise(
     try {
       const mcp = await stack({
         directory: temporary,
-        iface: "native",
         resources,
       });
       const child = resources.start(process.execPath, [
@@ -57,14 +56,28 @@ await Effect.runPromise(
       const [tools, sessions] = await Promise.all([
         request("client-tools", "tools/list", {}),
         request("client-read", "tools/call", {
-          arguments: {},
-          name: "agent_sessions_get",
+          arguments: { code: "return await tools.agent_sessions_get({})" },
+          name: "agent_code_execute",
         }),
       ]);
       assert.equal(tools.id, "client-tools");
       assert.equal(sessions.id, "client-read");
-      assert.equal(tools.result.tools.length, 37);
+      assert.deepEqual(
+        tools.result.tools.map(({ name }) => name),
+        ["agent_code_execute"]
+      );
       assert.ok(!sessions.error);
+      assert.equal(sessions.result.isError, false);
+      const execution = sessions.result.structuredContent;
+      assert.equal(execution.status, "completed");
+      assert.deepEqual(execution.value, { sessions: [] });
+      assert.deepEqual(
+        execution.receipts.map(({ operation, outcome }) => ({
+          operation,
+          outcome,
+        })),
+        [{ operation: "agent_sessions_get", outcome: "succeeded" }]
+      );
       const closed = once(child, "close");
       child.stdin.end();
       await closed;

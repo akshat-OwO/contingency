@@ -76,9 +76,7 @@ import {
 } from "../services/mcp-process-info.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
-  DEFAULT_MCP_INTERFACE,
   loadSettings,
-  MCP_INTERFACES,
   VIDEO_FAST_FORWARD_MODES,
 } from "../services/settings.ts";
 import { resolveSystemOne } from "../services/system-one-discovery.ts";
@@ -148,11 +146,6 @@ export const mcpConfig = (isTerminal: boolean) =>
   Config.all({
     // Claude Code channels are opt-in and stdio-only (ADR 0055).
     channel: Config.Boolean("CHANNEL").pipe(Config.withDefault(false)),
-    // One code tool by default (ADR 0059, #461); "native" registers each
-    // tool directly.
-    interface: Config.Literals(MCP_INTERFACES, "INTERFACE").pipe(
-      Config.withDefault(DEFAULT_MCP_INTERFACE)
-    ),
     port: Config.Number("PORT").pipe(Config.withDefault(isTerminal ? 7777 : 0)),
     // How Run videos fast-forward Idle Gaps (ADR 0046).
     videoFastForward: Config.Literals(
@@ -261,7 +254,6 @@ export const mcpCommand = Command.make(
     // This command is intentionally local-only: it always binds loopback.
     const host = "127.0.0.1";
     const { channel, port, videoFastForward } = config;
-    const mcpInterface = config.interface;
     // Delegated sub-goals, only when this machine names an endpoint (ADR 0057).
     const localServices = Layer.merge(
       LocalSystemOneLive,
@@ -302,7 +294,6 @@ export const mcpCommand = Command.make(
         return { running, state };
       }).pipe(Effect.orElseSucceed(constUndefined));
       return {
-        mcpInterface,
         platforms: yield* availablePlatforms,
         settings: describeSettings(settings, current),
         systemOne: describeSystemOne(systemOne, local),
@@ -452,18 +443,13 @@ export const mcpCommand = Command.make(
           : Layer.build(
               Layer.mergeAll(
                 McpServer.layerStdio({
-                  instructions: makeMcpInstructions(
-                    channel,
-                    systemOne,
-                    mcpInterface
-                  ),
+                  instructions: makeMcpInstructions(channel, systemOne),
                   name: "Contingency",
                   protocols: [McpProtocol.v2025_06_18, McpProtocol.v2025_11_25],
                   version: "0.0.1",
                 }),
                 makeMcpCatalogLayer({
                   demoSite,
-                  interface: mcpInterface,
                   launchContext,
                   processInfo,
                   systemOne,
@@ -511,7 +497,6 @@ export const mcpCommand = Command.make(
             host,
             mcp: makeMcpHttpLayer(allowedOrigins, {
               demoSite,
-              interface: mcpInterface,
               launchContext,
               processInfo,
               systemOne,

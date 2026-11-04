@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Identical native calls through brokerTool on both interfaces. No model runs.
+// Execution Boundary and cancellation proofs through code-tool operations.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
@@ -23,7 +23,7 @@ const instance = JSON.parse(
 const proofId = `parity-${Date.now()}`;
 const artifacts = path.resolve(
   import.meta.dirname,
-  `../artifacts/interface-parity/${proofId}-${phase}-${instance.mcpInterface ?? "single-tool"}`
+  `../artifacts/interface-parity/${proofId}-${phase}-single-tool`
 );
 await mkdir(artifacts, { recursive: true });
 const resources = new Resources(artifacts);
@@ -219,8 +219,8 @@ const cancellation = async () => {
     requests,
   });
   return {
-    deadline: "not applicable to native; interpreter-only",
-    memoryLimit: "not applicable to native; interpreter-only",
+    deadline: "covered by single-tool-proof.mjs",
+    memoryLimit: "covered by single-tool-proof.mjs",
     requests,
   };
 };
@@ -329,7 +329,7 @@ try {
     })
   );
   await save("result.json", {
-    interface: instance.mcpInterface ?? "single-tool",
+    interface: "single-tool",
     phase,
     result,
     status: "passed",

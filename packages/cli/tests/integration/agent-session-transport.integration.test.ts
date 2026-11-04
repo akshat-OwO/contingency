@@ -35,6 +35,7 @@ import {
   AgentSession,
 } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { operationParams } from "../helpers/mcp-http.ts";
 import {
   makeLoopbackRpcClient,
   reservePort,
@@ -248,8 +249,6 @@ const spawnMcpChild = (
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CONTINGENCY_MCP_CHANNEL: String(channel),
-    // This boundary is proven with direct native tool calls.
-    CONTINGENCY_MCP_INTERFACE: "native",
     CONTINGENCY_MCP_PORT: String(port),
   };
   if (port === undefined) {
@@ -655,7 +654,12 @@ const toolResult = (response: JsonRpcResponse) => {
   if (response.error !== undefined) {
     throw new Error(`MCP tool call failed: ${JSON.stringify(response)}`);
   }
-  return Schema.decodeUnknownSync(McpToolResultSchema)(response.result);
+  const result = Schema.decodeUnknownSync(McpToolResultSchema)(response.result);
+  const execution = Schema.decodeUnknownSync(
+    Schema.Struct({ status: Schema.String, value: Schema.Unknown })
+  )(result.structuredContent);
+  expect(execution.status).toBe("completed");
+  return { isError: result.isError, structuredContent: execution.value };
 };
 
 it.live("serves the real MCP stdio child-process boundary", () =>
@@ -707,17 +711,18 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     );
 
     const start = (id: number, operationId: string, name: string) =>
-      sendAndReceive(id, "tools/call", {
-        arguments: {
+      sendAndReceive(
+        id,
+        "tools/call",
+        operationParams("agent_session_start", {
           clientName: "transport-test",
           clientVersion: "1",
           name,
           operationId,
           url: `data:text/html,<title>${name}</title><main>${name}</main>`,
           viewport,
-        },
-        name: "agent_session_start",
-      });
+        })
+      );
     const first = toolResult(yield* start(2, "child-start-first", "first"));
     const second = toolResult(yield* start(3, "child-start-second", "second"));
     const firstSnapshot = Schema.decodeUnknownSync(SessionSnapshotSchema)(
@@ -790,14 +795,11 @@ it.live("serves the real MCP stdio child-process boundary", () =>
             id: 6,
             jsonrpc: "2.0",
             method: "tools/call",
-            params: {
-              arguments: {
-                afterCursor: firstCursor,
-                sessionId: firstSessionId,
-                waitMs: 2000,
-              },
-              name: "agent_session_get",
-            },
+            params: operationParams("agent_session_get", {
+              afterCursor: firstCursor,
+              sessionId: firstSessionId,
+              waitMs: 2000,
+            }),
           })
         );
         const waiting = yield* mcp
@@ -824,10 +826,11 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     );
 
     const close = (id: number, operationId: string, sessionId: string) =>
-      sendAndReceive(id, "tools/call", {
-        arguments: { operationId, sessionId },
-        name: "agent_session_close",
-      });
+      sendAndReceive(
+        id,
+        "tools/call",
+        operationParams("agent_session_close", { operationId, sessionId })
+      );
     const firstClosed = toolResult(
       yield* close(4, "child-close-first", String(firstSessionId))
     );
@@ -838,14 +841,15 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     ).toBe("closed");
 
     const noEvents = toolResult(
-      yield* sendAndReceive(7, "tools/call", {
-        arguments: {
+      yield* sendAndReceive(
+        7,
+        "tools/call",
+        operationParams("agent_session_get", {
           afterCursor: firstCursor,
           sessionId: firstSessionId,
           waitMs: 0,
-        },
-        name: "agent_session_get",
-      })
+        })
+      )
     );
     expect(
       Schema.decodeUnknownSync(EventWaitSchema)(noEvents.structuredContent)
@@ -855,10 +859,11 @@ it.live("serves the real MCP stdio child-process boundary", () =>
     // Keep the second browser live until owner shutdown. The MCP boundary
     // still sees it as running after the first explicit close.
     const live = toolResult(
-      yield* sendAndReceive(5, "tools/call", {
-        arguments: {},
-        name: "agent_sessions_get",
-      })
+      yield* sendAndReceive(
+        5,
+        "tools/call",
+        operationParams("agent_sessions_get", {})
+      )
     );
     const liveSessions = Schema.decodeUnknownSync(SessionListingSchema)(
       live.structuredContent
