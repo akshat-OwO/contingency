@@ -14,15 +14,6 @@
           "description": "Push Claude Code channel events when a session changes. Stdio only.",
           "default": false
         },
-        "interface": {
-          "type": "string",
-          "enum": [
-            "native",
-            "single-tool"
-          ],
-          "description": "Which tools the server registers: single-tool offers every operation inside agent_code_execute; native registers each tool directly.",
-          "default": "single-tool"
-        },
         "port": {
           "type": "integer",
           "minimum": 0,

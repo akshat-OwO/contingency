@@ -36,17 +36,13 @@ import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 
 /**
- * The single-tool interface (ADR 0059, #460), the default since the #461
- * evaluation; `CONTINGENCY_MCP_INTERFACE=native` restores the native tools. It
- * replaces every native tool with
- * `agent_code_execute`, which runs one program in a fresh OpenCode
- * interpreter process. Each native tool becomes an operation the program
- * calls as `tools.<name>(input)`, dispatched through the same strict handler
- * an MCP call reaches, so validation, Domain Scope, Confirmation, and
- * operation-id replay are exactly the native tools'.
+ * The MCP interface exposes `agent_code_execute`, which runs one program
+ * in a fresh OpenCode interpreter process. Operations are called as
+ * `tools.<name>(input)` through strict handlers that enforce validation,
+ * Domain Scope, Confirmation, and operation-id replay.
  */
 
-/** One native tool a program may call, bound to its handlers. */
+/** One operation a program may call, bound to its handlers. */
 export interface InterpreterOperationEntry {
   readonly name: string;
   readonly description: string;

@@ -35,7 +35,7 @@ it("omits the superseded Dry Run report tool", () => {
  * it is touched.
  */
 const untouchedServices = Layer.mergeAll(
-  Layer.succeed(McpProcessDiagnostics, { read: defaultProcessInfo("native") }),
+  Layer.succeed(McpProcessDiagnostics, { read: defaultProcessInfo() }),
   Layer.mock(AgentSession, {}),
   Layer.mock(AgentRunStore, {}),
   Layer.mock(FlowCatalog, {

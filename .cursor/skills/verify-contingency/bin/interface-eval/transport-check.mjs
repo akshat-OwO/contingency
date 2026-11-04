@@ -28,7 +28,6 @@ await Effect.runPromise(
     try {
       const mcp = await stack({
         directory: temporary,
-        iface: "native",
         resources,
       });
       const child = resources.start(process.execPath, [

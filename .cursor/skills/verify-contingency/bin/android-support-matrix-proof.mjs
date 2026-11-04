@@ -425,7 +425,6 @@ try {
   await run(process.execPath, [controlPath, "mcp", "start"], {
     env: {
       ...process.env,
-      CONTINGENCY_MCP_INTERFACE: "native",
       NODE_OPTIONS: `--import=${hook}`,
     },
   });
@@ -440,8 +439,14 @@ try {
     mcpServerPid: instance.mcpServerPid,
     startedAt: new Date().toISOString(),
   };
-  const tools = await control("mcp", "tools");
-  assert.match(tools, /agent_device_workspace/u, "Android needs no opt-in.");
+  const signatures = await tool("agent_code_execute", {
+    code: 'return search({ query: "agent_device_workspace" });',
+  });
+  assert.match(
+    JSON.stringify(signatures),
+    /agent_device_workspace/u,
+    "Android needs no opt-in."
+  );
 
   // API levels outside 30 through 36 are refused at selection, before the device.
   receipt.limits.apiBelow30 = await refusal(

@@ -9,7 +9,11 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 
-import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
+import {
+  connectMcp,
+  operationParams,
+  servingMcpHttp,
+} from "../helpers/mcp-http.ts";
 import type { JsonValue } from "../helpers/mcp-http.ts";
 import {
   agentProcessLayer,
@@ -24,7 +28,9 @@ const operation = OperationId.make;
 const CallResult = Schema.Struct({
   result: Schema.Struct({
     isError: Schema.Boolean,
-    structuredContent: Schema.optional(Schema.Unknown),
+    structuredContent: Schema.Struct({
+      value: Schema.optional(Schema.Unknown),
+    }),
   }),
 });
 
@@ -42,17 +48,17 @@ const callOver =
     args: { readonly [key: string]: JsonValue }
   ) =>
     Effect.gen(function* callTool() {
-      const body = yield* request("tools/call", { arguments: args, name });
+      const body = yield* request("tools/call", operationParams(name, args));
       const { result } = Schema.decodeUnknownSync(CallResult)(body);
       expect(result.isError, JSON.stringify(body)).toBe(false);
       if (name.endsWith("_start")) {
-        expect(JSON.stringify(result.structuredContent)).toMatch(
+        expect(JSON.stringify(result.structuredContent.value)).toMatch(
           /^\{"nextAction":/u
         );
       }
       return {
-        bytes: JSON.stringify(result.structuredContent).length,
-        value: Schema.decodeUnknownSync(schema)(result.structuredContent),
+        bytes: JSON.stringify(result.structuredContent.value).length,
+        value: Schema.decodeUnknownSync(schema)(result.structuredContent.value),
       };
     });
 
@@ -162,23 +168,23 @@ it.live("answers compact sessions and pages the history they omit", () =>
     const sessionId = started.value.id;
 
     for (const [index, text] of ["Ada", "Grace", "Linus"].entries()) {
-      yield* request("tools/call", {
-        arguments: {
+      yield* request(
+        "tools/call",
+        operationParams("agent_browser_act", {
           action: { text: "Checkout", type: "wait_for_text" },
           operationId: `compact-wait-${index}`,
           sessionId,
-        },
-        name: "agent_browser_act",
-      });
-      yield* request("tools/call", {
-        arguments: {
+        })
+      );
+      yield* request(
+        "tools/call",
+        operationParams("agent_browser_act", {
           action: { type: "navigate", url: fixture.url("checkout.html") },
           intent: { objective: `Reload before typing ${text}` },
           operationId: `compact-reload-${index}`,
           sessionId,
-        },
-        name: "agent_browser_act",
-      });
+        })
+      );
     }
 
     const full = yield* call(AgentSessionSnapshot, "agent_session_get", {
@@ -221,10 +227,14 @@ it.live("answers compact sessions and pages the history they omit", () =>
       full.value.timeline.map((entry) => entry.id).toReversed()
     );
 
-    const expired = yield* request("tools/call", {
-      arguments: { before: "attempt-gone", kind: "timeline", sessionId },
-      name: "agent_session_history_get",
-    });
+    const expired = yield* request(
+      "tools/call",
+      operationParams("agent_session_history_get", {
+        before: "attempt-gone",
+        kind: "timeline",
+        sessionId,
+      })
+    );
     expect(JSON.stringify(expired)).toContain(
       "agent_session_history_cursor_expired"
     );
@@ -242,10 +252,13 @@ it.live("answers compact sessions and pages the history they omit", () =>
         assessment: expect.objectContaining({ outcome: "working" }),
       })
     );
-    yield* request("tools/call", {
-      arguments: { operationId: "compact-complete", sessionId },
-      name: "agent_run_complete",
-    });
+    yield* request(
+      "tools/call",
+      operationParams("agent_run_complete", {
+        operationId: "compact-complete",
+        sessionId,
+      })
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

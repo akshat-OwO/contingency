@@ -60,44 +60,38 @@ it("finds the topics beside the bundle and in a source checkout", () => {
   expect(resolveDocsRoot("/pkg/src/services")).toBe("/pkg/docs");
 });
 
-for (const mcpInterface of ["native", "single-tool"] as const) {
-  it.live(
-    `serves every topic as a resource on the ${mcpInterface} interface`,
-    () =>
-      live(
-        Effect.gen(function* resources() {
-          const { request } = yield* connectMcp(
-            yield* servingMcpHttp({ interface: mcpInterface })
-          );
-          const listed = Schema.decodeUnknownSync(ResourceList)(
-            yield* request("resources/list", {})
-          ).result.resources;
-          for (const { topic } of DOC_TOPICS) {
-            expect(listed).toContainEqual({
-              mimeType: "text/markdown",
-              uri: docUri(topic),
-            });
-            const read = Schema.decodeUnknownSync(ResourceRead)(
-              yield* request("resources/read", { uri: docUri(topic) })
-            ).result.contents;
-            expect(read.map(({ text }) => text)).toEqual([
-              yield* readTopic(topic),
-            ]);
-          }
-        })
-      ),
-    HANG_GUARD_MS
-  );
-}
+it.live(
+  "serves every topic as a resource",
+  () =>
+    live(
+      Effect.gen(function* resources() {
+        const { request } = yield* connectMcp(yield* servingMcpHttp());
+        const listed = Schema.decodeUnknownSync(ResourceList)(
+          yield* request("resources/list", {})
+        ).result.resources;
+        for (const { topic } of DOC_TOPICS) {
+          expect(listed).toContainEqual({
+            mimeType: "text/markdown",
+            uri: docUri(topic),
+          });
+          const read = Schema.decodeUnknownSync(ResourceRead)(
+            yield* request("resources/read", { uri: docUri(topic) })
+          ).result.contents;
+          expect(read.map(({ text }) => text)).toEqual([
+            yield* readTopic(topic),
+          ]);
+        }
+      })
+    ),
+  HANG_GUARD_MS
+);
 
 it.live(
   "reads a topic with docs_get and finds topics with search",
   () =>
     live(
       Effect.gen(function* docsGet() {
-        const { request } = yield* connectMcp(
-          yield* servingMcpHttp({ interface: "single-tool" })
-        );
+        const { request } = yield* connectMcp(yield* servingMcpHttp({}));
         const run = (code: string) =>
           request("tools/call", {
             arguments: { code },

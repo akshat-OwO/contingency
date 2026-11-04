@@ -30,8 +30,8 @@ import type {
   AgentSessionId,
   AgentActSequenceResult,
 } from "@contingency/protocol";
-import { Effect, Layer, Result, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/ai";
+import { Effect, Result, Schema } from "effect";
+import { Tool, Toolkit } from "effect/ai";
 
 import type { AgentSessionError } from "./agent-session.ts";
 import { AgentSession } from "./agent-session.ts";
@@ -822,9 +822,4 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
         }),
     };
   })
-);
-
-/** MCP's typed tool surface over the process-owned Agent Session service. */
-export const McpAgentSessionLayer = McpServer.toolkit(AgentSessionTools).pipe(
-  Layer.provide(AgentSessionToolHandlersLive)
 );

@@ -21,7 +21,7 @@ Both files use one schema. For each Setting, the first source that names it wins
 
 `contingency start` and agents registered with `contingency register` start the MCP server with `CONTINGENCY_MCP_PORT=0`, so concurrent sessions never compete for one port. A file's `mcp.port` applies only when you run `contingency mcp` yourself.
 
-Settings load when `contingency mcp` starts; after changing Settings such as `mcp.interface`, restart the agent and any background service.
+Settings load when `contingency mcp` starts; after changing Settings, restart the agent and any background service.
 
 ## Create a file
 
@@ -40,7 +40,6 @@ The `contingency mcp` server.
 | Key | Environment variable | Type | Default | Description |
 | --- | --- | --- | --- | --- |
 | `mcp.channel` | `CONTINGENCY_MCP_CHANNEL` | boolean | `false` | Push Claude Code channel events when a session changes. Stdio only. |
-| `mcp.interface` | `CONTINGENCY_MCP_INTERFACE` | `"native"` or `"single-tool"` | `"single-tool"` | Which tools the server registers: single-tool offers every operation inside agent_code_execute; native registers each tool directly. |
 | `mcp.port` | `CONTINGENCY_MCP_PORT` | integer (0–65535) | — | The port `contingency mcp` serves the Workspace and /mcp on. 0 binds any free port. Defaults to 7777 from a terminal and 0 otherwise; `contingency start` and registered agents always pass 0. |
 | `mcp.videoFastForward` | `CONTINGENCY_MCP_VIDEO_FAST_FORWARD` | `"capped"` or `"fixed"` | `"capped"` | How Run videos fast-forward Idle Gaps: capped shortens each gap to a ceiling; fixed plays every gap at one speed. |
 
@@ -83,3 +82,7 @@ These Settings may be set in the environment or in the user file, but not in a p
 | `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` |
 
 A Variable value, such as a password a Flow uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).
+
+## Migration from interface selection
+
+Single-tool is the sole MCP interface. Delete `mcp.interface` from config.json, including explicit `"single-tool"` values, and remove `CONTINGENCY_MCP_INTERFACE` from your environment. The obsolete config property fails validation.

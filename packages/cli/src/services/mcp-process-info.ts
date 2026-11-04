@@ -3,18 +3,15 @@ import { Context, Effect, Option, Schema } from "effect";
 import { AndroidWorkspace } from "./android-workspace.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
 import type { LocalSystemOneState } from "./local-system-one.ts";
-import { DEFAULT_MCP_INTERFACE } from "./settings.ts";
-import type { LoadedSettings, McpInterface } from "./settings.ts";
+import type { LoadedSettings } from "./settings.ts";
 import type { SystemOneConfig } from "./system-one.ts";
 
 /** Safe diagnostics only: never serialize Settings, endpoints, or credentials. */
 export const McpProcessInfo = Schema.Struct({
-  mcpInterface: Schema.Literals(["native", "single-tool"]),
   platforms: Schema.Array(Schema.Literals(["browser", "android", "ios"])),
   settings: Schema.Struct({
     changedSinceStart: Schema.Boolean,
     diagnostic: Schema.NullOr(Schema.String),
-    fileInterface: Schema.NullOr(Schema.Literals(["native", "single-tool"])),
     restartRequired: Schema.Boolean,
     sources: Schema.Array(Schema.String),
   }),
@@ -75,8 +72,6 @@ export const describeSettings = (
     current !== undefined &&
     started.snapshot !== current.snapshot;
   const unreadable = started !== undefined && current === undefined;
-  // The file's interface alone proves nothing: an environment variable or flag
-  // may override it, so only an edit since startup requires a restart.
   const restartRequired = changed || unreadable;
   let diagnostic: string | null = null;
   if (unreadable) {
@@ -89,7 +84,6 @@ export const describeSettings = (
   return {
     changedSinceStart: changed,
     diagnostic,
-    fileInterface: current?.fileInterface ?? null,
     restartRequired,
     sources:
       started === undefined || started.sources.length === 0
@@ -110,13 +104,9 @@ export const availablePlatforms = Effect.gen(function* readPlatforms() {
   return platforms;
 });
 
-export const defaultProcessInfo = (
-  mcpInterface: McpInterface = DEFAULT_MCP_INTERFACE,
-  systemOne?: SystemOneConfig
-) =>
+export const defaultProcessInfo = (systemOne?: SystemOneConfig) =>
   availablePlatforms.pipe(
     Effect.map((platforms) => ({
-      mcpInterface,
       platforms,
       settings: describeSettings(),
       systemOne: describeSystemOne(systemOne),

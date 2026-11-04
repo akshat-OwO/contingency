@@ -174,13 +174,12 @@ const makeOnboardingResourcesLayer = (launchContext?: string) =>
 
 /**
  * The `start` surface for one server. A demo store, when supplied, adds the
- * onboarding prompt, examples, and Example tool; without one the server
+ * onboarding prompt and example resources; without one the server
  * neither binds the store nor offers its tools.
  */
 export const makeMcpStartLayer = <R = never>(
   demoSite: Layer.Layer<DemoSiteService, never, R> | undefined,
   options: {
-    readonly exampleTool?: boolean;
     readonly launchContext?: string | undefined;
   } = {}
 ) =>
@@ -188,12 +187,7 @@ export const makeMcpStartLayer = <R = never>(
     ? makeWorkPromptLayer(options.launchContext)
     : Layer.mergeAll(
         makeWorkPromptLayer(options.launchContext),
-        Layer.merge(
-          makeOnboardingResourcesLayer(options.launchContext),
-          options.exampleTool === false
-            ? Layer.empty
-            : McpServer.toolkit(OnboardingTools).pipe(
-                Layer.provide(OnboardingToolHandlersLive)
-              )
-        ).pipe(Layer.provide(demoSite))
+        makeOnboardingResourcesLayer(options.launchContext).pipe(
+          Layer.provide(demoSite)
+        )
       );

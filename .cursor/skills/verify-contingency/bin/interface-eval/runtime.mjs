@@ -354,7 +354,7 @@ export const unpack = (result) => {
   }
   return body;
 };
-export const stack = async ({ directory, iface, resources }) => {
+export const stack = async ({ directory, resources }) => {
   const hooks = {};
   await mkdir(directory, { recursive: true });
   const portServer = createServer();
@@ -369,7 +369,6 @@ export const stack = async ({ directory, iface, resources }) => {
       env: {
         ...process.env,
         CONTINGENCY_CATALOG_ROOT: path.join(directory, "catalog"),
-        CONTINGENCY_MCP_INTERFACE: iface,
         CONTINGENCY_MCP_PORT: port,
         NODE_ENV: "production",
       },
@@ -529,9 +528,6 @@ export const stack = async ({ directory, iface, resources }) => {
       })
     );
   const operation = async (name, args = {}) => {
-    if (iface === "native") {
-      return call(name, args);
-    }
     const result = await call("agent_code_execute", {
       code: `return await tools.${name}(${JSON.stringify(args)});`,
     });

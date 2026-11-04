@@ -42,12 +42,6 @@ const MissingSession = Schema.fromJsonString(
   })
 );
 const Sessions = Schema.fromJsonString(Schema.Array(Schema.Json));
-const Input = Schema.Struct({
-  properties: Schema.Struct({
-    platform: Schema.Struct({ enum: Schema.Array(Schema.String) }),
-  }),
-  required: Schema.Array(Schema.String),
-});
 const artifacts = path.join(
   root,
   ".cursor/skills/verify-contingency/artifacts/device-mcp"
@@ -87,17 +81,25 @@ try {
   const listed = await control("mcp", "tools");
   assert.equal(listed.code, 0);
   const { tools } = Schema.decodeUnknownSync(Tools)(listed.stdout);
-  const device = tools.filter(({ name }) => name.startsWith("agent_device_"));
-  assert.deepEqual(device.map(({ name }) => name).toSorted(), [
-    "agent_device_sessions_list",
-    "agent_device_workspace",
-  ]);
-  assert.ok(Buffer.byteLength(JSON.stringify(tools)) <= 102_000);
-  assert.ok(Buffer.byteLength(JSON.stringify(device)) <= 10_000);
-  for (const tool of device) {
-    const input = Schema.decodeUnknownSync(Input)(tool.inputSchema);
-    assert.ok(input.required.includes("platform"));
-    assert.deepEqual(input.properties.platform.enum, ["android", "ios"]);
+  assert.deepEqual(
+    tools.map(({ name }) => name),
+    ["agent_code_execute"]
+  );
+  const searched = await call("agent_code_execute", {
+    code: 'return search({ query: "agent_device", limit: 10 }).items.filter((item) => item.path.startsWith("tools.agent_device_"));',
+  });
+  assert.equal(searched.code, 0);
+  const execution = JSON.parse(searched.stdout);
+  assert.equal(execution.status, "completed");
+  const device = execution.value;
+  assert.deepEqual(
+    device.map(({ path: operationPath }) => operationPath).toSorted(),
+    ["tools.agent_device_sessions_list", "tools.agent_device_workspace"]
+  );
+  for (const operation of device) {
+    assert.match(operation.signature, /platform:/u);
+    assert.match(operation.signature, /"android"/u);
+    assert.match(operation.signature, /"ios"/u);
   }
   const iosListed = await call("agent_device_sessions_list", {
     platform: "ios",

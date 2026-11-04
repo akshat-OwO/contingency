@@ -100,14 +100,14 @@ it.each(["starting", "ready", "crashed"] as const)(
 );
 
 it.effect(
-  "reports loaded paths, defaults, disk edits and overridden file interfaces without reloading the active interface",
+  "reports loaded paths, defaults and disk edits without reloading Settings",
   () =>
     Effect.gen(function* settingsDiagnostics() {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.makeTempDirectoryScoped();
       const input = {
         catalogRoot: path.join(root, "catalog"),
-        env: { CONTINGENCY_MCP_INTERFACE: "native" },
+        env: {},
         home: path.join(root, "home"),
       };
       const defaults = yield* loadSettings(input);
@@ -120,25 +120,23 @@ it.effect(
       const user = userSettingsPath(input.home);
       yield* fs.makeDirectory(path.dirname(project), { recursive: true });
       yield* fs.makeDirectory(path.dirname(user), { recursive: true });
-      yield* fs.writeFileString(project, '{"mcp":{"interface":"native"}}');
-      yield* fs.writeFileString(user, '{"mcp":{"interface":"single-tool"}}');
+      yield* fs.writeFileString(project, '{"mcp":{"port":7790}}');
+      yield* fs.writeFileString(user, '{"mcp":{"port":7791}}');
       const started = yield* loadSettings(input);
       expect(describeSettings(started, started)).toMatchObject({
-        fileInterface: "native",
         restartRequired: false,
         sources: [project, user],
       });
-      yield* fs.writeFileString(project, '{"mcp":{"interface":"single-tool"}}');
+      yield* fs.writeFileString(project, '{"mcp":{"port":7791}}');
       const current = yield* loadSettings(input);
       expect(describeSettings(started, current)).toMatchObject({
         changedSinceStart: true,
         diagnostic: expect.stringContaining(
           "Settings changed since the server started"
         ),
-        fileInterface: "single-tool",
         restartRequired: true,
       });
-      // CONTINGENCY_MCP_INTERFACE overrides the file, so no restart is needed.
+      // A freshly loaded snapshot has no pending restart.
       expect(describeSettings(current, current)).toMatchObject({
         changedSinceStart: false,
         restartRequired: false,

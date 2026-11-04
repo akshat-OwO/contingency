@@ -13,7 +13,7 @@ Follow each tool's contract and `nextAction`.
 ## Process capabilities
 
 - `process.platforms` identifies available platforms. Offer only those platforms.
-- `process.mcpInterface` identifies the interface. In single-tool mode, search signatures and call named operations through the code tool.
+- Search signatures and call named operations through `agent_code_execute`.
 - `process.settings` reports settings diagnostics. If `restartRequired` is true, relay its diagnostic and ask the user to restart the agent and any background service.
 - `process.systemOne` reports System One availability. When available, the Run guide explains Pursuits.
 

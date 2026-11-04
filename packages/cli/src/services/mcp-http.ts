@@ -4,15 +4,10 @@ import { HttpRouter, HttpServerResponse } from "effect/http";
 
 import { makeHostMiddleware } from "../routes/rpc.ts";
 import type { DemoSiteService } from "./demo-site.ts";
-import {
-  AgentRunToolHandlersLive,
-  AgentRunTools,
-  McpAgentRunLayer,
-} from "./mcp-agent-run.ts";
+import { AgentRunToolHandlersLive, AgentRunTools } from "./mcp-agent-run.ts";
 import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
-  McpAgentSessionLayer,
 } from "./mcp-agent-session.ts";
 import { McpAuthoringResourcesLayer } from "./mcp-authoring-resources.ts";
 import {
@@ -22,7 +17,6 @@ import {
 import {
   AgentCatalogToolHandlersLive,
   AgentCatalogTools,
-  McpAgentCatalogLayer,
 } from "./mcp-catalog.ts";
 import {
   makeMcpCodeInterpreterLayer,
@@ -31,7 +25,6 @@ import {
 import {
   DeviceWorkspaceToolHandlersLive,
   DeviceWorkspaceTools,
-  McpDeviceWorkspaceLayer,
 } from "./mcp-device-workspace.ts";
 import {
   DocsToolHandlersLive,
@@ -49,35 +42,18 @@ import {
   McpProcessDiagnostics,
   defaultProcessInfo,
 } from "./mcp-process-info.ts";
+import { PursuitToolHandlersLive, PursuitTools } from "./mcp-pursuit.ts";
 import {
-  McpPursuitLayer,
-  PursuitToolHandlersLive,
-  PursuitTools,
-} from "./mcp-pursuit.ts";
-import {
-  McpTeachingRecordingLayer,
   TeachingRecordingToolHandlersLive,
   TeachingRecordingTools,
 } from "./mcp-teaching-recording.ts";
-import { DEFAULT_MCP_INTERFACE } from "./settings.ts";
-import type { McpInterface } from "./settings.ts";
 import { makeSystemOneLayer } from "./system-one.ts";
 import type { SystemOneConfig } from "./system-one.ts";
-
-/**
- * `agent_browser_pursue`, only when the machine names a System One endpoint.
- * Without one the catalog is unchanged ([ADR 0057](../../../../docs/adr/0057-system-one-pursues-delegated-sub-goals.md)).
- */
-export const makeMcpPursuitLayer = (systemOne: SystemOneConfig | undefined) =>
-  systemOne === undefined
-    ? Layer.empty
-    : McpPursuitLayer.pipe(Layer.provide(makeSystemOneLayer(systemOne)));
 
 export interface McpCatalogOptions<R> {
   readonly processInfo?: Effect.Effect<typeof McpProcessInfo.Type> | undefined;
   readonly launchContext?: string | undefined;
   readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
-  readonly interface?: McpInterface | undefined;
   readonly systemOne?: SystemOneConfig | undefined;
 }
 
@@ -86,27 +62,11 @@ export interface McpCatalogOptions<R> {
  * and HTTP adapters so both offer the same catalog.
  */
 const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
-  if ((options.interface ?? DEFAULT_MCP_INTERFACE) === "native") {
-    return Layer.mergeAll(
-      McpAgentSessionLayer,
-      McpDeviceWorkspaceLayer,
-      McpAgentCatalogLayer,
-      McpAgentRunLayer,
-      McpTeachingRecordingLayer,
-      McpAuthoringResourcesLayer,
-      McpDocsResourcesLayer,
-      makeMcpStartLayer(options.demoSite, {
-        launchContext: options.launchContext,
-      }),
-      makeMcpPursuitLayer(options.systemOne)
-    );
-  }
   const { demoSite, systemOne } = options;
   return Layer.mergeAll(
     McpAuthoringResourcesLayer,
     McpDocsResourcesLayer,
     makeMcpStartLayer(demoSite, {
-      exampleTool: false,
       launchContext: options.launchContext,
     }),
     makeMcpCodeInterpreterLayer(
@@ -136,16 +96,14 @@ const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
   );
 };
 
-/** Both interfaces receive the same process-owned diagnostics. */
+/** The catalog receives process-owned diagnostics. */
 export const makeMcpCatalogLayer = <R = never>(
   options: McpCatalogOptions<R> = {}
 ) =>
   makeCatalogLayer(options).pipe(
     Layer.provide(
       Layer.succeed(McpProcessDiagnostics, {
-        read:
-          options.processInfo ??
-          defaultProcessInfo(options.interface, options.systemOne),
+        read: options.processInfo ?? defaultProcessInfo(options.systemOne),
       })
     )
   );
@@ -154,11 +112,11 @@ export const makeMcpCatalogLayer = <R = never>(
 export const MCP_HTTP_PATH = "/mcp";
 
 /**
- * The same habits for the single-tool interface, where each tool named above
- * is an operation a program awaits rather than a tool the host calls.
+ * Server instructions a host loads once per connection. Operation descriptions
+ * keep the rules for each call.
  */
-const makeSingleToolInstructions = (
-  channel: boolean,
+export const makeMcpInstructions = (
+  channel = false,
   systemOne?: SystemOneConfig
 ) =>
   [
@@ -179,37 +137,6 @@ const makeSingleToolInstructions = (
     "After your final tools.agent_run_assess, call tools.agent_run_complete.",
   ].join(" ");
 
-/**
- * Server instructions a host loads once per connection. They carry only the
- * habits that save context or turns across every workflow; tool descriptions
- * keep the rules for each call.
- */
-export const makeMcpInstructions = (
-  channel = false,
-  systemOne?: SystemOneConfig,
-  mcpInterface: McpInterface = DEFAULT_MCP_INTERFACE
-) =>
-  mcpInterface === "single-tool"
-    ? makeSingleToolInstructions(channel, systemOne)
-    : [
-        "Contingency drives a browser for Teaching, Runs, and Dry Runs.",
-        `Read ${GETTING_STARTED_URI} first.`,
-        "Native devtools unavailable.",
-        "Share viewUrl as a Workspace link before acting in a new session or requesting user input.",
-        'Pass view:"compact" to tools that answer with a session; page older attempts and decisions with agent_session_history_get.',
-        "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
-        "Use agent_browser_act_sequence for known steps; it stops where you must look again.",
-        // Experimental (ADR 0057): only the instructions change, never the Run.
-        ...(systemOne?.first === true
-          ? ["Try agent_browser_pursue for each Flow step first."]
-          : []),
-        channel
-          ? "On channel events, call agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
-          : "After asking the user to act in the Workspace, call agent_session_get with afterCursor and waitMs instead of asking them to report back.",
-        "After your final agent_run_assess, call agent_run_complete.",
-        "Read-only tools can run concurrently.",
-      ].join(" ");
-
 export const MCP_INSTRUCTIONS = makeMcpInstructions();
 
 /**
@@ -224,11 +151,7 @@ export const makeMcpHttpLayer = <R = never>(
   Layer.mergeAll(
     McpServer.layerHttp({
       allowedOrigins: [...allowedOrigins],
-      instructions: makeMcpInstructions(
-        false,
-        options.systemOne,
-        options.interface
-      ),
+      instructions: makeMcpInstructions(false, options.systemOne),
       name: "Contingency",
       path: MCP_HTTP_PATH,
       // The first adapter answers clients that negotiate an unknown revision,

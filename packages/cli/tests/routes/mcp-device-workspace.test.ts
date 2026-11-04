@@ -4,12 +4,21 @@ import { Effect, Schema } from "effect";
 
 import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import { DeviceWorkspaceTools } from "../../src/services/mcp-device-workspace.ts";
-import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
+import {
+  connectMcp,
+  operationParams,
+  servingMcpHttp,
+} from "../helpers/mcp-http.ts";
 
 const Answer = Schema.Struct({
   result: Schema.Struct({
     content: Schema.Array(Schema.Struct({ text: Schema.String })),
     isError: Schema.Boolean,
+    structuredContent: Schema.Struct({
+      status: Schema.String,
+      value: Schema.optional(Schema.Unknown),
+      diagnostic: Schema.optional(Schema.Struct({ message: Schema.String })),
+    }),
   }),
 });
 it("requires an explicit device platform on both tools", () => {
@@ -28,27 +37,27 @@ it.live("routes public iOS calls to iOS without accessing Android", () =>
   Effect.gen(function* iosPublic() {
     const { request } = yield* connectMcp(yield* servingMcpHttp());
     const listed = Schema.decodeUnknownSync(Answer)(
-      yield* request("tools/call", {
-        name: "agent_device_sessions_list",
-        arguments: { platform: "ios" },
-      })
+      yield* request(
+        "tools/call",
+        operationParams("agent_device_sessions_list", { platform: "ios" })
+      )
     ).result;
     expect(listed.isError).toBe(false);
-    expect(JSON.parse(listed.content[0]?.text ?? "null")).toEqual([]);
+    expect(listed.structuredContent.value).toEqual([]);
     const read = Schema.decodeUnknownSync(Answer)(
-      yield* request("tools/call", {
-        name: "agent_device_workspace",
-        arguments: {
+      yield* request(
+        "tools/call",
+        operationParams("agent_device_workspace", {
           platform: "ios",
           command: { _tag: "read", sessionId: "agent-ios-absent" },
-        },
-      })
+        })
+      )
     ).result;
-    expect(read.isError).toBe(true);
-    expect(JSON.parse(read.content[0]?.text ?? "null")).toEqual({
-      code: "ios_workspace_refused",
-      message: "Unknown iOS session.",
-    });
+    expect(read.isError).toBe(false);
+    expect(read.structuredContent.status).toBe("program_failed");
+    expect(read.structuredContent.diagnostic?.message).toContain(
+      "Unknown iOS session."
+    );
   }).pipe(
     Effect.provideService(IosWorkspace, {
       activeRunFlowNames: () => Effect.succeed([]),

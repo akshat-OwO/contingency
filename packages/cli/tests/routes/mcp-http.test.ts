@@ -3,6 +3,7 @@ import { createServer, request } from "node:http";
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
+import { Tool } from "effect/ai";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
@@ -10,6 +11,7 @@ import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
@@ -41,9 +43,7 @@ const serving = Effect.fn("servingMcpHttp")(function* servingMcpHttp(
   }
   const allowedOrigins = new Set(["http://127.0.0.1:7783"]);
   const context = yield* Layer.build(
-    HttpRouter.serve(
-      makeMcpHttpLayer(allowedOrigins, { interface: "native" })
-    ).pipe(
+    HttpRouter.serve(makeMcpHttpLayer(allowedOrigins, {})).pipe(
       Layer.provide(
         Layer.mergeAll(
           makeAgentSessionLayer({
@@ -120,7 +120,10 @@ inputs:
         id: 2,
         jsonrpc: "2.0",
         method: "tools/call",
-        params: { arguments: {}, name: "agent_flows_list" },
+        params: {
+          arguments: { code: "return await tools.agent_flows_list({})" },
+          name: "agent_code_execute",
+        },
       })
     );
     expect(response.status).toBe(200);
@@ -140,13 +143,16 @@ inputs:
         },
       ],
     };
-    expect(payload).toEqual({
+    expect(payload).toMatchObject({
       id: 2,
       jsonrpc: "2.0",
       result: {
-        content: [{ text: JSON.stringify(listing), type: "text" }],
         isError: false,
-        structuredContent: listing,
+        structuredContent: {
+          status: "completed",
+          value: listing,
+          receipts: [{ operation: "agent_flows_list", outcome: "succeeded" }],
+        },
       },
     });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -251,46 +257,20 @@ it.live(
           (tool) => tool.name === "agent_run_step_assess"
         )
       ).toBe(false);
-      const assessment = decoded.result.tools.find(
-        (tool) => tool.name === "agent_run_assess"
-      );
-      expect(assessment?.description).toContain(
+      expect(decoded.result.tools.map(({ name }) => name)).toEqual([
+        "agent_code_execute",
+      ]);
+      const assessment = AgentRunTools.tools.agent_run_assess;
+      expect(assessment.description).toContain(
         '{"kind":"attempt","id":"action-123"}'
       );
-      expect(assessment?.description).toContain(
+      expect(assessment.description).toContain(
         '{"kind":"snapshot","id":"snapshot-2"}'
       );
-      expect(JSON.stringify(assessment?.inputSchema)).not.toContain('"allOf"');
-      expect(assessment?.inputSchema).toEqual(
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            evidence: expect.objectContaining({
-              minItems: 1,
-              type: "array",
-              items: expect.objectContaining({
-                type: "object",
-                required: ["id", "kind"],
-                properties: expect.objectContaining({
-                  id: expect.objectContaining({ type: "string" }),
-                  kind: {
-                    type: "string",
-                    enum: ["snapshot", "attempt", "artifact"],
-                  },
-                }),
-              }),
-            }),
-          }),
-        })
-      );
-
-      for (const name of ["agent_run_assess", "agent_run_finding"]) {
-        const taskTool = decoded.result.tools.find(
-          (tool) => tool.name === name
-        );
-        const schema = JSON.stringify(taskTool?.inputSchema);
+      for (const tool of [assessment, AgentRunTools.tools.agent_run_finding]) {
+        const schema = JSON.stringify(Tool.getJsonSchema(tool));
         expect(schema).toContain('"enum":["snapshot","attempt","artifact"]');
         expect(schema).not.toContain('"screenshot"');
-        expect(schema).toContain('"artifact"');
       }
 
       const invalid = yield* postMcp(
@@ -302,28 +282,31 @@ it.live(
           method: "tools/call",
           params: {
             arguments: {
-              evidence: ["snapshot-2"],
-              explanation: "The page loaded.",
-              operationId: "invalid-evidence",
-              outcome: "working",
-              sessionId: "agent-example",
+              code: 'return await tools.agent_run_assess({ evidence: ["snapshot-2"], explanation: "The page loaded.", operationId: "invalid-evidence", outcome: "working", sessionId: "agent-example" })',
             },
-            name: "agent_run_assess",
+            name: "agent_code_execute",
           },
         })
       );
       expect(invalid.status).toBe(200);
       const invalidJson: unknown = yield* Effect.promise(() => invalid.json());
-      expect(invalidJson).toEqual(
-        expect.objectContaining({
-          error: expect.objectContaining({
-            code: -32_602,
-            message: expect.stringContaining(
-              'Evidence item needs {kind,id}: kind must be "snapshot", "attempt", or "artifact"'
-            ),
-          }),
-        })
-      );
-      expect(JSON.stringify(invalidJson)).toContain('[\\"evidence\\"][0]');
+      expect(invalidJson).toMatchObject({
+        result: {
+          isError: false,
+          structuredContent: {
+            status: "program_failed",
+            receipts: [
+              {
+                operation: "agent_run_assess",
+                outcome: "failed",
+                message: expect.stringContaining(
+                  "Evidence item needs {kind,id}"
+                ),
+              },
+            ],
+          },
+        },
+      });
+      expect(JSON.stringify(invalidJson)).toContain("evidence");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

@@ -4,8 +4,8 @@ import {
   IosWorkspaceCommand,
   IosWorkspaceSelection,
 } from "@contingency/protocol";
-import { Effect, Layer, Option, Schema } from "effect";
-import { McpServer, Tool, Toolkit } from "effect/ai";
+import { Effect, Option, Schema } from "effect";
+import { Tool, Toolkit } from "effect/ai";
 
 import { AndroidWorkspace } from "./android-workspace.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
@@ -132,7 +132,3 @@ export const DeviceWorkspaceToolHandlersLive = DeviceWorkspaceTools.toLayer({
         .pipe(Effect.mapError((cause) => deviceFailure(cause)));
     }),
 });
-
-export const McpDeviceWorkspaceLayer = McpServer.toolkit(
-  DeviceWorkspaceTools
-).pipe(Layer.provide(DeviceWorkspaceToolHandlersLive));

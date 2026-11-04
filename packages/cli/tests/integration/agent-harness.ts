@@ -461,7 +461,7 @@ export const agentProcessLayer = (
             : catalogOptions
         ),
         Layer.succeed(McpProcessDiagnostics, {
-          read: defaultProcessInfo("native"),
+          read: defaultProcessInfo(),
         }),
         runStore,
         recordingStore,

@@ -93,7 +93,7 @@ export const renderSettingsReference = (): string => {
     "",
     "`contingency start` and agents registered with `contingency register` start the MCP server with `CONTINGENCY_MCP_PORT=0`, so concurrent sessions never compete for one port. A file's `mcp.port` applies only when you run `contingency mcp` yourself.",
     "",
-    "Settings load when `contingency mcp` starts; after changing Settings such as `mcp.interface`, restart the agent and any background service.",
+    "Settings load when `contingency mcp` starts; after changing Settings, restart the agent and any background service.",
     "",
     "## Create a file",
     "",
@@ -144,6 +144,10 @@ export const renderSettingsReference = (): string => {
     ),
     "",
     "A Variable value, such as a password a Flow uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).",
+    "",
+    "## Migration from interface selection",
+    "",
+    'Single-tool is the sole MCP interface. Delete `mcp.interface` from config.json, including explicit `"single-tool"` values, and remove `CONTINGENCY_MCP_INTERFACE` from your environment. The obsolete config property fails validation.',
     ""
   );
   return lines.join("\n");

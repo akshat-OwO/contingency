@@ -81,7 +81,6 @@ const singleTool = (options: Options = {}) =>
   Effect.gen(function* connectSingleTool() {
     const origin = yield* servingMcpHttp({
       ...options,
-      interface: "single-tool",
     });
     return yield* connectMcp(origin);
   });
@@ -114,13 +113,9 @@ const live = <A, E, R>(self: Effect.Effect<A, E, R>) =>
 const SEARCH_ALL =
   'return search({ query: "", limit: 100 }).items.map((item) => item.path.replace("tools.", ""))';
 
-/** What a native server registers, and what the same config offers inside programs. */
+/** The supported operation contract stays available inside programs. */
 const coverage = (options: Options) =>
-  Effect.gen(function* compareCatalogs() {
-    const native = yield* connectMcp(yield* servingMcpHttp(options));
-    const { tools } = Schema.decodeUnknownSync(ToolNames)(
-      yield* native.request("tools/list", {})
-    ).result;
+  Effect.gen(function* inspectCatalog() {
     const { request } = yield* singleTool(options);
     const listed = Schema.decodeUnknownSync(ToolNames)(
       yield* request("tools/list", {})
@@ -133,7 +128,6 @@ const coverage = (options: Options) =>
     ).result.structuredContent;
     return {
       listed,
-      native: tools.map(({ name }) => name).toSorted(),
       offered: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
         searched?.value
       ).toSorted(),
@@ -141,70 +135,75 @@ const coverage = (options: Options) =>
   });
 
 it.live(
-  "serves the single tool by default and the native catalog only when chosen",
-  () =>
-    live(
-      Effect.gen(function* defaultCatalog() {
-        const names = Effect.fn("names")(function* names(
-          mcpInterface: "default" | "native"
-        ) {
-          const { request } = yield* connectMcp(
-            yield* servingMcpHttp({ interface: mcpInterface })
-          );
-          const { tools } = Schema.decodeUnknownSync(ToolNames)(
-            yield* request("tools/list", {})
-          ).result;
-          return tools.map((tool) => tool.name);
-        });
-        expect(yield* names("default")).toEqual(["agent_code_execute"]);
-        const native = yield* names("native");
-        expect(native).not.toContain("agent_code_execute");
-        expect(native).toContain("agent_session_start");
-      })
-    ),
-  HANG_GUARD_MS
-);
-
-it.live(
-  "offers every native capability through one tool, keeping resources and prompts",
+  "offers all supported operations through the sole tool, keeping resources and prompts",
   () =>
     live(
       Effect.gen(function* everyCapability() {
         const base = yield* coverage({});
         expect(base.listed).toEqual(["agent_code_execute"]);
-        expect(base.offered).toEqual(
-          [...base.native, "agent_browser_devtools", "docs_get"].toSorted()
-        );
-        expect(base.native).not.toContain("agent_browser_devtools");
-        // Docs are resources natively; programs also read them as an operation.
-        expect(base.native).not.toContain("docs_get");
-        expect(base.offered).toEqual(
-          expect.arrayContaining([
-            "agent_device_sessions_list",
-            "agent_device_workspace",
-          ])
-        );
-        // Conditional capabilities follow their prerequisites.
+        expect(base.offered).toEqual([
+          "agent_browser_act",
+          "agent_browser_act_sequence",
+          "agent_browser_devtools",
+          "agent_browser_resume",
+          "agent_browser_screenshot",
+          "agent_browser_snapshot",
+          "agent_catalog_get",
+          "agent_catalog_select",
+          "agent_device_sessions_list",
+          "agent_device_workspace",
+          "agent_flow_decide",
+          "agent_flow_document_get",
+          "agent_flow_dry_run_start",
+          "agent_flow_run_start",
+          "agent_flow_save",
+          "agent_flows_list",
+          "agent_guided_run_question_ask",
+          "agent_guided_run_start",
+          "agent_pending_decision_resolve",
+          "agent_run_assess",
+          "agent_run_complete",
+          "agent_run_finding",
+          "agent_run_scan",
+          "agent_run_scan_scope",
+          "agent_run_start",
+          "agent_run_update",
+          "agent_session_close",
+          "agent_session_get",
+          "agent_session_history_get",
+          "agent_session_start",
+          "agent_session_takeover_request",
+          "agent_sessions_get",
+          "agent_teaching_instruction_record",
+          "agent_teaching_keyframe_get",
+          "agent_teaching_recording_claim",
+          "agent_teaching_recordings_list",
+          "agent_teaching_setup_handoff",
+          "agent_teaching_timeline_get",
+          "agent_variable_enter",
+          "agent_variable_request",
+          "docs_get",
+          "open_run",
+        ]);
         const demo = yield* coverage({ demo: true });
         expect(demo.offered).toEqual(
-          [...demo.native, "agent_browser_devtools", "docs_get"].toSorted()
+          [...base.offered, "agent_example_run_start"].toSorted()
         );
-        expect(demo.offered).toContain("agent_example_run_start");
         const pursuit = yield* coverage({ systemOne: SYSTEM_ONE });
         expect(pursuit.offered).toEqual(
-          [...pursuit.native, "agent_browser_devtools", "docs_get"].toSorted()
+          [...base.offered, "agent_browser_pursue"].toSorted()
         );
-        expect(pursuit.offered).toContain("agent_browser_pursue");
-
-        const native = yield* connectMcp(yield* servingMcpHttp({ demo: true }));
         const single = yield* singleTool({ demo: true });
-        for (const method of ["resources/list", "prompts/list"]) {
-          expect(
-            Schema.decodeUnknownSync(Listed)(yield* single.request(method, {}))
-          ).toEqual(
-            Schema.decodeUnknownSync(Listed)(yield* native.request(method, {}))
-          );
-        }
+        const { resources } = Schema.decodeUnknownSync(Listed)(
+          yield* single.request("resources/list", {})
+        ).result;
+        expect(resources?.map(({ uri }) => uri)).toContain(
+          "contingency://docs/settings"
+        );
+        const { prompts } = Schema.decodeUnknownSync(Listed)(
+          yield* single.request("prompts/list", {})
+        ).result;
+        expect(prompts?.length).toBeGreaterThan(0);
         const { instructions } = Schema.decodeUnknownSync(Initialized)(
           single.initialized
         ).result;
@@ -238,7 +237,7 @@ it.live(
 );
 
 it.live(
-  "dispatches an operation through the native handler",
+  "dispatches an operation through its shared handler",
   () =>
     live(
       Effect.gen(function* dispatch() {
@@ -300,33 +299,22 @@ it.live(
 );
 
 it.live.each(["android", "ios"] as const)(
-  "words a %s refusal exactly as the native tool does",
+  "returns a %s refusal without leaking a stack",
   (platform) =>
     live(
-      Effect.gen(function* sameRefusal() {
-        const command = { _tag: "read", sessionId: "agent-android-missing" };
-        const native = yield* connectMcp(yield* servingMcpHttp());
-        const nativeAnswer = Schema.decodeUnknownSync(Execution)(
-          yield* native.request("tools/call", {
-            arguments: { command, platform },
-            name: "agent_device_workspace",
-          })
-        ).result;
-        expect(nativeAnswer.isError).toBe(true);
+      Effect.gen(function* refusal() {
         const answer = yield* execute(`
-          try {
-            await tools.agent_device_workspace({ platform: ${JSON.stringify(platform)}, command: ${JSON.stringify(command)} });
-            return "accepted";
-          } catch (error) {
-            return error.message;
-          }
-        `);
-        const [refusal] = nativeAnswer.content;
-        expect(answer.structuredContent?.value).toBe(refusal?.text);
-        expect(answer.structuredContent?.receipts[0]?.message).toBe(
-          refusal?.text
+      try { await tools.agent_device_workspace({ platform: ${JSON.stringify(platform)}, command: { _tag: "read", sessionId: "agent-device-missing" } }); }
+      catch (error) { return error.message; }
+    `);
+        const message = Schema.decodeUnknownSync(Schema.String)(
+          answer.structuredContent?.value
         );
-        expect(refusal?.text).not.toContain("    at ");
+        expect(message).toContain(
+          "Device Workspace is unavailable in this process."
+        );
+        expect(message).not.toContain("    at ");
+        expect(answer.structuredContent?.receipts[0]?.message).toBe(message);
       })
     ),
   HANG_GUARD_MS
