@@ -1,0 +1,28 @@
+{
+  "capturedAt": "2026-11-04T14:55:45.692811+00:00",
+  "sourceHead": "b92a4b96e60390f5e43c9d1ceea18284a1bbe7b4",
+  "dirtyAtProvenanceCapture": [
+    "?? docs/reports/performance-audit-2026-11-04.md",
+    "?? docs/reports/performance-audit-2026-11-04/"
+  ],
+  "lockfileSha256": "524080a4975a316956903a195cd0aa5684ee68a99fd467945de76601115b1bbf",
+  "note": "Initial provenance capture preceded the fully tracked reruns. This closure metadata was refreshed afterward. Source HEAD is unchanged; only audit artifacts were added. Exact per-command run records are authoritative.",
+  "commands": [
+    "vpx packages/cli/node_modules/.contingency-census.ts",
+    "vpx packages/cli/node_modules/.contingency-output-census.ts",
+    "vpx --expose-gc packages/cli/node_modules/.contingency-retention-probe.ts",
+    "vp exec --filter @contingencyhq/cli vitest run tests/services/execution-values.test.ts tests/services/session-operation-ledger.test.ts tests/services/browser-devtools.test.ts --maxWorkers=1",
+    "vp exec turbo run quality"
+  ],
+  "tests": {
+    "files": 3,
+    "passed": 13,
+    "durationMs": 488,
+    "note": "488 ms rerun is retained in service-tests.log; earlier unlogged run was 554 ms with the same 13 passes."
+  },
+  "quality": "Final report quality rerun recorded verbatim in quality.log; its completion and exit code are authoritative.",
+  "ownedResources": "All census/probe children recorded in census-runs.json and service-test child recorded in verification.json exited normally. quality.log records the final quality owner PID and exit. No persistent descendants, ports, browsers, servers or devices were launched. Temporary execution scripts were removed.",
+  "censusRuns": "census-runs.json now records exact reruns, source/stdout digests, PIDs, timestamps, exits and cleanup.",
+  "initialCapturedAt": "2026-11-04T14:37:51.594129+00:00",
+  "reviewedReportSha256": "533be0fa65acd8e6b57fe823380f7458c6e27acede0651d38f99dbeb34f194c6"
+}

@@ -1,5 +1,5 @@
 import type {
-  BrowserNetworkRequest,
+  BrowserNetworkRequestSummary,
   TeachingBrowserAttachment,
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
@@ -22,7 +22,7 @@ const Field = ({
 }: {
   readonly value: Schema.Json;
   readonly path: readonly (string | number)[];
-  readonly request: BrowserNetworkRequest;
+  readonly request: BrowserNetworkRequestSummary;
   readonly attach: (attachment: TeachingBrowserAttachment) => void;
   readonly depth: number;
 }) => {
@@ -101,7 +101,7 @@ export const BrowserResponseFields = ({
   attach,
 }: {
   readonly body: string;
-  readonly request: BrowserNetworkRequest;
+  readonly request: BrowserNetworkRequestSummary;
   readonly attach: (attachment: TeachingBrowserAttachment) => void;
 }) => {
   if (body.length > 65_536) {

@@ -1,0 +1,113 @@
+{
+  "revision": "b92a4b96e60390f5e43c9d1ceea18284a1bbe7b4",
+  "node": "v24.22.2",
+  "methodology": "schema census and schema-validated synthetic session, no server",
+  "groups": [
+    {
+      "name": "docs",
+      "count": 1,
+      "offeredBytes": 2009
+    },
+    {
+      "name": "session",
+      "count": 15,
+      "offeredBytes": 25201
+    },
+    {
+      "name": "run",
+      "count": 9,
+      "offeredBytes": 9075
+    },
+    {
+      "name": "catalog",
+      "count": 7,
+      "offeredBytes": 16422
+    },
+    {
+      "name": "devtools",
+      "count": 1,
+      "offeredBytes": 9447
+    },
+    {
+      "name": "devices",
+      "count": 2,
+      "offeredBytes": 9643
+    },
+    {
+      "name": "recording",
+      "count": 7,
+      "offeredBytes": 9375
+    },
+    {
+      "name": "onboarding",
+      "count": 1,
+      "offeredBytes": 829
+    },
+    {
+      "name": "pursuit",
+      "count": 1,
+      "offeredBytes": 1872
+    }
+  ],
+  "base": {
+    "count": 42,
+    "offeredBytes": 81166,
+    "namesOnlyBytes": 2108
+  },
+  "largest": [
+    {
+      "name": "agent_browser_devtools",
+      "totalBytes": 9445,
+      "inputSchemaBytes": 7038,
+      "descriptionBytes": 2342
+    },
+    {
+      "name": "agent_device_workspace",
+      "totalBytes": 9377,
+      "inputSchemaBytes": 8994,
+      "descriptionBytes": 318
+    },
+    {
+      "name": "agent_teaching_instruction_record",
+      "totalBytes": 8138,
+      "inputSchemaBytes": 7548,
+      "descriptionBytes": 514
+    },
+    {
+      "name": "agent_guided_run_question_ask",
+      "totalBytes": 4848,
+      "inputSchemaBytes": 4198,
+      "descriptionBytes": 578
+    },
+    {
+      "name": "agent_browser_act",
+      "totalBytes": 4697,
+      "inputSchemaBytes": 3202,
+      "descriptionBytes": 1433
+    },
+    {
+      "name": "agent_browser_act_sequence",
+      "totalBytes": 3897,
+      "inputSchemaBytes": 3347,
+      "descriptionBytes": 481
+    },
+    {
+      "name": "agent_guided_run_start",
+      "totalBytes": 3773,
+      "inputSchemaBytes": 2703,
+      "descriptionBytes": 1005
+    },
+    {
+      "name": "agent_session_start",
+      "totalBytes": 3293,
+      "inputSchemaBytes": 2855,
+      "descriptionBytes": 376
+    }
+  ],
+  "codeToolDescriptionAndInputBytes": 1325,
+  "syntheticSession": {
+    "timelineEntries": 200,
+    "fullBytes": 29658,
+    "compactBytes": 585
+  }
+}

@@ -158,6 +158,20 @@ it.live(
           const decoded = Schema.decodeUnknownSync(BrowserNetworkRequestDetail)(
             detail
           );
+          const tabs = yield* service.tabs(sessionId);
+          const tab = tabs.find((item) => item.active);
+          if (tab === undefined) {
+            return yield* Effect.die("Missing active tab");
+          }
+          const listed = yield* service.networkRequests(sessionId, tab.tabId);
+          const row = listed.find(
+            (item) => item.requestId === request.requestId
+          );
+          expect(row?.status).toBe(500);
+          expect(row).not.toHaveProperty("headers");
+          expect(row).not.toHaveProperty("responseHeaders");
+          expect(row).not.toHaveProperty("postData");
+          expect(row).not.toHaveProperty("responseBody");
           expect(decoded.status).toBe(500);
           expect(decoded.headers["authorization"]).toContain(secret);
           expect(decoded.responseHeaders?.["set-cookie"]).toContain(

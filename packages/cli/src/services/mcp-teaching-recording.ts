@@ -1,7 +1,6 @@
 import {
   Variable,
   AgentRunTaskInput,
-  compactAgentSession,
   FlowName,
   FlowDiagnostic,
   FlowFile,
@@ -31,6 +30,7 @@ import {
   encodeUnpublishedRuntimeRequirements,
   encodeUnpublishedSession,
   sessionViewParameter,
+  sessionInView,
   workspaceLinkGuidance,
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
@@ -303,9 +303,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           })),
           recordingId: started.manifest.recordingId,
           session: yield* encodeUnpublishedSession(
-            params.view === "compact"
-              ? compactAgentSession(started.session)
-              : started.session
+            sessionInView(started.session, params.view)
           ),
         };
       }),

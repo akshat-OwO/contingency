@@ -5,9 +5,12 @@ import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import type { Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { TestClock } from "effect/testing";
 
 import {
   INTERPRETER_LIMITS,
+  collectInterpreterStderr,
+  awaitInterpreterStderr,
   resolveInterpreterEntry,
   runInterpreterProgram,
 } from "../../src/services/code-interpreter.ts";
@@ -423,6 +426,9 @@ it.live(
         });
         expect(outcome.status).toBe("crashed");
         expect(outcome.diagnostic?.message).toContain("exit code 7");
+        expect(outcome.diagnostic?.message).toContain(
+          "final fatal child diagnostic"
+        );
         expect(outcome.receipts).toEqual([]);
       })
     ),
@@ -493,4 +499,101 @@ it.live(
       }).pipe(Effect.scoped)
     ),
   HANG_GUARD_MS
+);
+
+it.effect("bounds stderr across large and fragmented diagnostic chunks", () =>
+  Effect.gen(function* boundedDiagnostics() {
+    const suffix = "fatal diagnostic at the end";
+    const bytes = new TextEncoder();
+    const result = yield* Stream.make(
+      bytes.encode("x".repeat(INTERPRETER_LIMITS.stderrBytes * 4)),
+      bytes.encode("y".repeat(100)),
+      bytes.encode(suffix)
+    ).pipe(collectInterpreterStderr);
+    expect(Buffer.byteLength(result)).toBe(INTERPRETER_LIMITS.stderrBytes);
+    expect(result.endsWith(suffix)).toBe(true);
+  })
+);
+
+it.live(
+  "drains noisy child stderr to EOF while retaining only its diagnostic tail",
+  () =>
+    guarded(
+      Effect.gen(function* noisyChild() {
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        // Synchronous writes exceed pipe capacity: exit requires the reader
+        // to drain every chunk, including bytes beyond its retention limit.
+        const child = yield* spawner.spawn(
+          ChildProcess.make(process.execPath, [
+            "-e",
+            'const fs = require("node:fs"); for (let i = 0; i < 128; i++) fs.writeSync(2, Buffer.alloc(65536, 120)); fs.writeSync(2, "final child diagnostic");',
+          ])
+        );
+        const drained = yield* child.stderr.pipe(
+          collectInterpreterStderr,
+          awaitInterpreterStderr,
+          Effect.forkScoped
+        );
+        expect(Number(yield* child.exitCode)).toBe(0);
+        const result = yield* Fiber.join(drained);
+        expect(Buffer.byteLength(result)).toBe(INTERPRETER_LIMITS.stderrBytes);
+        expect(result.endsWith("final child diagnostic")).toBe(true);
+      }).pipe(Effect.scoped)
+    ),
+  HANG_GUARD_MS
+);
+
+it.effect("bounds decoded stderr bytes across split and malformed UTF-8", () =>
+  Effect.gen(function* unicodeDiagnostics() {
+    for (const bytes of [
+      Buffer.from("😀".repeat(INTERPRETER_LIMITS.stderrBytes)),
+      Buffer.alloc(INTERPRETER_LIMITS.stderrBytes * 2, 255),
+    ]) {
+      const result = yield* Stream.make(bytes, Buffer.from("fatal 😀")).pipe(
+        collectInterpreterStderr
+      );
+      expect(Buffer.byteLength(result)).toBeLessThanOrEqual(
+        INTERPRETER_LIMITS.stderrBytes
+      );
+      expect(result.endsWith("fatal 😀")).toBe(true);
+    }
+  })
+);
+
+it.effect("reconstructs a UTF-8 character split across stderr chunks", () =>
+  Effect.gen(function* splitDiagnostics() {
+    const encoded = Buffer.from("before 😀 after");
+    const split = Buffer.byteLength("before ") + 2;
+    const result = yield* Stream.make(
+      encoded.subarray(0, split),
+      encoded.subarray(split)
+    ).pipe(collectInterpreterStderr);
+    expect(result).toBe("before 😀 after");
+  })
+);
+
+it.effect("reports incomplete diagnostics when the stderr stream fails", () =>
+  Effect.gen(function* failedDiagnostics() {
+    const result = yield* Stream.fail(new Error("broken pipe")).pipe(
+      collectInterpreterStderr
+    );
+    expect(result).toBe("Diagnostics incomplete: stderr stream failed.");
+  })
+);
+
+it.effect(
+  "reports incomplete diagnostics at the virtual crash-drain deadline",
+  () =>
+    Effect.gen(function* drainDeadline() {
+      const drain = yield* Effect.forkChild(
+        awaitInterpreterStderr(Effect.never)
+      );
+      yield* TestClock.adjust(1000);
+      expect(yield* Fiber.join(drain)).toBe(
+        "Diagnostics incomplete: stderr drain did not finish before the crash-report deadline."
+      );
+      expect(
+        yield* awaitInterpreterStderr(Effect.succeed("final diagnostic"))
+      ).toBe("final diagnostic");
+    })
 );

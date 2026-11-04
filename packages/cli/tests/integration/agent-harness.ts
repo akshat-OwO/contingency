@@ -99,9 +99,9 @@ const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
   );
 
 /**
- * A tool's success as these suites read it. Tests that never ask for
- * `view:"compact"` read full sessions, and the fields the catalog leaves
- * unpublished (ADR 0045) are decoded with their protocol schemas.
+ * These suites explicitly request full sessions when inspecting node/history
+ * fields. Agent-format calls keep the product defaults. Unpublished fields
+ * (ADR 0045) are decoded with their protocol schemas.
  */
 type Readable<T> = T extends { readonly session: infer S }
   ? unknown extends S
@@ -208,8 +208,22 @@ export function makeCall<Tools extends Record<string, Tool.Any>>(
   ) =>
     Effect.gen(function* callTool() {
       const handlers = yield* toolkit;
+      const parameters = toolkit.tools[name]?.parametersSchema;
+      const selected =
+        snapshotFormat === "structured" &&
+        Predicate.isObjectKeyword(params) &&
+        !Predicate.hasProperty(params, "view") &&
+        Predicate.isObjectKeyword(parameters) &&
+        Predicate.hasProperty(parameters, "fields") &&
+        Predicate.isObjectKeyword(parameters.fields) &&
+        Predicate.hasProperty(parameters.fields, "view")
+          ? { ...params, view: "full" }
+          : params;
       const results = yield* handlers
-        .handle(name, withSnapshotFormat(String(name), params, snapshotFormat))
+        .handle(
+          name,
+          withSnapshotFormat(String(name), selected, snapshotFormat)
+        )
         .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
       const last = results.at(-1);
       if (last === undefined) {

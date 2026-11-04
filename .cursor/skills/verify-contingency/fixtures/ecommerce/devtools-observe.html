@@ -11,7 +11,9 @@
     <script>
       console.log("Devtools fixture ready");
       document.getElementById("load").onclick = async () => {
-        const response = await fetch("/devtools-failure");
+        const response = await fetch("/devtools-failure", {
+          headers: { "x-fixture-padding": "x".repeat(4096) },
+        });
         const text = await response.text();
         console.error(`Fixture request failed: ${response.status} ${text}`);
         document.getElementById("result").textContent =

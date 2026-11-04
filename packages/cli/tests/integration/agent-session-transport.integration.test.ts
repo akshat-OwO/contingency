@@ -16,6 +16,7 @@ import {
 import { expect, it } from "@effect/vitest";
 import {
   Context,
+  Deferred,
   Effect,
   Fiber,
   FileSystem,
@@ -70,13 +71,27 @@ it.live.each([false, true])(
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       );
+      const released = yield* Deferred.make<true>();
+      const observedServices = Layer.effect(
+        AgentSession,
+        Effect.gen(function* observeRelease() {
+          const service = yield* AgentSession;
+          return {
+            ...service,
+            changes: (id: AgentSessionId) =>
+              service
+                .changes(id)
+                .pipe(Stream.ensuring(Deferred.succeed(released, true))),
+          };
+        })
+      ).pipe(Layer.provideMerge(browserServices));
       const serverContext = yield* Layer.build(
         HttpRouter.serve(
           makeRpcRoutes({
             allowedOrigins: new Set([origin]),
           })
         ).pipe(
-          Layer.provideMerge(browserServices),
+          Layer.provideMerge(observedServices),
           Layer.provideMerge(
             NodeHttpServer.layer(createServer, {
               host: "127.0.0.1",
@@ -122,6 +137,29 @@ it.live.each([false, true])(
       const firstSession = first.session;
       const secondSession = second.session;
       expect(firstSession.id).not.toBe(secondSession.id);
+
+      // Hold the complete client stream at its first decoded value, then
+      // cancel it while stalled. The real server must release its source.
+      const delivered = yield* Deferred.make<true>();
+      const stalled = yield* Effect.forkChild(
+        Effect.gen(function* stalledConnection() {
+          const viewer = yield* makeLoopbackRpcClient(origin, binary);
+          yield* viewer(
+            "agent.session.stream.subscribe",
+            { sessionId: firstSession.id },
+            { headers: { origin } }
+          ).pipe(
+            Stream.runForEach(() =>
+              Deferred.succeed(delivered, true).pipe(
+                Effect.andThen(Effect.never)
+              )
+            )
+          );
+        }).pipe(Effect.scoped)
+      );
+      yield* Deferred.await(delivered).pipe(Effect.timeout("10 seconds"));
+      yield* Fiber.interrupt(stalled);
+      yield* Deferred.await(released).pipe(Effect.timeout("10 seconds"));
 
       const firstFrame = (sessionId: AgentSessionId) =>
         Effect.scoped(

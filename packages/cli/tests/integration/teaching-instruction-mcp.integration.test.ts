@@ -166,6 +166,25 @@ it.live(
           view: "compact",
         })
       ).toMatchObject({ teaching: { instructionCount: 2 } });
+      const cursorSnapshot = yield* Schema.decodeUnknownEffect(
+        Schema.Struct({ eventCursor: Schema.String })
+      )(yield* call("agent_session_get", { sessionId: started.id }));
+      for (const view of [undefined, "full"] as const) {
+        const input = {
+          afterCursor: cursorSnapshot.eventCursor,
+          sessionId: started.id,
+          waitMs: 0,
+        };
+        expect(
+          yield* call(
+            "agent_session_get",
+            view === undefined ? input : { ...input, view }
+          )
+        ).toMatchObject({
+          teaching: { instructionCount: 2 },
+          view: "compact",
+        });
+      }
       yield* sessions.stopTeachingRecording(
         started.id,
         OperationId.make("instruction-stop")

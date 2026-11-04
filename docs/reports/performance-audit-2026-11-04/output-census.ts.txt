@@ -1,0 +1,34 @@
+import { AgentSessionSnapshot, AgentActionResult, AgentActSequenceResult, AgentBrowserSnapshot, TaskAgentRunState, compactAgentSession, AgentPendingDecisionResolution, BrowserNetworkRequest } from "@contingency/protocol";
+import { Schema } from "effect";
+import { taskRunSummary } from "../tests/helpers/task-run.ts";
+import { SessionResult, SessionStartResult, workspaceLinkGuidance } from "../src/services/mcp-session-output.ts";
+import { textSnapshot } from "../src/services/agent-snapshot-text.ts";
+const size=(v:unknown)=>Buffer.byteLength(JSON.stringify(v));
+const at="2026-11-04T00:00:00.000Z";
+const entry={actor:"agent",at,description:"Add mug to cart",dispatched:true,id:"attempt-cart",outcome:"completed"};
+const run=Schema.decodeUnknownSync(TaskAgentRunState)({...taskRunSummary,lastAgentActivityAt:at,lifecycle:{phase:"running"}});
+const base={activity:"run",boundary:null,captureState:null,clientName:"audit",clientVersion:"1",controller:"agent",createdAt:at,currentUrl:"https://shop.example/cart",dryRun:null,flowName:null,id:"agent-audit",interruptedAction:null,ownerProcessId:"audit",phase:"running",recordingId:null,run,takeover:null,teaching:null,timeline:Array.from({length:200},(_,i)=>({...entry,id:"action-"+i})),decisionHistory:Array.from({length:50},(_,i)=>Schema.decodeUnknownSync(AgentPendingDecisionResolution)({boundaryId:"boundary-"+i,decidedAt:at,decision:"allow",kind:"boundary",operationId:"resolve-"+i,pendingDecisionId:"pending-"+i,source:"workspace",userMessage:"Allow this exact action",variableName:null})),updatedAt:at,viewUrl:"http://localhost/"};
+const live=Schema.decodeUnknownSync(AgentSessionSnapshot)(base);
+const boundary={action:{type:"click",ref:"e1"},description:"Submit order",id:"boundary-submit",operationId:"submit",reason:"confirmation",requested:at};
+const pending={boundaryId:boundary.id,createdAt:at,kind:"boundary",pendingDecisionId:"pending-submit",scopeSummary:"Submit order once",sessionId:live.id,variable:null};
+const paused=Schema.decodeUnknownSync(AgentSessionSnapshot)({...live,boundary,pendingDecisions:[pending]});
+const takeover=Schema.decodeUnknownSync(AgentSessionSnapshot)({...live,controller:"user",phase:"takeover",takeover:{reason:"Investigate cart",requestedAt:at,requestedBy:"user"}});
+const doc={flowName:"update-cart",files:[{path:"flow.md",content:"# Update cart\n"+"Review the cart and confirm the mug.\n".repeat(100)}],supportingDocuments:[]};
+const observations=Schema.decodeUnknownSync(AgentBrowserSnapshot)({capturedAt:at,nodes:Array.from({length:100},(_,i)=>({depth:0,interactive:true,name:"Cart item "+i,ref:"e"+i,role:"button"})),snapshotId:"snapshot-cart",title:"Cart",url:base.currentUrl});
+const action=Schema.decodeUnknownSync(AgentActionResult)({entry,snapshot:textSnapshot(observations),url:base.currentUrl});
+const sequence=Schema.decodeUnknownSync(AgentActSequenceResult)({actions:[{entry,intervention:null,operationId:"cart-1"},{entry:{...entry,id:"attempt-2"},intervention:boundary,operationId:"cart-2"}],snapshot:textSnapshot(observations),stopped:{code:null,index:1,message:"Needs confirmation",reason:"intervention"},url:base.currentUrl});
+const cases=[
+ {operation:"agent_run_start",view:"full",value:Schema.decodeUnknownSync(SessionStartResult)({...live,...workspaceLinkGuidance(live.viewUrl),flowDocuments:[doc]})},
+ {operation:"agent_run_start",view:"compact",value:Schema.decodeUnknownSync(SessionStartResult)({...compactAgentSession(live),...workspaceLinkGuidance(live.viewUrl),flowDocuments:[doc]})},
+ {operation:"agent_session_get",view:"full",value:live},
+ {operation:"agent_session_get",view:"compact",value:compactAgentSession(live)},
+ {operation:"agent_session_get afterCursor",view:"compact",value:Schema.decodeUnknownSync(SessionResult)({...compactAgentSession(takeover),events:[{at,cursor:"epoch:1",kind:"takeover-started"}],eventsTruncated:false})},
+ {operation:"agent_pending_decision_resolve before",view:"compact",value:compactAgentSession(paused)},
+ {operation:"agent_pending_decision_resolve after",view:"compact",value:compactAgentSession(live)},
+ {operation:"agent_browser_act",view:"text",value:action},
+ {operation:"agent_browser_act_sequence",view:"text, partial",value:sequence},
+ {operation:"agent_run_complete",view:"summary",value:taskRunSummary}
+];
+const request=Schema.decodeUnknownSync(BrowserNetworkRequest)({durationMs:20,headers:{cookie:"x".repeat(4096)},method:"GET",mimeType:"application/json",requestId:"request-audit",resourceType:"fetch",responseHeaders:{"x-debug":"y".repeat(1024)},size:100,status:200,tabId:"tab-audit",timestamp:0,url:"https://shop.example/api/cart"});
+const {headers,responseHeaders,postData,...projected}=request;
+console.log(JSON.stringify({kind:"schema-validated synthetic output matrix, no operations executed",parameters:{historyEntries:200,resolvedDecisions:50,openDecisionCount:1,actionNodes:100,flowDocumentContentBytes:Buffer.byteLength(doc.files[0].content)},fields:{fullHistoryBytes:size(live.timeline)+size(live.decisionHistory),runDetailsBytes:size(run),flowDocumentDeliveryBytes:size([doc]),firstWorkspaceGuidanceBytes:size(workspaceLinkGuidance(live.viewUrl))},cases:cases.map(({value,...meta})=>({...meta,bytes:size(value)})),networkList:{rows:500,fullBytes:size(Array.from({length:500},()=>request)),projectedBytes:size(Array.from({length:500},()=>projected)),label:"synthetic repeated row; metadata projection excludes headers and postData"},resourceFollowup:{label:"hypothetical 100 KiB JSON value: text payload bytes only, no MCP wrapper",payloadBytes:102400,inlineLimitBytes:16384,childFinalLimitBytes:1048576,resourceReadsRequired:1}},null,2));

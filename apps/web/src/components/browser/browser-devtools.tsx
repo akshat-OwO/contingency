@@ -1,7 +1,7 @@
 import type {
   TeachingBrowserAttachment,
   BrowserConsoleEntry,
-  BrowserNetworkRequest,
+  BrowserNetworkRequestSummary,
   BrowserNetworkRequestDetail,
   BrowserRequestId,
   BrowserTabId,
@@ -84,7 +84,7 @@ export interface BrowserDevtoolsProps {
   readonly consoleEntries: readonly BrowserConsoleEntry[];
   readonly dockSide: DevtoolsDockSide;
   readonly mutationsLocked: boolean;
-  readonly networkRequests: readonly BrowserNetworkRequest[];
+  readonly networkRequests: readonly BrowserNetworkRequestSummary[];
   readonly onClearConsole: () => void;
   readonly onClearNetwork: () => void;
   readonly onClose: () => void;
@@ -255,7 +255,7 @@ const requestName = (url: string): string => {
 };
 
 const requestMatchesFilter = (
-  request: BrowserNetworkRequest,
+  request: BrowserNetworkRequestSummary,
   filter: NetworkFilter
 ): boolean => {
   if (filter === "all") {
@@ -277,7 +277,7 @@ const requestMatchesFilter = (
   return type === filter;
 };
 
-type NetworkHeaders = BrowserNetworkRequest["headers"] | null | undefined;
+type NetworkHeaders = BrowserNetworkRequestDetail["headers"] | null | undefined;
 
 const recordEntries = (
   value: NetworkHeaders
@@ -373,8 +373,7 @@ const renderHeaderSection = (label: string, value: NetworkHeaders) => {
 const renderRequestDetails = (
   detail: BrowserNetworkRequestDetail | undefined,
   detailTab: NetworkDetailTab,
-  loading: boolean,
-  request: BrowserNetworkRequest
+  loading: boolean
 ) => {
   if (loading) {
     return (
@@ -387,7 +386,15 @@ const renderRequestDetails = (
     );
   }
 
-  const resolved = detail ?? request;
+  if (detail === undefined) {
+    return (
+      <p role="alert" className="text-destructive p-3 text-xs">
+        Could not load request details. Close this view and select the request
+        to retry.
+      </p>
+    );
+  }
+  const resolved = detail;
   if (detailTab === "headers") {
     return (
       <div className="size-full space-y-4 overflow-auto p-3">
@@ -402,14 +409,14 @@ const renderRequestDetails = (
             <dd>{resolved.status ?? "Pending"}</dd>
           </dl>
         </section>
-        {renderHeaderSection("Response Headers", resolved.responseHeaders)}
-        {renderHeaderSection("Request Headers", resolved.headers)}
+        {renderHeaderSection("Response Headers", detail?.responseHeaders)}
+        {renderHeaderSection("Request Headers", detail?.headers)}
       </div>
     );
   }
 
   if (detailTab === "payload") {
-    const payload = prettyText(resolved.postData);
+    const payload = prettyText(detail?.postData);
     return payload.length === 0 ? (
       <div className="text-muted-foreground grid size-full place-items-center text-xs">
         This request has no payload.
@@ -558,7 +565,7 @@ const RequestDetailView = ({
   readonly detailLoading: boolean;
   readonly detailTab: NetworkDetailTab;
   readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
-  readonly request: BrowserNetworkRequest;
+  readonly request: BrowserNetworkRequestSummary;
   readonly detailRef?: (element: HTMLElement | null) => void;
   readonly leaving?: boolean;
 }) => (
@@ -598,7 +605,7 @@ const RequestDetailView = ({
           request={request}
         />
       ) : (
-        renderRequestDetails(detail, detailTab, detailLoading, request)
+        renderRequestDetails(detail, detailTab, detailLoading)
       )}
     </div>
   </div>
@@ -624,8 +631,8 @@ const DevtoolsNetworkPanel = ({
   readonly detailTab: NetworkDetailTab;
   readonly networkFilter: NetworkFilter;
   readonly networkQuery: string;
-  readonly networkRequests: readonly BrowserNetworkRequest[];
-  readonly onSelectRequest: (request: BrowserNetworkRequest) => void;
+  readonly networkRequests: readonly BrowserNetworkRequestSummary[];
+  readonly onSelectRequest: (request: BrowserNetworkRequestSummary) => void;
   readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
   readonly selectedRequestId: BrowserRequestId | undefined;
 }) => {
@@ -937,7 +944,36 @@ export const BrowserDevtools = ({
     });
   };
 
-  const selectRequest = (request: BrowserNetworkRequest) => {
+  const detailSelection = useRef<symbol | null>(null);
+  useEffect(
+    () => () => {
+      detailSelection.current = null;
+      // The tab atom survives a brief inspector unmount. Its pending fetch
+      // cannot publish after invalidation, so retire that transient view too.
+      setUiState((current) =>
+        current.detailLoading
+          ? {
+              ...current,
+              detail: undefined,
+              detailLoading: false,
+              selectedRequestId: undefined,
+            }
+          : current
+      );
+    },
+    [setUiState]
+  );
+  const selectRequest = (request: BrowserNetworkRequestSummary) => {
+    const selection = Symbol("request-detail");
+    detailSelection.current = selection;
+    const updateSelected = (update: Partial<DevtoolsUiState>) => {
+      setUiState((current) =>
+        detailSelection.current === selection &&
+        current.selectedRequestId === request.requestId
+          ? { ...current, ...update }
+          : current
+      );
+    };
     updateUiState({
       detail: undefined,
       detailLoading: true,
@@ -949,13 +985,13 @@ export const BrowserDevtools = ({
         try: () => tooling.getNetworkRequest(tabId, request.requestId),
       }).pipe(
         Effect.tap((requestDetail) =>
-          Effect.sync(() => updateUiState({ detail: requestDetail }))
+          Effect.sync(() => updateSelected({ detail: requestDetail }))
         ),
         Effect.catchCause(() =>
-          Effect.sync(() => updateUiState({ detail: undefined }))
+          Effect.sync(() => updateSelected({ detail: undefined }))
         ),
         Effect.ensuring(
-          Effect.sync(() => updateUiState({ detailLoading: false }))
+          Effect.sync(() => updateSelected({ detailLoading: false }))
         )
       )
     );

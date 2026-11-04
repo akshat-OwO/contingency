@@ -43,8 +43,10 @@ import { TeachingRecordingOrigin } from "./teaching-recording.ts";
 const nonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 /**
- * How much session state a session-returning MCP tool answers with. `full` is
- * the complete snapshot and stays the default. `compact` keeps what the next
+ * How much session state a session-returning MCP tool answers with. `full` explicitly requests
+ * the complete snapshot. Runs default to `compact`; Teaching keeps full instructions.
+ * Cursor waits always return compact state, including when `full` is requested.
+ * The compact view keeps what the next
  * decision needs and replaces history with counts.
  */
 export const AgentSessionView = Schema.Literals(["full", "compact"]);

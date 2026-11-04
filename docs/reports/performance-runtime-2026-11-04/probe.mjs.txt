@@ -1,0 +1,38 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
+const root=process.cwd(), out=path.dirname(new URL(import.meta.url).pathname), label=process.argv[2];
+const require=createRequire(path.join(root,'packages/cli/package.json'));
+const { NodeSocket }=require('@effect/platform-node');
+const instance=JSON.parse(fs.readFileSync(path.join(process.env.CONTINGENCY_VERIFY_DIR,'instance.json')));
+const stage=s=>fs.writeFileSync(path.join(out,`${label}-stage.json`),JSON.stringify({stage:s,at:Date.now()}));
+const sockets=new Set();let seq=0;
+const connect=()=>new Promise((resolve,reject)=>{const ws=new NodeSocket.NodeWS.WebSocket(instance.mcpUrl.replace('http','ws')+'ws',{origin:new URL(instance.mcpUrl).origin});sockets.add(ws);ws.once('open',()=>resolve(ws));ws.once('error',reject);});
+let callSocket;
+const rpc=async(tag,payload)=>{const ws=callSocket??await connect();callSocket=ws;const id=String(++seq);return await new Promise((resolve,reject)=>{const guard=setTimeout(()=>reject(new Error('RPC timeout '+tag)),30000);const receive=bytes=>{for(const m of [JSON.parse(String(bytes))].flat())if(m._tag==='Exit'&&m.requestId===id){clearTimeout(guard);ws.off('message',receive);m.exit._tag==='Success'?resolve(m.exit.value):reject(new Error(JSON.stringify(m.exit)));}};ws.on('message',receive);ws.send(JSON.stringify({_tag:'Request',id,tag,payload,headers:[]}));});};
+let session;const fixture=http.createServer((req,res)=>{if(req.url==='/data'){res.writeHead(500,{'content-type':'text/plain','x-padding':'x'.repeat(4096)});res.end('fixture response');}else{res.writeHead(200,{'content-type':'text/html'});res.end(`<title>Runtime measurement</title><style>body{margin:0;background:#18263a;height:10000px}canvas{display:block;position:fixed;top:0}</style><canvas width="640" height="480"></canvas><script>const c=document.querySelector('canvas').getContext('2d');let n=0;setInterval(()=>{c.fillStyle='hsl('+n++%360+' 60% 40%)';c.fillRect(0,0,640,480);c.fillStyle='white';c.font='40px sans-serif';c.fillText(String(n),40,80)},32);fetch('/data').catch(()=>{})</script>`);}});
+try{
+ await new Promise(resolve=>fixture.listen(0,'127.0.0.1',resolve));fs.writeFileSync(path.join(out,`${label}-fixture.json`),JSON.stringify({owner:'root runtime benchmark probe',pid:process.pid,port:fixture.address().port,stop:'fixture.close and probe exit'}));stage('starting');
+ session=(await rpc('agent.session.start',{activity:'run',clientName:'runtime-benchmark',clientVersion:'1',name:'runtime-benchmark',operationId:'runtime-start',url:`http://127.0.0.1:${fixture.address().port}/`,viewport:{width:640,height:480,deviceScaleFactor:1}})).session;
+ const execute=promisify(execFile);await execute(process.execPath,[path.join(root,'.cursor/skills/verify-contingency/bin/control-contingency'),'browser','goto','--url',session.viewUrl]);
+ const tabs=await rpc('agent.browser.tabs.get',{sessionId:session.id});const tabId=tabs.tabs.find(t=>t.active).tabId;
+ await rpc('agent.session.takeover',{sessionId:session.id,reason:'Runtime measurement scroll input',operationId:'runtime-takeover'});
+ const ws=await connect();const streamId=String(++seq);let measuring=false;let scrollWait;let latestScroll=0;const frames=[],polls=[];let wireBytes=0;
+ ws.on('message',bytes=>{for(const m of [JSON.parse(String(bytes))].flat()){if(m._tag==='Chunk'){if(measuring)wireBytes+=bytes.length;for(const e of m.values){if(e.type==='frame'){latestScroll=e.metadata.scrollOffsetY;if(scrollWait&&latestScroll>scrollWait.previous){scrollWait.resolve(performance.now()-scrollWait.sent);scrollWait=undefined;}}if(measuring&&e.type==='frame')frames.push({at:Date.now(),capture:e.metadata.timestamp,seq:e.seq});}ws.send(JSON.stringify({_tag:'Ack',requestId:streamId}));}}});
+ ws.send(JSON.stringify({_tag:'Request',id:streamId,tag:'agent.browser.stream.subscribe',payload:{sessionId:session.id},headers:[]}));
+ stage('warmup');await delay(4000);
+ stage('measurement');const start=performance.now();measuring=true;const deadline=start+12000;
+ while(performance.now()<deadline){const at=performance.now();const data=await rpc('agent.browser.network.requests.get',{sessionId:session.id,tabId});polls.push({ms:performance.now()-at,bytes:Buffer.byteLength(JSON.stringify(data)),rows:data.requests.length});}
+ const elapsed=performance.now()-start;measuring=false;stage('scroll-latency');const scrollLatency=[];
+ for(let i=0;i<30;i++){let guard;const observed=new Promise((resolve,reject)=>{scrollWait={previous:latestScroll,sent:performance.now(),resolve};guard=setTimeout(()=>reject(new Error('No frame confirmed scroll')),10000);});await rpc('agent.browser.input.send',{sessionId:session.id,inputs:[{type:'input_mouse',eventType:'mouseWheel',x:320,y:240,deltaX:0,deltaY:80}]});scrollLatency.push(await observed);clearTimeout(guard);}
+ stage('post-load');await delay(1000);
+ const ages=frames.map(f=>f.at-f.capture*1000);const gaps=frames.slice(1).map((f,i)=>f.at-frames[i].at);
+ const summary=a=>{const s=[...a].sort((a,b)=>a-b);return {count:s.length,p50:s[Math.floor(s.length*.5)]??null,p95:s[Math.floor(s.length*.95)]??null,min:s[0]??null,max:s.at(-1)??null};};
+ if(frames.length<30||polls.length<10||polls.some(p=>p.rows<2))throw new Error('Insufficient measured workload');
+ const result={label,elapsedMs:elapsed,frames:frames.length,fps:frames.length/(elapsed/1000),invalidCrossClockFrameAgeMs:summary(ages),scrollInputToReceivedFrameMs:summary(scrollLatency),frameInterarrivalMs:summary(gaps),streamWireBytes:wireBytes,networkRequests:polls.length,networkRequestsPerSecond:polls.length/(elapsed/1000),networkRequestMs:summary(polls.map(p=>p.ms)),networkPayloadBytes:summary(polls.map(p=>p.bytes)),rows:polls[0].rows,raw:{frames,polls}};
+ fs.writeFileSync(path.join(out,`${label}-result.json`),JSON.stringify(result,null,2));console.log(JSON.stringify({...result,raw:undefined}));
+}finally{stage('closing');if(session)await rpc('agent.session.close',{sessionId:session.id,operationId:'runtime-close'}).catch(e=>console.error(e));for(const ws of sockets)ws.close();await new Promise(resolve=>fixture.close(resolve));stage('done');}
