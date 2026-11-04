@@ -29,7 +29,7 @@ const writeJson = (file: string, value: Footprint | RegistryBaselines) =>
 const threshold = (name: string, fallback: number) =>
   Flag.Finite(name).pipe(Flag.withDefault(fallback));
 const fetchBaseline = (tag: string) =>
-  measureFootprint(`@contingencyhq/cli@${tag}`, process.cwd()).pipe(
+  measureFootprint(`@contingencyhq/cli@${tag}`).pipe(
     Effect.matchEffect({
       onFailure: () =>
         Console.warn(`npm ${tag} unavailable; reporting n/a`).pipe(

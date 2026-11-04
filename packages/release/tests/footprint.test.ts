@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+
+import { NodeServices } from "@effect/platform-node";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, FileSystem } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   compareFootprints,
@@ -6,8 +11,13 @@ import {
   exceedsThreshold,
   formatDelta,
   growth,
+  measureFootprint,
 } from "../src/footprint.ts";
 import type { Footprint } from "../src/footprint.ts";
+import {
+  parseNpmPackOutput,
+  runInstallCheckCommand,
+} from "../src/verify-cli-install.ts";
 
 const defaultFiles = { "dist/index.js": 100 };
 const snapshot = (
@@ -113,4 +123,56 @@ describe("CLI footprint comparisons", () => {
       report.warnings.some((line) => line.startsWith("Installed file bytes"))
     ).toBe(false);
   });
+});
+
+describe("CLI footprint measurement", () => {
+  effectIt.effect(
+    "measures a published tarball outside the pnpm-only workspace",
+    () =>
+      Effect.gen(function* test() {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* fs.makeTempDirectoryScoped({
+          prefix: "footprint-test-",
+        });
+        yield* fs.writeFileString(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            files: ["index.js"],
+            name: "@contingencyhq/cli",
+            version: "1.2.3",
+          })
+        );
+        yield* fs.writeFileString(
+          path.join(directory, "index.js"),
+          "export {};\n"
+        );
+        const packed = yield* runInstallCheckCommand(
+          "npm",
+          ["pack", "--ignore-scripts", "--json"],
+          directory
+        );
+        const tarball = path.join(directory, yield* parseNpmPackOutput(packed));
+        yield* fs.writeFileString(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            devEngines: { packageManager: { name: "pnpm", onFail: "error" } },
+            private: true,
+          })
+        );
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            vi.spyOn(process, "cwd").mockReturnValue(directory)
+          ),
+          (spy) => Effect.sync(() => spy.mockRestore())
+        );
+        const measured = yield* measureFootprint(tarball);
+        expect(measured.version).toBe("1.2.3");
+        expect(measured.packed).toBeGreaterThan(0);
+        expect(measured.files["index.js"]).toBe(11);
+        expect(Object.keys(measured.files).toSorted()).toEqual([
+          "index.js",
+          "package.json",
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
 });
