@@ -64,18 +64,25 @@ export const IosRecovery = ({
   </Button>
 );
 
-export const IosEntry = () => {
+/** Whether this process offers iOS sessions at all. */
+export const useIosEntryEnabled = () => {
   const enabled = useAtomValue(iosEnabledAtom);
-  return AsyncResult.isSuccess(enabled) && enabled.value ? (
+  return AsyncResult.isSuccess(enabled) && enabled.value;
+};
+
+const openIosEntry = () => globalThis.location.assign("/?ios=new");
+
+export const IosEntry = ({ className }: { readonly className?: string }) =>
+  useIosEntryEnabled() ? (
     <Button
-      onClick={() => globalThis.location.assign("/?ios=new")}
+      className={className}
+      onClick={openIosEntry}
       size="sm"
       variant="outline"
     >
       iOS
     </Button>
   ) : null;
-};
 
 const IosMirror = ({
   session,

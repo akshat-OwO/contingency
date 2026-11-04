@@ -30,9 +30,11 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CircleAlertIcon,
+  GlobeIcon,
   LoaderCircleIcon,
   LockKeyholeIcon,
   RotateCwIcon,
+  SmartphoneIcon,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -134,6 +136,13 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
@@ -145,7 +154,7 @@ import {
   WORKSPACE_REFRESH_INTERVAL,
 } from "@/lib/workspace-refresh";
 
-import { IosEntry, IosWorkspace } from "./ios-workspace";
+import { IosEntry, IosWorkspace, useIosEntryEnabled } from "./ios-workspace";
 
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
@@ -270,8 +279,15 @@ const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
 /** What a Workspace-opened Teaching session is called before it is renamed. */
 const DEFAULT_FLOW_NAME = "new-flow";
 
-/** The viewport a Workspace-opened Teaching session starts under. */
-const WORKSPACE_SESSION_VIEWPORT = { height: 800, width: 1280 };
+/**
+ * The viewport a Workspace-opened Teaching session starts under. A phone-width
+ * window starts a phone-width Page, so the frame is drawn near its own size
+ * rather than a desktop layout shrunk to a quarter.
+ */
+const workspaceSessionViewport = () =>
+  globalThis.matchMedia?.("(max-width: 639px)").matches === true
+    ? { height: 844, width: 390 }
+    : { height: 800, width: 1280 };
 
 const WorkspacePlatformControls = ({
   onAndroid,
@@ -370,31 +386,50 @@ const EmptyState = ({
   const [name, setName] = useState(DEFAULT_FLOW_NAME);
   return (
     <main className="relative flex h-full min-h-0 flex-col">
-      <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
-        <section className="max-w-md space-y-4 text-center">
-          <h1 className="text-xl font-semibold tracking-tight">
-            No browser session
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Open a session to set the browser up, then start recording when the
-            journey begins.
-          </p>
+      <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 pb-28 sm:p-6 sm:pb-28">
+        <section className="material-panel w-full max-w-md min-w-0 space-y-5 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
+          <div className="space-y-3">
+            <div
+              aria-hidden="true"
+              className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
+            >
+              <GlobeIcon className="size-5" />
+            </div>
+            <div className="space-y-1.5">
+              <h1 className="text-xl font-semibold tracking-tight text-balance">
+                No browser session
+              </h1>
+              <p className="text-muted-foreground text-sm text-pretty">
+                Name the Flow you are about to teach, open a browser, and start
+                recording when the journey begins.
+              </p>
+            </div>
+          </div>
           <form
-            className="mx-auto flex max-w-sm items-center gap-2"
+            className="space-y-1.5"
             onSubmit={(event) => {
               event.preventDefault();
               onOpenSession(name);
             }}
           >
-            <input
-              aria-label="Flow name"
-              className="bg-background focus-visible:ring-ring h-9 min-w-0 flex-1 rounded-md border px-2 text-sm outline-none focus-visible:ring-2"
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-            <Button disabled={pending} type="submit">
-              Open browser session
-            </Button>
+            <label
+              className="text-sm font-medium"
+              htmlFor="workspace-flow-name"
+            >
+              Flow name
+            </label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                className="h-9 font-mono text-sm sm:flex-1"
+                id="workspace-flow-name"
+                onChange={(event) => setName(event.target.value)}
+                spellCheck={false}
+                value={name}
+              />
+              <Button disabled={pending} size="lg" type="submit">
+                Open browser session
+              </Button>
+            </div>
           </form>
           {unresolvedSessionId === undefined ? null : (
             <div className="text-left">
@@ -466,12 +501,10 @@ const StageZoom = ({
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const { scale } = useCanvasBox(canvas, container);
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none absolute inset-0"
-      ref={setContainer}
-    >
-      <span className="material-float text-muted-foreground absolute top-0 right-0 rounded-full px-2 py-0.5 text-xs tabular-nums shadow-xs">
+    <div className="pointer-events-none absolute inset-0" ref={setContainer}>
+      <span className="material-float text-muted-foreground absolute top-0 right-0 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums shadow-xs">
+        <span aria-hidden="true">Fit </span>
+        <span className="sr-only">Frame drawn at </span>
         {Math.round(scale * 100)}%
       </span>
     </div>
@@ -512,7 +545,7 @@ const AgentBrowserCanvas = ({
         it, ends up underneath the dock.
       */
       className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3${
-        dockedBelow ? " pb-28" : ""
+        dockedBelow ? " pb-36 sm:pb-28" : ""
       }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
     >
       {frameReady ? null : (
@@ -546,7 +579,7 @@ const AgentBrowserCanvas = ({
         <canvas
           aria-label="Live browser viewport"
           aria-readonly={readOnly}
-          className="focus-visible:ring-ring max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 aria-readonly:cursor-default aria-readonly:opacity-95"
+          className="max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.55_0.19_258)] aria-readonly:cursor-default aria-readonly:opacity-95"
           onKeyDown={
             readOnly ? undefined : (event) => input.handleKey(event, "keyDown")
           }
@@ -572,6 +605,75 @@ const AgentBrowserCanvas = ({
   );
 };
 
+/** The address bar's leading mark: a lock only for a secure Page. */
+const AddressIcon = ({
+  address,
+  pending,
+}: {
+  readonly address: string;
+  readonly pending: boolean;
+}) => {
+  if (pending) {
+    return (
+      <LoaderCircleIcon aria-hidden="true" className="size-3.5 animate-spin" />
+    );
+  }
+  return address.startsWith("https://") ? (
+    <LockKeyholeIcon aria-hidden="true" className="size-3.5" />
+  ) : (
+    <GlobeIcon aria-hidden="true" className="size-3.5" />
+  );
+};
+
+/**
+ * The device entries on a phone-width toolbar: one menu rather than two
+ * labelled buttons, so the address keeps the width.
+ */
+const DeviceEntryMenu = ({ onAndroid }: { readonly onAndroid: () => void }) => {
+  const ios = useIosEntryEnabled();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            aria-label="Device sessions"
+            className="sm:hidden"
+            size="icon"
+            variant="outline"
+          />
+        }
+      >
+        <SmartphoneIcon aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onAndroid}>Android</DropdownMenuItem>
+        {ios ? (
+          <DropdownMenuItem
+            onClick={() => globalThis.location.assign("/?ios=new")}
+          >
+            iOS
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
+/**
+ * A browser address bar shows where the Page is, so a blurred field always
+ * starts at the scheme and host rather than wherever the caret left it.
+ */
+const useAddressStartsVisible = (address: string) => {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = ref.current;
+    if (input !== null && document.activeElement !== input) {
+      input.scrollLeft = 0;
+    }
+  }, [address]);
+  return ref;
+};
+
 const AgentBrowserToolbar = ({
   address,
   navigationError,
@@ -590,87 +692,101 @@ const AgentBrowserToolbar = ({
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly readOnly: boolean;
   readonly onAndroid: () => void;
-}) => (
-  <>
-    <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
-      <div
-        aria-label="Browser navigation"
-        className="flex gap-0.5"
-        role="group"
-      >
-        <Button
-          aria-label="Go back"
-          disabled={readOnly || navigationPending}
-          onClick={() => onNavigate("back")}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
+}) => {
+  const addressRef = useAddressStartsVisible(address);
+  return (
+    <>
+      <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
+        <div
+          aria-label="Browser navigation"
+          className="flex gap-0.5"
+          role="group"
         >
-          <ArrowLeftIcon />
-        </Button>
-        <Button
-          aria-label="Go forward"
-          disabled={readOnly || navigationPending}
-          onClick={() => onNavigate("forward")}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <ArrowRightIcon />
-        </Button>
-        <Button
-          aria-label="Reload page"
-          disabled={readOnly || navigationPending}
-          onClick={() => onNavigate("reload")}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <RotateCwIcon />
-        </Button>
-      </div>
-      <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
-        <InputGroup className="bg-muted/40 h-8">
-          <InputGroupAddon align="inline-start">
-            {navigationPending ? (
-              <LoaderCircleIcon
-                aria-hidden="true"
-                className="size-3.5 animate-spin"
-              />
-            ) : (
-              <LockKeyholeIcon aria-hidden="true" className="size-3.5" />
-            )}
-          </InputGroupAddon>
-          <InputGroupInput
-            aria-label="Browser address"
+          <Button
+            aria-label="Go back"
             disabled={readOnly || navigationPending}
-            onChange={(event) => onAddressChange(event.target.value)}
-            placeholder={
-              readOnly
-                ? "Take control to drive the browser"
-                : "Enter a URL to navigate"
-            }
-            spellCheck={false}
-            value={address}
-          />
-        </InputGroup>
-      </form>
-      {/*
+            onClick={() => onNavigate("back")}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <ArrowLeftIcon />
+          </Button>
+          <Button
+            aria-label="Go forward"
+            disabled={readOnly || navigationPending}
+            onClick={() => onNavigate("forward")}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <ArrowRightIcon />
+          </Button>
+          <Button
+            aria-label="Reload page"
+            disabled={readOnly || navigationPending}
+            onClick={() => onNavigate("reload")}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <RotateCwIcon />
+          </Button>
+        </div>
+        <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
+          <InputGroup className="bg-muted/40 h-8">
+            <InputGroupAddon align="inline-start">
+              <AddressIcon address={address} pending={navigationPending} />
+            </InputGroupAddon>
+            <InputGroupInput
+              aria-label="Browser address"
+              // A pending navigation makes the field read-only rather than disabled:
+              // disabling a focused field drops focus, and a refused navigation
+              // should leave the keyboard where the user was typing.
+              disabled={readOnly}
+              readOnly={navigationPending}
+              onBlur={(event) => {
+                event.currentTarget.scrollLeft = 0;
+              }}
+              ref={addressRef}
+              onChange={(event) => onAddressChange(event.target.value)}
+              placeholder={
+                readOnly
+                  ? "Take control to drive the browser"
+                  : "Enter a URL to navigate"
+              }
+              spellCheck={false}
+              value={address}
+            />
+          </InputGroup>
+        </form>
+        {/*
         The theme control lives on the browser chrome rather than in a second
         header band: a live Workspace has no app header to hold it (#209).
       */}
-      <Button onClick={onAndroid} size="sm" variant="outline">
-        Android
-      </Button>
-      <ModeToggle />
-    </div>
-    {navigationError === undefined ? null : (
-      <p className="text-destructive border-b px-3 py-1.5 text-xs">
-        {navigationError}
-      </p>
-    )}
-  </>
-);
+        <Button
+          className="max-sm:hidden"
+          onClick={onAndroid}
+          size="sm"
+          variant="outline"
+        >
+          Android
+        </Button>
+        <IosEntry className="max-sm:hidden" />
+        <DeviceEntryMenu onAndroid={onAndroid} />
+        <ModeToggle />
+      </div>
+      {navigationError === undefined ? null : (
+        <p
+          className="text-destructive border-b px-3 py-1.5 text-xs"
+          role="alert"
+        >
+          {navigationError}
+        </p>
+      )}
+    </>
+  );
+};
 
 /**
  * The one live Workspace shell. Teaching, a Dry Run, and an Interactive Run
@@ -1618,11 +1734,7 @@ const useAgentView = (
               clientVersion: "web",
               name: name.trim() === "" ? undefined : name.trim(),
               operationId,
-              viewport: {
-                deviceScaleFactor: 1,
-                height: WORKSPACE_SESSION_VIEWPORT.height,
-                width: WORKSPACE_SESSION_VIEWPORT.width,
-              },
+              viewport: { deviceScaleFactor: 1, ...workspaceSessionViewport() },
             },
           }),
       }).pipe(
@@ -2015,7 +2127,10 @@ const useAgentView = (
    * does, so it goes through the Agent Session rather than the generic browser
    * RPCs: the lower-level session id never leaves the process.
    */
-  const runNavigation = (action: AgentHistoryAction | AgentNavigateAction) => {
+  const runNavigation = (
+    action: AgentHistoryAction | AgentNavigateAction,
+    onAccepted?: () => void
+  ) => {
     const sessionId = activeSessionRef.current;
     if (sessionId === null) {
       return;
@@ -2027,7 +2142,10 @@ const useAgentView = (
           navigateBrowser({
             payload: { action, sessionId },
           }),
-      }).pipe(Effect.asVoid)
+      }).pipe(
+        Effect.tap(() => Effect.sync(() => onAccepted?.())),
+        Effect.asVoid
+      )
     );
   };
 
@@ -2042,7 +2160,15 @@ const useAgentView = (
       return;
     }
     addressEditingRef.current = false;
-    runNavigation({ type: "navigate", url });
+    // As in a browser, an accepted navigation hands the keyboard back to the
+    // Page; a refused one leaves it in the address field beside the error.
+    // The canvas is only focusable while the user holds the browser.
+    runNavigation({ type: "navigate", url }, () => {
+      const canvas = canvasRef.current;
+      if (canvas !== null && canvas.tabIndex >= 0) {
+        canvas.focus({ preventScroll: true });
+      }
+    });
   };
 
   const dispatchInput = (browserInput: BrowserInput) => {

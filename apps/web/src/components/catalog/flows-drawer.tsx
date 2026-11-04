@@ -496,7 +496,7 @@ const CatalogColumn = ({
               <GlobeIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Global
               <span className="text-muted-foreground ml-auto font-normal tabular-nums">
-                {global.present ? globalHits : "none"}
+                {global.present ? globalHits : 0}
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-1">
@@ -800,7 +800,7 @@ const FlowsNavigation = ({
     <div className="@container/flows relative flex min-h-0 min-w-0 flex-1 flex-col">
       <span
         aria-hidden="true"
-        className="pointer-events-none invisible absolute h-px w-0 @min-[36rem]/flows:w-px"
+        className="pointer-events-none invisible absolute h-px w-0 @min-[40rem]/flows:w-px"
         ref={breakpointRef}
       />
       <div

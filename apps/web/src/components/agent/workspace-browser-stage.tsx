@@ -15,6 +15,7 @@ import { Clock, Effect, Fiber, Result, Schedule } from "effect";
 import { Atom } from "effect/reactivity";
 import {
   ActivityIcon,
+  ChevronDownIcon,
   DatabaseIcon,
   FingerprintIcon,
   GlobeIcon,
@@ -101,7 +102,7 @@ interface InspectorState {
 }
 
 const DEFAULT_RIGHT_WIDTH = 576;
-const DEFAULT_BOTTOM_HEIGHT = 320;
+const DEFAULT_BOTTOM_HEIGHT = 240;
 const MIN_INSPECTOR_SIZE = 220;
 const RESIZE_STEP = 16;
 /** The rail's own width, which the stage and inspector share the rest of. */
@@ -478,6 +479,59 @@ const InspectorRail = ({
 );
 
 /**
+ * The card's scrolling body. While more of the form sits below the fold, its
+ * lower edge carries a fade and a chevron that never take input, so hidden
+ * fields read as a continuation rather than the end of the card.
+ */
+const InspectorCardBody = ({ children }: { readonly children: ReactNode }) => {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    if (element === null) {
+      return;
+    }
+    const measure = () => {
+      setMore(
+        element.scrollTop + element.clientHeight < element.scrollHeight - 1
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    // Sections that mount later (a saved permission list, an error) change
+    // the height too, so the cue re-measures on any change inside the body.
+    const mutations = new MutationObserver(measure);
+    mutations.observe(element, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    element.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      mutations.disconnect();
+      element.removeEventListener("scroll", measure);
+    };
+  }, [element]);
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3" ref={setElement}>
+        {children}
+      </div>
+      {more ? (
+        <div
+          aria-hidden="true"
+          className="from-popover pointer-events-none absolute inset-x-0 bottom-0 flex h-6 items-end justify-center bg-gradient-to-t to-transparent"
+        >
+          <ChevronDownIcon className="text-muted-foreground size-3.5" />
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+/**
  * A configuration card floating over the stage beside the rail. It is
  * transient: Escape, the close button, or a press on the stage dismisses it.
  */
@@ -498,7 +552,7 @@ const InspectorCardSurface = ({
 }) => (
   <section
     aria-label={cardTitles[card]}
-    className="material-panel absolute top-2 right-14 z-30 flex max-h-[min(36rem,calc(100%-1rem))] w-88 max-w-[calc(100%-4.5rem)] origin-top-right flex-col overflow-hidden rounded-2xl shadow-[0_24px_64px_-24px_rgb(0_0_0/0.4)]"
+    className="material-panel absolute top-2 right-14 z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-4.5rem)] origin-top-right flex-col overflow-hidden rounded-xl shadow-[0_24px_64px_-24px_rgb(0_0_0/0.4)]"
     inert={leaving}
     ref={cardRef}
   >
@@ -514,14 +568,14 @@ const InspectorCardSurface = ({
         <XIcon />
       </Button>
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto p-3">
+    <InspectorCardBody>
       {lockedReason === undefined || card === "stream" ? null : (
         <p className="bg-muted/60 text-muted-foreground mb-3 rounded-lg px-3 py-2 text-xs">
           {lockedReason}
         </p>
       )}
       {children}
-    </div>
+    </InspectorCardBody>
   </section>
 );
 

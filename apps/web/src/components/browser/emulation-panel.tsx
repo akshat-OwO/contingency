@@ -693,7 +693,7 @@ const EmulationPanelContent = ({
 
   return (
     <>
-      <div className="space-y-5">
+      <div className="space-y-4">
         <ScaleControls
           applied={applied}
           disabled={disabled}
@@ -706,28 +706,31 @@ const EmulationPanelContent = ({
               Applied: {appliedLocation.latitude}, {appliedLocation.longitude}
             </p>
           )}
-          <div className="flex items-center gap-1.5">
-            <Input
-              aria-label="Latitude"
-              className="h-7 flex-1 text-center tabular-nums"
-              disabled={disabled}
-              inputMode="decimal"
-              onChange={(event) => setLatitude(event.target.value)}
-              placeholder="Latitude"
-              value={latitude}
-            />
-            <span aria-hidden="true" className="text-muted-foreground text-sm">
-              ,
-            </span>
-            <Input
-              aria-label="Longitude"
-              className="h-7 flex-1 text-center tabular-nums"
-              disabled={disabled}
-              inputMode="decimal"
-              onChange={(event) => setLongitude(event.target.value)}
-              placeholder="Longitude"
-              value={longitude}
-            />
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block min-w-0 space-y-1 text-xs">
+              <span>Latitude</span>
+              <Input
+                aria-label="Latitude"
+                className="tabular-nums"
+                disabled={disabled}
+                inputMode="decimal"
+                onChange={(event) => setLatitude(event.target.value)}
+                placeholder="52.52"
+                value={latitude}
+              />
+            </label>
+            <label className="block min-w-0 space-y-1 text-xs">
+              <span>Longitude</span>
+              <Input
+                aria-label="Longitude"
+                className="tabular-nums"
+                disabled={disabled}
+                inputMode="decimal"
+                onChange={(event) => setLongitude(event.target.value)}
+                placeholder="13.405"
+                value={longitude}
+              />
+            </label>
           </div>
           <div className="flex items-center gap-1.5">
             <Button
@@ -770,43 +773,52 @@ const EmulationPanelContent = ({
 
         <section className="space-y-1.5">
           <SectionLabel>Environment</SectionLabel>
-          <div className="flex items-center gap-1.5">
-            <Input
-              aria-label="Locale"
-              className="h-7 flex-1"
+          <div className="grid gap-2">
+            <label className="block space-y-1 text-xs">
+              <span>Locale</span>
+              <Input
+                aria-label="Locale"
+                disabled={disabled}
+                onBlur={applyLocale}
+                onChange={(event) => setLocale(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder="de-DE"
+                value={locale}
+              />
+            </label>
+            <label className="block space-y-1 text-xs">
+              <span>Time zone</span>
+              <Input
+                aria-label="Time zone"
+                disabled={disabled}
+                onBlur={applyTimezone}
+                onChange={(event) => setTimezoneId(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder="Europe/Berlin"
+                value={timezoneId}
+              />
+            </label>
+          </div>
+          <div className="space-y-1 text-xs">
+            <span aria-hidden="true" className="block">
+              Color scheme
+            </span>
+            <SegmentedControl
               disabled={disabled}
-              onBlur={applyLocale}
-              onChange={(event) => setLocale(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.currentTarget.blur();
-                }
-              }}
-              placeholder="Locale (de-DE)"
-              value={locale}
-            />
-            <Input
-              aria-label="Time zone"
-              className="h-7 flex-1"
-              disabled={disabled}
-              onBlur={applyTimezone}
-              onChange={(event) => setTimezoneId(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.currentTarget.blur();
-                }
-              }}
-              placeholder="Time zone (Europe/Berlin)"
-              value={timezoneId}
+              label="Color scheme"
+              onChange={applyColorScheme}
+              options={colorSchemeOptions}
+              value={colorScheme}
             />
           </div>
-          <SegmentedControl
-            disabled={disabled}
-            label="Colour scheme"
-            onChange={applyColorScheme}
-            options={colorSchemeOptions}
-            value={colorScheme}
-          />
         </section>
 
         {validationError === undefined ? null : (

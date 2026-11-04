@@ -12,7 +12,10 @@ import {
   CircleIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
+  PencilIcon,
   SquareIcon,
+  Trash2Icon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -60,6 +63,30 @@ const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
   "delete-recording": "Delete recording",
   "reject-flow": "Reject flow",
   "rename-flow": "Rename flow",
+};
+
+/** What a secondary shows once the stage is too narrow for any label. */
+const SecondaryIcon = ({
+  className,
+  secondary,
+}: {
+  readonly className: string;
+  readonly secondary: TeachingSecondaryAction;
+}) => {
+  if (secondary === "rename-flow") {
+    return <PencilIcon aria-hidden="true" className={className} />;
+  }
+  if (secondary === "reject-flow") {
+    return <XIcon aria-hidden="true" className={className} />;
+  }
+  return <Trash2Icon aria-hidden="true" className={className} />;
+};
+
+/** What a secondary reads once the stage is too narrow for the full label. */
+const SECONDARY_SHORT_LABEL: Record<TeachingSecondaryAction, string> = {
+  "delete-recording": "Delete",
+  "reject-flow": "Reject",
+  "rename-flow": "Rename",
 };
 
 /**
@@ -110,8 +137,7 @@ export const WorkspaceEmptyDock = ({
   <DockShell
     status={
       <DockStatus badges={<Badge variant="secondary">No session</Badge>}>
-        Open a session to set the browser up, then start recording when the
-        journey begins.
+        Nothing is captured until a session is open and recording.
       </DockStatus>
     }
   >
@@ -358,14 +384,13 @@ export const TeachingRecordingDock = ({
           type="button"
           variant="outline"
         >
-          {secondary === "reject-flow" ? (
-            <>
-              <span className="@md:hidden">Reject</span>
-              <span className="hidden @md:inline">Reject flow</span>
-            </>
-          ) : (
-            SECONDARY_LABEL[secondary]
-          )}
+          <SecondaryIcon secondary={secondary} className="@sm:hidden" />
+          <span className="hidden @sm:inline @md:hidden">
+            {SECONDARY_SHORT_LABEL[secondary]}
+          </span>
+          <span className="hidden @md:inline">
+            {SECONDARY_LABEL[secondary]}
+          </span>
         </Button>
       ))}
       {control}
@@ -386,10 +411,17 @@ export const TeachingRecordingDock = ({
           ) : (
             <CircleIcon
               aria-hidden="true"
-              className="hidden fill-current @md:block"
+              className="fill-current text-red-500"
             />
           )}
-          {action.label}
+          {action.gesture === "start" ? (
+            <>
+              <span className="@sm:hidden">Record</span>
+              <span className="hidden @sm:inline">{action.label}</span>
+            </>
+          ) : (
+            action.label
+          )}
         </Button>
       )}
     </DockShell>

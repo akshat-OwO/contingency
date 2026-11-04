@@ -25,6 +25,11 @@ export const FlowsDockButton = () => {
       aria-expanded={open}
       aria-label={count === undefined ? "Flows" : `Flows, ${count}`}
       className={cn(open && "bg-muted")}
+      title={
+        count === undefined
+          ? undefined
+          : `${count} saved ${count === 1 ? "Flow" : "Flows"}`
+      }
       onClick={() => {
         setOpen(!open);
       }}
@@ -33,9 +38,15 @@ export const FlowsDockButton = () => {
       variant="ghost"
     >
       <BookOpenIcon aria-hidden="true" />
-      <span className="hidden @xl:inline">Flows</span>
+      {/*
+        On a narrow stage the word gives way to the session's Flow name and
+        the count rides the icon's corner, as on the inspector rail.
+      */}
+      <span className="hidden @sm:inline">Flows</span>
       {count === undefined ? null : (
-        <span className="text-muted-foreground tabular-nums">{count}</span>
+        <span className="bg-muted text-muted-foreground ring-background grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums @max-sm:absolute @max-sm:-top-0.5 @max-sm:-right-0.5 @max-sm:ring-2">
+          {count}
+        </span>
       )}
     </Button>
   );

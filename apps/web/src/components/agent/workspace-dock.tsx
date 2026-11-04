@@ -95,7 +95,7 @@ export const DockSessionSelect = ({
         render={
           <Button
             variant="outline"
-            className={cn("max-w-56 min-w-0 shrink", className)}
+            className={cn("max-w-56 min-w-0 flex-1 @md:flex-none", className)}
           />
         }
       >
@@ -203,7 +203,11 @@ export const DockShell = ({
 );
 
 /** A spacer that pushes the actions to the end of the controls row. */
-export const DockSpacer = () => <div className="min-w-2 flex-1" />;
+export const DockSpacer = () => (
+  // On a narrow stage the session picker takes this room instead, so the
+  // Flow name stays readable.
+  <div className="hidden min-w-2 flex-1 @md:block" />
+);
 
 /** The wordmark gives way first when the stage narrows. */
 export const DockWordmark = () => (
@@ -287,8 +291,10 @@ export const DockStatus = ({
           <output
             aria-live="polite"
             className={cn(
-              "text-muted-foreground block text-xs leading-5 text-pretty wrap-anywhere",
-              expanded ? "max-h-40 overflow-y-auto" : "line-clamp-1"
+              "text-foreground/75 block text-[13px] leading-5 text-pretty wrap-anywhere",
+              expanded
+                ? "max-h-40 overflow-y-auto"
+                : "line-clamp-2 @md:line-clamp-1"
             )}
             ref={sentenceRef}
           >

@@ -32,9 +32,9 @@ export const RailButton = ({
           aria-label={label}
           aria-pressed={active}
           className={cn(
-            "text-muted-foreground hover:text-foreground hover:bg-muted/70 focus-visible:ring-ring/50 relative grid size-9 place-items-center rounded-xl transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-95 [&_svg]:size-4",
+            "text-muted-foreground hover:text-foreground hover:bg-muted/70 focus-visible:ring-ring relative grid size-9 place-items-center rounded-lg transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-95 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-4",
             active &&
-              "bg-foreground text-background hover:bg-foreground hover:text-background"
+              "text-foreground bg-[color-mix(in_oklch,var(--ring)_14%,var(--background))] shadow-[inset_0_0_0_1.5px_var(--ring)] hover:bg-[color-mix(in_oklch,var(--ring)_18%,var(--background))]"
           )}
           onClick={onClick}
           type="button"
@@ -59,7 +59,7 @@ export const RailBadge = ({
   <span
     aria-hidden="true"
     className={cn(
-      "ring-background absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[0.625rem] leading-none font-semibold tabular-nums ring-2",
+      "ring-background absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-semibold tabular-nums ring-2",
       tone === "danger" && "bg-destructive text-white",
       tone === "info" && "bg-sky-500 text-white",
       tone === "neutral" && "bg-muted-foreground/80 text-background"

@@ -170,7 +170,7 @@ const LeadingSidebar = ({
 }) => (
   <>
     <ResizablePanel
-      defaultSize={mobile ? "45%" : "34rem"}
+      defaultSize={mobile ? "45%" : "22rem"}
       groupResizeBehavior="preserve-pixel-size"
       id="workspace-leading"
       maxSize={mobile ? "65%" : "50rem"}
