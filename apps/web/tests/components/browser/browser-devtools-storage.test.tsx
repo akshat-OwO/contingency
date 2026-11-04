@@ -1,8 +1,12 @@
-import { AgentSessionId, BrowserTabId } from "@contingency/protocol";
+import {
+  AgentSessionId,
+  BrowserRequestId,
+  BrowserTabId,
+} from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import { createElement } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -15,6 +19,8 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 const rpc = vi.hoisted(() => ({
   clear: vi.fn(),
   delete: vi.fn(),
+  detailAvailable: vi.fn(() => false),
+  detailGate: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   get: vi.fn(),
   set: vi.fn(),
 }));
@@ -41,17 +47,24 @@ const rpcOverrides = (() => {
   const updated = {};
   return {
     agentBrowserNetworkRequestGetMutation: Atom.fn(() =>
-      Effect.succeed({
-        request: {
-          headers: {},
-          method: "GET",
-          requestId: "r1",
-          resourceType: "Document",
-          tabId,
-          timestamp: 1,
-          url: "https://app.example.com",
-        },
-      })
+      rpc.detailGate().pipe(
+        Effect.andThen(() =>
+          rpc.detailAvailable()
+            ? Effect.succeed({
+                request: {
+                  headers: {},
+                  method: "GET",
+                  postData: "retry recovered",
+                  requestId: BrowserRequestId.make("failed-detail"),
+                  resourceType: "fetch",
+                  tabId,
+                  timestamp: 1,
+                  url: "https://app.example.com/failed-detail",
+                },
+              })
+            : Effect.fail(new Error("Request detail unavailable"))
+        )
+      )
     ),
     agentBrowserStorageClearMutation: Atom.fn((request) => {
       rpc.clear(request);
@@ -96,7 +109,10 @@ const SessionDevtools = (props: Omit<BrowserDevtoolsProps, "tooling">) =>
     tooling: useAgentBrowserTooling(sessionId),
   });
 
-const renderDevtools = (mutationsLocked = false) =>
+const renderDevtools = (
+  mutationsLocked = false,
+  overrides: Partial<BrowserDevtoolsProps> = {}
+) =>
   render(
     createElement(
       RpcDependenciesProvider,
@@ -120,6 +136,7 @@ const renderDevtools = (mutationsLocked = false) =>
           tabId,
           tabTitle: "App",
           tabUrl: "https://app.example.com/home",
+          ...overrides,
         })
       )
     )
@@ -136,12 +153,16 @@ const openStorage = async () => {
 beforeEach(() => {
   rpc.clear.mockReset();
   rpc.delete.mockReset();
+  rpc.detailAvailable.mockReset();
+  rpc.detailGate.mockReset();
+  rpc.detailGate.mockReturnValue(Effect.void);
   rpc.get.mockReset();
   rpc.set.mockReset();
 });
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 test("opens Storage with Cookies as the default inner tab", async () => {
@@ -238,4 +259,82 @@ test("adds a Web Storage entry inline and disables Refresh while a cookie draft 
   expect(
     screen.getByRole("button", { name: "Refresh storage" })
   ).toBeDisabled();
+});
+
+test("shows a failed detail fetch instead of reporting empty headers or payload", async () => {
+  // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  renderDevtools(false, {
+    networkRequests: [
+      {
+        method: "GET",
+        requestId: BrowserRequestId.make("failed-detail"),
+        resourceType: "fetch",
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/failed-detail",
+      },
+    ],
+    panel: "network",
+  });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /failed-detail/u }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not load request details"
+  );
+  expect(screen.queryByText("No headers recorded.")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("radio", { name: "Payload" }));
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Could not load request details"
+  );
+  expect(
+    screen.queryByText("This request has no payload.")
+  ).not.toBeInTheDocument();
+  rpc.detailAvailable.mockReturnValue(true);
+  await user.click(
+    screen.getByRole("button", { name: "Close request details" })
+  );
+  await user.click(screen.getByRole("button", { name: /failed-detail/u }));
+  expect(await screen.findByText("retry recovered")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("ignores a late failed detail fetch after the same request is reselected", async () => {
+  const old = await Effect.runPromise(Deferred.make<null, Error>());
+  rpc.detailGate.mockReturnValueOnce(Deferred.await(old));
+  // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  renderDevtools(false, {
+    networkRequests: [
+      {
+        method: "GET",
+        requestId: BrowserRequestId.make("failed-detail"),
+        resourceType: "fetch",
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/failed-detail",
+      },
+    ],
+    panel: "network",
+  });
+
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /failed-detail/u }));
+  expect(
+    await screen.findByText("Loading request details…")
+  ).toBeInTheDocument();
+  await user.click(
+    screen.getByRole("button", { name: "Close request details" })
+  );
+  rpc.detailAvailable.mockReturnValue(true);
+  await user.click(screen.getByRole("button", { name: /failed-detail/u }));
+  await user.click(screen.getByRole("radio", { name: "Payload" }));
+  expect(await screen.findByText("retry recovered")).toBeInTheDocument();
+  await act(async () => {
+    await Effect.runPromise(Deferred.fail(old, new Error("old fetch failed")));
+  });
+  expect(screen.getByText("retry recovered")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

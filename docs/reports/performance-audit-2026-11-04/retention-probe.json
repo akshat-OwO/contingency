@@ -1,0 +1,47 @@
+{
+  "node": "v24.22.2",
+  "kind": "isolated real ledger and installed PubSub mechanism probe; synthetic payloads; no browser or transport",
+  "receiptPayload": "5000 unique snapshots with one ~1 KiB description, shared base fields",
+  "memory": [
+    {
+      "label": "before",
+      "heapUsedBytes": 31251480,
+      "externalBytes": 4137852,
+      "rssBytes": 136626176
+    },
+    {
+      "label": "receipts-100",
+      "heapUsedBytes": 31618336,
+      "externalBytes": 4084824,
+      "rssBytes": 137166848
+    },
+    {
+      "label": "receipts-1000",
+      "heapUsedBytes": 34609848,
+      "externalBytes": 4494424,
+      "rssBytes": 140722176
+    },
+    {
+      "label": "receipts-5000",
+      "heapUsedBytes": 47501136,
+      "externalBytes": 6081624,
+      "rssBytes": 164020224
+    },
+    {
+      "label": "after-releaseSession",
+      "heapUsedBytes": 47475936,
+      "externalBytes": 4033624,
+      "rssBytes": 164184064
+    }
+  ],
+  "result": {
+    "replayableAfterRelease": 5000,
+    "changedInputOutcome": "conflict",
+    "queues": {
+      "publications": 10000,
+      "unboundedPending": 10000,
+      "slidingPending": 1
+    }
+  },
+  "limits": "Single process/run with forced GC. Heap deltas are observations, not user-journey attribution or optimization savings. Queue comparison does not exercise RPC or a network reader."
+}

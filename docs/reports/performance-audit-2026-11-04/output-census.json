@@ -1,0 +1,81 @@
+{
+  "kind": "schema-validated synthetic output matrix, no operations executed",
+  "parameters": {
+    "historyEntries": 200,
+    "resolvedDecisions": 50,
+    "openDecisionCount": 1,
+    "actionNodes": 100,
+    "flowDocumentContentBytes": 3714
+  },
+  "fields": {
+    "fullHistoryBytes": 40162,
+    "runDetailsBytes": 1537,
+    "flowDocumentDeliveryBytes": 3910,
+    "firstWorkspaceGuidanceBytes": 330
+  },
+  "cases": [
+    {
+      "operation": "agent_run_start",
+      "view": "full",
+      "bytes": 46448
+    },
+    {
+      "operation": "agent_run_start",
+      "view": "compact",
+      "bytes": 6119
+    },
+    {
+      "operation": "agent_session_get",
+      "view": "full",
+      "bytes": 42192
+    },
+    {
+      "operation": "agent_session_get",
+      "view": "compact",
+      "bytes": 1863
+    },
+    {
+      "operation": "agent_session_get afterCursor",
+      "view": "compact",
+      "bytes": 2064
+    },
+    {
+      "operation": "agent_pending_decision_resolve before",
+      "view": "compact",
+      "bytes": 2238
+    },
+    {
+      "operation": "agent_pending_decision_resolve after",
+      "view": "compact",
+      "bytes": 1863
+    },
+    {
+      "operation": "agent_browser_act",
+      "view": "text",
+      "bytes": 3315
+    },
+    {
+      "operation": "agent_browser_act_sequence",
+      "view": "text, partial",
+      "bytes": 3825
+    },
+    {
+      "operation": "agent_run_complete",
+      "view": "summary",
+      "bytes": 1749
+    }
+  ],
+  "networkList": {
+    "rows": 500,
+    "fullBytes": 2693501,
+    "projectedBytes": 105001,
+    "label": "synthetic repeated row; metadata projection excludes headers and postData"
+  },
+  "resourceFollowup": {
+    "label": "hypothetical 100 KiB JSON value: text payload bytes only, no MCP wrapper",
+    "payloadBytes": 102400,
+    "inlineLimitBytes": 16384,
+    "childFinalLimitBytes": 1048576,
+    "resourceReadsRequired": 1
+  }
+}

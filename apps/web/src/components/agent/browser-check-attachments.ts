@@ -8,7 +8,7 @@ import type { DragEvent } from "react";
 
 export const attachmentMime = "application/x-contingency-browser-attachment";
 export const requestAttachment = (
-  request: BrowserNetworkRequest,
+  request: Pick<BrowserNetworkRequest, "method" | "url">,
   intent:
     | { readonly purpose: "context" }
     | {

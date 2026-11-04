@@ -60,8 +60,62 @@ export const INTERPRETER_LIMITS = {
   rssCeilingBytes: 320 * 1024 * 1024,
   /** How long a process may take to load before it is treated as failed. */
   startupMs: 10_000,
+  /** Keep draining diagnostics while retaining only a bounded tail. */
+  stderrBytes: 65_536,
   watchdogIntervalMs: 5,
 } as const;
+
+/** Drain diagnostics completely while retaining only the bounded tail. */
+export const collectInterpreterStderr = <E, R>(
+  stream: Stream.Stream<Uint8Array, E, R>
+) =>
+  stream.pipe(
+    Stream.runFold(
+      (): Buffer => Buffer.alloc(0),
+      (tail, chunk) => {
+        const limit = INTERPRETER_LIMITS.stderrBytes;
+        if (chunk.byteLength >= limit) {
+          return Buffer.from(chunk.subarray(chunk.byteLength - limit));
+        }
+        return Buffer.concat([
+          tail.subarray(
+            Math.max(0, tail.byteLength + chunk.byteLength - limit)
+          ),
+          chunk,
+        ]);
+      }
+    ),
+    Effect.map((tail) => {
+      // Malformed UTF-8 expands to replacement characters. Bound the encoded
+      // result too, then skip any leading continuation bytes after clipping.
+      const decoded = Buffer.from(tail.toString("utf-8"));
+      let start = Math.max(
+        0,
+        decoded.byteLength - INTERPRETER_LIMITS.stderrBytes
+      );
+      while (
+        start < decoded.byteLength &&
+        decoded.readUInt8(start) >= 128 &&
+        decoded.readUInt8(start) < 192
+      ) {
+        start += 1;
+      }
+      return decoded.subarray(start).toString("utf-8");
+    }),
+    Effect.orElseSucceed(() => "Diagnostics incomplete: stderr stream failed.")
+  );
+
+/** A crashed process may leave an inherited pipe open; bound its final drain. */
+export const awaitInterpreterStderr = (drain: Effect.Effect<string>) =>
+  drain.pipe(
+    Effect.timeoutOption(1000),
+    Effect.map(
+      Option.getOrElse(
+        () =>
+          "Diagnostics incomplete: stderr drain did not finish before the crash-report deadline."
+      )
+    )
+  );
 
 /** Limits a caller may change, such as a test that needs to reach one. */
 export interface InterpreterLimitOverrides {
@@ -437,9 +491,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           Effect.forkScoped
         );
         const stderr = yield* child.stderr.pipe(
-          Stream.decodeText,
-          Stream.mkString,
-          Effect.orElseSucceed(() => ""),
+          collectInterpreterStderr,
           Effect.forkScoped
         );
 
@@ -449,10 +501,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
             Effect.timeoutOption(2000)
           );
           yield* Fiber.join(telemetry).pipe(Effect.timeoutOption(1000));
-          const errors = yield* Fiber.join(stderr).pipe(
-            Effect.timeoutOption(1000),
-            Effect.map(Option.getOrElse(() => ""))
-          );
+          const errors = yield* awaitInterpreterStderr(Fiber.join(stderr));
           const how = Option.match(exit, {
             onNone: () => "still running",
             onSome: describeExit,
@@ -479,7 +528,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
             diagnostic: {
               kind: "InterpreterCrashed",
               message:
-                `The interpreter process ended without a result (${how}). ${errors.slice(0, 500)}`.trim(),
+                `The interpreter process ended without a result (${how}). ${errors.slice(-500)}`.trim(),
             },
             status: "crashed",
           } satisfies InterpreterEnding;

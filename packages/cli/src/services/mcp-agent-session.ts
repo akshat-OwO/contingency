@@ -54,6 +54,7 @@ import {
   inStartView,
   inView,
   sessionViewParameter,
+  sessionInView,
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
@@ -214,7 +215,7 @@ const AgentSessionsGetTool = readOnly(
   Tool.make("agent_sessions_get", {
     dependencies: [AgentSession],
     description:
-      'List running Agent Sessions owned by this MCP process. Pass view:"compact" for decision-sized entries.',
+      'List running Agent Sessions owned by this MCP process. Run entries default to compact; Teaching retains instructions. Pass view:"full" for complete history.',
     failure: AgentSessionFailure,
     parameters: Schema.Struct({ view: sessionViewParameter }),
     success: Schema.Struct({ sessions: Schema.Array(UnpublishedSession) }),
@@ -256,7 +257,7 @@ const AgentSessionGetTool = readOnly(
   Tool.make("agent_session_get", {
     dependencies: [AgentSession],
     description:
-      'Read a session. Pass afterCursor from a session response to wait for Workspace Session Events, with waitMs default 45000, clamped to 50000. Returns compact state, events, eventCursor, and eventsTruncated. Unknown cursors conflict; retrying a cursor replays events. Every tool that answers with a session accepts view:"compact": open Pending Decisions, Takeover, the newest attempt, Run lifecycle, assessment, and Variables, with older history counted rather than repeated. Page that history with agent_session_history_get.',
+      'Read a session. Pass afterCursor from a session response to wait for Workspace Session Events, with waitMs default 45000, clamped to 50000. Cursor waits always return compact state regardless of activity or view, plus events, eventCursor, and eventsTruncated. Unknown cursors conflict; retrying a cursor replays events. Without afterCursor, Run results default to view:"compact"; Teaching retains full instructions. Pass view:"full" for the complete snapshot. Compact keeps: open Pending Decisions, Takeover, the newest attempt, Run lifecycle, assessment, and Variables, with older history counted rather than repeated. Page that history with agent_session_history_get.',
     failure: AgentSessionFailure,
     parameters: AgentSessionGetParameters,
     success: SessionResult,
@@ -747,11 +748,7 @@ export const AgentSessionToolHandlersLive = AgentSessionTools.toLayer(
           return {
             // oxlint-disable-next-line unicorn/no-array-method-this-argument -- `Effect.forEach` is not an array method.
             sessions: yield* Effect.forEach(sessions, (session) =>
-              encodeUnpublishedSession(
-                params.view === "compact"
-                  ? compactAgentSession(session)
-                  : session
-              )
+              encodeUnpublishedSession(sessionInView(session, params.view))
             ),
           };
         }),

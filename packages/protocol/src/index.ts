@@ -227,6 +227,37 @@ export const BrowserNetworkRequest = Schema.Struct({
 });
 export type BrowserNetworkRequest = typeof BrowserNetworkRequest.Type;
 
+/** List rows omit headers and bodies; selecting a request fetches its details. */
+export const BrowserNetworkRequestSummary = Schema.Struct({
+  durationMs: BrowserNetworkRequest.fields.durationMs,
+  method: BrowserNetworkRequest.fields.method,
+  mimeType: BrowserNetworkRequest.fields.mimeType,
+  requestId: BrowserNetworkRequest.fields.requestId,
+  resourceType: BrowserNetworkRequest.fields.resourceType,
+  size: BrowserNetworkRequest.fields.size,
+  status: BrowserNetworkRequest.fields.status,
+  tabId: BrowserNetworkRequest.fields.tabId,
+  timestamp: BrowserNetworkRequest.fields.timestamp,
+  url: BrowserNetworkRequest.fields.url,
+});
+export type BrowserNetworkRequestSummary =
+  typeof BrowserNetworkRequestSummary.Type;
+
+export const summarizeBrowserNetworkRequest = (
+  request: BrowserNetworkRequest
+): BrowserNetworkRequestSummary => ({
+  durationMs: request.durationMs,
+  method: request.method,
+  mimeType: request.mimeType,
+  requestId: request.requestId,
+  resourceType: request.resourceType,
+  size: request.size,
+  status: request.status,
+  tabId: request.tabId,
+  timestamp: request.timestamp,
+  url: request.url,
+});
+
 export const BrowserNetworkRequestDetail = Schema.Struct({
   ...BrowserNetworkRequest.fields,
   bodyTruncated: optionalNullable(Schema.Boolean),
@@ -678,7 +709,7 @@ export const AgentBrowserNetworkRequestsGet = Schema.Struct({
   tabId: BrowserTabId,
 });
 export const AgentBrowserNetworkRequestsResult = Schema.Struct({
-  requests: Schema.Array(BrowserNetworkRequest),
+  requests: Schema.Array(BrowserNetworkRequestSummary),
 });
 export const AgentBrowserNetworkRequestGet = Schema.Struct({
   requestId: BrowserRequestId,

@@ -1,0 +1,32 @@
+import { AgentSessionSnapshot } from "@contingency/protocol";
+import { Effect, PubSub, Schema } from "effect";
+import { makeSessionOperationLedger } from "../src/services/session-operation-ledger.ts";
+const at="2026-11-04T00:00:00.000Z";
+const base=Schema.decodeUnknownSync(AgentSessionSnapshot)({activity:"run",boundary:null,captureState:null,clientName:"probe",clientVersion:"1",controller:"agent",createdAt:at,currentUrl:"about:blank",dryRun:null,flowName:null,id:"agent-probe",interruptedAction:null,ownerProcessId:"probe",phase:"running",recordingId:null,run:null,takeover:null,teaching:null,timeline:[],updatedAt:at,viewUrl:"http://localhost/"});
+if (typeof globalThis.gc!=="function") throw new Error("Run vpx --expose-gc");
+const sample=(label:string)=>{globalThis.gc();const m=process.memoryUsage();return{label,heapUsedBytes:m.heapUsed,externalBytes:m.external,rssBytes:m.rss};};
+const ledger=makeSessionOperationLedger();
+const memory=[sample("before")];
+const result=await Effect.runPromise(Effect.gen(function*(){
+ for(let i=0;i<5000;i++){
+  const description=Buffer.alloc(512,i%251).toString("hex")+String(i);
+  const snapshot={...base,timeline:[{actor:"agent" as const,at,description,dispatched:true,id:"action-"+i,outcome:"completed" as const}]};
+  yield* ledger.rememberSession("op-"+i,"control",base.id,"request-"+i,snapshot);
+  if([99,999,4999].includes(i))memory.push(sample("receipts-"+(i+1)));
+ }
+ yield* ledger.releaseSession(base.id);
+ memory.push(sample("after-releaseSession"));
+ let replayable=0;
+ for(let i=0;i<5000;i++)if(ledger.replaySession("op-"+i,"control",base.id,"request-"+i)?._tag==="replay")replayable++;
+ const conflict=ledger.replaySession("op-0","control",base.id,"changed")?._tag;
+ const queues=yield* Effect.scoped(Effect.gen(function*(){
+  const unbounded=yield* PubSub.unbounded<number>();
+  const sliding=yield* PubSub.sliding<number>({capacity:1,replay:1});
+  yield* PubSub.subscribe(unbounded);yield* PubSub.subscribe(sliding);
+  for(let i=0;i<10000;i++){yield* PubSub.publish(unbounded,i);yield* PubSub.publish(sliding,i);}
+  const counts={publications:10000,unboundedPending:yield* PubSub.size(unbounded),slidingPending:yield* PubSub.size(sliding)};
+  yield* PubSub.shutdown(unbounded);yield* PubSub.shutdown(sliding);return counts;
+ }));
+ return{replayableAfterRelease:replayable,changedInputOutcome:conflict,queues};
+}));
+console.log(JSON.stringify({node:process.version,kind:"isolated real ledger and installed PubSub mechanism probe; synthetic payloads; no browser or transport",receiptPayload:"5000 unique snapshots with one ~1 KiB description, shared base fields",memory,result,limits:"Single process/run with forced GC. Heap deltas are observations, not user-journey attribution or optimization savings. Queue comparison does not exercise RPC or a network reader."},null,2));

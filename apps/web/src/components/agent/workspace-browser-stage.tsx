@@ -2,7 +2,7 @@ import type {
   TeachingBrowserAttachment,
   AgentSessionId,
   BrowserConsoleEntry,
-  BrowserNetworkRequest,
+  BrowserNetworkRequestSummary,
   BrowserTab,
   BrowserTabId,
   SessionEmulation,
@@ -65,7 +65,7 @@ interface SetupState {
   readonly error: string | undefined;
   /** The identity the session was asked for, which it does not report back. */
   readonly identity: UserAgentProfileId;
-  readonly networkRequests: readonly BrowserNetworkRequest[];
+  readonly networkRequests: readonly BrowserNetworkRequestSummary[];
   readonly pending: boolean;
   readonly presetId: string;
 }
@@ -569,7 +569,7 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
         }),
     });
     const activeTab = tabs.tabs.find(({ active }) => active) ?? tabs.tabs[0];
-    const requests: readonly BrowserNetworkRequest[] =
+    const requests: readonly BrowserNetworkRequestSummary[] =
       activeTab === undefined
         ? []
         : (yield* Effect.tryPromise({

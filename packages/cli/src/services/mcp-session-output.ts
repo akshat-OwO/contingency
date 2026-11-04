@@ -24,7 +24,8 @@ import { FlowDocuments } from "./flow-documents.ts";
 
 /**
  * The optional `view` parameter of every tool that answers with an Agent
- * Session. Absent or `full` keeps the complete snapshot.
+ * Session. Runs default to compact; Teaching retains its instruction contents.
+ * Cursor waits always return compact state, regardless of activity or view.
  */
 export const sessionViewParameter = optionalNullable(AgentSessionView);
 
@@ -77,6 +78,15 @@ export const SessionStartResult = Schema.Union([
   }),
 ]);
 
+/** Teaching responses keep the instructions and recording identity used to learn a Flow. */
+export const sessionInView = (
+  snapshot: AgentSessionSnapshot,
+  view?: SessionView
+) =>
+  view === "compact" || (view !== "full" && snapshot.activity === "run")
+    ? compactAgentSession(snapshot)
+    : snapshot;
+
 /** Applies the caller's chosen view to a session-returning effect. */
 export const inView =
   (view: SessionView | undefined) =>
@@ -88,8 +98,7 @@ export const inView =
         const state = yield* service
           .sessionEvents(snapshot.id)
           .pipe(Effect.orDie);
-        const result =
-          view === "compact" ? compactAgentSession(snapshot) : snapshot;
+        const result = sessionInView(snapshot, view);
         return { ...result, eventCursor: state.eventCursor };
       })
     );

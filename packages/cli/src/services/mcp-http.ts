@@ -124,7 +124,7 @@ export const makeMcpInstructions = (
     'Each program runs fresh; Agent Sessions and Runs persist. Search signatures first in their own program, e.g. return search({ query: "session" }), then call operations as await tools.<name>(input).',
     `Read ${GETTING_STARTED_URI} first, or tools.docs_get({ topic: "getting-started" }).`,
     "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
-    'Pass view:"compact" to operations that answer with a session; page older attempts and decisions with tools.agent_session_history_get.',
+    'Run results default to compact; Teaching keeps instructions. Use view:"full" or tools.agent_session_history_get for history.',
     "Use each action's Snapshot. Read again after effect none, unsettled state, a stale reference, or a user change.",
     "When a program ends with an intervention, present it and wait for the user; never repeat its attempt in a new program, resume only the exact boundary.",
     // Experimental (ADR 0057): only the instructions change, never the Run.

@@ -14,11 +14,50 @@ const { Effect } = await import(
   ).href
 );
 const io = (action) => Effect.tryPromise(action);
+const { NodeSocket } = await import(
+  pathToFileURL(
+    createRequire(import.meta.url).resolve("@effect/platform-node", {
+      paths: [cliRoot],
+    })
+  ).href
+);
+const phase = process.env.CONTINGENCY_PERFORMANCE_PHASE ?? "candidate";
+const rpc = (url, tag, payload) =>
+  Effect.callback((resume) => {
+    const socket = new NodeSocket.NodeWS.WebSocket(
+      new URL("/ws", url).href.replace("http", "ws"),
+      { origin: new URL(url).origin }
+    );
+    const finish = (result) => {
+      socket.close();
+      resume(result);
+    };
+    socket.addEventListener("error", () =>
+      finish(Effect.fail(new Error(`RPC failed: ${tag}`)))
+    );
+    socket.addEventListener("open", () =>
+      socket.send(
+        JSON.stringify({ _tag: "Request", headers: [], id: "1", payload, tag })
+      )
+    );
+    socket.addEventListener("message", (event) => {
+      for (const message of [JSON.parse(String(event.data))].flat()) {
+        if (message._tag === "Exit") {
+          finish(
+            message.exit._tag === "Success"
+              ? Effect.succeed(message.exit.value)
+              : Effect.fail(new Error(JSON.stringify(message.exit)))
+          );
+        }
+      }
+    });
+    return Effect.sync(() => socket.close());
+  }).pipe(Effect.timeout("30 seconds"));
 const execute = promisify(execFile);
 const control = path.join(import.meta.dirname, "control-contingency");
 const artifacts = path.resolve(
   import.meta.dirname,
-  "../artifacts/devtools-observe"
+  `../artifacts/devtools-observe-${phase}`
 );
 const screenshots = process.env.CONTINGENCY_DEVTOOLS_EVIDENCE ?? artifacts;
 assert.ok(
@@ -38,7 +77,7 @@ const command = (...args) =>
     journal.push({ args, exitCode: 0, stderr, stdout });
     return stdout.trim();
   });
-const program = (name, code) =>
+const program = (name, code, expectedStatus = "completed") =>
   Effect.gen(function* executeProgram() {
     const result = JSON.parse(
       yield* command(
@@ -56,7 +95,7 @@ const program = (name, code) =>
         JSON.stringify({ code, result }, null, 2)
       )
     );
-    assert.equal(result.status, "completed", JSON.stringify(result));
+    assert.equal(result.status, expectedStatus, JSON.stringify(result));
     return result.value;
   });
 await Effect.runPromise(
@@ -103,6 +142,62 @@ await Effect.runPromise(
       yield* program(
         "trigger",
         `const sessionId = ${JSON.stringify(run.id)}; const snapshot = await tools.agent_browser_snapshot({ sessionId, format: "structured" }); const button = snapshot.nodes.find(node => node.role === "button" && node.name === "Load failing request"); if (!button) throw new Error("Missing fixture button"); return tools.agent_browser_act({ sessionId, operationId: "devtools-proof-trigger", action: { type: "click", ref: button.ref } });`
+      );
+      yield* program(
+        "history",
+        `for (let i = 0; i < 20; i++) await tools.agent_browser_act({ sessionId: ${JSON.stringify(run.id)}, operationId: "perf-history-" + i, action: { type: "wait_for_text", text: "Observe a failing request" } }); return null;`
+      );
+      const defaultView = yield* program(
+        "session-default",
+        `return tools.agent_session_get({ sessionId: ${JSON.stringify(run.id)} });`
+      );
+      const fullView = yield* program(
+        "session-full",
+        `return tools.agent_session_get({ sessionId: ${JSON.stringify(run.id)}, view: "full" });`
+      );
+      assert.equal(defaultView.id, fullView.id);
+      assert.deepEqual(defaultView.pendingDecisions, fullView.pendingDecisions);
+      if (phase !== "baseline") {
+        assert.equal(defaultView.view, "compact");
+      }
+      const tabs = yield* rpc(run.viewUrl, "agent.browser.tabs.get", {
+        sessionId: run.id,
+      });
+      const active = tabs.tabs.find((tab) => tab.active);
+      assert.ok(active);
+      const network = yield* rpc(
+        run.viewUrl,
+        "agent.browser.network.requests.get",
+        { sessionId: run.id, tabId: active.tabId }
+      );
+      assert.ok(
+        network.requests.some((row) => row.url.includes("devtools-failure"))
+      );
+      if (phase !== "baseline") {
+        for (const row of network.requests) {
+          for (const field of [
+            "headers",
+            "responseHeaders",
+            "postData",
+            "responseBody",
+          ]) {
+            assert.ok(!(field in row));
+          }
+        }
+      }
+      const metrics = {
+        historyEntries: fullView.timeline.length,
+        networkListBytes: Buffer.byteLength(JSON.stringify(network)),
+        networkRows: network.requests.length,
+        phase,
+        sessionDefaultBytes: Buffer.byteLength(JSON.stringify(defaultView)),
+        sessionFullBytes: Buffer.byteLength(JSON.stringify(fullView)),
+      };
+      yield* io(() =>
+        writeFile(
+          path.join(artifacts, "performance.json"),
+          JSON.stringify(metrics, null, 2)
+        )
       );
       const failed = yield* program(
         "find-500",
@@ -151,6 +246,60 @@ await Effect.runPromise(
             "Refresh network requests"
           );
         }
+        if (panel === "Network") {
+          yield* command(
+            "browser",
+            "snapshot",
+            "--aria",
+            "--path",
+            `devtools-observe-${phase}/before-request.aria.txt`
+          );
+          yield* command(
+            "browser",
+            "click",
+            "--role",
+            "button",
+            "--name",
+            "devtools-failure",
+            "--partial"
+          );
+          yield* command("browser", "wait", "--text", "x-fixture-padding");
+          yield* command(
+            "browser",
+            "screenshot",
+            "--path",
+            path.join(screenshots, "request-headers.png")
+          );
+          yield* command(
+            "browser",
+            "click",
+            "--role",
+            "radio",
+            "--name",
+            "Response",
+            "--partial"
+          );
+          yield* command(
+            "browser",
+            "wait",
+            "--text",
+            "Fixture service unavailable"
+          );
+          yield* command(
+            "browser",
+            "screenshot",
+            "--path",
+            path.join(screenshots, "request-response.png")
+          );
+          yield* command(
+            "browser",
+            "click",
+            "--role",
+            "button",
+            "--name",
+            "Close request details"
+          );
+        }
         const name = panel.toLowerCase();
         const ariaPath = yield* command(
           "browser",
@@ -168,11 +317,82 @@ await Effect.runPromise(
         const aria = yield* io(() => readFile(ariaPath, "utf-8"));
         assert.ok(aria.includes(panel));
       }
+      if (phase !== "baseline") {
+        const teaching = yield* program(
+          "teaching-start",
+          `const session = await tools.agent_session_start({ activity: "teaching", clientName: "performance-proof", clientVersion: "1", group: "", name: "performance-teaching", url: ${JSON.stringify(url)}, viewport: { deviceScaleFactor: 1, height: 480, width: 640 }, operationId: "performance-teaching-start" }); if (!session.recordingId || !Array.isArray(session.teaching.instructions)) throw new Error("Teaching start lost full state"); return { id: session.id, recordingId: session.recordingId, viewUrl: session.viewUrl };`
+        );
+        yield* program(
+          "teaching-handoff",
+          `return tools.agent_teaching_setup_handoff({ sessionId: ${JSON.stringify(teaching.id)}, operationId: "performance-teaching-handoff" });`,
+          "intervention"
+        );
+        yield* command("browser", "goto", "--url", teaching.viewUrl);
+        yield* command(
+          "browser",
+          "wait",
+          "--role",
+          "button",
+          "--name",
+          "Start recording"
+        );
+        yield* command(
+          "browser",
+          "click",
+          "--role",
+          "button",
+          "--name",
+          "Start recording"
+        );
+        yield* command(
+          "browser",
+          "wait",
+          "--role",
+          "button",
+          "--name",
+          "Stop recording"
+        );
+        yield* program(
+          "teaching-defaults",
+          `const sessionId = ${JSON.stringify(teaching.id)};
+const recorded = await tools.agent_teaching_instruction_record({ sessionId, operationId: "performance-teaching-instruction", text: "Inspect the failing request before retrying." });
+const current = await tools.agent_session_get({ sessionId });
+const listed = (await tools.agent_sessions_get({})).sessions.find(session => session.id === sessionId);
+for (const session of [recorded, current, listed]) {
+  if (session.recordingId !== ${JSON.stringify(teaching.recordingId)} || session.teaching.instructions[0].text !== "Inspect the failing request before retrying.") throw new Error("Teaching default lost identity or instructions");
+}
+const waited = await tools.agent_session_get({ sessionId, afterCursor: current.eventCursor, waitMs: 0, view: "full" });
+if (waited.view !== "compact" || waited.teaching.instructionCount !== 1) throw new Error("Cursor wait must stay compact");
+return { recordingId: current.recordingId, instruction: current.teaching.instructions[0].text, listMatched: true, mutationMatched: true, waitView: waited.view };`
+        );
+        yield* command(
+          "browser",
+          "click",
+          "--role",
+          "button",
+          "--name",
+          "Stop recording"
+        );
+        yield* command(
+          "browser",
+          "wait",
+          "--role",
+          "button",
+          "--name",
+          "Start recording"
+        );
+        yield* command(
+          "browser",
+          "screenshot",
+          "--path",
+          path.join(screenshots, "teaching-stopped.png")
+        );
+      }
       yield* io(() =>
         writeFile(
           path.join(artifacts, "result.json"),
           JSON.stringify(
-            { failed, har, ok: true, screenshots, sessionId: run.id },
+            { failed, har, metrics, ok: true, screenshots, sessionId: run.id },
             null,
             2
           )

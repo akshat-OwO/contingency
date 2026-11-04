@@ -337,7 +337,11 @@ export const runAgentSessionStream = (
   Effect.scoped(
     Effect.gen(function* streamAgentSession() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
-      const events = client("agent.session.stream.subscribe", { sessionId });
+      const events = client(
+        "agent.session.stream.subscribe",
+        { sessionId },
+        { streamBufferSize: 1 }
+      );
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
     })

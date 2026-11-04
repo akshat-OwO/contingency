@@ -57,7 +57,7 @@ import type {
   BrowserFailureReasonType,
   BrowserRpcErrorType,
   BrowserDevtoolsCommand,
-  BrowserNetworkRequest,
+  BrowserNetworkRequestSummary,
   BrowserNetworkRequestDetail,
   BrowserStorageSnapshot,
   BrowserStreamId,
@@ -79,6 +79,7 @@ import type {
   AgentRunSummary,
 } from "@contingency/protocol";
 import {
+  summarizeBrowserNetworkRequest,
   AgentProcessId,
   AgentElementRef,
   AgentPendingDecisionId,
@@ -138,7 +139,6 @@ import {
 import {
   boundedDevtoolsText,
   filterDevtoolsRequests,
-  redactDevtoolsRequest,
 } from "./browser-devtools.ts";
 import type { BrowserDiagnosticsReader } from "./browser-diagnostics.ts";
 import { makeBrowserDiagnostics } from "./browser-diagnostics.ts";
@@ -209,6 +209,7 @@ import type { SessionEventBatch } from "./session-events.ts";
 import { makeSessionEvents, SessionEventOrigin } from "./session-events.ts";
 import type { AgentOperationKind } from "./session-operation-ledger.ts";
 import { makeSessionOperationLedger } from "./session-operation-ledger.ts";
+import { makeSessionStateChanges } from "./session-state-changes.ts";
 import { makeDemonstrationCapture } from "./teaching-capture.ts";
 import type { DemonstrationCapture } from "./teaching-capture.ts";
 import { teachingInstructionAuthorship } from "./teaching-questions.ts";
@@ -595,7 +596,10 @@ export interface AgentSessionService {
   readonly networkRequests: (
     sessionId: AgentSessionId,
     tabId: BrowserTabId
-  ) => Effect.Effect<readonly BrowserNetworkRequest[], AgentSessionError>;
+  ) => Effect.Effect<
+    readonly BrowserNetworkRequestSummary[],
+    AgentSessionError
+  >;
   readonly networkRequest: (
     sessionId: AgentSessionId,
     tabId: BrowserTabId,
@@ -1708,7 +1712,6 @@ const requiredBrowserState = (input: AgentSessionStartInput) =>
 const makeAgentSession = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions,
-  events: PubSub.PubSub<AgentSessionSnapshot>,
   fileSystem?: FileSystem.FileSystem,
   parentScope?: Scope.Scope,
   teachingRecordingStore?: TeachingRecordingStoreService,
@@ -1716,6 +1719,7 @@ const makeAgentSession = (
   runVideoRenderer?: RunVideoRendererService
 ): Effect.Effect<AgentSessionService> =>
   Effect.gen(function* makeSessionRegistry() {
+    const events = makeSessionStateChanges();
     const eventBatches = yield* PubSub.unbounded<SessionEventBatch>();
     const sessions = Ref.makeUnsafe<ReadonlyMap<AgentSessionId, SessionRecord>>(
       new Map()
@@ -1978,7 +1982,7 @@ const makeAgentSession = (
         Ref.getUnsafe(sessions)
           .get(snapshot.id)
           ?.footage?.markController(snapshot.controller, Date.now());
-        PubSub.publishUnsafe(events, snapshot);
+        yield* events.publish(snapshot);
       });
 
     const save = (
@@ -7171,14 +7175,11 @@ const makeAgentSession = (
         Stream.unwrap(
           ledger.serializeMutation(
             Effect.gen(function* subscribeToSessionChanges() {
-              const subscription = yield* PubSub.subscribe(events);
+              const subscription = yield* events.subscribe(sessionId);
               const record = yield* read(sessionId);
               const pushed = Stream.concat(
                 Stream.succeed(record.snapshot),
-                Stream.fromEffect(PubSub.take(subscription)).pipe(
-                  Stream.repeat(Schedule.forever),
-                  Stream.filter(({ id }) => id === sessionId)
-                )
+                Stream.fromQueue(subscription)
               );
               if (record.snapshot.activity !== "teaching") {
                 return pushed;
@@ -8115,7 +8116,7 @@ const makeAgentSession = (
               .getNetworkRequests(record.browserSessionId, tabId)
               .pipe(
                 Effect.map((requests) =>
-                  requests.map((request) => redactDevtoolsRequest(request, []))
+                  requests.map(summarizeBrowserNetworkRequest)
                 )
               )
           )
@@ -9384,16 +9385,13 @@ const makeAgentSession = (
           yield* sessionEvents.read(sessionId, afterCursor);
           yield* Stream.unwrap(
             Effect.gen(function* subscribeBeforeReading() {
-              const subscription = yield* PubSub.subscribe(events);
+              const subscription = yield* events.subscribe(sessionId);
               const record = yield* read(sessionId);
               const refresh = refreshedSnapshot(sessionId, record);
               return Stream.merge(
                 Stream.concat(
                   Stream.fromEffect(refresh),
-                  Stream.fromEffect(PubSub.take(subscription)).pipe(
-                    Stream.repeat(Schedule.forever),
-                    Stream.filter((snapshot) => snapshot.id === sessionId)
-                  )
+                  Stream.fromQueue(subscription)
                 ),
                 Stream.fromEffect(refresh).pipe(
                   Stream.repeat(Schedule.spaced("500 millis"))
@@ -9441,10 +9439,7 @@ const makeAgentSession = (
 export const makeAgentSessionService = (
   browser: CreateBrowserService,
   options: AgentSessionServiceOptions
-): Effect.Effect<AgentSessionService> =>
-  PubSub.unbounded<AgentSessionSnapshot>().pipe(
-    Effect.flatMap((events) => makeAgentSession(browser, options, events))
-  );
+): Effect.Effect<AgentSessionService> => makeAgentSession(browser, options);
 
 export type AgentSessionLayerOptions = AgentSessionServiceOptions;
 
@@ -9477,19 +9472,14 @@ export const makeAgentSessionLayer = (
         yield* Effect.serviceOption(RunVideoRenderer)
       );
       const parentScope = yield* Scope.Scope;
-      const service = yield* PubSub.unbounded<AgentSessionSnapshot>().pipe(
-        Effect.flatMap((events) =>
-          makeAgentSession(
-            browser,
-            options,
-            events,
-            fileSystem,
-            parentScope,
-            teachingRecordingStore,
-            runStore,
-            runVideoRenderer
-          )
-        )
+      const service = yield* makeAgentSession(
+        browser,
+        options,
+        fileSystem,
+        parentScope,
+        teachingRecordingStore,
+        runStore,
+        runVideoRenderer
       );
       yield* Effect.addFinalizer(() => service.closeAll());
       return service;

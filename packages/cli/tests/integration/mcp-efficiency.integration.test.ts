@@ -151,7 +151,6 @@ it.live("answers compact sessions and pages the history they omit", () =>
         referencedFlows: [],
         requestedTask: "Fill in the checkout details",
         url: fixture.url("checkout.html"),
-        view: "compact",
       }
     );
     expect(started.value.nextAction).toContain(
@@ -189,10 +188,10 @@ it.live("answers compact sessions and pages the history they omit", () =>
 
     const full = yield* call(AgentSessionSnapshot, "agent_session_get", {
       sessionId,
+      view: "full",
     });
     const compact = yield* call(AgentSessionCompact, "agent_session_get", {
       sessionId,
-      view: "compact",
     });
     expect(compact.value.history.timeline).toBe(full.value.timeline.length);
     expect(compact.value.latestAttempt?.id).toBe(
@@ -201,9 +200,7 @@ it.live("answers compact sessions and pages the history they omit", () =>
     expect(compact.value.pendingDecisions).toEqual(full.value.pendingDecisions);
     expect(compact.bytes).toBeLessThan(full.bytes);
 
-    const listed = yield* call(CompactSessionList, "agent_sessions_get", {
-      view: "compact",
-    });
+    const listed = yield* call(CompactSessionList, "agent_sessions_get", {});
     expect(listed.value.sessions.map((session) => session.id)).toEqual([
       sessionId,
     ]);

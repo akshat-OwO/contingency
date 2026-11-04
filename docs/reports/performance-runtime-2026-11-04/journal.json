@@ -1,0 +1,366 @@
+[
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "build",
+    "pid": 71049,
+    "startedAt": "2026-11-04T17:16:43.315353+00:00",
+    "endedAt": "2026-11-04T17:16:49.212528+00:00",
+    "command": [
+      "vp",
+      "exec",
+      "turbo",
+      "run",
+      "build",
+      "--filter=@contingencyhq/cli",
+      "--force"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "launch",
+    "pid": 71175,
+    "startedAt": "2026-11-04T17:16:49.213659+00:00",
+    "endedAt": "2026-11-04T17:16:49.955402+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "launch"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "doctor",
+    "pid": 71222,
+    "startedAt": "2026-11-04T17:16:49.956753+00:00",
+    "endedAt": "2026-11-04T17:16:50.055981+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "doctor"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "mcp",
+    "pid": 71243,
+    "startedAt": "2026-11-04T17:16:50.057144+00:00",
+    "endedAt": "2026-11-04T17:16:50.663598+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "mcp",
+      "start"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "probe",
+    "pid": 71268,
+    "startedAt": "2026-11-04T17:16:50.665839+00:00",
+    "endedAt": "2026-11-04T17:17:09.578433+00:00",
+    "command": [
+      "node",
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/artifacts/performance-runtime/probe.mjs",
+      "candidate-r1"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r1",
+    "name": "cleanup",
+    "pid": 71513,
+    "startedAt": "2026-11-04T17:17:09.580381+00:00",
+    "endedAt": "2026-11-04T17:17:19.824532+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "cleanup"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "build",
+    "pid": 71620,
+    "startedAt": "2026-11-04T17:17:19.998640+00:00",
+    "endedAt": "2026-11-04T17:17:25.833424+00:00",
+    "command": [
+      "vp",
+      "exec",
+      "turbo",
+      "run",
+      "build",
+      "--filter=@contingencyhq/cli",
+      "--force"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "launch",
+    "pid": 71771,
+    "startedAt": "2026-11-04T17:17:25.834676+00:00",
+    "endedAt": "2026-11-04T17:17:26.578715+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "launch"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "doctor",
+    "pid": 71799,
+    "startedAt": "2026-11-04T17:17:26.579979+00:00",
+    "endedAt": "2026-11-04T17:17:26.676946+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "doctor"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "mcp",
+    "pid": 71820,
+    "startedAt": "2026-11-04T17:17:26.678111+00:00",
+    "endedAt": "2026-11-04T17:17:27.284248+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "mcp",
+      "start"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "probe",
+    "pid": 71844,
+    "startedAt": "2026-11-04T17:17:27.286528+00:00",
+    "endedAt": "2026-11-04T17:17:46.128224+00:00",
+    "command": [
+      "node",
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/artifacts/performance-runtime/probe.mjs",
+      "baseline-r1"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r1",
+    "name": "cleanup",
+    "pid": 72155,
+    "startedAt": "2026-11-04T17:17:46.130364+00:00",
+    "endedAt": "2026-11-04T17:17:56.375961+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "cleanup"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "build",
+    "pid": 72301,
+    "startedAt": "2026-11-04T17:17:56.549437+00:00",
+    "endedAt": "2026-11-04T17:18:02.389662+00:00",
+    "command": [
+      "vp",
+      "exec",
+      "turbo",
+      "run",
+      "build",
+      "--filter=@contingencyhq/cli",
+      "--force"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "launch",
+    "pid": 72438,
+    "startedAt": "2026-11-04T17:18:02.390832+00:00",
+    "endedAt": "2026-11-04T17:18:03.129139+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "launch"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "doctor",
+    "pid": 72466,
+    "startedAt": "2026-11-04T17:18:03.130650+00:00",
+    "endedAt": "2026-11-04T17:18:03.227926+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "doctor"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "mcp",
+    "pid": 72487,
+    "startedAt": "2026-11-04T17:18:03.229425+00:00",
+    "endedAt": "2026-11-04T17:18:03.836666+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "mcp",
+      "start"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "probe",
+    "pid": 72513,
+    "startedAt": "2026-11-04T17:18:03.839211+00:00",
+    "endedAt": "2026-11-04T17:18:22.665488+00:00",
+    "command": [
+      "node",
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/artifacts/performance-runtime/probe.mjs",
+      "baseline-r2"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "baseline-r2",
+    "name": "cleanup",
+    "pid": 72781,
+    "startedAt": "2026-11-04T17:18:22.667387+00:00",
+    "endedAt": "2026-11-04T17:18:33.014099+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "cleanup"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "build",
+    "pid": 72882,
+    "startedAt": "2026-11-04T17:18:33.069165+00:00",
+    "endedAt": "2026-11-04T17:18:38.939426+00:00",
+    "command": [
+      "vp",
+      "exec",
+      "turbo",
+      "run",
+      "build",
+      "--filter=@contingencyhq/cli",
+      "--force"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "launch",
+    "pid": 73025,
+    "startedAt": "2026-11-04T17:18:38.940794+00:00",
+    "endedAt": "2026-11-04T17:18:39.734437+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "launch"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "doctor",
+    "pid": 73055,
+    "startedAt": "2026-11-04T17:18:39.736092+00:00",
+    "endedAt": "2026-11-04T17:18:39.830668+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "doctor"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "mcp",
+    "pid": 73077,
+    "startedAt": "2026-11-04T17:18:39.834889+00:00",
+    "endedAt": "2026-11-04T17:18:40.547141+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "mcp",
+      "start"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "probe",
+    "pid": 73171,
+    "startedAt": "2026-11-04T17:18:40.549336+00:00",
+    "endedAt": "2026-11-04T17:18:59.432324+00:00",
+    "command": [
+      "node",
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/artifacts/performance-runtime/probe.mjs",
+      "candidate-r2"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  },
+  {
+    "owner": "root runtime benchmark",
+    "label": "candidate-r2",
+    "name": "cleanup",
+    "pid": 73453,
+    "startedAt": "2026-11-04T17:18:59.434402+00:00",
+    "endedAt": "2026-11-04T17:19:09.678278+00:00",
+    "command": [
+      "/Users/akshat/.t3/worktrees/contingency/t3-d993de79/.cursor/skills/verify-contingency/bin/control-contingency",
+      "cleanup"
+    ],
+    "exitCode": 0,
+    "stop": "normal exit; isolated instance cleanup"
+  }
+]

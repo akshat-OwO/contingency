@@ -1,0 +1,48 @@
+from pathlib import Path
+import os,subprocess,json,time,threading,datetime,sys
+from urllib.parse import urlparse
+root=Path.cwd();out=root/'.cursor/skills/verify-contingency/artifacts/performance-runtime';control=root/'.cursor/skills/verify-contingency/bin/control-contingency';journal=[]
+def run(label,name,cmd,env=None,check=True):
+ p=subprocess.Popen([str(x) for x in cmd],cwd=root,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);started=datetime.datetime.now(datetime.timezone.utc).isoformat();stdout,stderr=p.communicate();(out/f'{label}-{name}.stdout.log').write_text(stdout);(out/f'{label}-{name}.stderr.log').write_text(stderr);journal.append(dict(owner='root runtime benchmark',label=label,name=name,pid=p.pid,startedAt=started,endedAt=datetime.datetime.now(datetime.timezone.utc).isoformat(),command=list(map(str,cmd)),exitCode=p.returncode,stop='normal exit; isolated instance cleanup'));(out/'journal.json').write_text(json.dumps(journal,indent=2));print(label,name,p.returncode,flush=True)
+ if check and p.returncode:raise RuntimeError((stdout+stderr)[-3000:])
+ return stdout
+for label in (sys.argv[1:] or ['candidate-1','baseline-1','baseline-2','candidate-2']):
+ saved={};directory=None;stop=threading.Event();sampler=None;env=os.environ.copy()
+ try:
+  if label.startswith('baseline'):
+   for name in subprocess.check_output(['git','diff','--name-only'],text=True).splitlines():
+    if name.startswith(('apps/web/src/','packages/cli/src/','packages/protocol/src/')):
+     p=root/name;candidate=p.read_bytes();baseline=subprocess.check_output(['git','show','HEAD:'+name]);saved[name]=(candidate,baseline);p.write_bytes(baseline)
+  run(label,'build',['vp','exec','turbo','run','build','--filter=@contingencyhq/cli','--force'])
+  launch=run(label,'launch',[control,'launch']);directory=next(x.split('=',1)[1] for x in launch.splitlines() if x.startswith('CONTINGENCY_VERIFY_DIR='));env['CONTINGENCY_VERIFY_DIR']=directory
+  run(label,'doctor',[control,'doctor'],env);run(label,'mcp',[control,'mcp','start'],env)
+  instance=json.loads((Path(directory)/'instance.json').read_text());(out/f'{label}-instance.json').write_text(json.dumps(instance,indent=2));samples=[]
+  roots=[instance['pid'],instance['driverPid'],instance['mcpPid']]
+  def sample():
+   while not stop.is_set():
+    try:
+     rows=[list(map(int,l.split())) for l in subprocess.check_output(['ps','-axo','pid=,ppid=,rss='],text=True).splitlines() if l.strip()];owned=set(roots)
+     while True:
+      grown=owned|{pid for pid,parent,rss in rows if parent in owned}
+      if grown==owned:break
+      owned=grown
+     stagefile=out/f'{label}-stage.json';stage=json.loads(stagefile.read_text())['stage'] if stagefile.exists() else 'launch'
+     samples.append(dict(at=time.time(),stage=stage,mcpRssKiB=next((rss for pid,parent,rss in rows if pid==instance['mcpPid']),0),treeRssKiB=sum(rss for pid,parent,rss in rows if pid in owned),processes=[dict(pid=pid,ppid=parent,rssKiB=rss) for pid,parent,rss in rows if pid in owned]))
+    except Exception as e:samples.append(dict(error=str(e)))
+    stop.wait(.25)
+  sampler=threading.Thread(target=sample);sampler.start()
+  run(label,'probe',['node',out/'probe.mjs',label],env)
+ finally:
+  stop.set()
+  if sampler:sampler.join();(out/f'{label}-memory.json').write_text(json.dumps(samples,indent=2))
+  if directory:
+   cleanup=run(label,'cleanup',[control,'cleanup'],env,False)
+   if Path(directory,'instance.json').exists():run(label,'cleanup-retry',[control,'cleanup'],env,False)
+   ids=[instance[k] for k in ['pid','driverPid','mcpPid']];ports=[instance['port'],instance['mcpPort']]+[urlparse(instance[k]).port for k in ['driverUrl','brokerUrl']];checks=[]
+   for cmd in [['ps','-p',','.join(map(str,ids)),'-o','pid=,command='],['lsof','-nP',*[f'-iTCP:{p}' for p in ports],'-sTCP:LISTEN']]:
+    r=subprocess.run(cmd,capture_output=True,text=True);checks.append(dict(command=cmd,exitCode=r.returncode,stdout=r.stdout,stderr=r.stderr))
+   (out/f'{label}-cleanup-check.json').write_text(json.dumps(checks,indent=2))
+  for name,(candidate,baseline) in saved.items():
+   p=root/name
+   if p.read_bytes()!=baseline:raise RuntimeError('Concurrent edit, refusing overwrite: '+name)
+   p.write_bytes(candidate)
