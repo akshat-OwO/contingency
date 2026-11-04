@@ -77,6 +77,13 @@ export const ExecutionBoundary = ({
       });
     }
   };
+  let scope = "Allow permits this exact attempt once; a retry asks again.";
+  if (session.controller === "user") {
+    scope =
+      "You hold the browser, so this can only be refused now. Return control to allow it.";
+  } else if (boundary.reason === "domain") {
+    scope = domainApprovalSummary(session);
+  }
   return (
     <section aria-label="Execution Boundary" className="space-y-1.5">
       <RequestHeader
@@ -161,20 +168,13 @@ export const ExecutionBoundary = ({
           <pre className="bg-muted/60 max-h-28 overflow-auto rounded-md p-2 font-mono">
             {JSON.stringify(boundary.action, null, 2)}
           </pre>
-          <p className="text-muted-foreground text-pretty">
-            {boundary.reason === "domain"
-              ? domainApprovalSummary(session)
-              : "Allowing permits this exact action attempt once. A retry with a new operation id needs another decision."}{" "}
-            Take control remains available. Return control before allowing an
-            agent attempt.
-          </p>
         </div>
       ) : null}
-      {session.controller === "user" ? (
-        <p className="text-muted-foreground text-xs">
-          Return control before allowing this action. You can still refuse it.
-        </p>
-      ) : null}
+      {/*
+        What Allow grants is part of the decision, so it stays visible beside
+        the buttons; only the attempt id and its payload wait behind details.
+      */}
+      <p className="text-muted-foreground text-xs text-pretty">{scope}</p>
       {state.error === "" ? null : (
         <p role="alert" className="text-destructive text-xs">
           {state.error}

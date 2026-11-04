@@ -10,6 +10,7 @@ import {
   recordingPhaseLabel,
   runDuration,
   runKindLabel,
+  runVerdict,
   when,
 } from "@/components/catalog/flows-format";
 import { cn } from "@/lib/utils";
@@ -65,7 +66,10 @@ export const RunRow = ({
     <span className="min-w-0 flex-1">
       <span className="line-clamp-2 text-sm">{run.title}</span>
       <span className="text-muted-foreground block text-xs">
-        {runKindLabel(run)} · {when(run.startedAt)} · {runDuration(run)}
+        <span className="text-foreground/80 font-medium">
+          {runVerdict(run)}
+        </span>{" "}
+        · {runKindLabel(run)} · {when(run.startedAt)} · {runDuration(run)}
       </span>
     </span>
   </button>

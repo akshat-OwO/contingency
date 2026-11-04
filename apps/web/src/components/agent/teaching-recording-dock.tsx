@@ -9,10 +9,12 @@ import type {
 } from "@contingency/protocol";
 import {
   CircleAlertIcon,
+  CheckIcon,
   CircleIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
   PencilIcon,
+  RotateCwIcon,
   SquareIcon,
   Trash2Icon,
   XIcon,
@@ -149,6 +151,34 @@ export const WorkspaceEmptyDock = ({
 );
 
 /**
+ * The red dot is the capture gesture's own mark; verifying, retrying, and
+ * rejecting are decisions about a recording, so they get their own icons.
+ */
+const TeachingActionIcon = ({
+  gesture,
+}: {
+  readonly gesture: TeachingRecordingGesture;
+}) => {
+  switch (gesture) {
+    case "stop":
+    case "stop-dry-run": {
+      return <SquareIcon aria-hidden="true" className="fill-current" />;
+    }
+    case "verify-flow": {
+      return <CheckIcon aria-hidden="true" />;
+    }
+    case "retry-cleanup": {
+      return <RotateCwIcon aria-hidden="true" />;
+    }
+    default: {
+      return (
+        <CircleIcon aria-hidden="true" className="fill-current text-red-500" />
+      );
+    }
+  }
+};
+
+/**
  * The way into the comment composer, with the comment count beside it. The
  * shortcut hint follows focus: with the browser focused, single keys belong to
  * the Page, so only the chord opens the composer.
@@ -179,7 +209,9 @@ const CommentTrigger = ({
     <MessageSquareTextIcon aria-hidden="true" />
     <span className="hidden @md:inline">Comment</span>
     {count === 0 ? null : (
-      <span className="text-muted-foreground tabular-nums">{count}</span>
+      <span className="bg-muted text-muted-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-xs leading-none font-medium tabular-nums">
+        {count}
+      </span>
     )}
     <ShortcutKbd
       className="hidden @lg:inline-flex"
@@ -406,14 +438,7 @@ export const TeachingRecordingDock = ({
               : "default"
           }
         >
-          {action.gesture === "stop" || action.gesture === "stop-dry-run" ? (
-            <SquareIcon aria-hidden="true" className="fill-current" />
-          ) : (
-            <CircleIcon
-              aria-hidden="true"
-              className="fill-current text-red-500"
-            />
-          )}
+          <TeachingActionIcon gesture={action.gesture} />
           {action.gesture === "start" ? (
             <>
               <span className="@sm:hidden">Record</span>

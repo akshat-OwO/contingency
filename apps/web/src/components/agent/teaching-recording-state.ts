@@ -9,6 +9,7 @@ import type {
 
 import {
   dryRunChecksPass,
+  dryRunFailureSentence,
   isTaskDryRunSummary,
 } from "@/components/agent/dry-run-summary-state";
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
@@ -92,6 +93,15 @@ const action = (
   gesture: TeachingRecordingGesture,
   label: string
 ): TeachingRecordingAction => ({ accessibleName: label, gesture, label });
+
+/** Why a task Dry Run missed its pass rule, when its record says. */
+const dryRunMissSentence = (
+  summary: AgentRunSummary | undefined,
+  fallback: string
+): string =>
+  (summary !== undefined && isTaskDryRunSummary(summary)
+    ? dryRunFailureSentence(summary)
+    : undefined) ?? fallback;
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
 const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
@@ -238,7 +248,10 @@ export const teachingRecordingPresentation = (
       return {
         action: null,
         badge: "Dry run failed",
-        nextStep: captureState.dryRunResult.observableOutcome,
+        nextStep: dryRunMissSentence(
+          captureState.dryRunSummary,
+          captureState.dryRunResult.observableOutcome
+        ),
         secondaries: [],
         showsElapsed: false,
         showsInspect: true,
@@ -250,8 +263,10 @@ export const teachingRecordingPresentation = (
         return {
           action: null,
           badge: "Dry run failed",
-          nextStep:
-            "This attempt cannot verify the flow. Ask your agent to complete a fresh Dry Run without Takeover.",
+          nextStep: `${dryRunMissSentence(
+            captureState.dryRunSummary,
+            "This attempt cannot verify the flow."
+          )} Ask your agent for a fresh Dry Run.`,
           secondaries: ["reject-flow"],
           showsElapsed: false,
           showsInspect: true,
@@ -273,8 +288,10 @@ export const teachingRecordingPresentation = (
       if (cleanup?._tag === "purge-pending" && cleanup.failure !== null) {
         return {
           action: action("retry-cleanup", "Retry cleanup"),
-          badge: "Video and trace still on disk",
-          nextStep: `${cleanup.retainedFiles.join(", ")} could not be deleted. Retry the deletion.`,
+          badge: "Cleanup failed",
+          // The instruction leads so a clamped line still says what to do;
+          // the file names follow for when the line is expanded.
+          nextStep: `The flow is verified. Retry to delete the recording. Still on disk: ${cleanup.retainedFiles.join(", ")}.`,
           secondaries: [],
           showsElapsed: false,
           showsInspect: false,

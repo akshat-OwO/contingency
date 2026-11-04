@@ -189,8 +189,12 @@ const takeoverReason = (
   if (takeover === null) {
     return undefined;
   }
-  return takeover.requestedBy === "agent"
-    ? `The agent asked for help: ${takeover.reason}`
+  if (takeover.requestedBy === "agent") {
+    return `The agent asked for help: ${takeover.reason}`;
+  }
+  // A default reason only restates the badge; a user's own words add to it.
+  return /^(?:the user|you) took control\b/iu.test(takeover.reason.trim())
+    ? undefined
     : `You took control: ${takeover.reason}`;
 };
 

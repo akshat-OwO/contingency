@@ -222,6 +222,7 @@ export const WorkspaceWithRunSummary = ({
   children,
   label,
   leading = null,
+  leadingYieldsOnMobile = false,
   onCloseSummary,
   summary,
 }: {
@@ -230,6 +231,12 @@ export const WorkspaceWithRunSummary = ({
   readonly label: string;
   /** A panel on the Workspace's left, or `null` for none. */
   readonly leading?: WorkspaceLeading | null;
+  /**
+   * The right panel was opened from the left one, so on a phone it replaces
+   * it: a phone has room for one panel beside the Workspace, and closing the
+   * right one brings the left one back.
+   */
+  readonly leadingYieldsOnMobile?: boolean;
   /** Makes the right panel closable rather than collapsible. */
   readonly onCloseSummary?: (() => void) | undefined;
   /** The summary to show, or `null` for a full-width Workspace. */
@@ -239,7 +246,8 @@ export const WorkspaceWithRunSummary = ({
   // A closed sidebar keeps its panel while it slides out, then the Workspace
   // takes the width back in one step, as it gave it up on arrival.
   const leadingPresence = usePresence(
-    leading ?? undefined,
+    (mobile && leadingYieldsOnMobile && summary !== null ? null : leading) ??
+      undefined,
     slideFrom(mobile ? "top" : "left")
   );
   const summaryPresence = usePresence(

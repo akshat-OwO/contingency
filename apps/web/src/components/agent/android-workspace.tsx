@@ -17,6 +17,7 @@ import {
   CircleIcon,
   MessageSquareTextIcon,
   MonitorIcon,
+  PowerIcon,
   SmartphoneIcon,
   SquareIcon,
 } from "lucide-react";
@@ -54,6 +55,7 @@ import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
 import { AndroidSetupSheet } from "./android-setup-sheet";
 import { WorkspaceLayout } from "./android-workspace-layout";
+import { DeviceElements } from "./device-elements";
 import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
@@ -170,17 +172,25 @@ export const AndroidEmptyState = ({
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
   <main className="relative flex h-full min-h-0 flex-col">
-    <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
-      <section className="max-w-md space-y-4 text-center">
-        <h1 className="text-xl font-semibold tracking-tight">
-          No Android session
-        </h1>
-        <p className="text-muted-foreground text-sm text-pretty">
-          Open a session to pick a device and an app, then start recording when
-          the journey begins.
-        </p>
+    <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
+      <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
+        <div
+          aria-hidden="true"
+          className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
+        >
+          <SmartphoneIcon className="size-5" />
+        </div>
+        <div className="space-y-1.5">
+          <h1 className="text-xl font-semibold tracking-tight">
+            No Android session
+          </h1>
+          <p className="text-muted-foreground text-sm text-pretty">
+            Open a session to pick a device and an app, then start recording
+            when the journey begins.
+          </p>
+        </div>
         {sessions.length === 0 ? null : (
-          <div className="flex justify-center">
+          <div className="flex">
             <AndroidSessionSelect
               onSelect={onSelect}
               selectedSessionId={undefined}
@@ -188,12 +198,12 @@ export const AndroidEmptyState = ({
             />
           </div>
         )}
-        <div className="flex justify-center gap-2">
-          <Button onClick={onOpen}>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onOpen} size="lg">
             <SmartphoneIcon />
             Open Android session
           </Button>
-          <Button onClick={onBrowser} variant="outline">
+          <Button onClick={onBrowser} size="lg" variant="outline">
             <MonitorIcon />
             Browser Workspace
           </Button>
@@ -294,6 +304,7 @@ const useAndroidSessionSync = (
 
 /** The dock's controls row: navigation first, then the state's own actions. */
 const AndroidDockControls = ({
+  elements,
   instructing,
   mutate,
   onBrowser,
@@ -303,6 +314,8 @@ const AndroidDockControls = ({
   session,
   sessions,
 }: {
+  /** The keyboard's way onto the device screen. */
+  readonly elements: React.ReactNode;
   readonly instructing: boolean;
   readonly mutate: Mutate;
   readonly onBrowser: () => void;
@@ -337,16 +350,18 @@ const AndroidDockControls = ({
       >
         <MonitorIcon />
       </Button>
+      {elements}
       <DockSpacer />
       {presentation.showsComment ? (
         <Button
+          aria-label="Comment"
           aria-pressed={instructing}
           onClick={onInstruct}
           size="sm"
           variant="ghost"
         >
           <MessageSquareTextIcon />
-          Comment
+          <span className="hidden @md:inline">Comment</span>
         </Button>
       ) : null}
       {presentation.rejectable ? (
@@ -376,10 +391,13 @@ const AndroidDockControls = ({
               sessionId: session.id,
             })
           }
+          aria-label="Close session"
           size="sm"
+          title="Close session"
           variant="outline"
         >
-          Close session
+          <PowerIcon className="@md:hidden" />
+          <span className="hidden @md:inline">Close session</span>
         </Button>
       ) : (
         <Button onClick={onNewSession} size="sm" variant="outline">
@@ -542,8 +560,15 @@ export const AndroidSessionView = ({
   const pick = useWorkspaceGesture(pickGestureAtom);
   const canAct =
     session.controller === "user" && session.phase === "running" && !pending;
+  // Teaching types only while recording: a stopped recording keeps the
+  // session, but nothing typed then would be captured.
+  // A refused pick leaves no field picked: typing into the previous one would
+  // land somewhere the person did not just choose.
   const field =
     canAct &&
+    pick.error === undefined &&
+    (session.kind !== "teaching" ||
+      session.captureState?._tag === "recording") &&
     session.field !== null &&
     fieldKey(session.field) !== state.dismissedField
       ? session.field
@@ -571,18 +596,15 @@ export const AndroidSessionView = ({
     >
       <main
         className={cn(
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6 transition-[padding]",
-          // The dock's request tier grows over the stage; the device makes room.
-          field !== null ||
-            session.preparation.pending.length > 0 ||
-            (state.instructing && session.captureState?._tag === "recording")
-            ? "pb-56"
-            : "pb-36"
+          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6",
+          // The dock grows over the stage; the device keeps clear of it.
+          "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
         {notices}
         <AndroidDevice
           canAct={canAct}
+          ended={!isLiveAndroidSession(session)}
           live={session.phase === "running" || session.phase === "paused"}
           onBack={() => {
             if (session.observation !== null) {
@@ -631,6 +653,25 @@ export const AndroidSessionView = ({
           }
         >
           <AndroidDockControls
+            elements={
+              <DeviceElements
+                disabled={!canAct || pick.pending}
+                observation={session.observation}
+                onPick={({ frame, point }) => {
+                  pick.dispatch(
+                    run({
+                      _tag: "pick",
+                      frame,
+                      observationId: session.observation?.id ?? "none",
+                      operationId: operationId(),
+                      point,
+                      sessionId: session.id,
+                    })
+                  );
+                  setState((current) => ({ ...current, dismissedField: null }));
+                }}
+              />
+            }
             instructing={state.instructing}
             mutate={mutate}
             onBrowser={onBrowser}

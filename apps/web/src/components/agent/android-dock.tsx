@@ -101,14 +101,6 @@ export const AndroidRequests = ({
               action={
                 <>
                   <Button
-                    disabled={pending}
-                    onClick={() => onDecide(decision.id, false)}
-                    size="xs"
-                    variant="outline"
-                  >
-                    Refuse
-                  </Button>
-                  <Button
                     disabled={
                       pending ||
                       (decision.kind === "confirmation" &&
@@ -118,6 +110,14 @@ export const AndroidRequests = ({
                     size="xs"
                   >
                     Allow
+                  </Button>
+                  <Button
+                    disabled={pending}
+                    onClick={() => onDecide(decision.id, false)}
+                    size="xs"
+                    variant="outline"
+                  >
+                    Refuse
                   </Button>
                 </>
               }
@@ -448,7 +448,7 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
-        className="max-w-56 min-w-0"
+        className="max-w-56 min-w-24 flex-1 @md:flex-none"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { HighlightedCode } from "@/components/browser/highlighted-code";
 import type { FlowsSelection } from "@/components/catalog/flows-drawer-state";
 import { flowsSelectionAtom } from "@/components/catalog/flows-drawer-state";
@@ -259,9 +260,9 @@ const RunDetail = ({
       </div>
       <h2 className="text-base leading-snug font-semibold">{run.title}</h2>
       <p className="text-muted-foreground text-xs">
-        {when(run.startedAt)} · {runDuration(run)} ·{" "}
-        <span className="font-mono">{run.runId}</span>
+        {when(run.startedAt)} · {runDuration(run)}
       </p>
+      <EvidenceReference id={run.runId} kind="Run ID" />
     </header>
     <Section title="Flows">
       {run.flowNames.length === 0 ? (
@@ -291,7 +292,13 @@ const RunDetail = ({
         <ExternalLinkIcon aria-hidden="true" />
         Open Run Summary
       </a>
-    ) : null}
+    ) : (
+      <p className="text-muted-foreground text-xs text-pretty">
+        {run.kind === "dry-run"
+          ? "A Dry Run's evidence stays with its recording. Copy the Run ID above and ask your agent to open that Run."
+          : "This Run belongs to another Catalog Root. Open it from a Workspace that uses that root."}
+      </p>
+    )}
   </article>
 );
 

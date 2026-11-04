@@ -7,6 +7,7 @@ import { agentRunVideoPath } from "@contingency/protocol";
 import {
   CircleAlertIcon,
   CircleCheckIcon,
+  CircleMinusIcon,
   CircleXIcon,
   CornerDownRightIcon,
 } from "lucide-react";
@@ -23,12 +24,14 @@ import type {
 import {
   assessmentOutcomeLabel,
   dryRunChecks,
+  dryRunFailureSentence,
   dryRunVerdict,
   evidenceCount,
   interactiveRunChecks,
   interactiveRunVerdict,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,7 +40,7 @@ import { cn } from "@/lib/utils";
 import { BrowserCheckResults } from "./browser-check-results";
 import { ScanResults } from "./scan-results.tsx";
 
-const passedTone = "text-emerald-600 dark:text-emerald-400";
+const passedTone = "text-emerald-700 dark:text-emerald-400";
 
 const verdictLabel: Record<DryRunVerdict, string> = {
   "checks-passed": "All checks passed",
@@ -94,35 +97,38 @@ const Verdict = ({
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
 const SummaryVideo = ({
+  failure,
   src,
   summary,
   verdict,
 }: {
+  /** Why the Run cannot pass, said right under the verdict. */
+  readonly failure: string | undefined;
   readonly verdict: SummaryVerdict;
   readonly src: string;
   readonly summary: TaskAgentRunSummary;
 }) => (
-  <section aria-label="Run video" className="space-y-1.5">
+  <section aria-label="Run video" className="space-y-2">
+    {/*
+      The verdict leads in normal flow rather than over the player: when the
+      video is gone, the player's own notice takes that space, and an overlay
+      would sit on top of it.
+    */}
+    <Verdict className="text-sm" verdict={verdict} />
+    {failure === undefined ? null : (
+      <p className="text-destructive text-sm text-pretty">{failure}</p>
+    )}
     {summary.videoPath === null ? (
-      <>
-        <Verdict className="text-sm" verdict={verdict} />
-        <p className="text-muted-foreground text-xs">
-          This Run recorded no video.
-        </p>
-      </>
+      <p className="text-muted-foreground text-xs">
+        This Run recorded no video.
+      </p>
     ) : (
-      <div className="relative">
-        <RunVideo
-          src={src}
-          timeMap={summary.videoTimeMap}
-          timeline={summary.timeline}
-          videoClassName="max-h-[min(24rem,50svh)]"
-        />
-        <Verdict
-          className="bg-background/90 pointer-events-none absolute top-3 left-3 rounded-full px-2 py-0.5 text-xs shadow-sm"
-          verdict={verdict}
-        />
-      </div>
+      <RunVideo
+        src={src}
+        timeMap={summary.videoTimeMap}
+        timeline={summary.timeline}
+        videoClassName="max-h-[min(24rem,50svh)]"
+      />
     )}
     <p className="text-muted-foreground text-xs">
       The video and Trace stay on this machine.
@@ -158,16 +164,34 @@ const EvidenceReferences = ({
 }) => (
   <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
     {assessment.evidence.map((reference) => (
-      <li
-        className="bg-muted text-muted-foreground max-w-full truncate rounded px-1.5 py-0.5 font-mono text-xs"
-        key={`${reference.kind}:${reference.id}`}
-        title={`${reference.kind}: ${reference.id}`}
-      >
-        {reference.kind}: {reference.id}
+      <li className="max-w-full" key={`${reference.kind}:${reference.id}`}>
+        <EvidenceReference id={reference.id} kind={reference.kind} />
       </li>
     ))}
   </ul>
 );
+
+const CheckMark = ({ check }: { readonly check: SummaryCheck }) => {
+  if (check.notApplicable === true) {
+    return (
+      <CircleMinusIcon
+        aria-label="Not required"
+        className="text-muted-foreground size-4 shrink-0"
+      />
+    );
+  }
+  return check.passed ? (
+    <CircleCheckIcon
+      aria-label="Passed"
+      className={cn("size-4 shrink-0", passedTone)}
+    />
+  ) : (
+    <CircleXIcon
+      aria-label="Failed"
+      className="text-destructive size-4 shrink-0"
+    />
+  );
+};
 
 const Checklist = ({
   checks,
@@ -182,17 +206,7 @@ const Checklist = ({
         className="flex items-center gap-2.5 px-3 py-2 text-sm"
         key={check.label}
       >
-        {check.passed ? (
-          <CircleCheckIcon
-            aria-label="Passed"
-            className={cn("size-4 shrink-0", passedTone)}
-          />
-        ) : (
-          <CircleXIcon
-            aria-label="Failed"
-            className="text-destructive size-4 shrink-0"
-          />
-        )}
+        <CheckMark check={check} />
         <span className="flex-1">{check.label}</span>
         <span
           className={cn(
@@ -233,6 +247,7 @@ const TaskRunSummaryLayout = ({
 }) => (
   <div className="space-y-3">
     <SummaryVideo
+      failure={failure}
       src={videoSrc ?? agentRunVideoPath(summary.runId)}
       summary={summary}
       verdict={verdict}
@@ -240,7 +255,7 @@ const TaskRunSummaryLayout = ({
     <dl className="grid grid-cols-4 divide-x rounded-lg border">
       <Stat label="Duration" value={runDuration(summary)} />
       <Stat label="Actions" value={summary.timeline.length} />
-      <Stat label="Findings" value={summary.findings.length} />
+      <Stat label="Agent findings" value={summary.findings.length} />
       <Stat label="Evidence" value={evidenceCount(summary)} />
     </dl>
     <BrowserCheckResults run={summary} />
@@ -257,9 +272,6 @@ const TaskRunSummaryLayout = ({
         <TabsTrigger value="task">Task</TabsTrigger>
       </TabsList>
       <TabsContent className="space-y-3 pt-1" value="verdict">
-        {failure === undefined ? null : (
-          <p className="text-destructive text-sm text-pretty">{failure}</p>
-        )}
         <Checklist checks={checks} label={checksLabel} />
         {summary.assessment === null ? (
           <p className="text-muted-foreground text-sm">
@@ -354,7 +366,8 @@ export const DryRunSummaryView = ({
       </>
     }
     failure={
-      result?.outcome === "failed" ? result.observableOutcome : undefined
+      dryRunFailureSentence(summary) ??
+      (result?.outcome === "failed" ? result.observableOutcome : undefined)
     }
     summary={summary}
     verdict={dryRunSummaryVerdict(dryRunVerdict(summary, result))}

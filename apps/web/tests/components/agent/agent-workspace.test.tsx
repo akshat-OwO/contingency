@@ -906,7 +906,7 @@ test("takes control from Workspace and returns it explicitly", async () => {
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("You have control.");
+  expect(dock).toHaveTextContent("You have control");
   expect(screen.getByText(/may already have performed it/u)).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => {

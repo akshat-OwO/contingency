@@ -162,6 +162,30 @@ export const DockSessionSelect = ({
 };
 
 /**
+ * Publishes the dock's height on the stage it floats over as
+ * `--dock-height`, so a stage can keep its content clear of the dock however
+ * many request tiers it has grown.
+ */
+const useDockHeight = () => {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const stage = element?.parentElement?.parentElement;
+    if (element === null || stage === null || stage === undefined) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      stage.style.setProperty("--dock-height", `${element.offsetHeight}px`);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      stage.style.removeProperty("--dock-height");
+    };
+  }, [element]);
+  return setElement;
+};
+
+/**
  * The dock shell: one floating card over a full-bleed browser, in up to three
  * tiers. What the agent is waiting on comes first, then where the session is,
  * then the controls. The controls are one row that never wraps; anything long
@@ -186,21 +210,25 @@ export const DockShell = ({
   /** What the agent is waiting on, or nothing. */
   readonly requests?: React.ReactNode;
   readonly status: React.ReactNode;
-}) => (
-  <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
-    <section
-      aria-label="Workspace dock"
-      className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg"
-    >
-      {requests}
-      {status}
-      <div className="flex min-w-0 items-center gap-1.5 border-t px-2 py-1.5">
-        {children}
-      </div>
-      {footer}
-    </section>
-  </div>
-);
+}) => {
+  const ref = useDockHeight();
+  return (
+    <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
+      <section
+        aria-label="Workspace dock"
+        className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg"
+        ref={ref}
+      >
+        {requests}
+        {status}
+        <div className="flex min-w-0 items-center gap-1.5 border-t px-2 py-1.5">
+          {children}
+        </div>
+        {footer}
+      </section>
+    </div>
+  );
+};
 
 /** A spacer that pushes the actions to the end of the controls row. */
 export const DockSpacer = () => (

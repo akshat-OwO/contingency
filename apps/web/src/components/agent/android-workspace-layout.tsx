@@ -67,6 +67,7 @@ export const WorkspaceLayout = ({
             }
           : null
       }
+      leadingYieldsOnMobile={details !== null}
       onCloseSummary={
         details === null
           ? undefined

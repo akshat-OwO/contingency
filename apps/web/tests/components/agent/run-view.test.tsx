@@ -320,7 +320,7 @@ test("opens persisted Run evidence in the Workspace route without a live session
       "A read-only view of persisted evidence. No browser was reopened."
     )
   ).toBeVisible();
-  expect(screen.getByText("ended-early")).toBeVisible();
+  expect(screen.getByText("Ended early")).toBeVisible();
   expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
     "aria-current",
     "page"
@@ -393,7 +393,7 @@ const taskSummary = {
 test("shows a completed task separately from its assessment and evidence-backed findings", () => {
   render(<RunSummaryView summary={taskSummary} />);
   expect(screen.getByText("Execution outcome")).toBeVisible();
-  expect(screen.getByText("completed")).toBeVisible();
+  expect(screen.getByText("Completed")).toBeVisible();
   expect(screen.getByText(taskSummary.requestedTask)).toBeVisible();
   expect(screen.getByText("Leave the cart open instead.")).toBeVisible();
   expect(
@@ -451,7 +451,7 @@ test("shows closure without inventing a task assessment", () => {
       summary={{ ...taskSummary, assessment: null, outcome: "user-closed" }}
     />
   );
-  expect(screen.getByText("user-closed")).toBeVisible();
+  expect(screen.getByText("Closed by user")).toBeVisible();
   expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
 });
 

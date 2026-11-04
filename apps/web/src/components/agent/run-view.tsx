@@ -132,10 +132,31 @@ const RunTotals = ({
  * machine: the video is served from the Run's own directory over loopback
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
+/** A stored outcome code, said as words: `user-closed` reads "Closed by user". */
+const OUTCOME_LABEL = new Map([
+  ["completed", "Completed"],
+  ["crashed", "Crashed"],
+  ["interrupted", "Interrupted"],
+  ["process-exited", "Agent process exited"],
+  ["user-closed", "Closed by user"],
+]);
+
+const outcomeLabel = (outcome: string): string => {
+  const known = OUTCOME_LABEL.get(outcome);
+  if (known !== undefined) {
+    return known;
+  }
+  const words = outcome.replaceAll(/[_-]+/gu, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 export const RunSummaryView = ({
+  heading = true,
   summary,
   videoSrc,
 }: {
+  /** Whether the view names itself; a page that already says so passes false. */
+  readonly heading?: boolean;
   readonly summary: AgentRunSummary;
   readonly videoSrc?: string;
 }) => {
@@ -149,42 +170,56 @@ export const RunSummaryView = ({
         (summary.schemaVersion === 2 ? summary.summary : undefined));
   return (
     <div className="space-y-5">
-      <section aria-labelledby="agent-run-summary" className="space-y-2">
-        <h2
-          className="text-base leading-snug font-semibold tracking-tight"
-          id="agent-run-summary"
-        >
-          Run Summary
-        </h2>
-        <div className="space-y-2 rounded-lg border p-3 text-sm">
-          <p className="font-medium">{summary.title ?? summary.runId}</p>
-          {summary.schemaVersion === 3 ? (
-            <p>
-              {summary.purpose.kind === "dry-run"
-                ? "Dry Run"
-                : "Interactive Run"}
+      <section aria-label="Run Summary" className="space-y-2">
+        {heading ? (
+          <h2 className="text-base leading-snug font-semibold tracking-tight">
+            Run Summary
+          </h2>
+        ) : null}
+        <div className="space-y-3 rounded-xl border p-4 text-sm">
+          <div className="space-y-2">
+            <p className="text-base leading-snug font-semibold text-pretty wrap-anywhere">
+              {summary.title ?? summary.runId}
             </p>
-          ) : null}
-          <p className="text-muted-foreground text-xs">Execution outcome</p>
-          <Badge
-            variant={summary.outcome === "completed" ? "default" : "secondary"}
-          >
-            {summary.outcome}
-          </Badge>
-          <p className="font-mono text-xs wrap-anywhere">{summary.runId}</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {summary.schemaVersion === 3 ? (
+                <Badge variant="outline">
+                  {summary.purpose.kind === "dry-run"
+                    ? "Dry Run"
+                    : "Interactive Run"}
+                </Badge>
+              ) : null}
+              <span className="text-muted-foreground text-xs">
+                Execution outcome
+              </span>
+              <Badge
+                variant={
+                  summary.outcome === "completed" ? "default" : "secondary"
+                }
+              >
+                {outcomeLabel(summary.outcome)}
+              </Badge>
+            </div>
+          </div>
           {account === undefined || account === null ? null : (
-            <p className="text-muted-foreground text-xs wrap-anywhere">
+            <p className="text-muted-foreground text-pretty wrap-anywhere">
               {account}
             </p>
           )}
+          <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t pt-3 text-xs">
+            <dt>Run ID</dt>
+            <dd className="text-foreground/80 font-mono wrap-anywhere select-all">
+              {summary.runId}
+            </dd>
+          </dl>
           <p className="text-muted-foreground text-xs">
-            The live browser was closed when this Run ended. This View is
+            The live browser was closed when this Run ended. This view is
             read-only.
           </p>
         </div>
       </section>
       {summary.schemaVersion === 3 ? (
-        <TaskRunDetails run={summary} />
+        <TaskRunDetails resultFirst run={summary} />
       ) : (
         <>
           <RunTotals
@@ -250,11 +285,11 @@ export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
   }
   return (
     <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
-      <h1 className="mb-1 text-lg font-semibold tracking-tight">Run Summary</h1>
-      <p className="text-muted-foreground mb-5 text-xs">
+      <h1 className="mb-1 text-xl font-semibold tracking-tight">Run Summary</h1>
+      <p className="text-muted-foreground mb-5 text-sm">
         A read-only view of persisted evidence. No browser was reopened.
       </p>
-      <RunSummaryView summary={result.value.summary} />
+      <RunSummaryView heading={false} summary={result.value.summary} />
     </main>
   );
 };

@@ -134,6 +134,7 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
       height: 800,
       id: "observed",
       image: null,
+      nodes: [],
       width: 360,
     },
     phase: "running",

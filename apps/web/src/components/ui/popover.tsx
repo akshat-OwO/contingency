@@ -16,6 +16,7 @@ function PopoverContent({
   positionerClassName,
   align = "center",
   alignOffset = 0,
+  anchor,
   side = "bottom",
   sideOffset = 4,
   ...props
@@ -23,13 +24,14 @@ function PopoverContent({
   readonly positionerClassName?: string;
 } & Pick<
     PopoverPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset"
+    "align" | "alignOffset" | "anchor" | "side" | "sideOffset"
   >) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
+        anchor={anchor}
         side={side}
         sideOffset={sideOffset}
         className={cn("isolate z-50", positionerClassName)}

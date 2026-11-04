@@ -606,7 +606,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
           aria.includes("Checkout timeout") &&
             aria.includes("Unexecuted purchase")
         );
-        assert.ok(aria.includes("timed-out"));
+        assert.ok(aria.includes("Timed out"));
       }
       // A Run's video is condensed after its Summary is written, so wait for
       // it to be ready before reading bytes.
