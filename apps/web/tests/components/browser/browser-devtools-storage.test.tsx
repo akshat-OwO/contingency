@@ -4,7 +4,14 @@ import {
   BrowserTabId,
 } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Deferred, Effect } from "effect";
 import { Atom } from "effect/reactivity";
@@ -109,38 +116,43 @@ const SessionDevtools = (props: Omit<BrowserDevtoolsProps, "tooling">) =>
     tooling: useAgentBrowserTooling(sessionId),
   });
 
+const devtoolsTree = (
+  mutationsLocked = false,
+  overrides: Partial<BrowserDevtoolsProps> = {},
+  visible = true
+) =>
+  createElement(
+    RpcDependenciesProvider,
+    { overrides: rpcOverrides },
+    createElement(
+      RegistryProvider,
+      { defaultIdleTTL: 400 },
+      visible
+        ? createElement(SessionDevtools, {
+            consoleEntries: [],
+            dockSide: "right",
+            mutationsLocked,
+            networkRequests: [],
+            onClearConsole: () => {},
+            onClearNetwork: () => {},
+            onClose: () => {},
+            onError: () => {},
+            onRefreshNetwork: () => {},
+            onToggleDockSide: () => {},
+            panel: "storage",
+            refreshingNetwork: false,
+            tabId,
+            tabTitle: "App",
+            tabUrl: "https://app.example.com/home",
+            ...overrides,
+          })
+        : null
+    )
+  );
 const renderDevtools = (
   mutationsLocked = false,
   overrides: Partial<BrowserDevtoolsProps> = {}
-) =>
-  render(
-    createElement(
-      RpcDependenciesProvider,
-      { overrides: rpcOverrides },
-      createElement(
-        RegistryProvider,
-        null,
-        createElement(SessionDevtools, {
-          consoleEntries: [],
-          dockSide: "right",
-          mutationsLocked,
-          networkRequests: [],
-          onClearConsole: () => {},
-          onClearNetwork: () => {},
-          onClose: () => {},
-          onError: () => {},
-          onRefreshNetwork: () => {},
-          onToggleDockSide: () => {},
-          panel: "storage",
-          refreshingNetwork: false,
-          tabId,
-          tabTitle: "App",
-          tabUrl: "https://app.example.com/home",
-          ...overrides,
-        })
-      )
-    )
-  );
+) => render(devtoolsTree(mutationsLocked, overrides));
 
 const openStorage = async () => {
   const user = userEvent.setup();
@@ -163,6 +175,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 test("opens Storage with Cookies as the default inner tab", async () => {
@@ -338,3 +351,59 @@ test("ignores a late failed detail fetch after the same request is reselected", 
   expect(screen.getByText("retry recovered")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+test.each(["before", "after"] as const)(
+  "recovers retained request state when the old fetch completes %s remount",
+  async (completion) => {
+    // Keep the registry's production idle TTL under virtual time so state cannot
+    // disappear merely because a slow runner took longer to remount the panel.
+    vi.useFakeTimers();
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+    const gate = await Effect.runPromise(Deferred.make<null>());
+    rpc.detailGate.mockReturnValueOnce(
+      Deferred.await(gate).pipe(Effect.asVoid)
+    );
+    rpc.detailAvailable.mockReturnValue(true);
+    const options = {
+      networkRequests: [
+        {
+          method: "GET",
+          requestId: BrowserRequestId.make("failed-detail"),
+          resourceType: "fetch",
+          tabId,
+          timestamp: 1,
+          url: "https://app.example.com/failed-detail",
+        },
+      ],
+      panel: "network" as const,
+    };
+    const view = renderDevtools(false, options);
+    await act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /failed-detail/u }));
+    });
+    expect(screen.getByText("Loading request details…")).toBeInTheDocument();
+    view.rerender(devtoolsTree(false, options, false));
+    const finishOld = () =>
+      act(async () => {
+        await Effect.runPromise(Deferred.succeed(gate, null));
+      });
+    if (completion === "before") {
+      await finishOld();
+    }
+    view.rerender(devtoolsTree(false, options));
+    if (completion === "after") {
+      await finishOld();
+    }
+    expect(
+      screen.queryByText("Loading request details…")
+    ).not.toBeInTheDocument();
+    await act(() => {
+      fireEvent.click(screen.getByRole("button", { name: /failed-detail/u }));
+    });
+    await act(() => {
+      fireEvent.click(screen.getByRole("radio", { name: "Payload" }));
+    });
+    expect(screen.getByText("retry recovered")).toBeInTheDocument();
+  }
+);

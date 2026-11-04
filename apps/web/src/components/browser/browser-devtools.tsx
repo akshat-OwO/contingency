@@ -948,8 +948,20 @@ export const BrowserDevtools = ({
   useEffect(
     () => () => {
       detailSelection.current = null;
+      // The tab atom survives a brief inspector unmount. Its pending fetch
+      // cannot publish after invalidation, so retire that transient view too.
+      setUiState((current) =>
+        current.detailLoading
+          ? {
+              ...current,
+              detail: undefined,
+              detailLoading: false,
+              selectedRequestId: undefined,
+            }
+          : current
+      );
     },
-    []
+    [setUiState]
   );
   const selectRequest = (request: BrowserNetworkRequestSummary) => {
     const selection = Symbol("request-detail");
