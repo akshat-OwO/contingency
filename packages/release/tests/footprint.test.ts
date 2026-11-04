@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import path from "node:path";
+
+import { NodeServices } from "@effect/platform-node";
+import { it as effectIt } from "@effect/vitest";
+import { Effect, FileSystem } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   compareFootprints,
@@ -6,8 +11,10 @@ import {
   exceedsThreshold,
   formatDelta,
   growth,
+  measureFootprint,
 } from "../src/footprint.ts";
 import type { Footprint } from "../src/footprint.ts";
+import * as installChecks from "../src/verify-cli-install.ts";
 
 const defaultFiles = { "dist/index.js": 100 };
 const snapshot = (
@@ -113,4 +120,84 @@ describe("CLI footprint comparisons", () => {
       report.warnings.some((line) => line.startsWith("Installed file bytes"))
     ).toBe(false);
   });
+});
+
+describe("CLI footprint measurement", () => {
+  for (const local of [false, true]) {
+    effectIt.effect(
+      local
+        ? "packs local builds in the explicit CLI directory"
+        : "packs registry baselines outside the workspace",
+      () =>
+        Effect.gen(function* test() {
+          const fs = yield* FileSystem.FileSystem;
+          const directory = yield* fs.makeTempDirectoryScoped({
+            prefix: "footprint-test-",
+          });
+          const manifest = JSON.stringify({
+            name: "@contingencyhq/cli",
+            version: "1.2.3",
+          });
+          const calls: string[] = [];
+          yield* Effect.acquireRelease(
+            Effect.sync(() =>
+              vi
+                .spyOn(installChecks, "runInstallCheckCommand")
+                .mockImplementation((command, args, cwd) =>
+                  Effect.gen(function* fixture() {
+                    expect(command).toBe("npm");
+                    calls.push(args[0] ?? "");
+                    if (args[0] === "pack") {
+                      const destination =
+                        args[args.indexOf("--pack-destination") + 1];
+                      expect(destination).toBeDefined();
+                      expect(cwd).toBe(local ? directory : destination);
+                      expect(cwd).not.toBe(process.cwd());
+                      expect(args[1]).toBe(
+                        local ? "." : "@contingencyhq/cli@latest"
+                      );
+                      yield* fs.writeFileString(
+                        path.join(destination ?? cwd, "cli.tgz"),
+                        "packed fixture"
+                      );
+                      return {
+                        stderr: "",
+                        stdout: JSON.stringify([
+                          { filename: "cli.tgz", name: "@contingencyhq/cli" },
+                        ]),
+                      };
+                    }
+                    expect(args[0]).toBe("install");
+                    const installed = path.join(
+                      cwd,
+                      "node_modules/@contingencyhq/cli"
+                    );
+                    yield* fs.makeDirectory(installed, { recursive: true });
+                    yield* fs.writeFileString(
+                      path.join(installed, "package.json"),
+                      manifest
+                    );
+                    yield* fs.writeFileString(
+                      path.join(installed, "index.js"),
+                      "export {};\n"
+                    );
+                    return { stderr: "", stdout: "" };
+                  })
+                )
+            ),
+            (spy) => Effect.sync(() => spy.mockRestore())
+          );
+          const measured = yield* measureFootprint(
+            local ? "." : "@contingencyhq/cli@latest",
+            local ? directory : undefined
+          );
+          expect(calls).toEqual(["pack", "install"]);
+          expect(measured).toEqual({
+            files: { "index.js": 11, "package.json": manifest.length },
+            packed: 14,
+            version: "1.2.3",
+          });
+        }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+    );
+  }
 });

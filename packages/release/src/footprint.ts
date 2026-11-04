@@ -189,7 +189,7 @@ export const compareFootprints = (
 /** Same pack flags as publication; no lifecycle scripts or registry dependencies on install. */
 export const measureFootprint = Effect.fn("measureFootprint")(function* measure(
   spec: string,
-  cwd: string
+  cwd?: string
 ) {
   const fs = yield* FileSystem.FileSystem;
   const temporary = yield* fs.makeTempDirectoryScoped({
@@ -205,7 +205,8 @@ export const measureFootprint = Effect.fn("measureFootprint")(function* measure(
       "--pack-destination",
       temporary,
     ],
-    cwd
+    // Registry specs must not inherit the workspace's pnpm-only devEngines.
+    cwd ?? temporary
   );
   const tarball = path.join(temporary, yield* parseNpmPackOutput(packed));
   const packedBytes = ByteSize.toNumberUnsafe((yield* fs.stat(tarball)).size);
