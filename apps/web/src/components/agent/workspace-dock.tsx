@@ -319,7 +319,7 @@ export const DockStatus = ({
       <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
         <div className="flex shrink-0 items-center gap-1.5 pt-px">{badges}</div>
         {/* On a narrow dock the sentence takes its own full row. */}
-        <div className="max-@md:basis-full min-w-48 flex-1">
+        <div className="min-w-48 flex-1 @max-md:basis-full">
           <output
             aria-live="polite"
             className={cn(

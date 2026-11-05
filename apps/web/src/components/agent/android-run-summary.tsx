@@ -79,7 +79,7 @@ export const DeviceLastScreen = ({
     <figure className="flex h-full min-h-0 flex-col items-center justify-center gap-3">
       <img
         alt="The last screen this session kept"
-        className="min-h-0 w-auto max-w-full flex-1 rounded-[2rem] border-[6px] border-neutral-900 object-contain shadow-xl"
+        className="min-h-0 w-auto max-w-full flex-1 rounded-[2rem] border-[6px] border-neutral-900 object-contain shadow-xl dark:border-neutral-700"
         src={deviceKeyframePath(platform, sessionId, kept.hash)}
       />
       <figcaption className="text-muted-foreground text-xs">
