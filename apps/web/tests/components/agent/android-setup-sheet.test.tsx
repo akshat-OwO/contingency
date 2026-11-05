@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
@@ -43,9 +43,15 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
       pending={false}
     />
   );
+  // A locked step says what unlocks it rather than showing dead inputs.
   expect(
-    screen.getByRole("textbox", { name: "Starting screen element" })
-  ).toBeDisabled();
+    screen.queryByRole("textbox", { name: "Starting screen element" })
+  ).toBeNull();
+  expect(
+    within(screen.getByRole("group", { name: "Starting screen" })).getByText(
+      "Choose the Target App first."
+    )
+  ).toBeVisible();
   // The one ready device is the device: Target App opens without a click.
   expect(
     await screen.findByRole("button", { name: /Pixel_9/u })
@@ -56,8 +62,8 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     screen.getByRole("textbox", { name: "Starting screen element" })
   ).toBeEnabled();
   expect(
-    screen.getByRole("combobox", { name: "Camera permission" })
-  ).toBeDisabled();
+    screen.queryByRole("combobox", { name: "Camera permission" })
+  ).toBeNull();
   await user.type(
     screen.getByRole("textbox", { name: "Starting screen element" }),
     "Sign in"

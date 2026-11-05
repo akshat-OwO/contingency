@@ -94,6 +94,19 @@ const ROLE_WORDS = new Map([
 const roleWord = (role: string) =>
   ROLE_WORDS.get(role.toLowerCase()) ?? role.toLowerCase().replaceAll("-", " ");
 
+/**
+ * The system status bar (clock, signal, battery) sits in a screen's top few
+ * percent on both platforms; it is not the app, so the list leaves it out.
+ */
+const STATUS_BAR_FRACTION = 0.07;
+const inStatusBar = (
+  observation: AndroidWorkspaceObservation,
+  node: ObservedNode
+) =>
+  node.bounds !== undefined &&
+  node.bounds.y + node.bounds.height <=
+    observation.height * STATUS_BAR_FRACTION;
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 /** Where a click on this element would land, or nothing without bounds. */
@@ -142,7 +155,9 @@ export const DeviceElements = ({
       ? []
       : observation.nodes.filter(
           (node) =>
-            !node.covered && elementPick(observation, node) !== undefined
+            !node.covered &&
+            !inStatusBar(observation, node) &&
+            elementPick(observation, node) !== undefined
         );
   // An element with no name still gets one a person can tell apart: its role
   // and where it falls among others of that role.

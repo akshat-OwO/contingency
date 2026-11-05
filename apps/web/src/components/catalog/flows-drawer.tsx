@@ -1,5 +1,10 @@
 import type { CatalogFlowEntry, CatalogRootView } from "@contingency/protocol";
-import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ArrowLeftIcon,
@@ -731,6 +736,7 @@ const FlowsNavigation = ({
   readonly roots: readonly CatalogRootView[];
   readonly flows: SessionFlows;
 }) => {
+  const setSelection = useAtomSet(flowsSelectionAtom);
   const [queryAtom] = useState(() => Atom.make(""));
   const [folderAtom] = useState(() => Atom.make<FlowsFolder | null>(null));
   const [viewAtom] = useState(() =>
@@ -814,6 +820,11 @@ const FlowsNavigation = ({
           <CatalogColumn
             folder={folder}
             onFolder={(target) => {
+              // Details belong to the folder they were opened from; another
+              // folder starts without them.
+              if (JSON.stringify(target) !== JSON.stringify(folder)) {
+                setSelection(null);
+              }
               setChosen(target);
               setView("contents");
               if (narrow) {

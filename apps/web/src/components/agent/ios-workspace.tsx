@@ -353,25 +353,44 @@ const IosMirror = ({
   );
 };
 
+/**
+ * One numbered step of the setup sheet, read the same way as Android's: its
+ * number turns into a check once its required fields are filled.
+ */
 const SetupGroup = ({
   children,
   description,
+  done,
+  index,
   title,
 }: {
   readonly children: React.ReactNode;
   readonly description?: string | undefined;
+  readonly done: boolean;
+  readonly index: number;
   readonly title: string;
 }) => (
   <fieldset className="min-w-0 space-y-3">
     <div className="space-y-0.5">
-      <legend className="text-sm font-medium">{title}</legend>
+      <legend className="flex items-center gap-2 text-sm font-medium">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "grid size-5 place-items-center rounded-full border text-xs tabular-nums",
+            done && "bg-primary text-primary-foreground border-primary"
+          )}
+        >
+          {done ? <CheckIcon className="size-3" /> : index}
+        </span>
+        {title}
+      </legend>
       {description === undefined ? null : (
-        <p className="text-muted-foreground text-xs text-pretty">
+        <p className="text-muted-foreground pl-7 text-xs text-pretty">
           {description}
         </p>
       )}
     </div>
-    {children}
+    <div className="space-y-3 pl-7">{children}</div>
   </fieldset>
 );
 
@@ -484,7 +503,7 @@ const useAppIdentity = (
             }
             setState({
               _tag: "read",
-              label: `${app.label} · ${app.bundleId} · build ${app.build}`,
+              label: `${appPath.split("/").at(-1) ?? appPath} (${app.label}) · ${app.bundleId} · build ${app.build}`,
             });
             onFilled();
           })
@@ -497,11 +516,13 @@ const useAppIdentity = (
 
 /** The Target App group: a built `.app` to read, then its identity. */
 const IosTargetApp = ({
+  done,
   identity,
 }: {
+  readonly done: boolean;
   readonly identity: ReturnType<typeof useAppIdentity>;
 }) => (
-  <SetupGroup title="Target App">
+  <SetupGroup done={done} index={2} title="Target App">
     <SetupField
       help={{
         id: "ios-app-path-help",
@@ -515,7 +536,14 @@ const IosTargetApp = ({
         className="font-mono text-xs md:text-xs"
         id="ios-path"
         name="path"
-        onBlur={(event) => identity.read(event.currentTarget.value)}
+        onBlur={(event) => {
+          const field = event.currentTarget;
+          // A long path keeps its start in view; the .app name at its end is
+          // what identifies it, so the field rests scrolled to the end.
+          field.title = field.value;
+          field.scrollLeft = field.scrollWidth;
+          identity.read(field.value);
+        }}
         placeholder="/path/to/App.app"
         spellCheck={false}
       />
@@ -703,6 +731,8 @@ const IosSetupSheet = ({
                   ? "No simulator is running. Start one in Simulator, then refresh."
                   : undefined
               }
+              done={!missing.includes("Device")}
+              index={1}
               title="Simulator"
             >
               <div className="flex min-w-0 items-end gap-2">
@@ -746,9 +776,17 @@ const IosSetupSheet = ({
                 </Button>
               </div>
             </SetupGroup>
-            <IosTargetApp identity={identity} />
+            <IosTargetApp
+              done={
+                !missing.includes("Bundle identifier") &&
+                !missing.includes("App build")
+              }
+              identity={identity}
+            />
             <SetupGroup
               description="An element on screen when the app opens."
+              done={!missing.includes("Starting screen element")}
+              index={3}
               title="Starting screen"
             >
               <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
@@ -780,6 +818,8 @@ const IosSetupSheet = ({
             </SetupGroup>
             <SetupGroup
               description="An element that shows the journey worked."
+              done={!missing.includes("Done when element")}
+              index={4}
               title="Done when"
             >
               <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">

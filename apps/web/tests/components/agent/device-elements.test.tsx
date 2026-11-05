@@ -30,6 +30,7 @@ const observation: AndroidWorkspaceObservation = {
   image: null,
   nodes: [
     node("clock", "9:13", "text", 0),
+    node("welcome", "Welcome back", "text", 120),
     node("heading", "Sign in", "group", 100),
     node("name", "Shopper name", "text-field", 200, true),
     node("submit", "Sign in", "button", 300),
@@ -67,6 +68,6 @@ test("lists fields, then controls, then the rest, each label once", async () => 
   expect(other).toHaveAttribute("aria-expanded", "false");
   await user.click(other);
   // The button's own text and its heading repeat its label, so they are
-  // left out; the clock is not.
-  expect(names("Other elements")).toEqual([null, "Activate 9:13"]);
+  // left out, and so is the status bar's clock.
+  expect(names("Other elements")).toEqual([null, "Activate Welcome back"]);
 });

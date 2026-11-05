@@ -178,10 +178,12 @@ const Step = ({
       unlocks it; only its controls dim, through their own disabled styles.
     */}
     <div className="space-y-2 pl-7">
+      {/* A locked step says what unlocks it instead of showing dead inputs. */}
       {disabled && waitingFor !== undefined ? (
         <p className="text-muted-foreground text-xs">{waitingFor}</p>
-      ) : null}
-      {children}
+      ) : (
+        children
+      )}
     </div>
   </fieldset>
 );

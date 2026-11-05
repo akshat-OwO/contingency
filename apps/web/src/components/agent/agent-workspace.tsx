@@ -2458,9 +2458,15 @@ const WorkspaceLayout = ({
   }, [allowed, setOpen, setSelection]);
   const drawerOpen = open && allowed;
   const details = drawerOpen && selection !== null ? selection : null;
+  // A rail sliding out still paints what it showed, so it keeps that title
+  // too rather than falling back to a generic one mid-exit.
+  const shownLabel = useRef("Run Summary");
+  if (summary !== null && summary !== undefined) {
+    shownLabel.current = summary.label;
+  }
   return (
     <WorkspaceWithRunSummary
-      label={details === null ? (summary?.label ?? "Run Summary") : "Details"}
+      label={details === null ? shownLabel.current : "Details"}
       leading={
         drawerOpen
           ? {
