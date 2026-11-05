@@ -411,6 +411,9 @@ export const TeachingRecordingDock = ({
       {action === null ? null : (
         <Button
           aria-label={action.accessibleName}
+          // On a narrow dock the primary action takes its own full-width row
+          // under the others, rather than wrapping wherever it lands.
+          className="@max-md:w-full @max-md:basis-full"
           disabled={pending}
           onClick={() => onGesture(action.gesture)}
           type="button"
