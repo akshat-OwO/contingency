@@ -112,8 +112,11 @@ export const EvidenceReference = ({
  */
 export const EvidenceList = ({
   evidence,
+  hint = false,
 }: {
   readonly evidence: readonly { readonly id: string; readonly kind: string }[];
+  /** Say how evidence is used; once per summary is enough. */
+  readonly hint?: boolean;
 }) => (
   <div className="space-y-1">
     <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
@@ -123,7 +126,7 @@ export const EvidenceList = ({
         </li>
       ))}
     </ul>
-    {evidence.length === 0 ? null : (
+    {!hint || evidence.length === 0 ? null : (
       <p className="text-muted-foreground text-xs">
         Copy an id for your agent to open that evidence.
       </p>

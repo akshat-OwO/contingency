@@ -684,7 +684,7 @@ test("lays an Interactive Run out like a Dry Run, with the assessment as its ver
     "/agent-runs/agentrun-one/video"
   );
   expect(
-    within(screen.getByRole("region", { name: "Run video" })).getByText(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
       "Working"
     )
   ).toBeVisible();
@@ -711,7 +711,7 @@ test("never reads an Interactive Run that ended unassessed as a pass", () => {
     />
   );
   expect(
-    within(screen.getByRole("region", { name: "Run video" })).getByText(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
       "Closed by user"
     )
   ).toBeVisible();

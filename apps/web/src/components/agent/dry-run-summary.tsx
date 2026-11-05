@@ -97,28 +97,34 @@ const Verdict = ({
  * The video and Trace never leave the machine
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
-const SummaryVideo = ({
+/** The verdict, and why a Run cannot pass, right under it. */
+const SummaryVerdictHeader = ({
   failure,
-  src,
-  summary,
   verdict,
 }: {
-  /** Why the Run cannot pass, said right under the verdict. */
   readonly failure: string | undefined;
   readonly verdict: SummaryVerdict;
-  readonly src: string;
-  readonly summary: TaskAgentRunSummary;
 }) => (
-  <section aria-label="Run video" className="space-y-2">
-    {/*
-      The verdict leads in normal flow rather than over the player: when the
-      video is gone, the player's own notice takes that space, and an overlay
-      would sit on top of it.
-    */}
+  <section aria-label="Run verdict" className="space-y-1">
     <Verdict className="text-sm" verdict={verdict} />
     {failure === undefined ? null : (
       <p className="text-foreground/85 text-sm text-pretty">{failure}</p>
     )}
+  </section>
+);
+
+/**
+ * The Run's video, after the verdict and its checks: the decision rests on
+ * those, and the video is there to review them.
+ */
+const SummaryVideo = ({
+  src,
+  summary,
+}: {
+  readonly src: string;
+  readonly summary: TaskAgentRunSummary;
+}) => (
+  <section aria-label="Run video" className="space-y-2">
     {summary.videoPath === null ? (
       <p className="text-muted-foreground text-xs">
         This Run recorded no video.
@@ -206,8 +212,8 @@ const Checklist = ({
 );
 
 /**
- * A finished task Run: its video and verdict, four numbers, and the rest
- * behind tabs. The Verdict tab opens on the checks, so a failed Run reads as
+ * A finished task Run: its verdict, four numbers, the rest behind tabs, and
+ * then its video. The Verdict tab opens on the checks, so a failed Run reads as
  * which check is red rather than as paragraphs to compare.
  */
 const TaskRunSummaryLayout = ({
@@ -230,12 +236,7 @@ const TaskRunSummaryLayout = ({
   readonly videoSrc: string | undefined;
 }) => (
   <div className="space-y-3">
-    <SummaryVideo
-      failure={failure}
-      src={videoSrc ?? agentRunVideoPath(summary.runId)}
-      summary={summary}
-      verdict={verdict}
-    />
+    <SummaryVerdictHeader failure={failure} verdict={verdict} />
     <dl className="grid grid-cols-4 divide-x rounded-lg border">
       <Stat label="Duration" value={runDuration(summary)} />
       <Stat label="Actions" value={summary.timeline.length} />
@@ -266,7 +267,7 @@ const TaskRunSummaryLayout = ({
             <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
               {summary.assessment.explanation}
             </blockquote>
-            <EvidenceList evidence={summary.assessment.evidence} />
+            <EvidenceList hint evidence={summary.assessment.evidence} />
           </>
         )}
       </TabsContent>
@@ -325,6 +326,10 @@ const TaskRunSummaryLayout = ({
         </dl>
       </TabsContent>
     </Tabs>
+    <SummaryVideo
+      src={videoSrc ?? agentRunVideoPath(summary.runId)}
+      summary={summary}
+    />
   </div>
 );
 

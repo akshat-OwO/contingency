@@ -19,8 +19,11 @@ import { ScanResults } from "./scan-results.tsx";
 
 const Assessment = ({
   assessment,
+  hint = false,
 }: {
   readonly assessment: AgentTaskAssessment;
+  /** The run's own assessment says how evidence is used; findings do not. */
+  readonly hint?: boolean;
 }) => (
   <div className="space-y-2 rounded-lg border p-3">
     <Badge
@@ -31,7 +34,7 @@ const Assessment = ({
       {assessmentOutcomeLabel[assessment.outcome]}
     </Badge>
     <p className="wrap-anywhere">{assessment.explanation}</p>
-    <EvidenceList evidence={assessment.evidence} />
+    <EvidenceList evidence={assessment.evidence} hint={hint} />
   </div>
 );
 
@@ -113,7 +116,7 @@ export const TaskRunDetails = ({
         {run.assessment === null ? (
           <p>No Agent Assessment submitted.</p>
         ) : (
-          <Assessment assessment={run.assessment} />
+          <Assessment assessment={run.assessment} hint />
         )}
         {run.purpose.kind === "dry-run" ? (
           <p className="text-muted-foreground text-xs">
