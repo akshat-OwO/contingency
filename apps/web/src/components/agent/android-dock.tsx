@@ -454,8 +454,9 @@ export const AndroidSessionSelect = ({
           {(value: string | null) => {
             const label = value === null ? undefined : labels.get(value);
             return label === undefined ? null : (
-              <span className="truncate">
-                {label.split(" · ").at(0) ?? label}
+              // The whole label, like iOS: the row truncates it if it must.
+              <span className="truncate" title={label}>
+                {label}
               </span>
             );
           }}

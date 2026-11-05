@@ -352,14 +352,9 @@ const AndroidDockControls = ({
         sessions={sessions}
       />
       <FlowsDockButton />
-      {/*
-        Below a phone-wide dock, Browser gives its room to the session name,
-        which says what this dock is driving. The Workspace root still leads
-        back to the browser.
-      */}
+      {/* The session name has its own row on a phone, so Browser stays. */}
       <Button
         aria-label="Browser Workspace"
-        className="hidden @sm:inline-flex"
         onClick={onBrowser}
         size="icon-sm"
         title="Browser Workspace"

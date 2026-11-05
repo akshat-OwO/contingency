@@ -91,10 +91,10 @@ export const RunRow = ({
         <span className="text-foreground/80 font-medium">
           {runVerdict(run)}
         </span>{" "}
-        · {runKindLabel(run)}{" "}
+        · {runKindLabel(run)} ·{" "}
         {/* When and how long break together, never mid-phrase. */}
         <span className="whitespace-nowrap">
-          · {when(run.startedAt)} · {runDuration(run)}
+          {when(run.startedAt)} · {runDuration(run)}
         </span>
       </span>
     </span>

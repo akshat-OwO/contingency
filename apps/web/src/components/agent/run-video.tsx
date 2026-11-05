@@ -270,9 +270,9 @@ const Scrubber = ({
       aria-valuemax={Math.round(durationMs / 1000)}
       aria-valuemin={0}
       aria-valuenow={Math.round(currentMs / 1000)}
-      aria-valuetext={`${clock(currentMs)} of ${clock(durationMs)}${
-        current === undefined ? "" : `, ${current.label}`
-      }`}
+      aria-valuetext={`${clock(currentMs)} of ${
+        durationMs > 0 ? clock(durationMs) : "unknown length"
+      }${current === undefined ? "" : `, ${current.label}`}`}
       className={cn(
         "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4",
         FOCUS_RING
@@ -743,7 +743,9 @@ const RunVideoPlayer = ({
       ) : null}
       <div
         className={cn(
-          "relative overflow-hidden bg-black",
+          // The well around a letterboxed picture is the panel's muted
+          // surface, so the card's border frames it, not a black stage.
+          "bg-muted relative overflow-hidden",
           fullscreen && "rounded-xl",
           fullscreen && "flex min-h-0 flex-1 items-center justify-center"
         )}

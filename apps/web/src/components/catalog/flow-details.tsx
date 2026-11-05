@@ -262,6 +262,21 @@ const RunDetail = ({
       <p className="text-muted-foreground text-xs">
         {when(run.startedAt)} · {runDuration(run)}
       </p>
+      {/*
+        What the agent concluded, so a "Working" badge beside a failing
+        finding is not read on its own.
+      */}
+      {run.explanation === undefined ? null : (
+        <p className="text-sm text-pretty wrap-anywhere">{run.explanation}</p>
+      )}
+      {run.findingCount === undefined || run.findingCount === 0 ? null : (
+        <p className="text-muted-foreground text-xs">
+          {run.findingCount === 1
+            ? "1 finding beside the assessment."
+            : `${run.findingCount} findings beside the assessment.`}{" "}
+          Open the Run Summary to read them.
+        </p>
+      )}
       <EvidenceReference id={run.runId} kind="Run ID" />
     </header>
     <Section title="Flows">

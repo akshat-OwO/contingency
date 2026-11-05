@@ -106,6 +106,8 @@ export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
     return {
       assessment: summary.assessment?.outcome ?? null,
       endedAt: summary.endedAt,
+      explanation: summary.assessment?.explanation,
+      findingCount: summary.findings.length,
       flowNames: summary.referencedFlows.map((flow) => flow.flowName),
       kind: summary.purpose.kind,
       outcome: summary.outcome,

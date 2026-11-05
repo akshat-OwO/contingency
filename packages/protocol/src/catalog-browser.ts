@@ -44,6 +44,10 @@ export type CatalogFlowEntry = typeof CatalogFlowEntry.Type;
 export const CatalogRunEntry = Schema.Struct({
   assessment: Schema.NullOr(AgentAssessmentOutcome),
   endedAt: nonEmptyString,
+  /** The agent's own sentence for its assessment, when it gave one. */
+  explanation: Schema.optional(Schema.String),
+  /** How many findings the agent recorded beside its assessment. */
+  findingCount: Schema.optionalKey(Schema.Number),
   /** The Flows the Run referenced; storage ownership is independent. */
   flowNames: Schema.Array(FlowName),
   kind: Schema.Literals(["interactive", "dry-run", "legacy"]),
