@@ -157,7 +157,7 @@ const DeviceRecording = ({
           The one screen this session kept is on the stage, at{" "}
           {time(only.capturedAt)}.{" "}
           <a
-            className="text-foreground underline-offset-2 hover:underline"
+            className="text-foreground underline underline-offset-2"
             href={deviceKeyframePath(platform, sessionId, only.hash)}
             rel="noreferrer"
             target="_blank"
@@ -197,7 +197,7 @@ const DeviceRecording = ({
                 </span>{" "}
                 ·{" "}
                 <a
-                  className="text-foreground underline-offset-2 hover:underline"
+                  className="text-foreground underline underline-offset-2"
                   href={src}
                   rel="noreferrer"
                   target="_blank"

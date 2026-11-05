@@ -53,9 +53,17 @@ const tailOfPath = (path: string) => {
 const FOCUS_RING =
   "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none";
 
-const clock = (ms: number): string => {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+/**
+ * A time on the player's clock. A recording under ten seconds counts in
+ * tenths, so a short one never reads as "0:00" long.
+ */
+const clock = (ms: number, durationMs = Number.POSITIVE_INFINITY): string => {
+  const safe = Math.max(0, ms);
+  const seconds = Math.floor(safe / 1000);
+  const whole = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return durationMs > 0 && durationMs < 10_000
+    ? `${whole}.${Math.floor((safe % 1000) / 100)}`
+    : whole;
 };
 
 const chapterAt = (
@@ -77,7 +85,8 @@ const barTone = (
   if (hoverMs !== undefined && atMs < hoverMs) {
     return "bg-foreground/40";
   }
-  return "bg-foreground/15";
+  // One step stronger than a hairline, so the bars read on a dark card.
+  return "bg-foreground/25";
 };
 
 const chapterLineTone = (hovered: boolean, current: boolean): string => {
@@ -270,8 +279,8 @@ const Scrubber = ({
       aria-valuemax={Math.round(durationMs / 1000)}
       aria-valuemin={0}
       aria-valuenow={Math.round(currentMs / 1000)}
-      aria-valuetext={`${clock(currentMs)} of ${
-        durationMs > 0 ? clock(durationMs) : "unknown length"
+      aria-valuetext={`${clock(currentMs, durationMs)} of ${
+        durationMs > 0 ? clock(durationMs, durationMs) : "unknown length"
       }${current === undefined ? "" : `, ${current.label}`}`}
       className={cn(
         "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4",
@@ -339,7 +348,7 @@ const Scrubber = ({
         >
           <ChapterName chapter={hovered} total={total} />
           <span className="text-muted-foreground ml-1.5 font-mono font-normal tabular-nums">
-            {clock(hover.ms)}
+            {clock(hover.ms, durationMs)}
           </span>
         </span>
       )}
@@ -611,11 +620,13 @@ const PlayerControls = ({
         <SkipGlyph direction="forward" />
       </DockButton>
       <span className="text-muted-foreground ml-1.5 shrink-0 font-mono text-xs tabular-nums">
-        {clock(playback.currentMs)}
+        {clock(playback.currentMs, playback.durationMs)}
         <span className="hidden @[20rem]:inline">
           {" / "}
           {/* Until the metadata arrives the length is unknown, not zero. */}
-          {playback.durationMs > 0 ? clock(playback.durationMs) : "—"}
+          {playback.durationMs > 0
+            ? clock(playback.durationMs, playback.durationMs)
+            : "—"}
         </span>
       </span>
       {current === undefined ? null : (

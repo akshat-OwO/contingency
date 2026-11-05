@@ -448,7 +448,7 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
-        className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-none"
+        className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {

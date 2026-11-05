@@ -389,9 +389,10 @@ const EmptyState = ({
     <main className="relative flex h-full min-h-0 flex-col">
       {/*
         The card clears the dock's measured height and scrolls when the stage
-        is shorter than both, so the dock never covers its fields.
+        is shorter than both, so the dock never covers its fields. Safe
+        centering starts a card taller than the stage at its top.
       */}
-      <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center overflow-y-auto bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 pb-[calc(var(--dock-height,7rem)+1rem)] sm:p-6 sm:pb-[calc(var(--dock-height,7rem)+1.5rem)]">
+      <div className="bg-muted/40 grid min-h-0 flex-1 [place-items:safe_center] overflow-y-auto bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 pb-[calc(var(--dock-height,7rem)+1rem)] sm:p-6 sm:pb-[calc(var(--dock-height,7rem)+1.5rem)]">
         <section className="material-panel w-full max-w-md min-w-0 space-y-5 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
           <div className="space-y-3">
             <div
