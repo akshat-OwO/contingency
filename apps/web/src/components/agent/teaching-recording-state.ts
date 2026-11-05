@@ -10,6 +10,7 @@ import type {
 import {
   dryRunChecksPass,
   dryRunFailureSentence,
+  dryRunMissedOnlyQualifiers,
   isTaskDryRunSummary,
 } from "@/components/agent/dry-run-summary-state";
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
@@ -102,6 +103,20 @@ const dryRunMissSentence = (
   (summary !== undefined && isTaskDryRunSummary(summary)
     ? dryRunFailureSentence(summary)
     : undefined) ?? fallback;
+
+/**
+ * The dock's badge for a Dry Run that cannot verify. One that only missed how
+ * it was attempted did not pass, but is not a broken journey, so it is not
+ * shown in the failure tone; the Summary says the same.
+ */
+const dryRunMissBadge = (
+  summary: AgentRunSummary | undefined
+): { readonly badge: string; readonly tone: "default" | "failed" } =>
+  summary !== undefined &&
+  isTaskDryRunSummary(summary) &&
+  dryRunMissedOnlyQualifiers(summary)
+    ? { badge: "Dry run did not pass", tone: "default" }
+    : { badge: "Dry run failed", tone: "failed" };
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
 const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
@@ -247,7 +262,7 @@ export const teachingRecordingPresentation = (
     case "dry-run-failed": {
       return {
         action: null,
-        badge: "Dry run failed",
+        ...dryRunMissBadge(captureState.dryRunSummary),
         nextStep: dryRunMissSentence(
           captureState.dryRunSummary,
           captureState.dryRunResult.observableOutcome
@@ -255,14 +270,13 @@ export const teachingRecordingPresentation = (
         secondaries: [],
         showsElapsed: false,
         showsInspect: true,
-        tone: "failed",
       };
     }
     case "dry-run-passed": {
       if (!canVerifyDryRun(captureState.dryRunSummary)) {
         return {
           action: null,
-          badge: "Dry run failed",
+          ...dryRunMissBadge(captureState.dryRunSummary),
           nextStep: `${dryRunMissSentence(
             captureState.dryRunSummary,
             "This attempt cannot verify the flow."
@@ -270,7 +284,6 @@ export const teachingRecordingPresentation = (
           secondaries: ["reject-flow"],
           showsElapsed: false,
           showsInspect: true,
-          tone: "failed",
         };
       }
       return {

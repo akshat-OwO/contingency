@@ -355,7 +355,7 @@ export const DryRunSummaryView = ({
     }
     summary={summary}
     verdict={
-      result?.outcome !== "failed" && dryRunMissedOnlyQualifiers(summary)
+      dryRunMissedOnlyQualifiers(summary)
         ? { label: "Dry Run did not pass", tone: "attention" }
         : dryRunSummaryVerdict(dryRunVerdict(summary, result))
     }

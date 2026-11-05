@@ -673,7 +673,15 @@ test("offers user verification only for a completed working Dry Run with a compl
       dryRunSummary: invalidSummary,
     });
     expect(presentation.action).toBeNull();
-    expect(presentation.tone).toBe("failed");
+    // Missing only how it was attempted (outcome not complete, or a
+    // Takeover) did not pass, but is not shown as a broken journey.
+    const qualifierOnly =
+      invalidSummary.purpose.takeoverOccurred ||
+      invalidSummary.assessment?.outcomeComplete === false;
+    expect(presentation.badge).toBe(
+      qualifierOnly ? "Dry run did not pass" : "Dry run failed"
+    );
+    expect(presentation.tone).toBe(qualifierOnly ? "default" : "failed");
   }
 });
 
