@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 /**
  * The dock's way into the Flows drawer. It sits beside the session picker,
  * because it is navigation, and leaves the right of the row to the state's
- * own actions. Its label gives way before anything else as the stage narrows.
+ * own actions. It keeps its word and its count at every width.
  */
 export const FlowsDockButton = () => {
   const { catalogBrowseAtom } = useRpcDependencies();
@@ -39,12 +39,12 @@ export const FlowsDockButton = () => {
     >
       <BookOpenIcon aria-hidden="true" />
       {/*
-        On a narrow stage the word gives way to the session's Flow name and
-        the count rides the icon's corner, as on the inspector rail.
+        The word stays at every width (the session name has its own row on
+        a phone), so the count sits beside it rather than on the icon.
       */}
       <span>Flows</span>
       {count === undefined ? null : (
-        <span className="bg-muted text-muted-foreground ring-background grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums @max-sm:absolute @max-sm:-top-0.5 @max-sm:-right-0.5 @max-sm:ring-2">
+        <span className="bg-muted text-muted-foreground ring-background grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums">
           {count}
         </span>
       )}
