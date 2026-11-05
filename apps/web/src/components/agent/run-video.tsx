@@ -372,17 +372,17 @@ const VideoPath = ({ path }: { readonly path: string }) => {
         aria-hidden="true"
         className="text-muted-foreground size-3.5 shrink-0"
       />
-      <code
-        className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs select-text"
-        title={path}
-      >
-        {/* The Run's folder and file tell Runs apart; the temp root does not. */}
-        {tailOfPath(path).slice(0, -fileName(path).length)}
-      </code>
-      {/* The file name never truncates; the folder before it gives way. */}
-      <code className="text-muted-foreground -ml-2 shrink-0 font-mono text-xs select-text">
-        {fileName(path)}
-      </code>
+      {/*
+        One path: the folder gives way, the file name stays whole beside it.
+      */}
+      <span className="flex min-w-0 flex-1 font-mono text-xs" title={path}>
+        <code className="text-muted-foreground min-w-0 truncate select-text">
+          {tailOfPath(path).slice(0, -fileName(path).length)}
+        </code>
+        <code className="text-muted-foreground shrink-0 select-text">
+          {fileName(path)}
+        </code>
+      </span>
       <Button
         aria-label="Copy video path"
         className={cn(
@@ -614,7 +614,8 @@ const PlayerControls = ({
         {clock(playback.currentMs)}
         <span className="hidden @[20rem]:inline">
           {" / "}
-          {clock(playback.durationMs)}
+          {/* Until the metadata arrives the length is unknown, not zero. */}
+          {playback.durationMs > 0 ? clock(playback.durationMs) : "—"}
         </span>
       </span>
       {current === undefined ? null : (

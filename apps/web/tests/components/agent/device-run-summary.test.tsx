@@ -127,3 +127,18 @@ test("an ended stage shows the last screen kept, or its fallback", () => {
   expect(screen.queryByRole("img")).toBeNull();
   expect(screen.getByText("Simulator released.")).toBeVisible();
 });
+
+test("one kept screen is left to the stage, not drawn twice", () => {
+  summary({
+    keyframes: [{ capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") }],
+    retained: true,
+  });
+  expect(screen.queryByRole("img")).toBeNull();
+  expect(
+    screen.getByText(/The one screen this session kept is on the stage/u)
+  ).toBeVisible();
+  expect(screen.getByRole("link", { name: "Full size" })).toHaveAttribute(
+    "href",
+    `/ios/sessions/agent-ios-ended/keyframes/${hash("a")}`
+  );
+});

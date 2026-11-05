@@ -61,7 +61,7 @@ export const OutcomeDot = ({
  * or a Run in a list: the muted fill and a bar on its leading edge.
  */
 export const selectedRowClass =
-  "bg-muted text-foreground shadow-[inset_2px_0_0_var(--color-foreground)]";
+  "bg-muted text-foreground relative before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-foreground";
 
 const rowClass = (selected: boolean) =>
   cn(

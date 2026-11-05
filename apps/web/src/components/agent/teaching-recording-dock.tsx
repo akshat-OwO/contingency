@@ -13,11 +13,8 @@ import {
   CircleIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
-  PencilIcon,
   RotateCwIcon,
   SquareIcon,
-  Trash2Icon,
-  XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -65,23 +62,6 @@ const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
   "delete-recording": "Delete recording",
   "reject-flow": "Reject flow",
   "rename-flow": "Rename flow",
-};
-
-/** What a secondary shows once the stage is too narrow for any label. */
-const SecondaryIcon = ({
-  className,
-  secondary,
-}: {
-  readonly className: string;
-  readonly secondary: TeachingSecondaryAction;
-}) => {
-  if (secondary === "rename-flow") {
-    return <PencilIcon aria-hidden="true" className={className} />;
-  }
-  if (secondary === "reject-flow") {
-    return <XIcon aria-hidden="true" className={className} />;
-  }
-  return <Trash2Icon aria-hidden="true" className={className} />;
 };
 
 /** What a secondary reads once the stage is too narrow for the full label. */
@@ -417,10 +397,11 @@ export const TeachingRecordingDock = ({
           type="button"
           variant="outline"
         >
-          <SecondaryIcon secondary={secondary} className="@sm:hidden" />
-          <span className="hidden @sm:inline @md:hidden">
-            {SECONDARY_SHORT_LABEL[secondary]}
-          </span>
+          {/*
+            A narrow dock wraps the session picker onto its own row, so even
+            there a secondary keeps a word: an X alone reads as dismiss.
+          */}
+          <span className="@md:hidden">{SECONDARY_SHORT_LABEL[secondary]}</span>
           <span className="hidden @md:inline">
             {SECONDARY_LABEL[secondary]}
           </span>

@@ -148,6 +148,25 @@ const DeviceRecording = ({
         </p>
       );
     }
+    const [only] = keyframes;
+    if (keyframes.length === 1 && only !== undefined) {
+      // The stage already shows the one screen kept; the rail does not draw
+      // it a second time.
+      return (
+        <p className="text-muted-foreground text-pretty">
+          The one screen this session kept is on the stage, at{" "}
+          {time(only.capturedAt)}.{" "}
+          <a
+            className="text-foreground underline-offset-2 hover:underline"
+            href={deviceKeyframePath(platform, sessionId, only.hash)}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Full size
+          </a>
+        </p>
+      );
+    }
     const first = keyframes[0]?.capturedAt ?? "";
     return (
       <ol
