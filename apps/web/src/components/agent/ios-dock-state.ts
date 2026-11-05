@@ -141,7 +141,7 @@ const teachingPresentation = (
         ...base,
         action: action("stop-recording", "Stop", "Stop recording"),
         nextStep:
-          "Do the journey once by tapping the simulator screen. Press stop on the screen that proves it worked.",
+          "Tap through the journey once. Stop on the screen that proves it worked.",
         showsComment: true,
       };
     }

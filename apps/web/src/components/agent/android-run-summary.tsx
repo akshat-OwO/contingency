@@ -3,9 +3,10 @@ import type {
   AndroidWorkspaceSnapshot,
   DevicePlatform,
 } from "@contingency/protocol";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { CircleAlertIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import { androidDeviceLabel } from "./android-workspace-state";
@@ -50,14 +51,26 @@ const DeviceRecording = ({
   readonly sessionId: string;
 }) => {
   const { deviceKeyframesAtom } = useRpcDependencies();
-  const result = useAtomValue(
-    deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId))
-  );
+  const atom = deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId));
+  const result = useAtomValue(atom);
+  const retry = useAtomRefresh(atom);
   const body = (() => {
     if (result._tag === "Initial") {
       return <p className="text-muted-foreground">Reading screens…</p>;
     }
     if (result._tag === "Failure") {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-muted-foreground text-pretty" role="alert">
+            The screens could not be read.
+          </p>
+          <Button onClick={retry} size="sm" variant="outline">
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    if (result.value === null) {
       return (
         <p className="text-muted-foreground text-pretty">
           This Workspace no longer holds the session, so its screens cannot be
@@ -102,13 +115,21 @@ const DeviceRecording = ({
               >
                 <img
                   alt={`Screen ${index + 1} of ${keyframes.length}, ${time(keyframe.capturedAt)}`}
-                  className="bg-muted h-40 w-auto rounded-lg border object-contain"
+                  className="bg-muted h-64 w-auto rounded-lg border object-contain"
                   loading="lazy"
                   src={src}
                 />
               </a>
               <p className="text-muted-foreground mt-1 text-xs tabular-nums">
-                {index + 1} · {time(keyframe.capturedAt)}
+                {index + 1} · {time(keyframe.capturedAt)} ·{" "}
+                <a
+                  className="text-foreground underline-offset-2 hover:underline"
+                  href={src}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Full size
+                </a>
               </p>
             </li>
           );

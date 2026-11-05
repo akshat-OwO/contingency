@@ -141,12 +141,15 @@ const Step = ({
   disabled = false,
   index,
   title,
+  waitingFor,
 }: {
   readonly children: React.ReactNode;
   readonly done: boolean;
   readonly disabled?: boolean;
   readonly index: number;
   readonly title: string;
+  /** What unlocks this step, said while it is disabled. */
+  readonly waitingFor?: string;
 }) => (
   <fieldset
     aria-label={title}
@@ -170,8 +173,16 @@ const Step = ({
       </span>
       {title}
     </h3>
-    {/* An unavailable step keeps a readable heading; only its controls dim. */}
-    <div className={cn("pl-7", disabled && "opacity-50")}>{children}</div>
+    {/*
+      An unavailable step keeps its heading and words readable and says what
+      unlocks it; only its controls dim, through their own disabled styles.
+    */}
+    <div className="space-y-2 pl-7">
+      {disabled && waitingFor !== undefined ? (
+        <p className="text-muted-foreground text-xs">{waitingFor}</p>
+      ) : null}
+      {children}
+    </div>
   </fieldset>
 );
 
@@ -701,6 +712,7 @@ export const AndroidSetupSheet = ({
               done={app !== undefined}
               index={2}
               title="Target App"
+              waitingFor="Choose a device to list its apps."
             >
               <AppStep
                 apps={apps}
@@ -721,47 +733,55 @@ export const AndroidSetupSheet = ({
               />
             </Step>
             <Step
-              done={conditionsReady}
+              done={form.start.name.trim() !== ""}
               disabled={app === undefined}
               index={3}
               title="Starting screen"
+              waitingFor="Choose the Target App first."
             >
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    An element that is on screen when{" "}
-                    {app === undefined ? "the app" : app.label || app.package}{" "}
-                    opens. Preparing checks it before you record.
-                  </p>
-                  <ConditionInput
-                    label="Starting screen element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, start: value }))
-                    }
-                    placeholder="Sign in"
-                    value={form.start}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    And one that shows the journey worked.
-                  </p>
-                  <ConditionInput
-                    label="Done when element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, outcome: value }))
-                    }
-                    placeholder="Order confirmed"
-                    value={form.outcome}
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground text-xs">
+                  An element that is on screen when{" "}
+                  {app === undefined ? "the app" : app.label || app.package}{" "}
+                  opens. Preparing checks it before you record.
+                </p>
+                <ConditionInput
+                  label="Starting screen element"
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, start: value }))
+                  }
+                  placeholder="Sign in"
+                  value={form.start}
+                />
+              </div>
+            </Step>
+            <Step
+              done={form.outcome.name.trim() !== ""}
+              disabled={app === undefined}
+              index={4}
+              title="Done when"
+              waitingFor="Choose the Target App first."
+            >
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground text-xs">
+                  An element that shows the journey worked.
+                </p>
+                <ConditionInput
+                  label="Done when element"
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, outcome: value }))
+                  }
+                  placeholder="Order confirmed"
+                  value={form.outcome}
+                />
               </div>
             </Step>
             <Step
               disabled={app === undefined || !conditionsReady}
               done={false}
-              index={4}
+              index={5}
               title="Permissions and setup"
+              waitingFor="Name the starting and done-when elements first."
             >
               <AndroidPermissionFields
                 value={form.permissions}

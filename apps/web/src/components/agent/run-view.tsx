@@ -11,6 +11,7 @@ import { CircleAlertIcon } from "lucide-react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -206,12 +207,9 @@ export const RunSummaryView = ({
               {account}
             </p>
           )}
-          <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t pt-3 text-xs">
-            <dt>Run ID</dt>
-            <dd className="text-foreground/80 font-mono wrap-anywhere select-all">
-              {summary.runId}
-            </dd>
-          </dl>
+          <div className="border-t pt-3">
+            <EvidenceReference id={summary.runId} kind="Run ID" />
+          </div>
           <p className="text-muted-foreground text-xs">
             The live browser was closed when this Run ended. This view is
             read-only.

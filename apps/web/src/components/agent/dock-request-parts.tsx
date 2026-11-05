@@ -1,5 +1,3 @@
-import { useAtom } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
 import {
   CheckIcon,
   CircleCheckIcon,
@@ -7,11 +5,12 @@ import {
   CopyIcon,
   MessageSquareReplyIcon,
 } from "lucide-react";
-import { useState } from "react";
 
 import { shortDecisionId } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+import { CopyFeedback, useCopy } from "./evidence-reference";
 
 /**
  * The pieces every request in the dock's first tier is built from, so an
@@ -50,32 +49,27 @@ export const RequestHeader = ({
  * is its accessible name, its title, and what it copies.
  */
 export const DecisionId = ({ id }: { readonly id: string }) => {
-  const [copiedAtom] = useState(() => Atom.make(false));
-  const [copied, setCopied] = useAtom(copiedAtom);
+  const { copied, copy, failed } = useCopy(id);
   return (
-    <Button
-      aria-label={`Copy decision id ${id}`}
-      className="font-mono"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(id);
-          setCopied(true);
-        } catch {
-          setCopied(false);
-        }
-      }}
-      size="xs"
-      title={id}
-      type="button"
-      variant="outline"
-    >
-      {copied ? (
-        <CheckIcon aria-hidden="true" />
-      ) : (
-        <CopyIcon aria-hidden="true" />
-      )}
-      {shortDecisionId(id)}
-    </Button>
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <Button
+        aria-label={`Copy decision id ${id}`}
+        className="font-mono"
+        onClick={copy}
+        size="xs"
+        title={id}
+        type="button"
+        variant="outline"
+      >
+        {copied ? (
+          <CheckIcon aria-hidden="true" />
+        ) : (
+          <CopyIcon aria-hidden="true" />
+        )}
+        {shortDecisionId(id)}
+      </Button>
+      <CopyFeedback copied={copied} failed={failed} />
+    </span>
   );
 };
 

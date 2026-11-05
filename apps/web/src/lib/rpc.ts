@@ -321,16 +321,27 @@ const decodeDeviceKeyframes = Schema.decodeUnknownEffect(DeviceKeyframes);
  * The keyframes an ended device session kept, read once per list URL: an
  * ended session adds none, so there is nothing to poll for.
  */
+/**
+ * A device session's keyframes, or `null` when this Workspace does not know
+ * the session. Any other failure fails the atom, so it can be retried.
+ */
 export const deviceKeyframesAtom = Atom.family((listUrl: string) =>
   Atom.make(
     Effect.tryPromise(async () => {
       const response = await fetch(listUrl, { cache: "no-store" });
+      if (response.status === 404) {
+        return null;
+      }
       if (!response.ok) {
         throw new Error(`The keyframe list answered ${response.status}.`);
       }
       const body: unknown = await response.json();
       return body;
-    }).pipe(Effect.flatMap(decodeDeviceKeyframes))
+    }).pipe(
+      Effect.flatMap((body) =>
+        body === null ? Effect.succeed(null) : decodeDeviceKeyframes(body)
+      )
+    )
   )
 );
 

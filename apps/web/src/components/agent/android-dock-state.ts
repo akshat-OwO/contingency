@@ -156,7 +156,7 @@ const teachingPresentation = (
       return {
         ...base,
         action: action("stop-recording", "Stop", "Stop recording"),
-        nextStep: `Do the journey once by clicking the emulator screen. Press stop on the screen that proves it worked.`,
+        nextStep: `Click through the journey once. Stop on the screen that proves it worked.`,
         showsComment: true,
       };
     }

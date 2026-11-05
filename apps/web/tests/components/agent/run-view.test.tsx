@@ -274,7 +274,12 @@ test("says the video is being prepared until it is condensed", () => {
       <RunSummaryView summary={asSummary} />
     </TestRegistry>
   );
-  expect(screen.getByRole("status")).toHaveTextContent("Preparing video…");
+  // The Run ID's copy button keeps its own, empty, status region.
+  expect(
+    screen
+      .getAllByRole("status")
+      .some((status) => status.textContent?.includes("Preparing video…"))
+  ).toBe(true);
   expect(screen.queryByLabelText("Recorded Run video")).toBeNull();
 });
 

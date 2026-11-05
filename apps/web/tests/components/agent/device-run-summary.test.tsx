@@ -20,11 +20,16 @@ const session = {
   takeoverOccurred: false,
 } as const;
 
-const summary = (keyframes: DeviceKeyframes) =>
+const summary = (keyframes: DeviceKeyframes | null | Error) =>
   render(
     <RpcDependenciesProvider
       overrides={{
-        deviceKeyframesAtom: () => Atom.make(Effect.succeed(keyframes)),
+        deviceKeyframesAtom: () =>
+          Atom.make(
+            keyframes instanceof Error
+              ? Effect.fail(keyframes)
+              : Effect.succeed(keyframes)
+          ),
       }}
     >
       <DeviceRunSummary
@@ -64,4 +69,18 @@ test("says what became of screens cleanup deleted", () => {
   expect(
     screen.getByText(/Cleanup deleted the one screen this session kept/u)
   ).toBeVisible();
+});
+
+test("tells a forgotten session from a failed read, which it can retry", () => {
+  summary(null);
+  expect(
+    screen.getByText(/This Workspace no longer holds the session/u)
+  ).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  cleanup();
+  summary(new Error("The keyframe list answered 500."));
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The screens could not be read."
+  );
+  expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
 });

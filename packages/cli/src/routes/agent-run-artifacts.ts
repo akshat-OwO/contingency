@@ -16,7 +16,10 @@ import {
   RUN_VIDEO_FILE,
   RunVideoRenderer,
 } from "../services/run-video-renderer.ts";
-import { TeachingRecordingStore } from "../services/teaching-recording-store.ts";
+import {
+  dryRunDirectory,
+  TeachingRecordingStore,
+} from "../services/teaching-recording-store.ts";
 import { isAllowedHost } from "../services/web-url.ts";
 
 const isAgentRunId = Schema.is(AgentRunId);
@@ -204,8 +207,10 @@ export const makeDryRunArtifactRoutes = ({
         ) {
           return HttpServerResponse.empty({ status: 404 });
         }
-        const videoPath = manifest.success.lifecycle.dryRunSummary?.videoPath;
+        const summary = manifest.success.lifecycle.dryRunSummary;
+        const videoPath = summary?.videoPath;
         if (
+          summary === undefined ||
           videoPath === null ||
           videoPath === undefined ||
           path.basename(videoPath) !== videoPath
@@ -214,7 +219,7 @@ export const makeDryRunArtifactRoutes = ({
         }
         return yield* videoStatus(
           yield* statusOf(
-            path.join(store.directory(recordingId), "dry-run"),
+            dryRunDirectory(store.directory(recordingId), summary.runId),
             videoPath
           )
         );
@@ -248,8 +253,10 @@ const dryRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
       ) {
         return HttpServerResponse.empty({ status: 404 });
       }
-      const videoPath = manifest.success.lifecycle.dryRunSummary?.videoPath;
+      const summary = manifest.success.lifecycle.dryRunSummary;
+      const videoPath = summary?.videoPath;
       if (
+        summary === undefined ||
         videoPath === null ||
         videoPath === undefined ||
         path.basename(videoPath) !== videoPath
@@ -257,8 +264,7 @@ const dryRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
         return HttpServerResponse.empty({ status: 404 });
       }
       const file = path.join(
-        store.directory(recordingId),
-        "dry-run",
+        dryRunDirectory(store.directory(recordingId), summary.runId),
         videoPath
       );
       const info = yield* Effect.result(fileSystem.stat(file));

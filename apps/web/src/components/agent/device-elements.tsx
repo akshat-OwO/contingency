@@ -15,6 +15,11 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type ObservedNode = AndroidWorkspaceObservation["nodes"][number];
 
@@ -138,21 +143,30 @@ export const DeviceElements = ({
   const groups = groupElements(labelled);
   return (
     <Popover onOpenChange={setOpen} open={open}>
-      <PopoverTrigger
-        render={
-          // Icon-only: the dock's controls row never wraps, and a label here
-          // pushes the primary action out of a 48rem dock.
-          <Button
-            aria-label="Screen elements"
-            disabled={disabled || nodes.length === 0}
-            size="icon-sm"
-            title="Screen elements"
-            variant="ghost"
-          />
-        }
-      >
-        <ListIcon />
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                // Icon-only: the dock's controls row never wraps, and a label
+                // here pushes the primary action out of a 48rem dock. The
+                // tooltip names it on hover and on keyboard focus.
+                <Button
+                  aria-label="Screen elements"
+                  disabled={disabled || nodes.length === 0}
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            />
+          }
+        >
+          <ListIcon />
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          Screen elements: pick an element by name
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent
         align="start"
         aria-label="Screen elements"

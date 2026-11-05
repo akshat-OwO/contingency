@@ -411,14 +411,29 @@ const useAppIdentity = (
     Atom.make<IdentityState>({ _tag: "idle" })
   );
   const [state, setState] = useAtom(stateAtom);
+  // Only the latest path's read may fill the form: a new read, or clearing
+  // the path, interrupts the one before it.
+  const reading = useRef<Fiber.Fiber<unknown> | null>(null);
+  useEffect(
+    () => () => {
+      if (reading.current !== null) {
+        Effect.runFork(Fiber.interrupt(reading.current));
+      }
+    },
+    []
+  );
   const read = (value: string) => {
     const appPath = value.trim();
+    if (reading.current !== null) {
+      Effect.runFork(Fiber.interrupt(reading.current));
+      reading.current = null;
+    }
     if (appPath === "") {
       setState({ _tag: "idle" });
       return;
     }
     setState({ _tag: "reading" });
-    Effect.runFork(
+    reading.current = Effect.runFork(
       inspectIosApp(appPath).pipe(
         Effect.result,
         Effect.tap((result) =>

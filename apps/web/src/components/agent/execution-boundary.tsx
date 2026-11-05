@@ -111,17 +111,17 @@ export const ExecutionBoundary = ({
       />
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-sm text-pretty wrap-anywhere">
-            {boundary.requested}
-          </p>
           {/*
-        The description often repeats the request word for word; a second
-        identical line reads as a rendering bug, so it shows only when it adds
-        something.
-      */}
+            The concrete action leads: it is what Allow permits. What was
+            requested (the task, or the address asked for) follows, and only
+            when it says something the action does not.
+          */}
+          <p className="text-sm text-pretty wrap-anywhere">
+            {boundary.description}
+          </p>
           {boundary.description === boundary.requested ? null : (
             <p className="text-muted-foreground text-xs text-pretty wrap-anywhere">
-              {boundary.description}
+              {boundary.requested}
             </p>
           )}
         </div>

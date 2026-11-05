@@ -63,7 +63,7 @@ test("asks for clicks on the screen while recording", () => {
     captureState: { _tag: "recording", startedAt: pending.startedAt },
     phase: "running",
   });
-  expect(recording.nextStep).toContain("clicking the emulator screen");
+  expect(recording.nextStep).toContain("Click through the journey");
   expect(recording.action?.accessibleName).toBe("Stop recording");
 });
 
