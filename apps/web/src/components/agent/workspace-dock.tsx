@@ -98,7 +98,7 @@ export const DockSessionSelect = ({
           <Button
             variant="outline"
             className={cn(
-              "max-w-56 min-w-0 flex-1 @md:max-w-72 @md:flex-none",
+              "max-w-56 min-w-28 flex-1 @md:max-w-72 @md:flex-none",
               className
             )}
           />

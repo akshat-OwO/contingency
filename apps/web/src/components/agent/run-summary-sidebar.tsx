@@ -44,6 +44,23 @@ const slideFrom = (
 /** The rail a collapsed sidebar keeps, wide enough for its expand button. */
 const COLLAPSED_SIZE = "3rem";
 
+/**
+ * Each panel's floor. On a phone the Workspace keeps room for its dock,
+ * which sits inside it.
+ */
+const panelMinimums = (mobile: boolean) =>
+  mobile
+    ? {
+        leadingMinimum: "12rem",
+        summaryMinimum: "12rem",
+        workspaceMinimum: "18rem",
+      }
+    : {
+        leadingMinimum: "24rem",
+        summaryMinimum: "20rem",
+        workspaceMinimum: "20rem",
+      };
+
 /** What a phone's Details returns to when it replaced the left panel. */
 const returnTarget = (
   replacesLeading: boolean,
@@ -138,10 +155,10 @@ const RunSummarySidebar = ({
       <ResizablePanel
         collapsedSize={COLLAPSED_SIZE}
         collapsible
-        defaultSize={mobile ? "62%" : "30rem"}
+        defaultSize={mobile ? "55%" : "30rem"}
         groupResizeBehavior="preserve-pixel-size"
         id="run-summary"
-        maxSize={mobile ? "85%" : "48rem"}
+        maxSize={mobile ? "75%" : "48rem"}
         minSize={minimumSize}
         onResize={() => {
           setCollapsed(panelRef.current?.isCollapsed() ?? false);
@@ -314,8 +331,8 @@ export const WorkspaceWithRunSummary = ({
   // Flows, Workspace, and Details must fit together even with enlarged
   // text. Three root-relative minima can otherwise force Details closed.
   const sharingSpace = shownLeading !== undefined && shownSummary !== undefined;
-  const leadingMinimum = mobile ? "12rem" : "24rem";
-  const summaryMinimum = mobile ? "12rem" : "20rem";
+  const { leadingMinimum, summaryMinimum, workspaceMinimum } =
+    panelMinimums(mobile);
   return (
     <ResizablePanelGroup
       className="min-h-0 flex-1"
@@ -336,7 +353,7 @@ export const WorkspaceWithRunSummary = ({
       <ResizablePanel
         className="flex min-h-0 flex-col"
         id="workspace"
-        minSize={sharingSpace ? "20%" : summaryMinimum}
+        minSize={sharingSpace ? "20%" : workspaceMinimum}
         style={{ overflow: "hidden" }}
       >
         {children}

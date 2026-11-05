@@ -780,7 +780,8 @@ export const AndroidSetupSheet = ({
             </Step>
             <Step
               disabled={app === undefined || !conditionsReady}
-              done={false}
+              // Every choice here has a default, so it is done once open.
+              done={app !== undefined && conditionsReady}
               index={5}
               title="Permissions and setup"
               waitingFor="Name the starting and done-when elements first."

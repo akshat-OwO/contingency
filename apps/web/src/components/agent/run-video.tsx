@@ -801,11 +801,13 @@ export const RunVideo = ({
   const result = useAtomValue(runVideoStatusAtom(src));
   const status = result._tag === "Success" ? result.value : undefined;
   if (result._tag === "Initial" || status?.state === "preparing") {
+    // The frame holds the player's place on a wide screen; a phone gets one
+    // line, so the verdict and evidence are not pushed below the fold.
     return (
       <div
         aria-live="polite"
         className={cn(
-          "text-muted-foreground flex aspect-video w-full items-center justify-center gap-2 rounded-lg border text-xs",
+          "text-muted-foreground flex aspect-video w-full items-center justify-center gap-2 rounded-lg border text-xs max-md:aspect-auto max-md:py-3",
           className
         )}
         role="status"

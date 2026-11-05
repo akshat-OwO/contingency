@@ -147,6 +147,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { useLatestDefined } from "@/hooks/use-latest-defined";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import {
@@ -2458,15 +2459,10 @@ const WorkspaceLayout = ({
   }, [allowed, setOpen, setSelection]);
   const drawerOpen = open && allowed;
   const details = drawerOpen && selection !== null ? selection : null;
-  // A rail sliding out still paints what it showed, so it keeps that title
-  // too rather than falling back to a generic one mid-exit.
-  const shownLabel = useRef("Run Summary");
-  if (summary !== null && summary !== undefined) {
-    shownLabel.current = summary.label;
-  }
+  const shownLabel = useLatestDefined(summary?.label, "Run Summary");
   return (
     <WorkspaceWithRunSummary
-      label={details === null ? shownLabel.current : "Details"}
+      label={details === null ? shownLabel : "Details"}
       leading={
         drawerOpen
           ? {
