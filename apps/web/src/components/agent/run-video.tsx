@@ -28,6 +28,7 @@ import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import { runVideoChapters } from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
+import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
@@ -45,8 +46,9 @@ const tailOfPath = (path: string) => {
   return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 };
 
+// The panel's own focus ring, so the player reads as part of it.
 const FOCUS_RING =
-  "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none";
+  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none";
 
 const clock = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -67,19 +69,19 @@ const barTone = (
   hoverMs: number | undefined
 ): string => {
   if (atMs < currentMs) {
-    return "bg-white";
+    return "bg-foreground";
   }
   if (hoverMs !== undefined && atMs < hoverMs) {
-    return "bg-white/40";
+    return "bg-foreground/40";
   }
-  return "bg-white/20";
+  return "bg-foreground/15";
 };
 
 const chapterLineTone = (hovered: boolean, current: boolean): string => {
   if (hovered) {
-    return "bg-white/80";
+    return "bg-foreground/80";
   }
-  return current ? "bg-white/55" : "bg-white/12";
+  return current ? "bg-foreground/50" : "bg-border";
 };
 
 /** Fewer, wider gaps when there are few chapters to tell apart. */
@@ -102,7 +104,7 @@ const ChapterName = ({
 }) => (
   <>
     {chapter.action === undefined ? null : (
-      <span className="mr-1 text-white/55 tabular-nums">
+      <span className="text-muted-foreground mr-1 tabular-nums">
         {chapter.action}/{total}
       </span>
     )}
@@ -121,18 +123,17 @@ const DockButton = ({
   readonly onClick: () => Promise<void> | void;
   readonly title?: string;
 }) => (
-  <button
+  <Button
     aria-label={label}
-    className={cn(
-      "grid size-[30px] shrink-0 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/12 hover:text-white active:scale-[0.94]",
-      FOCUS_RING
-    )}
+    className="text-muted-foreground hover:text-foreground"
     onClick={onClick}
+    size="icon-sm"
     title={title}
     type="button"
+    variant="ghost"
   >
     {children}
-  </button>
+  </Button>
 );
 
 /** A circular arrow around the number of seconds it skips. */
@@ -274,7 +275,7 @@ const Scrubber = ({
         current === undefined ? "" : `, ${current.label}`
       }`}
       className={cn(
-        "relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-900",
+        "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4",
         FOCUS_RING
       )}
       onKeyDown={onKeyDown}
@@ -334,11 +335,11 @@ const Scrubber = ({
       {hover === undefined || hovered === undefined ? null : (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 truncate rounded-lg border border-white/10 bg-zinc-950/90 px-2 py-1 text-[11px] font-semibold text-white backdrop-blur-md"
+          className="bg-popover text-popover-foreground pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 truncate rounded-md border px-2 py-1 text-xs font-medium shadow-md"
           style={{ left: hover.x }}
         >
           <ChapterName chapter={hovered} total={total} />
-          <span className="ml-1.5 font-mono font-normal text-white/60 tabular-nums">
+          <span className="text-muted-foreground ml-1.5 font-mono font-normal tabular-nums">
             {clock(hover.ms)}
           </span>
         </span>
@@ -367,24 +368,22 @@ const VideoPath = ({ path }: { readonly path: string }) => {
     idle: "Copy path",
   }[copy];
   return (
-    <div className="mt-2.5 flex items-center gap-2 rounded-full border border-white/8 bg-white/5 py-[5px] pr-[5px] pl-3">
+    <div className="mt-2 flex items-center gap-2 border-t pt-2">
       <FileVideoIcon
         aria-hidden="true"
-        className="size-3.5 shrink-0 opacity-50"
+        className="text-muted-foreground size-3.5 shrink-0"
       />
       <code
-        className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-white/60 select-text"
+        className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs select-text"
         title={path}
       >
         {/* The Run's folder and file tell Runs apart; the temp root does not. */}
         {tailOfPath(path)}
       </code>
-      <button
+      <Button
         aria-label="Copy video path"
         className={cn(
-          "flex h-[26px] shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-[11.5px] transition-colors hover:bg-white/18",
-          FOCUS_RING,
-          copy === "copied" && "text-emerald-300"
+          copy === "copied" && "text-emerald-700 dark:text-emerald-400"
         )}
         onClick={async () => {
           try {
@@ -394,15 +393,17 @@ const VideoPath = ({ path }: { readonly path: string }) => {
             setCopy("failed");
           }
         }}
+        size="xs"
         type="button"
+        variant="ghost"
       >
         {copy === "copied" ? (
-          <CheckIcon aria-hidden="true" className="size-3.5" />
+          <CheckIcon aria-hidden="true" />
         ) : (
-          <CopyIcon aria-hidden="true" className="size-3.5" />
+          <CopyIcon aria-hidden="true" />
         )}
         <span aria-live="polite">{label}</span>
-      </button>
+      </Button>
     </div>
   );
 };
@@ -579,36 +580,34 @@ const PlayerControls = ({
   readonly total: number;
 }) => (
   <>
-    <div className="mt-3.5 flex items-center gap-1">
+    <div className="mt-3 flex items-center gap-1">
       <DockButton
         label="Back 5 seconds"
         onClick={() => playback.seek(playback.currentMs - SKIP_MS)}
       >
         <SkipGlyph direction="back" />
       </DockButton>
-      <button
+      <Button
         aria-label={playback.playing ? "Pause" : "Play"}
-        className={cn(
-          "mx-0.5 grid size-[34px] shrink-0 place-items-center rounded-full bg-white text-zinc-950 transition-transform active:scale-[0.92]",
-          FOCUS_RING
-        )}
+        className="mx-0.5"
         onClick={playback.toggle}
+        size="icon-sm"
         title={playback.playing ? "Pause (Space)" : "Play (Space)"}
         type="button"
       >
         {playback.playing ? (
-          <PauseIcon aria-hidden="true" className="size-4 fill-current" />
+          <PauseIcon aria-hidden="true" className="fill-current" />
         ) : (
-          <PlayIcon aria-hidden="true" className="ml-0.5 size-4 fill-current" />
+          <PlayIcon aria-hidden="true" className="fill-current" />
         )}
-      </button>
+      </Button>
       <DockButton
         label="Forward 5 seconds"
         onClick={() => playback.seek(playback.currentMs + SKIP_MS)}
       >
         <SkipGlyph direction="forward" />
       </DockButton>
-      <span className="ml-1.5 shrink-0 font-mono text-xs text-white/70 tabular-nums">
+      <span className="text-muted-foreground ml-1.5 shrink-0 font-mono text-xs tabular-nums">
         {clock(playback.currentMs)}
         <span className="hidden @[20rem]:inline">
           {" / "}
@@ -616,23 +615,22 @@ const PlayerControls = ({
         </span>
       </span>
       {current === undefined ? null : (
-        <span className="ml-2 hidden min-w-0 truncate border-l border-white/15 pl-2.5 text-xs @[20rem]:block">
+        <span className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block">
           <ChapterName chapter={current} total={total} />
         </span>
       )}
       <span className="flex-1" />
-      <button
+      <Button
         aria-label={`Playback speed, ${playback.rate}×`}
-        className={cn(
-          "mr-0.5 h-6 shrink-0 rounded-full border border-white/15 px-2 text-[11px] font-semibold text-white/75 transition-colors hover:bg-white/10 hover:text-white",
-          FOCUS_RING
-        )}
+        className="mr-0.5 tabular-nums"
         onClick={playback.cycleRate}
+        size="xs"
         title="Playback speed"
         type="button"
+        variant="outline"
       >
         {playback.rate}×
-      </button>
+      </Button>
       <DockButton
         label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
         onClick={onToggleFullscreen}
@@ -654,7 +652,7 @@ const PlayerControls = ({
 );
 
 /**
- * The player: the video on top and a glass dock below it, so no control
+ * The player: the video on top and its controls below it, so no control
  * covers the recording. The scrubber has one chapter per action; its bars
  * rise through Action Windows and drop through fast-forwarded Idle Gaps.
  * Fullscreen keeps every control except the file path.
@@ -719,8 +717,10 @@ const RunVideoPlayer = ({
     <div
       aria-label="Run video player"
       className={cn(
-        "relative isolate overflow-hidden bg-[#0c0c0f] text-white outline-none select-none",
-        fullscreen ? "flex h-full flex-col p-4" : "rounded-[18px] p-1.5",
+        "bg-card text-card-foreground relative isolate overflow-hidden outline-none select-none",
+        // Inline, it is one card of the panel; fullscreen is a dark room
+        // for watching, drawn with the same tokens in their dark values.
+        fullscreen ? "dark flex h-full flex-col p-4" : "rounded-xl border",
         className
       )}
       onKeyDown={onKeyDown}
@@ -728,16 +728,19 @@ const RunVideoPlayer = ({
       role="group"
       tabIndex={-1}
     >
-      <canvas
-        aria-hidden="true"
-        className="reduce-transparency:hidden pointer-events-none absolute inset-0 -z-10 size-full opacity-55 blur-[48px] saturate-[1.6]"
-        height={27}
-        ref={playback.ambientRef}
-        width={48}
-      />
+      {fullscreen ? (
+        <canvas
+          aria-hidden="true"
+          className="reduce-transparency:hidden pointer-events-none absolute inset-0 -z-10 size-full opacity-55 blur-[48px] saturate-[1.6]"
+          height={27}
+          ref={playback.ambientRef}
+          width={48}
+        />
+      ) : null}
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl bg-black",
+          "relative overflow-hidden bg-black",
+          fullscreen && "rounded-xl",
           fullscreen && "flex min-h-0 flex-1 items-center justify-center"
         )}
       >
@@ -757,7 +760,12 @@ const RunVideoPlayer = ({
           <track kind="captions" />
         </video>
       </div>
-      <div className="reduce-transparency:bg-zinc-900 reduce-transparency:backdrop-blur-none @container mt-1.5 rounded-xl border border-white/10 bg-zinc-900/55 px-3 py-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl backdrop-saturate-[1.8]">
+      <div
+        className={cn(
+          "@container px-3 py-2.5",
+          fullscreen ? "mt-1.5 rounded-xl border" : "border-t"
+        )}
+      >
         <Scrubber
           chapters={chapters}
           currentMs={playback.currentMs}
