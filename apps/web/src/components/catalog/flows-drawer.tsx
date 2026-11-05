@@ -51,6 +51,7 @@ import {
   RecordingRow,
   RunRow,
   SectionLabel,
+  selectedRowClass,
 } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -98,7 +99,7 @@ const FlowRow = ({
       aria-selected={selected}
       className={cn(
         "hover:bg-muted flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100",
-        selected && "bg-primary text-primary-foreground hover:bg-primary"
+        selected && selectedRowClass
       )}
       onClick={onSelect}
       type="button"
@@ -112,21 +113,11 @@ const FlowRow = ({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{flow.name}</span>
-        <span
-          className={cn(
-            "block truncate text-xs",
-            selected ? "text-primary-foreground/70" : "text-muted-foreground"
-          )}
-        >
+        <span className={cn("block truncate text-xs", "text-muted-foreground")}>
           {flow.verified ? "Verified" : "Drafted"} ·{" "}
           {runCountLabel(runs.length)}
           {label === undefined ? null : (
-            <span
-              className={cn(
-                "font-medium",
-                selected ? "text-primary-foreground" : "text-foreground"
-              )}
-            >
+            <span className={cn("font-medium", "text-foreground")}>
               {" "}
               · {label}
             </span>
@@ -152,7 +143,7 @@ const PendingRow = ({
     aria-pressed={selected}
     className={cn(
       "hover:bg-muted flex w-full items-center gap-2 rounded-md border border-dashed px-2 py-1.5 text-left transition-colors duration-100",
-      selected && "bg-muted border-foreground/30"
+      selected && cn(selectedRowClass, "border-foreground/30")
     )}
     onClick={onSelect}
     type="button"
@@ -365,7 +356,7 @@ const RootFlows = ({
           aria-pressed={sameFolder(folder, looseFolder)}
           className={cn(
             "hover:bg-muted text-muted-foreground flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-            sameFolder(folder, looseFolder) && "bg-muted text-foreground"
+            sameFolder(folder, looseFolder) && selectedRowClass
           )}
           onClick={() => {
             onFolder(looseFolder);

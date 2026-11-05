@@ -197,11 +197,12 @@ test("copies the video's path on this machine", async () => {
     </TestRegistry>
   );
   const player = screen.getByRole("group", { name: "Run video player" });
-  // The path shows the Run's folder and file; the title holds all of it.
-  expect(within(player).getByText("…/agentrun-one/run.webm")).toHaveAttribute(
-    "title",
-    "/runs/agentrun-one/run.webm"
-  );
+  // The path shows the Run's folder and file; the title holds all of it,
+  // and the file name stays whole when the folder gives way.
+  expect(
+    within(player).getByTitle("/runs/agentrun-one/run.webm")
+  ).toHaveTextContent("…/agentrun-one/");
+  expect(within(player).getByText("run.webm")).toBeVisible();
   await user.click(
     within(player).getByRole("button", { name: "Copy video path" })
   );
@@ -257,7 +258,7 @@ test("keeps every control but the file path in fullscreen", async () => {
     await user.click(
       within(player).getByRole("button", { name: "Exit fullscreen" })
     );
-    expect(within(player).getByText("…/agentrun-one/run.webm")).toBeVisible();
+    expect(within(player).getByText("run.webm")).toBeVisible();
   } finally {
     Reflect.deleteProperty(document, "fullscreenElement");
     Reflect.deleteProperty(document, "exitFullscreen");

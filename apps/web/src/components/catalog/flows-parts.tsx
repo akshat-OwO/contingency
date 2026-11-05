@@ -56,10 +56,17 @@ export const OutcomeDot = ({
   );
 };
 
+/**
+ * How every catalog row says it is selected, whether a folder in the tree
+ * or a Run in a list: the muted fill and a bar on its leading edge.
+ */
+export const selectedRowClass =
+  "bg-muted text-foreground shadow-[inset_2px_0_0_var(--color-foreground)]";
+
 const rowClass = (selected: boolean) =>
   cn(
     "hover:bg-muted flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-100",
-    selected && "bg-muted"
+    selected && selectedRowClass
   );
 
 export const RunRow = ({

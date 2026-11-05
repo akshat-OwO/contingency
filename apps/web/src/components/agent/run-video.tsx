@@ -40,6 +40,9 @@ const COPIED_FOR_MS = 1500;
 /** How far the hover tip stays from either end of the scrubber. */
 const TIP_INSET_PX = 64;
 
+/** A path's last segment. */
+const fileName = (path: string) => path.split("/").at(-1) ?? path;
+
 /** A path's last two segments, the Run's folder and its file. */
 const tailOfPath = (path: string) => {
   const parts = path.split("/").filter((part) => part !== "");
@@ -378,7 +381,11 @@ const VideoPath = ({ path }: { readonly path: string }) => {
         title={path}
       >
         {/* The Run's folder and file tell Runs apart; the temp root does not. */}
-        {tailOfPath(path)}
+        {tailOfPath(path).slice(0, -fileName(path).length)}
+      </code>
+      {/* The file name never truncates; the folder before it gives way. */}
+      <code className="text-muted-foreground -ml-2 shrink-0 font-mono text-xs select-text">
+        {fileName(path)}
       </code>
       <Button
         aria-label="Copy video path"

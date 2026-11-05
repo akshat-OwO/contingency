@@ -234,10 +234,13 @@ export const RunSummaryView = ({
           <div className="border-t pt-3">
             <EvidenceReference id={summary.runId} kind="Run ID" />
           </div>
-          <p className="text-muted-foreground text-xs">
-            The live browser was closed when this Run ended. This view is
-            read-only.
-          </p>
+          {/* The standalone page says it is read-only in its own subtitle. */}
+          {heading ? (
+            <p className="text-muted-foreground text-xs">
+              The live browser was closed when this Run ended. This view is
+              read-only.
+            </p>
+          ) : null}
         </div>
       </section>
       {/* The replay follows what the agent concluded, before the setup. */}
