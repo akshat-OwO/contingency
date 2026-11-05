@@ -83,8 +83,8 @@ export const DockSessionSelect = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
-        // The trigger shows the name's start; hovering shows all of it. It
-        // may shrink to nothing on a phone: the primary action must fit.
+        // The trigger shows the name's start; hovering shows all of it. On a
+        // narrow dock it has a row of its own.
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
@@ -99,7 +99,7 @@ export const DockSessionSelect = ({
           <Button
             variant="outline"
             className={cn(
-              "max-w-56 min-w-0 flex-1 @md:max-w-72 @md:flex-none",
+              "max-w-56 min-w-0 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-none",
               className
             )}
           />
@@ -227,7 +227,11 @@ export const DockShell = ({
       >
         {requests}
         {status}
-        <div className="flex min-w-0 items-center gap-1.5 border-t px-2 py-1.5">
+        {/*
+          Below a medium dock the session picker takes its own full row, so
+          the session's name stays readable and the actions keep theirs.
+        */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap">
           {children}
         </div>
         {footer}
@@ -237,11 +241,7 @@ export const DockShell = ({
 };
 
 /** A spacer that pushes the actions to the end of the controls row. */
-export const DockSpacer = () => (
-  // On a narrow stage the session picker takes this room instead, so the
-  // Flow name stays readable.
-  <div className="hidden min-w-2 flex-1 @md:block" />
-);
+export const DockSpacer = () => <div className="min-w-2 flex-1" />;
 
 /** The wordmark gives way first when the stage narrows. */
 export const DockWordmark = () => (

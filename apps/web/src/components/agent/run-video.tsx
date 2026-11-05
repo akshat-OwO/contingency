@@ -139,21 +139,17 @@ const DockButton = ({
   </Button>
 );
 
-/** A circular arrow around the number of seconds it skips. */
+/**
+ * A circular arrow. How far it skips is in the button's name and tooltip
+ * ("Back 5 seconds"), not drawn inside the icon below the panel's type scale.
+ */
 const SkipGlyph = ({
   direction,
 }: {
   readonly direction: "back" | "forward";
 }) => {
   const Icon = direction === "back" ? RotateCcwIcon : RotateCwIcon;
-  return (
-    <span aria-hidden="true" className="relative grid place-items-center">
-      <Icon className="size-[18px]" strokeWidth={1.75} />
-      <span className="absolute pt-px text-[7px] font-bold">
-        {SKIP_MS / 1000}
-      </span>
-    </span>
-  );
+  return <Icon aria-hidden="true" />;
 };
 
 /**
