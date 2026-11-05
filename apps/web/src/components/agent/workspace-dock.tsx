@@ -83,7 +83,8 @@ export const DockSessionSelect = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
-        // The trigger shows the name's start; hovering shows all of it.
+        // The trigger shows the name's start; hovering shows all of it. It
+        // may shrink to nothing on a phone: the primary action must fit.
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
@@ -98,7 +99,7 @@ export const DockSessionSelect = ({
           <Button
             variant="outline"
             className={cn(
-              "max-w-56 min-w-28 flex-1 @md:max-w-72 @md:flex-none",
+              "max-w-56 min-w-0 flex-1 @md:max-w-72 @md:flex-none",
               className
             )}
           />
