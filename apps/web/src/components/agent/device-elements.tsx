@@ -6,7 +6,7 @@ import {
   MousePointerClickIcon,
   TextCursorInputIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +81,17 @@ const groupElements = (
   }).filter((group) => group.entries.length > 0);
 };
 
+const ROLE_WORDS = new Map([
+  ["application", "app"],
+  ["other", "element"],
+  ["secure-text-field", "secure field"],
+  ["text-field", "field"],
+]);
+
+/** A role as a short word a person reads, not the platform's identifier. */
+const roleWord = (role: string) =>
+  ROLE_WORDS.get(role.toLowerCase()) ?? role.toLowerCase().replaceAll("-", " ");
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 /** Where a click on this element would land, or nothing without bounds. */
@@ -121,6 +132,7 @@ export const DeviceElements = ({
 }) => {
   const [openAtom] = useState(() => Atom.make(false));
   const [open, setOpen] = useAtom(openAtom);
+  const trigger = useRef<HTMLButtonElement>(null);
   const nodes =
     observation === null
       ? []
@@ -138,9 +150,12 @@ export const DeviceElements = ({
     }
     const count = (seen.get(node.role) ?? 0) + 1;
     seen.set(node.role, count);
-    return { label: `Unnamed ${node.role} ${count}`, node };
+    return { label: `Unnamed ${roleWord(node.role)} ${count}`, node };
   });
   const groups = groupElements(labelled);
+  const dockOf = () =>
+    trigger.current?.closest('[aria-label="Workspace dock"]') ??
+    trigger.current;
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <Tooltip>
@@ -153,6 +168,7 @@ export const DeviceElements = ({
                 // tooltip names it on hover and on keyboard focus.
                 <Button
                   aria-label="Screen elements"
+                  ref={trigger}
                   disabled={disabled || nodes.length === 0}
                   size="icon-sm"
                   variant="ghost"
@@ -168,7 +184,10 @@ export const DeviceElements = ({
         </TooltipContent>
       </Tooltip>
       <PopoverContent
-        align="start"
+        align="center"
+        // Above the whole dock, never over its requests or status: a list
+        // over a Variable form hides what the person is answering.
+        anchor={dockOf}
         aria-label="Screen elements"
         className="w-80 max-w-[calc(100vw-2rem)] gap-1 p-1"
         side="top"
@@ -218,7 +237,7 @@ export const DeviceElements = ({
                           {label}
                         </span>
                         <span className="text-muted-foreground shrink-0 text-xs">
-                          {node.role}
+                          {roleWord(node.role)}
                         </span>
                       </Button>
                     </li>

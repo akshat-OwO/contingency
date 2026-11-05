@@ -678,7 +678,7 @@ export const AndroidSetupSheet = ({
             });
           }}
         >
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
+          <div className="min-h-0 flex-1 scroll-pb-8 space-y-6 overflow-y-auto px-4 pb-8">
             <label className="grid gap-1.5 text-sm font-medium">
               Flow name
               <Input

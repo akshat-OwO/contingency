@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AndroidLiveStream } from "./android-live-stream";
+import { DeviceLastScreen } from "./android-run-summary";
 import type {
   AndroidStreamFrame,
   AndroidStreamPoint,
@@ -169,7 +170,13 @@ export const AndroidDevice = ({
   const [frame, setFrame] = useAtom(frameAtom);
   const displayUnavailable = secure ? "" : unavailable;
   if (ended) {
-    return <DeviceUnavailable message={displayUnavailable} />;
+    return (
+      <DeviceLastScreen
+        fallback={<DeviceUnavailable message={displayUnavailable} />}
+        platform="android"
+        sessionId={sessionId}
+      />
+    );
   }
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-3 lg:gap-5">
@@ -178,7 +185,8 @@ export const AndroidDevice = ({
         keeps only the keys beside it. Why a click sent nothing is said in the
         dock, so nothing ever covers the glass.
       */}
-      <div className="flex shrink-0 justify-end lg:w-56">
+      {/* Back sits low beside the frame, where a phone's own keys are. */}
+      <div className="flex shrink-0 justify-end lg:w-56 lg:self-end lg:pb-16">
         <DeviceToolbar canAct={canAct && !pending} onBack={onBack} />
       </div>
       <div

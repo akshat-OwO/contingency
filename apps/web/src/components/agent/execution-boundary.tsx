@@ -18,6 +18,16 @@ const domainApprovalSummary = (session: AgentSessionSnapshot): string =>
     ? "Allowing this exact host adds it to this Guided Run and the saved Flow's Domain Scope."
     : "Allowing this exact host covers this Run. The saved Domain Scope stays unchanged.";
 
+/** What Allow grants for this boundary, or why it cannot be given now. */
+const boundaryScope = (session: AgentSessionSnapshot, reason: string) => {
+  if (session.controller === "user") {
+    return "You hold the browser, so this can only be refused now. Return control to allow it.";
+  }
+  return reason === "domain"
+    ? domainApprovalSummary(session)
+    : "Allow permits this exact attempt once; a retry asks again.";
+};
+
 /** The user resolves the exact pending boundary in the Workspace dock. */
 export const ExecutionBoundary = ({
   collapse,
@@ -77,13 +87,7 @@ export const ExecutionBoundary = ({
       });
     }
   };
-  let scope = "Allow permits this exact attempt once; a retry asks again.";
-  if (session.controller === "user") {
-    scope =
-      "You hold the browser, so this can only be refused now. Return control to allow it.";
-  } else if (boundary.reason === "domain") {
-    scope = domainApprovalSummary(session);
-  }
+  const scope = boundaryScope(session, boundary.reason);
   return (
     <section aria-label="Execution Boundary" className="space-y-1.5">
       <RequestHeader
@@ -109,6 +113,13 @@ export const ExecutionBoundary = ({
         }
         title={boundaryTitle[boundary.reason]}
       />
+      {/*
+        While the person holds the browser the constraint is the news: Allow
+        is off until they return control, so it leads.
+      */}
+      {session.controller === "user" ? (
+        <p className="text-xs font-medium text-pretty">{scope}</p>
+      ) : null}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0 flex-1 space-y-1">
           {/*
@@ -174,7 +185,9 @@ export const ExecutionBoundary = ({
         What Allow grants is part of the decision, so it stays visible beside
         the buttons; only the attempt id and its payload wait behind details.
       */}
-      <p className="text-muted-foreground text-xs text-pretty">{scope}</p>
+      {session.controller === "user" ? null : (
+        <p className="text-muted-foreground text-xs text-pretty">{scope}</p>
+      )}
       {state.error === "" ? null : (
         <p role="alert" className="text-destructive text-xs">
           {state.error}

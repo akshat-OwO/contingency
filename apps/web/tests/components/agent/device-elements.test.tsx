@@ -59,7 +59,7 @@ test("lists fields, then controls, then the rest, each label once", async () => 
   ).toEqual(["Fields", "Controls", "Other elements"]);
   expect(names("Fields")).toEqual([
     "Select Shopper name",
-    "Select Unnamed text-field 1",
+    "Select Unnamed field 1",
   ]);
   expect(names("Controls")).toEqual(["Activate Sign in"]);
   // The button's own text and its heading repeat its label, so they are

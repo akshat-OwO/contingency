@@ -4,6 +4,7 @@ import type {
   DevicePlatform,
 } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/reactivity";
 import { CircleAlertIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,56 @@ const time = (iso: string) =>
     minute: "2-digit",
     second: "2-digit",
   });
+
+/** How far into the session a screen was kept, as m:ss from the first. */
+const elapsed = (first: string, at: string) => {
+  const seconds = Math.max(
+    0,
+    Math.round((Date.parse(at) - Date.parse(first)) / 1000)
+  );
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
+
+/**
+ * An ended session's stage: the last screen it kept, so the stage shows where
+ * the journey stopped rather than an empty space. Without a kept screen it is
+ * `fallback`.
+ */
+export const DeviceLastScreen = ({
+  fallback,
+  platform,
+  sessionId,
+}: {
+  readonly fallback: React.ReactNode;
+  readonly platform: DevicePlatform;
+  readonly sessionId: string;
+}) => {
+  const { deviceKeyframesAtom } = useRpcDependencies();
+  const result = useAtomValue(
+    deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId))
+  );
+  const kept =
+    AsyncResult.isSuccess(result) &&
+    result.value !== null &&
+    result.value.retained
+      ? result.value.keyframes.at(-1)
+      : undefined;
+  if (kept === undefined) {
+    return fallback;
+  }
+  return (
+    <figure className="flex h-full min-h-0 flex-col items-center justify-center gap-3">
+      <img
+        alt="The last screen this session kept"
+        className="min-h-0 w-auto max-w-full flex-1 rounded-[2rem] border-[6px] border-neutral-900 object-contain shadow-xl"
+        src={deviceKeyframePath(platform, sessionId, kept.hash)}
+      />
+      <figcaption className="text-muted-foreground text-xs">
+        Last screen kept, at {time(kept.capturedAt)}
+      </figcaption>
+    </figure>
+  );
+};
 
 /**
  * What the session kept of its screens. A device session records no video;
@@ -97,6 +148,7 @@ const DeviceRecording = ({
         </p>
       );
     }
+    const first = keyframes[0]?.capturedAt ?? "";
     return (
       <ol
         aria-label="Screens"
@@ -114,14 +166,17 @@ const DeviceRecording = ({
                 title={`Open screen ${index + 1} full size`}
               >
                 <img
-                  alt={`Screen ${index + 1} of ${keyframes.length}, ${time(keyframe.capturedAt)}`}
+                  alt={`Screen ${index + 1} of ${keyframes.length}, ${elapsed(first, keyframe.capturedAt)} in`}
                   className="bg-muted h-64 w-auto rounded-lg border object-contain"
                   loading="lazy"
                   src={src}
                 />
               </a>
               <p className="text-muted-foreground mt-1 text-xs tabular-nums">
-                {index + 1} · {time(keyframe.capturedAt)} ·{" "}
+                <span title={time(keyframe.capturedAt)}>
+                  {index + 1} · {elapsed(first, keyframe.capturedAt)}
+                </span>{" "}
+                ·{" "}
                 <a
                   className="text-foreground underline-offset-2 hover:underline"
                   href={src}
@@ -194,27 +249,33 @@ export const DeviceRunSummary = ({
         </div>
       </section>
     )}
-    <section className="space-y-1">
-      <h3 className="text-muted-foreground text-xs font-medium">
-        Agent Assessment
-      </h3>
-      <p className="font-medium">
-        {session.assessment === null
-          ? "Not submitted"
-          : OUTCOME[session.assessment.outcome]}
-      </p>
-      {session.assessment === null ? null : (
-        <>
-          <p className="text-muted-foreground text-pretty">
-            {session.assessment.explanation}
-          </p>
-          <EvidenceReference
-            id={session.assessment.observationId}
-            kind="observation"
-          />
-        </>
-      )}
-    </section>
+    {/*
+      Teaching records a journey; no agent assesses it, so its summary leads
+      with the screens rather than with an assessment that never comes.
+    */}
+    {session.kind === "teaching" && session.assessment === null ? null : (
+      <section className="space-y-1">
+        <h3 className="text-muted-foreground text-xs font-medium">
+          Agent Assessment
+        </h3>
+        <p className="font-medium">
+          {session.assessment === null
+            ? "Not submitted"
+            : OUTCOME[session.assessment.outcome]}
+        </p>
+        {session.assessment === null ? null : (
+          <>
+            <p className="text-muted-foreground text-pretty">
+              {session.assessment.explanation}
+            </p>
+            <EvidenceReference
+              id={session.assessment.observationId}
+              kind="observation"
+            />
+          </>
+        )}
+      </section>
+    )}
     <DeviceRecording platform={platform} sessionId={session.id} />
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
       <dt className="text-muted-foreground">Session</dt>

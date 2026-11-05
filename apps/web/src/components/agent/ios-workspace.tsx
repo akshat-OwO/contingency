@@ -70,7 +70,7 @@ import { cn } from "@/lib/utils";
 import { workspaceChromeAtom } from "./agent-workspace-state";
 import { DeviceFrame, DeviceUnavailable } from "./android-device";
 import { AndroidVariables } from "./android-dock";
-import { DeviceRunSummary } from "./android-run-summary";
+import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
 import { DeviceElements } from "./device-elements";
 import {
@@ -233,7 +233,13 @@ const IosMirror = ({
   }, [session.id, session.phase, live]);
   const paused = transport === "transport_lost" && live;
   if (!live && session.phase !== "pending") {
-    return <DeviceUnavailable message={unavailable} />;
+    return (
+      <DeviceLastScreen
+        fallback={<DeviceUnavailable message={unavailable} />}
+        platform="ios"
+        sessionId={session.id}
+      />
+    );
   }
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-5">
@@ -376,7 +382,7 @@ const SetupField = ({
   label,
 }: {
   readonly children: React.ReactNode;
-  readonly help?: { readonly id: string; readonly text: string };
+  readonly help?: { readonly id: string; readonly text: string } | undefined;
   readonly htmlFor: string;
   readonly label: string;
 }) => (
@@ -517,15 +523,22 @@ const IosTargetApp = ({
     </p>
     <div className="grid min-w-0 gap-3 sm:grid-cols-[1fr_7rem]">
       <SetupField
-        help={{
-          id: "ios-bundle-help",
-          text: "Without an app path, enter CFBundleIdentifier and CFBundleVersion from the installed app's Info.plist.",
-        }}
+        // Once the app's own Info.plist was read, the line above says so.
+        help={
+          identity.state._tag === "read"
+            ? undefined
+            : {
+                id: "ios-bundle-help",
+                text: "Without an app path, enter CFBundleIdentifier and CFBundleVersion from the installed app's Info.plist.",
+              }
+        }
         htmlFor="ios-bundle"
         label="Bundle identifier"
       >
         <Input
-          aria-describedby="ios-bundle-help"
+          aria-describedby={
+            identity.state._tag === "read" ? undefined : "ios-bundle-help"
+          }
           className="font-mono"
           id="ios-bundle"
           name="bundle"
@@ -1114,7 +1127,7 @@ const IosSessionSelect = ({
 }) => (
   <NativeSelect
     aria-label="iOS Agent Session"
-    className="max-w-56 min-w-28 flex-1 @md:flex-none"
+    className="max-w-56 min-w-28 flex-1 @md:max-w-72 @md:flex-none"
     onChange={(event) =>
       globalThis.location.assign(`/?ios=${event.currentTarget.value || "new"}`)
     }

@@ -95,7 +95,10 @@ export const DockSessionSelect = ({
         render={
           <Button
             variant="outline"
-            className={cn("max-w-56 min-w-0 flex-1 @md:flex-none", className)}
+            className={cn(
+              "max-w-56 min-w-0 flex-1 @md:max-w-72 @md:flex-none",
+              className
+            )}
           />
         }
       >
@@ -294,7 +297,7 @@ const useClamped = <Element extends HTMLElement>() => {
  *
  * The badges keep a floor under the sentence: when they leave it less than
  * about 12rem, the sentence drops onto its own line rather than ellipsizing
- * after two words (#238).
+ * after two words (#238). Below a medium dock it always has its own line.
  *
  * One polite region, changed only when the state changes.
  */
@@ -315,7 +318,8 @@ export const DockStatus = ({
     <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
       <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
         <div className="flex shrink-0 items-center gap-1.5 pt-px">{badges}</div>
-        <div className="min-w-48 flex-1">
+        {/* On a narrow dock the sentence takes its own full row. */}
+        <div className="max-@md:basis-full min-w-48 flex-1">
           <output
             aria-live="polite"
             className={cn(
