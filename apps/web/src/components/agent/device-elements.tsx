@@ -87,6 +87,8 @@ export const DeviceElements = ({
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger
         render={
+          // Icon-only: the dock's controls row never wraps, and a label here
+          // pushes the primary action out of a 48rem dock.
           <Button
             aria-label="Screen elements"
             disabled={disabled || nodes.length === 0}

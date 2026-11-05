@@ -4,7 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AndroidDevice } from "@/components/agent/android-device";
-import { AndroidFieldEntry } from "@/components/agent/android-dock";
+import {
+  AndroidFieldEntry,
+  AndroidInstructionEntry,
+} from "@/components/agent/android-dock";
 import {
   selectable,
   unavailableReason,
@@ -74,7 +77,7 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
   );
 });
 
-test("the device shows a refusal beside the stream and draws nothing over it", () => {
+test("the device offers only Back and draws nothing over the stream", () => {
   render(
     <AndroidDevice
       canAct
@@ -83,15 +86,13 @@ test("the device shows a refusal beside the stream and draws nothing over it", (
       onPick={vi.fn()}
       paused={false}
       pending={false}
-      refusal="Nothing to activate there. No input was sent."
       secure={false}
       sessionId={AgentSessionId.make("agent-android")}
       unavailable="Prepare the device."
     />
   );
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Nothing to activate there. No input was sent."
-  );
+  // A refused click is said in the dock, never on or beside the glass.
+  expect(screen.queryByRole("status")).toBeNull();
   // Back is the only control; there are no per-element targets.
   expect(
     screen.getAllByRole("button").map((button) => button.ariaLabel)
@@ -194,4 +195,21 @@ test("a secure pause names the hidden window instead of a disconnected device", 
   expect(
     screen.queryByRole("img", { name: "Selected device live display" })
   ).toBeNull();
+});
+
+test("a submitted comment keeps its draft until the composer closes", async () => {
+  const user = userEvent.setup();
+  const onSubmit = vi.fn();
+  render(
+    <AndroidInstructionEntry
+      onDismiss={vi.fn()}
+      onSubmit={onSubmit}
+      pending={false}
+    />
+  );
+  const box = screen.getByRole("textbox", { name: "Instruction" });
+  await user.type(box, "The total must include tax{Enter}");
+  expect(onSubmit).toHaveBeenCalledWith("The total must include tax");
+  // A refused save leaves the words for another try.
+  expect(box).toHaveValue("The total must include tax");
 });

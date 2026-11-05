@@ -7,11 +7,11 @@ import {
   OperationId,
   TeachingRecordingId,
   AndroidWorkspaceSummary,
+  TeachingRecordingArtifact,
 } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
-  TeachingRecordingArtifact,
   PlatformRequirements,
 } from "@contingency/protocol";
 import {
@@ -260,6 +260,15 @@ export interface AndroidWorkspaceService {
   readonly stream: (
     sessionId: AgentSessionId
   ) => Effect.Effect<AndroidDeviceStream | null>;
+  /**
+   * The keyframes a session kept and the folder they are in, in any phase,
+   * so an ended session's Run Summary can show them. Nothing for a session
+   * this process does not know.
+   */
+  readonly keyframes: (sessionId: AgentSessionId) => Effect.Effect<{
+    readonly directory: string;
+    readonly keyframes: readonly TeachingRecordingArtifact[];
+  } | null>;
   readonly execute: (
     command: AndroidWorkspaceCommand,
     source: "agent" | "user"
@@ -275,6 +284,17 @@ export const AndroidWorkspace = Context.Service<AndroidWorkspaceService>(
 );
 
 /** Selected-device mirror and capture. There is no stock hub, raw input route, or automatic replay. */
+/** A session's persisted keyframes and the folder they are in. */
+const KeyframeIndex = Schema.fromJsonString(
+  Schema.Struct({
+    directory: Schema.String,
+    keyframes: Schema.Array(TeachingRecordingArtifact),
+  })
+);
+/** Where a session's keyframe index sits beside its persisted summary. */
+const keyframeIndexFile = (summaryFile: string) =>
+  summaryFile.replace(/\.json$/u, ".keyframes.json");
+
 export const makeAndroidWorkspaceLayer = (options: {
   readonly root: () => string;
 }) =>
@@ -345,6 +365,22 @@ export const makeAndroidWorkspaceLayer = (options: {
             })
           );
           yield* io(fs.rename(temporary, session.summaryFile));
+          // The keyframes and their folder outlive this process beside the
+          // summary, so a reopened session's Run Summary can still show them.
+          const keyframes = keyframeIndexFile(session.summaryFile);
+          yield* io(
+            fs.writeFileString(
+              `${keyframes}.tmp`,
+              JSON.stringify({
+                directory: session.directory,
+                keyframes: state(session).artifacts.filter(
+                  (artifact) => artifact.kind === "keyframe"
+                ),
+              }),
+              { mode: 0o600 }
+            )
+          );
+          yield* io(fs.rename(`${keyframes}.tmp`, keyframes));
         });
       const recordingState = (recordingId: TeachingRecordingId | null) =>
         recordingId === null
@@ -1235,9 +1271,10 @@ export const makeAndroidWorkspaceLayer = (options: {
             if (decided.cleanup._tag === "purged") {
               for (const owned of sessions.values()) {
                 if (state(owned).summary.recordingId === summary.recordingId) {
+                  // The files are gone; what they were stays, so a Run
+                  // Summary can say cleanup deleted them.
                   update(owned, (value) => ({
                     ...value,
-                    artifacts: [],
                     observation: null,
                     observations: [],
                     pendingInput: null,
@@ -1643,6 +1680,32 @@ export const makeAndroidWorkspaceLayer = (options: {
                 )
               : serialized;
           }),
+        keyframes: (sessionId) => {
+          const session = sessions.get(sessionId);
+          if (session !== undefined) {
+            return Effect.succeed({
+              directory: session.directory,
+              keyframes: state(session).artifacts.filter(
+                (artifact) => artifact.kind === "keyframe"
+              ),
+            });
+          }
+          // A session from before this process: its persisted index.
+          return fs
+            .readFileString(
+              keyframeIndexFile(
+                path.join(
+                  options.root(),
+                  ".android-workspace",
+                  `${sessionId}.json`
+                )
+              )
+            )
+            .pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(KeyframeIndex)),
+              Effect.orElseSucceed(() => null)
+            );
+        },
         list: () =>
           Effect.gen(function* listWorkspace() {
             const directory = path.join(options.root(), ".android-workspace");

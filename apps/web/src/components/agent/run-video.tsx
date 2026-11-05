@@ -23,6 +23,7 @@ import type {
   RefObject,
 } from "react";
 
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import { runVideoChapters } from "@/components/agent/run-video-timeline";
@@ -781,12 +782,15 @@ const RunVideoPlayer = ({
  */
 export const RunVideo = ({
   className,
+  note,
   src,
   timeMap,
   timeline,
   videoClassName,
 }: {
   readonly className?: string;
+  /** Said under a video that exists, such as where it is kept. */
+  readonly note?: React.ReactNode;
   readonly src: string;
   /** Places the Run's actions in the video; absent on older Summaries. */
   readonly timeMap: RunVideoTimeMap | undefined;
@@ -815,10 +819,16 @@ export const RunVideo = ({
     );
   }
   if (status?.state === "unavailable") {
+    // Say why there is nothing to play, and where the Run's own files are,
+    // so a missing video reads as a fact to act on rather than a dead end.
     return (
-      <p className="text-muted-foreground text-xs">
-        This Run&apos;s video is no longer available.
-      </p>
+      <div className="space-y-1.5 text-xs" role="status">
+        <p className="font-medium">This Run&apos;s video is not available.</p>
+        <p className="text-muted-foreground text-pretty">{status.reason}</p>
+        {status.directory === undefined ? null : (
+          <EvidenceReference id={status.directory} kind="Run folder" />
+        )}
+      </div>
     );
   }
   // A status that could not be read leaves the player to try the file.
@@ -838,6 +848,9 @@ export const RunVideo = ({
           Playing in real time. {status.reason}
         </p>
       ) : null}
+      {note === undefined ? null : (
+        <p className="text-muted-foreground text-xs">{note}</p>
+      )}
     </>
   );
 };

@@ -6,7 +6,10 @@ import type {
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
-import { assessmentOutcomeLabel } from "@/components/agent/dry-run-summary-state";
+import {
+  assessmentOutcomeLabel,
+  noFindings,
+} from "@/components/agent/dry-run-summary-state";
 import { Badge } from "@/components/ui/badge";
 
 import { BrowserCheckResults } from "./browser-check-results";
@@ -141,7 +144,7 @@ export const TaskRunDetails = ({
       <section aria-label="Findings" className="space-y-2">
         <h3 className="text-sm leading-5 font-semibold">Findings</h3>
         {run.findings.length === 0 ? (
-          <p>No findings recorded.</p>
+          <p>{noFindings(run.assessment !== null)}</p>
         ) : (
           <ul className="space-y-2">
             {run.findings.map((finding) => (

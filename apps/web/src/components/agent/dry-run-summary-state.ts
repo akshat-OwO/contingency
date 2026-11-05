@@ -270,3 +270,12 @@ export const evidenceCount = (summary: TaskAgentRunSummary): number =>
     (total, finding) => total + finding.evidence.length,
     0
   );
+
+/**
+ * What an empty findings list says: beside an assessment it is a choice the
+ * agent made; without one there is nothing it is beside.
+ */
+export const noFindings = (assessed: boolean): string =>
+  assessed
+    ? "The agent recorded no findings beside the assessment."
+    : "The agent recorded no findings.";

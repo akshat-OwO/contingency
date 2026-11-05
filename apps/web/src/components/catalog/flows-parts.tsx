@@ -15,31 +15,46 @@ import {
 } from "@/components/catalog/flows-format";
 import { cn } from "@/lib/utils";
 
-const outcomeDot: Record<AgentAssessmentOutcome | "none", string> = {
+const outcomeDot: Record<AgentAssessmentOutcome | "failed" | "none", string> = {
   blocked: "bg-amber-500",
+  failed: "bg-destructive",
   inconclusive: "bg-muted-foreground",
   none: "bg-muted-foreground/40",
   "not-working": "bg-destructive",
   working: "bg-emerald-500",
 };
 
-/** A Run's health at a glance: its Agent Assessment, or grey without one. */
+/** How a Run ended without an assessment that still says it went wrong. */
+const FAILED_ENDINGS = new Set([
+  "crashed",
+  "interrupted",
+  "process-exited",
+  "timed-out",
+]);
+
+/**
+ * A Run's health at a glance: its Agent Assessment, or, without one, red when
+ * the Run broke off and grey when it simply went unassessed.
+ */
 export const OutcomeDot = ({
   className,
-  outcome,
+  run,
 }: {
   readonly className?: string;
-  readonly outcome: AgentAssessmentOutcome | null;
-}) => (
-  <span
-    aria-hidden="true"
-    className={cn(
-      "size-2 shrink-0 rounded-full",
-      outcomeDot[outcome ?? "none"],
-      className
-    )}
-  />
-);
+  readonly run: Pick<CatalogRunEntry, "assessment" | "outcome">;
+}) => {
+  const ended = FAILED_ENDINGS.has(run.outcome) ? "failed" : "none";
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        outcomeDot[run.assessment ?? ended],
+        className
+      )}
+    />
+  );
+};
 
 const rowClass = (selected: boolean) =>
   cn(
@@ -62,7 +77,7 @@ export const RunRow = ({
     onClick={onSelect}
     type="button"
   >
-    <OutcomeDot className="mt-1.5" outcome={run.assessment} />
+    <OutcomeDot className="mt-1.5" run={run} />
     <span className="min-w-0 flex-1">
       <span className="line-clamp-2 text-sm">{run.title}</span>
       <span className="text-muted-foreground block text-xs">

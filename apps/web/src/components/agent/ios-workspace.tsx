@@ -13,7 +13,7 @@ import {
   useAtomSet,
   useAtomRefresh,
 } from "@effect/atom-react";
-import { Effect, Fiber, Schema } from "effect";
+import { Effect, Fiber, Result, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
@@ -61,6 +61,7 @@ import {
   iosDevicesAtom,
   iosSessionsAtom,
   iosEnabledAtom,
+  inspectIosApp,
   iosStreamAccess,
   runIosWorkspaceCommand,
 } from "@/lib/rpc";
@@ -392,6 +393,153 @@ const SetupField = ({
 
 const ROLE_OPTIONS = ["text", "group", "heading", "button", "image"] as const;
 
+type IdentityState =
+  | { readonly _tag: "idle" }
+  | { readonly _tag: "reading" }
+  | { readonly _tag: "read"; readonly label: string }
+  | { readonly _tag: "failed"; readonly message: string };
+
+/**
+ * Reads a `.app`'s bundle id and build when its path is entered, and fills
+ * the fields the person has not typed into themselves.
+ */
+const useAppIdentity = (
+  form: React.RefObject<HTMLFormElement | null>,
+  onFilled: () => void
+) => {
+  const [stateAtom] = useState(() =>
+    Atom.make<IdentityState>({ _tag: "idle" })
+  );
+  const [state, setState] = useAtom(stateAtom);
+  const read = (value: string) => {
+    const appPath = value.trim();
+    if (appPath === "") {
+      setState({ _tag: "idle" });
+      return;
+    }
+    setState({ _tag: "reading" });
+    Effect.runFork(
+      inspectIosApp(appPath).pipe(
+        Effect.result,
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            if (Result.isFailure(result)) {
+              setState({
+                _tag: "failed",
+                message: errorMessage(result.failure),
+              });
+              return;
+            }
+            const app = result.success;
+            for (const [name, filled] of [
+              ["bundle", app.bundleId],
+              ["build", app.build],
+            ] as const) {
+              const field = form.current?.elements.namedItem(name);
+              // A value the person typed is theirs; only an empty or
+              // previously filled field takes the app's own.
+              if (
+                field instanceof HTMLInputElement &&
+                (field.value === "" || field.dataset.filled === "true")
+              ) {
+                field.value = filled;
+                field.dataset.filled = "true";
+              }
+            }
+            setState({
+              _tag: "read",
+              label: `${app.label} · ${app.bundleId} · build ${app.build}`,
+            });
+            onFilled();
+          })
+        )
+      )
+    );
+  };
+  return { read, state };
+};
+
+/** The Target App group: a built `.app` to read, then its identity. */
+const IosTargetApp = ({
+  identity,
+}: {
+  readonly identity: ReturnType<typeof useAppIdentity>;
+}) => (
+  <SetupGroup title="Target App">
+    <SetupField
+      help={{
+        id: "ios-app-path-help",
+        text: "Optional. Installing a named build asks for a separate decision.",
+      }}
+      htmlFor="ios-path"
+      label="Simulator app path"
+    >
+      <Input
+        aria-describedby="ios-app-path-help ios-app-identity"
+        className="font-mono text-xs md:text-xs"
+        id="ios-path"
+        name="path"
+        onBlur={(event) => identity.read(event.currentTarget.value)}
+        placeholder="/path/to/App.app"
+        spellCheck={false}
+      />
+    </SetupField>
+    <p
+      aria-live="polite"
+      className={cn(
+        "text-xs text-pretty empty:hidden",
+        identity.state._tag === "failed"
+          ? "text-destructive"
+          : "text-muted-foreground"
+      )}
+      id="ios-app-identity"
+    >
+      {identity.state._tag === "reading" ? "Reading Info.plist…" : null}
+      {identity.state._tag === "read"
+        ? `Read from Info.plist: ${identity.state.label}. Edit the fields below to override.`
+        : null}
+      {identity.state._tag === "failed" ? identity.state.message : null}
+    </p>
+    <div className="grid min-w-0 gap-3 sm:grid-cols-[1fr_7rem]">
+      <SetupField
+        help={{
+          id: "ios-bundle-help",
+          text: "Filled from the app path when there is one; otherwise CFBundleIdentifier and CFBundleVersion from its Info.plist.",
+        }}
+        htmlFor="ios-bundle"
+        label="Bundle identifier"
+      >
+        <Input
+          aria-describedby="ios-bundle-help"
+          className="font-mono"
+          id="ios-bundle"
+          name="bundle"
+          onInput={(event) => {
+            // Typed by the person now; a later read leaves it be.
+            delete event.currentTarget.dataset.filled;
+          }}
+          placeholder="com.example.app"
+          required
+          spellCheck={false}
+        />
+      </SetupField>
+      <SetupField htmlFor="ios-build" label="App build">
+        <Input
+          className="font-mono"
+          id="ios-build"
+          name="build"
+          onInput={(event) => {
+            // Typed by the person now; a later read leaves it be.
+            delete event.currentTarget.dataset.filled;
+          }}
+          placeholder="1"
+          required
+        />
+      </SetupField>
+    </div>
+  </SetupGroup>
+);
+
 const IosSetupSheet = ({
   onClose,
   open,
@@ -410,6 +558,10 @@ const IosSetupSheet = ({
   const stopped = listed.filter((device) => device.state !== "Booted");
   const [completeAtom] = useState(() => Atom.make(false));
   const [complete, setComplete] = useAtom(completeAtom);
+  const formRef = useRef<HTMLFormElement>(null);
+  const identity = useAppIdentity(formRef, () =>
+    setComplete(formRef.current?.checkValidity() ?? false)
+  );
   return (
     <Sheet
       onOpenChange={(next) => {
@@ -433,6 +585,7 @@ const IosSetupSheet = ({
         <form
           className="flex min-h-0 flex-1 flex-col"
           onInput={(event) => setComplete(event.currentTarget.checkValidity())}
+          ref={formRef}
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
@@ -536,54 +689,7 @@ const IosSetupSheet = ({
                 </Button>
               </div>
             </SetupGroup>
-            <SetupGroup title="Target App">
-              <SetupField
-                help={{
-                  id: "ios-app-path-help",
-                  text: "Optional. Installing a named build asks for a separate decision.",
-                }}
-                htmlFor="ios-path"
-                label="Simulator app path"
-              >
-                <Input
-                  aria-describedby="ios-app-path-help"
-                  className="font-mono text-xs md:text-xs"
-                  id="ios-path"
-                  name="path"
-                  placeholder="/path/to/App.app"
-                  spellCheck={false}
-                />
-              </SetupField>
-              <div className="grid min-w-0 gap-3 sm:grid-cols-[1fr_7rem]">
-                <SetupField
-                  help={{
-                    id: "ios-bundle-help",
-                    text: "CFBundleIdentifier and CFBundleVersion from the app's Info.plist.",
-                  }}
-                  htmlFor="ios-bundle"
-                  label="Bundle identifier"
-                >
-                  <Input
-                    aria-describedby="ios-bundle-help"
-                    className="font-mono"
-                    id="ios-bundle"
-                    name="bundle"
-                    placeholder="com.example.app"
-                    required
-                    spellCheck={false}
-                  />
-                </SetupField>
-                <SetupField htmlFor="ios-build" label="App build">
-                  <Input
-                    className="font-mono"
-                    id="ios-build"
-                    name="build"
-                    placeholder="1"
-                    required
-                  />
-                </SetupField>
-              </div>
-            </SetupGroup>
+            <IosTargetApp identity={identity} />
             <SetupGroup
               description="An element on screen when the app opens, and one that shows the journey worked."
               title="Starting screen"
@@ -986,7 +1092,7 @@ const IosSessionSelect = ({
 }) => (
   <NativeSelect
     aria-label="iOS Agent Session"
-    className="max-w-56 min-w-24 flex-1 @md:flex-none"
+    className="max-w-56 min-w-28 flex-1 @md:flex-none"
     onChange={(event) =>
       globalThis.location.assign(`/?ios=${event.currentTarget.value || "new"}`)
     }
@@ -1059,7 +1165,8 @@ const IosDockControls = ({
       >
         <MonitorIcon />
       </Button>
-      {elements}
+      {/* An ended session has no screen to reach. */}
+      {isLiveIosSession(session) ? elements : null}
       <DockSpacer />
       {presentation.showsComment ? (
         <Button
@@ -1497,6 +1604,7 @@ export const IosWorkspace = ({
               label: "Run Summary",
               summary: (
                 <DeviceRunSummary
+                  platform="ios"
                   device={`${session.selection.device.name}${session.selection.device.kind === "simulator" ? ` · iOS ${session.selection.device.runtimeVersion}` : ""}`}
                   session={session}
                   targetApp={`${session.selection.environment.bundleId} · build ${session.selection.environment.build}`}

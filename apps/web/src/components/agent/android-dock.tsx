@@ -400,8 +400,8 @@ export const AndroidInstructionEntry = ({
         if (draft.trim() === "") {
           return;
         }
+        // The draft stays until the comment saves and the composer closes.
         onSubmit(draft.trim());
-        setDraft("");
       }}
     >
       <Input
@@ -448,7 +448,7 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
-        className="max-w-56 min-w-24 flex-1 @md:flex-none"
+        className="max-w-56 min-w-28 flex-1 @md:flex-none"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {

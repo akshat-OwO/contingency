@@ -13,6 +13,7 @@ import {
   makeDryRunArtifactRoutes,
 } from "../routes/agent-run-artifacts.ts";
 import { makeAndroidStreamRoutes } from "../routes/android-stream.ts";
+import { makeDeviceKeyframeRoutes } from "../routes/device-keyframes.ts";
 import { makeIosStreamRoutes } from "../routes/ios-stream.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
@@ -159,6 +160,9 @@ export const makeHttpServerLayer = ({
           Layer.provide(agentSession ?? Layer.empty)
         ),
         makeAndroidStreamRoutes(allowedOrigins).pipe(
+          Layer.provide(agentSession ?? Layer.empty)
+        ),
+        makeDeviceKeyframeRoutes(allowedOrigins).pipe(
           Layer.provide(agentSession ?? Layer.empty)
         ),
         mcp,

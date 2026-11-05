@@ -308,7 +308,12 @@ it.live("settles a directory whose Run has not finished capture", () =>
     );
     const renderer = yield* RunVideoRenderer;
     yield* renderer.settled(directory).pipe(Effect.timeout("30 seconds"));
-    expect(yield* renderer.status(directory)).toEqual({ state: "unavailable" });
+    expect(yield* renderer.status(directory)).toEqual({
+      directory: path.resolve(directory),
+      reason:
+        "The video file is no longer in this Run's folder. It was deleted or moved after the Run ended.",
+      state: "unavailable",
+    });
     expect(
       yield* fileSystem.readFileString(path.join(directory, FOOTAGE_VIDEO_FILE))
     ).toBe("capturing");

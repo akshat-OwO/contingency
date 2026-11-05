@@ -60,7 +60,16 @@ export const RunVideoStatus = Schema.Union([
     reason: nonEmptyString,
     state: Schema.Literal("ready"),
   }),
-  Schema.Struct({ state: Schema.Literal("unavailable") }),
+  /**
+   * No video can be served. `reason` says why in a sentence a person can act
+   * on; `directory` is the Run's own folder on this machine when there is one
+   * to look in.
+   */
+  Schema.Struct({
+    directory: Schema.optional(nonEmptyString),
+    reason: nonEmptyString,
+    state: Schema.Literal("unavailable"),
+  }),
 ]).annotate({ identifier: "RunVideoStatus" });
 export type RunVideoStatus = typeof RunVideoStatus.Type;
 

@@ -4,13 +4,15 @@ This Contingency-owned helper samples the selected simulator's active integrated
 
 Published CLI tarballs include a prebuilt arm64-only helper. Release and PR artifact CI compile it on a GitHub-hosted macOS runner, verify its single arm64 slice and its ad hoc signature, and transfer it to the Ubuntu packaging job after the CLI build. Users do not compile this helper.
 
-For source development on an Apple Silicon Mac, build the same artifact with:
+On an Apple Silicon Mac, an ordinary source build makes the same artifact:
 
 ```sh
-CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 vp exec turbo run build --filter=@contingencyhq/cli --force
+vp exec turbo run build --filter=@contingencyhq/cli
 ```
 
-The build compiles arm64 with `xcrun clang -arch arm64`, ad hoc signs and verifies the executable, and writes a versioned manifest with source and binary SHA-256 digests under `packages/cli/dist/ios/framebuffer`. Runtime checks the manifest version, supported host, single arm64 Mach-O executable slice, and binary digest before execution. The digest pins the exact packaged build despite Xcode-dependent compiler output. It detects corruption or replacement of the binary alone; an adjacent manifest does not authenticate the publisher. npm provenance supplies package origin evidence. Ad hoc signing is not Developer ID signing or notarization. `Clean-host iOS helper` proves native arm64 execution in CI. Ordinary source builds omit the backend unless explicitly enabled.
+Without Xcode's clang, that build warns and leaves the helper out. Set `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1` to make a missing helper fail the build, as CI and release do, or `0` to leave it out.
+
+The build compiles arm64 with `xcrun clang -arch arm64`, ad hoc signs and verifies the executable, and writes a versioned manifest with source and binary SHA-256 digests under `packages/cli/dist/ios/framebuffer`. Runtime checks the manifest version, supported host, single arm64 Mach-O executable slice, and binary digest before execution. The digest pins the exact packaged build despite Xcode-dependent compiler output. It detects corruption or replacement of the binary alone; an adjacent manifest does not authenticate the publisher. npm provenance supplies package origin evidence. Ad hoc signing is not Developer ID signing or notarization. `Clean-host iOS helper` proves native arm64 execution in CI. Builds on other hosts, or with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=0`, omit the backend.
 
 The executable accepts developer directory, selected simulator UDID, display UUID and orientation. Stdin controls `start`, `stop`, `orientation <value>` and `display <UUID>`. EOF releases the helper. Only the parent may request a display rebind, after positively identifying the replacement integrated display on the same device. Stdout is bounded-size newline-delimited JPEG packets with display identity, output sequence, compositor callback count and monotonic timestamps. Compositor callback count does not establish complete upstream capture.
 

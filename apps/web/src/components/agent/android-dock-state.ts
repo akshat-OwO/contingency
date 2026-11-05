@@ -290,7 +290,10 @@ export const androidDockPresentation = (
       );
     }
     case "closed": {
-      return quiet("Closed", `This session released its emulator.`);
+      return quiet(
+        "Closed",
+        "This session released its emulator. Start a new Android session to record or run again."
+      );
     }
     case "completed": {
       const { assessment } = session;

@@ -252,7 +252,7 @@ const RunDetail = ({
             run.assessment === "not-working" ? "destructive" : "secondary"
           }
         >
-          <OutcomeDot outcome={run.assessment} />
+          <OutcomeDot run={run} />
           {runVerdict(run)}
         </Badge>
         <Badge variant="outline">{runKindLabel(run)}</Badge>

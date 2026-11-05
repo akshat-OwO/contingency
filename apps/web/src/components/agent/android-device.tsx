@@ -3,7 +3,6 @@ import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ChevronLeftIcon,
-  CircleSlashIcon,
   ShieldAlertIcon,
   SmartphoneIcon,
   UnplugIcon,
@@ -110,28 +109,6 @@ const DeviceToolbar = ({
 );
 
 /**
- * Why the last click sent nothing. It sits beside the device rather than on
- * it, so the stream only ever shows what the device shows.
- */
-const Refusal = ({ message }: { readonly message: string | null }) => (
-  <div
-    aria-live="polite"
-    className="max-lg:absolute max-lg:inset-x-2 max-lg:top-0 max-lg:z-10 lg:w-56 lg:shrink-0"
-    role="status"
-  >
-    {message === null ? null : (
-      <p className="bg-background flex items-start gap-2 rounded-xl border px-3 py-2 text-xs shadow-sm">
-        <CircleSlashIcon
-          aria-hidden="true"
-          className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
-        />
-        <span>{message}</span>
-      </p>
-    )}
-  </div>
-);
-
-/**
  * A session with no device to show: before preparation, or after it released
  * the device. A full-height black frame would say nothing more than this
  * line, so the stage gives the space back.
@@ -153,8 +130,8 @@ export const DeviceUnavailable = ({
 );
 
 /**
- * The live device: the frame with the stream filling its glass, its keys on
- * the left, and on the right why the last click was refused. A click goes to
+ * The live device: the frame with the stream filling its glass and its keys
+ * on the left. A click goes to
  * `onPick` as a point on the frame; nothing here sends a coordinate to the
  * device.
  */
@@ -166,7 +143,6 @@ export const AndroidDevice = ({
   onPick,
   paused,
   pending,
-  refusal,
   sessionId,
   secure,
   unavailable,
@@ -183,7 +159,6 @@ export const AndroidDevice = ({
   ) => void;
   readonly paused: boolean;
   readonly pending: boolean;
-  readonly refusal: string | null;
   readonly sessionId: AgentSessionId;
   readonly secure: boolean;
   /** What the glass says while there is no stream. */
@@ -199,7 +174,8 @@ export const AndroidDevice = ({
     <div className="relative flex h-full min-h-0 items-center justify-center gap-3 lg:gap-5">
       {/*
         The side columns balance the frame on a wide stage; a narrow one
-        keeps only the keys beside it and lays a refusal over the top.
+        keeps only the keys beside it. Why a click sent nothing is said in the
+        dock, so nothing ever covers the glass.
       */}
       <div className="flex shrink-0 justify-end lg:w-56">
         <DeviceToolbar canAct={canAct && !pending} onBack={onBack} />
@@ -247,7 +223,7 @@ export const AndroidDevice = ({
           ) : null}
         </DeviceFrame>
       </div>
-      <Refusal message={refusal} />
+      <div aria-hidden="true" className="hidden lg:block lg:w-56 lg:shrink-0" />
     </div>
   );
 };

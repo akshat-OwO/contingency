@@ -606,7 +606,7 @@ Build current source, launch an isolated instance, run doctor, and start MCP. Ru
 
 Done when `artifacts/device-mcp/receipt.json` reports `passed`, both device operation signatures require `platform`, Android sessions list successfully, and iOS sessions list successfully, and reading an absent iOS session returns `ios_session_not_found`. The proof records the catalog bytes and MCP command stdout, stderr, and exit codes. It starts no device and proves no Android input or capture.
 
-Android lifecycle proofs below use `agent_device_workspace` and `agent_device_sessions_list` with `platform: "android"`. Require Teaching, a fresh passing Dry Run, verification, and a later Run through these tools in the Android checkout proof. Run cleanup after either proof and confirm evidence survives.
+Android lifecycle proofs below use the `agent_device_workspace` and `agent_device_sessions_list` operations, each run through `agent_code_execute`, with `platform: "android"`. Require Teaching, a fresh passing Dry Run, verification, and a later Run through these tools in the Android checkout proof. Run cleanup after either proof and confirm evidence survives.
 
 ### Android workspace
 
@@ -833,9 +833,9 @@ Activity rules: `tabs`, `downloads`, `clipboard_read`, and profiling are observa
 
 ## iOS Workspace
 
-Feature id: `ios-workspace-runs`. Entry points: the Workspace **iOS** button, mirrored Teaching, and public `agent_device_workspace` and `agent_device_sessions_list` with `platform: "ios"`.
+Feature id: `ios-workspace-runs`. Entry points: the Workspace **iOS** button, mirrored Teaching, and the `agent_device_workspace` and `agent_device_sessions_list` operations through `agent_code_execute`, with `platform: "ios"`.
 
-Preconditions: an Apple Silicon Mac with Xcode and an installed iOS 26.5 or 27.1 iPhone runtime. Check memory and swap before each build or device proof. Run one heavy command at a time. Build with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 vp exec turbo run build --filter=@contingencyhq/cli --force`. Build `fixtures/ios-login` into an owned temporary directory. Create one proof-owned simulator with that runtime and device type. Fixture setup boots its exact returned UDID with `xcrun simctl boot "$CONTINGENCY_IOS_SELECTED"`, waits with `xcrun simctl bootstatus "$CONTINGENCY_IOS_SELECTED" -b`, and installs the fixture with `simctl install`. This owned fixture setup does not require the Device panel. The product requires a running selection, as Android does. Never boot, alter, or delete a pre-existing simulator. Export its exact UDID as `CONTINGENCY_IOS_SELECTED` and the fixture path as `CONTINGENCY_IOS_FIXTURE`.
+Preconditions: an Apple Silicon Mac with Xcode and an installed iOS 26.5 or 27.1 iPhone runtime. Check memory and swap before each build or device proof. Run one heavy command at a time. Build with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 vp exec turbo run build --filter=@contingencyhq/cli --force`; the `1` turns a missing helper into a build failure instead of a warning. Build `fixtures/ios-login` into an owned temporary directory. Create one proof-owned simulator with that runtime and device type. Fixture setup boots its exact returned UDID with `xcrun simctl boot "$CONTINGENCY_IOS_SELECTED"`, waits with `xcrun simctl bootstatus "$CONTINGENCY_IOS_SELECTED" -b`, and installs the fixture with `simctl install`. This owned fixture setup does not require the Device panel. The product requires a running selection, as Android does. Never boot, alter, or delete a pre-existing simulator. Export its exact UDID as `CONTINGENCY_IOS_SELECTED` and the fixture path as `CONTINGENCY_IOS_FIXTURE`.
 
 Launch an isolated instance, export `CONTINGENCY_VERIFY_DIR`, run `doctor`, and start MCP with the same environment.
 

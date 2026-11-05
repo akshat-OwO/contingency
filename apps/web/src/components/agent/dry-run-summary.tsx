@@ -29,6 +29,7 @@ import {
   evidenceCount,
   interactiveRunChecks,
   interactiveRunVerdict,
+  noFindings,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
 import { EvidenceReference } from "@/components/agent/evidence-reference";
@@ -124,15 +125,13 @@ const SummaryVideo = ({
       </p>
     ) : (
       <RunVideo
+        note="The video and Trace stay on this machine."
         src={src}
         timeMap={summary.videoTimeMap}
         timeline={summary.timeline}
         videoClassName="max-h-[min(24rem,50svh)]"
       />
     )}
-    <p className="text-muted-foreground text-xs">
-      The video and Trace stay on this machine.
-    </p>
   </section>
 );
 
@@ -288,7 +287,9 @@ const TaskRunSummaryLayout = ({
       </TabsContent>
       <TabsContent className="space-y-3 pt-1" value="findings">
         {summary.findings.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No findings recorded.</p>
+          <p className="text-muted-foreground text-sm">
+            {noFindings(summary.assessment !== null)}
+          </p>
         ) : (
           <ul aria-label="Findings" className="space-y-3">
             {summary.findings.map((finding) => (

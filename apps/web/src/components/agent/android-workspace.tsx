@@ -68,12 +68,21 @@ interface WorkspaceState {
   /** The picked field the person closed, until another one is picked. */
   readonly dismissedField: string | null;
   readonly instructing: boolean;
+  /**
+   * A comment was sent and has not answered. The composer and its draft stay
+   * until it saves, so a refusal leaves them for another try.
+   */
+  readonly instructionPending: boolean;
+  /** The last refused pick was set aside when the comment tier opened. */
+  readonly refusalDismissed: boolean;
   readonly setupOpen: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
   dismissedField: null,
   failure: null,
   instructing: false,
+  instructionPending: false,
+  refusalDismissed: false,
   session: null,
   setupOpen: false,
 });
@@ -152,12 +161,13 @@ const gestureCommand = (
 /** What the device glass says while it has no stream to show. */
 const glassText = (session: AndroidWorkspaceSnapshot) => {
   if (session.phase === "pending") {
-    return "Prepare the device from the dock to show its screen here.";
+    return "Prepare the emulator from the dock to show its screen here.";
   }
   if (session.phase === "refused") {
-    return "This session never used the device.";
+    return "This session never used the emulator.";
   }
-  return "This session released the device.";
+  // The dock says what to do next; the stage only says what became of it.
+  return "Emulator released.";
 };
 
 export const AndroidEmptyState = ({
@@ -341,8 +351,14 @@ const AndroidDockControls = ({
         sessions={sessions}
       />
       <FlowsDockButton />
+      {/*
+        Below a phone-wide dock, Browser gives its room to the session name,
+        which says what this dock is driving. The Workspace root still leads
+        back to the browser.
+      */}
       <Button
         aria-label="Browser Workspace"
+        className="hidden @sm:inline-flex"
         onClick={onBrowser}
         size="icon-sm"
         title="Browser Workspace"
@@ -350,7 +366,8 @@ const AndroidDockControls = ({
       >
         <MonitorIcon />
       </Button>
-      {elements}
+      {/* An ended session has no screen to reach. */}
+      {isLiveAndroidSession(session) ? elements : null}
       <DockSpacer />
       {presentation.showsComment ? (
         <Button
@@ -517,13 +534,16 @@ const AndroidDockRequests = ({
           setState((current) => ({ ...current, instructing: false }))
         }
         onSubmit={(text) => {
-          mutate({
-            _tag: "instruction",
-            operationId: operationId(),
-            sessionId: session.id,
-            text,
-          });
-          setState((current) => ({ ...current, instructing: false }));
+          if (
+            mutate({
+              _tag: "instruction",
+              operationId: operationId(),
+              sessionId: session.id,
+              text,
+            })
+          ) {
+            setState((current) => ({ ...current, instructionPending: true }));
+          }
         }}
         pending={pending}
       />
@@ -622,7 +642,11 @@ export const AndroidSessionView = ({
                 sessionId: session.id,
               })
             );
-            setState((current) => ({ ...current, dismissedField: null }));
+            setState((current) => ({
+              ...current,
+              dismissedField: null,
+              refusalDismissed: false,
+            }));
           }}
           paused={session.phase === "paused"}
           secure={
@@ -630,11 +654,23 @@ export const AndroidSessionView = ({
             session.captureGaps.at(-1) === "secure_window"
           }
           pending={pick.pending}
-          refusal={pick.error ?? null}
           sessionId={session.id}
           unavailable={glassText(session)}
         />
         <DockShell
+          footer={
+            // Why the last click sent nothing, said in the dock as iOS says
+            // it, so nothing covers the glass. Opening the comment tier sets
+            // it aside; the next pick replaces it.
+            pick.error === undefined || state.refusalDismissed ? null : (
+              <p
+                className="text-destructive border-t px-3 py-1.5 text-xs"
+                role="alert"
+              >
+                {pick.error}
+              </p>
+            )
+          }
           requests={
             <AndroidDockRequests
               field={field}
@@ -668,7 +704,11 @@ export const AndroidSessionView = ({
                       sessionId: session.id,
                     })
                   );
-                  setState((current) => ({ ...current, dismissedField: null }));
+                  setState((current) => ({
+                    ...current,
+                    dismissedField: null,
+                    refusalDismissed: false,
+                  }));
                 }}
               />
             }
@@ -679,6 +719,7 @@ export const AndroidSessionView = ({
               setState((current) => ({
                 ...current,
                 instructing: !current.instructing,
+                refusalDismissed: true,
               }))
             }
             onNewSession={() =>
@@ -725,6 +766,18 @@ export const AndroidWorkspace = ({
   const refresh = useAtomRefresh(androidSessionsAtom);
   const gesture = useWorkspaceGesture(sessionStartGestureAtom);
   useAndroidSessionSync(requestedSessionId, state.session, setState);
+  // A sent comment closes its composer only once it saves.
+  const { instructionPending } = state;
+  useEffect(() => {
+    if (!instructionPending || gesture.pending) {
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      instructing: gesture.error === undefined ? false : current.instructing,
+      instructionPending: false,
+    }));
+  }, [gesture.error, gesture.pending, instructionPending, setState]);
   const run = (command: AndroidWorkspaceCommand): GestureRun =>
     runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>

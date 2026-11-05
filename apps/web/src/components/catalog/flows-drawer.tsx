@@ -128,7 +128,7 @@ const FlowRow = ({
           )}
         </span>
       </span>
-      {latest === undefined ? null : <OutcomeDot outcome={latest.assessment} />}
+      {latest === undefined ? null : <OutcomeDot run={latest} />}
     </button>
   );
 };

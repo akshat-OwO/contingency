@@ -43,11 +43,14 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
       pending={false}
     />
   );
-  expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
   expect(
     screen.getByRole("textbox", { name: "Starting screen element" })
   ).toBeDisabled();
-  await user.click(await screen.findByRole("button", { name: /Pixel_9/u }));
+  // The one ready device is the device: Target App opens without a click.
+  expect(
+    await screen.findByRole("button", { name: /Pixel_9/u })
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("group", { name: "Target App" })).toBeEnabled();
   await user.click(await screen.findByRole("button", { name: /Shop/u }));
   expect(
     screen.getByRole("textbox", { name: "Starting screen element" })
@@ -83,6 +86,29 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
       helperConsent: "auto",
     })
   );
+});
+
+test("waits for a choice when more than one device is ready", async () => {
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  render(
+    <AndroidSetupSheet
+      discovery={{
+        ...discovery,
+        devices: Effect.succeed([
+          emulator,
+          { ...emulator, avd: "Pixel_8", serial: "emulator-5556" },
+        ]),
+      }}
+      open
+      onOpen={vi.fn()}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  expect(
+    await screen.findByRole("button", { name: /Pixel_8/u })
+  ).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
 });
 
 test("disables physical devices with their refusal reason before app discovery", async () => {

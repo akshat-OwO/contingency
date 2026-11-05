@@ -145,6 +145,10 @@ assert.ok(
 const prepareName = "Prepare selected emulator";
 const flowName = `android-public-field-${process.pid}`;
 const publicText = "Public fixture 470";
+// The emulator keyboard can recase what was typed ("Public Fixture 470"), so
+// readback compares without case; the words and digits still have to match.
+const showsPublicText = (name) =>
+  name.toLowerCase().includes(publicText.toLowerCase());
 let recordingId;
 const receipt = {
   blockers: [],
@@ -194,7 +198,7 @@ const journey = async (sessionId) => {
   });
   current = await observe(sessionId);
   assert.ok(
-    current.observation.nodes.some((node) => node.name.includes(publicText)),
+    current.observation.nodes.some((node) => showsPublicText(node.name)),
     "Public text has no semantic readback."
   );
   const signIn = current.observation.nodes.find(
@@ -252,7 +256,7 @@ try {
   await androidIdle(control);
   let current = await observe(taughtSession.id);
   assert.ok(
-    current.observation.nodes.some((node) => node.name.includes(publicText)),
+    current.observation.nodes.some((node) => showsPublicText(node.name)),
     "Workspace fill has no readback."
   );
   await androidPick(control, taughtSession.id, "button", "Sign in");
@@ -277,7 +281,7 @@ try {
     "browser",
     "wait",
     "--text",
-    "This session released its emulator."
+    "This session released its emulator. Start a new Android session to record or run again."
   );
   await tool("agent_teaching_recording_claim", {
     action: "take",
@@ -295,7 +299,7 @@ try {
   assert.equal(actions.filter((entry) => entry.kind === "activate").length, 1);
   assert.equal(actions.filter((entry) => entry.kind === "fill").length, 1);
   assert.equal(actions.length, 2);
-  assert.ok(JSON.stringify(timeline).includes(publicText));
+  assert.ok(showsPublicText(JSON.stringify(timeline)));
   await writeFile(
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)

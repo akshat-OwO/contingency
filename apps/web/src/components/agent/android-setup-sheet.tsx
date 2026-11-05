@@ -68,6 +68,21 @@ interface SetupForm {
   readonly start: Condition;
 }
 
+/**
+ * The device the sheet sets up: the one the person picked, or, with exactly
+ * one ready device, that one, since there is nothing to choose.
+ */
+const chosenSerial = (
+  listed: readonly AndroidDiscoveredDevice[],
+  picked: string | null
+): string | null => {
+  if (picked !== null) {
+    return picked;
+  }
+  const ready = listed.filter((entry) => unavailableReason(entry) === null);
+  return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
+};
+
 const INITIAL_FORM: SetupForm = {
   app: null,
   device: null,
@@ -593,10 +608,9 @@ export const AndroidSetupSheet = ({
     open ? discovery.devices : null,
     `${open}-${refresh}`
   );
-  const discovered =
-    devices._tag === "loaded"
-      ? devices.value.find((entry) => entry.serial === form.device)
-      : undefined;
+  const listed = devices._tag === "loaded" ? devices.value : [];
+  const chosen = chosenSerial(listed, form.device);
+  const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
   const loadedApps = useRead(
@@ -679,7 +693,7 @@ export const AndroidSetupSheet = ({
                     start: INITIAL_FORM.start,
                   }))
                 }
-                selected={form.device}
+                selected={chosen}
               />
             </Step>
             <Step

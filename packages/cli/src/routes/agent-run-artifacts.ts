@@ -34,7 +34,11 @@ const videoStatus = (status: RunVideoStatus) =>
     Effect.orElseSucceed(() => HttpServerResponse.empty({ status: 500 }))
   );
 
-const unavailable: RunVideoStatus = { state: "unavailable" };
+/** A Summary that names no video this route can serve. */
+const unnamed: RunVideoStatus = {
+  reason: "This Run's Summary names no video file in its folder.",
+  state: "unavailable",
+};
 
 /**
  * The status of the video a Summary names. Only `run.webm` is condensed; a
@@ -59,7 +63,12 @@ const statusOf = (directory: string, videoName: string) =>
           reason: "This Run was recorded before Run videos were condensed.",
           state: "ready",
         } satisfies RunVideoStatus)
-      : unavailable;
+      : ({
+          directory: path.resolve(directory),
+          reason:
+            "The video file is no longer in this Run's folder. It was deleted or moved after the Run ended.",
+          state: "unavailable",
+        } satisfies RunVideoStatus);
   });
 
 /**
@@ -101,7 +110,7 @@ export const makeAgentRunArtifactRoutes = ({
         }
         return yield* videoStatus(
           resolved.success === null
-            ? unavailable
+            ? unnamed
             : yield* statusOf(
                 path.dirname(resolved.success),
                 path.basename(resolved.success)
@@ -201,7 +210,7 @@ export const makeDryRunArtifactRoutes = ({
           videoPath === undefined ||
           path.basename(videoPath) !== videoPath
         ) {
-          return yield* videoStatus(unavailable);
+          return yield* videoStatus(unnamed);
         }
         return yield* videoStatus(
           yield* statusOf(

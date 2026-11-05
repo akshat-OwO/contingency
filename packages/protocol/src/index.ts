@@ -100,6 +100,8 @@ export * from "./agent-cursor-path.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./run-video.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
+export * from "./device-keyframes.ts";
+// oxlint-disable-next-line oxc/no-barrel-file
 export * from "./teaching-recording.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./catalog-browser.ts";
@@ -996,6 +998,19 @@ export class ContingencyRpcs extends RpcGroup.make(
     success: Schema.Array(
       Schema.Struct({ ...IosDeviceSelection.fields, state: Schema.String })
     ),
+  }),
+  /**
+   * What a built `.app` on this machine says about itself: the bundle id and
+   * build in its Info.plist, so the setup sheet need not ask for them.
+   */
+  Rpc.make("ios.app.inspect", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ path: Schema.String }),
+    success: Schema.Struct({
+      build: Schema.String,
+      bundleId: Schema.String,
+      label: Schema.String,
+    }),
   }),
   Rpc.make("ios.stream.access", {
     error: BrowserRpcError,
