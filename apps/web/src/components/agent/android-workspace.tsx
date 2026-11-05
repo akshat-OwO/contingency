@@ -411,7 +411,6 @@ const AndroidDockControls = ({
             })
           }
           aria-label="Close session"
-          title="Close session"
           size="sm"
           title="Close session"
           variant="outline"
