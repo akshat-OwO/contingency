@@ -24,6 +24,58 @@ export interface ElementPick {
   readonly point: { readonly x: number; readonly y: number };
 }
 
+const CONTROL_ROLES = new Set([
+  "button",
+  "checkbox",
+  "combobox",
+  "link",
+  "menuitem",
+  "radio",
+  "slider",
+  "switch",
+  "tab",
+]);
+
+const ELEMENT_GROUPS = [
+  { id: "fields", title: "Fields" },
+  { id: "controls", title: "Controls" },
+  { id: "other", title: "Other elements" },
+] as const;
+
+/** Which part of the list an element belongs in. */
+const elementGroup = (
+  node: ObservedNode
+): (typeof ELEMENT_GROUPS)[number]["id"] => {
+  if (node.editable) {
+    return "fields";
+  }
+  return CONTROL_ROLES.has(node.role.toLowerCase()) ? "controls" : "other";
+};
+
+/**
+ * Fields and controls lead; text, images, and the system bar follow, so the
+ * app's own inputs are at the top. Text or a container that repeats a label
+ * already listed, such as a button's own text, is left out.
+ */
+const groupElements = (
+  labelled: readonly { readonly label: string; readonly node: ObservedNode }[]
+) => {
+  const listed = new Set<string>();
+  return ELEMENT_GROUPS.map((group) => {
+    const entries = labelled.filter((entry) => {
+      if (
+        elementGroup(entry.node) !== group.id ||
+        (group.id === "other" && listed.has(entry.label))
+      ) {
+        return false;
+      }
+      listed.add(entry.label);
+      return true;
+    });
+    return { ...group, entries };
+  }).filter((group) => group.entries.length > 0);
+};
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 /** Where a click on this element would land, or nothing without bounds. */
@@ -83,6 +135,7 @@ export const DeviceElements = ({
     seen.set(node.role, count);
     return { label: `Unnamed ${node.role} ${count}`, node };
   });
+  const groups = groupElements(labelled);
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger
@@ -109,40 +162,58 @@ export const DeviceElements = ({
         <PopoverTitle className="text-muted-foreground px-1.5 py-1 text-xs">
           Screen elements
         </PopoverTitle>
-        <ul className="max-h-72 overflow-y-auto">
-          {labelled.map(({ label, node }) => {
-            const Icon = node.editable
-              ? TextCursorInputIcon
-              : MousePointerClickIcon;
-            return (
-              <li key={node.target}>
-                <Button
-                  aria-label={`${node.editable ? "Select" : "Activate"} ${label}`}
-                  className="w-full justify-start gap-2 px-1.5 font-normal"
-                  onClick={() => {
-                    if (observation === null) {
-                      return;
-                    }
-                    const pick = elementPick(observation, node);
-                    if (pick !== undefined) {
-                      onPick(pick);
-                      setOpen(false);
-                    }
-                  }}
-                  variant="ghost"
-                >
-                  <Icon aria-hidden="true" className="text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {label}
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {node.role}
-                  </span>
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="max-h-72 space-y-1 overflow-y-auto">
+          {groups.map((group) => (
+            <section
+              aria-labelledby={`device-elements-${group.id}`}
+              key={group.id}
+            >
+              <h3
+                className="text-muted-foreground px-1.5 pt-1 text-xs font-medium"
+                id={`device-elements-${group.id}`}
+              >
+                {group.title}
+              </h3>
+              <ul>
+                {group.entries.map(({ label, node }) => {
+                  const Icon = node.editable
+                    ? TextCursorInputIcon
+                    : MousePointerClickIcon;
+                  return (
+                    <li key={node.target}>
+                      <Button
+                        aria-label={`${node.editable ? "Select" : "Activate"} ${label}`}
+                        className="w-full justify-start gap-2 px-1.5 font-normal"
+                        onClick={() => {
+                          if (observation === null) {
+                            return;
+                          }
+                          const pick = elementPick(observation, node);
+                          if (pick !== undefined) {
+                            onPick(pick);
+                            setOpen(false);
+                          }
+                        }}
+                        variant="ghost"
+                      >
+                        <Icon
+                          aria-hidden="true"
+                          className="text-muted-foreground"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-left">
+                          {label}
+                        </span>
+                        <span className="text-muted-foreground shrink-0 text-xs">
+                          {node.role}
+                        </span>
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       </PopoverContent>
     </Popover>
   );

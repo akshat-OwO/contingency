@@ -236,7 +236,7 @@ const IosMirror = ({
     return <DeviceUnavailable message={unavailable} />;
   }
   return (
-    <div className="relative flex h-full min-h-0 items-center justify-center gap-5">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-5">
       <div aria-hidden="true" className="hidden w-56 shrink-0 lg:block" />
       <div className="h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,28rem)]">
         <DeviceFrame frame={frame}>
@@ -504,7 +504,7 @@ const IosTargetApp = ({
       <SetupField
         help={{
           id: "ios-bundle-help",
-          text: "Filled from the app path when there is one; otherwise CFBundleIdentifier and CFBundleVersion from its Info.plist.",
+          text: "Without an app path, enter CFBundleIdentifier and CFBundleVersion from the installed app's Info.plist.",
         }}
         htmlFor="ios-bundle"
         label="Bundle identifier"
@@ -691,7 +691,7 @@ const IosSetupSheet = ({
             </SetupGroup>
             <IosTargetApp identity={identity} />
             <SetupGroup
-              description="An element on screen when the app opens, and one that shows the journey worked."
+              description="An element on screen when the app opens."
               title="Starting screen"
             >
               <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
@@ -719,6 +719,13 @@ const IosSetupSheet = ({
                     required
                   />
                 </SetupField>
+              </div>
+            </SetupGroup>
+            <SetupGroup
+              description="An element that shows the journey worked."
+              title="Done when"
+            >
+              <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
                 <SetupField htmlFor="ios-done-role" label="Role">
                   <NativeSelect
                     className="w-full min-w-0"

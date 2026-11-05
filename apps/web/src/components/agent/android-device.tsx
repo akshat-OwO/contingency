@@ -39,7 +39,8 @@ export const DeviceFrame = ({
   readonly frame: AndroidStreamFrame;
 }) => (
   // The frame fits whichever of the stage's width or height runs out first,
-  // so a phone-width stage never pushes it past the edge.
+  // so a phone-width stage never pushes it past the edge. A size container
+  // has no width of its own, so its parent must give it one.
   <div
     className="grid size-full min-h-0 min-w-0 place-items-center"
     style={{ containerType: "size" }}
@@ -171,7 +172,7 @@ export const AndroidDevice = ({
     return <DeviceUnavailable message={displayUnavailable} />;
   }
   return (
-    <div className="relative flex h-full min-h-0 items-center justify-center gap-3 lg:gap-5">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-3 lg:gap-5">
       {/*
         The side columns balance the frame on a wide stage; a narrow one
         keeps only the keys beside it. Why a click sent nothing is said in the
