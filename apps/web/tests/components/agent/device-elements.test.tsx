@@ -30,6 +30,8 @@ const observation: AndroidWorkspaceObservation = {
   image: null,
   nodes: [
     node("clock", "9:13", "text", 0),
+    // An app's own control can sit as high as the status bar.
+    node("back", "Back", "button", 4),
     node("welcome", "Welcome back", "text", 120),
     node("heading", "Sign in", "group", 100),
     node("name", "Shopper name", "text-field", 200, true),
@@ -62,7 +64,7 @@ test("lists fields, then controls, then the rest, each label once", async () => 
     "Select Shopper name",
     "Select Unnamed field 1",
   ]);
-  expect(names("Controls")).toEqual(["Activate Sign in"]);
+  expect(names("Controls")).toEqual(["Activate Back", "Activate Sign in"]);
   // The rest waits behind its heading while fields and controls exist.
   const other = screen.getByRole("button", { name: "Other elements" });
   expect(other).toHaveAttribute("aria-expanded", "false");

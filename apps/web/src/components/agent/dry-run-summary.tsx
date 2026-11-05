@@ -32,7 +32,7 @@ import {
   noFindings,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
-import { EvidenceReference } from "@/components/agent/evidence-reference";
+import { EvidenceList } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -117,7 +117,7 @@ const SummaryVideo = ({
     */}
     <Verdict className="text-sm" verdict={verdict} />
     {failure === undefined ? null : (
-      <p className="text-destructive text-sm text-pretty">{failure}</p>
+      <p className="text-foreground/85 text-sm text-pretty">{failure}</p>
     )}
     {summary.videoPath === null ? (
       <p className="text-muted-foreground text-xs">
@@ -129,7 +129,7 @@ const SummaryVideo = ({
         src={src}
         timeMap={summary.videoTimeMap}
         timeline={summary.timeline}
-        videoClassName="max-h-[min(24rem,50svh)]"
+        videoClassName="max-h-[min(15rem,32svh)] max-md:max-h-[20svh]"
       />
     )}
   </section>
@@ -154,21 +154,6 @@ const findingDot: Record<AgentTaskAssessment["outcome"], string> = {
   "not-working": "bg-destructive",
   working: "bg-emerald-500",
 };
-
-/** Evidence IDs are what an agent cites back, so they stay readable. */
-const EvidenceReferences = ({
-  assessment,
-}: {
-  readonly assessment: AgentTaskAssessment;
-}) => (
-  <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
-    {assessment.evidence.map((reference) => (
-      <li className="max-w-full" key={`${reference.kind}:${reference.id}`}>
-        <EvidenceReference id={reference.id} kind={reference.kind} />
-      </li>
-    ))}
-  </ul>
-);
 
 const CheckMark = ({ check }: { readonly check: SummaryCheck }) => {
   if (check.notApplicable === true) {
@@ -281,7 +266,7 @@ const TaskRunSummaryLayout = ({
             <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
               {summary.assessment.explanation}
             </blockquote>
-            <EvidenceReferences assessment={summary.assessment} />
+            <EvidenceList evidence={summary.assessment.evidence} />
           </>
         )}
       </TabsContent>
@@ -308,7 +293,7 @@ const TaskRunSummaryLayout = ({
                   <p className="text-muted-foreground text-xs">
                     {assessmentOutcomeLabel[finding.outcome]}
                   </p>
-                  <EvidenceReferences assessment={finding} />
+                  <EvidenceList evidence={finding.evidence} />
                 </div>
               </li>
             ))}

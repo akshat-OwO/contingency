@@ -1,7 +1,6 @@
 import type {
   AgentPursuitRecord,
   AgentTaskAssessment,
-  AgentTaskEvidence,
   TaskAgentRunState,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
@@ -14,23 +13,9 @@ import { Badge } from "@/components/ui/badge";
 
 import { BrowserCheckResults } from "./browser-check-results";
 import { BrowserModifications } from "./browser-modifications";
-import { EvidenceReference } from "./evidence-reference";
+import { EvidenceList } from "./evidence-reference";
 import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
-
-const EvidenceReferences = ({
-  evidence,
-}: {
-  readonly evidence: readonly AgentTaskEvidence[];
-}) => (
-  <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
-    {evidence.map((reference) => (
-      <li className="max-w-full" key={`${reference.kind}:${reference.id}`}>
-        <EvidenceReference id={reference.id} kind={reference.kind} />
-      </li>
-    ))}
-  </ul>
-);
 
 const Assessment = ({
   assessment,
@@ -46,7 +31,7 @@ const Assessment = ({
       {assessmentOutcomeLabel[assessment.outcome]}
     </Badge>
     <p className="wrap-anywhere">{assessment.explanation}</p>
-    <EvidenceReferences evidence={assessment.evidence} />
+    <EvidenceList evidence={assessment.evidence} />
   </div>
 );
 

@@ -63,6 +63,13 @@ export const CopyFeedback = ({
 );
 
 /**
+ * A long id keeps its start and its end, where two ids differ; the full id
+ * stays in the button's name and title.
+ */
+const shortId = (id: string) =>
+  id.length > 28 ? `${id.slice(0, 16)}…${id.slice(-8)}` : id;
+
+/**
  * One evidence reference the agent cited. Evidence lives in the Run's own
  * record rather than in a viewer here, so the reference copies its full id
  * for an agent or a teammate to look up, and says so.
@@ -92,9 +99,34 @@ export const EvidenceReference = ({
           <CopyIcon aria-hidden="true" />
         )}
         <span className="text-muted-foreground">{kind}:</span>{" "}
-        <span className="max-w-80 truncate font-mono">{id}</span>
+        <span className="max-w-80 truncate font-mono">{shortId(id)}</span>
       </Button>
       <CopyFeedback copied={copied} failed={failed} text={text} />
     </span>
   );
 };
+
+/**
+ * The evidence an assessment cites, with the one sentence that says how to
+ * use it: evidence is opened by an agent from its id, not viewed here.
+ */
+export const EvidenceList = ({
+  evidence,
+}: {
+  readonly evidence: readonly { readonly id: string; readonly kind: string }[];
+}) => (
+  <div className="space-y-1">
+    <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
+      {evidence.map((reference) => (
+        <li className="max-w-full" key={`${reference.kind}:${reference.id}`}>
+          <EvidenceReference id={reference.id} kind={reference.kind} />
+        </li>
+      ))}
+    </ul>
+    {evidence.length === 0 ? null : (
+      <p className="text-muted-foreground text-xs">
+        Copy an id for your agent to open that evidence.
+      </p>
+    )}
+  </div>
+);

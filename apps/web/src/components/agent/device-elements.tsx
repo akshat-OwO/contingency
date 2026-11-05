@@ -96,7 +96,8 @@ const roleWord = (role: string) =>
 
 /**
  * The system status bar (clock, signal, battery) sits in a screen's top few
- * percent on both platforms; it is not the app, so the list leaves it out.
+ * percent on both platforms; it is not the app, so the list leaves out its
+ * text and images. A field or control there is kept: it may be the app's.
  */
 const STATUS_BAR_FRACTION = 0.07;
 const inStatusBar = (
@@ -104,6 +105,7 @@ const inStatusBar = (
   node: ObservedNode
 ) =>
   node.bounds !== undefined &&
+  elementGroup(node) === "other" &&
   node.bounds.y + node.bounds.height <=
     observation.height * STATUS_BAR_FRACTION;
 

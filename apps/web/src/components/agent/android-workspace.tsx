@@ -55,6 +55,7 @@ import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
 import { AndroidSetupSheet } from "./android-setup-sheet";
 import { WorkspaceLayout } from "./android-workspace-layout";
+import { deviceSummaryLabel } from "./android-workspace-state";
 import { DeviceElements } from "./device-elements";
 import {
   sessionStartGestureAtom,
@@ -609,7 +610,7 @@ export const AndroidSessionView = ({
         isLiveAndroidSession(session)
           ? null
           : {
-              label: "Run Summary",
+              label: deviceSummaryLabel(session.kind),
               summary: <AndroidRunSummary session={session} />,
             }
       }

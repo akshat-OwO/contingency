@@ -1,6 +1,11 @@
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { PanelRightCloseIcon, PanelRightOpenIcon, XIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
+  XIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useId, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
@@ -39,6 +44,68 @@ const slideFrom = (
 /** The rail a collapsed sidebar keeps, wide enough for its expand button. */
 const COLLAPSED_SIZE = "3rem";
 
+/** What a phone's Details returns to when it replaced the left panel. */
+const returnTarget = (
+  replacesLeading: boolean,
+  leading: WorkspaceLeading | null | undefined
+) =>
+  replacesLeading && leading
+    ? leading.label.replace(/ Drawer$/u, "")
+    : undefined;
+
+/**
+ * The summary header's one control: collapse a summary the session owns,
+ * close one the user opened, and on a phone say where closing returns to.
+ */
+const SummaryClose = ({
+  contentId,
+  label,
+  onClose,
+  onCollapse,
+  returnTo,
+}: {
+  readonly contentId: string;
+  readonly label: string;
+  readonly onClose: (() => void) | undefined;
+  readonly onCollapse: () => void;
+  readonly returnTo: string | undefined;
+}) => {
+  if (onClose === undefined) {
+    return (
+      <Button
+        aria-controls={contentId}
+        aria-expanded
+        aria-label={`Collapse ${label}`}
+        onClick={onCollapse}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <PanelRightCloseIcon aria-hidden="true" />
+      </Button>
+    );
+  }
+  if (returnTo === undefined) {
+    return (
+      <Button
+        aria-label={`Close ${label}`}
+        onClick={onClose}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <XIcon aria-hidden="true" />
+      </Button>
+    );
+  }
+  // On a phone this panel stands in for the one it was opened from, so
+  // closing it is the way back, and says so.
+  return (
+    <Button onClick={onClose} size="sm" variant="ghost">
+      <ChevronLeftIcon aria-hidden="true" />
+      Back to {returnTo}
+    </Button>
+  );
+};
+
 const RunSummarySidebar = ({
   asideRef,
   children,
@@ -47,6 +114,7 @@ const RunSummarySidebar = ({
   mobile,
   minimumSize,
   onClose,
+  returnTo,
 }: {
   readonly asideRef: (element: HTMLElement | null) => void;
   readonly children: ReactNode;
@@ -57,6 +125,8 @@ const RunSummarySidebar = ({
   readonly minimumSize: string;
   /** Closes rather than collapses, for content the user opened themselves. */
   readonly onClose: (() => void) | undefined;
+  /** The panel closing returns to, named on its close button. */
+  readonly returnTo?: string | undefined;
 }) => {
   const panelRef = usePanelRef();
   const contentId = useId();
@@ -108,29 +178,13 @@ const RunSummarySidebar = ({
             <>
               <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
                 <p className="truncate text-sm font-semibold">{label}</p>
-                {onClose === undefined ? (
-                  <Button
-                    aria-controls={contentId}
-                    aria-expanded
-                    aria-label={`Collapse ${label}`}
-                    onClick={() => {
-                      panelRef.current?.collapse();
-                    }}
-                    size="icon-sm"
-                    variant="ghost"
-                  >
-                    <PanelRightCloseIcon aria-hidden="true" />
-                  </Button>
-                ) : (
-                  <Button
-                    aria-label={`Close ${label}`}
-                    onClick={onClose}
-                    size="icon-sm"
-                    variant="ghost"
-                  >
-                    <XIcon aria-hidden="true" />
-                  </Button>
-                )}
+                <SummaryClose
+                  contentId={contentId}
+                  label={label}
+                  onClose={onClose}
+                  onCollapse={() => panelRef.current?.collapse()}
+                  returnTo={returnTo}
+                />
               </div>
               <div
                 className="min-h-0 flex-1 overflow-y-auto p-4"
@@ -255,6 +309,7 @@ export const WorkspaceWithRunSummary = ({
     slideFrom(mobile ? "bottom" : "right")
   );
   const shownLeading = leadingPresence.rendered;
+  const returnTo = returnTarget(mobile && leadingYieldsOnMobile, leading);
   const shownSummary = summaryPresence.rendered;
   // Flows, Workspace, and Details must fit together even with enlarged
   // text. Three root-relative minima can otherwise force Details closed.
@@ -294,6 +349,7 @@ export const WorkspaceWithRunSummary = ({
           mobile={mobile}
           minimumSize={sharingSpace ? "20%" : summaryMinimum}
           onClose={onCloseSummary}
+          returnTo={returnTo}
         >
           {shownSummary}
         </RunSummarySidebar>

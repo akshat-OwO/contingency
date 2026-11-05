@@ -72,6 +72,7 @@ import { DeviceFrame, DeviceUnavailable } from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
+import { deviceSummaryLabel } from "./android-workspace-state";
 import { DeviceElements } from "./device-elements";
 import {
   iosDockPresentation,
@@ -428,6 +429,23 @@ type IdentityState =
  * Reads a `.app`'s bundle id and build when its path is entered, and fills
  * the fields the person has not typed into themselves.
  */
+const MISSING_WORDS = new Map([
+  ["App build", "the app build"],
+  ["Bundle identifier", "the bundle identifier"],
+  ["Device", "a simulator"],
+  ["Done when element", "the done-when element"],
+  ["Flow name", "a Flow name"],
+  ["Starting screen element", "the starting-screen element"],
+]);
+
+/** The missing fields as one plain phrase: "a Flow name and a simulator". */
+const missingPhrase = (missing: readonly string[]) => {
+  const words = missing.map((label) => MISSING_WORDS.get(label) ?? label);
+  return words.length < 2
+    ? words.join("")
+    : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+};
+
 /** The labels of the form's required fields that are still invalid. */
 const missingFields = (form: HTMLFormElement | null): readonly string[] =>
   form === null
@@ -858,7 +876,7 @@ const IosSetupSheet = ({
               >
                 {running.length === 0
                   ? "Start a simulator, then refresh."
-                  : `Fill in ${missing.join(", ")} to continue.`}
+                  : `Add ${missingPhrase(missing)} to continue.`}
               </p>
             )}
             <Button onClick={onClose} type="button" variant="outline">
@@ -1705,7 +1723,7 @@ export const IosWorkspace = ({
         live
           ? null
           : {
-              label: "Run Summary",
+              label: deviceSummaryLabel(session.kind),
               summary: (
                 <DeviceRunSummary
                   platform="ios"
