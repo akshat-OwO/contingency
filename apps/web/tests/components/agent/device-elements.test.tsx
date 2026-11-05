@@ -62,7 +62,11 @@ test("lists fields, then controls, then the rest, each label once", async () => 
     "Select Unnamed field 1",
   ]);
   expect(names("Controls")).toEqual(["Activate Sign in"]);
+  // The rest waits behind its heading while fields and controls exist.
+  const other = screen.getByRole("button", { name: "Other elements" });
+  expect(other).toHaveAttribute("aria-expanded", "false");
+  await user.click(other);
   // The button's own text and its heading repeat its label, so they are
   // left out; the clock is not.
-  expect(names("Other elements")).toEqual(["Activate 9:13"]);
+  expect(names("Other elements")).toEqual([null, "Activate 9:13"]);
 });

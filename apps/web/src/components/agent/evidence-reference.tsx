@@ -1,7 +1,7 @@
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -14,34 +14,49 @@ export const useCopy = (text: string) => {
   const [copied, setCopied] = useAtom(copiedAtom);
   const [failedAtom] = useState(() => Atom.make(false));
   const [failed, setFailed] = useAtom(failedAtom);
+  // Success clears after a moment, so the next copy is announced again.
+  useEffect(() => {
+    if (!copied) {
+      return;
+    }
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied, setCopied]);
   const copy = async () => {
+    setCopied(false);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setFailed(false);
     } catch {
-      setCopied(false);
       setFailed(true);
     }
   };
-  return { copied, copy, failed };
+  return { copied, copy, failed, text };
 };
 
 /** What a copy button announces, and its visible failure line. */
 export const CopyFeedback = ({
   copied,
   failed,
+  text,
 }: {
   readonly copied: boolean;
   readonly failed: boolean;
+  readonly text: string;
 }) => (
   <>
     <span aria-live="polite" className="sr-only" role="status">
       {copied ? "Copied" : ""}
     </span>
     {failed ? (
-      <span className="text-destructive text-xs" role="alert">
-        Copy failed; select the id instead.
+      <span className="basis-full space-y-0.5 text-xs">
+        <span className="text-destructive block" role="alert">
+          Copy failed; select the id below instead.
+        </span>
+        <span className="bg-muted block rounded px-1.5 py-1 font-mono wrap-anywhere select-all">
+          {text}
+        </span>
       </span>
     ) : null}
   </>
@@ -59,7 +74,7 @@ export const EvidenceReference = ({
   readonly id: string;
   readonly kind: string;
 }) => {
-  const { copied, copy, failed } = useCopy(id);
+  const { copied, copy, failed, text } = useCopy(id);
   return (
     <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
       <Button
@@ -67,7 +82,7 @@ export const EvidenceReference = ({
         className="max-w-full font-normal"
         onClick={copy}
         size="xs"
-        title={`${kind}: ${id}`}
+        title={`${kind}: ${id}. Copy it for your agent to open the evidence.`}
         type="button"
         variant="outline"
       >
@@ -79,7 +94,7 @@ export const EvidenceReference = ({
         <span className="text-muted-foreground">{kind}:</span>{" "}
         <span className="max-w-48 truncate font-mono">{id}</span>
       </Button>
-      <CopyFeedback copied={copied} failed={failed} />
+      <CopyFeedback copied={copied} failed={failed} text={text} />
     </span>
   );
 };

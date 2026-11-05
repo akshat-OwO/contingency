@@ -409,6 +409,21 @@ type IdentityState =
  * Reads a `.app`'s bundle id and build when its path is entered, and fills
  * the fields the person has not typed into themselves.
  */
+/** The labels of the form's required fields that are still invalid. */
+const missingFields = (form: HTMLFormElement | null): readonly string[] =>
+  form === null
+    ? []
+    : [...form.elements].flatMap((element) =>
+        (element instanceof HTMLInputElement ||
+          element instanceof HTMLSelectElement) &&
+        !element.validity.valid
+          ? [
+              element.getAttribute("aria-label") ??
+                (element.labels?.[0]?.textContent?.trim() || element.name),
+            ]
+          : []
+      );
+
 const useAppIdentity = (
   form: React.RefObject<HTMLFormElement | null>,
   onFilled: () => void
@@ -584,12 +599,26 @@ const IosSetupSheet = ({
   const listed = AsyncResult.isSuccess(devices) ? devices.value : [];
   const running = listed.filter((device) => device.state === "Booted");
   const stopped = listed.filter((device) => device.state !== "Booted");
-  const [completeAtom] = useState(() => Atom.make(false));
-  const [complete, setComplete] = useAtom(completeAtom);
+  // The required fields still empty, named as the person sees them.
+  const [missingAtom] = useState(() =>
+    Atom.make<readonly string[]>(["Flow name"])
+  );
+  const [missing, setMissing] = useAtom(missingAtom);
+  const complete = missing.length === 0;
   const formRef = useRef<HTMLFormElement>(null);
   const identity = useAppIdentity(formRef, () =>
-    setComplete(formRef.current?.checkValidity() ?? false)
+    setMissing(missingFields(formRef.current))
   );
+  // The sheet's form mounts once it opens; read what it still needs then.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const frame = requestAnimationFrame(() =>
+      setMissing(missingFields(formRef.current))
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [open, setMissing]);
   return (
     <Sheet
       onOpenChange={(next) => {
@@ -612,7 +641,7 @@ const IosSetupSheet = ({
         </SheetHeader>
         <form
           className="flex min-h-0 flex-1 flex-col"
-          onInput={(event) => setComplete(event.currentTarget.checkValidity())}
+          onInput={(event) => setMissing(missingFields(event.currentTarget))}
           ref={formRef}
           onSubmit={(event) => {
             event.preventDefault();
@@ -789,7 +818,7 @@ const IosSetupSheet = ({
               >
                 {running.length === 0
                   ? "Start a simulator, then refresh."
-                  : "Fill in the required fields to continue."}
+                  : `Fill in ${missing.join(", ")} to continue.`}
               </p>
             )}
             <Button onClick={onClose} type="button" variant="outline">

@@ -186,7 +186,7 @@ export const AndroidDevice = ({
         dock, so nothing ever covers the glass.
       */}
       {/* Back sits low beside the frame, where a phone's own keys are. */}
-      <div className="flex shrink-0 justify-end lg:w-56 lg:self-end lg:pb-16">
+      <div className="flex shrink-0 justify-end self-end pb-16 lg:w-56">
         <DeviceToolbar canAct={canAct && !pending} onBack={onBack} />
       </div>
       <div

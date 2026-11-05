@@ -107,9 +107,12 @@ const Pursuits = ({
 
 /** The same task record is readable during execution and after persistence. */
 export const TaskRunDetails = ({
+  afterResult,
   resultFirst = false,
   run,
 }: {
+  /** What follows the result when it leads, such as the Run's video. */
+  readonly afterResult?: React.ReactNode;
   /**
    * A finished Run leads with what the agent concluded; a live one leads with
    * what it was asked, since it has not concluded anything yet.
@@ -159,7 +162,12 @@ export const TaskRunDetails = ({
   );
   return (
     <div className="space-y-4 text-sm">
-      {resultFirst ? result : null}
+      {resultFirst ? (
+        <>
+          {result}
+          {afterResult}
+        </>
+      ) : null}
       <section aria-label="Requested task" className="space-y-2">
         <h3 className="text-sm leading-5 font-semibold">Requested task</h3>
         <p className="wrap-anywhere">{run.requestedTask}</p>

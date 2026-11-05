@@ -125,12 +125,12 @@ export const ExecutionBoundary = ({
           {/*
             The concrete action leads: it is what Allow permits. What was
             requested (the task, or the address asked for) follows, and only
-            when it says something the action does not.
+            when the action does not already say it ("Navigate to <url>").
           */}
           <p className="text-sm text-pretty wrap-anywhere">
             {boundary.description}
           </p>
-          {boundary.description === boundary.requested ? null : (
+          {boundary.description.includes(boundary.requested) ? null : (
             <p className="text-muted-foreground text-xs text-pretty wrap-anywhere">
               {boundary.requested}
             </p>

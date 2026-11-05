@@ -83,6 +83,8 @@ export const DockSessionSelect = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
+        // The trigger shows the name's start; hovering shows all of it.
+        title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
         aria-expanded={open}

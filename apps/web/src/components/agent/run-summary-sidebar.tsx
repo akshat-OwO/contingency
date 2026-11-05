@@ -68,10 +68,10 @@ const RunSummarySidebar = ({
       <ResizablePanel
         collapsedSize={COLLAPSED_SIZE}
         collapsible
-        defaultSize={mobile ? "45%" : "30rem"}
+        defaultSize={mobile ? "62%" : "30rem"}
         groupResizeBehavior="preserve-pixel-size"
         id="run-summary"
-        maxSize={mobile ? "65%" : "48rem"}
+        maxSize={mobile ? "85%" : "48rem"}
         minSize={minimumSize}
         onResize={() => {
           setCollapsed(panelRef.current?.isCollapsed() ?? false);

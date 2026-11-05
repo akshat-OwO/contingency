@@ -169,6 +169,30 @@ export const RunSummaryView = ({
       ? summary.summary
       : (summary.agentAccount ??
         (summary.schemaVersion === 2 ? summary.summary : undefined));
+  const video = (
+    <section aria-labelledby="agent-run-video" className="space-y-2">
+      <h2
+        className="text-base leading-snug font-semibold tracking-tight"
+        id="agent-run-video"
+      >
+        Run video
+      </h2>
+      {summary.videoPath === null ? (
+        <p className="text-muted-foreground text-xs">
+          This Run recorded no video.
+        </p>
+      ) : (
+        <RunVideo
+          note="The video and Trace stay on this machine. Nothing is uploaded without your direct confirmation."
+          src={videoSrc ?? agentRunVideoPath(summary.runId)}
+          timeMap={
+            summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
+          }
+          timeline={summary.timeline}
+        />
+      )}
+    </section>
+  );
   return (
     <div className="space-y-5">
       <section aria-label="Run Summary" className="space-y-2">
@@ -216,8 +240,9 @@ export const RunSummaryView = ({
           </p>
         </div>
       </section>
+      {/* The replay follows what the agent concluded, before the setup. */}
       {summary.schemaVersion === 3 ? (
-        <TaskRunDetails resultFirst run={summary} />
+        <TaskRunDetails afterResult={video} resultFirst run={summary} />
       ) : (
         <>
           <RunTotals
@@ -225,30 +250,9 @@ export const RunSummaryView = ({
             coverage={summary.coverage}
           />
           <RunSteps activeStepIndex={null} steps={summary.steps} />
+          {video}
         </>
       )}
-      <section aria-labelledby="agent-run-video" className="space-y-2">
-        <h2
-          className="text-base leading-snug font-semibold tracking-tight"
-          id="agent-run-video"
-        >
-          Run video
-        </h2>
-        {summary.videoPath === null ? (
-          <p className="text-muted-foreground text-xs">
-            This Run recorded no video.
-          </p>
-        ) : (
-          <RunVideo
-            note="The video and Trace stay on this machine. Nothing is uploaded without your direct confirmation."
-            src={videoSrc ?? agentRunVideoPath(summary.runId)}
-            timeMap={
-              summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
-            }
-            timeline={summary.timeline}
-          />
-        )}
-      </section>
     </div>
   );
 };

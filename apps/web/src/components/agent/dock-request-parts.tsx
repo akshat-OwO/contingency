@@ -49,7 +49,7 @@ export const RequestHeader = ({
  * is its accessible name, its title, and what it copies.
  */
 export const DecisionId = ({ id }: { readonly id: string }) => {
-  const { copied, copy, failed } = useCopy(id);
+  const { copied, copy, failed, text } = useCopy(id);
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
       <Button
@@ -68,7 +68,7 @@ export const DecisionId = ({ id }: { readonly id: string }) => {
         )}
         {shortDecisionId(id)}
       </Button>
-      <CopyFeedback copied={copied} failed={failed} />
+      <CopyFeedback copied={copied} failed={failed} text={text} />
     </span>
   );
 };

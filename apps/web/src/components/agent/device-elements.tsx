@@ -2,6 +2,8 @@ import type { AndroidWorkspaceObservation } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
   ListIcon,
   MousePointerClickIcon,
   TextCursorInputIcon,
@@ -133,6 +135,8 @@ export const DeviceElements = ({
   const [openAtom] = useState(() => Atom.make(false));
   const [open, setOpen] = useAtom(openAtom);
   const trigger = useRef<HTMLButtonElement>(null);
+  const [showOtherAtom] = useState(() => Atom.make(false));
+  const [showOther, setShowOther] = useAtom(showOtherAtom);
   const nodes =
     observation === null
       ? []
@@ -153,6 +157,9 @@ export const DeviceElements = ({
     return { label: `Unnamed ${roleWord(node.role)} ${count}`, node };
   });
   const groups = groupElements(labelled);
+  // Clocks, signal bars, and plain text follow the app's own fields and
+  // controls; they stay one click away rather than filling the list.
+  const collapsible = (id: string) => id === "other" && groups.length > 1;
   const dockOf = () =>
     trigger.current?.closest('[aria-label="Workspace dock"]') ??
     trigger.current;
@@ -205,45 +212,63 @@ export const DeviceElements = ({
                 className="text-muted-foreground px-1.5 pt-1 text-xs font-medium"
                 id={`device-elements-${group.id}`}
               >
-                {group.title}
+                {collapsible(group.id) ? (
+                  <button
+                    aria-expanded={showOther}
+                    className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded outline-none focus-visible:ring-2"
+                    onClick={() => setShowOther((current) => !current)}
+                    type="button"
+                  >
+                    {showOther ? (
+                      <ChevronDownIcon aria-hidden="true" className="size-3" />
+                    ) : (
+                      <ChevronRightIcon aria-hidden="true" className="size-3" />
+                    )}
+                    {group.title}
+                  </button>
+                ) : (
+                  group.title
+                )}
               </h3>
-              <ul>
-                {group.entries.map(({ label, node }) => {
-                  const Icon = node.editable
-                    ? TextCursorInputIcon
-                    : MousePointerClickIcon;
-                  return (
-                    <li key={node.target}>
-                      <Button
-                        aria-label={`${node.editable ? "Select" : "Activate"} ${label}`}
-                        className="w-full justify-start gap-2 px-1.5 font-normal"
-                        onClick={() => {
-                          if (observation === null) {
-                            return;
-                          }
-                          const pick = elementPick(observation, node);
-                          if (pick !== undefined) {
-                            onPick(pick);
-                            setOpen(false);
-                          }
-                        }}
-                        variant="ghost"
-                      >
-                        <Icon
-                          aria-hidden="true"
-                          className="text-muted-foreground"
-                        />
-                        <span className="min-w-0 flex-1 truncate text-left">
-                          {label}
-                        </span>
-                        <span className="text-muted-foreground shrink-0 text-xs">
-                          {roleWord(node.role)}
-                        </span>
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {collapsible(group.id) && !showOther ? null : (
+                <ul>
+                  {group.entries.map(({ label, node }) => {
+                    const Icon = node.editable
+                      ? TextCursorInputIcon
+                      : MousePointerClickIcon;
+                    return (
+                      <li key={node.target}>
+                        <Button
+                          aria-label={`${node.editable ? "Select" : "Activate"} ${label}`}
+                          className="w-full justify-start gap-2 px-1.5 font-normal"
+                          onClick={() => {
+                            if (observation === null) {
+                              return;
+                            }
+                            const pick = elementPick(observation, node);
+                            if (pick !== undefined) {
+                              onPick(pick);
+                              setOpen(false);
+                            }
+                          }}
+                          variant="ghost"
+                        >
+                          <Icon
+                            aria-hidden="true"
+                            className="text-muted-foreground"
+                          />
+                          <span className="min-w-0 flex-1 truncate text-left">
+                            {label}
+                          </span>
+                          <span className="text-muted-foreground shrink-0 text-xs">
+                            {roleWord(node.role)}
+                          </span>
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </section>
           ))}
         </div>
