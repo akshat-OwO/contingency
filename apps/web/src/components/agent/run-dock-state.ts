@@ -163,6 +163,18 @@ const asSentence = (text: string): string => {
   return /[.!?…]["'”’)]?$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 };
 
+/**
+ * The status line. An open Execution Boundary card already says the action,
+ * the task, and what Allow grants, so the line only points at it.
+ */
+const statusSentence = (
+  session: RunSessionSnapshot,
+  sentences: readonly string[]
+) =>
+  session.boundary === undefined || session.boundary === null
+    ? sentences.join(" ")
+    : "Answer the request above to continue.";
+
 export const runDockPresentation = (
   session: RunSessionSnapshot,
   streamConnected: boolean
@@ -226,7 +238,7 @@ export const runDockPresentation = (
       run === null || "schemaVersion" in run
         ? undefined
         : `${run.coverage.executed} of ${run.coverage.total} Agent Steps executed`,
-    nextStep: sentences.join(" "),
+    nextStep: statusSentence(session, sentences),
     step,
     tone: failed ? "failed" : "default",
   };

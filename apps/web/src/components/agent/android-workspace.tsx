@@ -373,6 +373,7 @@ const AndroidDockControls = ({
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
+          title="Comment"
           aria-pressed={instructing}
           onClick={onInstruct}
           size="sm"
@@ -410,6 +411,7 @@ const AndroidDockControls = ({
             })
           }
           aria-label="Close session"
+          title="Close session"
           size="sm"
           title="Close session"
           variant="outline"

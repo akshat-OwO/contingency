@@ -203,6 +203,7 @@ const CommentTrigger = ({
     }
     onClick={onComment}
     size="sm"
+    title="Comment"
     type="button"
     variant="ghost"
   >

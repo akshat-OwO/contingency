@@ -135,6 +135,24 @@ export const dryRunChecks = (
 export const dryRunChecksPass = (summary: TaskDryRunSummary): boolean =>
   dryRunChecks(summary).every((check) => check.passed);
 
+/** Checks a working journey can still miss: how it was attempted, not whether it worked. */
+const QUALIFYING_CHECKS = new Set(["Full outcome attempted", "No takeover"]);
+
+/**
+ * The Dry Run missed only how it was attempted: the journey worked, but the
+ * agent stopped short or the user took over. It still cannot pass, yet it is
+ * not a broken journey, so it is not shown as one.
+ */
+export const dryRunMissedOnlyQualifiers = (
+  summary: TaskDryRunSummary
+): boolean => {
+  const missed = dryRunChecks(summary).filter((check) => !check.passed);
+  return (
+    missed.length > 0 &&
+    missed.every((check) => QUALIFYING_CHECKS.has(check.label))
+  );
+};
+
 const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
   switch (label) {
     case "Agent assessment": {

@@ -25,6 +25,7 @@ import {
   assessmentOutcomeLabel,
   dryRunChecks,
   dryRunFailureSentence,
+  dryRunMissedOnlyQualifiers,
   dryRunVerdict,
   evidenceCount,
   interactiveRunChecks,
@@ -89,14 +90,6 @@ const Verdict = ({
   </span>
 );
 
-/**
- * The recording leads because it is the evidence. The verdict rides on it so
- * the answer and the proof are read together; a Run with no video still says
- * the verdict on its own line. A portrait recording from a mobile emulation is
- * letterboxed to a capped height, so it never pushes the checks off screen.
- * The video and Trace never leave the machine
- * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
- */
 /** The verdict, and why a Run cannot pass, right under it. */
 const SummaryVerdictHeader = ({
   failure,
@@ -361,7 +354,11 @@ export const DryRunSummaryView = ({
       (result?.outcome === "failed" ? result.observableOutcome : undefined)
     }
     summary={summary}
-    verdict={dryRunSummaryVerdict(dryRunVerdict(summary, result))}
+    verdict={
+      result?.outcome !== "failed" && dryRunMissedOnlyQualifiers(summary)
+        ? { label: "Dry Run did not pass", tone: "attention" }
+        : dryRunSummaryVerdict(dryRunVerdict(summary, result))
+    }
     videoSrc={videoSrc}
   />
 );

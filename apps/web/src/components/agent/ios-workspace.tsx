@@ -504,6 +504,12 @@ const useAppIdentity = (
               return;
             }
             const app = result.success;
+            // However the path was set, it rests on the .app name.
+            const pathField = form.current?.elements.namedItem("path");
+            if (pathField instanceof HTMLInputElement) {
+              pathField.title = pathField.value;
+              pathField.scrollLeft = pathField.scrollWidth;
+            }
             for (const [name, filled] of [
               ["bundle", app.bundleId],
               ["build", app.build],
@@ -1293,6 +1299,7 @@ const IosDockControls = ({
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
+          title="Comment"
           aria-pressed={commenting}
           onClick={onComment}
           size="sm"
@@ -1330,6 +1337,7 @@ const IosDockControls = ({
             })
           }
           aria-label="Close session"
+          title="Close session"
           size="sm"
           title="Close session"
           variant="outline"

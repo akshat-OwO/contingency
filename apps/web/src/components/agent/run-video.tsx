@@ -39,6 +39,12 @@ const COPIED_FOR_MS = 1500;
 /** How far the hover tip stays from either end of the scrubber. */
 const TIP_INSET_PX = 64;
 
+/** A path's last two segments, the Run's folder and its file. */
+const tailOfPath = (path: string) => {
+  const parts = path.split("/").filter((part) => part !== "");
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
+};
+
 const FOCUS_RING =
   "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none";
 
@@ -370,7 +376,8 @@ const VideoPath = ({ path }: { readonly path: string }) => {
         className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-white/60 select-text"
         title={path}
       >
-        {path}
+        {/* The Run's folder and file tell Runs apart; the temp root does not. */}
+        {tailOfPath(path)}
       </code>
       <button
         aria-label="Copy video path"
@@ -801,13 +808,13 @@ export const RunVideo = ({
   const result = useAtomValue(runVideoStatusAtom(src));
   const status = result._tag === "Success" ? result.value : undefined;
   if (result._tag === "Initial" || status?.state === "preparing") {
-    // The frame holds the player's place on a wide screen; a phone gets one
-    // line, so the verdict and evidence are not pushed below the fold.
+    // One line until the player is ready, so a frame with nothing in it
+    // never pushes the verdict and evidence down.
     return (
       <div
         aria-live="polite"
         className={cn(
-          "text-muted-foreground flex aspect-video w-full items-center justify-center gap-2 rounded-lg border text-xs max-md:aspect-auto max-md:py-3",
+          "text-muted-foreground flex w-full items-center justify-center gap-2 rounded-lg border py-3 text-xs",
           className
         )}
         role="status"
