@@ -192,7 +192,8 @@ export const DeviceElements = ({
                 // Comment. The tooltip names it on hover and keyboard focus.
                 <Button
                   aria-label="Screen elements"
-                  className="@6xl:w-auto @6xl:px-2"
+                  // Wide: the same text button as Comment beside it.
+                  className="@6xl:w-auto @6xl:gap-1 @6xl:px-2.5 @6xl:text-xs @6xl:[&_svg:not([class*='size-'])]:size-3.5"
                   ref={trigger}
                   disabled={disabled || nodes.length === 0}
                   size="icon-sm"
