@@ -511,6 +511,8 @@ const usePlayback = () => {
       return;
     }
     const clamped = Math.min(durationMs, Math.max(0, ms));
+    // A seek shows a real frame, so the first-play cue has done its job.
+    setStarted(true);
     video.currentTime = clamped / 1000;
     setCurrentMs(clamped);
   };
@@ -647,7 +649,7 @@ const PlayerControls = ({
         </span>
       </span>
       {current === undefined ? null : (
-        <span className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block">
+        <span className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[28rem]:block">
           <ChapterName chapter={current} total={total} />
         </span>
       )}
@@ -798,10 +800,10 @@ const RunVideoPlayer = ({
           page; a cue in the well says the player is ready, not empty. The
           video itself takes the click.
         */}
-        {playback.started || playback.currentMs > 0 ? null : (
+        {playback.started ? null : (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 grid place-items-center"
+            className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
           >
             <span className="bg-card/90 text-card-foreground flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
               <PlayIcon className="size-3.5 fill-current" />

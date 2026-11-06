@@ -190,7 +190,7 @@ const CommentTrigger = ({
     <MessageSquareTextIcon aria-hidden="true" />
     <span className="hidden @md:inline">Comment</span>
     {count === 0 ? null : (
-      <span className="bg-muted text-muted-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-xs leading-none font-medium tabular-nums">
+      <span className="bg-muted text-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-xs leading-none font-medium tabular-nums">
         {count}
       </span>
     )}

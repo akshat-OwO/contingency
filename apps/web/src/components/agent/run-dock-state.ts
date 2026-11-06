@@ -165,7 +165,7 @@ const asSentence = (text: string): string => {
 
 /**
  * The status line. An open Execution Boundary card already says the action,
- * the task, and what Allow grants, so the line only points at it.
+ * the task, and what Allow grants, so only the badge stays beside it.
  */
 const statusSentence = (
   session: RunSessionSnapshot,
@@ -173,7 +173,7 @@ const statusSentence = (
 ) =>
   session.boundary === undefined || session.boundary === null
     ? sentences.join(" ")
-    : "Answer the request above to continue.";
+    : "";
 
 export const runDockPresentation = (
   session: RunSessionSnapshot,

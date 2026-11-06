@@ -462,6 +462,18 @@ const missingFields = (form: HTMLFormElement | null): readonly string[] =>
           : []
       );
 
+/**
+ * Scrolls a path field to its end. A long path's start is a folder; the .app
+ * name at its end is what identifies it. The browser returns an unfocused
+ * field to its start as focus leaves, so the scroll waits a frame.
+ */
+const restOnAppName = (field: HTMLInputElement) => {
+  field.title = field.value;
+  requestAnimationFrame(() => {
+    field.scrollLeft = field.scrollWidth;
+  });
+};
+
 const useAppIdentity = (
   form: React.RefObject<HTMLFormElement | null>,
   onFilled: () => void
@@ -508,8 +520,7 @@ const useAppIdentity = (
             // However the path was set, it rests on the .app name.
             const pathField = form.current?.elements.namedItem("path");
             if (pathField instanceof HTMLInputElement) {
-              pathField.title = pathField.value;
-              pathField.scrollLeft = pathField.scrollWidth;
+              restOnAppName(pathField);
             }
             for (const [name, filled] of [
               ["bundle", app.bundleId],
@@ -563,10 +574,7 @@ const IosTargetApp = ({
         name="path"
         onBlur={(event) => {
           const field = event.currentTarget;
-          // A long path keeps its start in view; the .app name at its end is
-          // what identifies it, so the field rests scrolled to the end.
-          field.title = field.value;
-          field.scrollLeft = field.scrollWidth;
+          restOnAppName(field);
           identity.read(field.value);
         }}
         placeholder="/path/to/App.app"
@@ -1221,7 +1229,7 @@ const IosSessionSelect = ({
 }) => (
   <NativeSelect
     aria-label="iOS Agent Session"
-    className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial"
+    className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial @4xl:max-w-96"
     onChange={(event) =>
       globalThis.location.assign(`/?ios=${event.currentTarget.value || "new"}`)
     }
