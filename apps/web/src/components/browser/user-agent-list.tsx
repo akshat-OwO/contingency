@@ -117,7 +117,7 @@ export const UserAgentList = ({
                 aria-disabled={disabled}
                 aria-selected={selected}
                 className={cn(
-                  "hover:bg-muted focus-visible:ring-ring/50 flex w-full cursor-default items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors outline-none focus-visible:ring-2 aria-disabled:pointer-events-none aria-disabled:opacity-50",
+                  "hover:bg-muted focus-visible:ring-ring flex w-full cursor-default items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors outline-none focus-visible:ring-2 aria-disabled:pointer-events-none aria-disabled:opacity-50",
                   selected && "bg-muted font-medium"
                 )}
                 key={profile.id}

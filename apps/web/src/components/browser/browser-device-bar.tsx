@@ -127,7 +127,7 @@ export const BrowserDeviceBar = ({
   return (
     <div
       aria-label="Device controls"
-      className="material-float pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-xl p-1 text-xs shadow-lg"
+      className="material-float pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-xl p-1 text-xs shadow-lg"
       role="toolbar"
     >
       <Select
@@ -141,7 +141,7 @@ export const BrowserDeviceBar = ({
       >
         <SelectTrigger
           aria-label="Device"
-          className="h-7 gap-1.5 border-transparent bg-transparent shadow-none dark:bg-transparent [&_svg:not([class*='size-'])]:size-3.5"
+          className="h-7 gap-1.5 border-transparent bg-transparent shadow-none dark:bg-transparent pointer-coarse:data-[size=sm]:h-9 [&_svg:not([class*='size-'])]:size-3.5"
           size="sm"
         >
           <DeviceIcon kind={kind} />

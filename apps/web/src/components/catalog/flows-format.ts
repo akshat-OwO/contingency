@@ -1,4 +1,5 @@
 import type {
+  AgentAssessmentOutcome,
   CatalogRecordingEntry,
   CatalogRunEntry,
 } from "@contingency/protocol";
@@ -19,9 +20,40 @@ const RUN_KIND: Record<CatalogRunEntry["kind"], string> = {
 export const runKindLabel = (run: CatalogRunEntry): string =>
   RUN_KIND[run.kind];
 
-/** What a Run reports for itself when it has no Agent Assessment. */
+const ASSESSMENT = {
+  blocked: "Blocked",
+  inconclusive: "Inconclusive",
+  "not-working": "Not working",
+  working: "Working",
+} as const;
+
+/** An Agent Assessment outcome in words. */
+export const assessmentLabel = (outcome: AgentAssessmentOutcome): string =>
+  ASSESSMENT[outcome];
+
+const OUTCOME = new Map([
+  ["completed", "Unassessed"],
+  ["crashed", "Crashed"],
+  ["interrupted", "Interrupted"],
+  ["process-exited", "Agent process exited"],
+  ["timed-out", "Timed out"],
+  ["user-closed", "Closed by user"],
+]);
+
+/** An outcome code nobody named yet, said as words. */
+const words = (code: string) => {
+  const text = code.replaceAll(/[_-]+/gu, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+/**
+ * What a Run reports for itself, in words: its Agent Assessment, or how it
+ * ended when the agent never assessed it.
+ */
 export const runVerdict = (run: CatalogRunEntry): string =>
-  run.assessment ?? run.outcome;
+  run.assessment === null
+    ? (OUTCOME.get(run.outcome) ?? words(run.outcome))
+    : ASSESSMENT[run.assessment];
 
 /** The dock's own badge names for each Teaching capture state. */
 const PHASE = new Map([

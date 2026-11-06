@@ -9,6 +9,8 @@ import type {
 
 import {
   dryRunChecksPass,
+  dryRunFailureSentence,
+  dryRunMissedOnlyQualifiers,
   isTaskDryRunSummary,
 } from "@/components/agent/dry-run-summary-state";
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
@@ -63,6 +65,8 @@ export interface TeachingRecordingPresentation {
    * details button so the dock itself stays one row (#297).
    */
   readonly nextStep: string;
+  /** Files a failed cleanup left on disk, shown on their own line. */
+  readonly retainedFiles?: readonly string[];
   /** The secondary actions beside the primary one, in dock order. */
   readonly secondaries: readonly TeachingSecondaryAction[];
   /** Whether this state shows a live elapsed timer. */
@@ -92,6 +96,29 @@ const action = (
   gesture: TeachingRecordingGesture,
   label: string
 ): TeachingRecordingAction => ({ accessibleName: label, gesture, label });
+
+/** Why a task Dry Run missed its pass rule, when its record says. */
+const dryRunMissSentence = (
+  summary: AgentRunSummary | undefined,
+  fallback: string
+): string =>
+  (summary !== undefined && isTaskDryRunSummary(summary)
+    ? dryRunFailureSentence(summary)
+    : undefined) ?? fallback;
+
+/**
+ * The dock's badge for a Dry Run that cannot verify. One that only missed how
+ * it was attempted did not pass, but is not a broken journey, so it is not
+ * shown in the failure tone; the Summary says the same.
+ */
+const dryRunMissBadge = (
+  summary: AgentRunSummary | undefined
+): { readonly badge: string; readonly tone: "default" | "failed" } =>
+  summary !== undefined &&
+  isTaskDryRunSummary(summary) &&
+  dryRunMissedOnlyQualifiers(summary)
+    ? { badge: "Dry run did not pass", tone: "default" }
+    : { badge: "Dry run failed", tone: "failed" };
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
 const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
@@ -237,25 +264,28 @@ export const teachingRecordingPresentation = (
     case "dry-run-failed": {
       return {
         action: null,
-        badge: "Dry run failed",
-        nextStep: captureState.dryRunResult.observableOutcome,
+        ...dryRunMissBadge(captureState.dryRunSummary),
+        nextStep: dryRunMissSentence(
+          captureState.dryRunSummary,
+          captureState.dryRunResult.observableOutcome
+        ),
         secondaries: [],
         showsElapsed: false,
         showsInspect: true,
-        tone: "failed",
       };
     }
     case "dry-run-passed": {
       if (!canVerifyDryRun(captureState.dryRunSummary)) {
         return {
           action: null,
-          badge: "Dry run failed",
-          nextStep:
-            "This attempt cannot verify the flow. Ask your agent to complete a fresh Dry Run without Takeover.",
+          ...dryRunMissBadge(captureState.dryRunSummary),
+          nextStep: `${dryRunMissSentence(
+            captureState.dryRunSummary,
+            "This attempt cannot verify the flow."
+          )} Ask your agent for a fresh Dry Run.`,
           secondaries: ["reject-flow"],
           showsElapsed: false,
           showsInspect: true,
-          tone: "failed",
         };
       }
       return {
@@ -273,8 +303,11 @@ export const teachingRecordingPresentation = (
       if (cleanup?._tag === "purge-pending" && cleanup.failure !== null) {
         return {
           action: action("retry-cleanup", "Retry cleanup"),
-          badge: "Video and trace still on disk",
-          nextStep: `${cleanup.retainedFiles.join(", ")} could not be deleted. Retry the deletion.`,
+          badge: "Cleanup failed",
+          nextStep: "The flow is verified. Retry to delete the recording.",
+          // Paths are long; they wrap on their own line, never clamped into
+          // the sentence.
+          retainedFiles: cleanup.retainedFiles,
           secondaries: [],
           showsElapsed: false,
           showsInspect: false,

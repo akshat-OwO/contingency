@@ -20,10 +20,12 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { HighlightedCode } from "@/components/browser/highlighted-code";
 import type { FlowsSelection } from "@/components/catalog/flows-drawer-state";
 import { flowsSelectionAtom } from "@/components/catalog/flows-drawer-state";
 import {
+  assessmentLabel,
   recordingPhaseLabel,
   runDuration,
   runKindLabel,
@@ -236,6 +238,40 @@ const FlowDetail = ({
   return <FlowPackage scope={scope} flow={result.value} />;
 };
 
+/**
+ * The findings the agent recorded beside its assessment, each with its
+ * outcome, so a "Working" badge is never read without them.
+ */
+const RunFindings = ({
+  findings,
+}: {
+  readonly findings: NonNullable<CatalogRunEntry["findings"]>;
+}) =>
+  findings.length === 0 ? null : (
+    <section aria-label="Findings" className="space-y-1.5 pt-1">
+      <h3 className="text-muted-foreground text-xs font-medium">
+        {findings.length === 1 ? "1 finding" : `${findings.length} findings`}
+      </h3>
+      <ul className="space-y-1.5">
+        {findings.map((finding) => (
+          <li className="flex items-start gap-2 text-sm" key={finding.id}>
+            <Badge
+              className="shrink-0"
+              variant={
+                finding.outcome === "not-working" ? "destructive" : "secondary"
+              }
+            >
+              {assessmentLabel(finding.outcome)}
+            </Badge>
+            <span className="min-w-0 text-pretty wrap-anywhere">
+              {finding.explanation}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
 const RunDetail = ({
   run,
   scope,
@@ -251,7 +287,7 @@ const RunDetail = ({
             run.assessment === "not-working" ? "destructive" : "secondary"
           }
         >
-          <OutcomeDot outcome={run.assessment} />
+          <OutcomeDot run={run} />
           {runVerdict(run)}
         </Badge>
         <Badge variant="outline">{runKindLabel(run)}</Badge>
@@ -259,9 +295,17 @@ const RunDetail = ({
       </div>
       <h2 className="text-base leading-snug font-semibold">{run.title}</h2>
       <p className="text-muted-foreground text-xs">
-        {when(run.startedAt)} · {runDuration(run)} ·{" "}
-        <span className="font-mono">{run.runId}</span>
+        {when(run.startedAt)} · {runDuration(run)}
       </p>
+      {/*
+        What the agent concluded, so a "Working" badge beside a failing
+        finding is not read on its own.
+      */}
+      {run.explanation === undefined ? null : (
+        <p className="text-sm text-pretty wrap-anywhere">{run.explanation}</p>
+      )}
+      <RunFindings findings={run.findings ?? []} />
+      <EvidenceReference id={run.runId} kind="Run ID" />
     </header>
     <Section title="Flows">
       {run.flowNames.length === 0 ? (
@@ -291,7 +335,13 @@ const RunDetail = ({
         <ExternalLinkIcon aria-hidden="true" />
         Open Run Summary
       </a>
-    ) : null}
+    ) : (
+      <p className="text-muted-foreground text-xs text-pretty">
+        {run.kind === "dry-run"
+          ? "A Dry Run's evidence stays with its recording. Copy the Run ID above and ask your agent to open that Run."
+          : "This Run belongs to another Catalog Root. Open it from a Workspace that uses that root."}
+      </p>
+    )}
   </article>
 );
 

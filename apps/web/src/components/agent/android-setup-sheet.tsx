@@ -68,6 +68,21 @@ interface SetupForm {
   readonly start: Condition;
 }
 
+/**
+ * The device the sheet sets up: the one the person picked, or, with exactly
+ * one ready device, that one, since there is nothing to choose.
+ */
+const chosenSerial = (
+  listed: readonly AndroidDiscoveredDevice[],
+  picked: string | null
+): string | null => {
+  if (picked !== null) {
+    return picked;
+  }
+  const ready = listed.filter((entry) => unavailableReason(entry) === null);
+  return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
+};
+
 const INITIAL_FORM: SetupForm = {
   app: null,
   device: null,
@@ -126,19 +141,27 @@ const Step = ({
   disabled = false,
   index,
   title,
+  waitingFor,
 }: {
   readonly children: React.ReactNode;
   readonly done: boolean;
   readonly disabled?: boolean;
   readonly index: number;
   readonly title: string;
+  /** What unlocks this step, said while it is disabled. */
+  readonly waitingFor?: string;
 }) => (
   <fieldset
     aria-label={title}
     disabled={disabled}
-    className={cn("min-w-0 space-y-2", disabled && "opacity-40")}
+    className="min-w-0 space-y-2"
   >
-    <h3 className="flex items-center gap-2 text-sm font-medium">
+    <h3
+      className={cn(
+        "flex items-center gap-2 text-sm font-medium",
+        disabled && "text-muted-foreground"
+      )}
+    >
       <span
         aria-hidden="true"
         className={cn(
@@ -150,7 +173,18 @@ const Step = ({
       </span>
       {title}
     </h3>
-    <div className="pl-7">{children}</div>
+    {/*
+      An unavailable step keeps its heading and words readable and says what
+      unlocks it; only its controls dim, through their own disabled styles.
+    */}
+    <div className="space-y-2 pl-7">
+      {/* A locked step says what unlocks it instead of showing dead inputs. */}
+      {disabled && waitingFor !== undefined ? (
+        <p className="text-muted-foreground text-xs">{waitingFor}</p>
+      ) : (
+        children
+      )}
+    </div>
   </fieldset>
 );
 
@@ -165,8 +199,13 @@ const ConditionInput = ({
   readonly placeholder: string;
   readonly value: Condition;
 }) => (
+  // Visible Role and Element captions, as on iOS; each control keeps its
+  // full accessible name, which contains the caption.
   <div className="flex gap-1.5">
-    <div className="w-28 shrink-0">
+    <div className="w-28 shrink-0 space-y-1">
+      <span aria-hidden="true" className="block text-xs font-medium">
+        Role
+      </span>
       <Choice
         label={`${label} role`}
         value={value.role}
@@ -174,14 +213,19 @@ const ConditionInput = ({
         onChange={(role) => onChange({ ...value, role })}
       />
     </div>
-    <Input
-      aria-label={label}
-      onChange={(event) =>
-        onChange({ ...value, name: event.currentTarget.value })
-      }
-      placeholder={placeholder}
-      value={value.name}
-    />
+    <div className="min-w-0 flex-1 space-y-1">
+      <span aria-hidden="true" className="block text-xs font-medium">
+        Element
+      </span>
+      <Input
+        aria-label={label}
+        onChange={(event) =>
+          onChange({ ...value, name: event.currentTarget.value })
+        }
+        placeholder={placeholder}
+        value={value.name}
+      />
+    </div>
   </div>
 );
 
@@ -220,6 +264,106 @@ const useRead = <Value,>(
   return result;
 };
 
+const DeviceCard = ({
+  device,
+  onSelect,
+  selected,
+}: {
+  readonly device: AndroidDiscoveredDevice;
+  readonly onSelect: (serial: string) => void;
+  readonly selected: boolean;
+}) => {
+  const reason = unavailableReason(device);
+  const Icon =
+    device.kind === "physical" ? TabletSmartphoneIcon : SmartphoneIcon;
+  return (
+    <button
+      aria-pressed={selected}
+      className={cn(
+        "hover:bg-muted/50 min-w-0 rounded-lg border p-2.5 text-left transition-[background-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
+        selected && "border-primary ring-primary/20 ring-2"
+      )}
+      disabled={reason !== null}
+      onClick={() => onSelect(device.serial)}
+      type="button"
+    >
+      <span className="mb-1 flex items-center justify-between">
+        <Icon aria-hidden="true" className="size-4" />
+        <Badge variant="outline">
+          {device.kind === "physical" ? "Phone" : "Emulator"}
+        </Badge>
+      </span>
+      <span className="block truncate text-sm font-medium">
+        {device.kind === "physical"
+          ? (device.model ?? device.serial)
+          : (device.avd ?? device.serial)}
+      </span>
+      <span className="text-muted-foreground block text-xs">
+        {reason ?? `${device.serial} · API ${device.api}`}
+      </span>
+    </button>
+  );
+};
+
+/**
+ * Devices that can be picked come first. The rest fold under a count, so a
+ * list of stopped emulators never pushes the Target App off the first screen,
+ * and each keeps its reason when opened.
+ */
+const DeviceChoices = ({
+  devices,
+  onSelect,
+  selected,
+}: {
+  readonly devices: readonly AndroidDiscoveredDevice[];
+  readonly onSelect: (serial: string) => void;
+  readonly selected: string | null;
+}) => {
+  const ready = devices.filter((device) => unavailableReason(device) === null);
+  const unavailable = devices.filter(
+    (device) => unavailableReason(device) !== null
+  );
+  return (
+    <div className="space-y-2">
+      {ready.length === 0 ? (
+        <p className="text-muted-foreground text-xs">
+          No device is ready. Start an emulator or connect a phone, then
+          refresh.
+        </p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {ready.map((device) => (
+            <DeviceCard
+              device={device}
+              key={device.serial}
+              onSelect={onSelect}
+              selected={selected === device.serial}
+            />
+          ))}
+        </div>
+      )}
+      {unavailable.length === 0 ? null : (
+        <details className="group">
+          <summary className="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs">
+            {unavailable.length} unavailable{" "}
+            {unavailable.length === 1 ? "device" : "devices"}
+          </summary>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {unavailable.map((device) => (
+              <DeviceCard
+                device={device}
+                key={device.serial}
+                onSelect={onSelect}
+                selected={false}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+};
+
 const DeviceStep = ({
   devices,
   onRefresh,
@@ -250,42 +394,11 @@ const DeviceStep = ({
       </p>
     ) : null}
     {devices._tag === "loaded" && devices.value.length > 0 ? (
-      <div className="grid grid-cols-2 gap-2">
-        {devices.value.map((device) => {
-          const reason = unavailableReason(device);
-          const Icon =
-            device.kind === "physical" ? TabletSmartphoneIcon : SmartphoneIcon;
-          return (
-            <button
-              aria-pressed={selected === device.serial}
-              className={cn(
-                "hover:bg-muted/50 rounded-lg border p-2.5 text-left transition-[background-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
-                selected === device.serial &&
-                  "border-primary ring-primary/20 ring-2"
-              )}
-              disabled={reason !== null}
-              key={device.serial}
-              onClick={() => onSelect(device.serial)}
-              type="button"
-            >
-              <span className="mb-1 flex items-center justify-between">
-                <Icon aria-hidden="true" className="size-4" />
-                <Badge variant="outline">
-                  {device.kind === "physical" ? "Phone" : "Emulator"}
-                </Badge>
-              </span>
-              <span className="block truncate text-sm font-medium">
-                {device.kind === "physical"
-                  ? (device.model ?? device.serial)
-                  : (device.avd ?? device.serial)}
-              </span>
-              <span className="text-muted-foreground block text-xs">
-                {reason ?? `${device.serial} · API ${device.api}`}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <DeviceChoices
+        devices={devices.value}
+        onSelect={onSelect}
+        selected={selected}
+      />
     ) : null}
     <Button onClick={onRefresh} size="xs" variant="ghost">
       <RefreshCwIcon />
@@ -468,6 +581,32 @@ const androidSetupDiscovery = {
   devices: listAndroidDevices,
 };
 
+/** What the sheet still needs, said once beside the disabled submit. */
+const setupMissing = ({
+  app,
+  conditionsReady,
+  device,
+  validName,
+}: {
+  readonly app: unknown;
+  readonly conditionsReady: boolean;
+  readonly device: unknown;
+  readonly validName: boolean;
+}): string => {
+  if (!validName) {
+    return "Name the Flow to continue.";
+  }
+  if (device === null) {
+    return "Choose a running device to continue.";
+  }
+  if (app === undefined) {
+    return "Choose the Target App to continue.";
+  }
+  return conditionsReady
+    ? "Finish the setup above to continue."
+    : "Name the starting and done elements to continue.";
+};
+
 export const AndroidSetupSheet = ({
   discovery = androidSetupDiscovery,
   onOpen,
@@ -492,10 +631,9 @@ export const AndroidSetupSheet = ({
     open ? discovery.devices : null,
     `${open}-${refresh}`
   );
-  const discovered =
-    devices._tag === "loaded"
-      ? devices.value.find((entry) => entry.serial === form.device)
-      : undefined;
+  const listed = devices._tag === "loaded" ? devices.value : [];
+  const chosen = chosenSerial(listed, form.device);
+  const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
   const loadedApps = useRead(
@@ -552,7 +690,7 @@ export const AndroidSetupSheet = ({
             });
           }}
         >
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-4">
+          <div className="min-h-0 flex-1 scroll-pb-8 space-y-6 overflow-y-auto px-4 pb-8">
             <label className="grid gap-1.5 text-sm font-medium">
               Flow name
               <Input
@@ -578,7 +716,7 @@ export const AndroidSetupSheet = ({
                     start: INITIAL_FORM.start,
                   }))
                 }
-                selected={form.device}
+                selected={chosen}
               />
             </Step>
             <Step
@@ -586,6 +724,7 @@ export const AndroidSetupSheet = ({
               done={app !== undefined}
               index={2}
               title="Target App"
+              waitingFor="Choose a device to list its apps."
             >
               <AppStep
                 apps={apps}
@@ -606,47 +745,56 @@ export const AndroidSetupSheet = ({
               />
             </Step>
             <Step
-              done={conditionsReady}
+              done={form.start.name.trim() !== ""}
               disabled={app === undefined}
               index={3}
               title="Starting screen"
+              waitingFor="Choose the Target App first."
             >
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    An element that is on screen when{" "}
-                    {app === undefined ? "the app" : app.label || app.package}{" "}
-                    opens. Preparing checks it before you record.
-                  </p>
-                  <ConditionInput
-                    label="Starting screen element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, start: value }))
-                    }
-                    placeholder="Sign in"
-                    value={form.start}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    And one that shows the journey worked.
-                  </p>
-                  <ConditionInput
-                    label="Done when element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, outcome: value }))
-                    }
-                    placeholder="Order confirmed"
-                    value={form.outcome}
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground text-xs">
+                  An element that is on screen when{" "}
+                  {app === undefined ? "the app" : app.label || app.package}{" "}
+                  opens. Preparing checks it before you record.
+                </p>
+                <ConditionInput
+                  label="Starting screen element"
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, start: value }))
+                  }
+                  placeholder="Sign in"
+                  value={form.start}
+                />
+              </div>
+            </Step>
+            <Step
+              done={form.outcome.name.trim() !== ""}
+              disabled={app === undefined}
+              index={4}
+              title="Done when"
+              waitingFor="Choose the Target App first."
+            >
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground text-xs">
+                  An element that shows the journey worked.
+                </p>
+                <ConditionInput
+                  label="Done when element"
+                  onChange={(value) =>
+                    setForm((current) => ({ ...current, outcome: value }))
+                  }
+                  placeholder="Order confirmed"
+                  value={form.outcome}
+                />
               </div>
             </Step>
             <Step
               disabled={app === undefined || !conditionsReady}
-              done={false}
-              index={4}
+              // Every choice here has a default, so it is done once open.
+              done={app !== undefined && conditionsReady}
+              index={5}
               title="Permissions and setup"
+              waitingFor="Name the starting and done-when elements first."
             >
               <AndroidPermissionFields
                 value={form.permissions}
@@ -675,8 +823,17 @@ export const AndroidSetupSheet = ({
             </Step>
           </div>
         </form>
-        <SheetFooter className="flex-row justify-end border-t">
+        <SheetFooter className="flex-row items-center justify-end gap-3 border-t">
+          {ready ? null : (
+            <p
+              className="text-muted-foreground mr-auto text-xs"
+              id="android-setup-missing"
+            >
+              {setupMissing({ app, conditionsReady, device, validName })}
+            </p>
+          )}
           <Button
+            aria-describedby={ready ? undefined : "android-setup-missing"}
             disabled={!ready || pending}
             form="android-setup"
             type="submit"

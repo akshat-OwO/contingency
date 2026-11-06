@@ -9,7 +9,7 @@ import {
   ScrollTextIcon,
   TimerIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { agentControlPresentation } from "@/components/agent/agent-workspace-state";
 import type {
@@ -193,26 +193,41 @@ const TaskDetails = ({
 }: {
   readonly run: TaskAgentRunState;
   readonly title: string;
-}) => (
-  <Popover>
-    <PopoverTrigger
-      render={(props) => (
-        <Button {...props} aria-label="Task details" size="sm" variant="ghost">
-          <ScrollTextIcon aria-hidden="true" />
-          <span className="hidden @xl:inline">Task details</span>
-        </Button>
-      )}
-    />
-    <PopoverContent
-      align="end"
-      side="top"
-      className="max-h-[60svh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
-    >
-      <PopoverTitle>{title}</PopoverTitle>
-      <TaskRunDetails run={run} />
-    </PopoverContent>
-  </Popover>
-);
+}) => {
+  const trigger = useRef<HTMLButtonElement>(null);
+  return (
+    <Popover>
+      <PopoverTrigger
+        ref={trigger}
+        render={(props) => (
+          <Button
+            {...props}
+            aria-label="Task details"
+            size="sm"
+            variant="ghost"
+          >
+            <ScrollTextIcon aria-hidden="true" />
+            <span className="hidden @xl:inline">Task details</span>
+          </Button>
+        )}
+      />
+      {/*
+      The details open above the whole dock rather than over its status
+      line, so what the agent is doing stays readable beside them.
+    */}
+      <PopoverContent
+        align="end"
+        anchor={() => trigger.current?.closest("section") ?? null}
+        side="top"
+        sideOffset={8}
+        className="max-h-[min(60svh,32rem)] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto"
+      >
+        <PopoverTitle>{title}</PopoverTitle>
+        <TaskRunDetails run={run} />
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 /**
  * The Workspace dock for a Dry Run and an Interactive Run, on the same

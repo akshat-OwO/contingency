@@ -758,6 +758,8 @@ it.effect(
           )
         );
         expect(Result.isFailure(denied)).toBe(true);
+        const shot = yield* workspace.keyframes(prepared.id);
+        expect(shot?.keyframes.length).toBeGreaterThan(0);
         const verified = yield* workspace.execute(
           {
             _tag: "flow-decision",
@@ -769,6 +771,21 @@ it.effect(
         );
         expect(verified.cleanup?._tag).toBe("purged");
         expect(verified.observation).toBeNull();
+        // Cleanup deletes the Dry Run's screens but not what they were, so
+        // its Run Summary can say they were deleted, here and after restart.
+        const purgedShots = yield* workspace.keyframes(prepared.id);
+        expect(purgedShots?.keyframes).toEqual(shot?.keyframes);
+        for (const keyframe of shot?.keyframes ?? []) {
+          expect(
+            yield* fs.exists(path.resolve(shot?.directory ?? "", keyframe.path))
+          ).toBe(false);
+        }
+        const reopenedShots = yield* Effect.scoped(
+          Effect.flatMap(restart(), (fresh) => fresh.keyframes(prepared.id))
+        );
+        expect(reopenedShots?.keyframes.map(({ hash }) => hash)).toEqual(
+          shot?.keyframes.map(({ hash }) => hash)
+        );
         const reopened = yield* Effect.scoped(
           Effect.flatMap(restart(), (fresh) =>
             fresh.execute({ _tag: "read", sessionId: prepared.id }, "agent")
@@ -1764,6 +1781,17 @@ it.effect(
             path.join(root, ".android-workspace", `${run.id}.json`)
           );
           expect(summary).not.toContain(sentinel);
+          // The keyframes outlive the process beside the summary, and carry
+          // no private value.
+          const index = yield* fs.readFileString(
+            path.join(root, ".android-workspace", `${run.id}.keyframes.json`)
+          );
+          expect(index).not.toContain(sentinel);
+          const kept = JSON.parse(index);
+          expect(kept.keyframes.length).toBeGreaterThan(0);
+          expect(yield* workspace.keyframes(run.id)).toMatchObject({
+            directory: kept.directory,
+          });
         }
         expect(calls).toEqual(["private", "private", "private"]);
       })

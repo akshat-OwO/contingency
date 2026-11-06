@@ -18,6 +18,16 @@ const domainApprovalSummary = (session: AgentSessionSnapshot): string =>
     ? "Allowing this exact host adds it to this Guided Run and the saved Flow's Domain Scope."
     : "Allowing this exact host covers this Run. The saved Domain Scope stays unchanged.";
 
+/** What Allow grants for this boundary, or why it cannot be given now. */
+const boundaryScope = (session: AgentSessionSnapshot, reason: string) => {
+  if (session.controller === "user") {
+    return "You hold the browser, so this can only be refused now. Return control to allow it.";
+  }
+  return reason === "domain"
+    ? domainApprovalSummary(session)
+    : "Allow permits this exact attempt once; a retry asks again.";
+};
+
 /** The user resolves the exact pending boundary in the Workspace dock. */
 export const ExecutionBoundary = ({
   collapse,
@@ -77,6 +87,7 @@ export const ExecutionBoundary = ({
       });
     }
   };
+  const scope = boundaryScope(session, boundary.reason);
   return (
     <section aria-label="Execution Boundary" className="space-y-1.5">
       <RequestHeader
@@ -102,19 +113,26 @@ export const ExecutionBoundary = ({
         }
         title={boundaryTitle[boundary.reason]}
       />
+      {/*
+        While the person holds the browser the constraint is the news: Allow
+        is off until they return control, so it leads.
+      */}
+      {session.controller === "user" ? (
+        <p className="text-xs font-medium text-pretty">{scope}</p>
+      ) : null}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-sm text-pretty wrap-anywhere">
-            {boundary.requested}
-          </p>
           {/*
-        The description often repeats the request word for word; a second
-        identical line reads as a rendering bug, so it shows only when it adds
-        something.
-      */}
-          {boundary.description === boundary.requested ? null : (
+            The concrete action leads: it is what Allow permits. What was
+            requested (the task, or the address asked for) follows, and only
+            when the action does not already say it ("Navigate to <url>").
+          */}
+          <p className="text-sm text-pretty wrap-anywhere">
+            {boundary.description}
+          </p>
+          {boundary.description.includes(boundary.requested) ? null : (
             <p className="text-muted-foreground text-xs text-pretty wrap-anywhere">
-              {boundary.description}
+              {boundary.requested}
             </p>
           )}
         </div>
@@ -161,20 +179,15 @@ export const ExecutionBoundary = ({
           <pre className="bg-muted/60 max-h-28 overflow-auto rounded-md p-2 font-mono">
             {JSON.stringify(boundary.action, null, 2)}
           </pre>
-          <p className="text-muted-foreground text-pretty">
-            {boundary.reason === "domain"
-              ? domainApprovalSummary(session)
-              : "Allowing permits this exact action attempt once. A retry with a new operation id needs another decision."}{" "}
-            Take control remains available. Return control before allowing an
-            agent attempt.
-          </p>
         </div>
       ) : null}
-      {session.controller === "user" ? (
-        <p className="text-muted-foreground text-xs">
-          Return control before allowing this action. You can still refuse it.
-        </p>
-      ) : null}
+      {/*
+        What Allow grants is part of the decision, so it stays visible beside
+        the buttons; only the attempt id and its payload wait behind details.
+      */}
+      {session.controller === "user" ? null : (
+        <p className="text-muted-foreground text-xs text-pretty">{scope}</p>
+      )}
       {state.error === "" ? null : (
         <p role="alert" className="text-destructive text-xs">
           {state.error}

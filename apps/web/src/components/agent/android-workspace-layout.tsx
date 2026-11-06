@@ -10,6 +10,7 @@ import {
   flowsSelectionAtom,
 } from "@/components/catalog/flows-drawer-state";
 import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
+import { useLatestDefined } from "@/hooks/use-latest-defined";
 
 /**
  * The Workspace between the Flows drawer on its left and, on its right,
@@ -50,9 +51,10 @@ export const WorkspaceLayout = ({
   }, [allowed, setOpen, setSelection]);
   const drawerOpen = open && allowed;
   const details = drawerOpen && selection !== null ? selection : null;
+  const shownLabel = useLatestDefined(summary?.label, "Run Summary");
   return (
     <WorkspaceWithRunSummary
-      label={details === null ? (summary?.label ?? "Run Summary") : "Details"}
+      label={details === null ? shownLabel : "Details"}
       leading={
         drawerOpen
           ? {
@@ -67,6 +69,7 @@ export const WorkspaceLayout = ({
             }
           : null
       }
+      leadingYieldsOnMobile={details !== null}
       onCloseSummary={
         details === null
           ? undefined

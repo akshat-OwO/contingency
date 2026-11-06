@@ -2,6 +2,7 @@ import { AgentSessionId, FlowName } from "@contingency/protocol";
 import type { AndroidWorkspaceSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { parseAndroidPermissionDecisions } from "@/components/agent/android-setup-state";
@@ -134,6 +135,7 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
       height: 800,
       id: "observed",
       image: null,
+      nodes: [],
       width: 360,
     },
     phase: "running",
@@ -151,6 +153,8 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
       dismissedField: null,
       failure: null,
       instructing: false,
+      instructionPending: false,
+      refusalDismissed: false,
       session,
       setupOpen: false,
     },
@@ -176,4 +180,72 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
       observationId: "observed",
     })
   );
+});
+
+test("a refused pick is said in the dock and set aside while commenting", async () => {
+  const user = userEvent.setup();
+  const session: AndroidWorkspaceSnapshot = {
+    ...completed,
+    captureState: { _tag: "recording", startedAt: "2026-10-15T00:00:00.000Z" },
+    completedAt: null,
+    id: AgentSessionId.make("agent-refused-pick"),
+    kind: "teaching",
+    observation: {
+      capturedAt: "",
+      height: 800,
+      id: "observed",
+      image: null,
+      nodes: [
+        {
+          bounds: { height: 40, width: 200, x: 80, y: 100 },
+          covered: false,
+          editable: false,
+          name: "Banner",
+          password: false,
+          role: "text",
+          target: "@e1",
+        },
+      ],
+      width: 360,
+    },
+    phase: "running",
+  };
+  const state = {
+    dismissedField: null,
+    failure: null,
+    instructing: false,
+    instructionPending: false,
+    refusalDismissed: false,
+    session,
+    setupOpen: false,
+  };
+  const props = {
+    mutate: vi.fn(),
+    notices: null,
+    onBrowser: vi.fn(),
+    pending: false,
+    run: vi.fn(() =>
+      Effect.fail("Nothing to activate there. No input was sent.")
+    ),
+    session,
+    setState: vi.fn(),
+    state,
+  };
+  const view = render(<AndroidSessionView {...props} />);
+  await user.click(screen.getByRole("button", { name: "Screen elements" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Activate Banner" })
+  );
+  const dock = screen.getByRole("region", { name: "Workspace dock" });
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Nothing to activate there. No input was sent."
+  );
+  expect(dock).toContainElement(screen.getByRole("alert"));
+  view.rerender(
+    <AndroidSessionView
+      {...props}
+      state={{ ...state, instructing: true, refusalDismissed: true }}
+    />
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
 });

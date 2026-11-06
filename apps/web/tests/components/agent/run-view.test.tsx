@@ -4,7 +4,13 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cause } from "effect";
 import { Atom } from "effect/reactivity";
@@ -197,7 +203,12 @@ test("copies the video's path on this machine", async () => {
     </TestRegistry>
   );
   const player = screen.getByRole("group", { name: "Run video player" });
-  expect(within(player).getByText("/runs/agentrun-one/run.webm")).toBeVisible();
+  // The path shows the Run's folder and file; the title holds all of it,
+  // and the file name stays whole when the folder gives way.
+  expect(
+    within(player).getByTitle("/runs/agentrun-one/run.webm")
+  ).toHaveTextContent("…/agentrun-one/");
+  expect(within(player).getByText("run.webm")).toBeVisible();
   await user.click(
     within(player).getByRole("button", { name: "Copy video path" })
   );
@@ -253,9 +264,7 @@ test("keeps every control but the file path in fullscreen", async () => {
     await user.click(
       within(player).getByRole("button", { name: "Exit fullscreen" })
     );
-    expect(
-      within(player).getByText("/runs/agentrun-one/run.webm")
-    ).toBeVisible();
+    expect(within(player).getByText("run.webm")).toBeVisible();
   } finally {
     Reflect.deleteProperty(document, "fullscreenElement");
     Reflect.deleteProperty(document, "exitFullscreen");
@@ -274,7 +283,12 @@ test("says the video is being prepared until it is condensed", () => {
       <RunSummaryView summary={asSummary} />
     </TestRegistry>
   );
-  expect(screen.getByRole("status")).toHaveTextContent("Preparing video…");
+  // The Run ID's copy button keeps its own, empty, status region.
+  expect(
+    screen
+      .getAllByRole("status")
+      .some((status) => status.textContent?.includes("Preparing video…"))
+  ).toBe(true);
   expect(screen.queryByLabelText("Recorded Run video")).toBeNull();
 });
 
@@ -320,7 +334,7 @@ test("opens persisted Run evidence in the Workspace route without a live session
       "A read-only view of persisted evidence. No browser was reopened."
     )
   ).toBeVisible();
-  expect(screen.getByText("ended-early")).toBeVisible();
+  expect(screen.getByText("Ended early")).toBeVisible();
   expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
     "aria-current",
     "page"
@@ -393,7 +407,7 @@ const taskSummary = {
 test("shows a completed task separately from its assessment and evidence-backed findings", () => {
   render(<RunSummaryView summary={taskSummary} />);
   expect(screen.getByText("Execution outcome")).toBeVisible();
-  expect(screen.getByText("completed")).toBeVisible();
+  expect(screen.getByText("Completed")).toBeVisible();
   expect(screen.getByText(taskSummary.requestedTask)).toBeVisible();
   expect(screen.getByText("Leave the cart open instead.")).toBeVisible();
   expect(
@@ -451,7 +465,7 @@ test("shows closure without inventing a task assessment", () => {
       summary={{ ...taskSummary, assessment: null, outcome: "user-closed" }}
     />
   );
-  expect(screen.getByText("user-closed")).toBeVisible();
+  expect(screen.getByText("Closed by user")).toBeVisible();
   expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
 });
 
@@ -539,7 +553,10 @@ test("names the failed check for an incomplete Dry Run with Takeover", () => {
       }}
     />
   );
-  expect(screen.getByText("Dry Run failed")).toBeVisible();
+  // A working journey that only missed how it was attempted did not pass,
+  // and is not shown as a broken one.
+  expect(screen.getByText("Dry Run did not pass")).toBeVisible();
+  expect(screen.queryByText("Dry Run failed")).toBeNull();
   expect(checkRow("Full outcome attempted")).toHaveTextContent("No");
   expect(
     within(checkRow("Full outcome attempted")).getByLabelText("Failed")
@@ -663,7 +680,15 @@ test("offers user verification only for a completed working Dry Run with a compl
       dryRunSummary: invalidSummary,
     });
     expect(presentation.action).toBeNull();
-    expect(presentation.tone).toBe("failed");
+    // Missing only how it was attempted (outcome not complete, or a
+    // Takeover) did not pass, but is not shown as a broken journey.
+    const qualifierOnly =
+      invalidSummary.purpose.takeoverOccurred ||
+      invalidSummary.assessment?.outcomeComplete === false;
+    expect(presentation.badge).toBe(
+      qualifierOnly ? "Dry run did not pass" : "Dry run failed"
+    );
+    expect(presentation.tone).toBe(qualifierOnly ? "default" : "failed");
   }
 });
 
@@ -679,7 +704,7 @@ test("lays an Interactive Run out like a Dry Run, with the assessment as its ver
     "/agent-runs/agentrun-one/video"
   );
   expect(
-    within(screen.getByRole("region", { name: "Run video" })).getByText(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
       "Working"
     )
   ).toBeVisible();
@@ -706,10 +731,34 @@ test("never reads an Interactive Run that ended unassessed as a pass", () => {
     />
   );
   expect(
-    within(screen.getByRole("region", { name: "Run video" })).getByText(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
       "Closed by user"
     )
   ).toBeVisible();
   expect(screen.queryByText("Working")).toBeNull();
   expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
+});
+
+test("steps a short clip by tenths and cues the first play", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  render(
+    <TestRegistry>
+      <RunSummaryView summary={asSummary} />
+    </TestRegistry>
+  );
+  const video = screen.getByLabelText<HTMLVideoElement>("Recorded Run video");
+  // A blank first frame is explained until the Run is played.
+  expect(screen.getByText("Play to watch the Run")).toBeVisible();
+  Object.defineProperty(video, "duration", { configurable: true, value: 4 });
+  fireEvent.loadedMetadata(video);
+  const seek = screen.getByRole("slider", { name: "Seek" });
+  expect(seek).toHaveAttribute("aria-valuemax", "4");
+  seek.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(seek).toHaveAttribute("aria-valuenow", "0.1");
+  await user.keyboard("{PageUp}");
+  expect(seek).toHaveAttribute("aria-valuenow", "4");
+  fireEvent.play(video);
+  expect(screen.queryByText("Play to watch the Run")).toBeNull();
 });

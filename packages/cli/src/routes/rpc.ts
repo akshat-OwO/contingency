@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
@@ -30,6 +32,7 @@ import type {
   CatalogBrowserService,
 } from "../services/catalog-browser.ts";
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
+import { iosSimctlHost } from "../services/ios-simctl.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
 import {
   decideFlow,
@@ -198,6 +201,27 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               makeBrowserRpcError("agent_session_unavailable", cause.message)
             )
           ),
+      "ios.app.inspect": ({ path: bundle }) =>
+        path.isAbsolute(bundle) && bundle.replace(/\/+$/u, "").endsWith(".app")
+          ? iosSimctlHost.readApp(bundle.replace(/\/+$/u, "")).pipe(
+              Effect.map(({ build, bundleId, label }) => ({
+                build,
+                bundleId,
+                label,
+              })),
+              Effect.mapError(() =>
+                makeBrowserRpcError(
+                  "agent_session_unavailable",
+                  "No readable Info.plist in that .app. Enter the bundle id and build yourself."
+                )
+              )
+            )
+          : Effect.fail(
+              makeBrowserRpcError(
+                "agent_session_unavailable",
+                "Give the absolute path to a built .app."
+              )
+            ),
       "ios.workspace.enabled": () => Effect.succeed(true),
       "ios.workspace.command": ({ command, source }) =>
         Effect.gen(function* iosWorkspaceCommand() {

@@ -101,14 +101,6 @@ export const AndroidRequests = ({
               action={
                 <>
                   <Button
-                    disabled={pending}
-                    onClick={() => onDecide(decision.id, false)}
-                    size="xs"
-                    variant="outline"
-                  >
-                    Refuse
-                  </Button>
-                  <Button
                     disabled={
                       pending ||
                       (decision.kind === "confirmation" &&
@@ -118,6 +110,14 @@ export const AndroidRequests = ({
                     size="xs"
                   >
                     Allow
+                  </Button>
+                  <Button
+                    disabled={pending}
+                    onClick={() => onDecide(decision.id, false)}
+                    size="xs"
+                    variant="outline"
+                  >
+                    Refuse
                   </Button>
                 </>
               }
@@ -400,8 +400,8 @@ export const AndroidInstructionEntry = ({
         if (draft.trim() === "") {
           return;
         }
+        // The draft stays until the comment saves and the composer closes.
         onSubmit(draft.trim());
-        setDraft("");
       }}
     >
       <Input
@@ -448,14 +448,15 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
-        className="max-w-56 min-w-0"
+        className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial @4xl:max-w-96"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {
             const label = value === null ? undefined : labels.get(value);
             return label === undefined ? null : (
-              <span className="truncate">
-                {label.split(" · ").at(0) ?? label}
+              // The whole label, like iOS: the row truncates it if it must.
+              <span className="truncate" title={label}>
+                {label}
               </span>
             );
           }}

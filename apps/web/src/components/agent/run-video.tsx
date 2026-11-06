@@ -23,14 +23,27 @@ import type {
   RefObject,
 } from "react";
 
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import { runVideoChapters } from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
+import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 const SKIP_MS = 5000;
+
+/**
+ * How far an arrow key moves the focused scrubber: a tenth of a second on a
+ * clip under ten seconds, so a short Run is not only its two ends, and one
+ * second otherwise. Page keys and the skip buttons keep five seconds.
+ */
+const scrubStepMs = (durationMs: number): number =>
+  durationMs > 0 && durationMs < 10_000 ? 100 : 1000;
+
+/** Seconds to one decimal, for the scrubber's ARIA values. */
+const ariaSeconds = (ms: number): number => Math.round(ms / 100) / 10;
 const PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
 /** One bar per this many pixels of scrubber. */
 const BAR_PITCH_PX = 5;
@@ -38,12 +51,38 @@ const COPIED_FOR_MS = 1500;
 /** How far the hover tip stays from either end of the scrubber. */
 const TIP_INSET_PX = 64;
 
-const FOCUS_RING =
-  "focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none";
+/** A path's last segment. */
+const fileName = (path: string) => path.split("/").at(-1) ?? path;
 
-const clock = (ms: number): string => {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+/**
+ * A path's last two segments, the Run's folder and its file. A long folder
+ * name (a Run id) keeps its readable head; the full path is the title.
+ */
+const tailOfPath = (path: string) => {
+  const parts = path.split("/").filter((part) => part !== "");
+  if (parts.length <= 2) {
+    return path;
+  }
+  const folder = parts.at(-2) ?? "";
+  const shown = folder.length > 20 ? `${folder.slice(0, 16)}…` : folder;
+  return `…/${shown}/${parts.at(-1) ?? ""}`;
+};
+
+// The panel's own focus ring, so the player reads as part of it.
+const FOCUS_RING =
+  "focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none";
+
+/**
+ * A time on the player's clock. A recording under ten seconds counts in
+ * tenths, so a short one never reads as "0:00" long.
+ */
+const clock = (ms: number, durationMs = Number.POSITIVE_INFINITY): string => {
+  const safe = Math.max(0, ms);
+  const seconds = Math.floor(safe / 1000);
+  const whole = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return durationMs > 0 && durationMs < 10_000
+    ? `${whole}.${Math.floor((safe % 1000) / 100)}`
+    : whole;
 };
 
 const chapterAt = (
@@ -60,19 +99,20 @@ const barTone = (
   hoverMs: number | undefined
 ): string => {
   if (atMs < currentMs) {
-    return "bg-white";
+    return "bg-foreground";
   }
   if (hoverMs !== undefined && atMs < hoverMs) {
-    return "bg-white/40";
+    return "bg-foreground/60";
   }
-  return "bg-white/20";
+  // One step stronger than a hairline, so the bars read on a dark card.
+  return "bg-foreground/35";
 };
 
 const chapterLineTone = (hovered: boolean, current: boolean): string => {
   if (hovered) {
-    return "bg-white/80";
+    return "bg-foreground/80";
   }
-  return current ? "bg-white/55" : "bg-white/12";
+  return current ? "bg-foreground/50" : "bg-border";
 };
 
 /** Fewer, wider gaps when there are few chapters to tell apart. */
@@ -95,7 +135,7 @@ const ChapterName = ({
 }) => (
   <>
     {chapter.action === undefined ? null : (
-      <span className="mr-1 text-white/55 tabular-nums">
+      <span className="text-muted-foreground mr-1 tabular-nums">
         {chapter.action}/{total}
       </span>
     )}
@@ -114,35 +154,30 @@ const DockButton = ({
   readonly onClick: () => Promise<void> | void;
   readonly title?: string;
 }) => (
-  <button
+  <Button
     aria-label={label}
-    className={cn(
-      "grid size-[30px] shrink-0 place-items-center rounded-full text-white/75 transition-colors hover:bg-white/12 hover:text-white active:scale-[0.94]",
-      FOCUS_RING
-    )}
+    className="text-muted-foreground hover:text-foreground"
     onClick={onClick}
+    size="icon-sm"
     title={title}
     type="button"
+    variant="ghost"
   >
     {children}
-  </button>
+  </Button>
 );
 
-/** A circular arrow around the number of seconds it skips. */
+/**
+ * A circular arrow. How far it skips is in the button's name and tooltip
+ * ("Back 5 seconds"), not drawn inside the icon below the panel's type scale.
+ */
 const SkipGlyph = ({
   direction,
 }: {
   readonly direction: "back" | "forward";
 }) => {
   const Icon = direction === "back" ? RotateCcwIcon : RotateCwIcon;
-  return (
-    <span aria-hidden="true" className="relative grid place-items-center">
-      <Icon className="size-[18px]" strokeWidth={1.75} />
-      <span className="absolute pt-px text-[7px] font-bold">
-        {SKIP_MS / 1000}
-      </span>
-    </span>
-  );
+  return <Icon aria-hidden="true" />;
 };
 
 /**
@@ -239,10 +274,12 @@ const Scrubber = ({
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = new Map([
-      ["ArrowDown", currentMs - SKIP_MS],
-      ["ArrowLeft", currentMs - SKIP_MS],
-      ["ArrowRight", currentMs + SKIP_MS],
-      ["ArrowUp", currentMs + SKIP_MS],
+      ["ArrowDown", currentMs - scrubStepMs(durationMs)],
+      ["ArrowLeft", currentMs - scrubStepMs(durationMs)],
+      ["ArrowRight", currentMs + scrubStepMs(durationMs)],
+      ["ArrowUp", currentMs + scrubStepMs(durationMs)],
+      ["PageDown", currentMs - SKIP_MS],
+      ["PageUp", currentMs + SKIP_MS],
       ["End", durationMs],
       ["Home", 0],
     ]).get(event.key);
@@ -260,18 +297,20 @@ const Scrubber = ({
   return (
     <div
       aria-label="Seek"
-      aria-valuemax={Math.round(durationMs / 1000)}
+      aria-valuemax={ariaSeconds(durationMs)}
       aria-valuemin={0}
-      aria-valuenow={Math.round(currentMs / 1000)}
-      aria-valuetext={`${clock(currentMs)} of ${clock(durationMs)}${
-        current === undefined ? "" : `, ${current.label}`
-      }`}
+      aria-valuenow={ariaSeconds(currentMs)}
+      aria-valuetext={`${clock(currentMs, durationMs)} of ${
+        durationMs > 0 ? clock(durationMs, durationMs) : "unknown length"
+      }${current === undefined ? "" : `, ${current.label}`}`}
       className={cn(
-        "relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-900",
+        "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 pointer-coarse:h-11",
         FOCUS_RING
       )}
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Home End"
       onKeyDown={onKeyDown}
       onLostPointerCapture={release}
+      title="Arrow keys step, Page Up and Page Down skip 5 seconds, Home and End jump to the ends"
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;
@@ -327,12 +366,12 @@ const Scrubber = ({
       {hover === undefined || hovered === undefined ? null : (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 truncate rounded-lg border border-white/10 bg-zinc-950/90 px-2 py-1 text-[11px] font-semibold text-white backdrop-blur-md"
+          className="bg-popover text-popover-foreground pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 truncate rounded-md border px-2 py-1 text-xs font-medium shadow-md"
           style={{ left: hover.x }}
         >
           <ChapterName chapter={hovered} total={total} />
-          <span className="ml-1.5 font-mono font-normal text-white/60 tabular-nums">
-            {clock(hover.ms)}
+          <span className="text-muted-foreground ml-1.5 font-mono font-normal tabular-nums">
+            {clock(hover.ms, durationMs)}
           </span>
         </span>
       )}
@@ -360,23 +399,26 @@ const VideoPath = ({ path }: { readonly path: string }) => {
     idle: "Copy path",
   }[copy];
   return (
-    <div className="mt-2.5 flex items-center gap-2 rounded-full border border-white/8 bg-white/5 py-[5px] pr-[5px] pl-3">
+    <div className="mt-2 flex items-center gap-2 border-t pt-2">
       <FileVideoIcon
         aria-hidden="true"
-        className="size-3.5 shrink-0 opacity-50"
+        className="text-muted-foreground size-3.5 shrink-0"
       />
-      <code
-        className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-white/60 select-text"
-        title={path}
-      >
-        {path}
-      </code>
-      <button
+      {/*
+        One path: the folder gives way, the file name stays whole beside it.
+      */}
+      <span className="flex min-w-0 flex-1 font-mono text-xs" title={path}>
+        <code className="text-muted-foreground min-w-0 truncate select-text">
+          {tailOfPath(path).slice(0, -fileName(path).length)}
+        </code>
+        <code className="text-muted-foreground shrink-0 select-text">
+          {fileName(path)}
+        </code>
+      </span>
+      <Button
         aria-label="Copy video path"
         className={cn(
-          "flex h-[26px] shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-2.5 text-[11.5px] transition-colors hover:bg-white/18",
-          FOCUS_RING,
-          copy === "copied" && "text-emerald-300"
+          copy === "copied" && "text-emerald-700 dark:text-emerald-400"
         )}
         onClick={async () => {
           try {
@@ -386,15 +428,17 @@ const VideoPath = ({ path }: { readonly path: string }) => {
             setCopy("failed");
           }
         }}
+        size="xs"
         type="button"
+        variant="ghost"
       >
         {copy === "copied" ? (
-          <CheckIcon aria-hidden="true" className="size-3.5" />
+          <CheckIcon aria-hidden="true" />
         ) : (
-          <CopyIcon aria-hidden="true" className="size-3.5" />
+          <CopyIcon aria-hidden="true" />
         )}
         <span aria-live="polite">{label}</span>
-      </button>
+      </Button>
     </div>
   );
 };
@@ -404,6 +448,8 @@ const usePlayback = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const ambientRef = useRef<HTMLCanvasElement>(null);
   const [playing, setPlaying] = useState(false);
+  // Until the first play, the well says what the first frame is.
+  const [started, setStarted] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const [rateIndex, setRateIndex] = useState(0);
@@ -475,6 +521,8 @@ const usePlayback = () => {
       return;
     }
     const clamped = Math.min(durationMs, Math.max(0, ms));
+    // A seek shows a real frame, so the first-play cue has done its job.
+    setStarted(true);
     video.currentTime = clamped / 1000;
     setCurrentMs(clamped);
   };
@@ -512,6 +560,7 @@ const usePlayback = () => {
     playing,
     rate,
     seek,
+    started,
     toggle,
     videoEvents: {
       onDurationChange: syncDuration,
@@ -521,6 +570,7 @@ const usePlayback = () => {
       onPause: () => setPlaying(false),
       onPlay: () => {
         setPlaying(true);
+        setStarted(true);
         ambientBlend.current?.frameChanged();
       },
       onSeeked: syncTime,
@@ -571,60 +621,64 @@ const PlayerControls = ({
   readonly total: number;
 }) => (
   <>
-    <div className="mt-3.5 flex items-center gap-1">
+    <div className="mt-3 flex items-center gap-1">
       <DockButton
         label="Back 5 seconds"
         onClick={() => playback.seek(playback.currentMs - SKIP_MS)}
       >
         <SkipGlyph direction="back" />
       </DockButton>
-      <button
+      <Button
         aria-label={playback.playing ? "Pause" : "Play"}
-        className={cn(
-          "mx-0.5 grid size-[34px] shrink-0 place-items-center rounded-full bg-white text-zinc-950 transition-transform active:scale-[0.92]",
-          FOCUS_RING
-        )}
+        className="mx-0.5"
         onClick={playback.toggle}
+        size="icon-sm"
         title={playback.playing ? "Pause (Space)" : "Play (Space)"}
         type="button"
       >
         {playback.playing ? (
-          <PauseIcon aria-hidden="true" className="size-4 fill-current" />
+          <PauseIcon aria-hidden="true" className="fill-current" />
         ) : (
-          <PlayIcon aria-hidden="true" className="ml-0.5 size-4 fill-current" />
+          <PlayIcon aria-hidden="true" className="fill-current" />
         )}
-      </button>
+      </Button>
       <DockButton
         label="Forward 5 seconds"
         onClick={() => playback.seek(playback.currentMs + SKIP_MS)}
       >
         <SkipGlyph direction="forward" />
       </DockButton>
-      <span className="ml-1.5 shrink-0 font-mono text-xs text-white/70 tabular-nums">
-        {clock(playback.currentMs)}
+      <span className="text-muted-foreground ml-1.5 shrink-0 font-mono text-xs tabular-nums">
+        {clock(playback.currentMs, playback.durationMs)}
         <span className="hidden @[20rem]:inline">
           {" / "}
-          {clock(playback.durationMs)}
+          {/* Until the metadata arrives the length is unknown, not zero. */}
+          {playback.durationMs > 0
+            ? clock(playback.durationMs, playback.durationMs)
+            : "—"}
         </span>
       </span>
       {current === undefined ? null : (
-        <span className="ml-2 hidden min-w-0 truncate border-l border-white/15 pl-2.5 text-xs @[20rem]:block">
+        <span
+          className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block"
+          // A truncated chapter reads in full on hover.
+          title={current.label}
+        >
           <ChapterName chapter={current} total={total} />
         </span>
       )}
       <span className="flex-1" />
-      <button
+      <Button
         aria-label={`Playback speed, ${playback.rate}×`}
-        className={cn(
-          "mr-0.5 h-6 shrink-0 rounded-full border border-white/15 px-2 text-[11px] font-semibold text-white/75 transition-colors hover:bg-white/10 hover:text-white",
-          FOCUS_RING
-        )}
+        className="mr-0.5 tabular-nums"
         onClick={playback.cycleRate}
+        size="xs"
         title="Playback speed"
         type="button"
+        variant="outline"
       >
         {playback.rate}×
-      </button>
+      </Button>
       <DockButton
         label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
         onClick={onToggleFullscreen}
@@ -646,7 +700,7 @@ const PlayerControls = ({
 );
 
 /**
- * The player: the video on top and a glass dock below it, so no control
+ * The player: the video on top and its controls below it, so no control
  * covers the recording. The scrubber has one chapter per action; its bars
  * rise through Action Windows and drop through fast-forwarded Idle Gaps.
  * Fullscreen keeps every control except the file path.
@@ -698,7 +752,9 @@ const RunVideoPlayer = ({
     ) {
       event.preventDefault();
       playback.seek(
-        playback.currentMs + (event.key === "ArrowLeft" ? -SKIP_MS : SKIP_MS)
+        playback.currentMs +
+          (event.key === "ArrowLeft" ? -1 : 1) *
+            scrubStepMs(playback.durationMs)
       );
     } else if (event.key === "f") {
       event.preventDefault();
@@ -711,8 +767,10 @@ const RunVideoPlayer = ({
     <div
       aria-label="Run video player"
       className={cn(
-        "relative isolate overflow-hidden bg-[#0c0c0f] text-white outline-none select-none",
-        fullscreen ? "flex h-full flex-col p-4" : "rounded-[18px] p-1.5",
+        "bg-card text-card-foreground relative isolate overflow-hidden outline-none select-none",
+        // Inline, it is one card of the panel; fullscreen is a dark room
+        // for watching, drawn with the same tokens in their dark values.
+        fullscreen ? "dark flex h-full flex-col p-4" : "rounded-xl border",
         className
       )}
       onKeyDown={onKeyDown}
@@ -720,21 +778,29 @@ const RunVideoPlayer = ({
       role="group"
       tabIndex={-1}
     >
-      <canvas
-        aria-hidden="true"
-        className="reduce-transparency:hidden pointer-events-none absolute inset-0 -z-10 size-full opacity-55 blur-[48px] saturate-[1.6]"
-        height={27}
-        ref={playback.ambientRef}
-        width={48}
-      />
+      {fullscreen ? (
+        <canvas
+          aria-hidden="true"
+          className="reduce-transparency:hidden pointer-events-none absolute inset-0 -z-10 size-full opacity-55 blur-[48px] saturate-[1.6]"
+          height={27}
+          ref={playback.ambientRef}
+          width={48}
+        />
+      ) : null}
       <div
         className={cn(
-          "relative overflow-hidden rounded-xl bg-black",
+          // The well around a letterboxed picture is the panel's muted
+          // surface, so the card's border frames it, not a black stage.
+          "bg-muted relative overflow-hidden",
+          fullscreen && "rounded-xl",
           fullscreen && "flex min-h-0 flex-1 items-center justify-center"
         )}
       >
         {/* Captions are not recorded; the track keeps the element valid. */}
         <video
+          aria-description={
+            playback.started ? undefined : "Play to watch the Run."
+          }
           aria-label="Recorded Run video"
           className={cn(
             "block w-full cursor-pointer object-contain",
@@ -748,8 +814,29 @@ const RunVideoPlayer = ({
         >
           <track kind="captions" />
         </video>
+        {/*
+          A Run's recording starts before its first action, often on a blank
+          page; a cue in the well says the player is ready, not empty. The
+          video itself takes the click.
+        */}
+        {playback.started ? null : (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
+          >
+            <span className="bg-foreground text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ring-1 ring-white/40 dark:ring-black/40">
+              <PlayIcon className="size-3.5 fill-current" />
+              Play to watch the Run
+            </span>
+          </div>
+        )}
       </div>
-      <div className="reduce-transparency:bg-zinc-900 reduce-transparency:backdrop-blur-none @container mt-1.5 rounded-xl border border-white/10 bg-zinc-900/55 px-3 py-2.5 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] backdrop-blur-xl backdrop-saturate-[1.8]">
+      <div
+        className={cn(
+          "@container px-3 py-2.5",
+          fullscreen ? "mt-1.5 rounded-xl border" : "border-t"
+        )}
+      >
         <Scrubber
           chapters={chapters}
           currentMs={playback.currentMs}
@@ -781,12 +868,15 @@ const RunVideoPlayer = ({
  */
 export const RunVideo = ({
   className,
+  note,
   src,
   timeMap,
   timeline,
   videoClassName,
 }: {
   readonly className?: string;
+  /** Said under a video that exists, such as where it is kept. */
+  readonly note?: React.ReactNode;
   readonly src: string;
   /** Places the Run's actions in the video; absent on older Summaries. */
   readonly timeMap: RunVideoTimeMap | undefined;
@@ -797,11 +887,13 @@ export const RunVideo = ({
   const result = useAtomValue(runVideoStatusAtom(src));
   const status = result._tag === "Success" ? result.value : undefined;
   if (result._tag === "Initial" || status?.state === "preparing") {
+    // One line until the player is ready, so a frame with nothing in it
+    // never pushes the verdict and evidence down.
     return (
       <div
         aria-live="polite"
         className={cn(
-          "text-muted-foreground flex aspect-video w-full items-center justify-center gap-2 rounded-lg border text-xs",
+          "text-muted-foreground flex w-full items-center justify-center gap-2 rounded-lg border py-3 text-xs",
           className
         )}
         role="status"
@@ -815,10 +907,16 @@ export const RunVideo = ({
     );
   }
   if (status?.state === "unavailable") {
+    // Say why there is nothing to play, and where the Run's own files are,
+    // so a missing video reads as a fact to act on rather than a dead end.
     return (
-      <p className="text-muted-foreground text-xs">
-        This Run&apos;s video is no longer available.
-      </p>
+      <div className="space-y-1.5 text-xs" role="status">
+        <p className="font-medium">This Run&apos;s video is not available.</p>
+        <p className="text-muted-foreground text-pretty">{status.reason}</p>
+        {status.directory === undefined ? null : (
+          <EvidenceReference id={status.directory} kind="Run folder" />
+        )}
+      </div>
     );
   }
   // A status that could not be read leaves the player to try the file.
@@ -838,6 +936,9 @@ export const RunVideo = ({
           Playing in real time. {status.reason}
         </p>
       ) : null}
+      {note === undefined ? null : (
+        <p className="text-muted-foreground text-xs">{note}</p>
+      )}
     </>
   );
 };

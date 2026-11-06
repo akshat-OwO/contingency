@@ -38,6 +38,11 @@ export const isTaskInteractiveRunSummary = (
 export interface SummaryCheck {
   readonly label: string;
   readonly passed: boolean;
+  /**
+   * Nothing was required, so the check holds without anything having run. It
+   * still counts as passed for eligibility, but it never reads as a pass.
+   */
+  readonly notApplicable?: boolean;
   /** What the record holds for this rule, in a few words. */
   readonly value: string;
 }
@@ -64,16 +69,30 @@ const taskRunChecks = (
   const scans = scanCoverage(summary);
   const checks = browserCheckCoverage(summary);
   return [
-    {
-      label: "Browser Checks",
-      passed: checks.complete,
-      value: `${checks.fulfilled}/${checks.total} passed`,
-    },
-    {
-      label: "Required scans",
-      passed: scans.complete,
-      value: `${scans.fulfilled}/${scans.total} completed`,
-    },
+    checks.total === 0
+      ? {
+          label: "Browser Checks",
+          notApplicable: true,
+          passed: checks.complete,
+          value: "None required",
+        }
+      : {
+          label: "Browser Checks",
+          passed: checks.complete,
+          value: `${checks.fulfilled}/${checks.total} passed`,
+        },
+    scans.total === 0
+      ? {
+          label: "Required scans",
+          notApplicable: true,
+          passed: scans.complete,
+          value: "None required",
+        }
+      : {
+          label: "Required scans",
+          passed: scans.complete,
+          value: `${scans.fulfilled}/${scans.total} completed`,
+        },
     {
       label: "Run finished",
       passed: summary.outcome === "completed",
@@ -115,6 +134,64 @@ export const dryRunChecks = (
 
 export const dryRunChecksPass = (summary: TaskDryRunSummary): boolean =>
   dryRunChecks(summary).every((check) => check.passed);
+
+/** Checks a working journey can still miss: how it was attempted, not whether it worked. */
+const QUALIFYING_CHECKS = new Set(["Full outcome attempted", "No takeover"]);
+
+/**
+ * The Dry Run missed only how it was attempted: the journey worked, but the
+ * agent stopped short or the user took over. It still cannot pass, yet it is
+ * not a broken journey, so it is not shown as one.
+ */
+export const dryRunMissedOnlyQualifiers = (
+  summary: TaskDryRunSummary
+): boolean => {
+  const missed = dryRunChecks(summary).filter((check) => !check.passed);
+  return (
+    missed.length > 0 &&
+    missed.every((check) => QUALIFYING_CHECKS.has(check.label))
+  );
+};
+
+const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
+  switch (label) {
+    case "Agent assessment": {
+      return value === "None submitted"
+        ? "The agent submitted no assessment, so this Dry Run cannot pass."
+        : `The agent assessed the journey as ${value.toLowerCase()}, so this Dry Run cannot pass.`;
+    }
+    case "Browser Checks": {
+      return "Not every Browser Check passed, so this Dry Run cannot pass.";
+    }
+    case "Full outcome attempted": {
+      return "The agent did not attempt the full outcome, so this Dry Run cannot pass.";
+    }
+    case "No takeover": {
+      return "You took control during this Dry Run, so it cannot pass.";
+    }
+    case "Required scans": {
+      return "Not every required scan completed, so this Dry Run cannot pass.";
+    }
+    case "Run finished": {
+      return `The Run ended as ${value.toLowerCase()}, so this Dry Run cannot pass.`;
+    }
+    default: {
+      return `${label}: ${value}.`;
+    }
+  }
+};
+
+/**
+ * Why a Dry Run cannot pass, from the first check it misses. The dock and
+ * the Summary lead with this rather than the agent's own observation, which
+ * can say the journey worked when the attempt itself did not qualify.
+ */
+export const dryRunFailureSentence = (
+  summary: TaskDryRunSummary
+): string | undefined => {
+  const failed = dryRunChecks(summary).find((check) => !check.passed);
+  return failed === undefined ? undefined : failedCheckSentence(failed);
+};
 
 /**
  * What an Interactive Run's record holds. It has no pass rule: the user asked
@@ -211,3 +288,12 @@ export const evidenceCount = (summary: TaskAgentRunSummary): number =>
     (total, finding) => total + finding.evidence.length,
     0
   );
+
+/**
+ * What an empty findings list says: beside an assessment it is a choice the
+ * agent made; without one there is nothing it is beside.
+ */
+export const noFindings = (assessed: boolean): string =>
+  assessed
+    ? "The agent recorded no findings beside the assessment."
+    : "The agent recorded no findings.";

@@ -453,6 +453,11 @@ it.live("reports a directory without footage as having no video", () =>
   Effect.gen(function* noFootage() {
     const renderer = yield* RunVideoRenderer;
     const directory = yield* temporaryDirectory;
-    expect(yield* renderer.status(directory)).toEqual({ state: "unavailable" });
+    expect(yield* renderer.status(directory)).toEqual({
+      directory: path.resolve(directory),
+      reason:
+        "The video file is no longer in this Run's folder. It was deleted or moved after the Run ended.",
+      state: "unavailable",
+    });
   }).pipe(Effect.provide(RendererLive))
 );

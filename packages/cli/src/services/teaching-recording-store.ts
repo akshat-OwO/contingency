@@ -42,6 +42,13 @@ import { readFlowFrontmatter, stampFlowVerification } from "./flow-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
+/**
+ * Where a Teaching Recording's Dry Run keeps its evidence: in its Flow's
+ * `runs`, beside the recording rather than inside it.
+ */
+export const dryRunDirectory = (recordingDirectory: string, runId: string) =>
+  path.join(recordingDirectory, "..", "..", "runs", runId);
+
 export const TEACHING_RECORDINGS_DIRECTORY = "recordings";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
@@ -1593,9 +1600,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 .pipe(Effect.mapError(ioError("Could not read Dry Run links")))
             : [];
           const targets = [
-            ...runIds.map((runId) =>
-              path.join(directory, "..", "..", "runs", runId)
-            ),
+            ...runIds.map((runId) => dryRunDirectory(directory, runId)),
             ...sensitiveNames.map((name) => path.join(directory, name)),
           ];
           for (const target of targets) {

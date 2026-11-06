@@ -143,6 +143,38 @@ const endedRunSentences = (session: RunSessionSnapshot): readonly string[] =>
  * than in the sentence: they are the two longest strings the dock ever sees,
  * and the dock shows them behind the step counter instead (#238).
  */
+/**
+ * Who holds the browser and why. The badge already names the holder, so the
+ * sentence says it only when the badge says something else.
+ */
+const controlSentences = (
+  badge: string,
+  control: { readonly holder: string; readonly reason: string | undefined }
+): readonly string[] => [
+  ...(badge.toLowerCase().includes(control.holder.toLowerCase())
+    ? []
+    : [`${control.holder}.`]),
+  ...(control.reason === undefined ? [] : [control.reason]),
+];
+
+/** A task or instruction read as one sentence, so the next one never runs on. */
+const asSentence = (text: string): string => {
+  const trimmed = text.trim();
+  return /[.!?…]["'”’)]?$/u.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+/**
+ * The status line. An open Execution Boundary card already says the action,
+ * the task, and what Allow grants, so only the badge stays beside it.
+ */
+const statusSentence = (
+  session: RunSessionSnapshot,
+  sentences: readonly string[]
+) =>
+  session.boundary === undefined || session.boundary === null
+    ? sentences.join(" ")
+    : "";
+
 export const runDockPresentation = (
   session: RunSessionSnapshot,
   streamConnected: boolean
@@ -163,7 +195,9 @@ export const runDockPresentation = (
     if (run === null) {
       sentences.push("This session has no Flow run yet.");
     } else if ("schemaVersion" in run) {
-      sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
+      sentences.push(
+        asSentence(run.instructions.at(-1)?.instruction ?? run.requestedTask)
+      );
     } else {
       sentences.push(`Running the Flow ${run.flowName}.`);
       const active = activeStep(run);
@@ -186,22 +220,25 @@ export const runDockPresentation = (
       changedInputsSentence(dryRun.inputs)
     );
     if (run !== null && "schemaVersion" in run) {
-      sentences.push(run.instructions.at(-1)?.instruction ?? run.requestedTask);
+      sentences.push(
+        asSentence(run.instructions.at(-1)?.instruction ?? run.requestedTask)
+      );
     }
   }
 
-  sentences.push(...endedRunSentences(session), `${control.holder}.`);
-  if (control.reason !== undefined) {
-    sentences.push(control.reason);
-  }
+  const badge = agentStatusLabel(session, streamConnected);
+  sentences.push(
+    ...endedRunSentences(session),
+    ...controlSentences(badge, control)
+  );
 
   return {
-    badge: agentStatusLabel(session, streamConnected),
+    badge,
     coverage:
       run === null || "schemaVersion" in run
         ? undefined
         : `${run.coverage.executed} of ${run.coverage.total} Agent Steps executed`,
-    nextStep: sentences.join(" "),
+    nextStep: statusSentence(session, sentences),
     step,
     tone: failed ? "failed" : "default",
   };

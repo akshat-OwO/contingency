@@ -7,14 +7,16 @@ import type {
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
 import { useAtomValue } from "@effect/atom-react";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, PlayIcon } from "lucide-react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
+import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -132,10 +134,31 @@ const RunTotals = ({
  * machine: the video is served from the Run's own directory over loopback
  * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
+/** A stored outcome code, said as words: `user-closed` reads "Closed by user". */
+const OUTCOME_LABEL = new Map([
+  ["completed", "Completed"],
+  ["crashed", "Crashed"],
+  ["interrupted", "Interrupted"],
+  ["process-exited", "Agent process exited"],
+  ["user-closed", "Closed by user"],
+]);
+
+const outcomeLabel = (outcome: string): string => {
+  const known = OUTCOME_LABEL.get(outcome);
+  if (known !== undefined) {
+    return known;
+  }
+  const words = outcome.replaceAll(/[_-]+/gu, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 export const RunSummaryView = ({
+  heading = true,
   summary,
   videoSrc,
 }: {
+  /** Whether the view names itself; a page that already says so passes false. */
+  readonly heading?: boolean;
   readonly summary: AgentRunSummary;
   readonly videoSrc?: string;
 }) => {
@@ -147,44 +170,114 @@ export const RunSummaryView = ({
       ? summary.summary
       : (summary.agentAccount ??
         (summary.schemaVersion === 2 ? summary.summary : undefined));
+  const video = (
+    <section
+      aria-labelledby="agent-run-video"
+      className="focus-visible:ring-ring scroll-mt-4 space-y-2 rounded-xl focus-visible:ring-2 focus-visible:ring-offset-4 focus-visible:outline-none"
+      id="run-video"
+      // Watch the Run moves focus here, so the next Tab reaches the player.
+      tabIndex={-1}
+    >
+      <h2
+        className="text-base leading-snug font-semibold tracking-tight"
+        id="agent-run-video"
+      >
+        Run video
+      </h2>
+      {summary.videoPath === null ? (
+        <p className="text-muted-foreground text-xs">
+          This Run recorded no video.
+        </p>
+      ) : (
+        <RunVideo
+          note="The video and Trace stay on this machine. Nothing is uploaded without your direct confirmation."
+          src={videoSrc ?? agentRunVideoPath(summary.runId)}
+          timeMap={
+            summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
+          }
+          timeline={summary.timeline}
+          // The transport stays on screen with the summary above it; the
+          // fullscreen control is there for a closer look.
+          videoClassName="max-h-[min(28rem,55svh)]"
+        />
+      )}
+    </section>
+  );
   return (
     <div className="space-y-5">
-      <section aria-labelledby="agent-run-summary" className="space-y-2">
-        <h2
-          className="text-base leading-snug font-semibold tracking-tight"
-          id="agent-run-summary"
-        >
-          Run Summary
-        </h2>
-        <div className="space-y-2 rounded-lg border p-3 text-sm">
-          <p className="font-medium">{summary.title ?? summary.runId}</p>
-          {summary.schemaVersion === 3 ? (
-            <p>
-              {summary.purpose.kind === "dry-run"
-                ? "Dry Run"
-                : "Interactive Run"}
+      <section aria-label="Run Summary" className="space-y-2">
+        {heading ? (
+          <h2 className="text-base leading-snug font-semibold tracking-tight">
+            Run Summary
+          </h2>
+        ) : null}
+        <div className="space-y-3 rounded-xl border p-4 text-sm">
+          <div className="space-y-2">
+            <p className="text-base leading-snug font-semibold text-pretty wrap-anywhere">
+              {summary.title ?? summary.runId}
             </p>
-          ) : null}
-          <p className="text-muted-foreground text-xs">Execution outcome</p>
-          <Badge
-            variant={summary.outcome === "completed" ? "default" : "secondary"}
-          >
-            {summary.outcome}
-          </Badge>
-          <p className="font-mono text-xs wrap-anywhere">{summary.runId}</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {summary.schemaVersion === 3 ? (
+                <Badge variant="outline">
+                  {summary.purpose.kind === "dry-run"
+                    ? "Dry Run"
+                    : "Interactive Run"}
+                </Badge>
+              ) : null}
+              <span className="text-muted-foreground text-xs">
+                Execution outcome
+              </span>
+              <Badge
+                variant={
+                  summary.outcome === "completed" ? "default" : "secondary"
+                }
+              >
+                {outcomeLabel(summary.outcome)}
+              </Badge>
+            </div>
+          </div>
           {account === undefined || account === null ? null : (
-            <p className="text-muted-foreground text-xs wrap-anywhere">
+            <p className="text-muted-foreground text-pretty wrap-anywhere">
               {account}
             </p>
           )}
-          <p className="text-muted-foreground text-xs">
-            The live browser was closed when this Run ended. This View is
-            read-only.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <EvidenceReference id={summary.runId} kind="Run ID" />
+            {/*
+              The video follows the assessment and findings, often below the
+              fold; this brings the whole player, transport included, on
+              screen.
+            */}
+            {summary.videoPath === null ? null : (
+              <Button
+                onClick={() => {
+                  const section = document.querySelector("#run-video");
+                  if (section instanceof HTMLElement) {
+                    section.scrollIntoView({ block: "start" });
+                    section.focus({ preventScroll: true });
+                  }
+                }}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                <PlayIcon aria-hidden="true" />
+                Watch the Run
+              </Button>
+            )}
+          </div>
+          {/* The standalone page says it is read-only in its own subtitle. */}
+          {heading ? (
+            <p className="text-muted-foreground text-xs">
+              The live browser was closed when this Run ended. This view is
+              read-only.
+            </p>
+          ) : null}
         </div>
       </section>
+      {/* The replay follows what the agent concluded, before the setup. */}
       {summary.schemaVersion === 3 ? (
-        <TaskRunDetails run={summary} />
+        <TaskRunDetails afterResult={video} resultFirst run={summary} />
       ) : (
         <>
           <RunTotals
@@ -192,33 +285,9 @@ export const RunSummaryView = ({
             coverage={summary.coverage}
           />
           <RunSteps activeStepIndex={null} steps={summary.steps} />
+          {video}
         </>
       )}
-      <section aria-labelledby="agent-run-video" className="space-y-2">
-        <h2
-          className="text-base leading-snug font-semibold tracking-tight"
-          id="agent-run-video"
-        >
-          Run video
-        </h2>
-        {summary.videoPath === null ? (
-          <p className="text-muted-foreground text-xs">
-            This Run recorded no video.
-          </p>
-        ) : (
-          <RunVideo
-            src={videoSrc ?? agentRunVideoPath(summary.runId)}
-            timeMap={
-              summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
-            }
-            timeline={summary.timeline}
-          />
-        )}
-        <p className="text-muted-foreground text-xs">
-          The video and Trace stay on this machine. Nothing is uploaded without
-          your direct confirmation.
-        </p>
-      </section>
     </div>
   );
 };
@@ -250,11 +319,11 @@ export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
   }
   return (
     <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
-      <h1 className="mb-1 text-lg font-semibold tracking-tight">Run Summary</h1>
-      <p className="text-muted-foreground mb-5 text-xs">
+      <h1 className="mb-1 text-xl font-semibold tracking-tight">Run Summary</h1>
+      <p className="text-muted-foreground mb-5 text-sm">
         A read-only view of persisted evidence. No browser was reopened.
       </p>
-      <RunSummaryView summary={result.value.summary} />
+      <RunSummaryView heading={false} summary={result.value.summary} />
     </main>
   );
 };

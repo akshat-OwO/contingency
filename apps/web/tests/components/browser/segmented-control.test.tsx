@@ -11,7 +11,7 @@ const Scheme = () => {
   const [value, setValue] = useState<"dark" | "light" | "none">("none");
   return (
     <SegmentedControl
-      label="Colour scheme"
+      label="Color scheme"
       onChange={setValue}
       options={[
         { label: "No preference", value: "none" },

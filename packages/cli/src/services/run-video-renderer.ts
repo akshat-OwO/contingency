@@ -469,7 +469,12 @@ export const RunVideoRendererLive = Layer.effect(
           yield* render(directory);
           return { state: "preparing" } satisfies RunVideoStatus;
         }
-        return { state: "unavailable" } satisfies RunVideoStatus;
+        return {
+          directory: path.resolve(directory),
+          reason:
+            "The video file is no longer in this Run's folder. It was deleted or moved after the Run ended.",
+          state: "unavailable",
+        } satisfies RunVideoStatus;
       });
 
     const settled = (directory: string) =>

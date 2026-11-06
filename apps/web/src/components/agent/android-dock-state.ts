@@ -156,7 +156,7 @@ const teachingPresentation = (
       return {
         ...base,
         action: action("stop-recording", "Stop", "Stop recording"),
-        nextStep: `Do the journey once by clicking the emulator screen. Press stop on the screen that proves it worked.`,
+        nextStep: `Click through the journey once. Stop on the screen that proves it worked.`,
         showsComment: true,
       };
     }
@@ -290,7 +290,10 @@ export const androidDockPresentation = (
       );
     }
     case "closed": {
-      return quiet("Closed", `This session released its emulator.`);
+      return quiet(
+        "Closed",
+        "This session released its emulator. Start a new Android session to record or run again."
+      );
     }
     case "completed": {
       const { assessment } = session;

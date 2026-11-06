@@ -418,6 +418,8 @@ const dryProof = (catalog, url) =>
         const rejected = yield* manifest();
         assert.equal(rejected.lifecycle._tag, "flow-drafted");
         assert.ok(rejected.artifacts.length > 0);
+        // Rejecting closes the Dry Run Summary; let it finish sliding out.
+        yield* Effect.sleep("1500 millis");
         yield* capture("dry-rejected");
       } else if (kind === "rejected-then-complete") {
         yield* command(
@@ -606,7 +608,7 @@ const reopenProof = (catalog, summary, fixtureUrl) =>
           aria.includes("Checkout timeout") &&
             aria.includes("Unexecuted purchase")
         );
-        assert.ok(aria.includes("timed-out"));
+        assert.ok(aria.includes("Timed out"));
       }
       // A Run's video is condensed after its Summary is written, so wait for
       // it to be ready before reading bytes.

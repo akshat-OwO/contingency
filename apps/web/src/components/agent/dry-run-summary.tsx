@@ -7,6 +7,7 @@ import { agentRunVideoPath } from "@contingency/protocol";
 import {
   CircleAlertIcon,
   CircleCheckIcon,
+  CircleMinusIcon,
   CircleXIcon,
   CornerDownRightIcon,
 } from "lucide-react";
@@ -23,12 +24,16 @@ import type {
 import {
   assessmentOutcomeLabel,
   dryRunChecks,
+  dryRunFailureSentence,
+  dryRunMissedOnlyQualifiers,
   dryRunVerdict,
   evidenceCount,
   interactiveRunChecks,
   interactiveRunVerdict,
+  noFindings,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
+import { EvidenceList } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { BrowserCheckResults } from "./browser-check-results";
 import { ScanResults } from "./scan-results.tsx";
 
-const passedTone = "text-emerald-600 dark:text-emerald-400";
+const passedTone = "text-emerald-700 dark:text-emerald-400";
 
 const verdictLabel: Record<DryRunVerdict, string> = {
   "checks-passed": "All checks passed",
@@ -85,48 +90,47 @@ const Verdict = ({
   </span>
 );
 
+/** The verdict, and why a Run cannot pass, right under it. */
+const SummaryVerdictHeader = ({
+  failure,
+  verdict,
+}: {
+  readonly failure: string | undefined;
+  readonly verdict: SummaryVerdict;
+}) => (
+  <section aria-label="Run verdict" className="space-y-1">
+    <Verdict className="text-sm" verdict={verdict} />
+    {failure === undefined ? null : (
+      <p className="text-foreground/85 text-sm text-pretty">{failure}</p>
+    )}
+  </section>
+);
+
 /**
- * The recording leads because it is the evidence. The verdict rides on it so
- * the answer and the proof are read together; a Run with no video still says
- * the verdict on its own line. A portrait recording from a mobile emulation is
- * letterboxed to a capped height, so it never pushes the checks off screen.
- * The video and Trace never leave the machine
- * ([ADR 0010](../../../../docs/adr/0010-run-video-is-unredacted.md)).
+ * The Run's video, after the verdict and its checks: the decision rests on
+ * those, and the video is there to review them.
  */
 const SummaryVideo = ({
   src,
   summary,
-  verdict,
 }: {
-  readonly verdict: SummaryVerdict;
   readonly src: string;
   readonly summary: TaskAgentRunSummary;
 }) => (
-  <section aria-label="Run video" className="space-y-1.5">
+  <section aria-label="Run video" className="space-y-2">
     {summary.videoPath === null ? (
-      <>
-        <Verdict className="text-sm" verdict={verdict} />
-        <p className="text-muted-foreground text-xs">
-          This Run recorded no video.
-        </p>
-      </>
+      <p className="text-muted-foreground text-xs">
+        This Run recorded no video.
+      </p>
     ) : (
-      <div className="relative">
-        <RunVideo
-          src={src}
-          timeMap={summary.videoTimeMap}
-          timeline={summary.timeline}
-          videoClassName="max-h-[min(24rem,50svh)]"
-        />
-        <Verdict
-          className="bg-background/90 pointer-events-none absolute top-3 left-3 rounded-full px-2 py-0.5 text-xs shadow-sm"
-          verdict={verdict}
-        />
-      </div>
+      <RunVideo
+        note="The video and Trace stay on this machine."
+        src={src}
+        timeMap={summary.videoTimeMap}
+        timeline={summary.timeline}
+        videoClassName="max-h-[min(15rem,32svh)] max-md:max-h-[20svh]"
+      />
     )}
-    <p className="text-muted-foreground text-xs">
-      The video and Trace stay on this machine.
-    </p>
   </section>
 );
 
@@ -150,24 +154,27 @@ const findingDot: Record<AgentTaskAssessment["outcome"], string> = {
   working: "bg-emerald-500",
 };
 
-/** Evidence IDs are what an agent cites back, so they stay readable. */
-const EvidenceReferences = ({
-  assessment,
-}: {
-  readonly assessment: AgentTaskAssessment;
-}) => (
-  <ul aria-label="Browser evidence" className="flex flex-wrap gap-1">
-    {assessment.evidence.map((reference) => (
-      <li
-        className="bg-muted text-muted-foreground max-w-full truncate rounded px-1.5 py-0.5 font-mono text-xs"
-        key={`${reference.kind}:${reference.id}`}
-        title={`${reference.kind}: ${reference.id}`}
-      >
-        {reference.kind}: {reference.id}
-      </li>
-    ))}
-  </ul>
-);
+const CheckMark = ({ check }: { readonly check: SummaryCheck }) => {
+  if (check.notApplicable === true) {
+    return (
+      <CircleMinusIcon
+        aria-label="Not required"
+        className="text-muted-foreground size-4 shrink-0"
+      />
+    );
+  }
+  return check.passed ? (
+    <CircleCheckIcon
+      aria-label="Passed"
+      className={cn("size-4 shrink-0", passedTone)}
+    />
+  ) : (
+    <CircleXIcon
+      aria-label="Failed"
+      className="text-destructive size-4 shrink-0"
+    />
+  );
+};
 
 const Checklist = ({
   checks,
@@ -182,17 +189,7 @@ const Checklist = ({
         className="flex items-center gap-2.5 px-3 py-2 text-sm"
         key={check.label}
       >
-        {check.passed ? (
-          <CircleCheckIcon
-            aria-label="Passed"
-            className={cn("size-4 shrink-0", passedTone)}
-          />
-        ) : (
-          <CircleXIcon
-            aria-label="Failed"
-            className="text-destructive size-4 shrink-0"
-          />
-        )}
+        <CheckMark check={check} />
         <span className="flex-1">{check.label}</span>
         <span
           className={cn(
@@ -208,8 +205,8 @@ const Checklist = ({
 );
 
 /**
- * A finished task Run: its video and verdict, four numbers, and the rest
- * behind tabs. The Verdict tab opens on the checks, so a failed Run reads as
+ * A finished task Run: its verdict, four numbers, the rest behind tabs, and
+ * then its video. The Verdict tab opens on the checks, so a failed Run reads as
  * which check is red rather than as paragraphs to compare.
  */
 const TaskRunSummaryLayout = ({
@@ -232,15 +229,11 @@ const TaskRunSummaryLayout = ({
   readonly videoSrc: string | undefined;
 }) => (
   <div className="space-y-3">
-    <SummaryVideo
-      src={videoSrc ?? agentRunVideoPath(summary.runId)}
-      summary={summary}
-      verdict={verdict}
-    />
+    <SummaryVerdictHeader failure={failure} verdict={verdict} />
     <dl className="grid grid-cols-4 divide-x rounded-lg border">
       <Stat label="Duration" value={runDuration(summary)} />
       <Stat label="Actions" value={summary.timeline.length} />
-      <Stat label="Findings" value={summary.findings.length} />
+      <Stat label="Agent findings" value={summary.findings.length} />
       <Stat label="Evidence" value={evidenceCount(summary)} />
     </dl>
     <BrowserCheckResults run={summary} />
@@ -257,9 +250,6 @@ const TaskRunSummaryLayout = ({
         <TabsTrigger value="task">Task</TabsTrigger>
       </TabsList>
       <TabsContent className="space-y-3 pt-1" value="verdict">
-        {failure === undefined ? null : (
-          <p className="text-destructive text-sm text-pretty">{failure}</p>
-        )}
         <Checklist checks={checks} label={checksLabel} />
         {summary.assessment === null ? (
           <p className="text-muted-foreground text-sm">
@@ -270,13 +260,15 @@ const TaskRunSummaryLayout = ({
             <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
               {summary.assessment.explanation}
             </blockquote>
-            <EvidenceReferences assessment={summary.assessment} />
+            <EvidenceList hint evidence={summary.assessment.evidence} />
           </>
         )}
       </TabsContent>
       <TabsContent className="space-y-3 pt-1" value="findings">
         {summary.findings.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No findings recorded.</p>
+          <p className="text-muted-foreground text-sm">
+            {noFindings(summary.assessment !== null)}
+          </p>
         ) : (
           <ul aria-label="Findings" className="space-y-3">
             {summary.findings.map((finding) => (
@@ -295,7 +287,7 @@ const TaskRunSummaryLayout = ({
                   <p className="text-muted-foreground text-xs">
                     {assessmentOutcomeLabel[finding.outcome]}
                   </p>
-                  <EvidenceReferences assessment={finding} />
+                  <EvidenceList evidence={finding.evidence} />
                 </div>
               </li>
             ))}
@@ -327,6 +319,10 @@ const TaskRunSummaryLayout = ({
         </dl>
       </TabsContent>
     </Tabs>
+    <SummaryVideo
+      src={videoSrc ?? agentRunVideoPath(summary.runId)}
+      summary={summary}
+    />
   </div>
 );
 
@@ -354,10 +350,15 @@ export const DryRunSummaryView = ({
       </>
     }
     failure={
-      result?.outcome === "failed" ? result.observableOutcome : undefined
+      dryRunFailureSentence(summary) ??
+      (result?.outcome === "failed" ? result.observableOutcome : undefined)
     }
     summary={summary}
-    verdict={dryRunSummaryVerdict(dryRunVerdict(summary, result))}
+    verdict={
+      dryRunMissedOnlyQualifiers(summary)
+        ? { label: "Dry Run did not pass", tone: "attention" }
+        : dryRunSummaryVerdict(dryRunVerdict(summary, result))
+    }
     videoSrc={videoSrc}
   />
 );

@@ -30,6 +30,7 @@ import {
   DockWordmark,
 } from "@/components/agent/workspace-dock";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
+import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
@@ -55,6 +56,11 @@ import { AndroidRunSummary } from "./android-run-summary";
 import { AndroidSetupSheet } from "./android-setup-sheet";
 import { WorkspaceLayout } from "./android-workspace-layout";
 import {
+  deviceCleanupKey,
+  deviceSummaryLabel,
+} from "./android-workspace-state";
+import { DeviceElements } from "./device-elements";
+import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
 } from "./workspace-gesture";
@@ -66,12 +72,21 @@ interface WorkspaceState {
   /** The picked field the person closed, until another one is picked. */
   readonly dismissedField: string | null;
   readonly instructing: boolean;
+  /**
+   * A comment was sent and has not answered. The composer and its draft stay
+   * until it saves, so a refusal leaves them for another try.
+   */
+  readonly instructionPending: boolean;
+  /** The last refused pick was set aside when the comment tier opened. */
+  readonly refusalDismissed: boolean;
   readonly setupOpen: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
   dismissedField: null,
   failure: null,
   instructing: false,
+  instructionPending: false,
+  refusalDismissed: false,
   session: null,
   setupOpen: false,
 });
@@ -150,12 +165,13 @@ const gestureCommand = (
 /** What the device glass says while it has no stream to show. */
 const glassText = (session: AndroidWorkspaceSnapshot) => {
   if (session.phase === "pending") {
-    return "Prepare the device from the dock to show its screen here.";
+    return "Prepare the emulator from the dock to show its screen here.";
   }
   if (session.phase === "refused") {
-    return "This session never used the device.";
+    return "This session never used the emulator.";
   }
-  return "This session released the device.";
+  // The dock says what to do next; the stage only says what became of it.
+  return "Emulator released.";
 };
 
 export const AndroidEmptyState = ({
@@ -170,17 +186,25 @@ export const AndroidEmptyState = ({
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
   <main className="relative flex h-full min-h-0 flex-col">
-    <div className="bg-muted/20 grid min-h-0 flex-1 place-items-center p-6 pb-28">
-      <section className="max-w-md space-y-4 text-center">
-        <h1 className="text-xl font-semibold tracking-tight">
-          No Android session
-        </h1>
-        <p className="text-muted-foreground text-sm text-pretty">
-          Open a session to pick a device and an app, then start recording when
-          the journey begins.
-        </p>
+    <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
+      <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
+        <div
+          aria-hidden="true"
+          className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
+        >
+          <SmartphoneIcon className="size-5" />
+        </div>
+        <div className="space-y-1.5">
+          <h1 className="text-xl font-semibold tracking-tight">
+            No Android session
+          </h1>
+          <p className="text-muted-foreground text-sm text-pretty">
+            Open a session to pick a device and an app, then start recording
+            when the journey begins.
+          </p>
+        </div>
         {sessions.length === 0 ? null : (
-          <div className="flex justify-center">
+          <div className="flex">
             <AndroidSessionSelect
               onSelect={onSelect}
               selectedSessionId={undefined}
@@ -188,12 +212,12 @@ export const AndroidEmptyState = ({
             />
           </div>
         )}
-        <div className="flex justify-center gap-2">
-          <Button onClick={onOpen}>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onOpen} size="lg">
             <SmartphoneIcon />
             Open Android session
           </Button>
-          <Button onClick={onBrowser} variant="outline">
+          <Button onClick={onBrowser} size="lg" variant="outline">
             <MonitorIcon />
             Browser Workspace
           </Button>
@@ -294,6 +318,7 @@ const useAndroidSessionSync = (
 
 /** The dock's controls row: navigation first, then the state's own actions. */
 const AndroidDockControls = ({
+  elements,
   instructing,
   mutate,
   onBrowser,
@@ -303,6 +328,8 @@ const AndroidDockControls = ({
   session,
   sessions,
 }: {
+  /** The keyboard's way onto the device screen. */
+  readonly elements: React.ReactNode;
   readonly instructing: boolean;
   readonly mutate: Mutate;
   readonly onBrowser: () => void;
@@ -327,7 +354,11 @@ const AndroidDockControls = ({
         selectedSessionId={session.id}
         sessions={sessions}
       />
-      <FlowsDockButton />
+      {/* Hidden while capturing, as the browser dock does. */}
+      {showsFlowsEntry(androidFlowsSessionView(session)) ? (
+        <FlowsDockButton />
+      ) : null}
+      {/* The session name has its own row on a phone, so Browser stays. */}
       <Button
         aria-label="Browser Workspace"
         onClick={onBrowser}
@@ -337,16 +368,20 @@ const AndroidDockControls = ({
       >
         <MonitorIcon />
       </Button>
+      {/* An ended session has no screen to reach. */}
+      {isLiveAndroidSession(session) ? elements : null}
       <DockSpacer />
       {presentation.showsComment ? (
         <Button
+          aria-label="Comment"
+          title="Comment"
           aria-pressed={instructing}
           onClick={onInstruct}
           size="sm"
           variant="ghost"
         >
           <MessageSquareTextIcon />
-          Comment
+          <span className="hidden @md:inline">Comment</span>
         </Button>
       ) : null}
       {presentation.rejectable ? (
@@ -376,10 +411,14 @@ const AndroidDockControls = ({
               sessionId: session.id,
             })
           }
+          aria-label="Close session"
           size="sm"
+          title="Close session"
           variant="outline"
         >
-          Close session
+          {/* A word, not a power glyph: it closes the session, not the device. */}
+          <span className="@md:hidden">Close</span>
+          <span className="hidden @md:inline">Close session</span>
         </Button>
       ) : (
         <Button onClick={onNewSession} size="sm" variant="outline">
@@ -499,13 +538,16 @@ const AndroidDockRequests = ({
           setState((current) => ({ ...current, instructing: false }))
         }
         onSubmit={(text) => {
-          mutate({
-            _tag: "instruction",
-            operationId: operationId(),
-            sessionId: session.id,
-            text,
-          });
-          setState((current) => ({ ...current, instructing: false }));
+          if (
+            mutate({
+              _tag: "instruction",
+              operationId: operationId(),
+              sessionId: session.id,
+              text,
+            })
+          ) {
+            setState((current) => ({ ...current, instructionPending: true }));
+          }
         }}
         pending={pending}
       />
@@ -542,8 +584,15 @@ export const AndroidSessionView = ({
   const pick = useWorkspaceGesture(pickGestureAtom);
   const canAct =
     session.controller === "user" && session.phase === "running" && !pending;
+  // Teaching types only while recording: a stopped recording keeps the
+  // session, but nothing typed then would be captured.
+  // A refused pick leaves no field picked: typing into the previous one would
+  // land somewhere the person did not just choose.
   const field =
     canAct &&
+    pick.error === undefined &&
+    (session.kind !== "teaching" ||
+      session.captureState?._tag === "recording") &&
     session.field !== null &&
     fieldKey(session.field) !== state.dismissedField
       ? session.field
@@ -564,25 +613,23 @@ export const AndroidSessionView = ({
         isLiveAndroidSession(session)
           ? null
           : {
-              label: "Run Summary",
+              label: deviceSummaryLabel(session.kind),
               summary: <AndroidRunSummary session={session} />,
             }
       }
     >
       <main
         className={cn(
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6 transition-[padding]",
-          // The dock's request tier grows over the stage; the device makes room.
-          field !== null ||
-            session.preparation.pending.length > 0 ||
-            (state.instructing && session.captureState?._tag === "recording")
-            ? "pb-56"
-            : "pb-36"
+          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6",
+          // The dock grows over the stage; the device keeps clear of it.
+          "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
         {notices}
         <AndroidDevice
           canAct={canAct}
+          cleanup={deviceCleanupKey(session.cleanup)}
+          ended={!isLiveAndroidSession(session)}
           live={session.phase === "running" || session.phase === "paused"}
           onBack={() => {
             if (session.observation !== null) {
@@ -600,7 +647,11 @@ export const AndroidSessionView = ({
                 sessionId: session.id,
               })
             );
-            setState((current) => ({ ...current, dismissedField: null }));
+            setState((current) => ({
+              ...current,
+              dismissedField: null,
+              refusalDismissed: false,
+            }));
           }}
           paused={session.phase === "paused"}
           secure={
@@ -608,11 +659,23 @@ export const AndroidSessionView = ({
             session.captureGaps.at(-1) === "secure_window"
           }
           pending={pick.pending}
-          refusal={pick.error ?? null}
           sessionId={session.id}
           unavailable={glassText(session)}
         />
         <DockShell
+          footer={
+            // Why the last click sent nothing, said in the dock as iOS says
+            // it, so nothing covers the glass. Opening the comment tier sets
+            // it aside; the next pick replaces it.
+            pick.error === undefined || state.refusalDismissed ? null : (
+              <p
+                className="text-destructive border-t px-3 py-1.5 text-xs"
+                role="alert"
+              >
+                {pick.error}
+              </p>
+            )
+          }
           requests={
             <AndroidDockRequests
               field={field}
@@ -631,6 +694,29 @@ export const AndroidSessionView = ({
           }
         >
           <AndroidDockControls
+            elements={
+              <DeviceElements
+                disabled={!canAct || pick.pending}
+                observation={session.observation}
+                onPick={({ frame, point }) => {
+                  pick.dispatch(
+                    run({
+                      _tag: "pick",
+                      frame,
+                      observationId: session.observation?.id ?? "none",
+                      operationId: operationId(),
+                      point,
+                      sessionId: session.id,
+                    })
+                  );
+                  setState((current) => ({
+                    ...current,
+                    dismissedField: null,
+                    refusalDismissed: false,
+                  }));
+                }}
+              />
+            }
             instructing={state.instructing}
             mutate={mutate}
             onBrowser={onBrowser}
@@ -638,6 +724,7 @@ export const AndroidSessionView = ({
               setState((current) => ({
                 ...current,
                 instructing: !current.instructing,
+                refusalDismissed: true,
               }))
             }
             onNewSession={() =>
@@ -684,6 +771,18 @@ export const AndroidWorkspace = ({
   const refresh = useAtomRefresh(androidSessionsAtom);
   const gesture = useWorkspaceGesture(sessionStartGestureAtom);
   useAndroidSessionSync(requestedSessionId, state.session, setState);
+  // A sent comment closes its composer only once it saves.
+  const { instructionPending } = state;
+  useEffect(() => {
+    if (!instructionPending || gesture.pending) {
+      return;
+    }
+    setState((current) => ({
+      ...current,
+      instructing: gesture.error === undefined ? false : current.instructing,
+      instructionPending: false,
+    }));
+  }, [gesture.error, gesture.pending, instructionPending, setState]);
   const run = (command: AndroidWorkspaceCommand): GestureRun =>
     runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>

@@ -83,6 +83,9 @@ export const DockSessionSelect = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
+        // The trigger shows the name's start; hovering shows all of it. On a
+        // narrow dock it has a row of its own.
+        title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -95,7 +98,10 @@ export const DockSessionSelect = ({
         render={
           <Button
             variant="outline"
-            className={cn("max-w-56 min-w-0 shrink", className)}
+            className={cn(
+              "max-w-56 min-w-0 flex-1 @max-md:max-w-none @max-md:basis-full @max-md:justify-between @md:max-w-72 @md:flex-initial @4xl:max-w-[32rem]",
+              className
+            )}
           />
         }
       >
@@ -162,6 +168,30 @@ export const DockSessionSelect = ({
 };
 
 /**
+ * Publishes the dock's height on the stage it floats over as
+ * `--dock-height`, so a stage can keep its content clear of the dock however
+ * many request tiers it has grown.
+ */
+const useDockHeight = () => {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const stage = element?.parentElement?.parentElement;
+    if (element === null || stage === null || stage === undefined) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      stage.style.setProperty("--dock-height", `${element.offsetHeight}px`);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      stage.style.removeProperty("--dock-height");
+    };
+  }, [element]);
+  return setElement;
+};
+
+/**
  * The dock shell: one floating card over a full-bleed browser, in up to three
  * tiers. What the agent is waiting on comes first, then where the session is,
  * then the controls. The controls are one row that never wraps; anything long
@@ -186,21 +216,29 @@ export const DockShell = ({
   /** What the agent is waiting on, or nothing. */
   readonly requests?: React.ReactNode;
   readonly status: React.ReactNode;
-}) => (
-  <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
-    <section
-      aria-label="Workspace dock"
-      className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg"
-    >
-      {requests}
-      {status}
-      <div className="flex min-w-0 items-center gap-1.5 border-t px-2 py-1.5">
-        {children}
-      </div>
-      {footer}
-    </section>
-  </div>
-);
+}) => {
+  const ref = useDockHeight();
+  return (
+    <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
+      <section
+        aria-label="Workspace dock"
+        className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg @6xl:max-w-4xl"
+        ref={ref}
+      >
+        {requests}
+        {status}
+        {/*
+          Below a medium dock the session picker takes its own full row, so
+          the session's name stays readable and the actions keep theirs.
+        */}
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap">
+          {children}
+        </div>
+        {footer}
+      </section>
+    </div>
+  );
+};
 
 /** A spacer that pushes the actions to the end of the controls row. */
 export const DockSpacer = () => <div className="min-w-2 flex-1" />;
@@ -262,7 +300,7 @@ const useClamped = <Element extends HTMLElement>() => {
  *
  * The badges keep a floor under the sentence: when they leave it less than
  * about 12rem, the sentence drops onto its own line rather than ellipsizing
- * after two words (#238).
+ * after two words (#238). Below a medium dock it always has its own line.
  *
  * One polite region, changed only when the state changes.
  */
@@ -270,10 +308,13 @@ export const DockStatus = ({
   badges,
   children,
   details,
+  note,
 }: {
   readonly badges: React.ReactNode;
   readonly children: React.ReactNode;
   readonly details?: React.ReactNode;
+  /** A line under the sentence that wraps rather than clamps, such as paths. */
+  readonly note?: React.ReactNode;
 }) => {
   const [expandedAtom] = useState(() => Atom.make(false));
   const [expanded, setExpanded] = useAtom(expandedAtom);
@@ -283,17 +324,23 @@ export const DockStatus = ({
     <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
       <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
         <div className="flex shrink-0 items-center gap-1.5 pt-px">{badges}</div>
-        <div className="min-w-48 flex-1">
+        {/* On a narrow dock the sentence takes its own full row. */}
+        <div className="min-w-48 flex-1 @max-md:basis-full">
           <output
             aria-live="polite"
             className={cn(
-              "text-muted-foreground block text-xs leading-5 text-pretty wrap-anywhere",
+              "text-foreground/75 block text-[13px] leading-5 text-pretty wrap-anywhere",
               expanded ? "max-h-40 overflow-y-auto" : "line-clamp-1"
             )}
             ref={sentenceRef}
           >
             {children}
           </output>
+          {note === undefined ? null : (
+            <p className="text-muted-foreground mt-0.5 font-mono text-xs wrap-anywhere">
+              {note}
+            </p>
+          )}
           {expanded && details !== undefined ? (
             <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
               {details}

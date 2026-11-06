@@ -1,39 +1,29 @@
 import type {
   AgentPursuitRecord,
   AgentTaskAssessment,
-  AgentTaskEvidence,
   TaskAgentRunState,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 
+import {
+  assessmentOutcomeLabel,
+  noFindings,
+} from "@/components/agent/dry-run-summary-state";
 import { Badge } from "@/components/ui/badge";
 
 import { BrowserCheckResults } from "./browser-check-results";
 import { BrowserModifications } from "./browser-modifications";
+import { EvidenceList } from "./evidence-reference";
 import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
 
-const EvidenceReferences = ({
-  evidence,
-}: {
-  readonly evidence: readonly AgentTaskEvidence[];
-}) => (
-  <ul
-    aria-label="Browser evidence"
-    className="text-muted-foreground space-y-1 text-xs"
-  >
-    {evidence.map((reference) => (
-      <li className="wrap-anywhere" key={`${reference.kind}:${reference.id}`}>
-        {reference.kind}: <code>{reference.id}</code>
-      </li>
-    ))}
-  </ul>
-);
-
 const Assessment = ({
   assessment,
+  hint = false,
 }: {
   readonly assessment: AgentTaskAssessment;
+  /** The run's own assessment says how evidence is used; findings do not. */
+  readonly hint?: boolean;
 }) => (
   <div className="space-y-2 rounded-lg border p-3">
     <Badge
@@ -41,10 +31,10 @@ const Assessment = ({
         assessment.outcome === "not-working" ? "destructive" : "secondary"
       }
     >
-      {assessment.outcome}
+      {assessmentOutcomeLabel[assessment.outcome]}
     </Badge>
     <p className="wrap-anywhere">{assessment.explanation}</p>
-    <EvidenceReferences evidence={assessment.evidence} />
+    <EvidenceList evidence={assessment.evidence} hint={hint} />
   </div>
 );
 
@@ -105,13 +95,67 @@ const Pursuits = ({
 
 /** The same task record is readable during execution and after persistence. */
 export const TaskRunDetails = ({
+  afterResult,
+  resultFirst = false,
   run,
 }: {
+  /** What follows the result when it leads, such as the Run's video. */
+  readonly afterResult?: React.ReactNode;
+  /**
+   * A finished Run leads with what the agent concluded; a live one leads with
+   * what it was asked, since it has not concluded anything yet.
+   */
+  readonly resultFirst?: boolean;
   readonly run: TaskAgentRunState | TaskAgentRunSummary;
 }) => {
   const provenance = runProvenance(run);
+  const result = (
+    <>
+      <section aria-label="Task assessment" className="space-y-2">
+        <h3 className="text-sm leading-5 font-semibold">Agent Assessment</h3>
+        {run.assessment === null ? (
+          <p>No Agent Assessment submitted.</p>
+        ) : (
+          <Assessment assessment={run.assessment} hint />
+        )}
+        {run.purpose.kind === "dry-run" ? (
+          <p className="text-muted-foreground text-xs">
+            {run.assessment?.outcomeComplete === true
+              ? "The agent reports a complete flow outcome attempt."
+              : "The agent did not report a complete flow outcome attempt."}
+            {run.purpose.takeoverOccurred
+              ? " User Takeover prevents this Dry Run from passing."
+              : ""}
+          </p>
+        ) : null}
+      </section>
+      {run.pursuits === undefined || run.pursuits.length === 0 ? null : (
+        <Pursuits pursuits={run.pursuits} />
+      )}
+      <section aria-label="Findings" className="space-y-2">
+        <h3 className="text-sm leading-5 font-semibold">Findings</h3>
+        {run.findings.length === 0 ? (
+          <p>{noFindings(run.assessment !== null)}</p>
+        ) : (
+          <ul className="space-y-2">
+            {run.findings.map((finding) => (
+              <li key={finding.id}>
+                <Assessment assessment={finding} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
   return (
     <div className="space-y-4 text-sm">
+      {resultFirst ? (
+        <>
+          {result}
+          {afterResult}
+        </>
+      ) : null}
       <section aria-label="Requested task" className="space-y-2">
         <h3 className="text-sm leading-5 font-semibold">Requested task</h3>
         <p className="wrap-anywhere">{run.requestedTask}</p>
@@ -175,41 +219,7 @@ export const TaskRunDetails = ({
       <BrowserModifications modifications={run.browserModifications ?? []} />
       <BrowserCheckResults run={run} />
       <ScanResults run={run} />
-      <section aria-label="Task assessment" className="space-y-2">
-        <h3 className="text-sm leading-5 font-semibold">Agent Assessment</h3>
-        {run.assessment === null ? (
-          <p>No Agent Assessment submitted.</p>
-        ) : (
-          <Assessment assessment={run.assessment} />
-        )}
-        {run.purpose.kind === "dry-run" ? (
-          <p className="text-muted-foreground text-xs">
-            {run.assessment?.outcomeComplete === true
-              ? "The agent reports a complete flow outcome attempt."
-              : "The agent did not report a complete flow outcome attempt."}
-            {run.purpose.takeoverOccurred
-              ? " User Takeover prevents this Dry Run from passing."
-              : ""}
-          </p>
-        ) : null}
-      </section>
-      {run.pursuits === undefined || run.pursuits.length === 0 ? null : (
-        <Pursuits pursuits={run.pursuits} />
-      )}
-      <section aria-label="Findings" className="space-y-2">
-        <h3 className="text-sm leading-5 font-semibold">Findings</h3>
-        {run.findings.length === 0 ? (
-          <p>No findings recorded.</p>
-        ) : (
-          <ul className="space-y-2">
-            {run.findings.map((finding) => (
-              <li key={finding.id}>
-                <Assessment assessment={finding} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {resultFirst ? null : result}
     </div>
   );
 };

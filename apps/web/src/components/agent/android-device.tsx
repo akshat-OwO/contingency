@@ -3,8 +3,8 @@ import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ChevronLeftIcon,
-  CircleSlashIcon,
   ShieldAlertIcon,
+  SmartphoneIcon,
   UnplugIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AndroidLiveStream } from "./android-live-stream";
+import { DeviceLastScreen } from "./android-run-summary";
 import type {
   AndroidStreamFrame,
   AndroidStreamPoint,
@@ -31,29 +32,42 @@ const DEFAULT_FRAME: AndroidStreamFrame = { height: 2400, width: 1080 };
  * keys. The glass is exactly the frame's aspect, so a click's position on it
  * is its position on the device and the live display is never letterboxed.
  */
-const DeviceFrame = ({
+export const DeviceFrame = ({
   children,
   frame,
 }: {
   readonly children: React.ReactNode;
   readonly frame: AndroidStreamFrame;
 }) => (
-  <div className="relative h-full w-fit shrink-0">
-    <span
-      aria-hidden="true"
-      className="absolute top-[22%] -right-[3px] h-[9%] w-[3px] rounded-r bg-neutral-500"
-    />
-    <span
-      aria-hidden="true"
-      className="absolute top-[35%] -right-[3px] h-[14%] w-[3px] rounded-r bg-neutral-500"
-    />
-    <div className="h-full w-fit rounded-[2.75rem] bg-gradient-to-b from-neutral-500 via-neutral-700 to-neutral-600 p-[3px] shadow-2xl">
-      <div className="h-full w-fit rounded-[2.6rem] bg-neutral-950 p-[9px]">
-        <div
-          className="relative h-full overflow-hidden rounded-[2.1rem] bg-neutral-950"
-          style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
-        >
-          {children}
+  // The frame fits whichever of the stage's width or height runs out first,
+  // so a phone-width stage never pushes it past the edge. A size container
+  // has no width of its own, so its parent must give it one.
+  <div
+    className="grid size-full min-h-0 min-w-0 place-items-center"
+    style={{ containerType: "size" }}
+  >
+    <div
+      className="relative"
+      style={{
+        width: `min(100cqw, calc((100cqh - 24px) * ${frame.width} / ${frame.height} + 24px))`,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="absolute top-[22%] -right-[3px] h-[9%] w-[3px] rounded-r bg-neutral-500"
+      />
+      <span
+        aria-hidden="true"
+        className="absolute top-[35%] -right-[3px] h-[14%] w-[3px] rounded-r bg-neutral-500"
+      />
+      <div className="w-full rounded-[2.75rem] bg-gradient-to-b from-neutral-500 via-neutral-700 to-neutral-600 p-[3px] shadow-2xl">
+        <div className="w-full rounded-[2.6rem] bg-neutral-950 p-[9px]">
+          <div
+            className="relative w-full overflow-hidden rounded-[2.1rem] bg-neutral-950"
+            style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>
@@ -97,42 +111,50 @@ const DeviceToolbar = ({
 );
 
 /**
- * Why the last click sent nothing. It sits beside the device rather than on
- * it, so the stream only ever shows what the device shows.
+ * A session with no device to show: before preparation, or after it released
+ * the device. A full-height black frame would say nothing more than this
+ * line, so the stage gives the space back.
  */
-const Refusal = ({ message }: { readonly message: string | null }) => (
-  <div aria-live="polite" className="w-56 shrink-0" role="status">
-    {message === null ? null : (
-      <p className="bg-background flex items-start gap-2 rounded-xl border px-3 py-2 text-xs shadow-sm">
-        <CircleSlashIcon
-          aria-hidden="true"
-          className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
-        />
-        <span>{message}</span>
-      </p>
-    )}
+export const DeviceUnavailable = ({
+  message,
+}: {
+  readonly message: string;
+}) => (
+  <div className="grid h-full min-h-0 place-items-center">
+    <div className="material-panel flex max-w-xs items-center gap-3 rounded-xl px-4 py-3 shadow-sm">
+      <SmartphoneIcon
+        aria-hidden="true"
+        className="text-muted-foreground size-5 shrink-0"
+      />
+      <p className="text-muted-foreground text-sm text-pretty">{message}</p>
+    </div>
   </div>
 );
 
 /**
- * The live device: the frame with the stream filling its glass, its keys on
- * the left, and on the right why the last click was refused. A click goes to
+ * The live device: the frame with the stream filling its glass and its keys
+ * on the left. A click goes to
  * `onPick` as a point on the frame; nothing here sends a coordinate to the
  * device.
  */
 export const AndroidDevice = ({
   canAct,
+  cleanup,
+  ended = false,
   live,
   onBack,
   onPick,
   paused,
   pending,
-  refusal,
   sessionId,
   secure,
   unavailable,
 }: {
   readonly canAct: boolean;
+  /** The session's cleanup state, so a purge drops the kept screen. */
+  readonly cleanup: string;
+  /** The session released its device for good; nothing will stream again. */
+  readonly ended?: boolean;
   /** Whether the session holds a prepared device to stream. */
   readonly live: boolean;
   readonly onBack: () => void;
@@ -142,7 +164,6 @@ export const AndroidDevice = ({
   ) => void;
   readonly paused: boolean;
   readonly pending: boolean;
-  readonly refusal: string | null;
   readonly sessionId: AgentSessionId;
   readonly secure: boolean;
   /** What the glass says while there is no stream. */
@@ -151,14 +172,33 @@ export const AndroidDevice = ({
   const [frameAtom] = useState(() => Atom.make(DEFAULT_FRAME));
   const [frame, setFrame] = useAtom(frameAtom);
   const displayUnavailable = secure ? "" : unavailable;
+  if (ended) {
+    return (
+      <DeviceLastScreen
+        cleanup={cleanup}
+        fallback={<DeviceUnavailable message={displayUnavailable} />}
+        platform="android"
+        sessionId={sessionId}
+      />
+    );
+  }
   return (
-    <div className="flex h-full min-h-0 items-center justify-center gap-5">
-      <div className="flex w-56 shrink-0 justify-end">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-3 lg:gap-5">
+      {/*
+        The side columns balance the frame on a wide stage; a narrow one
+        keeps only the keys beside it. Why a click sent nothing is said in the
+        dock, so nothing ever covers the glass.
+      */}
+      {/* Back sits low beside the frame, where a phone's own keys are. */}
+      <div className="flex shrink-0 justify-end self-end pb-16 lg:w-56">
         <DeviceToolbar canAct={canAct && !pending} onBack={onBack} />
       </div>
       <div
         aria-busy={pending}
-        className={cn("h-full min-h-0", pending && "cursor-progress")}
+        className={cn(
+          "h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,28rem)]",
+          pending && "cursor-progress"
+        )}
       >
         <DeviceFrame frame={frame}>
           {live && !secure ? (
@@ -196,7 +236,7 @@ export const AndroidDevice = ({
           ) : null}
         </DeviceFrame>
       </div>
-      <Refusal message={refusal} />
+      <div aria-hidden="true" className="hidden lg:block lg:w-56 lg:shrink-0" />
     </div>
   );
 };

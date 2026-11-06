@@ -1,5 +1,10 @@
 import type { CatalogFlowEntry, CatalogRootView } from "@contingency/protocol";
-import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import {
+  useAtom,
+  useAtomRefresh,
+  useAtomSet,
+  useAtomValue,
+} from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ArrowLeftIcon,
@@ -46,6 +51,7 @@ import {
   RecordingRow,
   RunRow,
   SectionLabel,
+  selectedRowClass,
 } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -93,7 +99,7 @@ const FlowRow = ({
       aria-selected={selected}
       className={cn(
         "hover:bg-muted flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors duration-100",
-        selected && "bg-primary text-primary-foreground hover:bg-primary"
+        selected && selectedRowClass
       )}
       onClick={onSelect}
       type="button"
@@ -107,28 +113,18 @@ const FlowRow = ({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{flow.name}</span>
-        <span
-          className={cn(
-            "block truncate text-xs",
-            selected ? "text-primary-foreground/70" : "text-muted-foreground"
-          )}
-        >
+        <span className={cn("block truncate text-xs", "text-muted-foreground")}>
           {flow.verified ? "Verified" : "Drafted"} ·{" "}
           {runCountLabel(runs.length)}
           {label === undefined ? null : (
-            <span
-              className={cn(
-                "font-medium",
-                selected ? "text-primary-foreground" : "text-foreground"
-              )}
-            >
+            <span className={cn("font-medium", "text-foreground")}>
               {" "}
               · {label}
             </span>
           )}
         </span>
       </span>
-      {latest === undefined ? null : <OutcomeDot outcome={latest.assessment} />}
+      {latest === undefined ? null : <OutcomeDot run={latest} />}
     </button>
   );
 };
@@ -147,7 +143,7 @@ const PendingRow = ({
     aria-pressed={selected}
     className={cn(
       "hover:bg-muted flex w-full items-center gap-2 rounded-md border border-dashed px-2 py-1.5 text-left transition-colors duration-100",
-      selected && "bg-muted border-foreground/30"
+      selected && cn(selectedRowClass, "border-foreground/30")
     )}
     onClick={onSelect}
     type="button"
@@ -360,7 +356,7 @@ const RootFlows = ({
           aria-pressed={sameFolder(folder, looseFolder)}
           className={cn(
             "hover:bg-muted text-muted-foreground flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-            sameFolder(folder, looseFolder) && "bg-muted text-foreground"
+            sameFolder(folder, looseFolder) && selectedRowClass
           )}
           onClick={() => {
             onFolder(looseFolder);
@@ -496,7 +492,7 @@ const CatalogColumn = ({
               <GlobeIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Global
               <span className="text-muted-foreground ml-auto font-normal tabular-nums">
-                {global.present ? globalHits : "none"}
+                {global.present ? globalHits : 0}
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-1">
@@ -731,6 +727,7 @@ const FlowsNavigation = ({
   readonly roots: readonly CatalogRootView[];
   readonly flows: SessionFlows;
 }) => {
+  const setSelection = useAtomSet(flowsSelectionAtom);
   const [queryAtom] = useState(() => Atom.make(""));
   const [folderAtom] = useState(() => Atom.make<FlowsFolder | null>(null));
   const [viewAtom] = useState(() =>
@@ -800,7 +797,7 @@ const FlowsNavigation = ({
     <div className="@container/flows relative flex min-h-0 min-w-0 flex-1 flex-col">
       <span
         aria-hidden="true"
-        className="pointer-events-none invisible absolute h-px w-0 @min-[36rem]/flows:w-px"
+        className="pointer-events-none invisible absolute h-px w-0 @min-[40rem]/flows:w-px"
         ref={breakpointRef}
       />
       <div
@@ -814,6 +811,11 @@ const FlowsNavigation = ({
           <CatalogColumn
             folder={folder}
             onFolder={(target) => {
+              // Details belong to the folder they were opened from; another
+              // folder starts without them.
+              if (JSON.stringify(target) !== JSON.stringify(folder)) {
+                setSelection(null);
+              }
               setChosen(target);
               setView("contents");
               if (narrow) {

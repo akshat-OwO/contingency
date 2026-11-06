@@ -58,6 +58,9 @@ const rpc = vi.hoisted(() => ({
   /* A failing save settles only once the test opens this gate. */
   instructionGate: Promise.resolve(true),
   navigateCalls: [] satisfies unknown[],
+  navigateFailure: undefined satisfies unknown,
+  /* A navigation settles only once the test opens this gate. */
+  navigateGate: Promise.resolve(true),
   privateInputCalls: [] satisfies unknown[],
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
@@ -99,8 +102,14 @@ const rpcOverrides = {
   agentBrowserNavigateMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
       rpc.navigateCalls.push(payload);
-      return {};
-    })
+    }).pipe(
+      Effect.andThen(Effect.promise(() => rpc.navigateGate)),
+      Effect.andThen(
+        rpc.navigateFailure === undefined
+          ? Effect.succeed({})
+          : Effect.fail(rpc.navigateFailure)
+      )
+    )
   ),
   agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -489,6 +498,8 @@ afterEach(async () => {
   rpc.closeCalls = [];
   rpc.closeFailure = undefined;
   rpc.closeGate = Promise.resolve(true);
+  rpc.navigateFailure = undefined;
+  rpc.navigateGate = Promise.resolve(true);
   rpc.closeSettled = 0;
   rpc.discardCalls = [];
   rpc.endedRunSummaryCalls = [];
@@ -895,7 +906,7 @@ test("takes control from Workspace and returns it explicitly", async () => {
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("You have control.");
+  expect(dock).toHaveTextContent("You have control");
   expect(screen.getByText(/may already have performed it/u)).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => {
@@ -1094,6 +1105,67 @@ test("navigates to a typed address during Takeover", async () => {
       action: { type: "navigate", url: "https://example.org/pricing" },
     },
   });
+});
+
+test("hands the keyboard to the Page once a typed navigation is accepted", async () => {
+  const user = userEvent.setup();
+  rpc.navigateCalls.length = 0;
+  // The canvas is hidden until a frame renders; hidden elements cannot focus.
+  vi.spyOn(browserInput, "renderFrame").mockReturnValue(Effect.succeed(true));
+  vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(
+    (_sessionId, onEvent) =>
+      onEvent({
+        data: new Uint8Array(),
+        metadata: {
+          deviceHeight: 480,
+          deviceWidth: 640,
+          offsetTop: 0,
+          pageScaleFactor: 1,
+          scrollOffsetX: 0,
+          scrollOffsetY: 0,
+          timestamp: 0,
+        },
+        seq: FrameSequence.make(1),
+        streamId: BrowserStreamId.make("address-focus-test"),
+        type: "frame",
+      }).pipe(Effect.andThen(Effect.never))
+  );
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const canvas = screen.getByLabelText("Live browser viewport");
+  await waitFor(() => {
+    expect(canvas).toBeVisible();
+  });
+  const address = screen.getByLabelText("Browser address");
+  await user.clear(address);
+  await user.type(address, "example.org/pricing{Enter}");
+  await waitFor(() => {
+    expect(canvas).toHaveFocus();
+  });
+  expect(rpc.navigateCalls).toHaveLength(1);
+});
+
+test("keeps the keyboard in the address bar while a navigation is pending and after it is refused", async () => {
+  const user = userEvent.setup();
+  rpc.navigateCalls.length = 0;
+  const gate = Promise.withResolvers<boolean>();
+  rpc.navigateGate = gate.promise;
+  rpc.navigateFailure = new Error("The address could not be opened.");
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const address = await screen.findByLabelText("Browser address");
+  await user.clear(address);
+  await user.type(address, "example.org/pricing{Enter}");
+  await waitFor(() => {
+    expect(rpc.navigateCalls).toHaveLength(1);
+  });
+  // Pending: the field is read-only rather than disabled, so it keeps focus.
+  expect(address).toHaveFocus();
+  expect(address).toHaveAttribute("readonly");
+  gate.resolve(true);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The address could not be opened."
+  );
+  expect(address).toHaveFocus();
+  expect(address).not.toHaveAttribute("readonly");
 });
 
 test("scrolls the browser with the wheel only during Takeover", async () => {

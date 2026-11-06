@@ -1,5 +1,3 @@
-import { useAtom } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
 import {
   CheckIcon,
   CircleCheckIcon,
@@ -7,16 +5,12 @@ import {
   CopyIcon,
   MessageSquareReplyIcon,
 } from "lucide-react";
-import { useState } from "react";
 
 import { shortDecisionId } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
+
+import { CopyFeedback, useCopy } from "./evidence-reference";
 
 /**
  * The pieces every request in the dock's first tier is built from, so an
@@ -55,32 +49,27 @@ export const RequestHeader = ({
  * is its accessible name, its title, and what it copies.
  */
 export const DecisionId = ({ id }: { readonly id: string }) => {
-  const [copiedAtom] = useState(() => Atom.make(false));
-  const [copied, setCopied] = useAtom(copiedAtom);
+  const { copied, copy, failed, text } = useCopy(id);
   return (
-    <Button
-      aria-label={`Copy decision id ${id}`}
-      className="font-mono"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(id);
-          setCopied(true);
-        } catch {
-          setCopied(false);
-        }
-      }}
-      size="xs"
-      title={id}
-      type="button"
-      variant="outline"
-    >
-      {copied ? (
-        <CheckIcon aria-hidden="true" />
-      ) : (
-        <CopyIcon aria-hidden="true" />
-      )}
-      {shortDecisionId(id)}
-    </Button>
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <Button
+        aria-label={`Copy decision id ${id}`}
+        className="font-mono"
+        onClick={copy}
+        size="xs"
+        title={id}
+        type="button"
+        variant="outline"
+      >
+        {copied ? (
+          <CheckIcon aria-hidden="true" />
+        ) : (
+          <CopyIcon aria-hidden="true" />
+        )}
+        {shortDecisionId(id)}
+      </Button>
+      <CopyFeedback copied={copied} failed={failed} text={text} />
+    </span>
   );
 };
 
@@ -107,11 +96,30 @@ export const RelayHint = ({
 );
 
 /**
- * One private input answered in place: the Variable's name and purpose, a
- * password field with a reveal toggle and `Supply` inside it, and a quiet
- * `Refuse` beside it so the two answers never look alike. Below about 32rem
- * of stage the label stacks over the field.
+ * One input answered in place: the Variable's name and its full purpose over
+ * the field, then the value with `Supply` as its own button and `Refuse`
+ * outlined beside it, so the two answers never look alike and neither hides
+ * inside the field.
  */
+/**
+ * What a request's purpose adds beyond its label. A default purpose repeats
+ * the Variable's name and the evidence notice its group already shows, so
+ * only what remains is worth a line.
+ */
+const purposeBeyondLabel = (
+  label: string,
+  purpose: string | undefined
+): string | undefined => {
+  if (purpose === undefined) {
+    return undefined;
+  }
+  const rest = purpose
+    .replace(`Supply Variable ${label}.`, "")
+    .replace(/The value is visible in session and Run evidence\./u, "")
+    .trim();
+  return rest === "" ? undefined : rest;
+};
+
 export const VariableField = ({
   disabled = false,
   error,
@@ -139,76 +147,75 @@ export const VariableField = ({
   readonly refuseLabel?: string;
   readonly supplyLabel: string;
   readonly value: string;
-}) => (
-  <form
-    className="grid gap-x-2 gap-y-1 @lg:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] @lg:items-center"
-    onSubmit={(event) => {
-      event.preventDefault();
-      onSubmit();
-    }}
-  >
-    <div className="min-w-0">
-      <label
-        className="block truncate font-mono text-xs"
-        htmlFor={id}
-        title={label}
-      >
-        {label}
-      </label>
-      {purpose === undefined ? null : (
-        <p
-          className="text-muted-foreground text-xs text-pretty @lg:truncate"
-          id={`${id}-purpose`}
-          title={purpose}
+}) => {
+  const detail = purposeBeyondLabel(label, purpose);
+  return (
+    <form
+      className="space-y-1.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <div className="min-w-0 space-y-0.5">
+        <label
+          className="block font-mono text-xs font-medium wrap-anywhere"
+          htmlFor={id}
         >
-          {purpose}
-        </p>
-      )}
-    </div>
-    <div className="flex min-w-0 items-center gap-1.5 @lg:contents">
-      <InputGroup className="bg-background h-8 min-w-0 flex-1">
-        <InputGroupInput
-          aria-describedby={purpose === undefined ? undefined : `${id}-purpose`}
+          {label}
+        </label>
+        {detail === undefined ? null : (
+          <p
+            className="text-muted-foreground text-xs text-pretty"
+            id={`${id}-purpose`}
+          >
+            {detail}
+          </p>
+        )}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Input
+          aria-describedby={detail === undefined ? undefined : `${id}-purpose`}
           autoComplete="off"
+          className="bg-background h-8 min-w-0 flex-1"
           disabled={disabled || pending}
           id={id}
           onChange={(event) => onValueChange(event.target.value)}
           placeholder="Value"
           required
+          spellCheck={false}
           type="text"
           value={value}
         />
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton
-            aria-label={supplyLabel}
-            disabled={disabled || pending || value.length === 0}
-            type="submit"
-            variant="default"
-          >
-            Supply
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
-      {onRefuse === undefined ? null : (
         <Button
-          aria-label={refuseLabel}
-          disabled={disabled || pending}
-          onClick={onRefuse}
+          aria-label={supplyLabel}
+          disabled={disabled || pending || value.length === 0}
           size="sm"
-          type="button"
-          variant="ghost"
+          type="submit"
         >
-          Refuse
+          Supply
         </Button>
+        {onRefuse === undefined ? null : (
+          <Button
+            aria-label={refuseLabel}
+            disabled={disabled || pending}
+            onClick={onRefuse}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Refuse
+          </Button>
+        )}
+      </div>
+      {error === undefined ? null : (
+        <p className="text-destructive text-xs" role="alert">
+          {error}
+        </p>
       )}
-    </div>
-    {error === undefined ? null : (
-      <p className="text-destructive text-xs @lg:col-span-3" role="alert">
-        {error}
-      </p>
-    )}
-  </form>
-);
+    </form>
+  );
+};
 
 /** An input that is no longer waiting, collapsed to one quiet line. */
 export const AnsweredVariable = ({

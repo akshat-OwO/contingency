@@ -11,6 +11,7 @@ import type {
 } from "@contingency/protocol";
 import {
   ContingencyRpcs,
+  DeviceKeyframes,
   isBrowserRpcError,
   RunVideoStatus,
   runVideoStatusPath,
@@ -84,6 +85,14 @@ export const runIosWorkspaceCommand = (command: IosWorkspaceCommand) =>
         command,
         source: "user",
       });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+/** The bundle id and build a built `.app` on this machine declares. */
+export const inspectIosApp = (path: string) =>
+  Effect.scoped(
+    Effect.gen(function* iosAppInspect() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("ios.app.inspect", { path });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
 export const iosStreamAccess = (sessionId: AgentSessionId) =>
@@ -302,6 +311,36 @@ export const runVideoStatusAtom = Atom.family((videoUrl: string) =>
     ).pipe(
       Stream.repeat(Schedule.spaced("1 second")),
       Stream.takeUntil((status) => status.state !== "preparing")
+    )
+  )
+);
+
+const decodeDeviceKeyframes = Schema.decodeUnknownEffect(DeviceKeyframes);
+
+/**
+ * The keyframes an ended device session kept, read once per list URL: an
+ * ended session adds none, so there is nothing to poll for.
+ */
+/**
+ * A device session's keyframes, or `null` when this Workspace does not know
+ * the session. Any other failure fails the atom, so it can be retried.
+ */
+export const deviceKeyframesAtom = Atom.family((listUrl: string) =>
+  Atom.make(
+    Effect.tryPromise(async () => {
+      const response = await fetch(listUrl, { cache: "no-store" });
+      if (response.status === 404) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new Error(`The keyframe list answered ${response.status}.`);
+      }
+      const body: unknown = await response.json();
+      return body;
+    }).pipe(
+      Effect.flatMap((body) =>
+        body === null ? Effect.succeed(null) : decodeDeviceKeyframes(body)
+      )
     )
   )
 );

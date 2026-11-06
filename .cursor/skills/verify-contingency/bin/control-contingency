@@ -348,22 +348,23 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "android-pick": {
       const { pickAndroid } = await import("./android-ui.mjs");
-      const { brokerUrl } = flags;
+      const { brokerUrl, verifyDir: logDirectory } = flags;
       if (typeof brokerUrl !== "string") {
         throw new Error("Start the owned MCP broker first.");
       }
+      // The MCP surface is one agent_code_execute tool; brokerTool runs the
+      // device operation inside it, as every other proof call does.
       const call = async (command) => {
-        const response = await fetch(`${brokerUrl}call`, {
-          body: JSON.stringify({ params: { platform: "android", command }, tool: "agent_device_workspace" }),
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        });
-        const result = await response.json();
+        const result = await brokerTool(
+          { brokerUrl, verifyDir: logDirectory },
+          "agent_device_workspace",
+          { command, platform: "android" }
+        );
         const answer = (result.content ?? [])
           .filter((entry) => entry.type === "text")
           .map((entry) => entry.text)
           .join("\n");
-        if (!response.ok || result.isError) {
+        if (result.isError) {
           throw new Error(answer || JSON.stringify(result));
         }
         return JSON.parse(answer);
@@ -1521,7 +1522,9 @@ try {
     isError,
   });
   appendFileSync(
-    path.join(verifyDir(), "single-tool.jsonl"),
+    // The browser driver runs detached without the verify directory in its
+    // environment, so a caller there names it.
+    path.join(instance.verifyDir ?? verifyDir(), "single-tool.jsonl"),
     `${JSON.stringify({
       at: new Date(started).toISOString(),
       diagnostic: execution.diagnostic,
@@ -1755,7 +1758,9 @@ const cmdBrowser = async (action, flags) => {
   const output = await callDriver(instance, {
     action,
     flags:
-      action === "android-pick" ? { ...flags, brokerUrl: instance.brokerUrl } : flags,
+      action === "android-pick"
+        ? { ...flags, brokerUrl: instance.brokerUrl, verifyDir: verifyDir() }
+        : flags,
   });
   if (action === "input-check") {
     const sessionId = flags["session-id"];

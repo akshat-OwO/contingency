@@ -41,7 +41,7 @@ const CollapsedRequests = ({
     <button
       aria-expanded={false}
       aria-label={`Show request: ${first.title}. ${first.summary}`}
-      className="hover:bg-muted/70 focus-visible:ring-ring/50 flex h-9 w-full min-w-0 items-center gap-2 px-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
+      className="hover:bg-muted/70 focus-visible:ring-ring flex h-9 w-full min-w-0 items-center gap-2 px-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
       onClick={onExpand}
       type="button"
     >

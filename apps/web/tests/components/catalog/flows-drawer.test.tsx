@@ -794,3 +794,33 @@ test("navigates nested Groups and keeps multi-Flow root Runs separate", async ()
     screen.queryByRole("button", { name: /recording-retained/u })
   ).toBeNull();
 });
+
+test("shows a Run's findings beside its assessment in the Details pane", () => {
+  render(
+    <TestRegistry>
+      <FlowDetails
+        selection={{
+          kind: "run",
+          run: {
+            ...run,
+            explanation: "Signed in with the SMS code.",
+            findings: [
+              {
+                explanation: "The resend link stayed disabled.",
+                id: "finding-1",
+                outcome: "not-working",
+              },
+            ],
+          },
+          scope: "local",
+        }}
+      />
+    </TestRegistry>
+  );
+  const findings = screen.getByRole("region", { name: "Findings" });
+  expect(within(findings).getByText("1 finding")).toBeVisible();
+  expect(within(findings).getByText("Not working")).toBeVisible();
+  expect(
+    within(findings).getByText("The resend link stayed disabled.")
+  ).toBeVisible();
+});

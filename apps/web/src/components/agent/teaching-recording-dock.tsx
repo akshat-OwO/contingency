@@ -9,9 +9,11 @@ import type {
 } from "@contingency/protocol";
 import {
   CircleAlertIcon,
+  CheckIcon,
   CircleIcon,
   LoaderCircleIcon,
   MessageSquareTextIcon,
+  RotateCwIcon,
   SquareIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -62,6 +64,13 @@ const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
   "rename-flow": "Rename flow",
 };
 
+/** What a secondary reads once the stage is too narrow for the full label. */
+const SECONDARY_SHORT_LABEL: Record<TeachingSecondaryAction, string> = {
+  "delete-recording": "Delete",
+  "reject-flow": "Reject",
+  "rename-flow": "Rename",
+};
+
 /**
  * The elapsed timer owns its own interval and its own render. Keeping the tick
  * inside this leaf is what stops a one-second clock from re-rendering the
@@ -110,8 +119,7 @@ export const WorkspaceEmptyDock = ({
   <DockShell
     status={
       <DockStatus badges={<Badge variant="secondary">No session</Badge>}>
-        Open a session to set the browser up, then start recording when the
-        journey begins.
+        Nothing is captured until a session is open and recording.
       </DockStatus>
     }
   >
@@ -121,6 +129,34 @@ export const WorkspaceEmptyDock = ({
     {flows}
   </DockShell>
 );
+
+/**
+ * The red dot is the capture gesture's own mark; verifying, retrying, and
+ * rejecting are decisions about a recording, so they get their own icons.
+ */
+const TeachingActionIcon = ({
+  gesture,
+}: {
+  readonly gesture: TeachingRecordingGesture;
+}) => {
+  switch (gesture) {
+    case "stop":
+    case "stop-dry-run": {
+      return <SquareIcon aria-hidden="true" className="fill-current" />;
+    }
+    case "verify-flow": {
+      return <CheckIcon aria-hidden="true" />;
+    }
+    case "retry-cleanup": {
+      return <RotateCwIcon aria-hidden="true" />;
+    }
+    default: {
+      return (
+        <CircleIcon aria-hidden="true" className="fill-current text-red-500" />
+      );
+    }
+  }
+};
 
 /**
  * The way into the comment composer, with the comment count beside it. The
@@ -147,13 +183,16 @@ const CommentTrigger = ({
     }
     onClick={onComment}
     size="sm"
+    title="Comment"
     type="button"
     variant="ghost"
   >
     <MessageSquareTextIcon aria-hidden="true" />
     <span className="hidden @md:inline">Comment</span>
     {count === 0 ? null : (
-      <span className="text-muted-foreground tabular-nums">{count}</span>
+      <span className="bg-muted text-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-xs leading-none font-medium tabular-nums">
+        {count}
+      </span>
     )}
     <ShortcutKbd
       className="hidden @lg:inline-flex"
@@ -318,6 +357,11 @@ export const TeachingRecordingDock = ({
               ) : null}
             </>
           }
+          note={
+            presentation.retainedFiles === undefined
+              ? undefined
+              : `Still on disk: ${presentation.retainedFiles.join(", ")}`
+          }
         >
           {/*
             The sentence changes when the capture state changes, never on a
@@ -358,20 +402,23 @@ export const TeachingRecordingDock = ({
           type="button"
           variant="outline"
         >
-          {secondary === "reject-flow" ? (
-            <>
-              <span className="@md:hidden">Reject</span>
-              <span className="hidden @md:inline">Reject flow</span>
-            </>
-          ) : (
-            SECONDARY_LABEL[secondary]
-          )}
+          {/*
+            A narrow dock wraps the session picker onto its own row, so even
+            there a secondary keeps a word: an X alone reads as dismiss.
+          */}
+          <span className="@md:hidden">{SECONDARY_SHORT_LABEL[secondary]}</span>
+          <span className="hidden @md:inline">
+            {SECONDARY_LABEL[secondary]}
+          </span>
         </Button>
       ))}
       {control}
       {action === null ? null : (
         <Button
           aria-label={action.accessibleName}
+          // On a narrow dock the primary action takes its own full-width row
+          // under the others, rather than wrapping wherever it lands.
+          className="@max-md:w-full @max-md:basis-full"
           disabled={pending}
           onClick={() => onGesture(action.gesture)}
           type="button"
@@ -381,15 +428,15 @@ export const TeachingRecordingDock = ({
               : "default"
           }
         >
-          {action.gesture === "stop" || action.gesture === "stop-dry-run" ? (
-            <SquareIcon aria-hidden="true" className="fill-current" />
+          <TeachingActionIcon gesture={action.gesture} />
+          {action.gesture === "start" ? (
+            <>
+              <span className="@sm:hidden">Record</span>
+              <span className="hidden @sm:inline">{action.label}</span>
+            </>
           ) : (
-            <CircleIcon
-              aria-hidden="true"
-              className="hidden fill-current @md:block"
-            />
+            action.label
           )}
-          {action.label}
         </Button>
       )}
     </DockShell>

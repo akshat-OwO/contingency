@@ -56,15 +56,27 @@ await Effect.runPromise(
       };
       const read = () =>
         io(async () => {
+          // The MCP surface is one agent_code_execute tool.
           const response = await fetch(`${instance.brokerUrl}call`, {
-            body: JSON.stringify({ params, tool: "agent_session_get" }),
+            body: JSON.stringify({
+              params: {
+                code: `return await tools.agent_session_get(${JSON.stringify(params)});`,
+                timeoutMs: 30_000,
+              },
+              tool: "agent_code_execute",
+            }),
             headers: { "content-type": "application/json" },
             method: "POST",
           });
           assert.equal(response.status, 200);
           const result = await response.json();
           assert.ok(!result.isError, JSON.stringify(result));
-          return result.structuredContent;
+          assert.equal(
+            result.structuredContent.status,
+            "completed",
+            JSON.stringify(result.structuredContent)
+          );
+          return result.structuredContent.value;
         });
       const first = yield* read();
       const replay = yield* read();
