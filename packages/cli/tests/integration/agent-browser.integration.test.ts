@@ -1570,28 +1570,79 @@ const startFocusLoader = (name: string, query = "") =>
     return { agent, covered, fixtures, gate, input, phone, session };
   });
 
-it.live("waits for a loading layer opened by focus before sending text", () =>
-  Effect.gen(function* fillAfterFocusLoader() {
-    const { covered, fixtures, gate, input, phone, session } =
-      yield* startFocusLoader("focus-loader");
-    const fill = yield* callTool("agent_browser_act", {
-      action: { ref: phone.ref, text: "0000000000", type: "fill" },
-      operationId: OperationId.make("focus-loader-fill"),
-      sessionId: session.id,
-    }).pipe(Effect.forkScoped);
-    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
-    expect(
-      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
-    ).toEqual([]);
-    yield* Deferred.succeed(gate.release, true);
-    yield* Fiber.join(fill);
-    expect(
-      yield* Deferred.await(input).pipe(Effect.timeout("30 seconds"))
-    ).toBe("/focus-loader-input?length=10&covered=false");
-    expect(
-      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
-    ).toHaveLength(1);
-  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+it.live.each(["", "?lose-focus"])(
+  "waits for a loading layer and restores focus when needed (%s)",
+  (query) =>
+    Effect.gen(function* fillAfterFocusLoader() {
+      const { covered, fixtures, gate, input, phone, session } =
+        yield* startFocusLoader("focus-loader", query);
+      const fill = yield* callTool("agent_browser_act", {
+        action: { ref: phone.ref, text: "0000000000", type: "fill" },
+        operationId: OperationId.make("focus-loader-fill"),
+        sessionId: session.id,
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toEqual([]);
+      yield* Deferred.succeed(gate.release, true);
+      yield* Fiber.join(fill);
+      expect(
+        yield* Deferred.await(input).pipe(Effect.timeout("30 seconds"))
+      ).toBe("/focus-loader-input?length=10&covered=false");
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live.each(["refocus", "readonly-refocus", "aria-disabled-refocus"])(
+  "rechecks coverage after a loading layer moves focus (%s)",
+  (mode) =>
+    Effect.gen(function* recheckRefocusCoverage() {
+      const { covered, fixtures, gate, phone, session } =
+        yield* startFocusLoader("focus-loader-refocus", `?${mode}`);
+      const editability =
+        mode === "refocus"
+          ? undefined
+          : yield* fixtures.holdRequest("/focus-loader-editability-gate");
+      const reachable = yield* fixtures.awaitRequest(
+        (url) => url === "/focus-loader-reachable"
+      );
+      const fill = yield* callTool("agent_browser_act", {
+        action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+        operationId: OperationId.make("focus-loader-refocus-fill"),
+        sessionId: session.id,
+      }).pipe(Effect.result, Effect.forkScoped);
+      yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+      yield* Deferred.succeed(gate.release, true);
+      if (editability !== undefined) {
+        yield* Deferred.await(reachable).pipe(Effect.timeout("30 seconds"));
+        yield* Deferred.succeed(editability.release, true);
+      }
+      const result = yield* Fiber.join(fill);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.reason).toBe("intercepted");
+        expect(result.failure.message).toContain("Refocus confirmation");
+      }
+      const after = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      expect(
+        findNode(after.nodes, "textbox", "Mobile number").value
+      ).toBeUndefined();
+      findNode(after.nodes, "dialog", "Refocus confirmation");
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
 it.live("does not fill after Takeover interrupts a focus loading layer", () =>

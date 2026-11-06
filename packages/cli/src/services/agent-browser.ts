@@ -2450,7 +2450,7 @@ const reachablePosition = async (
   return pointerPosition(element, keyboard, filling);
 };
 
-/** Focus may open a loading layer. Wait for reachability, never force entry. */
+/** Wait for coverage to clear and report whether the control kept focus. */
 const waitForFillPosition = async (element: ElementHandle, timeout: number) => {
   const frame = await element.ownerFrame();
   if (frame === null) {
@@ -2473,20 +2473,45 @@ const waitForFillPosition = async (element: ElementHandle, timeout: number) => {
           filling: true,
           keyboard: false,
         });
-        return access.blocker === null && access.point !== null
-          ? "ready"
-          : false;
+        if (
+          access.blocker !== null ||
+          access.point === null ||
+          control.matches(":disabled, [readonly]") ||
+          control.getAttribute("aria-readonly") === "true"
+        ) {
+          return false;
+        }
+        // Native fill also waits for inherited ARIA enablement. Keep that
+        // wait here so any later focus recovery gets its own coverage check.
+        let ancestor: typeof control | null = control;
+        while (ancestor !== null) {
+          const disabled = ancestor
+            .getAttribute("aria-disabled")
+            ?.toLowerCase();
+          if (disabled === "true") {
+            return false;
+          }
+          if (disabled === "false") {
+            break;
+          }
+          const root = ancestor.getRootNode();
+          ancestor =
+            ancestor.parentElement ?? ("host" in root ? root.host : null);
+        }
+        return control.matches(":focus") ? "focused" : "refocus";
       },
       { element, read },
       { timeout }
     );
     try {
-      if ((await ready.jsonValue()) === "detached") {
+      const state = await ready.jsonValue();
+      if (state === "detached") {
         throw new BrowserInputRefusedError(
           "detached",
           "The control left the document."
         );
       }
+      return state === "focused";
     } finally {
       await ready.dispose();
     }
@@ -2520,9 +2545,19 @@ const fillControl = async (
     return budget;
   };
   await reachablePosition(element, false, true, remaining());
-  signal.throwIfAborted();
-  await element.focus();
-  await waitForFillPosition(element, remaining());
+  const focusAndWait = async () => {
+    remaining();
+    await element.focus();
+    return waitForFillPosition(element, remaining());
+  };
+  if (!(await focusAndWait()) && !(await focusAndWait())) {
+    // A loader may move focus once. Repeated focus loss needs a fresh read;
+    // native fill would otherwise refocus without checking the new coverage.
+    throw new BrowserInputRefusedError(
+      "intercepted",
+      "The control lost focus again while waiting. Take a fresh agent_browser_snapshot before entering text."
+    );
+  }
   await element.fill(value, { timeout: remaining() });
 };
 
