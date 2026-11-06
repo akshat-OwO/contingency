@@ -33,6 +33,17 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 const SKIP_MS = 5000;
+
+/**
+ * How far an arrow key moves the focused scrubber: a tenth of a second on a
+ * clip under ten seconds, so a short Run is not only its two ends, and one
+ * second otherwise. Page keys and the skip buttons keep five seconds.
+ */
+const scrubStepMs = (durationMs: number): number =>
+  durationMs > 0 && durationMs < 10_000 ? 100 : 1000;
+
+/** Seconds to one decimal, for the scrubber's ARIA values. */
+const ariaSeconds = (ms: number): number => Math.round(ms / 100) / 10;
 const PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
 /** One bar per this many pixels of scrubber. */
 const BAR_PITCH_PX = 5;
@@ -83,7 +94,7 @@ const barTone = (
     return "bg-foreground";
   }
   if (hoverMs !== undefined && atMs < hoverMs) {
-    return "bg-foreground/40";
+    return "bg-foreground/60";
   }
   // One step stronger than a hairline, so the bars read on a dark card.
   return "bg-foreground/35";
@@ -255,10 +266,12 @@ const Scrubber = ({
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = new Map([
-      ["ArrowDown", currentMs - SKIP_MS],
-      ["ArrowLeft", currentMs - SKIP_MS],
-      ["ArrowRight", currentMs + SKIP_MS],
-      ["ArrowUp", currentMs + SKIP_MS],
+      ["ArrowDown", currentMs - scrubStepMs(durationMs)],
+      ["ArrowLeft", currentMs - scrubStepMs(durationMs)],
+      ["ArrowRight", currentMs + scrubStepMs(durationMs)],
+      ["ArrowUp", currentMs + scrubStepMs(durationMs)],
+      ["PageDown", currentMs - SKIP_MS],
+      ["PageUp", currentMs + SKIP_MS],
       ["End", durationMs],
       ["Home", 0],
     ]).get(event.key);
@@ -276,9 +289,9 @@ const Scrubber = ({
   return (
     <div
       aria-label="Seek"
-      aria-valuemax={Math.round(durationMs / 1000)}
+      aria-valuemax={ariaSeconds(durationMs)}
       aria-valuemin={0}
-      aria-valuenow={Math.round(currentMs / 1000)}
+      aria-valuenow={ariaSeconds(currentMs)}
       aria-valuetext={`${clock(currentMs, durationMs)} of ${
         durationMs > 0 ? clock(durationMs, durationMs) : "unknown length"
       }${current === undefined ? "" : `, ${current.label}`}`}
@@ -425,6 +438,8 @@ const usePlayback = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const ambientRef = useRef<HTMLCanvasElement>(null);
   const [playing, setPlaying] = useState(false);
+  // Until the first play, the well says what the first frame is.
+  const [started, setStarted] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
   const [rateIndex, setRateIndex] = useState(0);
@@ -533,6 +548,7 @@ const usePlayback = () => {
     playing,
     rate,
     seek,
+    started,
     toggle,
     videoEvents: {
       onDurationChange: syncDuration,
@@ -542,6 +558,7 @@ const usePlayback = () => {
       onPause: () => setPlaying(false),
       onPlay: () => {
         setPlaying(true);
+        setStarted(true);
         ambientBlend.current?.frameChanged();
       },
       onSeeked: syncTime,
@@ -776,6 +793,22 @@ const RunVideoPlayer = ({
         >
           <track kind="captions" />
         </video>
+        {/*
+          A Run's recording starts before its first action, often on a blank
+          page; a cue in the well says the player is ready, not empty. The
+          video itself takes the click.
+        */}
+        {playback.started || playback.currentMs > 0 ? null : (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 grid place-items-center"
+          >
+            <span className="bg-card/90 text-card-foreground flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
+              <PlayIcon className="size-3.5 fill-current" />
+              Play to watch the Run
+            </span>
+          </div>
+        )}
       </div>
       <div
         className={cn(

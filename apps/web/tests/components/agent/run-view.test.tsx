@@ -4,7 +4,13 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cause } from "effect";
 import { Atom } from "effect/reactivity";
@@ -731,4 +737,28 @@ test("never reads an Interactive Run that ended unassessed as a pass", () => {
   ).toBeVisible();
   expect(screen.queryByText("Working")).toBeNull();
   expect(screen.getByText("No Agent Assessment submitted.")).toBeVisible();
+});
+
+test("steps a short clip by tenths and cues the first play", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  render(
+    <TestRegistry>
+      <RunSummaryView summary={asSummary} />
+    </TestRegistry>
+  );
+  const video = screen.getByLabelText<HTMLVideoElement>("Recorded Run video");
+  // A blank first frame is explained until the Run is played.
+  expect(screen.getByText("Play to watch the Run")).toBeVisible();
+  Object.defineProperty(video, "duration", { configurable: true, value: 4 });
+  fireEvent.loadedMetadata(video);
+  const seek = screen.getByRole("slider", { name: "Seek" });
+  expect(seek).toHaveAttribute("aria-valuemax", "4");
+  seek.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(seek).toHaveAttribute("aria-valuenow", "0.1");
+  await user.keyboard("{PageUp}");
+  expect(seek).toHaveAttribute("aria-valuenow", "4");
+  fireEvent.play(video);
+  expect(screen.queryByText("Play to watch the Run")).toBeNull();
 });

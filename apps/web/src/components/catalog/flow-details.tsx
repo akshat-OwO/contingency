@@ -25,6 +25,7 @@ import { HighlightedCode } from "@/components/browser/highlighted-code";
 import type { FlowsSelection } from "@/components/catalog/flows-drawer-state";
 import { flowsSelectionAtom } from "@/components/catalog/flows-drawer-state";
 import {
+  assessmentLabel,
   recordingPhaseLabel,
   runDuration,
   runKindLabel,
@@ -237,6 +238,40 @@ const FlowDetail = ({
   return <FlowPackage scope={scope} flow={result.value} />;
 };
 
+/**
+ * The findings the agent recorded beside its assessment, each with its
+ * outcome, so a "Working" badge is never read without them.
+ */
+const RunFindings = ({
+  findings,
+}: {
+  readonly findings: NonNullable<CatalogRunEntry["findings"]>;
+}) =>
+  findings.length === 0 ? null : (
+    <section aria-label="Findings" className="space-y-1.5 pt-1">
+      <h3 className="text-muted-foreground text-xs font-medium">
+        {findings.length === 1 ? "1 finding" : `${findings.length} findings`}
+      </h3>
+      <ul className="space-y-1.5">
+        {findings.map((finding) => (
+          <li className="flex items-start gap-2 text-sm" key={finding.id}>
+            <Badge
+              className="shrink-0"
+              variant={
+                finding.outcome === "not-working" ? "destructive" : "secondary"
+              }
+            >
+              {assessmentLabel(finding.outcome)}
+            </Badge>
+            <span className="min-w-0 text-pretty wrap-anywhere">
+              {finding.explanation}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
 const RunDetail = ({
   run,
   scope,
@@ -269,14 +304,7 @@ const RunDetail = ({
       {run.explanation === undefined ? null : (
         <p className="text-sm text-pretty wrap-anywhere">{run.explanation}</p>
       )}
-      {run.findingCount === undefined || run.findingCount === 0 ? null : (
-        <p className="text-muted-foreground text-xs">
-          {run.findingCount === 1
-            ? "1 finding beside the assessment."
-            : `${run.findingCount} findings beside the assessment.`}{" "}
-          Open the Run Summary to read them.
-        </p>
-      )}
+      <RunFindings findings={run.findings ?? []} />
       <EvidenceReference id={run.runId} kind="Run ID" />
     </header>
     <Section title="Flows">

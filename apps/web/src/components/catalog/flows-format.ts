@@ -1,4 +1,5 @@
 import type {
+  AgentAssessmentOutcome,
   CatalogRecordingEntry,
   CatalogRunEntry,
 } from "@contingency/protocol";
@@ -25,6 +26,10 @@ const ASSESSMENT = {
   "not-working": "Not working",
   working: "Working",
 } as const;
+
+/** An Agent Assessment outcome in words. */
+export const assessmentLabel = (outcome: AgentAssessmentOutcome): string =>
+  ASSESSMENT[outcome];
 
 const OUTCOME = new Map([
   ["completed", "Unassessed"],

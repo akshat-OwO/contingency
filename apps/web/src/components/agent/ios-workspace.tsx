@@ -24,7 +24,6 @@ import {
   KeyRoundIcon,
   MessageSquareTextIcon,
   MonitorIcon,
-  PowerIcon,
   RefreshCwIcon,
   RotateCwIcon,
   ShieldAlertIcon,
@@ -1347,7 +1346,8 @@ const IosDockControls = ({
           title="Close session"
           variant="outline"
         >
-          <PowerIcon className="@md:hidden" />
+          {/* A word, not a power glyph: it closes the session, not the device. */}
+          <span className="@md:hidden">Close</span>
           <span className="hidden @md:inline">Close session</span>
         </Button>
       ) : (

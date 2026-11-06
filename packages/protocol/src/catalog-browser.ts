@@ -46,8 +46,16 @@ export const CatalogRunEntry = Schema.Struct({
   endedAt: nonEmptyString,
   /** The agent's own sentence for its assessment, when it gave one. */
   explanation: Schema.optional(Schema.String),
-  /** How many findings the agent recorded beside its assessment. */
-  findingCount: Schema.optionalKey(Schema.Number),
+  /** The findings the agent recorded beside its assessment, in order. */
+  findings: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        explanation: Schema.String,
+        id: Schema.String,
+        outcome: AgentAssessmentOutcome,
+      })
+    )
+  ),
   /** The Flows the Run referenced; storage ownership is independent. */
   flowNames: Schema.Array(FlowName),
   kind: Schema.Literals(["interactive", "dry-run", "legacy"]),
