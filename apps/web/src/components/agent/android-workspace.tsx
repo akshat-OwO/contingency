@@ -55,7 +55,10 @@ import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
 import { AndroidSetupSheet } from "./android-setup-sheet";
 import { WorkspaceLayout } from "./android-workspace-layout";
-import { deviceSummaryLabel } from "./android-workspace-state";
+import {
+  deviceCleanupKey,
+  deviceSummaryLabel,
+} from "./android-workspace-state";
 import { DeviceElements } from "./device-elements";
 import {
   sessionStartGestureAtom,
@@ -625,6 +628,7 @@ export const AndroidSessionView = ({
         {notices}
         <AndroidDevice
           canAct={canAct}
+          cleanup={deviceCleanupKey(session.cleanup)}
           ended={!isLiveAndroidSession(session)}
           live={session.phase === "running" || session.phase === "paused"}
           onBack={() => {

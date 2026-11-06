@@ -83,6 +83,8 @@ it.effect(
       );
       expect(image.status).toBe(200);
       expect(image.headers.get("content-type")).toBe("image/png");
+      // Purged media must not survive in the browser cache.
+      expect(image.headers.get("cache-control")).toBe("no-store");
       expect(yield* Effect.promise(() => image.text())).toBe("png");
       // Nothing outside what the session recorded, and nothing for others.
       for (const target of [

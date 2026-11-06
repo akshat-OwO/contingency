@@ -111,15 +111,16 @@ const keyframeRoutes = (
         }
         const fileSystem = yield* FileSystem.FileSystem;
         const bytes = yield* Effect.option(fileSystem.readFile(file));
-        // A keyframe is one screen's PNG, so it is read whole. It is content
-        // addressed: the same hash is always the same bytes.
+        // A keyframe is one screen's PNG, so it is read whole. It is
+        // temporary Teaching media that verification purges, so the browser
+        // keeps no copy that would outlive that cleanup.
         return Option.match(bytes, {
           onNone: () => notFound,
           onSome: (body) =>
             HttpServerResponse.uint8Array(body, {
               contentType: "image/png",
               headers: {
-                "cache-control": "private, max-age=31536000, immutable",
+                "cache-control": "no-store",
                 "x-content-type-options": "nosniff",
               },
             }),

@@ -139,6 +139,7 @@ export const DeviceUnavailable = ({
  */
 export const AndroidDevice = ({
   canAct,
+  cleanup,
   ended = false,
   live,
   onBack,
@@ -150,6 +151,8 @@ export const AndroidDevice = ({
   unavailable,
 }: {
   readonly canAct: boolean;
+  /** The session's cleanup state, so a purge drops the kept screen. */
+  readonly cleanup: string;
   /** The session released its device for good; nothing will stream again. */
   readonly ended?: boolean;
   /** Whether the session holds a prepared device to stream. */
@@ -172,6 +175,7 @@ export const AndroidDevice = ({
   if (ended) {
     return (
       <DeviceLastScreen
+        cleanup={cleanup}
         fallback={<DeviceUnavailable message={displayUnavailable} />}
         platform="android"
         sessionId={sessionId}

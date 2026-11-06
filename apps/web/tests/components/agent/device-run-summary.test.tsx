@@ -9,6 +9,7 @@ import {
   DeviceLastScreen,
   DeviceRunSummary,
 } from "@/components/agent/android-run-summary";
+import { deviceCleanupKey } from "@/components/agent/android-workspace-state";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 afterEach(cleanup);
@@ -43,6 +44,15 @@ const summary = (keyframes: DeviceKeyframes | null | Error) =>
       />
     </RpcDependenciesProvider>
   );
+
+interface PurgedCleanup {
+  readonly _tag: "purged";
+  readonly completedAt: string;
+}
+const purged: PurgedCleanup = {
+  _tag: "purged",
+  completedAt: "2026-11-05T10:05:00.000Z",
+};
 
 const hash = (digit: string) => ContentHash.make(`sha256-${digit.repeat(64)}`);
 
@@ -98,6 +108,7 @@ const stage = (keyframes: DeviceKeyframes) =>
       }}
     >
       <DeviceLastScreen
+        cleanup="none"
         fallback={<p>Simulator released.</p>}
         platform="ios"
         sessionId="agent-ios-ended"
@@ -141,4 +152,44 @@ test("one kept screen is left to the stage, not drawn twice", () => {
     "href",
     `/ios/sessions/agent-ios-ended/keyframes/${hash("a")}`
   );
+});
+
+test("a mounted ended session drops its screens when cleanup purges them", async () => {
+  let served: DeviceKeyframes = {
+    keyframes: [
+      { capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") },
+      { capturedAt: "2026-11-05T10:00:05.000Z", hash: hash("b") },
+    ],
+    retained: true,
+  };
+  // One list atom, read again on refresh, as the Workspace's family is.
+  const list = Atom.make(Effect.sync(() => served));
+  const view = (cleanupState: typeof session.cleanup | PurgedCleanup) => (
+    <RpcDependenciesProvider overrides={{ deviceKeyframesAtom: () => list }}>
+      <DeviceLastScreen
+        cleanup={deviceCleanupKey(cleanupState)}
+        fallback={<p>Simulator released.</p>}
+        platform="ios"
+        sessionId="agent-ios-ended"
+      />
+      <DeviceRunSummary
+        device="iPhone 17 · iOS 26.5"
+        platform="ios"
+        session={{ ...session, cleanup: cleanupState }}
+        targetApp="dev.contingency.login · build 1"
+      />
+    </RpcDependenciesProvider>
+  );
+  const { rerender } = render(view(null));
+  expect(
+    screen.getByRole("img", { name: "The last screen this session kept" })
+  ).toBeVisible();
+  // Verification purges the recording and its screens.
+  served = { ...served, retained: false };
+  rerender(view(purged));
+  expect(
+    await screen.findByText(/Cleanup deleted the 2 screens this session kept/u)
+  ).toBeVisible();
+  expect(screen.queryByRole("img")).toBeNull();
+  expect(screen.getByText("Simulator released.")).toBeVisible();
 });

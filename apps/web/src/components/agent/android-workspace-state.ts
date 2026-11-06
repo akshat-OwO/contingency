@@ -1,4 +1,7 @@
-import type { AndroidWorkspaceSelection } from "@contingency/protocol";
+import type {
+  AndroidWorkspaceSelection,
+  AndroidWorkspaceSnapshot,
+} from "@contingency/protocol";
 
 export const androidDeviceLabel = (
   device: AndroidWorkspaceSelection["device"]
@@ -10,3 +13,11 @@ export const androidDeviceLabel = (
  */
 export const deviceSummaryLabel = (kind: string) =>
   kind === "teaching" ? "Teaching Summary" : "Run Summary";
+
+/** A session's cleanup state as one string, so a change is one comparison. */
+export const deviceCleanupKey = (
+  cleanup: AndroidWorkspaceSnapshot["cleanup"]
+): string =>
+  cleanup === null
+    ? "none"
+    : `${cleanup._tag}:${"retainedFiles" in cleanup ? cleanup.retainedFiles.length : 0}`;

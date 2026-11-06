@@ -73,7 +73,10 @@ import { DeviceFrame, DeviceUnavailable } from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
-import { deviceSummaryLabel } from "./android-workspace-state";
+import {
+  deviceCleanupKey,
+  deviceSummaryLabel,
+} from "./android-workspace-state";
 import { DeviceElements } from "./device-elements";
 import {
   iosDockPresentation,
@@ -237,6 +240,7 @@ const IosMirror = ({
   if (!live && session.phase !== "pending") {
     return (
       <DeviceLastScreen
+        cleanup={deviceCleanupKey(session.cleanup)}
         fallback={<DeviceUnavailable message={unavailable} />}
         platform="ios"
         sessionId={session.id}
@@ -995,7 +999,7 @@ type IosField = NonNullable<IosWorkspaceSnapshot["field"]>;
  * only takes a Variable, requested here and entered by name, so a private
  * value never passes through this form.
  */
-const IosFieldEntry = ({
+export const IosFieldEntry = ({
   field,
   onDismiss,
   pending,
@@ -1006,7 +1010,7 @@ const IosFieldEntry = ({
   readonly onDismiss: () => void;
   readonly pending: boolean;
   readonly send: (command: IosWorkspaceCommand) => boolean;
-  readonly session: IosWorkspaceSnapshot;
+  readonly session: Pick<IosWorkspaceSnapshot, "id" | "variables">;
 }) => {
   const fields = () => ({ operationId: operationId(), sessionId: session.id });
   const secure = field.password === true || field.role === "secure-text-field";
@@ -1040,104 +1044,121 @@ const IosFieldEntry = ({
       title={title}
     />
   );
-  if (secure) {
-    return (
-      <form
-        aria-label="Field Variable"
-        className="bg-muted-surface space-y-1.5 border-b px-3 py-2.5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const name = text(new FormData(event.currentTarget), "variable");
-          send({
-            _tag: "variable-request",
-            ...fields(),
-            name,
-            purpose: `Input for ${field.name}`,
-            replace: false,
-          });
-        }}
-      >
-        {header(`Enter a Variable into ${label}`)}
-        <p className="text-muted-foreground text-xs">
-          Secure fields take a named Variable, never typed text.
-        </p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Input
-            aria-label="Variable name"
-            className="h-8 w-40 font-mono"
-            defaultValue="PASSWORD"
-            name="variable"
-            required
-          />
-          <Button disabled={pending} size="sm" type="submit" variant="outline">
-            Request Variable
-          </Button>
-          {supplied.map((variable) => (
-            <Button
-              disabled={pending}
-              key={variable.name}
-              onClick={() =>
-                send({
-                  _tag: "input",
-                  ...fields(),
-                  action: {
-                    _tag: "variable",
-                    name: variable.name,
-                    target: field.target,
-                  },
-                  observationId: field.observationId,
-                })
-              }
-              size="sm"
-              type="button"
-            >
-              <KeyRoundIcon />
-              Enter {variable.name}
-            </Button>
-          ))}
-        </div>
-      </form>
-    );
-  }
-  return (
+  const variableForm = (
     <form
-      aria-label={`Type into ${field.name}`}
-      className="bg-muted-surface space-y-1.5 border-b px-3 py-2.5"
+      aria-label="Field Variable"
+      className={cn(
+        "bg-muted-surface space-y-1.5 border-b px-3 py-2.5",
+        !secure && "pt-0"
+      )}
       onSubmit={(event) => {
         event.preventDefault();
+        const name = text(new FormData(event.currentTarget), "variable");
         send({
-          _tag: "input",
+          _tag: "variable-request",
           ...fields(),
-          action: {
-            _tag: "fill",
-            target: field.target,
-            text: text(new FormData(event.currentTarget), "text"),
-          },
-          observationId: field.observationId,
+          name,
+          purpose: `Input for ${field.name}`,
+          replace: false,
         });
       }}
     >
-      {header(`Type into ${label}`)}
-      <div className="flex items-center gap-1.5">
+      {secure ? (
+        <>
+          {header(`Enter a Variable into ${label}`)}
+          <p className="text-muted-foreground text-xs">
+            Secure fields take a named Variable, never typed text.
+          </p>
+        </>
+      ) : (
+        <p className="text-muted-foreground text-xs">
+          Or enter a named Variable, for a value that changes between runs.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
         <Input
-          aria-label={`Text for ${field.name}`}
-          autoFocus
-          className="h-8 flex-1"
-          name="text"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              onDismiss();
-            }
-          }}
-          placeholder="Public text"
+          aria-label="Variable name"
+          className="h-8 w-40 font-mono"
+          defaultValue={secure ? "PASSWORD" : ""}
+          name="variable"
+          placeholder="NAME"
           required
         />
-        <Button disabled={pending} size="sm" type="submit">
-          <CornerDownLeftIcon />
-          Type
+        <Button disabled={pending} size="sm" type="submit" variant="outline">
+          Request Variable
         </Button>
+        {supplied.map((variable) => (
+          <Button
+            disabled={pending}
+            key={variable.name}
+            onClick={() =>
+              send({
+                _tag: "input",
+                ...fields(),
+                action: {
+                  _tag: "variable",
+                  name: variable.name,
+                  target: field.target,
+                },
+                observationId: field.observationId,
+              })
+            }
+            size="sm"
+            type="button"
+          >
+            <KeyRoundIcon />
+            Enter {variable.name}
+          </Button>
+        ))}
       </div>
     </form>
+  );
+  if (secure) {
+    return variableForm;
+  }
+  // An ordinary field takes public text, or a named Variable as before.
+  return (
+    <>
+      <form
+        aria-label={`Type into ${field.name}`}
+        className="bg-muted-surface space-y-1.5 px-3 pt-2.5 pb-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          send({
+            _tag: "input",
+            ...fields(),
+            action: {
+              _tag: "fill",
+              target: field.target,
+              text: text(new FormData(event.currentTarget), "text"),
+            },
+            observationId: field.observationId,
+          });
+        }}
+      >
+        {header(`Type into ${label}`)}
+        <div className="flex items-center gap-1.5">
+          <Input
+            aria-label={`Text for ${field.name}`}
+            autoFocus
+            className="h-8 flex-1"
+            name="text"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                onDismiss();
+              }
+            }}
+            placeholder="Public text"
+            required
+          />
+          <Button disabled={pending} size="sm" type="submit">
+            <CornerDownLeftIcon />
+            Type
+          </Button>
+        </div>
+      </form>
+      {variableForm}
+    </>
   );
 };
 

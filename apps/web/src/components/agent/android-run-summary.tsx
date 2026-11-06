@@ -6,11 +6,15 @@ import type {
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { CircleAlertIcon } from "lucide-react";
+import { useEffect, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
-import { androidDeviceLabel } from "./android-workspace-state";
+import {
+  androidDeviceLabel,
+  deviceCleanupKey,
+} from "./android-workspace-state";
 import { EvidenceReference } from "./evidence-reference";
 
 const OUTCOME = {
@@ -49,23 +53,47 @@ const elapsed = (first: string, at: string) => {
 };
 
 /**
+ * An ended session's keyframes. An ended session adds no screens, but
+ * cleanup can still delete them, here or from another process, so the list
+ * is read again whenever the session's cleanup state changes.
+ */
+const useDeviceKeyframes = (
+  platform: DevicePlatform,
+  sessionId: string,
+  cleanup: string
+) => {
+  const { deviceKeyframesAtom } = useRpcDependencies();
+  const atom = deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId));
+  const result = useAtomValue(atom);
+  const refresh = useAtomRefresh(atom);
+  const seen = useRef(cleanup);
+  useEffect(() => {
+    if (seen.current !== cleanup) {
+      seen.current = cleanup;
+      refresh();
+    }
+  }, [cleanup, refresh]);
+  return { refresh, result };
+};
+
+/**
  * An ended session's stage: the last screen it kept, so the stage shows where
  * the journey stopped rather than an empty space. Without a kept screen it is
  * `fallback`.
  */
 export const DeviceLastScreen = ({
+  cleanup,
   fallback,
   platform,
   sessionId,
 }: {
+  /** The session's cleanup state; a change re-reads what is retained. */
+  readonly cleanup: string;
   readonly fallback: React.ReactNode;
   readonly platform: DevicePlatform;
   readonly sessionId: string;
 }) => {
-  const { deviceKeyframesAtom } = useRpcDependencies();
-  const result = useAtomValue(
-    deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId))
-  );
+  const { result } = useDeviceKeyframes(platform, sessionId, cleanup);
   const kept =
     AsyncResult.isSuccess(result) &&
     result.value !== null &&
@@ -95,16 +123,19 @@ export const DeviceLastScreen = ({
  * stand where the browser summary shows its video.
  */
 const DeviceRecording = ({
+  cleanup,
   platform,
   sessionId,
 }: {
+  readonly cleanup: string;
   readonly platform: DevicePlatform;
   readonly sessionId: string;
 }) => {
-  const { deviceKeyframesAtom } = useRpcDependencies();
-  const atom = deviceKeyframesAtom(deviceKeyframesPath(platform, sessionId));
-  const result = useAtomValue(atom);
-  const retry = useAtomRefresh(atom);
+  const { refresh: retry, result } = useDeviceKeyframes(
+    platform,
+    sessionId,
+    cleanup
+  );
   const body = (() => {
     if (result._tag === "Initial") {
       return <p className="text-muted-foreground">Reading screens…</p>;
@@ -295,7 +326,11 @@ export const DeviceRunSummary = ({
         )}
       </section>
     )}
-    <DeviceRecording platform={platform} sessionId={session.id} />
+    <DeviceRecording
+      cleanup={deviceCleanupKey(session.cleanup)}
+      platform={platform}
+      sessionId={session.id}
+    />
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
       <dt className="text-muted-foreground">Session</dt>
       <dd>{KIND[session.kind]}</dd>
