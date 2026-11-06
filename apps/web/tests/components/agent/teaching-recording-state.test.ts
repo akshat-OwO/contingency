@@ -76,7 +76,7 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
     }
   );
   expect(cleanupFailure.action?.label).toBe("Retry cleanup");
-  expect(cleanupFailure.nextStep).toContain("recording.webm");
+  expect(cleanupFailure.retainedFiles).toEqual(["recording.webm", "trace.zip"]);
 
   const verified = {
     _tag: "verified" as const,

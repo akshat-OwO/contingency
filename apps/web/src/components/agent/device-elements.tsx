@@ -187,11 +187,12 @@ export const DeviceElements = ({
           render={
             <PopoverTrigger
               render={
-                // Icon-only: the dock's controls row never wraps, and a label
-                // here pushes the primary action out of a 48rem dock. The
-                // tooltip names it on hover and on keyboard focus.
+                // Icon-only on a 48rem dock, where a label pushes the primary
+                // action out; the wider dock on a wide stage spells it, like
+                // Comment. The tooltip names it on hover and keyboard focus.
                 <Button
                   aria-label="Screen elements"
+                  className="@6xl:w-auto @6xl:px-2"
                   ref={trigger}
                   disabled={disabled || nodes.length === 0}
                   size="icon-sm"
@@ -202,6 +203,7 @@ export const DeviceElements = ({
           }
         >
           <ListIcon />
+          <span className="hidden @6xl:inline">Elements</span>
         </TooltipTrigger>
         <TooltipContent side="top">
           Screen elements: pick an element by name

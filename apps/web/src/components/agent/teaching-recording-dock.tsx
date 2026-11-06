@@ -357,6 +357,11 @@ export const TeachingRecordingDock = ({
               ) : null}
             </>
           }
+          note={
+            presentation.retainedFiles === undefined
+              ? undefined
+              : `Still on disk: ${presentation.retainedFiles.join(", ")}`
+          }
         >
           {/*
             The sentence changes when the capture state changes, never on a

@@ -738,7 +738,9 @@ const RunVideoPlayer = ({
     ) {
       event.preventDefault();
       playback.seek(
-        playback.currentMs + (event.key === "ArrowLeft" ? -SKIP_MS : SKIP_MS)
+        playback.currentMs +
+          (event.key === "ArrowLeft" ? -1 : 1) *
+            scrubStepMs(playback.durationMs)
       );
     } else if (event.key === "f") {
       event.preventDefault();
@@ -782,6 +784,9 @@ const RunVideoPlayer = ({
       >
         {/* Captions are not recorded; the track keeps the element valid. */}
         <video
+          aria-description={
+            playback.started ? undefined : "Play to watch the Run."
+          }
           aria-label="Recorded Run video"
           className={cn(
             "block w-full cursor-pointer object-contain",
@@ -805,7 +810,7 @@ const RunVideoPlayer = ({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
           >
-            <span className="bg-card/90 text-card-foreground flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
+            <span className="bg-foreground text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm">
               <PlayIcon className="size-3.5 fill-current" />
               Play to watch the Run
             </span>

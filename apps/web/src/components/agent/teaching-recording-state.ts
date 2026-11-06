@@ -65,6 +65,8 @@ export interface TeachingRecordingPresentation {
    * details button so the dock itself stays one row (#297).
    */
   readonly nextStep: string;
+  /** Files a failed cleanup left on disk, shown on their own line. */
+  readonly retainedFiles?: readonly string[];
   /** The secondary actions beside the primary one, in dock order. */
   readonly secondaries: readonly TeachingSecondaryAction[];
   /** Whether this state shows a live elapsed timer. */
@@ -302,9 +304,10 @@ export const teachingRecordingPresentation = (
         return {
           action: action("retry-cleanup", "Retry cleanup"),
           badge: "Cleanup failed",
-          // The instruction leads so a clamped line still says what to do;
-          // the file names follow for when the line is expanded.
-          nextStep: `The flow is verified. Retry to delete the recording. Still on disk: ${cleanup.retainedFiles.join(", ")}.`,
+          nextStep: "The flow is verified. Retry to delete the recording.",
+          // Paths are long; they wrap on their own line, never clamped into
+          // the sentence.
+          retainedFiles: cleanup.retainedFiles,
           secondaries: [],
           showsElapsed: false,
           showsInspect: false,

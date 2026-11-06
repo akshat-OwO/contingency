@@ -222,7 +222,7 @@ export const DockShell = ({
     <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
       <section
         aria-label="Workspace dock"
-        className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg"
+        className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg @6xl:max-w-4xl"
         ref={ref}
       >
         {requests}
@@ -308,10 +308,13 @@ export const DockStatus = ({
   badges,
   children,
   details,
+  note,
 }: {
   readonly badges: React.ReactNode;
   readonly children: React.ReactNode;
   readonly details?: React.ReactNode;
+  /** A line under the sentence that wraps rather than clamps, such as paths. */
+  readonly note?: React.ReactNode;
 }) => {
   const [expandedAtom] = useState(() => Atom.make(false));
   const [expanded, setExpanded] = useAtom(expandedAtom);
@@ -335,6 +338,11 @@ export const DockStatus = ({
           >
             {children}
           </output>
+          {note === undefined ? null : (
+            <p className="text-muted-foreground mt-0.5 font-mono text-xs wrap-anywhere">
+              {note}
+            </p>
+          )}
           {expanded && details !== undefined ? (
             <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
               {details}
