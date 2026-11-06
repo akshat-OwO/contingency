@@ -330,9 +330,7 @@ export const DockStatus = ({
             aria-live="polite"
             className={cn(
               "text-foreground/75 block text-[13px] leading-5 text-pretty wrap-anywhere",
-              expanded
-                ? "max-h-40 overflow-y-auto"
-                : "line-clamp-2 @md:line-clamp-1"
+              expanded ? "max-h-40 overflow-y-auto" : "line-clamp-1"
             )}
             ref={sentenceRef}
           >

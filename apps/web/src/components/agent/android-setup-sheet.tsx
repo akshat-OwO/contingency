@@ -199,8 +199,13 @@ const ConditionInput = ({
   readonly placeholder: string;
   readonly value: Condition;
 }) => (
+  // Visible Role and Element captions, as on iOS; each control keeps its
+  // full accessible name, which contains the caption.
   <div className="flex gap-1.5">
-    <div className="w-28 shrink-0">
+    <div className="w-28 shrink-0 space-y-1">
+      <span aria-hidden="true" className="block text-xs font-medium">
+        Role
+      </span>
       <Choice
         label={`${label} role`}
         value={value.role}
@@ -208,14 +213,19 @@ const ConditionInput = ({
         onChange={(role) => onChange({ ...value, role })}
       />
     </div>
-    <Input
-      aria-label={label}
-      onChange={(event) =>
-        onChange({ ...value, name: event.currentTarget.value })
-      }
-      placeholder={placeholder}
-      value={value.name}
-    />
+    <div className="min-w-0 flex-1 space-y-1">
+      <span aria-hidden="true" className="block text-xs font-medium">
+        Element
+      </span>
+      <Input
+        aria-label={label}
+        onChange={(event) =>
+          onChange({ ...value, name: event.currentTarget.value })
+        }
+        placeholder={placeholder}
+        value={value.name}
+      />
+    </div>
   </div>
 );
 

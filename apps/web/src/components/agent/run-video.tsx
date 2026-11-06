@@ -299,8 +299,10 @@ const Scrubber = ({
         "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 pointer-coarse:h-11",
         FOCUS_RING
       )}
+      aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Home End"
       onKeyDown={onKeyDown}
       onLostPointerCapture={release}
+      title="Arrow keys step, Page Up and Page Down skip 5 seconds, Home and End jump to the ends"
       onPointerDown={(event) => {
         if (event.button !== 0) {
           return;

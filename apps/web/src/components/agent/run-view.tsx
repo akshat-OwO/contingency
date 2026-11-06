@@ -7,7 +7,7 @@ import type {
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
 import { useAtomValue } from "@effect/atom-react";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, PlayIcon } from "lucide-react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
@@ -16,6 +16,7 @@ import { RunVideo } from "@/components/agent/run-video";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -170,7 +171,11 @@ export const RunSummaryView = ({
       : (summary.agentAccount ??
         (summary.schemaVersion === 2 ? summary.summary : undefined));
   const video = (
-    <section aria-labelledby="agent-run-video" className="space-y-2">
+    <section
+      aria-labelledby="agent-run-video"
+      className="scroll-mt-4 space-y-2"
+      id="run-video"
+    >
       <h2
         className="text-base leading-snug font-semibold tracking-tight"
         id="agent-run-video"
@@ -234,8 +239,28 @@ export const RunSummaryView = ({
               {account}
             </p>
           )}
-          <div className="border-t pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
             <EvidenceReference id={summary.runId} kind="Run ID" />
+            {/*
+              The video follows the assessment and findings, often below the
+              fold; this brings the whole player, transport included, on
+              screen.
+            */}
+            {summary.videoPath === null ? null : (
+              <Button
+                onClick={() =>
+                  document.querySelector("#run-video")?.scrollIntoView({
+                    block: "start",
+                  })
+                }
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                <PlayIcon aria-hidden="true" />
+                Watch the Run
+              </Button>
+            )}
           </div>
           {/* The standalone page says it is read-only in its own subtitle. */}
           {heading ? (
