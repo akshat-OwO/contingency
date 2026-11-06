@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type {
+  ComponentProps,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -174,6 +175,30 @@ interface ElementSize {
   readonly height: number;
   readonly width: number;
 }
+
+/** Below this height the stage drops the device bar for the page itself. */
+const SHORT_STAGE_HEIGHT = 384;
+
+/**
+ * The device bar above the page. A stage squeezed under a Summary (a phone
+ * verifying a Dry Run) gives the page the bar's rows; dragging the divider
+ * brings it back.
+ */
+const StageDeviceBar = ({
+  stageHeight,
+  ...bar
+}: ComponentProps<typeof BrowserDeviceBar> & {
+  readonly stageHeight: number;
+}) => (
+  <div
+    className={cn(
+      "pointer-events-none flex shrink-0 justify-center px-2 pt-2",
+      stageHeight > 0 && stageHeight < SHORT_STAGE_HEIGHT && "hidden"
+    )}
+  >
+    <BrowserDeviceBar {...bar} />
+  </div>
+);
 
 const useElementSize = <Element extends HTMLElement>() => {
   const ref = useRef<Element>(null);
@@ -865,16 +890,15 @@ export const WorkspaceBrowserStage = ({
             }
           }}
         >
-          <div className="pointer-events-none flex shrink-0 justify-center px-2 pt-2">
-            <BrowserDeviceBar
-              applied={applied?.viewport}
-              disabled={disabled}
-              lockedReason={lockedReason}
-              onPresetChange={changePreset}
-              onViewportChange={(viewport) => patch({ viewport })}
-              presetId={state.presetId}
-            />
-          </div>
+          <StageDeviceBar
+            applied={applied?.viewport}
+            disabled={disabled}
+            lockedReason={lockedReason}
+            onPresetChange={changePreset}
+            onViewportChange={(viewport) => patch({ viewport })}
+            presetId={state.presetId}
+            stageHeight={body.height}
+          />
           {shownError === undefined ? null : (
             <StageError
               errorRef={errorPresence.ref}

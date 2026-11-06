@@ -189,6 +189,9 @@ export const RunSummaryView = ({
             summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
           }
           timeline={summary.timeline}
+          // The transport stays on screen with the summary above it; the
+          // fullscreen control is there for a closer look.
+          videoClassName="max-h-[min(28rem,55svh)]"
         />
       )}
     </section>

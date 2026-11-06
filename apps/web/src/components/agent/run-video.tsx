@@ -296,7 +296,7 @@ const Scrubber = ({
         durationMs > 0 ? clock(durationMs, durationMs) : "unknown length"
       }${current === undefined ? "" : `, ${current.label}`}`}
       className={cn(
-        "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4",
+        "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 pointer-coarse:h-11",
         FOCUS_RING
       )}
       onKeyDown={onKeyDown}
@@ -678,7 +678,7 @@ const PlayerControls = ({
       </DockButton>
     </div>
     {current === undefined ? null : (
-      <p className="mt-2 truncate text-xs @[20rem]:hidden">
+      <p className="mt-2 truncate text-xs @[28rem]:hidden">
         <ChapterName chapter={current} total={total} />
       </p>
     )}
