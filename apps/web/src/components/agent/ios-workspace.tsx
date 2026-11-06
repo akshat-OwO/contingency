@@ -41,6 +41,7 @@ import {
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
+import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1285,7 +1286,10 @@ const IosDockControls = ({
     <>
       <DockWordmark />
       <IosSessionSelect session={session} sessions={sessions} />
-      <FlowsDockButton />
+      {/* Hidden while capturing, as the browser dock does. */}
+      {showsFlowsEntry(iosFlowsSessionView(session)) ? (
+        <FlowsDockButton />
+      ) : null}
       <Button
         aria-label="Browser Workspace"
         onClick={() => globalThis.location.assign("/")}

@@ -215,6 +215,7 @@ export const DeviceElements = ({
         aria-label="Screen elements"
         className="w-80 max-w-[calc(100vw-2rem)] gap-1 p-1"
         side="top"
+        sideOffset={8}
       >
         <PopoverTitle className="text-muted-foreground px-1.5 py-1 text-xs">
           Screen elements

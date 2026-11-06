@@ -31,6 +31,7 @@ import {
   DockWordmark,
 } from "@/components/agent/workspace-dock";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
+import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
@@ -351,7 +352,10 @@ const AndroidDockControls = ({
         selectedSessionId={session.id}
         sessions={sessions}
       />
-      <FlowsDockButton />
+      {/* Hidden while capturing, as the browser dock does. */}
+      {showsFlowsEntry(androidFlowsSessionView(session)) ? (
+        <FlowsDockButton />
+      ) : null}
       {/* The session name has its own row on a phone, so Browser stays. */}
       <Button
         aria-label="Browser Workspace"

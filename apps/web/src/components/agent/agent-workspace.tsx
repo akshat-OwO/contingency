@@ -397,7 +397,7 @@ const EmptyState = ({
           <div className="space-y-3">
             <div
               aria-hidden="true"
-              className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
+              className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border max-sm:hidden"
             >
               <GlobeIcon className="size-5" />
             </div>
@@ -405,7 +405,7 @@ const EmptyState = ({
               <h1 className="text-xl font-semibold tracking-tight text-balance">
                 No browser session
               </h1>
-              <p className="text-muted-foreground text-sm text-pretty">
+              <p className="text-muted-foreground text-sm text-pretty max-sm:hidden">
                 Name the Flow you are about to teach, open a browser, and start
                 recording when the journey begins.
               </p>

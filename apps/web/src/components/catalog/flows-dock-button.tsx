@@ -44,7 +44,7 @@ export const FlowsDockButton = () => {
       */}
       <span>Flows</span>
       {count === undefined ? null : (
-        <span className="bg-muted text-muted-foreground ring-background grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums">
+        <span className="bg-muted text-foreground ring-background grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums">
           {count}
         </span>
       )}

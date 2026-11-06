@@ -86,7 +86,7 @@ const barTone = (
     return "bg-foreground/40";
   }
   // One step stronger than a hairline, so the bars read on a dark card.
-  return "bg-foreground/25";
+  return "bg-foreground/35";
 };
 
 const chapterLineTone = (hovered: boolean, current: boolean): string => {
