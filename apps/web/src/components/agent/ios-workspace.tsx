@@ -899,7 +899,9 @@ const IosSetupSheet = ({
             </Button>
             <Button
               aria-describedby={complete ? undefined : "ios-setup-missing"}
-              disabled={pending}
+              // As on Android: the footer names what is missing, and the
+              // button waits for it.
+              disabled={pending || !complete}
               type="submit"
             >
               Open session

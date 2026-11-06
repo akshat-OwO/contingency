@@ -418,6 +418,8 @@ const dryProof = (catalog, url) =>
         const rejected = yield* manifest();
         assert.equal(rejected.lifecycle._tag, "flow-drafted");
         assert.ok(rejected.artifacts.length > 0);
+        // Rejecting closes the Dry Run Summary; let it finish sliding out.
+        yield* Effect.sleep("1500 millis");
         yield* capture("dry-rejected");
       } else if (kind === "rejected-then-complete") {
         yield* command(

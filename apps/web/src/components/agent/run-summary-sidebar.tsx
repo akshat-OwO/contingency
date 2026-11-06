@@ -155,7 +155,7 @@ const RunSummarySidebar = ({
       <ResizablePanel
         collapsedSize={COLLAPSED_SIZE}
         collapsible
-        defaultSize={mobile ? "48%" : "30rem"}
+        defaultSize={mobile ? "44%" : "30rem"}
         groupResizeBehavior="preserve-pixel-size"
         id="run-summary"
         maxSize={mobile ? "75%" : "48rem"}

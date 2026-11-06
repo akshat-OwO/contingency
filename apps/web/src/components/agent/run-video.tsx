@@ -307,7 +307,7 @@ const Scrubber = ({
         "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 pointer-coarse:h-11",
         FOCUS_RING
       )}
-      aria-keyshortcuts="ArrowLeft ArrowRight PageUp PageDown Home End"
+      aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Home End"
       onKeyDown={onKeyDown}
       onLostPointerCapture={release}
       title="Arrow keys step, Page Up and Page Down skip 5 seconds, Home and End jump to the ends"
@@ -824,7 +824,7 @@ const RunVideoPlayer = ({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 z-10 grid place-items-center"
           >
-            <span className="bg-foreground text-background ring-background/60 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ring-1">
+            <span className="bg-foreground text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ring-1 ring-white/40 dark:ring-black/40">
               <PlayIcon className="size-3.5 fill-current" />
               Play to watch the Run
             </span>
