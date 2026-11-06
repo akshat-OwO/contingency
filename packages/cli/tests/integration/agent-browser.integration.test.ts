@@ -1570,6 +1570,88 @@ const startFocusLoader = (name: string, query = "") =>
     return { agent, covered, fixtures, gate, input, phone, session };
   });
 
+it.live.each([
+  "nested",
+  "empty",
+  "empty-clear",
+  "image-clear",
+  "clear",
+  "focusable",
+  "textarea",
+  "island",
+])("fills the %s editable textbox without changing its fill target", (mode) =>
+  Effect.gen(function* fillNestedEditor() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url(`editable-focus.html?mode=${mode}`),
+      `editable-${mode}-start`
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const target = findNode(before.nodes, "textbox", "Message");
+    const value = mode.endsWith("clear") ? "" : "updated message";
+    const result = yield* callTool("agent_browser_act", {
+      action: { ref: target.ref, text: value, type: "fill" },
+      operationId: OperationId.make(`editable-${mode}-fill`),
+      sessionId: session.id,
+    });
+    const focused = mode === "textarea" ? "target" : "host";
+    findNode(
+      result.snapshot.nodes,
+      "status",
+      `Message: ${value}; focus: ${focused}; surroundings: true`
+    );
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      after.nodes.some(
+        (node) => node.role === "image" && node.name === "Attachment"
+      )
+    ).toBe(false);
+    findNode(
+      after.nodes,
+      "status",
+      `Message: ${value}; focus: ${focused}; surroundings: true`
+    );
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live.each(["popup", "focusable-popup"])(
+  "rechecks coverage after focusing a nested textbox's editing host (%s)",
+  (mode) =>
+    Effect.gen(function* guardEditingHostFocus() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url(`editable-focus.html?mode=${mode}`),
+        "editable-popup-start"
+      );
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const target = findNode(before.nodes, "textbox", "Message");
+      const failure = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: target.ref, text: "must not arrive", type: "fill" },
+          operationId: OperationId.make("editable-popup-fill"),
+          sessionId: session.id,
+        })
+      );
+      expect(failure.reason).toBe("intercepted");
+      expect(failure.message).toContain("Editing host confirmation");
+      const after = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      findNode(after.nodes, "dialog", "Editing host confirmation");
+      findNode(after.nodes, "status", "Ready");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live.each(["", "?lose-focus"])(
   "waits for a loading layer and restores focus when needed (%s)",
   (query) =>
