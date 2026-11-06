@@ -173,8 +173,10 @@ export const RunSummaryView = ({
   const video = (
     <section
       aria-labelledby="agent-run-video"
-      className="scroll-mt-4 space-y-2"
+      className="focus-visible:ring-ring scroll-mt-4 space-y-2 rounded-xl focus-visible:ring-2 focus-visible:ring-offset-4 focus-visible:outline-none"
       id="run-video"
+      // Watch the Run moves focus here, so the next Tab reaches the player.
+      tabIndex={-1}
     >
       <h2
         className="text-base leading-snug font-semibold tracking-tight"
@@ -248,11 +250,13 @@ export const RunSummaryView = ({
             */}
             {summary.videoPath === null ? null : (
               <Button
-                onClick={() =>
-                  document.querySelector("#run-video")?.scrollIntoView({
-                    block: "start",
-                  })
-                }
+                onClick={() => {
+                  const section = document.querySelector("#run-video");
+                  if (section instanceof HTMLElement) {
+                    section.scrollIntoView({ block: "start" });
+                    section.focus({ preventScroll: true });
+                  }
+                }}
                 size="xs"
                 type="button"
                 variant="outline"

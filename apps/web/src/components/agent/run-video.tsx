@@ -54,10 +54,18 @@ const TIP_INSET_PX = 64;
 /** A path's last segment. */
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
 
-/** A path's last two segments, the Run's folder and its file. */
+/**
+ * A path's last two segments, the Run's folder and its file. A long folder
+ * name (a Run id) keeps its readable head; the full path is the title.
+ */
 const tailOfPath = (path: string) => {
   const parts = path.split("/").filter((part) => part !== "");
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
+  if (parts.length <= 2) {
+    return path;
+  }
+  const folder = parts.at(-2) ?? "";
+  const shown = folder.length > 20 ? `${folder.slice(0, 16)}…` : folder;
+  return `…/${shown}/${parts.at(-1) ?? ""}`;
 };
 
 // The panel's own focus ring, so the player reads as part of it.
@@ -651,7 +659,11 @@ const PlayerControls = ({
         </span>
       </span>
       {current === undefined ? null : (
-        <span className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block">
+        <span
+          className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block"
+          // A truncated chapter reads in full on hover.
+          title={current.label}
+        >
           <ChapterName chapter={current} total={total} />
         </span>
       )}

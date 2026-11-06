@@ -96,6 +96,18 @@ export const RunRow = ({
         <span className="whitespace-nowrap">
           {when(run.startedAt)} · {runDuration(run)}
         </span>
+        {/* A Working Run can still carry a failing finding. */}
+        {run.findings === undefined || run.findings.length === 0 ? null : (
+          <>
+            {" "}
+            ·{" "}
+            <span className="whitespace-nowrap">
+              {run.findings.length === 1
+                ? "1 finding"
+                : `${run.findings.length} findings`}
+            </span>
+          </>
+        )}
       </span>
     </span>
   </button>
