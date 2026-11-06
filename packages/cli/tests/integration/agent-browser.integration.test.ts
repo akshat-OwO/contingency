@@ -1538,6 +1538,125 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+const startFocusLoader = (name: string, query = "") =>
+  Effect.gen(function* prepareFocusLoader() {
+    const fixtures = yield* fixtureServer;
+    const gate = yield* fixtures.holdRequest("/focus-loader-gate");
+    const covered = yield* fixtures.awaitRequest(
+      (url) => url === "/focus-loader-observed"
+    );
+    const input = yield* fixtures.awaitRequest((url) =>
+      url.startsWith("/focus-loader-input?")
+    );
+    const agent = yield* client;
+    const { session } = yield* agent("agent.session.start", {
+      activity: "run",
+      clientName: "focus-loader-test",
+      clientVersion: "1",
+      emulation: {
+        permissions: [],
+        userAgentProfile: UserAgentProfileId.make("chrome-android-mobile"),
+        viewport: { deviceScaleFactor: 1, height: 844, width: 360 },
+      },
+      name: "mobile phone entry",
+      operationId: OperationId.make(`${name}-start`),
+      url: fixtures.url(`focus-loader.html${query}`),
+      viewport: { deviceScaleFactor: 1, height: 844, width: 360 },
+    });
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const phone = findNode(before.nodes, "textbox", "Mobile number");
+    return { agent, covered, fixtures, gate, input, phone, session };
+  });
+
+it.live("waits for a loading layer opened by focus before sending text", () =>
+  Effect.gen(function* fillAfterFocusLoader() {
+    const { covered, fixtures, gate, input, phone, session } =
+      yield* startFocusLoader("focus-loader");
+    const fill = yield* callTool("agent_browser_act", {
+      action: { ref: phone.ref, text: "0000000000", type: "fill" },
+      operationId: OperationId.make("focus-loader-fill"),
+      sessionId: session.id,
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toEqual([]);
+    yield* Deferred.succeed(gate.release, true);
+    yield* Fiber.join(fill);
+    expect(
+      yield* Deferred.await(input).pipe(Effect.timeout("30 seconds"))
+    ).toBe("/focus-loader-input?length=10&covered=false");
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toHaveLength(1);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("does not fill after Takeover interrupts a focus loading layer", () =>
+  Effect.gen(function* interruptFocusLoader() {
+    const { agent, covered, fixtures, gate, phone, session } =
+      yield* startFocusLoader("focus-loader-takeover");
+    const reachable = yield* fixtures.awaitRequest(
+      (url) => url === "/focus-loader-reachable"
+    );
+    const fill = yield* callTool("agent_browser_act", {
+      action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+      operationId: OperationId.make("focus-loader-takeover-fill"),
+      sessionId: session.id,
+    }).pipe(Effect.result, Effect.forkScoped);
+    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+    yield* agent("agent.session.takeover", {
+      operationId: OperationId.make("focus-loader-takeover-user"),
+      reason: "I will enter the number myself.",
+      sessionId: session.id,
+    });
+    expect((yield* Fiber.join(fill))._tag).toBe("Failure");
+    yield* Deferred.succeed(gate.release, true);
+    yield* Deferred.await(reachable).pipe(Effect.timeout("30 seconds"));
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      findNode(after.nodes, "textbox", "Mobile number").value
+    ).toBeUndefined();
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("does not fill a replacement field after a focus loading layer", () =>
+  Effect.gen(function* replacedFocusControl() {
+    const { covered, fixtures, gate, phone, session } = yield* startFocusLoader(
+      "focus-loader-replaced",
+      "?replace"
+    );
+    const fill = yield* callTool("agent_browser_act", {
+      action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+      operationId: OperationId.make("focus-loader-replaced-fill"),
+      sessionId: session.id,
+    }).pipe(Effect.result, Effect.forkScoped);
+    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+    yield* Deferred.succeed(gate.release, true);
+    const result = yield* Fiber.join(fill);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure.reason).toBe("detached");
+    }
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      findNode(after.nodes, "textbox", "Mobile number").value
+    ).toBeUndefined();
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("rechecks a popup opened by focus before sending text", () =>
   Effect.gen(function* popupDuringFocus() {
     const fixtures = yield* fixtureServer;

@@ -2383,7 +2383,7 @@ export const settledSnapshot = (
 
 const attempt = <A>(
   description: string,
-  operation: () => Promise<A>
+  operation: (signal: AbortSignal) => Promise<A>
 ): Effect.Effect<A, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure(description, cause),
@@ -2398,23 +2398,21 @@ const PointerAccess = Schema.Struct({
 });
 const decodePointerAccess = Schema.decodeUnknownSync(PointerAccess);
 const POINTER_ACCESS_SCRIPT = `((input) => {${PAGE_READING_PRELUDE} return pointerAccess(input.element, input.keyboard, input.filling); })`;
+type PointerAccessReader = (input: {
+  readonly element: { readonly nodeType: number };
+  readonly keyboard: boolean;
+  readonly filling: boolean;
+}) => typeof PointerAccess.Encoded;
 
-/** Bring a target into view without focusing it through a covering sheet. */
-const reachablePosition = async (
+/** Read coverage without moving or focusing the target. */
+const pointerPosition = async (
   element: ElementHandle,
   keyboard = false,
   filling = false
 ) => {
-  if (!keyboard) {
-    await element.scrollIntoViewIfNeeded({ timeout: ACTION_TIMEOUT_MS });
-  }
-  const read = await element.evaluateHandle<
-    (input: {
-      readonly element: { readonly nodeType: number };
-      readonly keyboard: boolean;
-      readonly filling: boolean;
-    }) => typeof PointerAccess.Encoded
-  >(POINTER_ACCESS_SCRIPT);
+  const read = await element.evaluateHandle<PointerAccessReader>(
+    POINTER_ACCESS_SCRIPT
+  );
   let access: typeof PointerAccess.Type;
   try {
     access = decodePointerAccess(
@@ -2439,16 +2437,93 @@ const reachablePosition = async (
   return access.point;
 };
 
+/** Bring a target into view without focusing it through a covering sheet. */
+const reachablePosition = async (
+  element: ElementHandle,
+  keyboard = false,
+  filling = false,
+  timeout = ACTION_TIMEOUT_MS
+) => {
+  if (!keyboard) {
+    await element.scrollIntoViewIfNeeded({ timeout });
+  }
+  return pointerPosition(element, keyboard, filling);
+};
+
+/** Focus may open a loading layer. Wait for reachability, never force entry. */
+const waitForFillPosition = async (element: ElementHandle, timeout: number) => {
+  const frame = await element.ownerFrame();
+  if (frame === null) {
+    throw new BrowserInputRefusedError(
+      "detached",
+      "The control left the document."
+    );
+  }
+  const read = await element.evaluateHandle<PointerAccessReader>(
+    POINTER_ACCESS_SCRIPT
+  );
+  try {
+    const ready = await frame.waitForFunction(
+      ({ element: control, read: accessFor }) => {
+        if (!control.isConnected) {
+          return "detached";
+        }
+        const access = accessFor({
+          element: control,
+          filling: true,
+          keyboard: false,
+        });
+        return access.blocker === null && access.point !== null
+          ? "ready"
+          : false;
+      },
+      { element, read },
+      { timeout }
+    );
+    try {
+      if ((await ready.jsonValue()) === "detached") {
+        throw new BrowserInputRefusedError(
+          "detached",
+          "The control left the document."
+        );
+      }
+    } finally {
+      await ready.dispose();
+    }
+  } catch (error) {
+    if (error instanceof errors.TimeoutError) {
+      // Preserve the foreground blocker's description when it never clears.
+      await pointerPosition(element, false, true);
+    }
+    throw error;
+  } finally {
+    await read.dispose();
+  }
+};
+
 /** Shared fill preflight, including the popup that focus itself can open. */
 const fillControl = async (
   element: ElementHandle,
   value: string,
-  timeout: number
+  timeout: number,
+  signal: AbortSignal
 ): Promise<void> => {
-  await reachablePosition(element, false, true);
+  const deadline = performance.now() + timeout;
+  const remaining = () => {
+    signal.throwIfAborted();
+    const budget = deadline - performance.now();
+    if (budget <= 0) {
+      throw new errors.TimeoutError(
+        "The fill action timed out before entering text."
+      );
+    }
+    return budget;
+  };
+  await reachablePosition(element, false, true, remaining());
+  signal.throwIfAborted();
   await element.focus();
-  await reachablePosition(element, false, true);
-  await element.fill(value, { timeout });
+  await waitForFillPosition(element, remaining());
+  await element.fill(value, { timeout: remaining() });
 };
 
 const pointerActionOptions = (
@@ -2740,8 +2815,8 @@ export const performAgentAction = (
         if (pointer !== undefined) {
           yield* pointAt(page, element, { ...types, reveal: "none" }, pointer);
         }
-        yield* attempt(`Could not fill ${action.ref}`, () =>
-          fillControl(element, action.text, ACTION_TIMEOUT_MS)
+        yield* attempt(`Could not fill ${action.ref}`, (signal) =>
+          fillControl(element, action.text, ACTION_TIMEOUT_MS, signal)
         );
       });
     }
@@ -2843,7 +2918,7 @@ const enterVariable = (
   target: PrivateInputTarget,
   value: string
 ): Effect.Effect<string, BrowserRpcErrorType> =>
-  attempt("Could not enter the Variable", async () => {
+  attempt("Could not enter the Variable", async (signal) => {
     const deadline = Date.now() + ACTION_TIMEOUT_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
     const controls = page.locator(target.selector);
@@ -2871,7 +2946,7 @@ const enterVariable = (
         );
       }
       try {
-        await fillControl(element, text, remaining());
+        await fillControl(element, text, remaining(), signal);
       } finally {
         await element.dispose();
       }

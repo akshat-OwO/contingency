@@ -56,7 +56,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Session Events](./workspace.md#session-events) proves cursor waits and replay through Teaching, retained instruction and attachment edits, private Variable supply, Dry Run verification, Cleanup, and Takeover return, with per-tool byte measurements.
 
-- [Overlay recovery](./workspace.md#overlay-recovery) proves interception of background input, stacked sheets, unnamed and image close targets, focus-time popup races, and reachable edges without reload.
+- [Overlay recovery](./workspace.md#overlay-recovery) proves interception of background input, stacked sheets, unnamed and image close targets, loading layers after focus, persistent focus-time popups, and reachable edges without reload.
 
 - [CLI shutdown](./workspace.md#cli-shutdown) proves the first-signal notice, connected Workspace teardown, quiet interruption logs, package runner exit, and agent signal ownership.
 

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Phone entry with a loading layer</title>
+  </head>
+  <body>
+    <label for="phone">Mobile number</label><input id="phone" type="tel" />
+    <script>
+      const phone = document.getElementById("phone");
+      const hitTest = document.elementFromPoint.bind(document);
+      let loader;
+      let observed = false;
+      let reachable = false;
+      document.elementFromPoint = (x, y) => {
+        const hit = hitTest(x, y);
+        if (loader?.isConnected && hit === loader && !observed) {
+          observed = true;
+          // Release only after the product has actually hit the covering layer.
+          void fetch("/focus-loader-observed");
+        }
+        if (observed && !loader.isConnected && hit === phone && !reachable) {
+          reachable = true;
+          void fetch("/focus-loader-reachable");
+        }
+        return hit;
+      };
+      phone.addEventListener(
+        "focus",
+        () => {
+          loader = document.createElement("div");
+          loader.style.cssText =
+            "position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:10";
+          document.body.append(loader);
+          void fetch("/focus-loader-gate").then(() => {
+            loader.remove();
+            if (new URLSearchParams(location.search).has("replace")) {
+              phone.replaceWith(phone.cloneNode());
+            }
+          });
+        },
+        { once: true }
+      );
+      phone.addEventListener("input", () => {
+        void fetch(
+          "/focus-loader-input?length=" +
+            phone.value.length +
+            "&covered=" +
+            loader.isConnected
+        );
+      });
+    </script>
+  </body>
+</html>
