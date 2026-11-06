@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Phone entry with a loading layer</title>
+  </head>
+  <body>
+    <div id="group">
+      <label for="phone">Mobile number</label><input id="phone" type="tel" />
+    </div>
+    <button id="other" type="button">Another control</button>
+    <script>
+      const phone = document.getElementById("phone");
+      const hitTest = document.elementFromPoint.bind(document);
+      let loader;
+      let observed = false;
+      let reachable = false;
+      let focuses = 0;
+      const mode = new URLSearchParams(location.search);
+      const showLoader = () => {
+        loader = document.createElement("div");
+        loader.style.cssText =
+          "position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:10";
+        document.body.append(loader);
+      };
+      document.elementFromPoint = (x, y) => {
+        const hit = hitTest(x, y);
+        if (loader?.isConnected && hit === loader && !observed) {
+          observed = true;
+          // Release only after the product has actually hit the covering layer.
+          void fetch("/focus-loader-observed");
+        }
+        if (observed && !loader.isConnected && hit === phone && !reachable) {
+          reachable = true;
+          void fetch("/focus-loader-reachable");
+        }
+        return hit;
+      };
+      phone.addEventListener("focus", () => {
+        focuses += 1;
+        if (focuses > 1) {
+          if (
+            mode.has("refocus") ||
+            mode.has("readonly-refocus") ||
+            mode.has("aria-disabled-refocus")
+          ) {
+            showLoader();
+            loader.setAttribute("role", "dialog");
+            loader.setAttribute("aria-label", "Refocus confirmation");
+          }
+          return;
+        }
+        showLoader();
+        void fetch("/focus-loader-gate").then(() => {
+          if (mode.has("refocus") || mode.has("lose-focus")) {
+            document.getElementById("other").focus();
+          }
+          if (
+            mode.has("readonly-refocus") ||
+            mode.has("aria-disabled-refocus")
+          ) {
+            if (mode.has("readonly-refocus")) {
+              phone.readOnly = true;
+            } else {
+              document
+                .getElementById("group")
+                .setAttribute("aria-disabled", "true");
+            }
+            void fetch("/focus-loader-editability-gate").then(() => {
+              document.getElementById("other").focus();
+              phone.readOnly = false;
+              document.getElementById("group").removeAttribute("aria-disabled");
+            });
+          }
+          loader.remove();
+          if (mode.has("replace")) {
+            phone.replaceWith(phone.cloneNode());
+          }
+        });
+      });
+      phone.addEventListener("input", () => {
+        void fetch(
+          "/focus-loader-input?length=" +
+            phone.value.length +
+            "&covered=" +
+            loader.isConnected
+        );
+      });
+    </script>
+  </body>
+</html>

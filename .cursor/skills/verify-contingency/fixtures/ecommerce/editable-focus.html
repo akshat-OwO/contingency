@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Editable focus targets</title>
+    <style>
+      #target {
+        min-height: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="container"></main>
+    <output id="result" role="status">Ready</output>
+    <script>
+      const mode = new URLSearchParams(location.search).get("mode") ?? "nested";
+      const container = document.getElementById("container");
+      const markup =
+        '<div id="host" contenteditable="true"><span id="before">Before</span>' +
+        (mode === "textarea"
+          ? '<textarea id="target" aria-label="Message">old</textarea>'
+          : '<div id="target" role="textbox" aria-label="Message"' +
+            (mode.startsWith("focusable") ? ' tabindex="0"' : "") +
+            ">old</div>") +
+        '<span id="after">After</span></div>';
+      const root = container;
+      root.innerHTML =
+        mode === "island"
+          ? '<div contenteditable="true"><div contenteditable="false">' +
+            markup +
+            "</div></div>"
+          : markup;
+      const host = root.querySelector("#host");
+      const target = root.querySelector("#target");
+      if (mode.startsWith("empty")) {
+        target.textContent = "";
+      }
+      if (mode === "image-clear") {
+        target.innerHTML =
+          '<img alt="Attachment" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">';
+      }
+      const report = () => {
+        document.getElementById("result").textContent =
+          "Message: " +
+          ("value" in target ? target.value : target.textContent) +
+          "; focus: " +
+          target.getRootNode().activeElement.id +
+          "; surroundings: " +
+          Boolean(
+            host.querySelector("#before")?.textContent === "Before" &&
+            host.querySelector("#after")?.textContent === "After"
+          );
+      };
+      host.addEventListener("input", report);
+      if (mode === "empty-clear") {
+        host.addEventListener("focus", report);
+      }
+      if (mode.endsWith("popup")) {
+        host.addEventListener(
+          "focus",
+          () => {
+            const popup = document.createElement("div");
+            popup.setAttribute("role", "dialog");
+            popup.setAttribute("aria-label", "Editing host confirmation");
+            popup.style.cssText =
+              "position:fixed;inset:0;background:white;z-index:10";
+            popup.textContent = "Confirm before editing";
+            document.body.append(popup);
+          },
+          { once: true }
+        );
+      }
+    </script>
+  </body>
+</html>

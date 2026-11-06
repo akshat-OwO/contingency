@@ -2383,7 +2383,7 @@ export const settledSnapshot = (
 
 const attempt = <A>(
   description: string,
-  operation: () => Promise<A>
+  operation: (signal: AbortSignal) => Promise<A>
 ): Effect.Effect<A, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure(description, cause),
@@ -2398,23 +2398,33 @@ const PointerAccess = Schema.Struct({
 });
 const decodePointerAccess = Schema.decodeUnknownSync(PointerAccess);
 const POINTER_ACCESS_SCRIPT = `((input) => {${PAGE_READING_PRELUDE} return pointerAccess(input.element, input.keyboard, input.filling); })`;
+const FILL_FOCUS_TARGET_SCRIPT = `((control) => {
+  if (control.matches("input, textarea") || !control.isContentEditable) {
+    return control;
+  }
+  let host = control;
+  while (host.parentElement?.isContentEditable) host = host.parentElement;
+  return host;
+})`;
+type FillFocusReader = (element: { readonly nodeType: number }) => {
+  readonly nodeType: number;
+  readonly matches: (selector: string) => boolean;
+};
+type PointerAccessReader = (input: {
+  readonly element: { readonly nodeType: number };
+  readonly keyboard: boolean;
+  readonly filling: boolean;
+}) => typeof PointerAccess.Encoded;
 
-/** Bring a target into view without focusing it through a covering sheet. */
-const reachablePosition = async (
+/** Read coverage without moving or focusing the target. */
+const pointerPosition = async (
   element: ElementHandle,
   keyboard = false,
   filling = false
 ) => {
-  if (!keyboard) {
-    await element.scrollIntoViewIfNeeded({ timeout: ACTION_TIMEOUT_MS });
-  }
-  const read = await element.evaluateHandle<
-    (input: {
-      readonly element: { readonly nodeType: number };
-      readonly keyboard: boolean;
-      readonly filling: boolean;
-    }) => typeof PointerAccess.Encoded
-  >(POINTER_ACCESS_SCRIPT);
+  const read = await element.evaluateHandle<PointerAccessReader>(
+    POINTER_ACCESS_SCRIPT
+  );
   let access: typeof PointerAccess.Type;
   try {
     access = decodePointerAccess(
@@ -2439,16 +2449,219 @@ const reachablePosition = async (
   return access.point;
 };
 
+/** Bring a target into view without focusing it through a covering sheet. */
+const reachablePosition = async (
+  element: ElementHandle,
+  keyboard = false,
+  filling = false,
+  timeout = ACTION_TIMEOUT_MS
+) => {
+  if (!keyboard) {
+    await element.scrollIntoViewIfNeeded({ timeout });
+  }
+  return pointerPosition(element, keyboard, filling);
+};
+
+/** Wait for coverage to clear and report whether the control kept focus. */
+const waitForFillPosition = async (
+  element: ElementHandle,
+  focusFor: JSHandle<FillFocusReader>,
+  contentEditable: boolean,
+  timeout: number
+) => {
+  const frame = await element.ownerFrame();
+  if (frame === null) {
+    throw new BrowserInputRefusedError(
+      "detached",
+      "The control left the document."
+    );
+  }
+  const read = await element.evaluateHandle<PointerAccessReader>(
+    POINTER_ACCESS_SCRIPT
+  );
+  try {
+    const ready = await frame.waitForFunction(
+      ({
+        element: control,
+        read: accessFor,
+        focusFor: targetFor,
+        contentEditable: editing,
+      }) => {
+        if (!control.isConnected) {
+          return "detached";
+        }
+        const access = accessFor({
+          element: control,
+          filling: true,
+          keyboard: false,
+        });
+        if (
+          access.blocker !== null ||
+          access.point === null ||
+          control.matches(":disabled, [readonly]") ||
+          control.getAttribute("aria-readonly") === "true"
+        ) {
+          return false;
+        }
+        // Native fill also waits for inherited ARIA enablement. Keep that
+        // wait here so any later focus recovery gets its own coverage check.
+        let ancestor: typeof control | null = control;
+        while (ancestor !== null) {
+          const disabled = ancestor
+            .getAttribute("aria-disabled")
+            ?.toLowerCase();
+          if (disabled === "true") {
+            return false;
+          }
+          if (disabled === "false") {
+            break;
+          }
+          const root = ancestor.getRootNode();
+          ancestor =
+            ancestor.parentElement ?? ("host" in root ? root.host : null);
+        }
+        if (editing && !control.isContentEditable) {
+          return false;
+        }
+        const selectionState = () => {
+          if (!editing) {
+            return true;
+          }
+          const root = control.getRootNode();
+          const selection =
+            "getSelection" in root
+              ? root.getSelection()
+              : control.ownerDocument.getSelection();
+          if (!selection || selection.rangeCount !== 1) {
+            return false;
+          }
+          const range = selection.getRangeAt(0);
+          const matches =
+            range.startContainer === control &&
+            range.startOffset === 0 &&
+            range.endContainer === control &&
+            range.endOffset === control.childNodes.length;
+          if (!matches) {
+            return false;
+          }
+          return range.collapsed ? "empty" : "selected";
+        };
+        const selection = selectionState();
+        if (!selection) {
+          return "refocus";
+        }
+        if (!targetFor(control).matches(":focus")) {
+          return "refocus";
+        }
+        return selection === "empty" ? "empty" : "focused";
+      },
+      { contentEditable, element, focusFor, read },
+      { timeout }
+    );
+    try {
+      const state = await ready.jsonValue();
+      if (state === "detached") {
+        throw new BrowserInputRefusedError(
+          "detached",
+          "The control left the document."
+        );
+      }
+      if (state === "empty") {
+        return "empty";
+      }
+      return state === "focused" ? "focused" : "refocus";
+    } finally {
+      await ready.dispose();
+    }
+  } catch (error) {
+    if (error instanceof errors.TimeoutError) {
+      // Preserve the foreground blocker's description when it never clears.
+      await pointerPosition(element, false, true);
+    }
+    throw error;
+  } finally {
+    await read.dispose();
+  }
+};
+
 /** Shared fill preflight, including the popup that focus itself can open. */
 const fillControl = async (
   element: ElementHandle,
   value: string,
-  timeout: number
+  timeout: number,
+  signal: AbortSignal
 ): Promise<void> => {
-  await reachablePosition(element, false, true);
-  await element.focus();
-  await reachablePosition(element, false, true);
-  await element.fill(value, { timeout });
+  const deadline = performance.now() + timeout;
+  const remaining = () => {
+    signal.throwIfAborted();
+    const budget = deadline - performance.now();
+    if (budget <= 0) {
+      throw new errors.TimeoutError(
+        "The fill action timed out before entering text."
+      );
+    }
+    return budget;
+  };
+  await reachablePosition(element, false, true, remaining());
+  const focusFor = await element.evaluateHandle<FillFocusReader>(
+    FILL_FOCUS_TARGET_SCRIPT
+  );
+  try {
+    const contentEditable = await focusFor.evaluate(
+      (_reader, control) =>
+        control.isContentEditable && !control.matches("input, textarea"),
+      element
+    );
+    const focusAndWait = async () => {
+      remaining();
+      // Native selection focuses the editing host while retaining the
+      // descendant's range. Validate every resulting focus side effect.
+      await (contentEditable
+        ? element.selectText({ timeout: remaining() })
+        : element.focus());
+      return waitForFillPosition(
+        element,
+        focusFor,
+        contentEditable,
+        remaining()
+      );
+    };
+    let position = await focusAndWait();
+    if (position === "refocus") {
+      position = await focusAndWait();
+    }
+    if (position === "refocus") {
+      // A loader may move focus once. Repeated focus loss needs a fresh read;
+      // native fill would otherwise refocus without checking the new coverage.
+      throw new BrowserInputRefusedError(
+        "intercepted",
+        "The control lost focus again while waiting. Take a fresh agent_browser_snapshot before entering text."
+      );
+    }
+    if (contentEditable) {
+      // Calling native fill here would repeat its focus/selection sequence
+      // after the guard. Send the same native keyboard input without refocusing.
+      remaining();
+      const frame = await element.ownerFrame();
+      if (frame === null) {
+        throw new BrowserInputRefusedError(
+          "detached",
+          "The control left the document."
+        );
+      }
+      if (value === "" && position === "empty") {
+        return;
+      }
+      remaining();
+      await (value === ""
+        ? frame.page().keyboard.press("Delete")
+        : frame.page().keyboard.insertText(value));
+    } else {
+      await element.fill(value, { timeout: remaining() });
+    }
+  } finally {
+    await focusFor.dispose();
+  }
 };
 
 const pointerActionOptions = (
@@ -2740,8 +2953,8 @@ export const performAgentAction = (
         if (pointer !== undefined) {
           yield* pointAt(page, element, { ...types, reveal: "none" }, pointer);
         }
-        yield* attempt(`Could not fill ${action.ref}`, () =>
-          fillControl(element, action.text, ACTION_TIMEOUT_MS)
+        yield* attempt(`Could not fill ${action.ref}`, (signal) =>
+          fillControl(element, action.text, ACTION_TIMEOUT_MS, signal)
         );
       });
     }
@@ -2843,7 +3056,7 @@ const enterVariable = (
   target: PrivateInputTarget,
   value: string
 ): Effect.Effect<string, BrowserRpcErrorType> =>
-  attempt("Could not enter the Variable", async () => {
+  attempt("Could not enter the Variable", async (signal) => {
     const deadline = Date.now() + ACTION_TIMEOUT_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
     const controls = page.locator(target.selector);
@@ -2871,7 +3084,7 @@ const enterVariable = (
         );
       }
       try {
-        await fillControl(element, text, remaining());
+        await fillControl(element, text, remaining(), signal);
       } finally {
         await element.dispose();
       }

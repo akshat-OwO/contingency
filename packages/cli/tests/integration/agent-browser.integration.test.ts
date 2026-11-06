@@ -1538,6 +1538,258 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+const startFocusLoader = (name: string, query = "") =>
+  Effect.gen(function* prepareFocusLoader() {
+    const fixtures = yield* fixtureServer;
+    const gate = yield* fixtures.holdRequest("/focus-loader-gate");
+    const covered = yield* fixtures.awaitRequest(
+      (url) => url === "/focus-loader-observed"
+    );
+    const input = yield* fixtures.awaitRequest((url) =>
+      url.startsWith("/focus-loader-input?")
+    );
+    const agent = yield* client;
+    const { session } = yield* agent("agent.session.start", {
+      activity: "run",
+      clientName: "focus-loader-test",
+      clientVersion: "1",
+      emulation: {
+        permissions: [],
+        userAgentProfile: UserAgentProfileId.make("chrome-android-mobile"),
+        viewport: { deviceScaleFactor: 1, height: 844, width: 360 },
+      },
+      name: "mobile phone entry",
+      operationId: OperationId.make(`${name}-start`),
+      url: fixtures.url(`focus-loader.html${query}`),
+      viewport: { deviceScaleFactor: 1, height: 844, width: 360 },
+    });
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const phone = findNode(before.nodes, "textbox", "Mobile number");
+    return { agent, covered, fixtures, gate, input, phone, session };
+  });
+
+it.live.each([
+  "nested",
+  "empty",
+  "empty-clear",
+  "image-clear",
+  "clear",
+  "focusable",
+  "textarea",
+  "island",
+])("fills the %s editable textbox without changing its fill target", (mode) =>
+  Effect.gen(function* fillNestedEditor() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url(`editable-focus.html?mode=${mode}`),
+      `editable-${mode}-start`
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    const target = findNode(before.nodes, "textbox", "Message");
+    const value = mode.endsWith("clear") ? "" : "updated message";
+    const result = yield* callTool("agent_browser_act", {
+      action: { ref: target.ref, text: value, type: "fill" },
+      operationId: OperationId.make(`editable-${mode}-fill`),
+      sessionId: session.id,
+    });
+    const focused = mode === "textarea" ? "target" : "host";
+    findNode(
+      result.snapshot.nodes,
+      "status",
+      `Message: ${value}; focus: ${focused}; surroundings: true`
+    );
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      after.nodes.some(
+        (node) => node.role === "image" && node.name === "Attachment"
+      )
+    ).toBe(false);
+    findNode(
+      after.nodes,
+      "status",
+      `Message: ${value}; focus: ${focused}; surroundings: true`
+    );
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live.each(["popup", "focusable-popup"])(
+  "rechecks coverage after focusing a nested textbox's editing host (%s)",
+  (mode) =>
+    Effect.gen(function* guardEditingHostFocus() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url(`editable-focus.html?mode=${mode}`),
+        "editable-popup-start"
+      );
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      const target = findNode(before.nodes, "textbox", "Message");
+      const failure = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: target.ref, text: "must not arrive", type: "fill" },
+          operationId: OperationId.make("editable-popup-fill"),
+          sessionId: session.id,
+        })
+      );
+      expect(failure.reason).toBe("intercepted");
+      expect(failure.message).toContain("Editing host confirmation");
+      const after = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      findNode(after.nodes, "dialog", "Editing host confirmation");
+      findNode(after.nodes, "status", "Ready");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live.each(["", "?lose-focus"])(
+  "waits for a loading layer and restores focus when needed (%s)",
+  (query) =>
+    Effect.gen(function* fillAfterFocusLoader() {
+      const { covered, fixtures, gate, input, phone, session } =
+        yield* startFocusLoader("focus-loader", query);
+      const fill = yield* callTool("agent_browser_act", {
+        action: { ref: phone.ref, text: "0000000000", type: "fill" },
+        operationId: OperationId.make("focus-loader-fill"),
+        sessionId: session.id,
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toEqual([]);
+      yield* Deferred.succeed(gate.release, true);
+      yield* Fiber.join(fill);
+      expect(
+        yield* Deferred.await(input).pipe(Effect.timeout("30 seconds"))
+      ).toBe("/focus-loader-input?length=10&covered=false");
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toHaveLength(1);
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live.each(["refocus", "readonly-refocus", "aria-disabled-refocus"])(
+  "rechecks coverage after a loading layer moves focus (%s)",
+  (mode) =>
+    Effect.gen(function* recheckRefocusCoverage() {
+      const { covered, fixtures, gate, phone, session } =
+        yield* startFocusLoader("focus-loader-refocus", `?${mode}`);
+      const editability =
+        mode === "refocus"
+          ? undefined
+          : yield* fixtures.holdRequest("/focus-loader-editability-gate");
+      const reachable = yield* fixtures.awaitRequest(
+        (url) => url === "/focus-loader-reachable"
+      );
+      const fill = yield* callTool("agent_browser_act", {
+        action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+        operationId: OperationId.make("focus-loader-refocus-fill"),
+        sessionId: session.id,
+      }).pipe(Effect.result, Effect.forkScoped);
+      yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+      yield* Deferred.succeed(gate.release, true);
+      if (editability !== undefined) {
+        yield* Deferred.await(reachable).pipe(Effect.timeout("30 seconds"));
+        yield* Deferred.succeed(editability.release, true);
+      }
+      const result = yield* Fiber.join(fill);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.reason).toBe("intercepted");
+        expect(result.failure.message).toContain("Refocus confirmation");
+      }
+      const after = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      expect(
+        findNode(after.nodes, "textbox", "Mobile number").value
+      ).toBeUndefined();
+      findNode(after.nodes, "dialog", "Refocus confirmation");
+      expect(
+        fixtures.requests.filter((url) =>
+          url.startsWith("/focus-loader-input?")
+        )
+      ).toEqual([]);
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("does not fill after Takeover interrupts a focus loading layer", () =>
+  Effect.gen(function* interruptFocusLoader() {
+    const { agent, covered, fixtures, gate, phone, session } =
+      yield* startFocusLoader("focus-loader-takeover");
+    const reachable = yield* fixtures.awaitRequest(
+      (url) => url === "/focus-loader-reachable"
+    );
+    const fill = yield* callTool("agent_browser_act", {
+      action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+      operationId: OperationId.make("focus-loader-takeover-fill"),
+      sessionId: session.id,
+    }).pipe(Effect.result, Effect.forkScoped);
+    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+    yield* agent("agent.session.takeover", {
+      operationId: OperationId.make("focus-loader-takeover-user"),
+      reason: "I will enter the number myself.",
+      sessionId: session.id,
+    });
+    expect((yield* Fiber.join(fill))._tag).toBe("Failure");
+    yield* Deferred.succeed(gate.release, true);
+    yield* Deferred.await(reachable).pipe(Effect.timeout("30 seconds"));
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      findNode(after.nodes, "textbox", "Mobile number").value
+    ).toBeUndefined();
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live("does not fill a replacement field after a focus loading layer", () =>
+  Effect.gen(function* replacedFocusControl() {
+    const { covered, fixtures, gate, phone, session } = yield* startFocusLoader(
+      "focus-loader-replaced",
+      "?replace"
+    );
+    const fill = yield* callTool("agent_browser_act", {
+      action: { ref: phone.ref, text: "must not arrive", type: "fill" },
+      operationId: OperationId.make("focus-loader-replaced-fill"),
+      sessionId: session.id,
+    }).pipe(Effect.result, Effect.forkScoped);
+    yield* Deferred.await(covered).pipe(Effect.timeout("30 seconds"));
+    yield* Deferred.succeed(gate.release, true);
+    const result = yield* Fiber.join(fill);
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure.reason).toBe("detached");
+    }
+    const after = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    expect(
+      findNode(after.nodes, "textbox", "Mobile number").value
+    ).toBeUndefined();
+    expect(
+      fixtures.requests.filter((url) => url.startsWith("/focus-loader-input?"))
+    ).toEqual([]);
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("rechecks a popup opened by focus before sending text", () =>
   Effect.gen(function* popupDuringFocus() {
     const fixtures = yield* fixtureServer;
