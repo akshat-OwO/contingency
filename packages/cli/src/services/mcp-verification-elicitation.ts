@@ -9,7 +9,11 @@ export const makeVerificationElicitation = () => {
   const offered = Atom.make<ReadonlySet<AgentSessionId>>(
     new Set<AgentSessionId>()
   ).pipe(Atom.keepAlive);
-  return (sessionId: AgentSessionId, viewUrl: string) =>
+  return (
+    sessionId: AgentSessionId,
+    viewUrl: string,
+    teachingViewUrl?: string
+  ) =>
     Effect.gen(function* offerWorkspaceVerification() {
       // Effect only provides McpServerClient for a stateful negotiated revision.
       // Stateless 2026-07-28 calls have no reverse client.
@@ -39,8 +43,11 @@ export const makeVerificationElicitation = () => {
         yield* reverse.elicit(
           new McpSchema.ElicitRequestURLParams({
             elicitationId: `verify-${sessionId}`,
-            message:
-              "The Dry Run passed. Verify or reject the Flow in Workspace.",
+            message: `The Dry Run passed. Open this link to review its Summary, then tell your agent whether to verify or reject the Flow. Opening or dismissing this prompt does not decide.${
+              teachingViewUrl === undefined
+                ? ""
+                : ` You can also use Verify flow or Reject flow in the live Teaching Workspace: ${teachingViewUrl}`
+            }`,
             mode: "url",
             url: viewUrl,
           })

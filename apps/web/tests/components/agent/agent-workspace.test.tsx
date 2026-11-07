@@ -62,6 +62,7 @@ const rpc = vi.hoisted(() => ({
   /* A navigation settles only once the test opens this gate. */
   navigateGate: Promise.resolve(true),
   privateInputCalls: [] satisfies unknown[],
+  recordingResult: null satisfies unknown,
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
   sessionsResult: {
@@ -241,7 +242,7 @@ const rpcOverrides = {
           _tag: "Success",
           value: {
             decision: "pending",
-            result: null,
+            result: rpc.recordingResult,
             summary: rpc.endedRunSummary,
           },
           waiting: false,
@@ -2631,4 +2632,37 @@ test("keeps a Dry Run Summary by recording ID after Teaching has closed", async 
   expect(rpc.endedRunSummaryCalls).toContain("recording-add-anvil");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(screen.queryByText("No browser session")).toBeNull();
+});
+
+test("explains that a failed recording review needs another passing Dry Run", async () => {
+  rpc.recordingResult = dryRunFailedSession.captureState.dryRunResult;
+  rpc.endedRunSummary = {
+    ...endedTaskSummary,
+    assessment: null,
+    purpose: {
+      flowName: "add-anvil",
+      kind: "dry-run",
+      recordingId: "recording-add-anvil",
+    },
+  };
+  try {
+    const rehearsal = { ...dryRunSession, run: taskRunSession.run };
+    renderWorkspace(resultFor([rehearsal]), session.id);
+    await screen.findByRole("region", { name: "Workspace dock" });
+    rpc.sessionsResult = resultFor([]);
+    await refreshWorkspace();
+    expect(
+      await screen.findByText(
+        "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
+      )
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Awaiting the user's Verify / Reject decision.")
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify flow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject flow" })).toBeNull();
+  } finally {
+    rpc.recordingResult = null;
+    rpc.endedRunSummary = endedTaskSummary;
+  }
 });

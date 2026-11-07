@@ -338,10 +338,7 @@ const scanArtifactRoute = (
               reportId
             );
           }
-          const summary =
-            "dryRunSummary" in manifest.success.lifecycle
-              ? recordingDryRunSummary(manifest.success)
-              : undefined;
+          const summary = recordingDryRunSummary(manifest.success);
           if (
             summary?.schemaVersion === 3 &&
             summary.scanReports?.some(
@@ -351,8 +348,7 @@ const scanArtifactRoute = (
             )
           ) {
             file = path.join(
-              store.directory(recordingId),
-              "dry-run",
+              dryRunDirectory(store.directory(recordingId), summary.runId),
               `scans/${reportId}.json`
             );
           }

@@ -57,7 +57,11 @@ export const RecordingViewer = ({
   }
   return (
     <section aria-label="Dry Run Summary" className="space-y-4 p-4">
-      <p role="status">{decisions[view.decision]}</p>
+      <p role="status">
+        {view.decision === "pending" && view.result?.outcome === "failed"
+          ? "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
+          : decisions[view.decision]}
+      </p>
       {summary}
     </section>
   );

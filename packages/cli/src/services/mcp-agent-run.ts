@@ -491,7 +491,16 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           Option.isSome(recording) &&
           recording.value.lifecycle._tag === "dry-run-passed"
         ) {
-          yield* offerVerification(params.sessionId, viewUrl);
+          const teaching = (yield* session.list()).find(
+            (live) =>
+              live.activity === "teaching" &&
+              live.recordingId === snapshot.dryRun?.recordingId
+          );
+          yield* offerVerification(
+            params.sessionId,
+            viewUrl,
+            teaching?.viewUrl
+          );
         }
         return { ...summary, viewUrl };
       }
