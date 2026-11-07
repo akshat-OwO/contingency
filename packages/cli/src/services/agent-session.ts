@@ -2544,8 +2544,8 @@ const makeAgentSession = (
 
     /**
      * Throwing away a recording the user does not want to keep. Deletion is a
-     * user gesture, never an agent one: the Workspace is the only caller, and
-     * it returns the session to `setup` so the same browser setup records
+     * user gesture, relayed by Workspace or confirmed through MCP. It
+     * returns the session to `setup` so the same browser setup records
      * again without carrying the discarded evidence (ADR 0071).
      */
     const discardTeachingRecordingUnlocked = Effect.fn(
@@ -2592,14 +2592,6 @@ const makeAgentSession = (
               )
             );
           }
-          // The retention manifest names the Trace and the video this recording
-          // wrote. Discarding removes those files, so the note that points at them
-          // goes with them rather than outliving what it describes.
-          if (record.retentionFile !== undefined && fileSystem !== undefined) {
-            yield* fileSystem
-              .remove(record.retentionFile, { force: true })
-              .pipe(Effect.ignore);
-          }
           const manifest = yield* teachingRecordingStore
             .discard({
               operationId: OperationId.make(operationId),
@@ -2618,12 +2610,21 @@ const makeAgentSession = (
               )
             );
           }
+          // The retention manifest names the Trace and the video this recording
+          // wrote. Discarding removes those files, so the note that points at them
+          // goes with them rather than outliving what it describes.
+          if (record.retentionFile !== undefined && fileSystem !== undefined) {
+            yield* fileSystem
+              .remove(record.retentionFile, { force: true })
+              .pipe(Effect.ignore);
+          }
           // The timeline describes the discarded Demonstration, so it goes with
           // it: `setup` after a deletion is a clean bundle, not one that still
           // lists actions whose evidence is gone.
           const discarded: AgentSessionSnapshot = {
             ...record.snapshot,
             captureState: manifest.lifecycle,
+            recordingCleanup: manifest.cleanup,
             teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
             timeline: [],
             updatedAt: manifest.lifecycle.requestedAt,

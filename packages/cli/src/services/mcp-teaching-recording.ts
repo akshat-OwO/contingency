@@ -1,4 +1,5 @@
 import {
+  isLiveAgentSessionPhase,
   Variable,
   AgentRunTaskInput,
   FlowName,
@@ -18,6 +19,7 @@ import { Effect, FileSystem, Layer, Schema } from "effect";
 import { Tool, Toolkit } from "effect/ai";
 
 import { isFlowInActiveRun } from "./active-flow-runs.ts";
+import type { AgentSessionError } from "./agent-session.ts";
 import { AgentSession } from "./agent-session.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { flowDocuments, SupportingDocument } from "./flow-documents.ts";
@@ -62,6 +64,7 @@ class TeachingRecordingFailure extends Schema.Error<TeachingRecordingFailure>(
 
 const failure = (
   cause:
+    | AgentSessionError
     | TeachingRecordingLearningError
     | TeachingRecordingOrchestrationError
     | TeachingRecordingStoreError
@@ -133,7 +136,7 @@ const TeachingRecordingsListTool = readOnly(
 const TeachingRecordingDiscardTool = Tool.make(
   "agent_teaching_recording_discard",
   {
-    dependencies: [TeachingRecordingStore],
+    dependencies: [AgentSession, TeachingRecordingStore],
     description:
       "Delete a stopped Teaching Recording's retained artifacts after the run completes. Release any learning claim first with agent_teaching_recording_claim. Ask the user first. Call only after the user confirms deletion.",
     failure: TeachingRecordingFailure,
@@ -291,6 +294,29 @@ export const TeachingRecordingTools = withStrictParameters(
   )
 );
 
+/** Relay confirmed deletion through the live owner's complete discard operation. */
+export const discardTeachingRecording = Effect.fn(
+  "Mcp.discardTeachingRecording"
+)(function* discardTeachingRecording(params: {
+  recordingId: TeachingRecordingId;
+  operationId: OperationId;
+}) {
+  const sessions = yield* AgentSession;
+  const owner = (yield* sessions.list()).find(
+    (session) =>
+      session.activity === "teaching" &&
+      session.recordingId === params.recordingId &&
+      isLiveAgentSessionPhase(session.phase)
+  );
+  if (owner === undefined) {
+    const store = yield* TeachingRecordingStore;
+    yield* store.discard(params);
+  } else {
+    yield* sessions.discardTeachingRecording(owner.id, params.operationId);
+  }
+  return { discarded: true };
+});
+
 export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
   {
     agent_flow_decide: (params) =>
@@ -428,11 +454,7 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
         return { claim: null, recording: yield* summaryOf(failed) };
       }),
     agent_teaching_recording_discard: (params) =>
-      Effect.gen(function* discardTeachingRecording() {
-        const store = yield* TeachingRecordingStore;
-        yield* store.discard(params).pipe(Effect.mapError(failure));
-        return { discarded: true };
-      }),
+      discardTeachingRecording(params).pipe(Effect.mapError(failure)),
     agent_teaching_recordings_list: (params) =>
       Effect.gen(function* listTeachingRecordings() {
         const learning = yield* TeachingRecordingLearning;
