@@ -1273,6 +1273,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               startedAt: lifecycle.startedAt,
               stoppedAt: lifecycle.stoppedAt,
             },
+            rejectedDryRun: undefined,
           });
         }
       );
@@ -1508,6 +1509,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 startedAt: lifecycle.startedAt,
                 stoppedAt: lifecycle.stoppedAt,
               },
+              rejectedDryRun: {
+                result: lifecycle.dryRunResult,
+                summary: lifecycle.dryRunSummary ?? null,
+              },
             })
           : Effect.fail(
               storeError(
@@ -1641,6 +1646,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               ...manifest,
               cleanup: { _tag: "purged" as const, completedAt: at },
               lifecycle,
+              rejectedDryRun: undefined,
             },
             "cleanup",
             input.operationId,

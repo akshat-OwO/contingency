@@ -34,6 +34,7 @@ import type {
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
 import { iosSimctlHost } from "../services/ios-simctl.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
+import { recordingView } from "../services/recording-view.ts";
 import {
   decideFlow,
   stopDryRun,
@@ -539,6 +540,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         agentUnavailable((service) =>
           service.returnControl(data.sessionId, data.operationId)
         ).pipe(Effect.map((session) => ({ session }))),
+      "agent.recording.view.get": (data) =>
+        teachingRecordingUnavailable(
+          Effect.gen(function* readRecordingView() {
+            const store = yield* TeachingRecordingStore;
+            return recordingView(yield* store.read(data.recordingId));
+          })
+        ),
       "agent.run.summary.get": (data) =>
         Effect.gen(function* readRunSummary() {
           const summary = yield* runStoreUnavailable((store) =>

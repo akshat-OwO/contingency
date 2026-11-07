@@ -62,6 +62,7 @@ import {
   StorageKind,
 } from "./storage.ts";
 import {
+  RecordingView,
   GuidedRunCheckDecision,
   FlowName,
   TeachingCaptureState,
@@ -1003,6 +1004,11 @@ const AgentBrowserStorageClearRpc = Rpc.make("agent.browser.storage.clear", {
   payload: AgentBrowserStorageClear,
   success: AgentBrowserStorageUpdated,
 });
+const RecordingViewGetRpc = Rpc.make("agent.recording.view.get", {
+  error: BrowserRpcError,
+  payload: Schema.Struct({ recordingId: TeachingRecordingId }),
+  success: RecordingView,
+});
 const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   error: BrowserRpcError,
   payload: AgentRunSummaryGet,
@@ -1127,6 +1133,7 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentBrowserStorageDeleteRpc,
   AgentBrowserStorageClearRpc,
   AgentRunSummaryGetRpc,
+  RecordingViewGetRpc,
   CatalogBrowseGetRpc,
   CatalogFlowGetRpc
 ) {}

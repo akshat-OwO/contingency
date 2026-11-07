@@ -185,6 +185,7 @@ it.live(
           "agent_variable_enter",
           "agent_variable_request",
           "docs_get",
+          "open_recording",
           "open_run",
         ]);
         const demo = yield* coverage({ demo: true });

@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  LegacyAgentFlowRunSummary,
+  LegacyAgentRunSummary,
+  TaskAgentRunSummary,
+  RecordingView,
+  TeachingRecordingId,
   AgentRunComplete,
   AgentRunId,
   AgentRunOpen,
-  AgentRunSummary,
   FlowRunStart,
   AgentTaskRunStart,
   AgentRunTaskInput,
@@ -45,6 +49,7 @@ import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
 import { makeVerificationElicitation } from "./mcp-verification-elicitation.ts";
 import { readExampleFlows } from "./onboarding-examples.ts";
+import { recordingView, recordingViewUrl } from "./recording-view.ts";
 import {
   readRequestedFlows,
   taskVariables,
@@ -98,15 +103,39 @@ const FlowRunStartTool = Tool.make("agent_flow_run_start", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local.",
+    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local. Share the returned Dry Run viewUrl before asking the user to verify or reject.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,
     operationId: AgentRunComplete.fields.operationId,
     sessionId: AgentRunComplete.fields.sessionId,
   }),
-  success: AgentRunSummary,
+  success: Schema.Union([
+    Schema.Struct({
+      ...LegacyAgentFlowRunSummary.fields,
+      viewUrl: Schema.optional(Schema.String),
+    }),
+    Schema.Struct({
+      ...LegacyAgentRunSummary.to.fields,
+      viewUrl: Schema.optional(Schema.String),
+    }),
+    Schema.Struct({
+      ...TaskAgentRunSummary.fields,
+      viewUrl: Schema.optional(Schema.String),
+    }),
+  ]),
 });
+
+const RecordingOpenTool = readOnly(
+  Tool.make("open_recording", {
+    dependencies: [AgentSession, TeachingRecordingStore],
+    description:
+      "Open a read-only Dry Run Summary, video and saved user decision by recordingId, including after the owning sessions or MCP process exit. Share viewUrl before asking the user to verify or reject. This operation cannot decide. Verified recordings show the decision after Cleanup removes evidence.",
+    failure: AgentRunFailure,
+    parameters: Schema.Struct({ recordingId: TeachingRecordingId }),
+    success: Schema.Struct({ ...RecordingView.fields, viewUrl: Schema.String }),
+  })
+);
 
 const AgentRunOpenTool = readOnly(
   Tool.make("open_run", {
@@ -236,6 +265,7 @@ export const AgentRunTools = withStrictParameters(
     FlowRunStartTool,
     AgentRunCompleteTool,
     AgentRunOpenTool,
+    RecordingOpenTool,
     AgentTaskRunStartTool,
     AgentTaskRunUpdateTool,
     AgentTaskAssessTool,
@@ -449,6 +479,10 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
         .get(params.sessionId)
         .pipe(Effect.mapError(failure));
       if (snapshot.dryRun !== null) {
+        const viewUrl = recordingViewUrl(
+          yield* session.workspaceUrl.pipe(Effect.mapError(failure)),
+          snapshot.dryRun.recordingId
+        );
         const store = yield* TeachingRecordingStore;
         const recording = yield* store
           .read(snapshot.dryRun.recordingId)
@@ -457,8 +491,18 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           Option.isSome(recording) &&
           recording.value.lifecycle._tag === "dry-run-passed"
         ) {
-          yield* offerVerification(params.sessionId, snapshot.viewUrl);
+          const teaching = (yield* session.list()).find(
+            (live) =>
+              live.activity === "teaching" &&
+              live.recordingId === snapshot.dryRun?.recordingId
+          );
+          yield* offerVerification(
+            params.sessionId,
+            viewUrl,
+            teaching?.viewUrl
+          );
         }
+        return { ...summary, viewUrl };
       }
       return summary;
     }),
@@ -615,6 +659,21 @@ export const AgentRunToolHandlersLive = AgentRunTools.toLayer({
           ),
           withDocumentView(inView(view))
         );
+    }),
+  open_recording: (params) =>
+    Effect.gen(function* openRecording() {
+      const store = yield* TeachingRecordingStore;
+      const session = yield* AgentSession;
+      const manifest = yield* store
+        .read(params.recordingId)
+        .pipe(Effect.mapError(failure));
+      const baseUrl = yield* session.workspaceUrl.pipe(
+        Effect.mapError(failure)
+      );
+      return {
+        ...recordingView(manifest),
+        viewUrl: recordingViewUrl(baseUrl, params.recordingId),
+      };
     }),
   open_run: (params) =>
     Effect.gen(function* openPersistedRun() {

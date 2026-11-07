@@ -26,12 +26,15 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
       readonly demo?: boolean;
+      readonly catalogRoot?: string;
+      readonly workspaceUrl?: string;
       readonly launchContext?: string;
       readonly systemOne?: SystemOneConfig;
     } = {}
   ) {
     const fileSystem = yield* FileSystem.FileSystem;
-    const catalogRoot = yield* fileSystem.makeTempDirectoryScoped();
+    const catalogRoot =
+      options.catalogRoot ?? (yield* fileSystem.makeTempDirectoryScoped());
     const allowedOrigins = new Set([BASE_URL]);
     const context = yield* Layer.build(
       HttpRouter.serve(
@@ -42,15 +45,17 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
         })
       ).pipe(
         Layer.provide(
-          Layer.mergeAll(
-            makeAgentSessionLayer({
-              allowedActivity: "any",
-              baseUrl: BASE_URL,
-            }),
-            makeFlowCatalogLayer({ root: catalogRoot }),
-            makeAgentRunStoreLayer({ root: () => catalogRoot }),
-            makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
-          ).pipe(
+          makeAgentSessionLayer({
+            allowedActivity: "any",
+            baseUrl: options.workspaceUrl ?? BASE_URL,
+          }).pipe(
+            Layer.provideMerge(
+              Layer.mergeAll(
+                makeFlowCatalogLayer({ root: catalogRoot }),
+                makeAgentRunStoreLayer({ root: () => catalogRoot }),
+                makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
+              )
+            ),
             Layer.provideMerge(CreateBrowserLive),
             Layer.provideMerge(NodeServices.layer)
           )

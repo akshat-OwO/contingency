@@ -26,6 +26,7 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-empty-mcp` shows `No browser session` on an MCP launch with no Teaching or Run.
 - `agent-mcp-ports` gives each stdio MCP process an available Workspace port without client port configuration; explicit ports remain supported.
 - `agent-bad-session` shows a notice when a `?session=` id is missing and no live session exists. With a live session, Workspace shows it and replaces the missing id in the URL.
+- `workspace-recording-review` opens the persisted Dry Run Summary, video, and user decision at `/?recording=<id>` after Teaching closes or a new MCP process starts. Share the returned `viewUrl` before asking the user to decide.
 - `workspace-session-lifecycle` follows the selected Teaching recording into its new Dry Run, returns to that recording with its Summary, and closes sessions with the trash buttons inside the opened session picker.
 - `agent-live-session` shows a live session's browser and the dock that carries its state.
 - `agent-same-document-snapshot` returns destination nodes with the destination URL after an agent action routes without loading a new document.
@@ -895,3 +896,9 @@ Search `agent_teaching_recording_discard` through `agent_code_execute` and save 
 ### Compact MCP result proof
 
 Using the isolated ecommerce MCP session, execute a real action, read a text snapshot, and call `agent_session_get` through `agent_code_execute`. Require no top-level process or successful receipts. Complete snapshots omit coverage, default settle state, and empty nodes/check results. Action URLs and capture timestamps occur once when equal; agent actor and successful dispatch are omitted. An undispatched boundary must still carry `entry.dispatched:false` and intervention details. A scoped or continued snapshot retains coverage. Covered controls keep `[blocked]` for an unnamed generic blocker or the named blocker's role and name, and omit action references; bounds use `widthxheight@x,y`. Read structured nodes to inspect the original blocker metadata. Session history and Workspace keep their complete persisted entries.
+
+### Recording review after session closure
+
+Close Teaching after claiming and saving its recording, then start and complete a Dry Run. Require the ended Dry Run's last frame beside `Dry Run Summary`. Share the completion `viewUrl` before asking the user to decide. Open it and require the Summary, video, and pending decision. Reject as the user through the existing decision path, reopen the viewer, and require the rejection and retained evidence.
+
+Repeat with a second recording after stopping and restarting the owned MCP process with the same isolated Catalog Root. Call `open_recording` with the recording ID, open the returned URL on the new process port, and require the Summary and video without either original session. Verify as the user and reopen. Require the saved verified decision and the Cleanup notice, with no retained video. Capture screenshots and ARIA snapshots for both entry paths before cleanup.

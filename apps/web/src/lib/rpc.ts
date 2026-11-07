@@ -2,6 +2,7 @@ import type {
   IosWorkspaceCommand,
   AndroidWorkspaceCommand,
   AndroidWorkspaceSelection,
+  TeachingRecordingId,
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
@@ -16,7 +17,15 @@ import {
   RunVideoStatus,
   runVideoStatusPath,
 } from "@contingency/protocol";
-import { Duration, Effect, Layer, Schedule, Schema, Stream } from "effect";
+import {
+  Data,
+  Duration,
+  Effect,
+  Layer,
+  Schedule,
+  Schema,
+  Stream,
+} from "effect";
 import { Atom, AtomRpc } from "effect/reactivity";
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
@@ -412,3 +421,32 @@ export const runAgentBrowserStream = (
     ),
     Effect.retry(reconnectSchedule)
   );
+
+const RecordingSummaryPending = Data.TaggedError("RecordingSummaryPending");
+
+// Session termination can precede the manifest write. Workspace refresh is
+// clock-driven too; no recording update event currently crosses this RPC.
+// Bound retries to one minute and retry only this transient state.
+export const recordingViewAtom = Atom.family(
+  (recordingId: TeachingRecordingId) =>
+    Atom.family((sessionId: string | null) =>
+      ContingencyRpcClient.runtime.atom(
+        ContingencyRpcClient.use((client) =>
+          client("agent.recording.view.get", { recordingId })
+        ).pipe(
+          Effect.flatMap((view) =>
+            view.decision === "pending" &&
+            (view.summary === null ||
+              (sessionId !== null && view.summary.sessionId !== sessionId))
+              ? Effect.fail(new RecordingSummaryPending(undefined))
+              : Effect.succeed(view)
+          ),
+          Effect.retry({
+            schedule: Schedule.spaced("500 millis"),
+            times: 120,
+            while: (cause) => cause._tag === "RecordingSummaryPending",
+          })
+        )
+      )
+    )
+);

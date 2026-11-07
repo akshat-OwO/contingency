@@ -62,6 +62,7 @@ const rpc = vi.hoisted(() => ({
   /* A navigation settles only once the test opens this gate. */
   navigateGate: Promise.resolve(true),
   privateInputCalls: [] satisfies unknown[],
+  recordingResult: null satisfies unknown,
   renameCalls: [] satisfies unknown[],
   returnControlCalls: [] satisfies unknown[],
   sessionsResult: {
@@ -233,6 +234,22 @@ const rpcOverrides = {
         }
       );
     }),
+  recordingViewAtom: Atom.family((recordingId: string) =>
+    Atom.family((_sessionId: string | null) =>
+      Atom.make(() => {
+        rpc.endedRunSummaryCalls.push(recordingId);
+        return {
+          _tag: "Success",
+          value: {
+            decision: "pending",
+            result: rpc.recordingResult,
+            summary: rpc.endedRunSummary,
+          },
+          waiting: false,
+        };
+      })
+    )
+  ),
   runAgentBrowserStream: (
     ..._args: Parameters<typeof runAgentBrowserStream>
   ): ReturnType<typeof runAgentBrowserStream> => Effect.never,
@@ -2598,4 +2615,54 @@ test("takes over a Guided Run and enters a private Variable before returning", a
   expect(screen.getByLabelText("Variable value")).toHaveValue("");
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
+});
+
+test("keeps a Dry Run Summary by recording ID after Teaching has closed", async () => {
+  const rehearsal = { ...dryRunSession, run: taskRunSession.run };
+  renderWorkspace(resultFor([rehearsal]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  const summary = await screen.findByRole("complementary", {
+    name: "Dry Run Summary",
+  });
+  expect(
+    within(summary).getByText("The catalogue listed three products.")
+  ).toBeVisible();
+  expect(rpc.endedRunSummaryCalls).toContain("recording-add-anvil");
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(screen.queryByText("No browser session")).toBeNull();
+});
+
+test("explains that a failed recording review needs another passing Dry Run", async () => {
+  rpc.recordingResult = dryRunFailedSession.captureState.dryRunResult;
+  rpc.endedRunSummary = {
+    ...endedTaskSummary,
+    assessment: null,
+    purpose: {
+      flowName: "add-anvil",
+      kind: "dry-run",
+      recordingId: "recording-add-anvil",
+    },
+  };
+  try {
+    const rehearsal = { ...dryRunSession, run: taskRunSession.run };
+    renderWorkspace(resultFor([rehearsal]), session.id);
+    await screen.findByRole("region", { name: "Workspace dock" });
+    rpc.sessionsResult = resultFor([]);
+    await refreshWorkspace();
+    expect(
+      await screen.findByText(
+        "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
+      )
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Awaiting the user's Verify / Reject decision.")
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Verify flow" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject flow" })).toBeNull();
+  } finally {
+    rpc.recordingResult = null;
+    rpc.endedRunSummary = endedTaskSummary;
+  }
 });

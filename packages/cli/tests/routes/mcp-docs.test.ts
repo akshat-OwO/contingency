@@ -77,6 +77,12 @@ it.live(
           const read = Schema.decodeUnknownSync(ResourceRead)(
             yield* request("resources/read", { uri: docUri(topic) })
           ).result.contents;
+          if (topic === "run" || topic === "getting-started") {
+            expect(read[0]?.text).toContain("open_recording");
+            expect(read[0]?.text).toContain(
+              "before asking the user to verify or reject"
+            );
+          }
           expect(read.map(({ text }) => text)).toEqual([
             yield* readTopic(topic),
           ]);
