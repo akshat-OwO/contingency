@@ -18,7 +18,6 @@ import { CurrentLogLevel } from "effect/References";
 import { AgentSession } from "./agent-session.ts";
 import { AndroidWorkspace } from "./android-workspace.ts";
 import type { OfferedOperation } from "./code-interpreter-protocol.ts";
-import { MemoryUsage } from "./code-interpreter-protocol.ts";
 import {
   INTERPRETER_LIMITS,
   runInterpreterProgram,
@@ -26,6 +25,7 @@ import {
 import type {
   DispatchOutcome,
   InterpreterDispatch,
+  InterpreterOutcome,
 } from "./code-interpreter.ts";
 import {
   EXECUTION_VALUE_LIMITS,
@@ -34,6 +34,8 @@ import {
 } from "./execution-values.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { compactMcpValue } from "./mcp-value.ts";
+import { compactJsonSchema } from "./operation-schema.ts";
 
 /**
  * The MCP interface exposes `agent_code_execute`, which runs one program
@@ -104,19 +106,7 @@ const CodeExecuteResult = Schema.Struct({
   ),
   intervention: Schema.optionalKey(Intervention),
   logs: Schema.optionalKey(Schema.Array(Schema.String)),
-  process: Schema.Struct({
-    bytesFromInterpreter: Schema.Int,
-    bytesToInterpreter: Schema.Int,
-    durationMs: Schema.Number,
-    exit: Schema.String,
-    heapLimitBytes: Schema.NullOr(Schema.Number),
-    lastMemory: Schema.NullOr(MemoryUsage),
-    peakRssBytes: Schema.NullOr(Schema.Number),
-    pid: Schema.Number,
-    rssCeilingBytes: Schema.Number,
-    startupMs: Schema.NullOr(Schema.Number),
-  }),
-  receipts: Schema.Array(Receipt),
+  receipts: Schema.optionalKey(Schema.Array(Receipt)),
   status: Schema.Literals([
     "completed",
     "program_failed",
@@ -140,8 +130,44 @@ const CodeExecuteResult = Schema.Struct({
   ),
 });
 
+/** Agent answer preserves uncertain dispatches and relevant process failure facts. */
+export const compactInterpreterOutcome = (
+  {
+    process,
+    receipts,
+    intervention: _intervention,
+    ...outcome
+  }: InterpreterOutcome,
+  timeoutMs: number
+) => {
+  const exceptionalReceipts = receipts.filter(
+    (receipt) => receipt.outcome !== "succeeded"
+  );
+  const result: Types.Mutable<typeof CodeExecuteResult.Type> = {
+    ...outcome,
+  };
+  if (exceptionalReceipts.length > 0) {
+    result.receipts = exceptionalReceipts;
+  }
+  if (
+    ["memory_limit", "crashed", "deadline_exceeded"].includes(result.status)
+  ) {
+    let fact = `Elapsed ${process.durationMs} ms; deadline ${timeoutMs} ms.`;
+    if (result.status === "memory_limit") {
+      fact = `Heap ${process.lastMemory?.heapUsedBytes ?? "unknown"}/${process.heapLimitBytes ?? "unknown"}; RSS ${process.peakRssBytes ?? "unknown"}/${process.rssCeilingBytes} bytes.`;
+    } else if (result.status === "crashed") {
+      fact = `Process exit: ${process.exit}.`;
+    }
+    result.diagnostic = {
+      kind: result.diagnostic?.kind ?? result.status,
+      message: `${result.diagnostic?.message ?? ""} ${fact}`.trim(),
+    };
+  }
+  return result;
+};
+
 const CodeExecuteTool = Tool.make("agent_code_execute", {
-  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read signatures, then call operations in a separate program. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns it with receipts; the user acts in the Workspace, then a new program resumes only that exact attempt. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. A value over ${INTERPRETER_LIMITS.maxOutputBytes} bytes comes back as valueResource with a preview: read its uri with resources/read within ${EXECUTION_VALUE_LIMITS.ttlMs / 60_000} minutes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxResultBytes} bytes of value.`,
+  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read compact signatures (TypeScript with JSDoc constraints), then call operations in a separate program. In signatures, omitted non-literal string minLength means 1; @minLength 0 imposes no minimum. Omitted maxLength means no length limit. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns intervention details; the user acts in the Workspace, then a new program resumes only that exact attempt. Successful receipts are omitted. Non-success receipts retain dispatch identity. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. A value over ${INTERPRETER_LIMITS.maxOutputBytes} bytes comes back as valueResource with a preview: read its uri with resources/read within ${EXECUTION_VALUE_LIMITS.ttlMs / 60_000} minutes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxResultBytes} bytes of value.`,
   failure: CodeExecuteFailure,
   parameters: Schema.Struct({
     code: Schema.String.check(
@@ -224,7 +250,10 @@ export const collectOperations = <Tools extends Record<string, Tool.Any>>(
       operations.set(name, {
         description: Tool.getDescription(tool) ?? name,
         // SAFETY: a JSON Schema document is plain JSON.
-        inputSchema: Tool.getJsonSchema(tool) as Schema.Json,
+        inputSchema: compactJsonSchema(
+          Tool.getJsonSchema(tool) as Schema.Json,
+          true
+        ),
         name,
         readOnly: Context.get(tool.annotations, Tool.Readonly),
         run: (input) =>
@@ -248,7 +277,19 @@ export const collectOperations = <Tools extends Record<string, Tool.Any>>(
                   ok: false,
                 };
               }
-              return { ok: true, value: encoded };
+              return {
+                ok: true,
+                value: compactMcpValue(
+                  encoded,
+                  Option.getOrUndefined(
+                    Schema.decodeUnknownOption(
+                      Schema.Struct({
+                        intent: Schema.Struct({ objective: Schema.String }),
+                      })
+                    )(input)
+                  )?.intent.objective
+                ),
+              };
             }),
             Effect.catchCause((cause) =>
               refusalOf(tool, cause).pipe(
@@ -681,11 +722,13 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
           operations,
           timeoutMs: params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs,
         }).pipe(
-          Effect.flatMap(({ intervention, ...outcome }) =>
+          Effect.flatMap(({ intervention, process, receipts, ...outcome }) =>
             Effect.gen(function* answer() {
-              const result: Types.Mutable<typeof CodeExecuteResult.Type> = {
-                ...outcome,
-              };
+              yield* Effect.logDebug("Code interpreter process", process);
+              const result = compactInterpreterOutcome(
+                { ...outcome, process, receipts },
+                params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs
+              );
               const decoded = decodeIntervention(intervention);
               if (Option.isSome(decoded)) {
                 result.intervention = decoded.value;

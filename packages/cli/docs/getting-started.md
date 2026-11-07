@@ -43,3 +43,11 @@ Follow each tool's contract and `nextAction`.
 The Catalog Root defaults to the project’s `contingency/` directory. Open **Flows** in Workspace to browse its Group tree in the **Flows Drawer**. Groups are plain directories and may nest.
 
 Each Flow has `contingency/<group…>/<flow>/flow.md`, optional supporting Markdown, `recordings/`, and `runs/`. A Run started with no Flow or several Flows belongs in `contingency/runs/`. The read-only user catalog remains `~/.contingency`.
+
+Search signatures use TypeScript with JSDoc constraints, such as `@maxLength 200`.
+
+In signatures, omitted non-literal string minLength means 1; `@minLength 0` imposes no minimum. Omitted maxLength means no length limit.
+
+Schema annotations that repeat field names are omitted. Patterns remain literal unless the description includes the exact pattern.
+
+Parameter types and validation remain unchanged; return types remain `Promise<unknown>`.

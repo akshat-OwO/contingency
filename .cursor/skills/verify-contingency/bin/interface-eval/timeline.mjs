@@ -51,6 +51,20 @@ const requestEvent = (state, event) => {
   }
 };
 const programAnswer = (state, request, body) => {
+  if (
+    !Array.isArray(body.receipts) ||
+    (body.receipts.length > 0 &&
+      !body.receipts.some((receipt) => receipt.outcome === "succeeded"))
+  ) {
+    state.choices.push({
+      at: request.at,
+      id: request.message.id,
+      reviewRequired:
+        "Successful receipts are omitted; inspect operation order and Snapshot provenance",
+      rule: null,
+    });
+    return;
+  }
   const local = {
     ...state,
     needsRead: request.needsRead,

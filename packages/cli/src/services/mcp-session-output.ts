@@ -21,6 +21,7 @@ import { Effect, Schema } from "effect";
 
 import { AgentSession } from "./agent-session.ts";
 import { FlowDocuments } from "./flow-documents.ts";
+import { McpActionResult, McpBrowserSnapshot } from "./mcp-value.ts";
 
 /**
  * The optional `view` parameter of every tool that answers with an Agent
@@ -125,16 +126,22 @@ export const inStartView =
 const unpublished = (description: string) =>
   Schema.Unknown.annotate({ description });
 
-export const UnpublishedActionResult = unpublished(
-  "The AgentActionResult returned by agent_browser_act: entry, optional intervention, snapshot, and url."
+export const UnpublishedActionResult = Schema.toEncoded(McpActionResult);
+
+export const UnpublishedSequenceResult = Schema.toEncoded(
+  Schema.Struct({
+    ...AgentActSequenceResult.fields,
+    snapshot: Schema.NullOr(McpBrowserSnapshot),
+    url: Schema.optionalKey(AgentActSequenceResult.fields.url),
+  })
 );
 
-export const UnpublishedSequenceResult = unpublished(
-  "Ordered actions with operationId, entry, and intervention (as in agent_browser_act); a final snapshot and url; stopped is null or contains index, reason, code, and message."
-);
-
-export const UnpublishedPursuitResult = unpublished(
-  "ending (done, blocked, unsure, paused, or needs-input) and reason; ordered actions with operationId, entry, confidence, and variable; intervention for a paused ending; missingVariable for needs-input; the last snapshot and url."
+export const UnpublishedPursuitResult = Schema.toEncoded(
+  Schema.Struct({
+    ...AgentPursuitResult.fields,
+    snapshot: Schema.NullOr(McpBrowserSnapshot),
+    url: Schema.optionalKey(AgentPursuitResult.fields.url),
+  })
 );
 
 export const UnpublishedSession = unpublished(

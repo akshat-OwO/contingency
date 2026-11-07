@@ -98,12 +98,8 @@ const InterpreterResponse = Schema.Struct({
   result: Schema.Struct({
     isError: Schema.Literal(false),
     structuredContent: Schema.Struct({
-      receipts: Schema.Tuple([
-        Schema.Struct({
-          operation: Schema.Literal("agent_sessions_get"),
-          outcome: Schema.Literal("succeeded"),
-        }),
-      ]),
+      process: Schema.optionalKey(Schema.Never),
+      receipts: Schema.optionalKey(Schema.Never),
       status: Schema.Literal("completed"),
       value: Schema.Literal(0),
     }),

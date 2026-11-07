@@ -71,13 +71,8 @@ await Effect.runPromise(
       const execution = sessions.result.structuredContent;
       assert.equal(execution.status, "completed");
       assert.deepEqual(execution.value, { sessions: [] });
-      assert.deepEqual(
-        execution.receipts.map(({ operation, outcome }) => ({
-          operation,
-          outcome,
-        })),
-        [{ operation: "agent_sessions_get", outcome: "succeeded" }]
-      );
+      assert.equal(execution.receipts, undefined);
+      assert.equal(execution.process, undefined);
       const closed = once(child, "close");
       child.stdin.end();
       await closed;

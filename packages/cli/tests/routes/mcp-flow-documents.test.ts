@@ -12,12 +12,14 @@ const Answer = Schema.Struct({
     structuredContent: Schema.Struct({
       status: Schema.String,
       value: Schema.optional(Schema.Unknown),
-      receipts: Schema.Array(
-        Schema.Struct({
-          operation: Schema.String,
-          outcome: Schema.String,
-          message: Schema.optional(Schema.String),
-        })
+      receipts: Schema.optional(
+        Schema.Array(
+          Schema.Struct({
+            operation: Schema.String,
+            outcome: Schema.String,
+            message: Schema.optional(Schema.String),
+          })
+        )
       ),
     }),
   }),
@@ -87,22 +89,14 @@ it.live(
           path: documentPath,
         })),
       });
-      expect(response.structuredContent.receipts).toEqual([
-        expect.objectContaining({
-          operation: "agent_catalog_select",
-          outcome: "succeeded",
-        }),
-        expect.objectContaining({
-          operation: "agent_flow_document_get",
-          outcome: "succeeded",
-        }),
-        ...refusedPaths.map(() =>
+      expect(response.structuredContent.receipts).toEqual(
+        refusedPaths.map(() =>
           expect.objectContaining({
             operation: "agent_flow_document_get",
             outcome: "failed",
           })
-        ),
-      ]);
+        )
+      );
     }).pipe(
       Effect.scoped,
       Effect.timeout("60 seconds"),

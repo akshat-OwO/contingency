@@ -151,10 +151,11 @@ inputs:
         structuredContent: {
           status: "completed",
           value: listing,
-          receipts: [{ operation: "agent_flows_list", outcome: "succeeded" }],
         },
       },
     });
+    expect(payload).not.toHaveProperty("result.structuredContent.receipts");
+    expect(payload).not.toHaveProperty("result.structuredContent.process");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

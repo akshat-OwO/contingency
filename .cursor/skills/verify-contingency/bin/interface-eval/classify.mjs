@@ -33,7 +33,12 @@ const classifyAnswer = (message, request) => {
   ) {
     choices.push({ id: message.id, reason: body.diagnostic, rule: 1 });
   }
-  return { choices, operations: receipts.length };
+  // Current responses omit successful receipts, so they cannot prove a total.
+  const complete =
+    Array.isArray(body.receipts) &&
+    (!receipts.length ||
+      receipts.some((receipt) => receipt.outcome === "succeeded"));
+  return { choices, operations: complete ? receipts.length : null };
 };
 export const classify = (journal, check, timeline = check?.timeline ?? []) => {
   const requests = new Map();
@@ -50,14 +55,17 @@ export const classify = (journal, check, timeline = check?.timeline ?? []) => {
       if (message.params.name === "agent_code_execute") {
         executions += 1;
       } else {
-        operations += 1;
+        operations = operations === null ? null : operations + 1;
       }
     }
     if (entry.direction !== "answer" || !requests.has(message.id)) {
       continue;
     }
     const answer = classifyAnswer(message, requests.get(message.id));
-    operations += answer.operations;
+    operations =
+      operations === null || answer.operations === null
+        ? null
+        : operations + answer.operations;
     choices.push(...answer.choices);
   }
   for (const effect of check?.extraEffects ?? []) {

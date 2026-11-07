@@ -127,3 +127,24 @@ test("compares only reads that saw the whole document", () => {
     })
   ).toBe(false);
 });
+
+test("keeps unnamed blockers explicit and compacts viewport bounds", () => {
+  const node = {
+    bounds: { height: 0, width: 375, x: 0, y: 72 },
+    depth: 0,
+    interactive: true,
+    name: "",
+    ref: AgentElementRef.make("e1"),
+    role: "button",
+  };
+  expect(
+    textSnapshot(
+      snapshotOf([{ ...node, blockedBy: { name: "", role: "generic" } }])
+    ).text
+  ).toBe("button [blocked bounds=375x0@0,72]");
+  expect(
+    textSnapshot(
+      snapshotOf([{ ...node, blockedBy: { name: "Consent", role: "dialog" } }])
+    ).text
+  ).toContain('blocked by dialog "Consent"');
+});
