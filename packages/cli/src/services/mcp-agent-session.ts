@@ -1,11 +1,11 @@
 import {
   AGENT_ACTION_SEQUENCE_MAX,
   AgentActionResult,
+  AgentBrowserSnapshot,
   AgentActionSnapshotFormat,
   AgentBrowserAct,
   AgentBrowserActSequence,
   AgentBrowserObserve,
-  AgentBrowserSnapshot,
   AgentBrowserSnapshotRead,
   BrowserFailureReason,
   AgentScreenshotFile,
@@ -58,6 +58,7 @@ import {
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
+import { McpActionResult, McpBrowserSnapshot } from "./mcp-value.ts";
 import { fromAgent } from "./session-events.ts";
 
 type BrowserSnapshot = typeof AgentBrowserSnapshot.Type;
@@ -288,10 +289,10 @@ const AgentBrowserSnapshotTool = readOnly(
   Tool.make("agent_browser_snapshot", {
     dependencies: [AgentSession],
     description:
-      'Read a bounded Snapshot. diagnostics:true adds up to 50 request summaries, 50 console levels, and 50 names per storage kind, with headers, payloads, console content, query values, and storage values withheld. Console observations begin with the first diagnostics read. Pass checkIds:[{flowName,id}] for saved current-state storage checks. Response and creation/change checks belong on the triggering action. Default text has role, name, state, and @eN refs on reachable controls; nodes is empty. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports readiness. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
+      'Read a bounded Snapshot. diagnostics:true adds up to 50 request summaries, 50 console levels, and 50 names per storage kind, with headers, payloads, console content, query values, and storage values withheld. Console observations begin with the first diagnostics read. Pass checkIds:[{flowName,id}] for saved current-state storage checks. Response and creation/change checks belong on the triggering action. Default text has role, name, state, and @eN refs on reachable controls; nodes is omitted. Covered controls report blockedBy. Unnamed controls include viewport bounds for screenshot matching. Refs last until removal or navigation. format:"structured" returns nodes. Reachable viewport controls come first. coverage reports scope, truncation, and nextCursor when the read is partial. Use interactive:true for controls, urls:true for destinations, selector for CSS scope, or cursor for continuation. A changed Page expires continuation. settle reports pending activity; absent means settled. Reread after no effect, unsettled actions, stale refs, interception, or external changes.',
     failure: AgentSessionFailure,
     parameters: AgentBrowserSnapshotRead,
-    success: AgentBrowserSnapshot,
+    success: AgentBrowserSnapshot.pipe(Schema.encodeTo(McpBrowserSnapshot)),
   })
 );
 
@@ -312,7 +313,7 @@ const AgentBrowserActTool = Tool.make("agent_browser_act", {
     'Act during a Run or agent-held Teaching setup. After handoff, only the user acts. Pass checkIds:[{flowName,id}] for saved Browser Checks tied to this action. Watches arm before dispatch, evaluate locally within the saved deadlines, and return browserCheckResults. A failed or inconclusive check stops dependent actions; observe or take over to investigate and start a fresh Run to retry. intent.objective describes the requested task; objectiveKind:"new" starts an unrelated objective. Mark irreversible or high-impact actions with intent.irreversible for user Confirmation. Domain Scope is enforced. An undispatched intervention pauses the action: wait for Allow in Workspace or resolve an explicit Pending Decision, then call agent_browser_resume with its boundary id. Approval resolution needs its own operation id; never reuse the action id for approval. Legacy exact-action retries must preserve action and intent as well as operation id. A new id needs fresh Confirmation. The result includes an attempt and a Snapshot after settling, up to two seconds. Default format is text; diff shows changes since the previous complete read of this Page, or full text when either read is partial. entry.effect is observed with url, page, dom, focus, value, or scroll signals, or none. After effect none or settle.settled:false, reread with agent_browser_snapshot before retrying to avoid acting twice. Otherwise use the returned Snapshot.',
   failure: AgentSessionFailure,
   parameters: AgentBrowserActParameters,
-  success: Schema.Unknown.pipe(Schema.decodeTo(AgentActionResult)),
+  success: AgentActionResult.pipe(Schema.encodeTo(McpActionResult)),
 });
 
 const AgentBrowserResumeTool = Tool.make("agent_browser_resume", {
@@ -369,7 +370,7 @@ const AgentVariableEnterTool = Tool.make("agent_variable_enter", {
     ref: AgentVariableEnter.fields.ref,
     sessionId: AgentVariableEnter.fields.sessionId,
   }),
-  success: AgentActionResult,
+  success: AgentActionResult.pipe(Schema.encodeTo(McpActionResult)),
 });
 
 const AgentSetupVariableRequestTool = Tool.make("agent_variable_request", {

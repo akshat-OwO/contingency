@@ -15,12 +15,14 @@ const Answer = Schema.Struct({
   result: Schema.Struct({
     isError: Schema.optional(Schema.Boolean),
     structuredContent: Schema.Struct({
-      receipts: Schema.Array(
-        Schema.Struct({
-          message: Schema.optional(Schema.String),
-          operation: Schema.String,
-          outcome: Schema.String,
-        })
+      receipts: Schema.optional(
+        Schema.Array(
+          Schema.Struct({
+            message: Schema.optional(Schema.String),
+            operation: Schema.String,
+            outcome: Schema.String,
+          })
+        )
       ),
       status: Schema.String,
       value: Schema.optional(Schema.Unknown),

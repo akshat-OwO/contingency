@@ -47,12 +47,14 @@ const Execution = Schema.Struct({
           sessionId: Schema.String,
         })
       ),
-      receipts: Schema.Array(
-        Schema.Struct({
-          operation: Schema.String,
-          operationId: Schema.NullOr(Schema.String),
-          outcome: Schema.String,
-        })
+      receipts: Schema.optional(
+        Schema.Array(
+          Schema.Struct({
+            operation: Schema.String,
+            operationId: Schema.NullOr(Schema.String),
+            outcome: Schema.String,
+          })
+        )
       ),
       status: Schema.String,
       value: Schema.optional(Schema.Unknown),
@@ -61,7 +63,10 @@ const Execution = Schema.Struct({
 });
 
 const Resumed = Schema.Struct({
-  entry: Schema.Struct({ dispatched: Schema.Boolean, id: Schema.String }),
+  entry: Schema.Struct({
+    dispatched: Schema.optional(Schema.Boolean),
+    id: Schema.String,
+  }),
 });
 
 /** A single-tool MCP server over a real Agent process, on a free port. */
@@ -127,11 +132,7 @@ it.live(
         return "unreachable";
       `);
       expect(paused.status).toBe("intervention");
-      expect(paused.receipts.map(({ operation }) => operation)).toEqual([
-        "agent_run_start",
-        "agent_browser_snapshot",
-        "agent_browser_act",
-      ]);
+      expect(paused.receipts).toBeUndefined();
       const { intervention } = paused;
       expect(intervention?.operation).toBe("agent_browser_act");
       expect(intervention?.reasons).toContain("boundary");
@@ -162,7 +163,7 @@ it.live(
         expect(status).toBe("completed");
         return Schema.decodeUnknownSync(Resumed)(value).entry;
       });
-      expect(first?.dispatched).toBe(true);
+      expect(first?.dispatched).toBeUndefined();
       expect(second?.id).toBe(first?.id);
       // Repeating the original attempt reads its recorded outcome; nothing
       // is dispatched again.
@@ -201,13 +202,7 @@ it.live(
       `);
       expect(takeover.status).toBe("intervention");
       expect(takeover.intervention?.reasons).toEqual(["takeover"]);
-      expect(takeover.receipts).toEqual([
-        {
-          operation: "agent_session_takeover_request",
-          operationId: "single-tool-takeover",
-          outcome: "succeeded",
-        },
-      ]);
+      expect(takeover.receipts).toBeUndefined();
     }).pipe(
       Effect.scoped,
       Effect.timeout(HANG_GUARD_MS),

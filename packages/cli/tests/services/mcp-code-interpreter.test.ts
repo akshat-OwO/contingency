@@ -242,7 +242,6 @@ describe("browser interventions during a program", () => {
             operation: "agent_session_get",
             reasons: ["takeover", "user_control"],
           },
-          receipts: [{ operation: "agent_session_get", outcome: "succeeded" }],
           status: "intervention",
         });
         expect(workspace.dispatched).toEqual(["agent_session_get"]);
@@ -266,11 +265,7 @@ describe("browser interventions during a program", () => {
             operation: "agent_session_close",
             reasons: ["takeover", "user_control"],
           },
-          receipts: [
-            { operation: "agent_session_get", outcome: "succeeded" },
-            { operation: "agent_sessions_get", outcome: "succeeded" },
-            { operation: "agent_session_close", outcome: "rejected" },
-          ],
+          receipts: [{ operation: "agent_session_close", outcome: "rejected" }],
           status: "intervention",
         });
         expect(workspace.dispatched).toEqual([

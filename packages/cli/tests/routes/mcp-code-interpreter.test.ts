@@ -45,13 +45,14 @@ const Execution = Schema.Struct({
         diagnostic: Schema.optional(
           Schema.Struct({ kind: Schema.String, message: Schema.String })
         ),
-        process: Schema.Struct({ bytesToInterpreter: Schema.Number }),
-        receipts: Schema.Array(
-          Schema.Struct({
-            message: Schema.optional(Schema.String),
-            operation: Schema.String,
-            outcome: Schema.String,
-          })
+        receipts: Schema.optional(
+          Schema.Array(
+            Schema.Struct({
+              message: Schema.optional(Schema.String),
+              operation: Schema.String,
+              outcome: Schema.String,
+            })
+          )
         ),
         status: Schema.String,
         value: Schema.optional(Schema.Unknown),
@@ -216,7 +217,7 @@ it.live(
 );
 
 it.live(
-  "sends signatures only to a program that searches them",
+  "returns discovered signatures without exposing process telemetry",
   () =>
     live(
       Effect.gen(function* signaturesOnDemand() {
@@ -227,11 +228,9 @@ it.live(
           expect.stringContaining("sessionId")
         );
         const plain = yield* execute("return 1");
-        expect(
-          plain.structuredContent?.process.bytesToInterpreter
-        ).toBeLessThan(
-          (signature.structuredContent?.process.bytesToInterpreter ?? 0) / 4
-        );
+        expect(plain.structuredContent?.value).toBe(1);
+        expect(plain.structuredContent?.receipts).toBeUndefined();
+        expect(plain).not.toHaveProperty("structuredContent.process");
       })
     ),
   HANG_GUARD_MS
@@ -247,9 +246,7 @@ it.live(
         );
         expect(answer.structuredContent?.status).toBe("completed");
         expect(answer.structuredContent?.value).toBe(0);
-        expect(answer.structuredContent?.receipts).toEqual([
-          { operation: "agent_sessions_get", outcome: "succeeded" },
-        ]);
+        expect(answer.structuredContent?.receipts).toBeUndefined();
       })
     ),
   HANG_GUARD_MS
@@ -315,7 +312,7 @@ it.live.each(["android", "ios"] as const)(
           "Device Workspace is unavailable in this process."
         );
         expect(message).not.toContain("    at ");
-        expect(answer.structuredContent?.receipts[0]?.message).toBe(message);
+        expect(answer.structuredContent?.receipts?.[0]?.message).toBe(message);
       })
     ),
   HANG_GUARD_MS
@@ -342,9 +339,7 @@ it.live(
         };
         expect(answer?.status).toBe("completed");
         expect(answer?.value).toBeUndefined();
-        expect(answer?.receipts.map(({ outcome }) => outcome)).toEqual([
-          "succeeded",
-        ]);
+        expect(answer?.receipts).toBeUndefined();
         const link = answer?.valueResource;
         expect(link?.bytes).toBe(Buffer.byteLength(JSON.stringify(expected)));
         expect(JSON.stringify(expected).startsWith(link?.preview ?? "-")).toBe(
@@ -383,9 +378,7 @@ it.live(
         );
         expect(answer.structuredContent?.value).toBeUndefined();
         expect(answer.structuredContent?.valueResource).toBeUndefined();
-        expect(answer.structuredContent?.receipts).toEqual([
-          { operation: "agent_sessions_get", outcome: "succeeded" },
-        ]);
+        expect(answer.structuredContent?.receipts).toBeUndefined();
       })
     ),
   HANG_GUARD_MS
@@ -401,7 +394,7 @@ it.live(
         );
         expect(answer.structuredContent?.status).toBe("program_failed");
         expect(answer.structuredContent?.diagnostic?.kind).toBe("UnknownTool");
-        expect(answer.structuredContent?.receipts).toEqual([]);
+        expect(answer.structuredContent?.receipts).toBeUndefined();
       })
     ),
   HANG_GUARD_MS

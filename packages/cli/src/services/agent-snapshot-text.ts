@@ -16,11 +16,14 @@ const stateOf = (node: AgentSnapshotNode): string[] => {
   const state: string[] = [];
   if (node.blockedBy !== undefined && node.blockedBy !== null) {
     state.push(
-      `blocked by ${node.blockedBy.role} ${JSON.stringify(node.blockedBy.name)}`
+      node.blockedBy.role === "generic" && node.blockedBy.name === ""
+        ? "blocked"
+        : `blocked by ${node.blockedBy.role} ${JSON.stringify(node.blockedBy.name)}`
     );
   }
   if (node.bounds !== undefined && node.bounds !== null) {
-    state.push(`bounds=${JSON.stringify(node.bounds)}`);
+    const { width, height, x, y } = node.bounds;
+    state.push(`bounds=${width}x${height}@${x},${y}`);
   }
   if (node.disabled) {
     state.push("disabled");
