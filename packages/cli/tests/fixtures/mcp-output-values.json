@@ -1,0 +1,253 @@
+{
+  "agent_session_start": [
+    {
+      "nextAction": "Your next response must be a visible assistant text message containing this exact link: [Open Workspace](http://127.0.0.1:62053/?session=agent-f1dc4015-5edd-455e-870e-7f9720e46607). Send that message before calling another tool so the user can watch the journey. A link in internal thinking or tool output does not count. After sending the message, continue the session.",
+      "activity": "run",
+      "boundary": null,
+      "browserModifications": [],
+      "controller": "agent",
+      "currentUrl": "http://127.0.0.1:62052/shop.html",
+      "dryRun": null,
+      "error": null,
+      "eventCursor": "831a62da-fca6-4620-b962-420c2904797b:0",
+      "history": {
+        "decisions": 0,
+        "timeline": 0
+      },
+      "id": "agent-f1dc4015-5edd-455e-870e-7f9720e46607",
+      "interruptedAction": null,
+      "latestAttempt": null,
+      "pendingDecisions": [],
+      "phase": "running",
+      "platform": "web",
+      "run": null,
+      "setupVariables": [],
+      "takeover": null,
+      "teaching": null,
+      "updatedAt": "2026-11-07T05:59:53.017Z",
+      "view": "compact",
+      "viewUrl": "http://127.0.0.1:62053/?session=agent-f1dc4015-5edd-455e-870e-7f9720e46607"
+    }
+  ],
+  "agent_session_get": [
+    {
+      "activity": "run",
+      "boundary": null,
+      "browserModifications": [],
+      "controller": "agent",
+      "currentUrl": "http://127.0.0.1:62052/shop.html",
+      "dryRun": null,
+      "error": null,
+      "eventCursor": "831a62da-fca6-4620-b962-420c2904797b:0",
+      "history": {
+        "decisions": 0,
+        "timeline": 0
+      },
+      "id": "agent-f1dc4015-5edd-455e-870e-7f9720e46607",
+      "interruptedAction": null,
+      "latestAttempt": null,
+      "pendingDecisions": [],
+      "phase": "running",
+      "platform": "web",
+      "run": null,
+      "setupVariables": [],
+      "takeover": null,
+      "teaching": null,
+      "updatedAt": "2026-11-07T05:59:53.017Z",
+      "view": "compact",
+      "viewUrl": "http://127.0.0.1:62053/?session=agent-f1dc4015-5edd-455e-870e-7f9720e46607"
+    }
+  ],
+  "agent_sessions_get": [
+    {
+      "sessions": [
+        {
+          "activity": "run",
+          "boundary": null,
+          "browserModifications": [],
+          "controller": "agent",
+          "currentUrl": "http://127.0.0.1:62052/shop.html",
+          "dryRun": null,
+          "error": null,
+          "eventCursor": "831a62da-fca6-4620-b962-420c2904797b:0",
+          "history": {
+            "decisions": 0,
+            "timeline": 0
+          },
+          "id": "agent-f1dc4015-5edd-455e-870e-7f9720e46607",
+          "interruptedAction": null,
+          "latestAttempt": null,
+          "pendingDecisions": [],
+          "phase": "running",
+          "platform": "web",
+          "run": null,
+          "setupVariables": [],
+          "takeover": null,
+          "teaching": null,
+          "updatedAt": "2026-11-07T05:59:53.017Z",
+          "view": "compact",
+          "viewUrl": "http://127.0.0.1:62053/?session=agent-f1dc4015-5edd-455e-870e-7f9720e46607"
+        }
+      ]
+    }
+  ],
+  "agent_browser_snapshot": [
+    {
+      "capturedAt": "2026-11-07T05:59:53.771Z",
+      "snapshotId": "snapshot-8ca6a247-0ce2-448b-92d2-c50936d7f723",
+      "text": "navigation \"Shop\"\n  @e2 link \"Home\"\n  @e3 link \"Catalog\"\n  @e4 link \"Cart\"\nmain\n  heading \"Contingency Shop\"\n  paragraph \"A disposable ecommerce site for verification runs.\"\n  form\n    @e9 searchbox \"Search the catalogue\"\n  heading \"Add by SKU\"\n  @e11 textbox \"SKU\"\n  @e12 button \"Add SKU to cart\"\n  paragraph \"0 items in cart\"\n  @e14 button \"View cart\"\n  heading \"Delivery\"\n  @e16 button \"Choose delivery area\"\n  heading \"Featured products\"\n  article\n    heading \"Giant anvil\"\n    paragraph \"SKU ANVIL-001\"\n    @e21 button \"Add Giant anvil to cart\"\n  article\n    heading \"Workbench\"\n    paragraph \"SKU BENCH-002\"\n    @e25 button \"Add Workbench to cart\"\n  article\n    heading \"Safety goggles\"\n    paragraph \"SKU SAFE-003\"\n    @e29 button \"Add Safety goggles to cart\"",
+      "title": "Contingency Shop",
+      "url": "http://127.0.0.1:62052/shop.html"
+    },
+    {
+      "capturedAt": "2026-11-07T05:59:54.922Z",
+      "nodes": [
+        {
+          "depth": 0,
+          "name": "Shop",
+          "ref": "e30",
+          "role": "navigation"
+        },
+        {
+          "depth": 1,
+          "interactive": true,
+          "name": "Home",
+          "ref": "e31",
+          "role": "link"
+        },
+        {
+          "depth": 1,
+          "interactive": true,
+          "name": "Catalog",
+          "ref": "e32",
+          "role": "link"
+        },
+        {
+          "depth": 1,
+          "interactive": true,
+          "name": "Cart",
+          "ref": "e33",
+          "role": "link"
+        },
+        {
+          "depth": 0,
+          "name": "",
+          "ref": "e34",
+          "role": "main"
+        },
+        {
+          "depth": 1,
+          "name": "Cart",
+          "ref": "e35",
+          "role": "heading"
+        },
+        {
+          "depth": 1,
+          "name": "Your cart is empty.",
+          "ref": "e36",
+          "role": "paragraph"
+        },
+        {
+          "depth": 1,
+          "interactive": true,
+          "name": "Continue shopping",
+          "ref": "e37",
+          "role": "link"
+        }
+      ],
+      "snapshotId": "snapshot-93be52ec-c34b-4dc1-a300-a19948965e04",
+      "title": "Cart \u2014 Contingency Shop",
+      "url": "http://127.0.0.1:62052/cart.html"
+    }
+  ],
+  "agent_browser_act": [
+    {
+      "entry": {
+        "at": "2026-11-07T05:59:54.453Z",
+        "effect": {
+          "kind": "observed",
+          "signals": ["url", "dom"]
+        },
+        "id": "action-26c3ea6a-d540-40b6-bf4a-d63cdfd7581c",
+        "outcome": "completed"
+      },
+      "snapshot": {
+        "snapshotId": "snapshot-0f5d4dbf-e291-4bf9-9674-c333fc15c1b6",
+        "text": "navigation \"Shop\"\n  @e31 link \"Home\"\n  @e32 link \"Catalog\"\n  @e33 link \"Cart\"\nmain\n  heading \"Cart\"\n  paragraph \"Your cart is empty.\"\n  @e37 link \"Continue shopping\"",
+        "title": "Cart \u2014 Contingency Shop",
+        "url": "http://127.0.0.1:62052/cart.html"
+      }
+    }
+  ],
+  "agent_browser_act_sequence": [
+    {
+      "actions": [
+        {
+          "entry": {
+            "actor": "agent",
+            "at": "2026-11-07T05:59:55.606Z",
+            "description": "Navigate to http://127.0.0.1:62052/shop.html",
+            "dispatched": true,
+            "effect": {
+              "kind": "observed",
+              "signals": ["url", "dom"]
+            },
+            "id": "action-cccdfaac-6f56-47ab-a232-cbdac7037533",
+            "outcome": "completed"
+          },
+          "intervention": null,
+          "operationId": "output-types-sequence"
+        }
+      ],
+      "snapshot": {
+        "capturedAt": "2026-11-07T05:59:55.606Z",
+        "snapshotId": "snapshot-72fdc102-162d-42d8-9db0-4bb9870e2822",
+        "text": "navigation \"Shop\"\n  @e39 link \"Home\"\n  @e40 link \"Catalog\"\n  @e41 link \"Cart\"\nmain\n  heading \"Contingency Shop\"\n  paragraph \"A disposable ecommerce site for verification runs.\"\n  form\n    @e46 searchbox \"Search the catalogue\"\n  heading \"Add by SKU\"\n  @e48 textbox \"SKU\"\n  @e49 button \"Add SKU to cart\"\n  paragraph \"0 items in cart\"\n  @e51 button \"View cart\"\n  heading \"Delivery\"\n  @e53 button \"Choose delivery area\"\n  heading \"Featured products\"\n  article\n    heading \"Giant anvil\"\n    paragraph \"SKU ANVIL-001\"\n    @e58 button \"Add Giant anvil to cart\"\n  article\n    heading \"Workbench\"\n    paragraph \"SKU BENCH-002\"\n    @e62 button \"Add Workbench to cart\"\n  article\n    heading \"Safety goggles\"\n    paragraph \"SKU SAFE-003\"\n    @e66 button \"Add Safety goggles to cart\"",
+        "title": "Contingency Shop",
+        "url": "http://127.0.0.1:62052/shop.html"
+      },
+      "stopped": null,
+      "url": "http://127.0.0.1:62052/shop.html"
+    }
+  ],
+  "agent_session_close": [
+    {
+      "activity": "run",
+      "boundary": null,
+      "browserModifications": [],
+      "controller": "agent",
+      "currentUrl": "http://127.0.0.1:62052/shop.html",
+      "dryRun": null,
+      "error": null,
+      "eventCursor": "831a62da-fca6-4620-b962-420c2904797b:0",
+      "history": {
+        "decisions": 0,
+        "timeline": 2
+      },
+      "id": "agent-f1dc4015-5edd-455e-870e-7f9720e46607",
+      "interruptedAction": null,
+      "latestAttempt": {
+        "actor": "agent",
+        "at": "2026-11-07T05:59:55.606Z",
+        "description": "Navigate to http://127.0.0.1:62052/shop.html",
+        "dispatched": true,
+        "effect": {
+          "kind": "observed",
+          "signals": ["url", "dom"]
+        },
+        "id": "action-cccdfaac-6f56-47ab-a232-cbdac7037533",
+        "outcome": "completed"
+      },
+      "pendingDecisions": [],
+      "phase": "closed",
+      "platform": "web",
+      "run": null,
+      "setupVariables": [],
+      "takeover": null,
+      "teaching": null,
+      "updatedAt": "2026-11-07T05:59:55.741Z",
+      "view": "compact",
+      "viewUrl": "http://127.0.0.1:62053/?session=agent-f1dc4015-5edd-455e-870e-7f9720e46607"
+    }
+  ]
+}

@@ -194,7 +194,8 @@ const main = Effect.gen(function* interpreterProcess() {
         // CodeMode only uses it to print a signature, and a program that
         // never searches is sent none.
         input: (operation.inputSchema ?? {}) as Tool.JsonSchema,
-        output: {},
+        // SAFETY: the server derives this render-only schema from the success schema.
+        output: (operation.outputSchema ?? {}) as Tool.JsonSchema,
       }),
     ])
   );

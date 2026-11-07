@@ -35,7 +35,11 @@ import {
 import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { compactMcpValue } from "./mcp-value.ts";
-import { compactJsonSchema } from "./operation-schema.ts";
+import {
+  compactJsonSchema,
+  compactOutputSchema,
+  operationOutputDepth,
+} from "./operation-schema.ts";
 
 /**
  * The MCP interface exposes `agent_code_execute`, which runs one program
@@ -49,6 +53,7 @@ export interface InterpreterOperationEntry {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: Schema.Json;
+  readonly outputSchema?: Schema.Json;
   readonly readOnly: boolean;
   readonly run: (input: Schema.Json) => Effect.Effect<DispatchOutcome>;
 }
@@ -167,7 +172,7 @@ export const compactInterpreterOutcome = (
 };
 
 const CodeExecuteTool = Tool.make("agent_code_execute", {
-  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read compact signatures (TypeScript with JSDoc constraints), then call operations in a separate program. In signatures, omitted non-literal string minLength means 1; @minLength 0 imposes no minimum. Omitted maxLength means no length limit. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns intervention details; the user acts in the Workspace, then a new program resumes only that exact attempt. Successful receipts are omitted. Non-success receipts retain dispatch identity. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. A value over ${INTERPRETER_LIMITS.maxOutputBytes} bytes comes back as valueResource with a preview: read its uri with resources/read within ${EXECUTION_VALUE_LIMITS.ttlMs / 60_000} minutes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxResultBytes} bytes of value.`,
+  description: `Experimental. Run one JavaScript program in a fresh interpreter; no variable survives it, but Agent Sessions and Runs persist. Every Contingency tool is an async operation: \`await tools.agent_session_get({ sessionId })\`, with the same parameters, checks, and operationId replay. First run \`return search({ query: "browser act" })\` (also query, limit, offset; an empty query lists all) to read compact signatures (TypeScript inputs with JSDoc constraints and declared result types), then call operations in a separate program. In result types, \`unknown\` marks a value elided for size. In signatures, omitted non-literal string minLength means 1; @minLength 0 imposes no minimum. Omitted maxLength means no length limit. A Pending Decision, Takeover, Variable request, or device preparation ends the program before any later call and returns intervention details; the user acts in the Workspace, then a new program resumes only that exact attempt. Successful receipts are omitted. Non-success receipts retain dispatch identity. An uncertain receipt was stopped mid-dispatch: inspect the session or repeat its operationId. Screenshots return files, not bytes. A value over ${INTERPRETER_LIMITS.maxOutputBytes} bytes comes back as valueResource with a preview: read its uri with resources/read within ${EXECUTION_VALUE_LIMITS.ttlMs / 60_000} minutes. Limits: timeoutMs ${INTERPRETER_LIMITS.minTimeoutMs}-${INTERPRETER_LIMITS.maxTimeoutMs} (default ${INTERPRETER_LIMITS.defaultTimeoutMs}), ${INTERPRETER_LIMITS.maxToolCalls} calls, ${INTERPRETER_LIMITS.maxResultBytes} bytes of value.`,
   failure: CodeExecuteFailure,
   parameters: Schema.Struct({
     code: Schema.String.check(
@@ -255,6 +260,13 @@ export const collectOperations = <Tools extends Record<string, Tool.Any>>(
           true
         ),
         name,
+        // SAFETY: Effect generates a plain JSON Schema document.
+        outputSchema: compactOutputSchema(
+          Tool.getJsonSchemaFromSchema(
+            Schema.toEncoded(tool.successSchema)
+          ) as Schema.Json,
+          operationOutputDepth(name)
+        ),
         readOnly: Context.get(tool.annotations, Tool.Readonly),
         run: (input) =>
           // SAFETY: the strict handler decodes `input` with the tool's own
@@ -713,6 +725,7 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
                   description: operation.description,
                   inputSchema: operation.inputSchema,
                   name: operation.name,
+                  outputSchema: operation.outputSchema ?? {},
                 }
               : { description: "", name: operation.name }
         );

@@ -74,4 +74,10 @@ In signatures, omitted non-literal string minLength means 1; `@minLength 0` impo
 
 Schema annotations that repeat field names are omitted. Patterns remain literal unless the description includes the exact pattern.
 
-Parameter types and validation remain unchanged; return types remain `Promise<unknown>`.
+Parameter types and validation remain unchanged.
+
+Signatures declare result types. All root keys remain visible, with more nested detail for browser actions and Snapshots. In result types, `unknown` marks a value elided for size; read it at runtime or in the topic docs.
+
+Nested objects and arrays become `unknown` at the depth limit. An intervention's `action` repeats the action you sent, so it is `unknown` too.
+
+Untagged object alternatives share one envelope, so result types omit correlations between those fields. Result types omit validation constraints.
