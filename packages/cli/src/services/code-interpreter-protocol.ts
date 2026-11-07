@@ -28,6 +28,8 @@ export const InterpreterOperation = Schema.Struct({
   /** A render-only JSON Schema; the server validates the input again. */
   inputSchema: Schema.optionalKey(Json),
   name: Schema.String.check(Schema.isMinLength(1)),
+  /** Render-only encoded success projection; raw JSON Schemas do not decode results. */
+  outputSchema: Schema.optionalKey(Json),
 });
 
 export const InterpreterProgramLimits = Schema.Struct({
