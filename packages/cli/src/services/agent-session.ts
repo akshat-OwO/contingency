@@ -434,7 +434,8 @@ export interface AgentSessionService {
    */
   readonly discardTeachingRecording: (
     sessionId: AgentSessionId,
-    operationId?: OperationId | string
+    operationId?: OperationId | string,
+    expectedRecordingId?: TeachingRecordingId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Rename the Flow this Teaching session is about to demonstrate. */
   readonly renameFlow: (
@@ -2552,9 +2553,10 @@ const makeAgentSession = (
       "AgentSession.discardTeachingRecording"
     )(function* discardTeachingRecording(
       sessionId: AgentSessionId,
-      operationId: OperationId | string
+      operationId: OperationId | string,
+      expectedRecordingId?: TeachingRecordingId
     ) {
-      const requestInput = "";
+      const requestInput = JSON.stringify({ expectedRecordingId });
       return yield* ledger.session(
         operationId,
         "recording-discard",
@@ -2570,6 +2572,17 @@ const makeAgentSession = (
               error(
                 "agent_session_conflict",
                 `Agent Session ${sessionId} is not a live Teaching session.`
+              )
+            );
+          }
+          if (
+            expectedRecordingId !== undefined &&
+            record.snapshot.recordingId !== expectedRecordingId
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching Recording ${expectedRecordingId} is no longer owned by Agent Session ${sessionId}; its current recording is ${record.snapshot.recordingId}.`
               )
             );
           }
@@ -7946,11 +7959,12 @@ const makeAgentSession = (
           })
         );
       },
-      discardTeachingRecording: (sessionId, operationId) =>
+      discardTeachingRecording: (sessionId, operationId, expectedRecordingId) =>
         ledger.serializeMutation(
           discardTeachingRecordingUnlocked(
             sessionId,
-            operationId ?? OperationId.make(`discard-${randomUUID()}`)
+            operationId ?? OperationId.make(`discard-${randomUUID()}`),
+            expectedRecordingId
           )
         ),
       emulation: (sessionId) =>

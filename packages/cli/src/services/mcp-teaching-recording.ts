@@ -312,7 +312,11 @@ export const discardTeachingRecording = Effect.fn(
     const store = yield* TeachingRecordingStore;
     yield* store.discard(params);
   } else {
-    yield* sessions.discardTeachingRecording(owner.id, params.operationId);
+    yield* sessions.discardTeachingRecording(
+      owner.id,
+      params.operationId,
+      params.recordingId
+    );
   }
   return { discarded: true };
 });

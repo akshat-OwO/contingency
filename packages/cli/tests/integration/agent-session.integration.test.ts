@@ -151,6 +151,90 @@ it.live(
 );
 
 it.live(
+  "rejects a stale confirmed discard after Start and Stop replace the recording",
+  () =>
+    Effect.gen(function* staleConfirmedDiscard() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-stale-discard-",
+      });
+      yield* Effect.gen(function* replaceBeforeDiscard() {
+        const sessions = yield* AgentSession;
+        const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const opened = yield* client("agent.session.start", {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          operationId: OperationId.make("open-stale-discard"),
+          url: "about:blank",
+          viewport,
+        });
+        const sessionId = opened.session.id;
+        yield* sessions.startTeachingRecording(sessionId, "start-original");
+        yield* sessions.stopTeachingRecording(sessionId, "stop-original");
+        // Capture exactly what the MCP owner lookup saw before a concurrent
+        // Start/Stop replaces it. No timing assumption is needed.
+        const owner = (yield* sessions.list()).find(
+          ({ id }) => id === sessionId
+        );
+        if (owner === undefined || owner.recordingId === null) {
+          return yield* Effect.die("Expected a Teaching recording owner.");
+        }
+        yield* sessions.startTeachingRecording(sessionId, "start-replacement");
+        const replacement = yield* sessions.stopTeachingRecording(
+          sessionId,
+          "stop-replacement"
+        );
+        if (replacement.recordingId === null) {
+          return yield* Effect.die(
+            "Expected a replacement Teaching recording."
+          );
+        }
+        expect(replacement.captureState?._tag).toBe("ready");
+        expect(replacement.recordingId).not.toBe(owner.recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          replacement.recordingId
+        );
+        const failure = yield* Effect.flip(
+          sessions.discardTeachingRecording(
+            sessionId,
+            "discard-confirmed",
+            owner.recordingId
+          )
+        );
+        expect(failure.code).toBe("agent_session_conflict");
+        expect(failure.message).toContain(owner.recordingId);
+        const retained = yield* sessions.get(sessionId);
+        expect(retained.recordingId).toBe(replacement.recordingId);
+        expect(retained.captureState?._tag).toBe("ready");
+        expect(yield* fileSystem.exists(`${directory}/recording.webm`)).toBe(
+          true
+        );
+        expect(yield* fileSystem.exists(`${directory}/trace.zip`)).toBe(true);
+        // A rejected stale request does not consume the operation for B.
+        const clean = yield* sessions.discardTeachingRecording(
+          sessionId,
+          "discard-confirmed",
+          replacement.recordingId
+        );
+        expect(clean.captureState?._tag).toBe("setup");
+        const mismatch = yield* Effect.flip(
+          sessions.discardTeachingRecording(
+            sessionId,
+            "discard-confirmed",
+            owner.recordingId
+          )
+        );
+        expect(mismatch.code).toBe("agent_session_conflict");
+      }).pipe(Effect.provide(teachingIntegrationLive(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
   "records between Start and Stop and clears live evidence on MCP discard",
   () =>
     Effect.gen(function* teachingCaptureBoundary() {
