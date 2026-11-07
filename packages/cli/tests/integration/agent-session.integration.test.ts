@@ -2,6 +2,7 @@ import {
   AgentSessionId,
   ContingencyRpcs,
   OperationId,
+  TeachingRecordingId,
 } from "@contingency/protocol";
 import type { TeachingCaptureLimits } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -15,6 +16,7 @@ import {
   makeAgentSessionLayer,
 } from "../../src/services/agent-session.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import { discardTeachingRecording } from "../../src/services/mcp-teaching-recording.ts";
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 import { evidenceDirectory, awaitSession } from "./agent-harness.ts";
@@ -53,7 +55,9 @@ const teachingIntegrationLive = (
         captureLimits: captureLimits ?? DEFAULT_TEACHING_CAPTURE_LIMITS,
         traceDirectory: () => root,
       }).pipe(
-        Layer.provide(makeTeachingRecordingStoreLayer({ root: () => root })),
+        Layer.provideMerge(
+          makeTeachingRecordingStoreLayer({ root: () => root })
+        ),
         Layer.provideMerge(CreateBrowserLive),
         Layer.provideMerge(NodeServices.layer)
       )
@@ -146,107 +150,222 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentSessionIntegrationLive))
 );
 
-it.live("records only between Teaching Start and Stop RPCs", () =>
-  Effect.gen(function* teachingCaptureBoundary() {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const root = yield* fileSystem.makeTempDirectoryScoped({
-      prefix: "contingency-teaching-boundary-",
-    });
-    yield* Effect.gen(function* driveTeachingBoundary() {
-      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
-        flatten: true,
+it.live(
+  "rejects a stale confirmed discard after Start and Stop replace the recording",
+  () =>
+    Effect.gen(function* staleConfirmedDiscard() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-stale-discard-",
       });
-      const opened = yield* client("agent.session.start", {
-        activity: "teaching",
-        clientName: "integration-agent",
-        clientVersion: "1.0.0",
-        name: "capture-boundary",
-        operationId: OperationId.make("open-teaching-boundary"),
-        url: "about:blank",
-        viewport,
-      });
-      const setup = opened.session;
-      expect(setup.captureState?._tag).toBe("setup");
-      const recordingDirectory = yield* evidenceDirectory(
-        root,
-        "recordings",
-        setup.recordingId
-      );
-      expect(yield* fileSystem.readDirectory(recordingDirectory)).toEqual([
-        "manifest.json",
-      ]);
+      yield* Effect.gen(function* replaceBeforeDiscard() {
+        const sessions = yield* AgentSession;
+        const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const opened = yield* client("agent.session.start", {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          operationId: OperationId.make("open-stale-discard"),
+          url: "about:blank",
+          viewport,
+        });
+        const sessionId = opened.session.id;
+        yield* sessions.startTeachingRecording(sessionId, "start-original");
+        yield* sessions.stopTeachingRecording(sessionId, "stop-original");
+        // Capture exactly what the MCP owner lookup saw before a concurrent
+        // Start/Stop replaces it. No timing assumption is needed.
+        const owner = (yield* sessions.list()).find(
+          ({ id }) => id === sessionId
+        );
+        if (owner === undefined || owner.recordingId === null) {
+          return yield* Effect.die("Expected a Teaching recording owner.");
+        }
+        yield* sessions.startTeachingRecording(sessionId, "start-replacement");
+        const replacement = yield* sessions.stopTeachingRecording(
+          sessionId,
+          "stop-replacement"
+        );
+        if (replacement.recordingId === null) {
+          return yield* Effect.die(
+            "Expected a replacement Teaching recording."
+          );
+        }
+        expect(replacement.captureState?._tag).toBe("ready");
+        expect(replacement.recordingId).not.toBe(owner.recordingId);
+        const directory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          replacement.recordingId
+        );
+        const failure = yield* Effect.flip(
+          sessions.discardTeachingRecording(
+            sessionId,
+            "discard-confirmed",
+            owner.recordingId
+          )
+        );
+        expect(failure.code).toBe("agent_session_conflict");
+        expect(failure.message).toContain(owner.recordingId);
+        const retained = yield* sessions.get(sessionId);
+        expect(retained.recordingId).toBe(replacement.recordingId);
+        expect(retained.captureState?._tag).toBe("ready");
+        expect(yield* fileSystem.exists(`${directory}/recording.webm`)).toBe(
+          true
+        );
+        expect(yield* fileSystem.exists(`${directory}/trace.zip`)).toBe(true);
+        // A rejected stale request does not consume the operation for B.
+        const clean = yield* sessions.discardTeachingRecording(
+          sessionId,
+          "discard-confirmed",
+          replacement.recordingId
+        );
+        expect(clean.captureState?._tag).toBe("setup");
+        const mismatch = yield* Effect.flip(
+          sessions.discardTeachingRecording(
+            sessionId,
+            "discard-confirmed",
+            owner.recordingId
+          )
+        );
+        expect(mismatch.code).toBe("agent_session_conflict");
+      }).pipe(Effect.provide(teachingIntegrationLive(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
 
-      const started = yield* client("agent.teaching.recording.start", {
-        operationId: OperationId.make("start-teaching-boundary"),
-        sessionId: setup.id,
+it.live(
+  "records between Start and Stop and clears live evidence on MCP discard",
+  () =>
+    Effect.gen(function* teachingCaptureBoundary() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-boundary-",
       });
-      expect(started.session.captureState?._tag).toBe("recording");
-      yield* client("agent.browser.navigate", {
-        action: {
-          type: "navigate",
-          url: "data:text/html,<title>recorded</title><main>recorded</main>",
-        },
-        sessionId: setup.id,
-      });
-      const stopped = yield* client("agent.teaching.recording.stop", {
-        operationId: OperationId.make("stop-teaching-boundary"),
-        sessionId: setup.id,
-      });
-      expect(
-        stopped.session.captureState?._tag,
-        JSON.stringify(stopped.session.captureState)
-      ).toBe("ready");
-      expect(stopped.session.phase).toBe("running");
-      const events = yield* fileSystem.readFileString(
-        `${recordingDirectory}/events.jsonl`
-      );
-      expect(events).toContain('"_tag":"started"');
-      expect(events).toContain('"_tag":"action"');
-      expect(events.trimEnd().split("\n").at(-1)).toContain('"_tag":"stopped"');
-      expect(
-        yield* fileSystem.exists(`${recordingDirectory}/recording.webm`)
-      ).toBe(true);
-      expect(yield* fileSystem.exists(`${recordingDirectory}/trace.zip`)).toBe(
-        true
-      );
+      yield* Effect.gen(function* driveTeachingBoundary() {
+        const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+          flatten: true,
+        });
+        const opened = yield* client("agent.session.start", {
+          activity: "teaching",
+          clientName: "integration-agent",
+          clientVersion: "1.0.0",
+          name: "capture-boundary",
+          operationId: OperationId.make("open-teaching-boundary"),
+          url: "about:blank",
+          viewport,
+        });
+        const setup = opened.session;
+        expect(setup.captureState?._tag).toBe("setup");
+        const recordingDirectory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          setup.recordingId
+        );
+        expect(yield* fileSystem.readDirectory(recordingDirectory)).toEqual([
+          "manifest.json",
+        ]);
 
-      const second = yield* client("agent.teaching.recording.start", {
-        operationId: OperationId.make("start-second-teaching-boundary"),
-        sessionId: setup.id,
-      });
-      expect(second.session.recordingId).not.toBe(setup.recordingId);
-      yield* client("agent.browser.navigate", {
-        action: {
-          type: "navigate",
-          url: "data:text/html,<title>shutdown recording</title><main>Retain this recording after shutdown</main>",
-        },
-        sessionId: setup.id,
-      });
-      const sessions = yield* AgentSession;
-      yield* sessions.closeAll();
-      const interrupted = yield* sessions.get(setup.id);
-      expect(interrupted.phase).toBe("interrupted");
-      expect(
-        interrupted.captureState?._tag,
-        JSON.stringify(interrupted.captureState)
-      ).toBe("ready");
-      const secondDirectory = yield* evidenceDirectory(
-        root,
-        "recordings",
-        second.session.recordingId
-      );
-      const interruptedEvents = yield* fileSystem.readFileString(
-        `${secondDirectory}/events.jsonl`
-      );
-      expect(interruptedEvents.trimEnd().split("\n").at(-1)).toContain(
-        '"reason":"session-closed"'
-      );
-      const manifest: unknown = JSON.parse(
-        yield* fileSystem.readFileString(`${secondDirectory}/manifest.json`)
-      );
-      expect(manifest).toMatchObject({ lifecycle: { _tag: "ready" } });
-    }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+        const started = yield* client("agent.teaching.recording.start", {
+          operationId: OperationId.make("start-teaching-boundary"),
+          sessionId: setup.id,
+        });
+        expect(started.session.captureState?._tag).toBe("recording");
+        yield* client("agent.browser.navigate", {
+          action: {
+            type: "navigate",
+            url: "data:text/html,<title>recorded</title><main>recorded</main>",
+          },
+          sessionId: setup.id,
+        });
+        const sessionsBeforeDiscard = yield* AgentSession;
+        yield* sessionsBeforeDiscard.recordInstruction(
+          setup.id,
+          "Discard this instruction"
+        );
+        const stopped = yield* client("agent.teaching.recording.stop", {
+          operationId: OperationId.make("stop-teaching-boundary"),
+          sessionId: setup.id,
+        });
+        expect(
+          stopped.session.captureState?._tag,
+          JSON.stringify(stopped.session.captureState)
+        ).toBe("ready");
+        expect(stopped.session.phase).toBe("running");
+        const events = yield* fileSystem.readFileString(
+          `${recordingDirectory}/events.jsonl`
+        );
+        expect(events).toContain('"_tag":"started"');
+        expect(events).toContain('"_tag":"action"');
+        expect(events.trimEnd().split("\n").at(-1)).toContain(
+          '"_tag":"stopped"'
+        );
+        expect(
+          yield* fileSystem.exists(`${recordingDirectory}/recording.webm`)
+        ).toBe(true);
+        expect(
+          yield* fileSystem.exists(`${recordingDirectory}/trace.zip`)
+        ).toBe(true);
+
+        expect(stopped.session.teaching?.actionCount).toBeGreaterThan(0);
+        expect(stopped.session.teaching?.instructionCount).toBe(1);
+        yield* discardTeachingRecording({
+          operationId: OperationId.make("discard-teaching-boundary"),
+          recordingId: TeachingRecordingId.make(String(setup.recordingId)),
+        });
+        const clean = yield* sessionsBeforeDiscard.get(setup.id);
+        expect(clean.captureState?._tag).toBe("setup");
+        expect(clean.teaching).toEqual({
+          actionCount: 0,
+          instructionCount: 0,
+          instructions: [],
+        });
+        expect(clean.timeline).toEqual([]);
+        expect(
+          yield* fileSystem.exists(`${recordingDirectory}/recording.webm`)
+        ).toBe(false);
+        expect(
+          yield* fileSystem.exists(`${recordingDirectory}/trace.zip`)
+        ).toBe(false);
+
+        const second = yield* client("agent.teaching.recording.start", {
+          operationId: OperationId.make("start-second-teaching-boundary"),
+          sessionId: setup.id,
+        });
+        expect(second.session.timeline).toEqual([]);
+        expect(second.session.teaching?.instructions).toEqual([]);
+        yield* client("agent.browser.navigate", {
+          action: {
+            type: "navigate",
+            url: "data:text/html,<title>shutdown recording</title><main>Retain this recording after shutdown</main>",
+          },
+          sessionId: setup.id,
+        });
+        const sessions = yield* AgentSession;
+        yield* sessions.closeAll();
+        const interrupted = yield* sessions.get(setup.id);
+        expect(interrupted.phase).toBe("interrupted");
+        expect(
+          interrupted.captureState?._tag,
+          JSON.stringify(interrupted.captureState)
+        ).toBe("ready");
+        const secondDirectory = yield* evidenceDirectory(
+          root,
+          "recordings",
+          second.session.recordingId
+        );
+        const interruptedEvents = yield* fileSystem.readFileString(
+          `${secondDirectory}/events.jsonl`
+        );
+        expect(interruptedEvents.trimEnd().split("\n").at(-1)).toContain(
+          '"reason":"session-closed"'
+        );
+        const manifest: unknown = JSON.parse(
+          yield* fileSystem.readFileString(`${secondDirectory}/manifest.json`)
+        );
+        expect(manifest).toMatchObject({ lifecycle: { _tag: "ready" } });
+      }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.live("ends the recording itself when a capture ceiling is reached", () =>

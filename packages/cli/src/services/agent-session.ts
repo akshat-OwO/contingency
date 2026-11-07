@@ -434,7 +434,8 @@ export interface AgentSessionService {
    */
   readonly discardTeachingRecording: (
     sessionId: AgentSessionId,
-    operationId?: OperationId | string
+    operationId?: OperationId | string,
+    expectedRecordingId?: TeachingRecordingId
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   /** Rename the Flow this Teaching session is about to demonstrate. */
   readonly renameFlow: (
@@ -2544,17 +2545,18 @@ const makeAgentSession = (
 
     /**
      * Throwing away a recording the user does not want to keep. Deletion is a
-     * user gesture, never an agent one: the Workspace is the only caller, and
-     * it returns the session to `setup` so the same browser setup records
+     * user gesture, relayed by Workspace or confirmed through MCP. It
+     * returns the session to `setup` so the same browser setup records
      * again without carrying the discarded evidence (ADR 0071).
      */
     const discardTeachingRecordingUnlocked = Effect.fn(
       "AgentSession.discardTeachingRecording"
     )(function* discardTeachingRecording(
       sessionId: AgentSessionId,
-      operationId: OperationId | string
+      operationId: OperationId | string,
+      expectedRecordingId?: TeachingRecordingId
     ) {
-      const requestInput = "";
+      const requestInput = JSON.stringify({ expectedRecordingId });
       return yield* ledger.session(
         operationId,
         "recording-discard",
@@ -2570,6 +2572,17 @@ const makeAgentSession = (
               error(
                 "agent_session_conflict",
                 `Agent Session ${sessionId} is not a live Teaching session.`
+              )
+            );
+          }
+          if (
+            expectedRecordingId !== undefined &&
+            record.snapshot.recordingId !== expectedRecordingId
+          ) {
+            return yield* Effect.fail(
+              error(
+                "agent_session_conflict",
+                `Teaching Recording ${expectedRecordingId} is no longer owned by Agent Session ${sessionId}; its current recording is ${record.snapshot.recordingId}.`
               )
             );
           }
@@ -2592,14 +2605,6 @@ const makeAgentSession = (
               )
             );
           }
-          // The retention manifest names the Trace and the video this recording
-          // wrote. Discarding removes those files, so the note that points at them
-          // goes with them rather than outliving what it describes.
-          if (record.retentionFile !== undefined && fileSystem !== undefined) {
-            yield* fileSystem
-              .remove(record.retentionFile, { force: true })
-              .pipe(Effect.ignore);
-          }
           const manifest = yield* teachingRecordingStore
             .discard({
               operationId: OperationId.make(operationId),
@@ -2618,12 +2623,21 @@ const makeAgentSession = (
               )
             );
           }
+          // The retention manifest names the Trace and the video this recording
+          // wrote. Discarding removes those files, so the note that points at them
+          // goes with them rather than outliving what it describes.
+          if (record.retentionFile !== undefined && fileSystem !== undefined) {
+            yield* fileSystem
+              .remove(record.retentionFile, { force: true })
+              .pipe(Effect.ignore);
+          }
           // The timeline describes the discarded Demonstration, so it goes with
           // it: `setup` after a deletion is a clean bundle, not one that still
           // lists actions whose evidence is gone.
           const discarded: AgentSessionSnapshot = {
             ...record.snapshot,
             captureState: manifest.lifecycle,
+            recordingCleanup: manifest.cleanup,
             teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
             timeline: [],
             updatedAt: manifest.lifecycle.requestedAt,
@@ -2868,6 +2882,8 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 fileSystem,
                 limits: options.captureLimits,
+                onVideoBudgetExceeded: (message) =>
+                  sessionEvents.recordingBudgetExceeded(sessionId, message),
                 runEvidence: () => record.browserState.events,
                 sensitiveValues: capture.sensitiveValues,
                 startedAt: manifest.lifecycle.startedAt,
@@ -7943,11 +7959,12 @@ const makeAgentSession = (
           })
         );
       },
-      discardTeachingRecording: (sessionId, operationId) =>
+      discardTeachingRecording: (sessionId, operationId, expectedRecordingId) =>
         ledger.serializeMutation(
           discardTeachingRecordingUnlocked(
             sessionId,
-            operationId ?? OperationId.make(`discard-${randomUUID()}`)
+            operationId ?? OperationId.make(`discard-${randomUUID()}`),
+            expectedRecordingId
           )
         ),
       emulation: (sessionId) =>

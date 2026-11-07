@@ -416,5 +416,24 @@ export const makeSessionEvents = (
     }
     commit(id, atom, { ...log, receipts });
   };
-  return { observe, observeManifest, observeVerification, read };
+  const recordingBudgetExceeded = (id: AgentSessionId, message: string) => {
+    const atom = atomFor(id);
+    commit(
+      id,
+      atom,
+      append(
+        registry.get(atom),
+        "teaching-recording-budget-exceeded",
+        new Date().toISOString(),
+        message
+      )
+    );
+  };
+  return {
+    observe,
+    observeManifest,
+    observeVerification,
+    read,
+    recordingBudgetExceeded,
+  };
 };

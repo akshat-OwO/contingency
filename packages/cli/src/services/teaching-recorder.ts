@@ -25,7 +25,7 @@ import { browserFailure } from "./create-browser-session.ts";
 import { sanitizeTeachingUrl } from "./sensitive-data.ts";
 import type { DemonstrationCounts } from "./teaching-capture.ts";
 import type { Demonstration } from "./teaching-demonstration.ts";
-import { makeTeachingEncoder } from "./teaching-encoder.ts";
+import { formatVideoBytes, makeTeachingEncoder } from "./teaching-encoder.ts";
 
 const EVENT_FILE = "events.jsonl";
 const TRACE_FILE = "trace.zip";
@@ -52,7 +52,8 @@ export const DEFAULT_TEACHING_CAPTURE_LIMITS: TeachingCaptureLimits = {
   eventBytes: 16 * 1024 * 1024,
   events: 10_000,
   keyframes: 400,
-  videoBytes: 1024 * 1024 * 1024,
+  videoBudgetBytes: 500 * 1024 * 1024,
+  videoHardCapBytes: 4 * 1024 * 1024 * 1024,
 };
 
 export interface TeachingRecorderResult {
@@ -98,6 +99,7 @@ export interface TeachingRecorderBrowser {
 }
 
 export interface TeachingRecorderOptions {
+  readonly onVideoBudgetExceeded?: (message: string) => void;
   readonly runEvidence?: () => readonly TeachingRunEvidence[];
   readonly browser: TeachingRecorderBrowser;
   /** O(1) capture sizes, read by the watchdog on every tick. */
@@ -420,7 +422,7 @@ export const makeTeachingRecorder = (
     );
     const encoder = yield* Scope.provide(scope)(
       makeTeachingEncoder({
-        maxBytes: limits.videoBytes,
+        maxBytes: limits.videoHardCapBytes,
         output: videoFile,
       })
     );
@@ -456,11 +458,12 @@ export const makeTeachingRecorder = (
     // artifact at Stop. The watchdog trips `breach`, the loop exits, and the
     // Agent Session -- which owns `captureState` -- reacts to `limitReached`.
     const limitReached = yield* Deferred.make<string>();
+    let warned = false;
     let breach: string | undefined;
     let measuredBytes = 0;
     let measuredEvents = 0;
-    const exceededCeiling = (): string | undefined => {
-      const encoderFailure = encoder.unsafeFailure();
+    const exceededCeiling = (bytes: number): string | undefined => {
+      const encoderFailure = encoder.unsafeFailure(bytes);
       if (encoderFailure !== undefined) {
         return encoderFailure;
       }
@@ -510,9 +513,21 @@ export const makeTeachingRecorder = (
     yield* Effect.whileLoop({
       body: () =>
         Effect.sleep(WATCHDOG_INTERVAL_MS).pipe(
-          Effect.andThen(
+          Effect.andThen(encoder.bytesWritten),
+          Effect.tap((bytes) =>
             Effect.sync(() => {
-              breach = exceededCeiling();
+              const budget = limits.videoBudgetBytes;
+              if (!warned && bytes > budget) {
+                warned = true;
+                options.onVideoBudgetExceeded?.(
+                  `The Teaching recording encoded output file size is ${formatVideoBytes(bytes)}, exceeding its budget of ${formatVideoBytes(budget)}. Teaching continues. After the run completes, ask the user whether to delete this recording, then use agent_teaching_recording_discard only with their confirmation.`
+                );
+              }
+            })
+          ),
+          Effect.tap((bytes) =>
+            Effect.sync(() => {
+              breach = exceededCeiling(bytes);
             })
           )
         ),
@@ -557,7 +572,7 @@ export const makeTeachingRecorder = (
           yield* Fiber.interrupt(capture);
           // A quick Stop can precede Chromium's first repaint. Photograph the
           // current Page only for empty input, before closing the encoder.
-          if ((yield* encoder.bytesWritten) === 0) {
+          if (!(yield* encoder.hasFrames)) {
             yield* options.browser
               .capturePage(options.browserSessionId, { format: "jpeg" })
               .pipe(

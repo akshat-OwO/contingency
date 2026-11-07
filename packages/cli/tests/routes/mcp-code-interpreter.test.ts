@@ -177,6 +177,7 @@ it.live(
           "agent_teaching_instruction_record",
           "agent_teaching_keyframe_get",
           "agent_teaching_recording_claim",
+          "agent_teaching_recording_discard",
           "agent_teaching_recordings_list",
           "agent_teaching_setup_handoff",
           "agent_teaching_timeline_get",
@@ -417,6 +418,29 @@ it.live(
           yield* call("return 1", { timeoutMs: 120_001 })
         );
         expect(refused.error.message).toContain("timeoutMs");
+      })
+    ),
+  HANG_GUARD_MS
+);
+
+it.live(
+  "dispatches confirmed recording discard and refuses missing confirmation",
+  () =>
+    live(
+      Effect.gen(function* discardDispatch() {
+        const answer = yield* execute(`
+      return await tools.agent_teaching_recording_discard({ recordingId: "missing-recording", operationId: "discard-missing", userConfirmed: true });
+    `);
+        expect(answer.structuredContent?.receipts).toEqual([
+          expect.objectContaining({
+            operation: "agent_teaching_recording_discard",
+            outcome: "failed",
+          }),
+        ]);
+        const refused = yield* execute(
+          `return await tools.agent_teaching_recording_discard({ recordingId: "missing-recording", operationId: "discard-unconfirmed", userConfirmed: false });`
+        );
+        expect(refused.structuredContent?.status).not.toBe("completed");
       })
     ),
   HANG_GUARD_MS

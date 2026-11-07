@@ -95,3 +95,5 @@ Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoo
 - [iOS Workspace](./workspace.md#ios-workspace-internal) includes product-session SDK rotation and iPhone Duo folding journeys, focused Stop race and unavailable-display refusal/recovery proofs, plus a bounded fresh Dry Run sign-in regression mode and proves Teaching with ordinary Variables, learning, a fresh working Dry Run, verification and purge, a later Run, a system-alert answer with observe-only snapshots, Confirmation, and Settings refusal plus Return to Target App recovery through public device MCP.
 
 All MCP recipes use `agent_code_execute`. The broker wraps named operation calls in a program; `mcp tools` lists the single execution tool, and signature search discovers operations. See [the single-tool recipe](./workspace.md#single-tool-interface) for proof contracts.
+
+The Workspace recipe includes [recording budget and confirmed discard](workspace.md#recording-video-budget-and-confirmed-discard) proof through the Session Event feed and `agent_code_execute`.
