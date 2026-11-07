@@ -156,6 +156,7 @@ import {
 } from "@/lib/workspace-refresh";
 
 import { IosEntry, IosWorkspace, useIosEntryEnabled } from "./ios-workspace";
+import { RecordingViewer } from "./recording-view";
 
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
@@ -194,6 +195,9 @@ const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
  * Whether the session is an Interactive Run that has ended. It keeps its Run
  * Summary docked beside the last frame until the user moves on.
  */
+const isEndedRun = (session: AgentSessionSnapshot): boolean =>
+  session.activity === "run" && !isLiveAgentSessionPhase(session.phase);
+
 const isEndedInteractiveRun = (session: AgentSessionSnapshot): boolean =>
   isInteractiveRunSession(session) && !isLiveAgentSessionPhase(session.phase);
 
@@ -213,6 +217,21 @@ const finishedRunSummary = (
     return {
       label: "Run Summary",
       summary: <EndedRunSummary runId={session.run.runId} />,
+    };
+  }
+  if (
+    session.activity === "run" &&
+    session.dryRun !== null &&
+    !isLiveAgentSessionPhase(session.phase)
+  ) {
+    return {
+      label: "Dry Run Summary",
+      summary: (
+        <RecordingViewer
+          recordingId={session.dryRun.recordingId}
+          sessionId={session.id}
+        />
+      ),
     };
   }
   const dryRun = finishedDryRunSummary(session);
@@ -1184,7 +1203,8 @@ const useAgentView = (
         held === undefined ||
         current.selectedSessionId !== held.id ||
         dismissedRunIdsRef.current.has(held.id) ||
-        !isInteractiveRunSession(held) ||
+        held.activity !== "run" ||
+        held.run === null ||
         availableSessions.some(({ id }) => id === held.id)
       ) {
         return null;
@@ -2637,9 +2657,7 @@ const BrowserWorkspace = ({
                 controlPending={view.gestures.control.pending}
                 onControl={view.changeControl}
                 onDismiss={
-                  isEndedInteractiveRun(session)
-                    ? view.dismissEndedRun
-                    : undefined
+                  isEndedRun(session) ? view.dismissEndedRun : undefined
                 }
                 deletion={view.deletion}
                 onSelectSession={view.selectSession}

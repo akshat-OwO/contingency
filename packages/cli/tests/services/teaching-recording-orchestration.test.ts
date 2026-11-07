@@ -23,6 +23,10 @@ import {
 } from "../../src/services/flow-package.ts";
 import { browserRequirements } from "../../src/services/platform-requirements.ts";
 import {
+  recordingDryRunSummary,
+  recordingView,
+} from "../../src/services/recording-view.ts";
+import {
   decideFlow,
   startDryRun,
   stopDryRun,
@@ -34,6 +38,7 @@ import {
   TEACHING_RECORDINGS_DIRECTORY,
   TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
+import { taskRunSummary } from "../helpers/task-run.ts";
 
 const operation = OperationId.make;
 const at = "2026-10-03T10:00:00.000Z";
@@ -160,7 +165,7 @@ const passedRecording = (root: string, recordingId: TeachingRecordingId) =>
     });
   });
 
-const snapshotFor = (input: AgentSessionStartInput) =>
+const snapshotFor = (input: Pick<AgentSessionStartInput, "url" | "run">) =>
   Schema.decodeUnknownSync(AgentSessionSnapshot)({
     activity: "run",
     boundary: null,
@@ -622,6 +627,60 @@ it.effect("projects one summary for every learning state", () =>
         runtime: browserRequirements,
         updatedAt: passed.updatedAt,
       });
+    }).pipe(Effect.provide(storeLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("reads persisted and rejected reviews from a fresh store", () =>
+  Effect.gen(function* readPersistedReview() {
+    const files = yield* FileSystem.FileSystem;
+    const root = yield* files.makeTempDirectoryScoped({
+      prefix: "contingency-review-",
+    });
+    const recordingId = TeachingRecordingId.make(
+      "recording-independent-review"
+    );
+    const summary = { ...taskRunSummary, sessionId };
+    yield* Effect.gen(function* finishWithoutTeaching() {
+      const store = yield* TeachingRecordingStore;
+      yield* passedRecording(root, recordingId);
+      yield* store.attachDryRunSummary({
+        operationId: operation("attach-review"),
+        recordingId,
+        summary,
+      });
+      expect(recordingView(yield* store.read(recordingId))).toMatchObject({
+        decision: "pending",
+        summary,
+      });
+    }).pipe(Effect.provide(storeLayer(root)));
+    // A fresh store has no AgentSession service or live registry. It reads disk.
+    yield* Effect.gen(function* reopenReview() {
+      const store = yield* TeachingRecordingStore;
+      expect(recordingView(yield* store.read(recordingId)).summary).toEqual(
+        summary
+      );
+      yield* store.reject({
+        operationId: operation("reject-review"),
+        recordingId,
+      });
+      expect(recordingView(yield* store.read(recordingId))).toMatchObject({
+        decision: "rejected",
+        summary,
+      });
+      yield* store.startDryRun({
+        inputs: [],
+        operationId: operation("retry-review"),
+        recordingId,
+        sessionId,
+      });
+      const running = yield* store.read(recordingId);
+      expect(running.rejectedDryRun).toBeUndefined();
+      expect(recordingView(running)).toMatchObject({
+        decision: "pending",
+        summary: null,
+      });
+      expect(recordingDryRunSummary(running)).toBeNull();
     }).pipe(Effect.provide(storeLayer(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

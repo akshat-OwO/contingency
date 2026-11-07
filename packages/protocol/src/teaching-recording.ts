@@ -256,6 +256,12 @@ export const TeachingRecordingOrigin = Schema.Literals([
 ]).pipe(Schema.withDecodingDefaultKey(Effect.succeed("teaching")));
 export type TeachingRecordingOrigin = typeof TeachingRecordingOrigin.Type;
 
+export const RecordingView = Schema.Struct({
+  decision: Schema.Literals(["pending", "verified", "rejected"]),
+  result: Schema.NullOr(FlowDryRunResult),
+  summary: Schema.NullOr(AgentRunSummary),
+});
+
 const TeachingRecordingManifestBase = {
   /** Guided Run's starting host and exact approved hosts, independent of visits. */
   approvedHosts: Schema.optionalKey(Schema.Array(nonEmptyString)),
@@ -267,6 +273,12 @@ const TeachingRecordingManifestBase = {
   origin: TeachingRecordingOrigin,
   receipts: Schema.Array(TeachingRecordingReceipt),
   recordingId: TeachingRecordingId,
+  rejectedDryRun: Schema.optional(
+    Schema.Struct({
+      result: FlowDryRunResult,
+      summary: Schema.NullOr(AgentRunSummary),
+    })
+  ),
   runtime: Schema.optionalKey(PlatformRequirements),
   schemaVersion: Schema.Literal(1),
   sessionId: AgentSessionId,

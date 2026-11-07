@@ -20,6 +20,7 @@ Follow each tool's contract and `nextAction`.
 ## Always follow
 
 - Share each new session's returned `viewUrl` as a clickable **Open Workspace** link in a user-visible message before the next browser action.
+- Share the Dry Run `viewUrl` from `agent_run_complete` before asking the user to verify or reject. Use `open_recording(recordingId)` to reopen its Summary and saved decision after sessions or the MCP process exit.
 - Repeat the current link when you ask the user to demonstrate, supply a private value, confirm an action, or verify a Flow.
 - Variables are ordinary visible values. You may use a value supplied in chat; a saved Flow names the Variable without storing its value.
 - For a Pending Decision, describe the action and ask the user to reply "allow" or "refuse". Call `agent_pending_decision_resolve` after their answer. Follow the tool contract for retries and control.

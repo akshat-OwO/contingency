@@ -12,6 +12,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { AgentRunStore } from "../services/agent-run-store.ts";
 import { AgentSession } from "../services/agent-session.ts";
 import { parseByteRange } from "../services/byte-range.ts";
+import { recordingDryRunSummary } from "../services/recording-view.ts";
 import {
   RUN_VIDEO_FILE,
   RunVideoRenderer,
@@ -200,17 +201,13 @@ export const makeDryRunArtifactRoutes = ({
           return HttpServerResponse.empty({ status: 404 });
         }
         const manifest = yield* Effect.result(store.read(recordingId));
-        if (
-          manifest._tag === "Failure" ||
-          (manifest.success.lifecycle._tag !== "dry-run-passed" &&
-            manifest.success.lifecycle._tag !== "dry-run-failed")
-        ) {
+        if (manifest._tag === "Failure") {
           return HttpServerResponse.empty({ status: 404 });
         }
-        const summary = manifest.success.lifecycle.dryRunSummary;
+        const summary = recordingDryRunSummary(manifest.success);
         const videoPath = summary?.videoPath;
         if (
-          summary === undefined ||
+          summary === null ||
           videoPath === null ||
           videoPath === undefined ||
           path.basename(videoPath) !== videoPath
@@ -246,17 +243,13 @@ const dryRunVideoRoute = (allowedOrigins: ReadonlySet<string>) =>
         return HttpServerResponse.empty({ status: 404 });
       }
       const manifest = yield* Effect.result(store.read(recordingId));
-      if (
-        manifest._tag === "Failure" ||
-        (manifest.success.lifecycle._tag !== "dry-run-passed" &&
-          manifest.success.lifecycle._tag !== "dry-run-failed")
-      ) {
+      if (manifest._tag === "Failure") {
         return HttpServerResponse.empty({ status: 404 });
       }
-      const summary = manifest.success.lifecycle.dryRunSummary;
+      const summary = recordingDryRunSummary(manifest.success);
       const videoPath = summary?.videoPath;
       if (
-        summary === undefined ||
+        summary === null ||
         videoPath === null ||
         videoPath === undefined ||
         path.basename(videoPath) !== videoPath
@@ -347,7 +340,7 @@ const scanArtifactRoute = (
           }
           const summary =
             "dryRunSummary" in manifest.success.lifecycle
-              ? manifest.success.lifecycle.dryRunSummary
+              ? recordingDryRunSummary(manifest.success)
               : undefined;
           if (
             summary?.schemaVersion === 3 &&

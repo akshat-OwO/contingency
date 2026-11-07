@@ -233,6 +233,22 @@ const rpcOverrides = {
         }
       );
     }),
+  recordingViewAtom: Atom.family((recordingId: string) =>
+    Atom.family((_sessionId: string | null) =>
+      Atom.make(() => {
+        rpc.endedRunSummaryCalls.push(recordingId);
+        return {
+          _tag: "Success",
+          value: {
+            decision: "pending",
+            result: null,
+            summary: rpc.endedRunSummary,
+          },
+          waiting: false,
+        };
+      })
+    )
+  ),
   runAgentBrowserStream: (
     ..._args: Parameters<typeof runAgentBrowserStream>
   ): ReturnType<typeof runAgentBrowserStream> => Effect.never,
@@ -2598,4 +2614,21 @@ test("takes over a Guided Run and enters a private Variable before returning", a
   expect(screen.getByLabelText("Variable value")).toHaveValue("");
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
+});
+
+test("keeps a Dry Run Summary by recording ID after Teaching has closed", async () => {
+  const rehearsal = { ...dryRunSession, run: taskRunSession.run };
+  renderWorkspace(resultFor([rehearsal]), session.id);
+  await screen.findByRole("region", { name: "Workspace dock" });
+  rpc.sessionsResult = resultFor([]);
+  await refreshWorkspace();
+  const summary = await screen.findByRole("complementary", {
+    name: "Dry Run Summary",
+  });
+  expect(
+    within(summary).getByText("The catalogue listed three products.")
+  ).toBeVisible();
+  expect(rpc.endedRunSummaryCalls).toContain("recording-add-anvil");
+  expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
+  expect(screen.queryByText("No browser session")).toBeNull();
 });
