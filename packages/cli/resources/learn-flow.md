@@ -112,3 +112,7 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
     Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Relay a conversation choice with agent_flow_decide.
 
     A pass retains the Teaching Recording until explicit verification.
+
+If a recording exceeds its encoded video budget, Teaching continues.
+
+After the run completes, ask whether the user wants to delete it. Only after confirmation, call `agent_teaching_recording_discard` through `agent_code_execute` with `userConfirmed: true`. Capture and learning claims refuse discard.

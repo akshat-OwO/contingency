@@ -18,3 +18,7 @@ A user can verify a Flow Skill, return from Takeover, supply a Variable, or stop
 - **Claude Code channels** (`notifications/claude/channel`): the only confirmed way to inject an event into a model's context. It is a research preview, works only over stdio, and fails on 2026-07-28. Contingency adds it as an opt-in layer over the same Session Event log rather than as the primary mechanism.
 - **A separate wait tool, or an event feed on `agent_session_history_get`**: rejected because each adds a tool or splits session reading across two calls. ADR 0045 sizes the catalog for the model.
 - **Server-tracked delivery instead of a cursor**: rejected because a lost response would mark events delivered that the agent never saw.
+
+## Teaching video budget amendment
+
+Browser Teaching measures the encoded WebM file on disk, excluding MJPEG input bytes. Crossing 500 MiB emits one `teaching-recording-budget-exceeded` Session Event per recording, with actual and budget bytes in `name`. Teaching continues. The agent asks the user whether to delete the recording after the run completes, then calls `agent_teaching_recording_discard` with `userConfirmed: true` only after confirmation. The store refuses deletion during capture. A separate 4 GiB output cap stops capture to protect disk space and reports actual and limit bytes.

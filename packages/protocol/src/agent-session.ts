@@ -235,6 +235,7 @@ export const SessionEvent = Schema.Struct({
     "teaching-started",
     "teaching-action-recorded",
     "teaching-stopped",
+    "teaching-recording-budget-exceeded",
     "teaching-discarded",
     "instruction-recorded",
     "question-answered",

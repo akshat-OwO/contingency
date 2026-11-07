@@ -2868,6 +2868,8 @@ const makeAgentSession = (
                 emulation: record.emulation,
                 fileSystem,
                 limits: options.captureLimits,
+                onVideoBudgetExceeded: (message) =>
+                  sessionEvents.recordingBudgetExceeded(sessionId, message),
                 runEvidence: () => record.browserState.events,
                 sensitiveValues: capture.sensitiveValues,
                 startedAt: manifest.lifecycle.startedAt,

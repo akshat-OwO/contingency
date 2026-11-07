@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { statSync } from "node:fs";
 
 import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Effect } from "effect";
@@ -50,32 +51,33 @@ const ffmpegArguments = (output: string): readonly string[] => [
   output,
 ];
 
+export const formatVideoBytes = (bytes: number): string =>
+  `${Number((bytes / (1024 * 1024)).toFixed(1))} MiB`;
+
 export interface TeachingEncoder {
   /** Hand one screencast frame to the encoder. Never fails the caller. */
   readonly write: (frame: Uint8Array) => Effect.Effect<void>;
-  /** Bytes written so far, for the size bound. */
+  /** Whether any frame was handed to ffmpeg, independently of output buffering. */
+  readonly hasFrames: Effect.Effect<boolean>;
+  /** Current encoded output file size on disk. */
   readonly bytesWritten: Effect.Effect<number>;
   /** Set when ffmpeg died or the size bound tripped. */
   readonly failure: Effect.Effect<string | undefined>;
   /** The same reading, for the recorder's synchronous watchdog tick. */
-  readonly unsafeFailure: () => string | undefined;
+  readonly unsafeFailure: (bytes: number) => string | undefined;
 }
 
 export interface TeachingEncoderOptions {
-  /**
-   * The ceiling on encoder input. MJPEG frames are far larger than the VP9
-   * they become, so bounding the input bounds the output file conservatively:
-   * the encoder stops before the recording can fill a disk.
-   */
+  /** Hard ceiling on the encoded output file, in bytes. */
   readonly maxBytes: number;
   readonly output: string;
 }
 
 interface EncoderState {
-  bytes: number;
   draining: boolean;
   failure: string | undefined;
   finished: boolean;
+  hasFrames: boolean;
 }
 
 /**
@@ -93,10 +95,10 @@ export const makeTeachingEncoder = (
         browserFailure("Could not start the Teaching video encoder", cause),
       try: () => {
         const state: EncoderState = {
-          bytes: 0,
           draining: false,
           failure: undefined,
           finished: false,
+          hasFrames: false,
         };
         const child = spawn(findFfmpeg(), ffmpegArguments(options.output), {
           stdio: ["pipe", "ignore", "pipe"],
@@ -133,41 +135,60 @@ export const makeTeachingEncoder = (
       }),
     { interruptible: false }
   ).pipe(
-    Effect.map(({ child, state }) => ({
-      bytesWritten: Effect.sync(() => state.bytes),
-      failure: Effect.sync(() => state.failure),
-      unsafeFailure: () => state.failure,
-      write: (frame: Uint8Array) =>
-        Effect.suspend(() => {
-          const { stdin } = child;
-          if (state.finished || stdin === null || stdin.destroyed) {
+    Effect.map(({ child, state }) => {
+      let lastBytes = 0;
+      const outputBytes = () => {
+        try {
+          lastBytes =
+            statSync(options.output, { throwIfNoEntry: false })?.size ??
+            lastBytes;
+          return lastBytes;
+        } catch (error) {
+          Effect.runSync(
+            Effect.logDebug(
+              `Could not measure Teaching encoded output file size; keeping the last measurement: ${String(error)}`
+            )
+          );
+          return lastBytes;
+        }
+      };
+      const failure = (bytes: number) => {
+        if (bytes > options.maxBytes) {
+          state.failure ??= `Teaching stopped to protect disk space because the encoded output file size of ${formatVideoBytes(bytes)} exceeds the hard limit of ${formatVideoBytes(options.maxBytes)}. Captured content is retained and recoverable.`;
+        }
+        return state.failure;
+      };
+      return {
+        bytesWritten: Effect.sync(outputBytes),
+        failure: Effect.sync(() => failure(outputBytes())),
+        hasFrames: Effect.sync(() => state.hasFrames),
+        unsafeFailure: failure,
+        write: (frame: Uint8Array) =>
+          Effect.suspend(() => {
+            const { stdin } = child;
+            if (state.finished || stdin === null || stdin.destroyed) {
+              return Effect.void;
+            }
+            if (frame.byteLength === 0) {
+              return Effect.void;
+            }
+            // Video fidelity is worth less than the session's memory. Once
+            // ffmpeg stops reading, frames are dropped until its pipe drains
+            // rather than queued into an unbounded Node write buffer.
+            if (state.draining) {
+              return Effect.logDebug(
+                "Dropped a Teaching frame while the video encoder was busy."
+              );
+            }
+            state.hasFrames = true;
+            if (stdin.write(frame) === false) {
+              state.draining = true;
+              stdin.once("drain", () => {
+                state.draining = false;
+              });
+            }
             return Effect.void;
-          }
-          if (frame.byteLength === 0) {
-            return Effect.void;
-          }
-          if (state.bytes + frame.byteLength > options.maxBytes) {
-            state.finished = true;
-            state.failure ??=
-              "Teaching stopped because the recording reached its video size limit.";
-            return Effect.void;
-          }
-          // Video fidelity is worth less than the session's memory. Once
-          // ffmpeg stops reading, frames are dropped until its pipe drains
-          // rather than queued into an unbounded Node write buffer.
-          if (state.draining) {
-            return Effect.logDebug(
-              "Dropped a Teaching frame while the video encoder was busy."
-            );
-          }
-          state.bytes += frame.byteLength;
-          if (stdin.write(frame) === false) {
-            state.draining = true;
-            stdin.once("drain", () => {
-              state.draining = false;
-            });
-          }
-          return Effect.void;
-        }),
-    }))
+          }),
+      };
+    })
   );

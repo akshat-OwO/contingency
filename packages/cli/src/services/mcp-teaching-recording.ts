@@ -130,6 +130,22 @@ const TeachingRecordingsListTool = readOnly(
   })
 );
 
+const TeachingRecordingDiscardTool = Tool.make(
+  "agent_teaching_recording_discard",
+  {
+    dependencies: [TeachingRecordingStore],
+    description:
+      "Delete a stopped Teaching Recording's retained artifacts after the run completes. Release any learning claim first with agent_teaching_recording_claim. Ask the user first. Call only after the user confirms deletion.",
+    failure: TeachingRecordingFailure,
+    parameters: Schema.Struct({
+      operationId: OperationId,
+      recordingId: TeachingRecordingId,
+      userConfirmed: Schema.Literal(true),
+    }),
+    success: Schema.Struct({ discarded: Schema.Boolean }),
+  }
+);
+
 const TeachingRecordingClaimTool = Tool.make("agent_teaching_recording_claim", {
   dependencies: [TeachingRecordingStore],
   description:
@@ -265,6 +281,7 @@ const FlowDecideTool = Tool.make("agent_flow_decide", {
 export const TeachingRecordingTools = withStrictParameters(
   Toolkit.make(
     TeachingRecordingsListTool,
+    TeachingRecordingDiscardTool,
     TeachingRecordingClaimTool,
     TeachingTimelineGetTool,
     TeachingKeyframeGetTool,
@@ -409,6 +426,12 @@ export const TeachingRecordingToolHandlersLive = TeachingRecordingTools.toLayer(
           })
           .pipe(Effect.mapError(failure));
         return { claim: null, recording: yield* summaryOf(failed) };
+      }),
+    agent_teaching_recording_discard: (params) =>
+      Effect.gen(function* discardTeachingRecording() {
+        const store = yield* TeachingRecordingStore;
+        yield* store.discard(params).pipe(Effect.mapError(failure));
+        return { discarded: true };
       }),
     agent_teaching_recordings_list: (params) =>
       Effect.gen(function* listTeachingRecordings() {

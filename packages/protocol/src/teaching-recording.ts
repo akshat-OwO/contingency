@@ -641,8 +641,8 @@ export const FlowSaveResult = Schema.Struct({
 export type FlowSaveResult = typeof FlowSaveResult.Type;
 
 /**
- * The size ceilings one recording may reach. Reaching any of them stops the
- * recording and reports a visible failure rather than silently truncating the
+ * The warning budget and hard ceilings for one recording. Only hard ceilings
+ * stop recording and report a visible failure rather than silently truncating the
  * evidence a learning agent is about to trust.
  */
 export const TeachingCaptureLimits = Schema.Struct({
@@ -650,7 +650,8 @@ export const TeachingCaptureLimits = Schema.Struct({
   eventBytes: Schema.Int.check(Schema.isGreaterThan(0)),
   events: Schema.Int.check(Schema.isGreaterThan(1)),
   keyframes: Schema.Int.check(Schema.isGreaterThan(0)),
-  videoBytes: Schema.Int.check(Schema.isGreaterThan(0)),
+  videoBudgetBytes: Schema.Int.check(Schema.isGreaterThan(0)),
+  videoHardCapBytes: Schema.Int.check(Schema.isGreaterThan(0)),
 });
 export type TeachingCaptureLimits = typeof TeachingCaptureLimits.Type;
 

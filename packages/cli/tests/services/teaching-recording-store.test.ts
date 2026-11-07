@@ -1217,6 +1217,15 @@ it.effect("renames before capture and discards a recording back to setup", () =>
         operationId: OperationId.make("start-discard"),
         recordingId: discardedId,
       });
+      const captureRefusal = yield* Effect.flip(
+        store.discard({
+          operationId: OperationId.make("discard-capturing"),
+          recordingId: discardedId,
+        })
+      );
+      expect(captureRefusal.message).toContain(
+        "cannot be discarded from recording"
+      );
       // A recording cannot be renamed once it holds captured evidence: the
       // bundle on disk is already filed under the name it began with.
       const lateRename = yield* Effect.flip(
@@ -1246,6 +1255,24 @@ it.effect("renames before capture and discards a recording back to setup", () =>
         operationId: OperationId.make("discard-once"),
         recordingId: discardedId,
       };
+      yield* store.startLearning({
+        operationId: OperationId.make("discard-claim"),
+        recordingId: discardedId,
+      });
+      const claimRefusal = yield* Effect.flip(
+        store.discard({
+          ...discard,
+          operationId: OperationId.make("discard-claimed"),
+        })
+      );
+      expect(claimRefusal.message).toContain(
+        "cannot be discarded from learning"
+      );
+      yield* store.releaseLearning({
+        claimOperationId: OperationId.make("discard-claim"),
+        operationId: OperationId.make("discard-release"),
+        recordingId: discardedId,
+      });
       yield* store.discard(discard);
       const discarded = yield* store.discard(discard);
       return { discarded, lateRename, renamed };
