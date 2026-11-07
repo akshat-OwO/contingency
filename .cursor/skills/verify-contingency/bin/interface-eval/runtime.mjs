@@ -533,9 +533,8 @@ export const stack = async ({ directory, resources }) => {
     });
     const successfulIntervention =
       result.status === "intervention" &&
-      result.receipts?.length === 1 &&
-      result.receipts[0].operation === name &&
-      result.receipts[0].outcome === "succeeded" &&
+      result.intervention?.operation === name &&
+      result.receipts === undefined &&
       (result.value !== undefined || result.valueResource);
     if (result.status !== "completed" && !successfulIntervention) {
       throw new Error(JSON.stringify(result));

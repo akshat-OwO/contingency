@@ -80,7 +80,7 @@ assert.equal(
   "Do not count a receipt and its program diagnostic twice"
 );
 assert.equal(invalidProgram.byRule[2], 2, "Count each extra effect from state");
-assert.equal(invalidProgram.operations, 1);
+assert.equal(invalidProgram.operations, null);
 assert.equal(invalidProgram.payloadBytes, 30);
 assert.equal(
   classify(
@@ -475,4 +475,23 @@ assert.deepEqual(
   ["joined"],
   "Aggregation reports an unresolved run rather than counting it as zero"
 );
+
+const trimmed = classify(
+  [
+    request("agent_code_execute"),
+    answer({ status: "completed", value: { sessions: [] } }),
+  ],
+  { timeline: [{ at: "00", kind: "return-control" }] }
+);
+assert.equal(
+  trimmed.operations,
+  null,
+  "Omitted success receipts cannot count operations"
+);
+assert.equal(
+  trimmed.classificationValid,
+  false,
+  "Omitted success receipts cannot prove action order"
+);
+
 process.stdout.write("Interface evaluation metric checks passed\n");

@@ -241,3 +241,28 @@ test("elides only minimum 1 and explicitly renders empty-string exceptions", () 
     }
   }
 });
+
+test("preserves __proto__ schema properties and extension data as own keys", () => {
+  const extension = Object.fromEntries([["__proto__", "saved value"]]);
+  const schema = {
+    ...extension,
+    properties: Object.fromEntries([
+      ["__proto__", { ...extension, title: "Drop", type: "string" }],
+      ["normal", { type: "string" }],
+    ]),
+    type: "object",
+  };
+  const result = compactJsonSchema(schema);
+  // Exercise the JSON transport as well as the in-memory projection.
+  const serialized = JSON.stringify(result);
+  expect(JSON.parse(serialized)).toEqual({
+    ...schema,
+    properties: Object.fromEntries([
+      ["__proto__", { ...extension, type: "string" }],
+      ["normal", { type: "string" }],
+    ]),
+  });
+  expect(
+    Object.getOwnPropertyDescriptor(schema.properties, "__proto__")?.value
+  ).toHaveProperty("title", "Drop");
+});

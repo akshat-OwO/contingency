@@ -70,27 +70,30 @@ const compactAction = (
 ) => {
   const { snapshot } = result;
   const { entry } = result;
-  if (isObject(snapshot) && isString(snapshot.snapshotId)) {
-    const snapshotCopy = { ...snapshot };
-    result.snapshot = snapshotCopy;
-    if (result.url === snapshot.url) {
-      delete result.url;
-    }
-    if (isObject(entry)) {
-      const entryCopy = { ...entry };
-      result.entry = entryCopy;
-      if (snapshot.capturedAt === entry.at) {
-        delete snapshotCopy.capturedAt;
-      }
-      if (entry.description === objective) {
-        delete entryCopy.description;
-      }
-      if (entry.actor === "agent") {
-        delete entryCopy.actor;
-        if (entry.dispatched === true) {
-          delete entryCopy.dispatched;
-        }
-      }
+  if (
+    !isObject(entry) ||
+    !isObject(snapshot) ||
+    !isString(snapshot.snapshotId)
+  ) {
+    return;
+  }
+  const snapshotCopy = { ...snapshot };
+  result.snapshot = snapshotCopy;
+  if (result.url === snapshot.url) {
+    delete result.url;
+  }
+  const entryCopy = { ...entry };
+  result.entry = entryCopy;
+  if (snapshot.capturedAt === entry.at) {
+    delete snapshotCopy.capturedAt;
+  }
+  if (entry.description === objective) {
+    delete entryCopy.description;
+  }
+  if (entry.actor === "agent") {
+    delete entryCopy.actor;
+    if (entry.dispatched === true) {
+      delete entryCopy.dispatched;
     }
   }
 };
@@ -106,10 +109,12 @@ export const compactMcpValue = (
   if (!isObject(value)) {
     return value;
   }
-  const result: Record<string, Schema.Json> = {};
-  for (const [key, child] of Object.entries(value)) {
-    result[key] = compactMcpValue(child, objective);
-  }
+  const result: Record<string, Schema.Json> = Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      compactMcpValue(child, objective),
+    ])
+  );
   compactSnapshot(result);
   if (
     Array.isArray(result.browserCheckResults) &&

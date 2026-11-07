@@ -83,3 +83,49 @@ test("removes only equal action duplicates and agent dispatch constants", () => 
     url: "different",
   });
 });
+
+test("preserves own __proto__ data keys through nested values and action copies", () => {
+  const entries = Object.fromEntries([
+    ["__proto__", "saved value"],
+    ["normal", "kept"],
+  ]);
+  const value = {
+    entries,
+    entry: { ...entries, actor: "agent", at: "now", dispatched: true },
+    nested: [entries],
+    snapshot: { ...snapshot, ...entries },
+  };
+  const result = compactMcpValue(value);
+  // Exercise the JSON transport as well as the in-memory projection.
+  const serialized = JSON.stringify(result);
+  expect(JSON.parse(serialized)).toEqual({
+    entries,
+    entry: { ...entries, at: "now" },
+    nested: [entries],
+    snapshot: {
+      ...entries,
+      snapshotId: "s1",
+      text: "button",
+      url: snapshot.url,
+    },
+  });
+  expect(value.entry.actor).toBe("agent");
+});
+
+test("keeps matching URLs outside action results and full timeline entries", () => {
+  const entry = {
+    actor: "agent",
+    at: "now",
+    description: "Open cart",
+    dispatched: true,
+  };
+  expect(
+    compactMcpValue(
+      { snapshot, timeline: [entry], url: snapshot.url },
+      "Open cart"
+    )
+  ).toMatchObject({
+    timeline: [entry],
+    url: snapshot.url,
+  });
+});

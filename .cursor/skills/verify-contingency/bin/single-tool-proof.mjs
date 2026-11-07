@@ -80,15 +80,6 @@ const capture = (name) =>
     yield* command("browser", "screenshot", "--path", `${feature}/${name}.png`);
   });
 
-const pidGone = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch {
-    return true;
-  }
-};
-
 const ADD_ANVIL = `
 const page = await tools.agent_browser_snapshot({ sessionId, format: "structured" });
 const add = page.nodes.find((node) => node.role === "button" && node.name === "Add Giant anvil to cart");
@@ -120,7 +111,8 @@ const browserProof = Effect.gen(function* singleToolProof() {
     'return search({ query: "", limit: 100 }).items.map((item) => item.path.replace("tools.", ""))'
   );
   assert.equal(searched.status, "completed");
-  assert.deepEqual(searched.receipts, []);
+  assert.equal(searched.receipts, undefined);
+  assert.equal(searched.process, undefined);
   for (const name of [
     "agent_device_sessions_list",
     "agent_device_workspace",
@@ -164,7 +156,8 @@ const browserProof = Effect.gen(function* singleToolProof() {
   );
   assert.equal(isolated.value.leftover, null);
   assert.equal(isolated.value.id, sessionId);
-  assert.notEqual(isolated.process.pid, started.process.pid);
+  assert.equal(isolated.process, undefined);
+  assert.equal(started.process, undefined);
   yield* command("browser", "goto", "--url", viewUrl);
   yield* command(
     "browser",
@@ -196,7 +189,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     `waited ${waited.value.elapsedMs} ms`
   );
 
-  // Act, then lose the interpreter to its deadline: the receipt survives.
+  // Act, then lose the interpreter to its deadline. Retry proves the effect.
   const id = JSON.stringify(sessionId);
   const killed = yield* program(
     "act-then-deadline",
@@ -206,14 +199,8 @@ const browserProof = Effect.gen(function* singleToolProof() {
     5000
   );
   assert.equal(killed.status, "deadline_exceeded");
-  assert.deepEqual(
-    killed.receipts.map(({ operation: name, outcome }) => [name, outcome]),
-    [
-      ["agent_browser_snapshot", "succeeded"],
-      ["agent_browser_act", "succeeded"],
-    ]
-  );
-  assert.ok(pidGone(killed.process.pid), "the deadline killed the interpreter");
+  assert.equal(killed.receipts, undefined);
+  assert.equal(killed.process, undefined);
 
   // Retrying the same identity reads the recorded attempt.
   const retried = yield* program(
@@ -227,7 +214,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
   assert.equal(retried.value.attempts, 1);
   assert.equal(cartOf(retried.value.snapshot), "1 item in cart");
 
-  // A process failure after an effect keeps that receipt too.
+  // A process failure omits successful receipts and process details too.
   const exhausted = yield* program(
     "act-then-memory-limit",
     `const sessionId = ${id};${ADD_ANVIL}
@@ -239,8 +226,8 @@ const browserProof = Effect.gen(function* singleToolProof() {
     ["memory_limit", "crashed"].includes(exhausted.status),
     exhausted.status
   );
-  assert.equal(exhausted.receipts.at(-1).outcome, "succeeded");
-  assert.ok(pidGone(exhausted.process.pid));
+  assert.equal(exhausted.receipts, undefined);
+  assert.equal(exhausted.process, undefined);
 
   // Stopped mid-dispatch: an inspectable uncertain receipt.
   const uncertain = yield* program(
@@ -267,7 +254,7 @@ const browserProof = Effect.gen(function* singleToolProof() {
     "pending_decision",
   ]);
   assert.ok(
-    !paused.receipts.some(
+    !(paused.receipts ?? []).some(
       ({ operationId }) => operationId === operation("after-1")
     )
   );
@@ -563,10 +550,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
   );
   assert.equal(started.status, "intervention");
   assert.ok(started.intervention.reasons.includes("device_preparation"));
-  assert.deepEqual(
-    started.receipts.map(({ operation: name, outcome }) => [name, outcome]),
-    [["agent_device_workspace", "succeeded"]]
-  );
+  assert.equal(started.receipts, undefined);
   const { sessionId } = started.intervention;
   const id = JSON.stringify(sessionId);
   yield* command(
@@ -621,10 +605,7 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
   );
   assert.equal(requested.status, "intervention");
   assert.deepEqual(requested.intervention.reasons, ["variable_requested"]);
-  assert.deepEqual(
-    requested.receipts.map(({ operation: name, outcome }) => [name, outcome]),
-    [["agent_device_workspace", "succeeded"]]
-  );
+  assert.equal(requested.receipts, undefined);
   yield* command(
     "browser",
     "wait",

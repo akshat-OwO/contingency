@@ -102,20 +102,25 @@ export const compactJsonSchema = (
       ) {
         continue;
       }
+      let projected = child;
       if (maps.has(key) && isSchemaObject(child)) {
-        result[key] = Object.fromEntries(
+        projected = Object.fromEntries(
           Object.entries(child).map(([field, item]) => [
             field,
             visit(item, field),
           ])
         );
       } else if (children.has(key)) {
-        result[key] = Array.isArray(child)
+        projected = Array.isArray(child)
           ? child.map((item) => visit(item))
           : visit(child);
-      } else {
-        result[key] = child;
       }
+      Object.defineProperty(result, key, {
+        configurable: true,
+        enumerable: true,
+        value: projected,
+        writable: true,
+      });
     }
     return result;
   };
