@@ -385,6 +385,20 @@ test("output types preserve decision fields within a bounded catalog growth rati
   // Generous per-operation bounds catch a lost depth limit or input echo.
   expect(returnBytes("agent_browser_act")).toBeLessThan(3000);
   expect(returnBytes("agent_session_get")).toBeLessThan(2000);
+  // Effect's non-finite number encoding must keep rendering as `number`.
+  for (const name of [
+    "agent_browser_screenshot",
+    "agent_teaching_keyframe_get",
+  ]) {
+    expect(signature(name)?.split("): Promise<")[1]).toMatch(
+      /\bbytes\??: number,/u
+    );
+  }
+  for (const item of catalog.items) {
+    expect(item.signature.split("): Promise<")[1]).not.toMatch(
+      /"(?:-?Infinity|NaN)"/u
+    );
+  }
   expect(signature("agent_browser_act")).toContain("snapshot: {");
   expect(signature("agent_browser_act")).toContain("snapshotId: string");
   expect(signature("agent_browser_act")).toContain("text?: string | null");
@@ -669,6 +683,23 @@ test("deduplicates overlapping enum and const alternatives after merging envelop
       anyOf: [{ const: "same" }, { enum: ["same", "same"] }],
     })
   ).toEqual({ const: "same" });
+});
+
+test("collapses number sentinels without typing mixed literal enums", () => {
+  const sentinel = { enum: ["NaN", "Infinity", "-Infinity"], type: "string" };
+  expect(
+    compactOutputSchema({ anyOf: [{ type: "number" }, sentinel] })
+  ).toEqual({ type: "number" });
+  expect(
+    compactOutputSchema({
+      anyOf: [{ type: "number" }, sentinel, { type: "null" }],
+    })
+  ).toEqual({ anyOf: [{ type: "number" }, { const: null }] });
+  expect(
+    compactOutputSchema({
+      anyOf: [{ type: "null" }, { enum: ["a"], type: "string" }],
+    })
+  ).toEqual({ enum: [null, "a"] });
 });
 
 test("flattens nested unions so null and literals render once", () => {

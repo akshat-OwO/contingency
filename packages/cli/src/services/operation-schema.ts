@@ -180,12 +180,31 @@ const flattenAlternatives = (
       : [member];
   });
 
+const numberSentinels = new Set<Schema.Json>(["NaN", "Infinity", "-Infinity"]);
+
+/** Effect encodes a non-finite-capable number as `number` plus a string enum
+ * of these sentinels; CodeMode renders that pair as `number` only while the
+ * enum keeps its string type, so fold the sentinel before literal merging. */
+const isNumberSentinel = (member: Schema.Json): boolean =>
+  isSchemaObject(member) &&
+  member.type === "string" &&
+  Array.isArray(member.enum) &&
+  member.enum.length > 0 &&
+  member.enum.every((value) => numberSentinels.has(value));
+
+const withoutNumberSentinels = (
+  members: readonly Schema.Json[]
+): readonly Schema.Json[] =>
+  members.some((member) => isSchemaObject(member) && member.type === "number")
+    ? members.filter((member) => !isNumberSentinel(member))
+    : members;
+
 /** Literal alternatives can overlap after full/compact envelopes merge, and
  * nested optional unions repeat `null` as both a type and a literal. */
 const outputAlternatives = (members: readonly Schema.Json[]): Schema.Json[] => {
   const values: Schema.Json[] = [];
   const others: Schema.Json[] = [];
-  for (const member of flattenAlternatives(members)) {
+  for (const member of withoutNumberSentinels(flattenAlternatives(members))) {
     const items =
       isSchemaObject(member) &&
       member.type === "null" &&
