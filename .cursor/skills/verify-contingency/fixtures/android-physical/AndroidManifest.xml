@@ -12,5 +12,6 @@
     <activity android:name=".MainActivity" android:exported="true" />
     <activity android:name=".LoginActivity" android:exported="true" android:theme="@style/Theme.MaterialComponents.Light.NoActionBar" />
     <activity android:name=".AccountActivity" android:exported="false" />
+    <activity android:name=".WidgetsActivity" android:exported="true" android:theme="@style/Theme.MaterialComponents.Light.NoActionBar" />
   </application>
 </manifest>

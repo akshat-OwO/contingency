@@ -1,0 +1,598 @@
+{
+  "capturedAt": "2026-11-09T17:31:00.632Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Contingency Widgets",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "Other",
+      "kind": "other",
+      "label": "Tab Bar",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "Other",
+      "kind": "other",
+      "label": "Web",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "NavigationBar",
+      "kind": "navigation-bar",
+      "label": "Web",
+      "identifier": "Web",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 62,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Web",
+      "rect": {
+        "x": 183,
+        "width": 35.66666666666666,
+        "y": 73.66666666666666,
+        "height": 20.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "WebView",
+      "kind": "webview",
+      "label": "Vertical scroll bar, 1 page",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 5,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "WebView",
+      "kind": "webview",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 6,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Other",
+      "kind": "other",
+      "label": "Embedded help",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 7,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Embedded help",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 116,
+        "height": 758
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 8,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Other",
+      "kind": "other",
+      "label": "Embedded help",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 116,
+        "height": 675
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 9,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "Other",
+      "kind": "other",
+      "label": "Embedded help",
+      "value": "1",
+      "rect": {
+        "x": 24,
+        "width": 354,
+        "y": 140,
+        "height": 49
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 10,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Embedded help",
+      "value": "Embedded help",
+      "rect": {
+        "x": 24,
+        "width": 289,
+        "y": 140,
+        "height": 49
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 11,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "Link",
+      "kind": "link",
+      "label": "Shipping FAQ",
+      "rect": {
+        "x": 24,
+        "width": 119,
+        "y": 215,
+        "height": 26
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 10,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Shipping FAQ",
+      "value": "Shipping FAQ",
+      "rect": {
+        "height": 26,
+        "x": 24,
+        "y": 215,
+        "width": 119
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 13,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Other",
+      "kind": "other",
+      "label": "Coupon",
+      "rect": {
+        "height": 27,
+        "width": 354,
+        "x": 24,
+        "y": 260
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 10,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Other",
+      "kind": "other",
+      "label": "Coupon",
+      "rect": {
+        "y": 260,
+        "x": 24,
+        "width": 228,
+        "height": 27
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 15,
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Coupon",
+      "value": "Coupon",
+      "rect": {
+        "y": 260,
+        "x": 24,
+        "width": 75,
+        "height": 26
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 11,
+      "parentIndex": 16,
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "TextField",
+      "kind": "text-field",
+      "label": "Coupon",
+      "rect": {
+        "y": 266,
+        "x": 98,
+        "width": 155,
+        "height": 21
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 11,
+      "parentIndex": 16,
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "Button",
+      "kind": "button",
+      "label": "Apply coupon",
+      "rect": {
+        "y": 306,
+        "x": 24,
+        "width": 97,
+        "height": 21
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 10,
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "Other",
+      "kind": "other",
+      "label": "Web idle",
+      "rect": {
+        "y": 346,
+        "x": 24,
+        "width": 354,
+        "height": 26
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 10,
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Web idle",
+      "value": "Web idle",
+      "rect": {
+        "y": 346,
+        "x": 24,
+        "width": 76,
+        "height": 26
+      },
+      "enabled": true,
+      "focused": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 20,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "y": 116,
+        "x": 369,
+        "width": 30,
+        "height": 675
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 6,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "y": 758,
+        "x": 62,
+        "width": 278,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 6,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "Other",
+      "kind": "other",
+      "label": "Tab Bar",
+      "rect": {
+        "y": 791,
+        "x": 0,
+        "width": 402,
+        "height": 83
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "TabBar",
+      "kind": "tab-bar",
+      "label": "Tab Bar",
+      "rect": {
+        "y": 791,
+        "x": 0,
+        "width": 402,
+        "height": 83
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 24,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "Other",
+      "kind": "other",
+      "label": "Controls",
+      "rect": {
+        "y": 791,
+        "x": 64,
+        "width": 274,
+        "height": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 25,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "Button",
+      "kind": "button",
+      "label": "Controls",
+      "rect": {
+        "y": 795,
+        "x": 68,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 26,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "Image",
+      "kind": "image",
+      "label": "edit",
+      "identifier": "slider.horizontal.3",
+      "rect": {
+        "y": 802.6666666666666,
+        "x": 100,
+        "width": 29.333333333333343,
+        "height": 24
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 27,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "Button",
+      "kind": "button",
+      "label": "List",
+      "rect": {
+        "y": 795,
+        "x": 154,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 26,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "Image",
+      "kind": "image",
+      "label": "List",
+      "identifier": "list.bullet",
+      "rect": {
+        "y": 804.3333333333334,
+        "x": 186,
+        "width": 29.333333333333343,
+        "height": 21
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 29,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "Button",
+      "kind": "button",
+      "label": "Web",
+      "rect": {
+        "x": 240,
+        "height": 54,
+        "y": 795,
+        "width": 94
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 26,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "Image",
+      "kind": "image",
+      "label": "Globe",
+      "identifier": "globe",
+      "rect": {
+        "x": 273,
+        "y": 801.3333333333334,
+        "height": 27.33333333333337,
+        "width": 27.333333333333314
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 31,
+      "ref": "e33"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "dev.contingency.ioswidgets",
+    "corpus": true,
+    "screen": "web"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

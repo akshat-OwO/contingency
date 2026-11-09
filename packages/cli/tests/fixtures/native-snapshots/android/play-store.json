@@ -1,0 +1,435 @@
+{
+  "capturedAt": "2026-11-09T17:37:42.945Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "12:14",
+      "value": "12:14",
+      "contentDescription": "12:14 AM",
+      "identifier": "com.android.systemui:id/clock",
+      "rect": {
+        "x": 11,
+        "y": 41,
+        "width": 160,
+        "height": 59
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Android System notification: ",
+      "rect": {
+        "x": 171,
+        "y": 0,
+        "width": 67,
+        "height": 142
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Wifi signal full.",
+      "identifier": "com.android.systemui:id/wifi_signal",
+      "rect": {
+        "x": 840,
+        "y": 44,
+        "width": 53,
+        "height": 53
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Airplane mode.",
+      "rect": {
+        "x": 907,
+        "y": 37,
+        "width": 54,
+        "height": 67
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 4,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.vending",
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 6,
+      "bundleId": "com.android.vending",
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 2,
+      "parentIndex": 7,
+      "bundleId": "com.android.vending",
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "bundleId": "com.android.vending",
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "android:id/content",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 4,
+      "parentIndex": 9,
+      "bundleId": "com.android.vending",
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1080,
+        "height": 2424
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 5,
+      "parentIndex": 10,
+      "bundleId": "com.android.vending",
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2219
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 11,
+      "bundleId": "com.android.vending",
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "android.view.ViewGroup",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2219
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 7,
+      "parentIndex": 12,
+      "bundleId": "com.android.vending",
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Options",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 972,
+        "y": 197,
+        "width": 84,
+        "height": 84
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 13,
+      "bundleId": "com.android.vending",
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 108,
+        "y": 791,
+        "width": 864,
+        "height": 921
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 8,
+      "parentIndex": 13,
+      "bundleId": "com.android.vending",
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 414,
+        "y": 791,
+        "width": 252,
+        "height": 252
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 9,
+      "parentIndex": 15,
+      "bundleId": "com.android.vending",
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "rect": {
+        "x": 317,
+        "y": 1132,
+        "width": 446,
+        "height": 84
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 9,
+      "parentIndex": 15,
+      "bundleId": "com.android.vending",
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Sign in to find the latest Android apps, games, movies, music, & more",
+      "value": "Sign in to find the latest Android apps, games, movies, music, & more",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 108,
+        "y": 1379,
+        "width": 864,
+        "height": 122
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 9,
+      "parentIndex": 15,
+      "bundleId": "com.android.vending",
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "android.widget.Button",
+      "kind": "button",
+      "label": "Sign in",
+      "value": "Sign in",
+      "identifier": "com.android.vending:id/0_resource_name_obfuscated",
+      "rect": {
+        "x": 382,
+        "y": 1601,
+        "width": 315,
+        "height": 95
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 15,
+      "bundleId": "com.android.vending",
+      "ref": "e20"
+    }
+  ],
+  "platform": "android",
+  "source": {
+    "app": "com.android.vending",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 1080,
+    "height": 2424
+  }
+}

@@ -43,6 +43,7 @@ import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { nativeHitTest } from "./native-app-hit-test.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
@@ -179,37 +180,6 @@ const semanticSignature = (nodes: IosObservation["nodes"]) =>
 const observationSize = (observation: IosObservation) => {
   const pixels = Buffer.from(observation.screenshot.image, "base64");
   return { height: pixels.readUInt32BE(20), width: pixels.readUInt32BE(16) };
-};
-const hitTest = (nodes: IosObservation["nodes"], x: number, y: number) => {
-  let hit: IosObservation["nodes"][number] | undefined;
-  let area = Infinity;
-  for (const node of nodes) {
-    const { bounds } = node;
-    // An unnamed hittable node, such as a scroll container, has no semantic
-    // identity to teach or replay, so a click there activates nothing.
-    if (
-      !(node.editable || (node.hittable && node.name.trim() !== "")) ||
-      bounds === undefined ||
-      bounds.width <= 0 ||
-      bounds.height <= 0
-    ) {
-      continue;
-    }
-    if (
-      x < bounds.x ||
-      y < bounds.y ||
-      x > bounds.x + bounds.width ||
-      y > bounds.y + bounds.height
-    ) {
-      continue;
-    }
-    const size = bounds.width * bounds.height;
-    if (size < area) {
-      hit = node;
-      area = size;
-    }
-  }
-  return hit;
 };
 
 interface SessionState {
@@ -1158,13 +1128,13 @@ export const makeIosWorkspaceLayer = (options: {
           const x = command.point.x * width;
           const y = command.point.y * height;
           // Resolve containing candidates before their parents.
-          const target = hitTest(observed.nodes, x, y);
+          const target = nativeHitTest(observed.nodes, x, y);
           if (target === undefined || target.covered) {
             return yield* denied(
               "Nothing to activate there. No input was sent."
             );
           }
-          const priorTarget = hitTest(
+          const priorTarget = nativeHitTest(
             previous.nodes,
             command.point.x * previous.width,
             command.point.y * previous.height

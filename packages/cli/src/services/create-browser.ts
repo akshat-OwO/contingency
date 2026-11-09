@@ -1035,24 +1035,29 @@ const LAUNCH_OPTIONS: LaunchOptions = {
  * than per Page, so workers and a popup's first request carry it too.
  */
 const launchChromium = async (
-  performanceDirectory?: string
+  performanceDirectory?: string,
+  extraArgs: readonly string[] = []
 ): Promise<LaunchedBrowser> => {
+  const launchOptions: LaunchOptions = {
+    ...LAUNCH_OPTIONS,
+    args: [...(LAUNCH_OPTIONS.args ?? []), ...extraArgs],
+  };
   // Runs keep scan capability when flows are added later. Teaching and video
   // composition use a separate process without a debugging port.
   const persistent =
     performanceDirectory === undefined
       ? undefined
       : await chromium.launchPersistentContext(performanceDirectory, {
-          ...LAUNCH_OPTIONS,
+          ...launchOptions,
           args: [
-            ...(LAUNCH_OPTIONS.args ?? []),
+            ...(launchOptions.args ?? []),
             "--remote-debugging-port=0",
             "--remote-debugging-address=127.0.0.1",
           ],
         });
   const browser =
     persistent === undefined
-      ? await chromium.launch(LAUNCH_OPTIONS)
+      ? await chromium.launch(launchOptions)
       : persistent.browser();
   if (browser === null) {
     await persistent?.close();
@@ -1081,65 +1086,78 @@ const launchChromium = async (
   }
 };
 
-export const CreateBrowserLive = Layer.effect(
-  CreateBrowser,
-  Effect.gen(function* launchCreateBrowser() {
-    const fs = yield* FileSystem.FileSystem;
-    const performanceDirectory = yield* fs.makeTempDirectoryScoped({
-      prefix: "contingency-scan-browser-",
-    });
-    const registry = AtomRegistry.make();
-    const launched = Atom.make<ReadonlyMap<boolean, LaunchedBrowser>>(
-      new Map()
-    ).pipe(Atom.keepAlive);
-    const launchLock = yield* Semaphore.make(1);
-    const getBrowser = (performanceScans = false) =>
-      Effect.suspend(() => {
-        const existing = registry.get(launched).get(performanceScans);
-        if (existing !== undefined) {
-          return Effect.succeed(existing);
-        }
-        // First launch may pay the one-time browser download, so it sits inside
-        // the same lock as the launch itself: two sessions must not race the
-        // installer.
-        return ensureChromiumInstalled.pipe(
-          Effect.mapError((failure) =>
-            browserFailure("Could not install Chromium", failure)
-          ),
-          Effect.andThen(
-            Effect.tryPromise({
-              catch: (cause) =>
-                browserFailure("Could not start Chromium", cause),
-              try: () =>
-                launchChromium(
-                  performanceScans ? performanceDirectory : undefined
+export interface CreateBrowserOptions {
+  /**
+   * Chromium switches appended to every launch. A test seam: the site corpus
+   * replay routes the browser through its proxy with these, so Teaching and
+   * Runs see recorded sites through the product's own launch path.
+   */
+  readonly extraLaunchArgs?: readonly string[];
+}
+
+export const makeCreateBrowserLayer = (options: CreateBrowserOptions = {}) =>
+  Layer.effect(
+    CreateBrowser,
+    Effect.gen(function* launchCreateBrowser() {
+      const fs = yield* FileSystem.FileSystem;
+      const performanceDirectory = yield* fs.makeTempDirectoryScoped({
+        prefix: "contingency-scan-browser-",
+      });
+      const registry = AtomRegistry.make();
+      const launched = Atom.make<ReadonlyMap<boolean, LaunchedBrowser>>(
+        new Map()
+      ).pipe(Atom.keepAlive);
+      const launchLock = yield* Semaphore.make(1);
+      const getBrowser = (performanceScans = false) =>
+        Effect.suspend(() => {
+          const existing = registry.get(launched).get(performanceScans);
+          if (existing !== undefined) {
+            return Effect.succeed(existing);
+          }
+          // First launch may pay the one-time browser download, so it sits inside
+          // the same lock as the launch itself: two sessions must not race the
+          // installer.
+          return ensureChromiumInstalled.pipe(
+            Effect.mapError((failure) =>
+              browserFailure("Could not install Chromium", failure)
+            ),
+            Effect.andThen(
+              Effect.tryPromise({
+                catch: (cause) =>
+                  browserFailure("Could not start Chromium", cause),
+                try: () =>
+                  launchChromium(
+                    performanceScans ? performanceDirectory : undefined,
+                    options.extraLaunchArgs
+                  ),
+              }).pipe(
+                Effect.tap((browser) =>
+                  Effect.sync(() => {
+                    registry.update(launched, (current) =>
+                      new Map(current).set(performanceScans, browser)
+                    );
+                  })
                 ),
-            }).pipe(
-              Effect.tap((browser) =>
-                Effect.sync(() => {
-                  registry.update(launched, (current) =>
-                    new Map(current).set(performanceScans, browser)
-                  );
-                })
-              ),
-              // Playwright launch cannot be cancelled. Finish acquiring and
-              // registering its browser before interruption can close the scope,
-              // so the finalizer owns and awaits every launched process.
-              Effect.uninterruptible
+                // Playwright launch cannot be cancelled. Finish acquiring and
+                // registering its browser before interruption can close the scope,
+                // so the finalizer owns and awaits every launched process.
+                Effect.uninterruptible
+              )
             )
-          )
-        );
-      }).pipe(launchLock.withPermits(1));
-    yield* Effect.addFinalizer(() =>
-      Effect.suspend(() =>
-        Effect.forEach(
-          registry.get(launched).values(),
-          (current) =>
-            Effect.promise(() => current.browser.close()).pipe(Effect.ignore),
-          { discard: true }
-        ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
-      )
-    );
-    return makeService(getBrowser);
-  })
-).pipe(Layer.provide(NodeFileSystem.layer));
+          );
+        }).pipe(launchLock.withPermits(1));
+      yield* Effect.addFinalizer(() =>
+        Effect.suspend(() =>
+          Effect.forEach(
+            registry.get(launched).values(),
+            (current) =>
+              Effect.promise(() => current.browser.close()).pipe(Effect.ignore),
+            { discard: true }
+          ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
+        )
+      );
+      return makeService(getBrowser);
+    })
+  ).pipe(Layer.provide(NodeFileSystem.layer));
+
+export const CreateBrowserLive = makeCreateBrowserLayer();

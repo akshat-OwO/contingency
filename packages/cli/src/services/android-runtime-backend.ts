@@ -18,6 +18,10 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
 import {
+  androidNodeInteraction,
+  androidNodeName,
+} from "./android-observation.ts";
+import {
   prepareAndroidStartingState,
   requireAndroidAppBuild,
   requireAndroidPermissionState,
@@ -528,17 +532,11 @@ export const acquireAndroidBackend = (
               device: input.device,
               generation,
               id,
-              nodes: snapshot.nodes.map((node) => {
+              nodes: snapshot.nodes.map((node, index) => {
                 const observed: AndroidObservation["nodes"][number] = {
-                  covered:
-                    node.interactionBlocked === "covered" ||
-                    node.enabled === false,
-                  editable: node.editable === true,
-                  hittable: node.hittable === true,
-                  name: node.label ?? "",
+                  ...androidNodeInteraction(node),
+                  name: androidNodeName(snapshot.nodes, index),
                   packageName: node.bundleId ?? null,
-                  password: node.password === true,
-                  role: node.kind ?? node.role ?? node.type ?? "unknown",
                   target: target(node),
                 };
                 if (node.rect === undefined) {

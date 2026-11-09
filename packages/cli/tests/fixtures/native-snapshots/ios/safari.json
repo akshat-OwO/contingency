@@ -1,0 +1,1286 @@
+{
+  "capturedAt": "2026-11-09T17:33:56.299Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Safari",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "identifier": "SafariWindow?View=Narrow&BarsKeptMinimized=false&UUID=55C96609-E9D1-478D-8CAB-3272C24B6195&UsingLoweredBar=true&IsSecure=false&IsTabBarAvailable=false",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "label": "Vertical scroll bar, 1 page",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "identifier": "TabDocument?IsLoadedUsingDesktopUserAgent=false&InReaderMode=false&UUID=A0E4E698-2B35-4305-8645-F74292FEFDD8&IsPrivate=false&IsPageLoaded=true&WebViewProcessID=41572",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "WebView",
+      "kind": "webview",
+      "label": "Vertical scroll bar, 1 page",
+      "identifier": "WebView",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 4,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "WebView",
+      "kind": "webview",
+      "label": "Vertical scroll bar, 1 page",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 5,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "WebView",
+      "kind": "webview",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 6,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 30,
+        "height": 750,
+        "x": 369,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 6,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 278,
+        "height": 30,
+        "x": 62,
+        "y": 841
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 6,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Other",
+      "kind": "other",
+      "label": "Apple",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "Other",
+      "kind": "other",
+      "label": "close",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 10,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "CollectionView",
+      "kind": "collection",
+      "label": "Start Page",
+      "identifier": "StartPageCollectionView",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 11,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "AdditionalDimmingOverlay",
+      "rect": {
+        "width": 402,
+        "height": 142,
+        "x": 0,
+        "y": 732
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Start Page",
+      "identifier": "onboardingItemIdentifierContent-CustomizeStartPage",
+      "rect": {
+        "width": 370,
+        "height": 298.6666666666667,
+        "x": 16,
+        "y": 82
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Other",
+      "kind": "other",
+      "label": "Start Page",
+      "rect": {
+        "y": 82,
+        "width": 370,
+        "x": 16,
+        "height": 298.6666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 14,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Other",
+      "kind": "other",
+      "label": "Start Page",
+      "rect": {
+        "width": 330,
+        "x": 36,
+        "y": 102,
+        "height": 258.6666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 15,
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Start Page",
+      "rect": {
+        "width": 83.66666666666666,
+        "height": 20.33333333333333,
+        "x": 159.33333333333334,
+        "y": 102
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 16,
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "SafariOnboardingCustomizeStartPage",
+      "rect": {
+        "y": 134.33333333333334,
+        "height": 130.00000000000003,
+        "width": 310,
+        "x": 46
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 16,
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Customize your wallpaper and sections that appear when creating new tabs.",
+      "rect": {
+        "y": 276.33333333333337,
+        "height": 38,
+        "width": 330,
+        "x": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 16,
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "Button",
+      "kind": "button",
+      "label": "Customize Start Page",
+      "identifier": "onboardingButton-CustomizeStartPage",
+      "rect": {
+        "y": 326.33333333333337,
+        "height": 34.333333333333314,
+        "width": 330,
+        "x": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 16,
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Customize Start Page",
+      "rect": {
+        "y": 333.33333333333337,
+        "height": 20.333333333333314,
+        "width": 172.33333333333331,
+        "x": 114.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 20,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "Button",
+      "kind": "button",
+      "label": "close",
+      "rect": {
+        "y": 98,
+        "height": 23,
+        "width": 23,
+        "x": 347
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 15,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "Other",
+      "kind": "other",
+      "label": "Favorites",
+      "identifier": "favoritesItemIdentifierHeader",
+      "rect": {
+        "y": 410.6666666666667,
+        "height": 36.333333333333314,
+        "width": 370,
+        "x": 16
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "Other",
+      "kind": "other",
+      "label": "Favorites",
+      "rect": {
+        "y": 410.6666666666667,
+        "height": 26.333333333333314,
+        "width": 122.66666666666669,
+        "x": 16
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 23,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Favorites",
+      "rect": {
+        "y": 410.6666666666667,
+        "height": 26.333333333333314,
+        "width": 122.66666666666669,
+        "x": 16
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 24,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Apple",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "height": 94.33333333333337,
+        "y": 447,
+        "x": 16,
+        "width": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "Other",
+      "kind": "other",
+      "label": "Apple",
+      "rect": {
+        "height": 94.33333333333337,
+        "y": 447,
+        "x": 16,
+        "width": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 26,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Apple",
+      "rect": {
+        "height": 14.333333333333371,
+        "y": 527,
+        "x": 10.666666666666664,
+        "width": 82.66666666666669
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 27,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "iCloud",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "height": 94.33333333333337,
+        "y": 447,
+        "x": 115.33333333333331,
+        "width": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "Other",
+      "kind": "other",
+      "label": "iCloud",
+      "rect": {
+        "height": 94.33333333333337,
+        "y": 447,
+        "x": 115.33333333333331,
+        "width": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 29,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "iCloud",
+      "rect": {
+        "height": 14.333333333333371,
+        "y": 527,
+        "x": 109.99999999999997,
+        "width": 82.66666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 30,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Google",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "y": 447,
+        "height": 94.33333333333337,
+        "x": 214.66666666666666,
+        "width": 71.99999999999997
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e33"
+    },
+    {
+      "index": 33,
+      "type": "Other",
+      "kind": "other",
+      "label": "Google",
+      "rect": {
+        "y": 447,
+        "height": 94.33333333333337,
+        "width": 71.99999999999997,
+        "x": 214.66666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 32,
+      "ref": "e34"
+    },
+    {
+      "index": 34,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Google",
+      "rect": {
+        "y": 527,
+        "x": 209.33333333333331,
+        "width": 82.66666666666669,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 33,
+      "ref": "e35"
+    },
+    {
+      "index": 35,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Yahoo",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "y": 447,
+        "x": 314,
+        "width": 72,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e36"
+    },
+    {
+      "index": 36,
+      "type": "Other",
+      "kind": "other",
+      "label": "Yahoo",
+      "rect": {
+        "y": 447,
+        "x": 314,
+        "width": 72,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 35,
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Yahoo",
+      "rect": {
+        "x": 308.6666666666667,
+        "width": 82.66666666666669,
+        "y": 527,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 36,
+      "ref": "e38"
+    },
+    {
+      "index": 38,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Facebook",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "x": 16,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "Other",
+      "kind": "other",
+      "label": "Facebook",
+      "rect": {
+        "x": 16,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 38,
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Facebook",
+      "rect": {
+        "x": 10.666666666666664,
+        "width": 82.66666666666669,
+        "y": 635.3333333333333,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 39,
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Zomato",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "x": 115.33333333333331,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "Other",
+      "kind": "other",
+      "label": "Zomato",
+      "rect": {
+        "x": 115.33333333333331,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 41,
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Zomato",
+      "rect": {
+        "x": 109.99999999999997,
+        "width": 82.66666666666666,
+        "y": 635.3333333333333,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 42,
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "NDTV",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "x": 214.66666666666666,
+        "width": 71.99999999999997,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e45"
+    },
+    {
+      "index": 45,
+      "type": "Other",
+      "kind": "other",
+      "label": "NDTV",
+      "rect": {
+        "x": 214.66666666666666,
+        "width": 71.99999999999997,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 44,
+      "ref": "e46"
+    },
+    {
+      "index": 46,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "NDTV",
+      "rect": {
+        "x": 209.33333333333331,
+        "width": 82.66666666666669,
+        "y": 635.3333333333333,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 45,
+      "ref": "e47"
+    },
+    {
+      "index": 47,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Hotstar",
+      "identifier": "favoritesItemIdentifierContent",
+      "rect": {
+        "x": 314,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e48"
+    },
+    {
+      "index": 48,
+      "type": "Other",
+      "kind": "other",
+      "label": "Hotstar",
+      "rect": {
+        "x": 314,
+        "width": 72,
+        "y": 555.3333333333333,
+        "height": 94.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 47,
+      "ref": "e49"
+    },
+    {
+      "index": 49,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Hotstar",
+      "rect": {
+        "x": 308.6666666666667,
+        "width": 82.66666666666669,
+        "y": 635.3333333333333,
+        "height": 14.333333333333371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 48,
+      "ref": "e50"
+    },
+    {
+      "index": 50,
+      "type": "Other",
+      "kind": "other",
+      "label": "Privacy Report",
+      "identifier": "privacyReportIdentifierHeader",
+      "rect": {
+        "x": 16,
+        "width": 370,
+        "y": 679.6666666666666,
+        "height": 36.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e51"
+    },
+    {
+      "index": 51,
+      "type": "Other",
+      "kind": "other",
+      "label": "Privacy Report",
+      "rect": {
+        "x": 16,
+        "width": 150.66666666666666,
+        "y": 679.6666666666666,
+        "height": 26.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 50,
+      "ref": "e52"
+    },
+    {
+      "index": 52,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Privacy Report",
+      "rect": {
+        "x": 16,
+        "width": 150.66666666666666,
+        "y": 679.6666666666666,
+        "height": 26.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 51,
+      "ref": "e53"
+    },
+    {
+      "index": 53,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "0 blocked trackers",
+      "identifier": "privacyReportIdentifierContent",
+      "rect": {
+        "x": 16,
+        "width": 370,
+        "y": 716,
+        "height": 78
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e54"
+    },
+    {
+      "index": 54,
+      "type": "Other",
+      "kind": "other",
+      "label": "0 blocked trackers",
+      "rect": {
+        "x": 16,
+        "width": 370,
+        "y": 716,
+        "height": 78
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 53,
+      "ref": "e55"
+    },
+    {
+      "index": 55,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "0 blocked trackers",
+      "rect": {
+        "x": 36,
+        "width": 21,
+        "y": 736,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 54,
+      "ref": "e56"
+    },
+    {
+      "index": 56,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "In the last seven days, Safari has prevented 0 trackers from profiling you.",
+      "identifier": "TrackersPreventedCount?TrackingPreventionDataExists=false",
+      "rect": {
+        "x": 77,
+        "width": 289,
+        "y": 736,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 54,
+      "ref": "e57"
+    },
+    {
+      "index": 57,
+      "type": "Cell",
+      "kind": "cell",
+      "label": "Edit",
+      "identifier": "com.apple.mobilesafari.framework-customization-sectionContent",
+      "rect": {
+        "x": 16,
+        "width": 370,
+        "y": 824,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e58"
+    },
+    {
+      "index": 58,
+      "type": "Other",
+      "kind": "other",
+      "label": "Edit",
+      "rect": {
+        "x": 16,
+        "width": 370,
+        "y": 824,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 57,
+      "ref": "e59"
+    },
+    {
+      "index": 59,
+      "type": "Button",
+      "kind": "button",
+      "label": "Edit",
+      "identifier": "customizationsSheetButton",
+      "rect": {
+        "x": 165.66666666666666,
+        "width": 71,
+        "y": 832,
+        "height": 34.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 58,
+      "ref": "e60"
+    },
+    {
+      "index": 60,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Edit",
+      "rect": {
+        "x": 185.66666666666666,
+        "width": 31,
+        "y": 839,
+        "height": 20.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 59,
+      "ref": "e61"
+    },
+    {
+      "index": 61,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 2 pages",
+      "value": "0%",
+      "rect": {
+        "x": 369,
+        "width": 30,
+        "y": 62,
+        "height": 714
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e62"
+    },
+    {
+      "index": 62,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 62,
+        "width": 278,
+        "y": 743,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "ref": "e63"
+    },
+    {
+      "index": 63,
+      "type": "Other",
+      "kind": "other",
+      "label": "Back",
+      "identifier": "CapsuleViewController",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e64"
+    },
+    {
+      "index": 64,
+      "type": "Other",
+      "kind": "other",
+      "label": "Back",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 776,
+        "height": 98
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 63,
+      "ref": "e65"
+    },
+    {
+      "index": 65,
+      "type": "Other",
+      "kind": "other",
+      "label": "Back",
+      "rect": {
+        "x": 34,
+        "width": 48,
+        "y": 792,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 64,
+      "ref": "e66"
+    },
+    {
+      "index": 66,
+      "type": "Button",
+      "kind": "button",
+      "label": "Back",
+      "identifier": "BackButton",
+      "rect": {
+        "x": 34,
+        "width": 48,
+        "y": 792,
+        "height": 48
+      },
+      "enabled": false,
+      "hittable": false,
+      "depth": 5,
+      "parentIndex": 65,
+      "ref": "e67"
+    },
+    {
+      "index": 67,
+      "type": "Other",
+      "kind": "other",
+      "label": "Address",
+      "rect": {
+        "x": 90,
+        "width": 222,
+        "y": 792,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 64,
+      "ref": "e68"
+    },
+    {
+      "index": 68,
+      "type": "Other",
+      "kind": "other",
+      "label": "Address",
+      "identifier": "CapsuleNavigationBar?isSelected=true&isDistractionControlOverlayUp=false",
+      "rect": {
+        "x": 90,
+        "width": 222,
+        "y": 792,
+        "height": 48
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 67,
+      "ref": "e69"
+    },
+    {
+      "index": 69,
+      "type": "TextField",
+      "kind": "text-field",
+      "label": "Address",
+      "identifier": "TabBarItemTitle",
+      "rect": {
+        "x": 136.66666666666666,
+        "width": 131.99999999999997,
+        "y": 806,
+        "height": 20.33333333333337
+      },
+      "enabled": true,
+      "placeholder": "Search or enter website",
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 68,
+      "ref": "e70"
+    },
+    {
+      "index": 70,
+      "type": "Button",
+      "kind": "button",
+      "label": "Voice Search",
+      "identifier": "VoiceSearchButton",
+      "rect": {
+        "x": 281.66666666666663,
+        "width": 17.333333333333314,
+        "y": 805.6666666666666,
+        "height": 21
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 68,
+      "ref": "e71"
+    },
+    {
+      "index": 71,
+      "type": "Other",
+      "kind": "other",
+      "label": "More",
+      "rect": {
+        "x": 320,
+        "width": 48,
+        "y": 792,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 64,
+      "ref": "e72"
+    },
+    {
+      "index": 72,
+      "type": "Button",
+      "kind": "button",
+      "label": "More",
+      "identifier": "MoreMenuButton",
+      "rect": {
+        "y": 792,
+        "x": 320,
+        "width": 48,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 71,
+      "ref": "e73"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.mobilesafari",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

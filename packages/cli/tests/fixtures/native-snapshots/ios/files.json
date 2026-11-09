@@ -1,0 +1,201 @@
+{
+  "capturedAt": "2026-11-09T17:32:43.886Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Other",
+      "role": "Files.DOCApplication",
+      "subrole": "UIApplication",
+      "kind": "other",
+      "label": "Files",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 402,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "NavigationBar",
+      "role": "DocumentManagerExecutables.DOCNavigationBar",
+      "subrole": "UINavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "FullDocumentManagerViewControllerNavigationBar",
+      "rect": {
+        "x": 0,
+        "y": 62,
+        "width": 402,
+        "height": 106
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Recents",
+      "rect": {
+        "x": 16,
+        "y": 119.66666666666667,
+        "width": 130,
+        "height": 40.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "TabBar",
+      "role": "UITabBar",
+      "kind": "tab-bar",
+      "label": "Tab Bar",
+      "identifier": "DOC.browsingModeTabBar",
+      "rect": {
+        "x": 0,
+        "y": 791,
+        "width": 402,
+        "height": 83
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Recents",
+      "rect": {
+        "x": 68,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "clock",
+      "identifier": "clock.fill",
+      "rect": {
+        "x": 101,
+        "y": 801.3333333333334,
+        "width": 27.333333333333343,
+        "height": 27.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 4,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Shared",
+      "rect": {
+        "x": 154,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "Shared Folder",
+      "identifier": "folder.fill.badge.person.crop",
+      "rect": {
+        "x": 185,
+        "y": 800.3333333333334,
+        "width": 35,
+        "height": 27
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 6,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Browse",
+      "rect": {
+        "x": 240,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "move",
+      "identifier": "folder.fill",
+      "rect": {
+        "x": 271,
+        "y": 802.3333333333334,
+        "width": 32,
+        "height": 25
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "ref": "e10"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.DocumentsApp",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

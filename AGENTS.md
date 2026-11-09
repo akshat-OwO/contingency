@@ -11,6 +11,7 @@
 ## Verification
 
 - Read `docs/agents/testing.md` before writing or fixing tests or changing waits. Reproduce regressions; wait on events or virtual time. Passing lint alone does not establish correctness.
+- Run the coverage corpus suites that match the areas you change; `docs/agents/testing.md#when-to-run-them` maps areas to suites.
 - Use `verify-contingency` for user-visible or MCP-visible changes. Verify acceptance criteria on the final revision; rerun affected paths after edits and disclose evidence gaps.
 - Review the final diff and delegated work yourself. Completion includes required checks, regression review, and cleanup.
 - For GitHub issues and triage, read `docs/agents/issue-tracker.md` and `docs/agents/triage-labels.md`. For verification briefs, read `docs/agents/verification.md`.

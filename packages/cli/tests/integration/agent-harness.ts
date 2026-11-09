@@ -34,7 +34,11 @@ import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import type { AgentBrowserFactory } from "../../src/services/agent-browser-contract.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
-import { CreateBrowserLive } from "../../src/services/create-browser.ts";
+import {
+  CreateBrowserLive,
+  makeCreateBrowserLayer,
+} from "../../src/services/create-browser.ts";
+import type { CreateBrowserOptions } from "../../src/services/create-browser.ts";
 import { discoverFlows } from "../../src/services/flow-catalog-layout.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
@@ -430,10 +434,13 @@ export const agentProcessLayer = (
     readonly now?: () => Date;
     /** This process's owner marker, under which per-session resources live. */
     readonly resourceDirectory?: string;
+    /** Browser launch seams, such as the site corpus replay proxy. */
+    readonly createBrowser?: CreateBrowserOptions;
   } = {}
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
-  const { followCatalogSelection, now, ...sessionSeams } = options;
+  const { createBrowser, followCatalogSelection, now, ...sessionSeams } =
+    options;
   const sessionOptions = {
     ...sessionSeams,
     allowedActivity: "any" as const,
@@ -481,7 +488,11 @@ export const agentProcessLayer = (
         recordingStore,
         RunVideoRendererLive
       ).pipe(
-        Layer.provideMerge(CreateBrowserLive),
+        Layer.provideMerge(
+          createBrowser === undefined
+            ? CreateBrowserLive
+            : makeCreateBrowserLayer(createBrowser)
+        ),
         Layer.provideMerge(NodeServices.layer)
       )
     )

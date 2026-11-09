@@ -1,0 +1,378 @@
+{
+  "capturedAt": "2026-11-09T17:37:34.331Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "12:14",
+      "value": "12:14",
+      "contentDescription": "12:14 AM",
+      "identifier": "com.android.systemui:id/clock",
+      "rect": {
+        "x": 11,
+        "y": 41,
+        "width": 160,
+        "height": 59
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Android System notification: ",
+      "rect": {
+        "x": 171,
+        "y": 0,
+        "width": 67,
+        "height": 142
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Wifi signal full.",
+      "identifier": "com.android.systemui:id/wifi_signal",
+      "rect": {
+        "x": 840,
+        "y": 44,
+        "width": 53,
+        "height": 53
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Airplane mode.",
+      "rect": {
+        "x": 907,
+        "y": 37,
+        "width": 54,
+        "height": 67
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 4,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 6,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "android:id/content",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 2,
+      "parentIndex": 7,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "android.widget.ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "identifier": "com.android.permissioncontroller:id/grant_singleton",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 9,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "identifier": "com.android.permissioncontroller:id/grant_dialog",
+      "rect": {
+        "x": 28,
+        "y": 822,
+        "width": 1024,
+        "height": 859
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 10,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.permissioncontroller:id/permission_icon",
+      "rect": {
+        "x": 498,
+        "y": 927,
+        "width": 84,
+        "height": 84
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 11,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Allow Contacts to send you notifications?",
+      "value": "Allow Contacts to send you notifications?",
+      "identifier": "com.android.permissioncontroller:id/permission_message",
+      "rect": {
+        "x": 133,
+        "y": 1043,
+        "width": 814,
+        "height": 161
+      },
+      "enabled": true,
+      "selected": false,
+      "heading": true,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 11,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "rect": {
+        "x": 70,
+        "y": 1267,
+        "width": 940,
+        "height": 372
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 11,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "android.widget.Button",
+      "kind": "button",
+      "label": "Allow",
+      "value": "Allow",
+      "identifier": "com.android.permissioncontroller:id/permission_allow_button",
+      "rect": {
+        "x": 133,
+        "y": 1272,
+        "width": 814,
+        "height": 147
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 14,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "android.widget.Button",
+      "kind": "button",
+      "label": "Don’t allow",
+      "value": "Don’t allow",
+      "identifier": "com.android.permissioncontroller:id/permission_deny_button",
+      "rect": {
+        "x": 133,
+        "y": 1429,
+        "width": 814,
+        "height": 147
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 14,
+      "bundleId": "com.google.android.permissioncontroller",
+      "ref": "e17"
+    }
+  ],
+  "platform": "android",
+  "source": {
+    "app": "com.google.android.contacts",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 1080,
+    "height": 2424
+  }
+}

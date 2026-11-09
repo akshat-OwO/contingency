@@ -1,0 +1,276 @@
+{
+  "capturedAt": "2026-11-09T17:37:25.099Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "12:14",
+      "value": "12:14",
+      "contentDescription": "12:14 AM",
+      "identifier": "com.android.systemui:id/clock",
+      "rect": {
+        "x": 11,
+        "y": 41,
+        "width": 160,
+        "height": 59
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Android System notification: ",
+      "rect": {
+        "x": 171,
+        "y": 0,
+        "width": 67,
+        "height": 142
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Wifi signal full.",
+      "identifier": "com.android.systemui:id/wifi_signal",
+      "rect": {
+        "x": 840,
+        "y": 44,
+        "width": 53,
+        "height": 53
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "label": "Airplane mode.",
+      "rect": {
+        "x": 907,
+        "y": 37,
+        "width": 54,
+        "height": 67
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "rect": {
+        "x": 977,
+        "y": 47,
+        "width": 28,
+        "height": 47
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 4,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 24,
+        "y": 865,
+        "width": 906,
+        "height": 378
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 24,
+        "y": 865,
+        "width": 906,
+        "height": 378
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 6,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "android.widget.ListView",
+      "kind": "list",
+      "rect": {
+        "x": 24,
+        "y": 865,
+        "width": 906,
+        "height": 378
+      },
+      "enabled": true,
+      "selected": false,
+      "focused": true,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 7,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "android.widget.CheckedTextView",
+      "kind": "text",
+      "label": "Small",
+      "value": "Small",
+      "identifier": "android:id/text1",
+      "rect": {
+        "x": 24,
+        "y": 865,
+        "width": 906,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "checked": true,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "android.widget.CheckedTextView",
+      "kind": "text",
+      "label": "Medium",
+      "value": "Medium",
+      "identifier": "android:id/text1",
+      "rect": {
+        "x": 24,
+        "y": 991,
+        "width": 906,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "checked": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "android.widget.CheckedTextView",
+      "kind": "text",
+      "label": "Large",
+      "value": "Large",
+      "identifier": "android:id/text1",
+      "rect": {
+        "x": 24,
+        "y": 1117,
+        "width": 906,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "checked": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 8,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e12"
+    }
+  ],
+  "platform": "android",
+  "source": {
+    "app": "dev.contingency.physicalfixture",
+    "corpus": true,
+    "screen": "spinner-open"
+  },
+  "viewport": {
+    "width": 1080,
+    "height": 2424
+  }
+}

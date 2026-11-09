@@ -1,0 +1,1053 @@
+{
+  "capturedAt": "2026-11-09T17:32:33.207Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Calendar",
+      "rect": {
+        "y": 0,
+        "height": 874,
+        "x": 0,
+        "width": 402
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "Other",
+      "kind": "other",
+      "label": "November",
+      "rect": {
+        "y": 0,
+        "height": 874,
+        "x": 0,
+        "width": 402
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "NavigationBar",
+      "kind": "navigation-bar",
+      "label": "November",
+      "identifier": "DayViewContainerView",
+      "rect": {
+        "y": 61.99999999999999,
+        "height": 121.33333333333331,
+        "x": 1.0000002248489182e-7,
+        "width": 401.9999999
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "Button",
+      "kind": "button",
+      "label": "November",
+      "identifier": "BackButton",
+      "rect": {
+        "y": 61.99999999999999,
+        "height": 44.00000000000001,
+        "x": 16.000000100000026,
+        "width": 132.33333333333334
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Button",
+      "kind": "button",
+      "label": "Single Day",
+      "identifier": "toggle-day-list-view",
+      "rect": {
+        "y": 66,
+        "height": 36,
+        "x": 227.3333334333334,
+        "width": 45.666666666666686
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Button",
+      "kind": "button",
+      "label": "Search",
+      "identifier": "searchbar-button",
+      "rect": {
+        "y": 66,
+        "height": 36,
+        "x": 289.0000001,
+        "width": 39.666666666666686
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "Button",
+      "kind": "button",
+      "label": "Add",
+      "identifier": "add-plus-button",
+      "rect": {
+        "y": 66,
+        "height": 36,
+        "x": 344.6666667666667,
+        "width": 37.333333333333314
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "label": "Sunday, November 8",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 1.00000761449337e-7,
+        "width": 401.3333333333321
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 2,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Button",
+      "kind": "button",
+      "label": "Sunday, November 8",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 1.00000761449337e-7,
+        "width": 57.3333333333326
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Today, Monday, November 9",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 57.33333343333214,
+        "width": 57.33333333333334
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Button",
+      "kind": "button",
+      "label": "Tuesday, November 10",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 114.66666676666426,
+        "width": 57.33333333333334
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "Button",
+      "kind": "button",
+      "label": "Wednesday, November 11",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 172.00000009999638,
+        "width": 57.33333333333334
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "Button",
+      "kind": "button",
+      "label": "Thursday, November 12",
+      "rect": {
+        "y": 133.33333333333331,
+        "height": 43,
+        "x": 229.3333334333285,
+        "width": 57.333333333333314
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "Button",
+      "kind": "button",
+      "label": "Friday, November 13",
+      "rect": {
+        "x": 286.6666667666606,
+        "width": 57.333333333333314,
+        "y": 133.33333333333331,
+        "height": 43
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Button",
+      "kind": "button",
+      "label": "Saturday, November 14",
+      "rect": {
+        "width": 57.333333333333314,
+        "height": 43,
+        "y": 133.33333333333331,
+        "x": 344.00000009999275
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 100 pages",
+      "value": "0%",
+      "rect": {
+        "height": 43,
+        "x": 368.3333334333329,
+        "y": 133.33333333333331,
+        "width": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 7,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Other",
+      "kind": "other",
+      "label": "Monday – Nov 9, 2026",
+      "rect": {
+        "height": 874,
+        "x": 0,
+        "y": 0,
+        "width": 402
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "label": "all-day",
+      "rect": {
+        "height": 874,
+        "x": 0,
+        "y": 0,
+        "width": 402
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 16,
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "Other",
+      "kind": "other",
+      "label": "all-day",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 17,
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "Other",
+      "kind": "other",
+      "label": "all-day",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 219.33333333333334,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 18,
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "all-day",
+      "identifier": "AllDayLabel",
+      "rect": {
+        "x": 19,
+        "width": 36,
+        "y": 229,
+        "height": 13.333333333333343
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 19,
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "Button",
+      "kind": "button",
+      "label": "Diwali (Deepawali), All day, India Holidays",
+      "identifier": "event-shown:Diwali (Deepawali)",
+      "rect": {
+        "x": 67.5,
+        "width": 332.5,
+        "y": 223.33333333333334,
+        "height": 23.66666603088379
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 19,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "_contentView",
+      "rect": {
+        "x": 71.5,
+        "width": 322.6666666666667,
+        "y": 224.3333330154419,
+        "height": 21.666666666666657
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 21,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "label": "Monday, November 9",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 18,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "Other",
+      "kind": "other",
+      "label": "Monday, November 9",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 23,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "Other",
+      "kind": "other",
+      "label": "6:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 0,
+        "height": 5
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "Other",
+      "kind": "other",
+      "label": "7:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 5,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "Other",
+      "kind": "other",
+      "label": "8:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 55,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "Other",
+      "kind": "other",
+      "label": "9:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 105,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "Other",
+      "kind": "other",
+      "label": "10:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 155,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "Other",
+      "kind": "other",
+      "label": "11:00 AM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 205,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "Other",
+      "kind": "other",
+      "label": "12:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 255,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "Other",
+      "kind": "other",
+      "label": "1:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 305,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e33"
+    },
+    {
+      "index": 33,
+      "type": "Other",
+      "kind": "other",
+      "label": "2:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 355,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e34"
+    },
+    {
+      "index": 34,
+      "type": "Other",
+      "kind": "other",
+      "label": "3:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 405,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e35"
+    },
+    {
+      "index": 35,
+      "type": "Other",
+      "kind": "other",
+      "label": "4:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 455,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e36"
+    },
+    {
+      "index": 36,
+      "type": "Other",
+      "kind": "other",
+      "label": "5:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 505,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "Other",
+      "kind": "other",
+      "label": "6:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 555,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e38"
+    },
+    {
+      "index": 38,
+      "type": "Other",
+      "kind": "other",
+      "label": "7:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 605,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "Other",
+      "kind": "other",
+      "label": "8:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 655,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "Other",
+      "kind": "other",
+      "label": "9:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 705,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "Other",
+      "kind": "other",
+      "label": "10:00 PM",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 755,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 24,
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "Other",
+      "kind": "other",
+      "label": "11:00 PM, In Progress",
+      "rect": {
+        "x": 62,
+        "width": 340,
+        "y": 805,
+        "height": 50
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 7,
+      "parentIndex": 24,
+      "interactionBlocked": "covered",
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 3 pages",
+      "value": "88%",
+      "rect": {
+        "x": 369,
+        "width": 30,
+        "y": 251.33333333333337,
+        "height": 536.6666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 23,
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 62,
+        "width": 278,
+        "y": 841,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 6,
+      "parentIndex": 23,
+      "interactionBlocked": "covered",
+      "ref": "e45"
+    },
+    {
+      "index": 45,
+      "type": "Other",
+      "kind": "other",
+      "label": "Monday – Nov 9, 2026",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 183.33333333333334,
+        "height": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 18,
+      "ref": "e46"
+    },
+    {
+      "index": 46,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Monday – Nov 9, 2026",
+      "identifier": "current-day",
+      "rect": {
+        "x": 120.66666666666663,
+        "width": 160.66666666666663,
+        "y": 192.33333333333334,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 45,
+      "ref": "e47"
+    },
+    {
+      "index": 47,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "AdditionalDimmingOverlay",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 738,
+        "height": 136
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 4,
+      "parentIndex": 17,
+      "interactionBlocked": "covered",
+      "ref": "e48"
+    },
+    {
+      "index": 48,
+      "type": "Other",
+      "kind": "other",
+      "label": "Toolbar",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 0,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e49"
+    },
+    {
+      "index": 49,
+      "type": "Toolbar",
+      "kind": "toolbar",
+      "label": "Toolbar",
+      "identifier": "Toolbar",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "y": 788,
+        "height": 86
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 48,
+      "ref": "e50"
+    },
+    {
+      "index": 50,
+      "type": "Other",
+      "kind": "other",
+      "label": "Today",
+      "rect": {
+        "x": 27.999999999999996,
+        "width": 79,
+        "y": 798,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 49,
+      "ref": "e51"
+    },
+    {
+      "index": 51,
+      "type": "Other",
+      "kind": "other",
+      "label": "Today",
+      "rect": {
+        "x": 33,
+        "width": 69,
+        "y": 803,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 50,
+      "ref": "e52"
+    },
+    {
+      "index": 52,
+      "type": "Button",
+      "kind": "button",
+      "label": "Today",
+      "identifier": "today-button",
+      "rect": {
+        "width": 69,
+        "height": 38,
+        "x": 33,
+        "y": 803
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 51,
+      "ref": "e53"
+    },
+    {
+      "index": 53,
+      "type": "Other",
+      "kind": "other",
+      "label": "Calendars",
+      "rect": {
+        "height": 48,
+        "x": 246.66666666666666,
+        "y": 798,
+        "width": 127.33333333333334
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 49,
+      "ref": "e54"
+    },
+    {
+      "index": 54,
+      "type": "Other",
+      "kind": "other",
+      "label": "Calendars",
+      "rect": {
+        "x": 246.66666666666666,
+        "width": 66.66666666666666,
+        "y": 798,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 53,
+      "ref": "e55"
+    },
+    {
+      "index": 55,
+      "type": "Other",
+      "kind": "other",
+      "label": "Calendars",
+      "rect": {
+        "x": 251.66666666666666,
+        "width": 56.66666666666666,
+        "y": 803,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 54,
+      "ref": "e56"
+    },
+    {
+      "index": 56,
+      "type": "Button",
+      "kind": "button",
+      "label": "Calendars",
+      "identifier": "calendars-button",
+      "rect": {
+        "x": 251.66666666666666,
+        "width": 56.66666666666666,
+        "y": 803,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 55,
+      "ref": "e57"
+    },
+    {
+      "index": 57,
+      "type": "Other",
+      "kind": "other",
+      "label": "inbox",
+      "rect": {
+        "x": 317.3333333333333,
+        "width": 56.666666666666686,
+        "y": 798,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 53,
+      "ref": "e58"
+    },
+    {
+      "index": 58,
+      "type": "Other",
+      "kind": "other",
+      "label": "inbox",
+      "rect": {
+        "x": 322.3333333333333,
+        "width": 46.666666666666686,
+        "y": 803,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 57,
+      "ref": "e59"
+    },
+    {
+      "index": 59,
+      "type": "Button",
+      "kind": "button",
+      "label": "inbox",
+      "identifier": "inbox-button",
+      "rect": {
+        "x": 322.3333333333333,
+        "width": 46.666666666666686,
+        "y": 803,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 58,
+      "ref": "e60"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.mobilecal",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

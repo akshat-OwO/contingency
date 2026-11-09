@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Matrix frame</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      button {
+        width: 280px;
+        height: 60px;
+      }
+    </style>
+  </head>
+  <body>
+    <button type="button" id="save"></button>
+    <script>
+      // The parent names this frame's button through the query string, so one
+      // child page serves both the same-origin and cross-origin slots.
+      document.getElementById("save").textContent =
+        new URLSearchParams(location.search).get("label") ?? "Frame save";
+    </script>
+  </body>
+</html>

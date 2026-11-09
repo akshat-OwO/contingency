@@ -1,0 +1,1299 @@
+{
+  "capturedAt": "2026-11-09T17:33:40.790Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Maps",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "Window",
+      "kind": "window",
+      "identifier": "Maps.Application",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "Other",
+      "kind": "other",
+      "label": "K2",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 127.36885221216502,
+        "width": 30,
+        "height": 30,
+        "x": 111.21554935976513
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "Other",
+      "kind": "other",
+      "label": "Kabul",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 153.99580803994158,
+        "width": 23.510381985790943,
+        "height": 30,
+        "x": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Other",
+      "kind": "other",
+      "label": "Islamabad",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 169.8661662348867,
+        "width": 30,
+        "height": 30,
+        "x": 55.75743204971015
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Other",
+      "kind": "other",
+      "label": "Lahore",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 210.68826502001377,
+        "width": 30,
+        "height": 30,
+        "x": 75.8599288091541
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "Other",
+      "kind": "other",
+      "label": "Pakistan",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 233.78843153639951,
+        "width": 26.596295729603725,
+        "height": 30,
+        "x": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Other",
+      "kind": "other",
+      "label": "New Delhi",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 265.2646742407598,
+        "width": 30,
+        "height": 30,
+        "x": 122.5892953046806
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Other",
+      "kind": "other",
+      "label": "Nepal",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 277.52008522913803,
+        "width": 30,
+        "height": 30,
+        "x": 231.7421137461726
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Bhutan",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "y": 287.218658982306,
+        "width": 30,
+        "height": 30,
+        "x": 334.7230939385797
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Other",
+      "kind": "other",
+      "label": "Jaipur",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 100.01811920520385,
+        "height": 30,
+        "y": 296.6526729582496,
+        "width": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "Other",
+      "kind": "other",
+      "label": "Lucknow",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "width": 30,
+        "height": 30,
+        "x": 182.10314929718749,
+        "y": 297.71073988375923
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "Other",
+      "kind": "other",
+      "label": "Patna",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 249.72847665459744,
+        "width": 30,
+        "height": 30,
+        "y": 319.6647246253055
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "Other",
+      "kind": "other",
+      "label": "Bangladesh",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 332.3425402093376,
+        "width": 30,
+        "height": 30,
+        "y": 351.7581156417507
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Other",
+      "kind": "other",
+      "label": "India",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 149.4807248179875,
+        "width": 30,
+        "height": 30,
+        "y": 364.8952347194384
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Other",
+      "kind": "other",
+      "label": "Ahmedabad",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 48.351307937913944,
+        "width": 30,
+        "height": 30,
+        "y": 365.33606724116936
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Other",
+      "kind": "other",
+      "label": "Kolkata",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 301.571689803933,
+        "width": 30,
+        "height": 30,
+        "y": 373.2712678615653
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "Other",
+      "kind": "other",
+      "label": "Nagpur",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 153.0074710835308,
+        "width": 30,
+        "height": 30,
+        "y": 397.6939749889921
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "Other",
+      "kind": "other",
+      "label": "Mumbai",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 52.31888672518903,
+        "width": 30,
+        "height": 30,
+        "y": 435.43016003030687
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "Other",
+      "kind": "other",
+      "label": "Pune",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 68.89459417324298,
+        "width": 30,
+        "height": 30,
+        "y": 442.4836525613934
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "Other",
+      "kind": "other",
+      "label": "Visakhapatnam",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 220.3683247554117,
+        "width": 30,
+        "height": 30,
+        "y": 455.97344626563546
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "Other",
+      "kind": "other",
+      "label": "Hyderabad",
+      "identifier": "VKPointFeature",
+      "rect": {
+        "x": 142.51539018207828,
+        "width": 30,
+        "height": 30,
+        "y": 461.175407768774
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "AnnotationContainer",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "height": 874,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "StatusIndicatorView",
+      "rect": {
+        "x": 0,
+        "width": 402,
+        "height": 32,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "StatusIndicatorContent",
+      "rect": {
+        "x": 101.33333333333333,
+        "width": 199.33333333333337,
+        "height": 32,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 23,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Location Services is Off",
+      "identifier": "StatusIndicatorLabel",
+      "rect": {
+        "height": 18,
+        "width": 166,
+        "x": 113.33333333333333,
+        "y": 69
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 24,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "Image",
+      "kind": "image",
+      "label": "Forward",
+      "identifier": "StatusIndicatorDisclosure",
+      "rect": {
+        "height": 12.666666666666671,
+        "width": 9.333333333333314,
+        "x": 281.3333333333333,
+        "y": 71.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 24,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "ChromeOverlayController",
+      "rect": {
+        "height": 874,
+        "width": 402,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "IOSChromeViewController<0x7034e44000>.IOSFloatingControlsViewController<0x7034e91200>",
+      "rect": {
+        "height": 368.33333333333326,
+        "width": 370,
+        "x": 16,
+        "y": 109.99999999999997
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 27,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "Button",
+      "kind": "button",
+      "label": "Map Modes",
+      "identifier": "SettingsButton.Explore",
+      "rect": {
+        "height": 48,
+        "width": 48,
+        "x": 338,
+        "y": 382.33333333333326
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 28,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "Button",
+      "kind": "button",
+      "label": "Tracking",
+      "value": "Off",
+      "identifier": "UserLocationButton",
+      "rect": {
+        "height": 48,
+        "width": 48,
+        "x": 338,
+        "y": 430.33333333333326
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 28,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "IOSChromeViewController<0x7034e44000>.ControlContainerViewController<0x7034f7d500>",
+      "rect": {
+        "height": 874,
+        "width": 402,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "ControlContainerViewController.OverlayView",
+      "rect": {
+        "height": 394.33333333333326,
+        "width": 402,
+        "x": 0,
+        "y": 93.99999999999997
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 31,
+      "ref": "e33"
+    },
+    {
+      "index": 33,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "ChromeViewController.Viewport",
+      "rect": {
+        "height": 746,
+        "width": 338,
+        "x": 0,
+        "y": 94
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e34"
+    },
+    {
+      "index": 34,
+      "type": "Button",
+      "kind": "button",
+      "label": "Card controller",
+      "value": "Half screen",
+      "identifier": "Card grabber",
+      "rect": {
+        "x": 154.91044776119404,
+        "height": 24.00497512437812,
+        "width": 92.17910447761193,
+        "y": 483.5207296849089
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e35"
+    },
+    {
+      "index": 35,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "MapsSearchBar",
+      "rect": {
+        "x": 8,
+        "width": 386,
+        "height": 72.9751243781094,
+        "y": 488.32172470978446
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e36"
+    },
+    {
+      "index": 36,
+      "type": "SearchField",
+      "kind": "search",
+      "label": "Apple Maps",
+      "identifier": "MapsSearchTextField",
+      "rect": {
+        "width": 305.34328358208955,
+        "height": 42.24875621890544,
+        "y": 503.68490878938644,
+        "x": 23.36318407960199
+      },
+      "enabled": true,
+      "placeholder": "Apple Maps",
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 35,
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "Button",
+      "kind": "button",
+      "label": "Dictate",
+      "identifier": "Dictate",
+      "rect": {
+        "width": 16.64344941956881,
+        "height": 21.124378109452778,
+        "y": 514.2470978441128,
+        "x": 296.69983416252074
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 36,
+      "ref": "e38"
+    },
+    {
+      "index": 38,
+      "type": "Image",
+      "kind": "image",
+      "label": "Search",
+      "identifier": "magnifyingglass",
+      "rect": {
+        "width": 19.844112769485903,
+        "height": 18.563847429519114,
+        "y": 515.2072968490879,
+        "x": 34.88557213930348
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 36,
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "Button",
+      "kind": "button",
+      "label": "Dictate",
+      "identifier": "Dictate",
+      "rect": {
+        "width": 16.64344941956881,
+        "height": 21.124378109452778,
+        "y": 514.2470978441128,
+        "x": 296.69983416252074
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 36,
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "Button",
+      "kind": "button",
+      "label": "profile",
+      "identifier": "userProfileButton",
+      "rect": {
+        "width": 42.2487562189055,
+        "height": 42.24875621890544,
+        "y": 503.68490878938644,
+        "x": 336.3880597014925
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "HomeView",
+      "rect": {
+        "width": 386,
+        "height": 377.67827529021554,
+        "y": 488.32172470978446,
+        "x": 8
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "CollectionView",
+      "kind": "collection",
+      "label": "Locations",
+      "rect": {
+        "width": 386,
+        "height": 377.6782752902156,
+        "y": 488.3217247097844,
+        "x": 8
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 41,
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "width": 347.592039800995,
+        "height": 42.24875621890544,
+        "y": 561.2968490878939,
+        "x": 27.203980099502488
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "Button",
+      "kind": "button",
+      "label": "Places",
+      "identifier": "SectionHeader",
+      "rect": {
+        "width": 75.53565505804312,
+        "height": 23.044776119402968,
+        "y": 570.8988391376452,
+        "x": 27.203980099502488
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 43,
+      "ref": "e45"
+    },
+    {
+      "index": 45,
+      "type": "Cell",
+      "kind": "cell",
+      "identifier": "PinnedItemSection",
+      "rect": {
+        "width": 386,
+        "height": 120.98507462686564,
+        "y": 603.5456053067994,
+        "x": 8
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e46"
+    },
+    {
+      "index": 46,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "width": 386,
+        "height": 120.98507462686564,
+        "y": 603.5456053067994,
+        "x": 8
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 45,
+      "ref": "e47"
+    },
+    {
+      "index": 47,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "width": 386,
+        "x": 8,
+        "y": 603.5456053067994,
+        "height": 120.98507462686564
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 46,
+      "ref": "e48"
+    },
+    {
+      "index": 48,
+      "type": "Button",
+      "kind": "button",
+      "label": "Home, Add",
+      "identifier": "PinnedTile",
+      "rect": {
+        "y": 603.5456053067994,
+        "height": 120.82500016195058,
+        "x": 23.363183975219727,
+        "width": 83.21724700927734
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 47,
+      "ref": "e49"
+    },
+    {
+      "index": 49,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "IconImage",
+      "rect": {
+        "height": 83.21724709784394,
+        "width": 83.21724709784411,
+        "x": 23.363184079601993,
+        "y": 603.5456053067994
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 48,
+      "ref": "e50"
+    },
+    {
+      "index": 50,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Home",
+      "identifier": "TitleLabel",
+      "rect": {
+        "height": 15.0431177446103,
+        "width": 35.207296849087896,
+        "x": 47.3681592039801,
+        "y": 694.2844112769485
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 48,
+      "ref": "e51"
+    },
+    {
+      "index": 51,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Add",
+      "identifier": "SubtitleLabel",
+      "rect": {
+        "height": 15.0431177446103,
+        "width": 23.364842454394697,
+        "x": 53.2893864013267,
+        "y": 709.3275290215588
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 48,
+      "ref": "e52"
+    },
+    {
+      "index": 52,
+      "type": "Button",
+      "kind": "button",
+      "label": "Work, Add",
+      "identifier": "PinnedTile",
+      "rect": {
+        "height": 120.82500016195058,
+        "width": 82.89718627929688,
+        "x": 114.26202392578125,
+        "y": 603.5456053067994
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 47,
+      "ref": "e53"
+    },
+    {
+      "index": 53,
+      "type": "Image",
+      "kind": "image",
+      "identifier": "IconImage",
+      "rect": {
+        "height": 83.21724709784394,
+        "width": 82.89718076285241,
+        "x": 114.26202321724709,
+        "y": 603.5456053067994
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 52,
+      "ref": "e54"
+    },
+    {
+      "index": 54,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Work",
+      "identifier": "TitleLabel",
+      "rect": {
+        "height": 15.0431177446103,
+        "width": 31.046434494195722,
+        "x": 140.18739635157544,
+        "y": 694.2844112769485
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 52,
+      "ref": "e55"
+    },
+    {
+      "index": 55,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Add",
+      "identifier": "SubtitleLabel",
+      "rect": {
+        "height": 15.0431177446103,
+        "width": 23.364842454394704,
+        "x": 144.02819237147597,
+        "y": 709.3275290215588
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 52,
+      "ref": "e56"
+    },
+    {
+      "index": 56,
+      "type": "Button",
+      "kind": "button",
+      "label": "Add",
+      "identifier": "PinnedTile",
+      "rect": {
+        "height": 105.78190934163808,
+        "width": 83.21725463867188,
+        "x": 204.84078979492188,
+        "y": 603.5456053067994
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 7,
+      "parentIndex": 47,
+      "ref": "e57"
+    },
+    {
+      "index": 57,
+      "type": "Image",
+      "kind": "image",
+      "label": "add",
+      "identifier": "IconImage",
+      "rect": {
+        "height": 83.21724709784394,
+        "width": 83.21724709784408,
+        "x": 204.84079601990052,
+        "y": 603.5456053067994
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 56,
+      "ref": "e58"
+    },
+    {
+      "index": 58,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Add",
+      "identifier": "TitleLabel",
+      "rect": {
+        "height": 15.0431177446103,
+        "width": 24.004975124378092,
+        "x": 234.4469320066335,
+        "y": 694.2844112769485
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 56,
+      "ref": "e59"
+    },
+    {
+      "index": 59,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "GridPaginationButtons",
+      "rect": {
+        "height": 0,
+        "width": 0,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 5,
+      "parentIndex": 45,
+      "ref": "e60"
+    },
+    {
+      "index": 60,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "height": 61.452736318407915,
+        "width": 347.592039800995,
+        "x": 27.203980099502488,
+        "y": 724.530679933665
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e61"
+    },
+    {
+      "index": 61,
+      "type": "Button",
+      "kind": "button",
+      "label": "Your Guides",
+      "identifier": "SectionHeader",
+      "rect": {
+        "height": 23.044776119402968,
+        "width": 123.54560530679935,
+        "x": 27.203980099502488,
+        "y": 753.3366500829187
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 60,
+      "ref": "e62"
+    },
+    {
+      "index": 62,
+      "type": "Cell",
+      "kind": "cell",
+      "identifier": "UserGuidesSection",
+      "rect": {
+        "height": 80.01658374792692,
+        "width": 386,
+        "x": 8,
+        "y": 785.9834162520731
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e63"
+    },
+    {
+      "index": 63,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "height": 80.01658374792692,
+        "width": 386,
+        "x": 8,
+        "y": 785.9834162520731
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 5,
+      "parentIndex": 62,
+      "ref": "e64"
+    },
+    {
+      "index": 64,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "height": 80.01658374792692,
+        "x": 8,
+        "y": 785.9834162520731,
+        "width": 386
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 6,
+      "parentIndex": 63,
+      "ref": "e65"
+    },
+    {
+      "index": 65,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "GuideTile.User",
+      "rect": {
+        "height": 80.01658374792692,
+        "x": 23.363184079601993,
+        "y": 785.9834162520731,
+        "width": 173.79601990049753
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 7,
+      "parentIndex": 64,
+      "ref": "e66"
+    },
+    {
+      "index": 66,
+      "type": "Button",
+      "kind": "button",
+      "label": "More",
+      "identifier": "MoreButton",
+      "rect": {
+        "x": 158.75124378109453,
+        "width": 26.88557213930349,
+        "y": 797.5058043117745,
+        "height": 26.885572139303463
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 8,
+      "parentIndex": 65,
+      "ref": "e67"
+    },
+    {
+      "index": 67,
+      "type": "Image",
+      "kind": "image",
+      "label": "More",
+      "identifier": "ellipsis",
+      "rect": {
+        "height": 26.885572139303463,
+        "width": 26.88557213930349,
+        "x": 158.75124378109453,
+        "y": 797.5058043117745
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 66,
+      "ref": "e68"
+    },
+    {
+      "index": 68,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "GridPaginationButtons",
+      "rect": {
+        "height": 0,
+        "y": 0,
+        "x": 0,
+        "width": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 5,
+      "parentIndex": 62,
+      "ref": "e69"
+    },
+    {
+      "index": 69,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 3 pages",
+      "value": "0%",
+      "rect": {
+        "height": 252.02071107471784,
+        "y": 561.2968490878939,
+        "x": 362.3134328358209,
+        "width": 28.80597014925371
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e70"
+    },
+    {
+      "index": 70,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 28.805970149253653,
+        "y": 834.3134328358209,
+        "x": 60.68243983738829,
+        "width": 280.6351203252234
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e71"
+    },
+    {
+      "index": 71,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 3 pages",
+      "value": "0%",
+      "rect": {
+        "y": 561.2968490878939,
+        "height": 252.02071107471784,
+        "width": 28.80597014925371,
+        "x": 362.3134328358209
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e72"
+    },
+    {
+      "index": 72,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "y": 834.3134328358209,
+        "height": 28.805970149253653,
+        "width": 280.6351203252234,
+        "x": 60.68243983738829
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 42,
+      "ref": "e73"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.Maps",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}
