@@ -4,6 +4,8 @@ status: accepted
 
 # Browser actions respect foreground interception
 
+> Amended by [ADR 0074](./0074-browser-snapshots-read-closed-shadow-roots.md): hit testing also descends into the closed shadow roots on a target's ancestor chain and those a Snapshot read was handed.
+
 A Snapshot describes rendered controls, including controls covered by a foreground sheet. Covered controls carry `blockedBy` with the blocking element's role and name, and the text representation omits their action reference. Reachable viewport controls take priority over covered controls within the Snapshot budget. Unnamed controls retain their references and viewport bounds, so the agent can compare them with a screenshot without inventing an accessible name.
 
 Before element input, Contingency scrolls the target into view and samples points within its viewport intersection. A point is reachable only when Chromium's hit test returns the target or one of its descendants. Click and hover use that point through Playwright's ordinary actionability checks. No force click or DOM event dispatch bypasses the foreground element. A partly covered target can still be used at a reachable edge.

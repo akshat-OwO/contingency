@@ -30,7 +30,6 @@ const CONSENT_ACCEPT = { x: 450, y: 440 };
 const DIALOG_CONFIRM = { x: 750, y: 440 };
 
 /** Why a Browser Snapshot cannot name these controls yet. */
-const SHADOW_GAP = "Browser Snapshots do not traverse shadow roots (#651)";
 const FRAME_GAP = "Browser Snapshots do not read child frames (#652)";
 const LABEL_GAP =
   "a control's hit area excludes the label that activates it (#654)";
@@ -52,13 +51,11 @@ const WEB_MATRIX: readonly {
 }[] = [
   { name: "Place order", pattern: "native button", point: slot(0) },
   {
-    gap: SHADOW_GAP,
     name: "Open shadow save",
     pattern: "open shadow root",
     point: slot(1),
   },
   {
-    gap: SHADOW_GAP,
     name: "Closed shadow save",
     pattern: "closed shadow root",
     point: slot(2),

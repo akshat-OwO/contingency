@@ -1917,3 +1917,61 @@ it.live(
       findNode(shadow.snapshot.nodes, "status", "Shadow clicked");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
+
+it.live("acts on controls inside open and closed shadow roots", () =>
+  Effect.gen(function* shadowRootControls() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("web-matrix.html"),
+      "shadow-start"
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    // Each button is the shadow tree's own content, not slotted light DOM.
+    for (const [name, outcome] of [
+      ["Open shadow save", "open"],
+      ["Closed shadow save", "closed"],
+    ] as const) {
+      const button = findNode(before.nodes, "button", name);
+      expect(button.blockedBy).toBeUndefined();
+      const clicked = yield* callTool("agent_browser_act", {
+        action: { ref: button.ref, type: "click" },
+        operationId: OperationId.make(`shadow-${outcome}-click`),
+        sessionId: session.id,
+      });
+      findNode(clicked.snapshot.nodes, "paragraph", `Matrix: ${name}`);
+    }
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
+  "finds click listeners in closed roots and ignores frame listeners",
+  () =>
+    Effect.gen(function* shadowListeners() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("shadow-listeners.html"),
+        "shadow-listeners-start"
+      );
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      // A frame's listener path must not land on this document's section.
+      expect(findNode(before.nodes, "generic", "Pointer row").clickable).toBe(
+        true
+      );
+      const row = findNode(before.nodes, "generic", "Closed row");
+      expect(row.clickable).toBe(true);
+      const clicked = yield* callTool("agent_browser_act", {
+        action: { ref: row.ref, type: "click" },
+        operationId: OperationId.make("shadow-listener-click"),
+        sessionId: session.id,
+      });
+      findNode(clicked.snapshot.nodes, "paragraph", "Listener: Closed row");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);

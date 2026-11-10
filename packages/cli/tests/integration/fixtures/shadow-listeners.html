@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  Click listeners a Snapshot finds through CDP rather than markup. The closed
+  root's row is clickable only through its listener. The same-origin frame's
+  listener sits at body > div, the position this document's first section
+  holds, so a frame path replayed here would mark that section clickable and
+  hide the pointer row inside it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Shadow listeners</title>
+  </head>
+  <body>
+    <section>
+      <div style="cursor: pointer">Pointer row</div>
+    </section>
+    <iframe
+      title="Listener frame"
+      srcdoc="<body><div id='row'>Frame row</div><script>document.getElementById('row').addEventListener('click', () => {});</script></body>"
+    ></iframe>
+    <closed-row></closed-row>
+    <p id="outcome">Listener idle</p>
+    <script>
+      customElements.define(
+        "closed-row",
+        class extends HTMLElement {
+          connectedCallback() {
+            const root = this.attachShadow({ mode: "closed" });
+            root.innerHTML = "<div>Closed row</div>";
+            root.firstChild.addEventListener("click", () => {
+              document.getElementById("outcome").textContent =
+                "Listener: Closed row";
+            });
+          }
+        }
+      );
+    </script>
+  </body>
+</html>
