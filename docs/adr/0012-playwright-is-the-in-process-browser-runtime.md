@@ -2,7 +2,7 @@
 
 > Superseded by [ADR 0038](./0038-contingency-is-an-agent-sanity-monitor.md) for new work: this decision belongs to the removed deterministic Flow and Audit View stack. Supersedes [ADR 0004](./0004-cli-owned-cdp-recorder-sidecar.md). Amends [ADR 0002](./0002-cli-is-the-sole-runner.md).
 
-> [ADR 0074](./0074-browser-snapshots-read-closed-shadow-roots.md) reverses the closed shadow root boundary below.
+> Amended by [ADR 0074](./0074-browser-snapshots-read-closed-shadow-roots.md): Browser Snapshots read closed shadow roots, reversing the closed shadow root boundary below.
 
 Contingency drives the browser through `playwright-core` as an in-process library, replacing the bundled `agent-browser` binary and the CDP sidecars that had grown around it. Every browser operation was a subprocess spawn parsing `--json` stdout, and ADR 0004 had already conceded that the binary's surface could not supply selectors, frame context, navigation events, input, user-agent changes, or Core Web Vitals — so `cdp-client`, `cdp-input`, `cdp-recorder`, `cdp-user-agent`, and `vitals-collector` reached past it into raw CDP anyway. Playwright collapses two transports into one and makes those sidecars first-class instead of smuggled.
 

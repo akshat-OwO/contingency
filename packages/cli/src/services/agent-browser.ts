@@ -454,8 +454,9 @@ const PAGE_READING_PRELUDE = `
         ? ""
         : labelled
             .split(/\\s+/)
-            .map((id) => (element.getRootNode().getElementById?.(id) ??
-              document.getElementById(id))?.textContent || "")
+            // An id names an element in the same tree; for light DOM that
+            // tree's root is the document.
+            .map((id) => element.getRootNode().getElementById?.(id)?.textContent || "")
             .join(" ");
     const labelElement = labelFor(element);
     const label = labelElement ? renderedText(labelElement) : "";
@@ -635,12 +636,18 @@ const readPageStructure = async (page: Page): Promise<PageStructure> => {
             return;
           }
           const { result } = await session.send("Runtime.callFunctionOn", {
+            // Piercing also reports child frames' listeners (#652). This runs
+            // in the node's own frame, and only the top document's paths can
+            // be replayed against it.
             functionDeclaration: `function() {
+              if (window !== window.top || this.ownerDocument !== document) return null;
               const path = [];
               for (let node = this; node !== document.documentElement;) {
                 const parent = node?.parentNode;
                 if (!parent) return null;
-                path.unshift(Array.prototype.indexOf.call(parent.children, node));
+                const index = Array.prototype.indexOf.call(parent.children, node);
+                if (index === -1) return null;
+                path.unshift(index);
                 if (parent.nodeType === 11 && parent.host) {
                   path.unshift(-1);
                   node = parent.host;
