@@ -48,7 +48,7 @@ it.live.each([undefined, "http://127.0.0.1:1234/?session=teaching"])(
       expect(request.mode).toBe("url");
       expect(request.url).toContain("recording=offer-test");
       expect(request.message).toContain(
-        "tell your agent whether to verify or reject"
+        "While the decision is pending, choose Verify flow or Reject flow on that page."
       );
       expect(request.message).toContain(
         "Opening or dismissing this prompt does not decide."

@@ -103,7 +103,7 @@ const FlowRunStartTool = Tool.make("agent_flow_run_start", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local. Share the returned Dry Run viewUrl before asking the user to verify or reject.",
+    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local. Share the returned Dry Run viewUrl before asking the user to verify or reject on that page.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,
@@ -130,7 +130,7 @@ const RecordingOpenTool = readOnly(
   Tool.make("open_recording", {
     dependencies: [AgentSession, TeachingRecordingStore],
     description:
-      "Open a read-only Dry Run Summary, video and saved user decision by recordingId, including after the owning sessions or MCP process exit. Share viewUrl before asking the user to verify or reject. This operation cannot decide. Verified recordings show the decision after Cleanup removes evidence.",
+      "Open a Dry Run Summary, video and saved user decision by recordingId, including after the owning sessions or MCP process exit. Share viewUrl before asking the user to choose Verify flow or Reject flow on that page after a passing Dry Run while the decision is pending. This read operation cannot decide. Verified recordings show the decision after Cleanup removes evidence.",
     failure: AgentRunFailure,
     parameters: Schema.Struct({ recordingId: TeachingRecordingId }),
     success: Schema.Struct({ ...RecordingView.fields, viewUrl: Schema.String }),

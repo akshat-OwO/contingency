@@ -20,6 +20,8 @@ A configured remote endpoint has unknown reachability until used. A Local System
 
 ## Review a Dry Run
 
-Share the `viewUrl` returned by `agent_run_complete` before asking the user to verify or reject the Flow. The recording viewer shows the Summary, video, and saved user decision. The user decides; a passing Agent Assessment is not verification.
+Share the `viewUrl` returned by `agent_run_complete` before asking the user to verify or reject the Flow. The recording viewer shows the Summary, video, and saved user decision. After a pass it offers Verify flow and Reject flow.
+
+The user decides; a passing Agent Assessment is not verification.
 
 After a session or MCP process exits, call `open_recording` with its `recordingId` and share the new `viewUrl`. Verification purges the evidence; the viewer then shows the saved decision and Cleanup notice.

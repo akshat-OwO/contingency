@@ -107,7 +107,7 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
 9. A failed report keeps the Teaching Recording and this claim. Fix the package and call agent_flow_save with the same claim operation id, then start another Dry Run.
 
-10. After a pass, share the viewUrl returned by agent_run_complete before asking the user to decide. If the session or MCP process has exited, call open_recording with recordingId and share its new viewUrl. The user may verify or reject in the Teaching Workspace, or tell you.
+10. After a pass, share the viewUrl returned by agent_run_complete before asking the user to decide. If the session or MCP process has exited, call open_recording with recordingId and share its new viewUrl. The user may verify or reject on the shared review page or in the Teaching Workspace, or tell you.
 
     Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Relay a conversation choice with agent_flow_decide.
 

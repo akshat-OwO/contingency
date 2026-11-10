@@ -2341,7 +2341,14 @@ const useAgentView = (
       return;
     }
     dismissedRunIdsRef.current.add(ended.id);
-    const next = sessions.at(0);
+    const next =
+      (ended.dryRun === null
+        ? undefined
+        : sessions.find(
+            (candidate) =>
+              candidate.activity === "teaching" &&
+              candidate.recordingId === ended.dryRun?.recordingId
+          )) ?? sessions.find((candidate) => candidate.id !== ended.id);
     if (next !== undefined) {
       selectSession(next.id);
       return;
