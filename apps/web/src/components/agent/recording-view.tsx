@@ -37,7 +37,7 @@ export const RecordingViewer = ({
     mode: "promise",
   });
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string>();
+  const [decisionError, setError] = useState<string>();
 
   const atom = recordingViewAtom(recordingId)(sessionId);
   const result = useAtomValue(atom);
@@ -121,7 +121,7 @@ export const RecordingViewer = ({
           </Button>
         </div>
       ) : null}
-      {error === undefined ? null : <p role="alert">{error}</p>}
+      {decisionError === undefined ? null : <p role="alert">{decisionError}</p>}
       {summary}
     </section>
   );
