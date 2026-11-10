@@ -60,7 +60,7 @@ Run the suite that matches each area your change touches, from `packages/cli`, b
 
 A change that touches none of these areas does not need them. If a suite applies but cannot run here (no simulator, no corpus), say so in the PR as an evidence gap rather than skipping it silently.
 
-on its matrix row or site entry. The suite expects the limitation, so fixing it fails the suite until the row drops its `gap`. Never delete a failing row to make a suite pass.
+A known limitation is pinned as a `gap` on its matrix row or site entry. The suite expects the limitation, so fixing it fails the suite until the row drops its `gap`. Never delete a failing row to make a suite pass.
 
 To add native trees, run `vpx .cursor/skills/verify-contingency/bin/native-snapshot-capture.mjs ios` or `android --apk <fixture.apk>`. Each run boots one proof-owned simulator or emulator and removes it. Commit the JSON files under `tests/fixtures/native-snapshots/`; they contain no input values.
 

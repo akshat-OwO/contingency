@@ -27,13 +27,15 @@ export const androidNodeInteraction = (
 
 type NamedNode = Pick<
   SnapshotNode,
-  "label" | "kind" | "depth" | "hittable" | "password"
+  "label" | "kind" | "depth" | "hittable" | "editable" | "password"
 >;
 
 /**
- * The name TalkBack reads for a node. A clickable container that carries no
- * label of its own, such as a hand-built list row, is announced by the text
- * of its children, so it takes that text here too.
+ * The name TalkBack reads for a node. A clickable row that carries no label
+ * of its own, such as a hand-built list row, is announced by the text of its
+ * children, so it takes that text here too. A container that holds its own
+ * controls, such as a ScrollView or a full-screen frame, stays unnamed: its
+ * controls are the targets, and a click in its padding activates nothing.
  */
 export const androidNodeName = (
   nodes: readonly NamedNode[],
@@ -51,6 +53,9 @@ export const androidNodeName = (
   for (const child of nodes.slice(index + 1)) {
     if (child.depth === undefined || child.depth <= node.depth) {
       break;
+    }
+    if (child.hittable === true || child.editable === true) {
+      return "";
     }
     const text = child.kind === "text" ? child.label?.trim() : undefined;
     if (text !== undefined && text !== "" && child.password !== true) {

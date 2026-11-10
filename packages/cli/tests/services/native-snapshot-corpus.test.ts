@@ -336,6 +336,20 @@ describe("Android widget corpus", () => {
       teachAndroid(androidCorpus("controls"), "button", "UNAVAILABLE")
     ).toMatchObject({ covered: true, found: true });
   });
+
+  it.each([
+    // Padding inside the controls ScrollView, beside no control.
+    ["corpus-controls", 40, 240],
+    // Chrome's full-screen frame, between its shortcut tiles.
+    ["chrome", 4, 2400],
+  ])("refuses a click in %s container padding at %i,%i", (id, x, y) => {
+    const capture = android.find((candidate) => candidate.id === id);
+    if (capture === undefined) {
+      throw new Error(`No Android capture ${id}`);
+    }
+    const hit = nativeHitTest(observeAndroid(capture), x, y);
+    expect(hit === undefined ? null : `${hit.role} ${hit.name}`).toBeNull();
+  });
 });
 
 describe.each(android.map((capture) => [capture.id, capture] as const))(
