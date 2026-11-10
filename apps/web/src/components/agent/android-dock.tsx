@@ -6,8 +6,6 @@ import type {
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
-  CircleAlertIcon,
-  CircleIcon,
   CornerDownLeftIcon,
   KeyRoundIcon,
   ShieldAlertIcon,
@@ -21,7 +19,6 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,36 +39,16 @@ import {
   androidDockPresentation,
   androidSessionLabel,
 } from "./android-dock-state";
+import { DockState } from "./workspace-dock";
 
-const BADGE_VARIANT = {
-  default: "secondary",
-  failed: "destructive",
-  recording: "default",
-} as const;
-
-/** The state badge the browser dock shows. */
+/** The state label the dock shows. */
 export const AndroidStateBadges = ({
   session,
 }: {
   readonly session: AndroidWorkspaceSnapshot;
 }) => {
   const presentation = androidDockPresentation(session);
-  return (
-    <>
-      <Badge variant={BADGE_VARIANT[presentation.tone]}>
-        {presentation.tone === "recording" ? (
-          <CircleIcon
-            aria-hidden="true"
-            className="fill-current text-red-500"
-          />
-        ) : null}
-        {presentation.tone === "failed" ? (
-          <CircleAlertIcon aria-hidden="true" />
-        ) : null}
-        {presentation.badge}
-      </Badge>
-    </>
-  );
+  return <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
 };
 
 /**

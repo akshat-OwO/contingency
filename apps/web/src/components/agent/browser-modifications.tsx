@@ -1,7 +1,7 @@
 import { browserModificationSummary } from "@contingency/protocol";
 import type { BrowserModification } from "@contingency/protocol";
 
-import { Badge } from "@/components/ui/badge";
+import { dockFactClassName } from "./workspace-dock";
 
 export const BrowserModifications = ({
   modifications,
@@ -46,9 +46,12 @@ export const BrowserModificationBadge = ({
   return summary ? (
     <details className="relative">
       <summary className="cursor-pointer list-none">
-        <Badge aria-label="Active Browser Modifications" variant="secondary">
+        <span
+          aria-label="Active Browser Modifications"
+          className={dockFactClassName}
+        >
           {summary}
-        </Badge>
+        </span>
       </summary>
       <div className="bg-popover text-popover-foreground absolute bottom-full left-0 z-50 mb-2 max-h-80 w-80 overflow-auto rounded-md border p-3 shadow-md">
         <BrowserModifications modifications={modifications} />

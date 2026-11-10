@@ -17,7 +17,6 @@ import { Effect, Fiber, Result, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
-  CircleAlertIcon,
   CircleIcon,
   CircleSlashIcon,
   CornerDownLeftIcon,
@@ -41,7 +40,6 @@ import {
 } from "@/components/agent/dock-request-parts";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,6 +86,7 @@ import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import {
   DockShell,
   DockSpacer,
+  DockState,
   DockStatus,
   DockWordmark,
 } from "./workspace-dock";
@@ -1221,27 +1220,11 @@ const PrimaryIcon = ({ gesture }: { readonly gesture: IosDockGesture }) => {
   }
 };
 
-const BADGE_VARIANT = {
-  default: "secondary",
-  failed: "destructive",
-  recording: "default",
-} as const;
-
 const IosStateBadge = ({
   presentation,
 }: {
   readonly presentation: IosDockPresentation;
-}) => (
-  <Badge variant={BADGE_VARIANT[presentation.tone]}>
-    {presentation.tone === "recording" ? (
-      <CircleIcon aria-hidden="true" className="fill-current text-red-500" />
-    ) : null}
-    {presentation.tone === "failed" ? (
-      <CircleAlertIcon aria-hidden="true" />
-    ) : null}
-    {presentation.badge}
-  </Badge>
-);
+}) => <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
 
 const IosSessionSelect = ({
   session,

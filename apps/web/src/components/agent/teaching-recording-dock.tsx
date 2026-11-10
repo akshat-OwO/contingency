@@ -35,27 +35,18 @@ import {
   DockSessionSelect,
   DockShell,
   DockSpacer,
+  DockState,
   DockStatus,
   DockWordmark,
   Wordmark,
 } from "@/components/agent/workspace-dock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import { BrowserModificationBadge } from "./browser-modifications";
 
 const TICK_MS = 1000;
-
-const badgeVariant = (
-  tone: ReturnType<typeof teachingRecordingPresentation>["tone"]
-): "default" | "destructive" | "secondary" => {
-  if (tone === "failed") {
-    return "destructive";
-  }
-  return tone === "recording" ? "default" : "secondary";
-};
 
 /** Every label names what the button does to the recording (#210). */
 const SECONDARY_LABEL: Record<TeachingSecondaryAction, string> = {
@@ -96,7 +87,7 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
   return (
     <span
       aria-label={elapsedSpokenLabel(startedAt, now)}
-      className="font-mono text-sm tabular-nums"
+      className="text-muted-foreground font-mono text-[13px] leading-5 tabular-nums"
       role="timer"
     >
       {elapsedLabel(startedAt, now)}
@@ -118,7 +109,7 @@ export const WorkspaceEmptyDock = ({
 }) => (
   <DockShell
     status={
-      <DockStatus badges={<Badge variant="secondary">No session</Badge>}>
+      <DockStatus badges={<DockState>No session</DockState>}>
         Nothing is captured until a session is open and recording.
       </DockStatus>
     }
@@ -326,20 +317,11 @@ export const TeachingRecordingDock = ({
         <DockStatus
           badges={
             <>
-              <Badge variant={badgeVariant(presentation.tone)}>
-                {presentation.tone === "recording" ? (
-                  <CircleIcon
-                    aria-hidden="true"
-                    className="fill-current text-red-500"
-                  />
-                ) : null}
-                {presentation.tone === "failed" ? (
-                  <CircleAlertIcon aria-hidden="true" />
-                ) : null}
+              <DockState tone={presentation.tone}>
                 {origin === "guided-run"
                   ? `Guided Run · ${presentation.badge}`
                   : presentation.badge}
-              </Badge>
+              </DockState>
               <BrowserModificationBadge
                 modifications={
                   sessions.find((session) => session.id === selectedSessionId)

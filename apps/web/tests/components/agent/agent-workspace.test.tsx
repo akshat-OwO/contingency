@@ -1317,8 +1317,16 @@ test("preserves unsent Guided Run answers across request collapse", async () => 
     within(dock).getByRole("textbox", { name: answerName }),
     "Add one anvil"
   );
+  // The collapse control sits in the questions' own header row, not on a
+  // row of its own above it.
+  const header = within(dock).getByRole("heading", {
+    name: "Guided Run questions",
+  }).parentElement;
+  if (header === null) {
+    throw new Error("No Guided Run questions header");
+  }
   await user.click(
-    within(dock).getByRole("button", { name: "Collapse requests" })
+    within(header).getByRole("button", { name: "Collapse requests" })
   );
   expect(within(dock).queryByRole("textbox", { name: answerName })).toBeNull();
   expect(rpc.instructionCalls).toHaveLength(0);

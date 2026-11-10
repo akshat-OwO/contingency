@@ -16,7 +16,6 @@ import {
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
 import { splitWaiting } from "@/components/agent/dock-requests-state";
-import { Badge } from "@/components/ui/badge";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -111,9 +110,9 @@ export const SetupVariables = ({
           </>
         }
         badge={
-          <Badge variant="secondary">
+          <span className="text-muted-foreground text-xs tabular-nums">
             {waiting.length} of {variables.length} needed
-          </Badge>
+          </span>
         }
         icon={
           <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />

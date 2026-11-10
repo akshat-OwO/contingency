@@ -67,13 +67,25 @@ export const RecordingViewer = ({
     }
   };
   if (result._tag === "Initial") {
-    return <p role="status">Loading Dry Run Summary…</p>;
+    return (
+      <p className="text-muted-foreground text-sm" role="status">
+        Loading Dry Run Summary…
+      </p>
+    );
   }
   if (result._tag === "Failure") {
-    return <p role="alert">The Dry Run Summary could not be opened.</p>;
+    return (
+      <p className="text-destructive text-sm" role="alert">
+        The Dry Run Summary could not be opened.
+      </p>
+    );
   }
   const view = result.value;
-  let summary = <p>No retained Dry Run Summary.</p>;
+  let summary = (
+    <p className="text-muted-foreground text-sm">
+      No retained Dry Run Summary.
+    </p>
+  );
   if (view.summary !== null) {
     summary = (
       <RunSummaryView
@@ -92,8 +104,8 @@ export const RecordingViewer = ({
     }
   }
   return (
-    <section aria-label="Dry Run Summary" className="space-y-4 p-4">
-      <p role="status">
+    <section aria-label="Dry Run Summary" className="space-y-4">
+      <p className="text-sm" role="status">
         {view.decision === "pending" && view.result?.outcome === "failed"
           ? "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
           : decisions[view.decision]}
@@ -121,7 +133,11 @@ export const RecordingViewer = ({
           </Button>
         </div>
       ) : null}
-      {decisionError === undefined ? null : <p role="alert">{decisionError}</p>}
+      {decisionError === undefined ? null : (
+        <p className="text-destructive text-sm" role="alert">
+          {decisionError}
+        </p>
+      )}
       {summary}
     </section>
   );

@@ -7,6 +7,10 @@ import type {
   GuidedRunCheckProposal,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
+import {
+  CornerDownRightIcon,
+  MessageCircleQuestionMarkIcon,
+} from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { failureMessage } from "@/lib/failure-message";
 import { retainedFamily } from "@/lib/retained-state";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+
+import { RequestHeader, requestIconClassName } from "./dock-request-parts";
 
 interface AnswerDraft {
   readonly error: string;
@@ -74,30 +80,41 @@ const AnsweredQuestion = ({
       setDraft(emptyAnswer);
     }
   }, [draft, setDraft]);
+  const decision =
+    answer.dialogue?._tag === "answer" ? answer.dialogue.decision : undefined;
+  const proposal =
+    question.dialogue?._tag === "question"
+      ? question.dialogue.proposal
+      : undefined;
   return (
-    <div className="text-sm">
-      <p className="font-medium">{question.text}</p>
-      <CheckProposal
-        proposal={
-          question.dialogue?._tag === "question"
-            ? question.dialogue.proposal
-            : undefined
-        }
-      />
-      {answer.dialogue?._tag === "answer" &&
-      answer.dialogue.decision !== undefined ? (
-        <p>
-          {answer.dialogue.decision === "confirm"
-            ? "Check confirmed"
-            : "Check rejected"}
-        </p>
-      ) : null}
-      <p>{answer.text}</p>
-      <p className="text-muted-foreground text-xs">
-        {answer.actor === "agent"
-          ? "User answer relayed by agent"
-          : "Answered by user"}
+    <div className="space-y-1.5 text-sm">
+      <p className="text-muted-foreground text-pretty wrap-anywhere">
+        {question.text}
       </p>
+      {proposal === undefined ? null : (
+        <div className="text-muted-foreground">
+          <CheckProposal proposal={proposal} />
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <CornerDownRightIcon
+          aria-hidden="true"
+          className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
+        />
+        <div className="min-w-0 space-y-0.5">
+          {decision === undefined ? null : (
+            <p className="font-medium">
+              {decision === "confirm" ? "Check confirmed" : "Check rejected"}
+            </p>
+          )}
+          <p className="text-pretty wrap-anywhere">{answer.text}</p>
+          <p className="text-muted-foreground text-xs">
+            {answer.actor === "agent"
+              ? "User answer relayed by agent"
+              : "Answered by user"}
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
@@ -235,9 +252,17 @@ const QuestionAnswer = ({
   );
 };
 
+/**
+ * The questions a Guided Run's agent asked, in the dock's request tier. An
+ * answered question reads as settled: the question muted, the answer under
+ * it. A pending one keeps its weight so it stands out.
+ */
 export const GuidedRunQuestions = ({
+  collapse = null,
   session,
 }: {
+  /** The tier's collapse control, when these questions lead it. */
+  readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {
   if (session.activity !== "teaching" || session.origin !== "guided-run") {
@@ -251,30 +276,43 @@ export const GuidedRunQuestions = ({
     return null;
   }
   return (
-    <section aria-label="Guided Run questions" className="space-y-3">
-      <h2 className="text-sm font-medium">Guided Run questions</h2>
-      {questions.map((question) => {
-        const answer = instructions.find(
-          (item) =>
-            item.dialogue?._tag === "answer" &&
-            item.dialogue.questionId === question.id
-        );
-        return answer === undefined ? (
-          <QuestionAnswer
-            key={question.id}
-            question={question}
-            sessionId={session.id}
-            closed={session.captureState._tag !== "recording"}
+    <section aria-label="Guided Run questions" className="space-y-2">
+      <RequestHeader
+        action={collapse}
+        icon={
+          <MessageCircleQuestionMarkIcon
+            aria-hidden="true"
+            className={requestIconClassName}
           />
-        ) : (
-          <AnsweredQuestion
-            key={question.id}
-            question={question}
-            answer={answer}
-            sessionId={session.id}
-          />
-        );
-      })}
+        }
+        title="Guided Run questions"
+      />
+      <div className="divide-y">
+        {questions.map((question) => {
+          const answer = instructions.find(
+            (item) =>
+              item.dialogue?._tag === "answer" &&
+              item.dialogue.questionId === question.id
+          );
+          return (
+            <div className="py-2.5 first:pt-0 last:pb-0" key={question.id}>
+              {answer === undefined ? (
+                <QuestionAnswer
+                  question={question}
+                  sessionId={session.id}
+                  closed={session.captureState._tag !== "recording"}
+                />
+              ) : (
+                <AnsweredQuestion
+                  question={question}
+                  answer={answer}
+                  sessionId={session.id}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 };
