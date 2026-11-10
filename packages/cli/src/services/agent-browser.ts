@@ -1941,10 +1941,15 @@ export const makeAgentElementRegistry = (
 
   /**
    * Place one document's nodes in the Page, reading each Embedded Frame they
-   * contain right after its container (ADR 0075). A frame's nodes sit one
-   * level under the container and are moved by the container's content box,
-   * so bounds and hit-testing read in the Page's viewport. Each frame reads
-   * within what is left of the Snapshot's budget.
+   * contain under its container (ADR 0075). A frame's nodes sit one level
+   * under the container and are moved by the container's content box, so
+   * bounds and hit-testing read in the Page's viewport.
+   *
+   * Every returned node is charged to one budget exactly once, when its
+   * document is read: the caller has already charged this document's own
+   * nodes, and each frame is read with only what is left. Frames the viewport
+   * shows spend that remainder before frames it does not, as the top-level
+   * read prefers what the viewport shows.
    */
   const placeDocument = (
     frame: Frame,
@@ -1964,8 +1969,13 @@ export const makeAgentElementRegistry = (
     Effect.gen(function* placeDocumentNodes() {
       const { identity, nodes: decoded } = collected;
       const placed: PlacedNode[] = [];
+      const embedded: {
+        readonly child: Frame;
+        readonly container: PlacedNode;
+        readonly host: string;
+        readonly origin: { readonly x: number; readonly y: number };
+      }[] = [];
       let focusedNode: PlacedNode | undefined;
-      let omitted = 0;
       let index = 0;
       for (const [, entry] of collected.handles) {
         const element = entry.asElement();
@@ -2014,17 +2024,34 @@ export const makeAgentElementRegistry = (
         if (position === identity.focusedIndex) {
           focusedNode = container;
         }
-        if (embeds === undefined || child === null || childHost === undefined) {
-          continue;
+        if (embeds !== undefined && child !== null && childHost !== undefined) {
+          embedded.push({
+            child,
+            container,
+            host: childHost,
+            origin: { x: placement.x + embeds.x, y: placement.y + embeds.y },
+          });
         }
+      }
+      const viewport = frame.page().viewportSize();
+      const shown = ({ node }: PlacedNode) =>
+        viewport === null ||
+        (node.x + node.width > 0 &&
+          node.y + node.height > 0 &&
+          node.x < viewport.width &&
+          node.y < viewport.height);
+      const order = [
+        ...embedded.filter(({ container }) => shown(container)),
+        ...embedded.filter(({ container }) => !shown(container)),
+      ];
+      const contents = new Map<PlacedNode, readonly PlacedNode[]>();
+      let omitted = 0;
+      for (const { child, container, host: childHost, origin } of order) {
         if (point === undefined && budget.remaining <= 0) {
+          // Its size is unknown unread; it holds at least one node.
           omitted += 1;
           continue;
         }
-        const origin = {
-          x: placement.x + embeds.x,
-          y: placement.y + embeds.y,
-        };
         // An out-of-process frame is its own target and is handed its
         // structure here; a same-process one was handed it with its parent.
         yield* Effect.tryPromise(() =>
@@ -2055,30 +2082,38 @@ export const makeAgentElementRegistry = (
         if (Result.isFailure(childRead)) {
           continue;
         }
-        yield* releaseGuard(childRead.success.guard);
+        const read = childRead.success;
+        yield* releaseGuard(read.guard);
         frameUrls.set(child, child.url());
+        // The frame's own nodes are charged before its frames are read.
+        budget.remaining -= read.handles.size;
+        omitted += Math.max(0, read.identity.total - read.handles.size);
         const inner = yield* placeDocument(
           child,
           childHost,
-          childRead.success,
+          read,
           childRefs.filter((ref) => elements.has(ref)),
-          { depth: node.depth + 1, ...origin },
+          { depth: container.node.depth + 1, ...origin },
           request,
           budget,
           point,
           orphaned
         );
-        budget.remaining -= inner.nodes.length;
-        omitted +=
-          inner.omitted +
-          Math.max(0, childRead.success.identity.total - inner.nodes.length);
+        omitted += inner.omitted;
+        contents.set(container, inner.nodes);
         // The frame holds focus for the Page; what holds it is inside.
         if (focusedNode === container && inner.focused !== undefined) {
           focusedNode = inner.focused;
         }
-        placed.push(...inner.nodes);
       }
-      return { focused: focusedNode, nodes: placed, omitted };
+      return {
+        focused: focusedNode,
+        nodes: placed.flatMap((placedNode) => [
+          placedNode,
+          ...(contents.get(placedNode) ?? []),
+        ]),
+        omitted,
+      };
     });
 
   const readSnapshot = (

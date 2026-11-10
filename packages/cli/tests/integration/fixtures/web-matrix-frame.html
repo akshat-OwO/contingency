@@ -29,6 +29,21 @@
       } else {
         document.body.innerHTML = `<input id="field" aria-label="${field}" autocomplete="off" />`;
       }
+      // A long list of controls, optionally with another such frame inside,
+      // so a page can hold more nodes than one Snapshot returns.
+      const many = Number(query.get("many") ?? 0);
+      if (many > 0) {
+        document.body.innerHTML = Array.from(
+          { length: many },
+          (_, item) => `<button type="button">Item ${item + 1}</button>`
+        ).join("");
+        if (query.has("nest")) {
+          document.body.insertAdjacentHTML(
+            "afterbegin",
+            `<iframe title="Nested list" src="web-matrix-frame.html?many=${many}"></iframe>`
+          );
+        }
+      }
       // A payment step: pay with what the field holds, then move the frame
       // on to its next document while the page around it stays.
       if (query.has("pay")) {

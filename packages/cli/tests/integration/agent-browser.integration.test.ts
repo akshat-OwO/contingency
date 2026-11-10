@@ -1991,6 +1991,35 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live(
+  "reads a frame the viewport shows before an off-screen one and stays within the Snapshot limit",
+  () =>
+    Effect.gen(function* frameBudget() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const nested = yield* fixtures.awaitRequest(
+        (url) => url.includes("many=200") && !url.includes("nest")
+      );
+      const session = yield* startSession(
+        agent,
+        fixtures.url("frame-budget.html"),
+        "frame-budget-start"
+      );
+      yield* Deferred.await(nested).pipe(Effect.timeout("30 seconds"));
+      const observed = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      // The catalog and the list nested in it hold 400 controls between them,
+      // more than one Snapshot returns. Each node is charged once, and the
+      // payment field the viewport shows is read first.
+      expect(observed.nodes.length).toBeLessThanOrEqual(300);
+      findNode(observed.nodes, "textbox", "Card number");
+      expect(observed.coverage?.truncated).toBe(true);
+      expect(observed.coverage?.returned).toBe(observed.nodes.length);
+      expect(observed.coverage?.total).toBeGreaterThan(400);
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("acts on controls inside open and closed shadow roots", () =>
   Effect.gen(function* shadowRootControls() {
     const fixtures = yield* fixtureServer;
