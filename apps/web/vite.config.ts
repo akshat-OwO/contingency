@@ -25,6 +25,8 @@ export default defineConfig({
     host: "localhost",
     port: 5173,
     proxy: {
+      // The docs site is a separate static build the CLI serves.
+      "/docs": { target: "http://127.0.0.1:7777" },
       // A Run's derived video is served by the CLI, not by Vite. Without
       // this the player asks the dev server for `/runs/...`, gets the SPA's
       // index.html back, and reports an unplayable video.

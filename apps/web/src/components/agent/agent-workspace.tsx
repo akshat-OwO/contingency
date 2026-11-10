@@ -132,6 +132,7 @@ import {
   flowsSelectionAtom,
   flowsSessionView,
 } from "@/components/catalog/flows-drawer-state";
+import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -335,6 +336,7 @@ const WorkspacePlatformControls = ({
   return (
     <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
       {action}
+      <DocsLink />
       <ModeToggle />
     </div>
   );
@@ -799,6 +801,7 @@ const AgentBrowserToolbar = ({
         </Button>
         <IosEntry className="max-sm:hidden" />
         <DeviceEntryMenu onAndroid={onAndroid} />
+        <DocsLink />
         <ModeToggle />
       </div>
       {navigationError === undefined ? null : (

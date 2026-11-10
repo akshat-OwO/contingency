@@ -14,6 +14,7 @@ import {
 } from "../routes/agent-run-artifacts.ts";
 import { makeAndroidStreamRoutes } from "../routes/android-stream.ts";
 import { makeDeviceKeyframeRoutes } from "../routes/device-keyframes.ts";
+import { makeDocsSiteRoutes } from "../routes/docs-site.ts";
 import { makeIosStreamRoutes } from "../routes/ios-stream.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
@@ -134,9 +135,14 @@ export const makeHttpServerLayer = ({
   serveWebUi,
   teachingRecordingStore,
 }: HttpServerOptions) => {
+  // The docs site is served in development too, where Vite proxies `/docs`
+  // here. Its prefixed route outranks the SPA's catch-all.
   const webRoutes = serveWebUi
-    ? HttpStaticServer.layer({ root: webRoot, spa: true })
-    : Layer.empty;
+    ? Layer.mergeAll(
+        makeDocsSiteRoutes(),
+        HttpStaticServer.layer({ root: webRoot, spa: true })
+      )
+    : makeDocsSiteRoutes();
   const allRpcRoutes = makeRpcRoutes({ allowedOrigins });
   const rpcRoutes =
     catalogBrowser === undefined

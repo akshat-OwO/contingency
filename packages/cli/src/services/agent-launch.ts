@@ -11,8 +11,8 @@ import type {
 import { AgentLaunchError } from "./agent-launch-error.ts";
 import type { ServerSpec } from "./agent-registration.ts";
 import { SERVER_NAME } from "./agent-registration.ts";
+import { docUri } from "./doc-topics.ts";
 import { CATALOG_DIRECTORY } from "./flow-catalog.ts";
-import { STARTER_PROMPT_URI, WORK_PROMPT_URI } from "./mcp-onboarding.ts";
 
 /**
  * Launching an installed Agent Harness with Contingency connected for one
@@ -238,9 +238,9 @@ export const registrationCommand = (input: {
     .map(shellQuote)
     .join(" ");
 
-/** The server resource owns the procedure and this process's launch context. */
-export const demoInitialMessage = (): string =>
-  `Read the MCP resource ${STARTER_PROMPT_URI} from the ${SERVER_NAME} server and follow it.`;
-
-export const workInitialMessage = (): string =>
-  `Read the MCP resource ${WORK_PROMPT_URI} from the ${SERVER_NAME} server and follow it.`;
+/**
+ * Every `start` launch sends this one message. The session server appends its
+ * launch facts and procedure, demo or work, to the guide (ADR 0069).
+ */
+export const initialMessage = (): string =>
+  `Read the MCP resource ${docUri("getting-started")} from the ${SERVER_NAME} server and follow it.`;

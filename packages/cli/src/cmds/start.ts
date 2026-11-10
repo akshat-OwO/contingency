@@ -9,9 +9,8 @@ import { AgentLaunchError } from "../services/agent-launch-error.ts";
 import {
   chooseHarness,
   currentInvocation,
-  demoInitialMessage,
+  initialMessage,
   sessionServerSpec,
-  workInitialMessage,
 } from "../services/agent-launch.ts";
 import type { ReadyHarness } from "../services/agent-launch.ts";
 import { CATALOG_DIRECTORY } from "../services/flow-catalog.ts";
@@ -106,7 +105,7 @@ export const startCommand = Command.make(
       directory,
       invocation,
     });
-    const message = demo ? demoInitialMessage() : workInitialMessage();
+    const message = initialMessage();
     const plan = yield* chosen.harness.launchPlan({
       env: process.env,
       executable: chosen.executable,
@@ -118,6 +117,7 @@ export const startCommand = Command.make(
       [
         `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
         `Catalog Root: ${catalogRoot}`,
+        "Docs: run `contingency docs`, or open /docs on the Workspace link the agent shares.",
       ].join("\n")
     );
     if (olderThan(chosen.version, chosen.harness.verifiedVersion)) {

@@ -220,26 +220,32 @@ export const mcpCommand = Command.make(
       script: process.argv[1] ?? "",
       version: packageJson.version,
     });
-    const launchContext = [
-      "## Launch context",
-      "",
-      `- Agent: ${Option.isSome(agent) ? harnesses[agent.value].label : "Unspecified Agent Harness"}`,
-      `- Working directory: ${projectDirectory}`,
-      `- Catalog Root: ${catalogDirectory.root}`,
-      `- Connection: ${sessionOnly ? "session-only; the user's agent configuration is unchanged." : "configured MCP connection; registration is managed by the Agent Harness."}`,
-      ...(catalogDirectory.fallback === undefined
-        ? []
-        : [
-            `- Catalog fallback: ${catalogDirectory.fallback.directory}. ${catalogDirectory.fallback.reason}`,
-          ]),
-      ...(Option.isSome(agent)
+    // Only a session `start` launched (session-only or demo) carries launch
+    // facts; a registered server serves getting-started unchanged (ADR 0069).
+    const launchContext =
+      sessionOnly || demo
         ? [
-            `- Reconnect command (run from the working directory; add --demo for the guided demo): ${reconnectCommand({ agent: agent.value, invocation })}`,
-            `- Original onboarding directory (fallback for registration across projects): ${Option.getOrElse(fallbackDirectory, () => projectDirectory)}`,
-            `- Registration command (add --scope project or --scope user, and --replace only after the user chooses replacement): ${registrationCommand({ agent: agent.value, directory: Option.getOrElse(fallbackDirectory, () => projectDirectory), invocation })}`,
-          ]
-        : []),
-    ].join("\n");
+            "### Launch context",
+            "",
+            "Reference facts for this session. Raise one only when the guide's step needs it.",
+            "",
+            `- Working directory: ${projectDirectory}`,
+            `- Catalog Root: ${catalogDirectory.root}`,
+            `- Connection: ${sessionOnly ? "session-only; the user's agent configuration is unchanged." : "configured MCP connection; registration is managed by the Agent Harness."}`,
+            ...(catalogDirectory.fallback === undefined
+              ? []
+              : [
+                  `- Catalog fallback: ${catalogDirectory.fallback.directory}. ${catalogDirectory.fallback.reason}`,
+                ]),
+            ...(Option.isSome(agent)
+              ? [
+                  `- Reconnect command (run from the working directory; add --demo for the guided demo): ${reconnectCommand({ agent: agent.value, invocation })}`,
+                  `- Original onboarding directory (fallback for registration across projects): ${Option.getOrElse(fallbackDirectory, () => projectDirectory)}`,
+                  `- Registration command (add --scope project or --scope user, and --replace only after the user chooses replacement): ${registrationCommand({ agent: agent.value, directory: Option.getOrElse(fallbackDirectory, () => projectDirectory), invocation })}`,
+                ]
+              : []),
+          ].join("\n")
+        : undefined;
     // Settings follow the Catalog Root this process starts with (ADR 0063).
     const settings = yield* loadSettings({
       catalogRoot: catalogDirectory.root,

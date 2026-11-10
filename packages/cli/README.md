@@ -27,7 +27,7 @@ npx @contingencyhq/cli start --demo
 
 Install Claude Code, Codex, or OpenCode V2 (`npm install -g @opencode/cli`; verified with 2.0.26) first. OpenCode V1 is not supported. `start` launches the one installed agent or offers a picker when several are installed. It checks only that the agent is on `PATH` at a supported version; a signed-out agent shows its own sign-in when it starts. It connects Contingency for that session only, without changing your agent's configuration, and prints the current project's `contingency` Catalog Root. Each launch owns a separate Workspace and browser on available local ports. OpenCode starts with `--standalone`, a private server for that launch, because its shared background service never sees a session-only connection; `start` refuses `--server`.
 
-Without `--demo`, the agent reads the [Getting started](./docs/getting-started.md) guide and works on your own website: it lists your saved Flows and unfinished Teaching, runs verified Flows to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
+Every launch tells the agent to read the [Getting started](./docs/getting-started.md) guide. The session server appends this launch's facts and procedure to it. Without `--demo`, the agent works on your own website: it lists your saved Flows and unfinished Teaching, runs verified Flows to check a feature, or helps you teach a new journey. Run `start` again from the project whenever you want Contingency back.
 
 ### Guided demo
 
@@ -113,6 +113,17 @@ Every connected agent reads [Getting started](./docs/getting-started.md) before 
 | [Browser state](./docs/browser-state.md) | Using devtools or changing cookies, storage, routes, or headers |
 
 An agent connected over MCP reads the same topics as `contingency://docs/<topic>` resources, or with the `docs_get` operation inside `agent_code_execute`.
+
+### Docs site
+
+Every Contingency web server serves these topics as a browsable site at `/docs`, with search and a **Docs** button in the Workspace header. Each page shows its MCP resource URI, so you can hand a page to your agent. Open it from the terminal:
+
+```sh
+contingency docs
+contingency docs teach --no-browser
+```
+
+`docs` reuses a running `contingency web` on the configured port. Otherwise it serves the site itself until you press Ctrl-C.
 
 ## Artifacts
 

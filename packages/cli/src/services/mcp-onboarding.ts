@@ -24,17 +24,19 @@ import {
 } from "./onboarding-examples.ts";
 
 /**
- * The `contingency start` surface. Every server serves the work prompt, the
- * procedure for a session-only launch on the user's own website. A demo
- * server adds the onboarding starter prompt, the demo store's examples for
- * this process, and the one tool that runs a bundled Example Flow
- * (ADR 0050). Teaching, learning, Dry Runs, and verification keep their
- * ordinary tools; nothing here shortens them.
+ * The `contingency start` surface. A session launched by `start` appends its
+ * launch facts and procedure to getting-started: the work procedure for the
+ * user's own website, or the onboarding procedure with `--demo` (ADR 0069).
+ * A demo server adds the demo store's examples for this process and the one
+ * tool that runs a bundled Example Flow (ADR 0050). Teaching, learning, Dry
+ * Runs, and verification keep their ordinary tools; nothing here shortens
+ * them.
  */
 
-export const STARTER_PROMPT_URI = "contingency://onboarding/starter-prompt";
 export const EXAMPLES_URI = "contingency://onboarding/examples";
-export const WORK_PROMPT_URI = "contingency://start/work-prompt";
+
+/** The heading getting-started gains in a session `start` launched. */
+export const SESSION_GUIDE_HEADING = "## This session";
 
 /** Built output keeps prompts under `dist/onboarding`; a source checkout reads the package. */
 export const resolveOnboardingPromptPath = (
@@ -120,74 +122,47 @@ export const OnboardingToolHandlersLive = OnboardingTools.toLayer({
     }),
 });
 
-const readPrompt = (promptPath: string, launchContext?: string) =>
-  Effect.gen(function* readPromptFile() {
+const readProcedure = (promptPath: string) =>
+  Effect.gen(function* readProcedureFile() {
     const fileSystem = yield* FileSystem.FileSystem;
-    const prompt = yield* fileSystem
-      .readFileString(promptPath)
-      .pipe(Effect.orDie);
-    return launchContext === undefined
-      ? prompt
-      : `${launchContext}\n\n${prompt}`;
-  });
-
-const makeWorkPromptLayer = (launchContext?: string) =>
-  McpServer.resource({
-    audience: ["assistant"],
-    content: readPrompt(workPromptPath, launchContext),
-    description:
-      "The procedure for a session-only `contingency start` launch: prove the connection, check features with verified Flows, guide Teaching on the user's website, learn, Dry Run, and record the user's verification.",
-    mimeType: "text/markdown",
-    name: "start/work-prompt",
-    uri: WORK_PROMPT_URI,
+    return yield* fileSystem.readFileString(promptPath).pipe(Effect.orDie);
   });
 
 /**
- * The demo store's onboarding prompt and examples, served only by a demo
- * server. The single-tool interface serves these without the Example tool,
- * whose operation it offers inside programs instead (ADR 0059).
+ * The section a `start` session appends to getting-started: its launch facts,
+ * then the demo onboarding procedure or the work procedure.
  */
-const makeOnboardingResourcesLayer = (launchContext?: string) =>
-  Layer.mergeAll(
-    McpServer.resource({
-      audience: ["assistant"],
-      content: readPrompt(starterPromptPath, launchContext),
-      description:
-        "The onboarding procedure for a session started with `contingency start --demo`: prove the connection, show a bundled example, guide Teaching, learn, Dry Run, and record the user's verification.",
-      mimeType: "text/markdown",
-      name: "onboarding/starter-prompt",
-      uri: STARTER_PROMPT_URI,
-    }),
-    McpServer.resource({
-      audience: ["assistant"],
-      content: Effect.gen(function* describeExamples() {
-        const demo = yield* DemoSite;
-        return describeOnboardingExamples(demo.origin);
-      }),
-      description:
-        "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
-      mimeType: "text/markdown",
-      name: "onboarding/examples",
-      uri: EXAMPLES_URI,
-    })
+export const makeSessionGuide = (options: {
+  readonly demo: boolean;
+  readonly launchContext?: string | undefined;
+}) =>
+  readProcedure(options.demo ? starterPromptPath : workPromptPath).pipe(
+    Effect.map((procedure) =>
+      [SESSION_GUIDE_HEADING, options.launchContext, procedure.trimEnd()]
+        .filter((part) => part !== undefined)
+        .join("\n\n")
+    )
   );
 
 /**
- * The `start` surface for one server. A demo store, when supplied, adds the
- * onboarding prompt and example resources; without one the server
- * neither binds the store nor offers its tools.
+ * The demo store's examples, served only by a demo server. The single-tool
+ * interface serves them without the Example tool, whose operation it offers
+ * inside programs instead (ADR 0059).
  */
 export const makeMcpStartLayer = <R = never>(
-  demoSite: Layer.Layer<DemoSiteService, never, R> | undefined,
-  options: {
-    readonly launchContext?: string | undefined;
-  } = {}
+  demoSite: Layer.Layer<DemoSiteService, never, R> | undefined
 ) =>
   demoSite === undefined
-    ? makeWorkPromptLayer(options.launchContext)
-    : Layer.mergeAll(
-        makeWorkPromptLayer(options.launchContext),
-        makeOnboardingResourcesLayer(options.launchContext).pipe(
-          Layer.provide(demoSite)
-        )
-      );
+    ? Layer.empty
+    : McpServer.resource({
+        audience: ["assistant"],
+        content: Effect.gen(function* describeExamples() {
+          const demo = yield* DemoSite;
+          return describeOnboardingExamples(demo.origin);
+        }),
+        description:
+          "The Ridgeline Hardware demo store's examples, with this process's demo origin, demo conditions, and how demo work is identified in the catalog.",
+        mimeType: "text/markdown",
+        name: "onboarding/examples",
+        uri: EXAMPLES_URI,
+      }).pipe(Layer.provide(demoSite));

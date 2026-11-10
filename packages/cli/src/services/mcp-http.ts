@@ -27,15 +27,16 @@ import {
   DeviceWorkspaceTools,
 } from "./mcp-device-workspace.ts";
 import {
-  DocsToolHandlersLive,
   DocsTools,
   GETTING_STARTED_URI,
-  McpDocsResourcesLayer,
+  makeDocsToolHandlers,
+  makeMcpDocsResourcesLayer,
 } from "./mcp-docs.ts";
 import {
   OnboardingToolHandlersLive,
   OnboardingTools,
   makeMcpStartLayer,
+  makeSessionGuide,
 } from "./mcp-onboarding.ts";
 import type { McpProcessInfo } from "./mcp-process-info.ts";
 import {
@@ -52,6 +53,10 @@ import type { SystemOneConfig } from "./system-one.ts";
 
 export interface McpCatalogOptions<R> {
   readonly processInfo?: Effect.Effect<typeof McpProcessInfo.Type> | undefined;
+  /**
+   * Facts about a session `contingency start` launched. With them, or with a
+   * demo store, getting-started gains this session's section.
+   */
   readonly launchContext?: string | undefined;
   readonly demoSite?: Layer.Layer<DemoSiteService, never, R> | undefined;
   readonly systemOne?: SystemOneConfig | undefined;
@@ -62,16 +67,18 @@ export interface McpCatalogOptions<R> {
  * and HTTP adapters so both offer the same catalog.
  */
 const makeCatalogLayer = <R = never>(options: McpCatalogOptions<R> = {}) => {
-  const { demoSite, systemOne } = options;
+  const { demoSite, launchContext, systemOne } = options;
+  const session =
+    launchContext === undefined && demoSite === undefined
+      ? undefined
+      : makeSessionGuide({ demo: demoSite !== undefined, launchContext });
   return Layer.mergeAll(
     McpAuthoringResourcesLayer,
-    McpDocsResourcesLayer,
-    makeMcpStartLayer(demoSite, {
-      launchContext: options.launchContext,
-    }),
+    makeMcpDocsResourcesLayer(session),
+    makeMcpStartLayer(demoSite),
     makeMcpCodeInterpreterLayer(
       Layer.mergeAll(
-        operationSource(DocsTools, DocsToolHandlersLive),
+        operationSource(DocsTools, makeDocsToolHandlers(session)),
         operationSource(AgentSessionTools, AgentSessionToolHandlersLive),
         operationSource(BrowserDevtoolsTools, BrowserDevtoolsToolHandlersLive),
         operationSource(DeviceWorkspaceTools, DeviceWorkspaceToolHandlersLive),
