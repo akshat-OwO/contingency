@@ -22,8 +22,15 @@ import type {
   BrowserRpcErrorType,
 } from "@contingency/protocol";
 import { Effect, Option, Result, Schema, Semaphore } from "effect";
+import type { Mutable } from "effect/Types";
 import { errors } from "playwright-core";
-import type { ElementHandle, JSHandle, Locator, Page } from "playwright-core";
+import type {
+  ElementHandle,
+  Frame,
+  JSHandle,
+  Locator,
+  Page,
+} from "playwright-core";
 
 import type {
   AgentElementBounds,
@@ -107,6 +114,7 @@ const PAGE_READING_PRELUDE = `
     DIV: "generic",
     FOOTER: "contentinfo",
     FORM: "form",
+    FRAME: "frame",
     H1: "heading",
     H2: "heading",
     H3: "heading",
@@ -115,6 +123,7 @@ const PAGE_READING_PRELUDE = `
     H6: "heading",
     HEADER: "banner",
     ARTICLE: "article",
+    IFRAME: "frame",
     IMG: "image",
     LABEL: "label",
     LI: "listitem",
@@ -554,58 +563,95 @@ const PAGE_READING_PRELUDE = `
 
 `;
 
-/** One listener path step: a child index, or -1 for a host's shadow tree. */
-const isPathStep = (step: unknown): step is number =>
-  typeof step === "number" && Number.isInteger(step) && step >= -1;
-
-/** A CDP DOM node, as far as finding closed shadow roots needs it. */
+/** A CDP DOM node, as far as the structure handoff needs it. */
 interface DomTreeNode {
   readonly backendNodeId: number;
   readonly children?: readonly DomTreeNode[];
+  readonly contentDocument?: DomTreeNode;
   readonly shadowRoots?: readonly (DomTreeNode & {
     readonly shadowRootType?: string;
   })[];
 }
 
-const closedShadowRootIds = (root: DomTreeNode): number[] => {
-  const found: number[] = [];
-  const pending: DomTreeNode[] = [root];
-  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-    for (const shadow of node.shadowRoots ?? []) {
-      if (shadow.shadowRootType === "closed") {
-        found.push(shadow.backendNodeId);
-      }
-      pending.push(shadow);
-    }
-    // Child frames are their own documents (#652); their content documents
-    // are not walked.
-    pending.push(...(node.children ?? []));
-  }
-  return found;
-};
+/** What one document is handed before its Snapshot read. */
+interface DocumentStructure {
+  readonly closedRoots: number[];
+  readonly listeners: Set<number>;
+}
 
-/** What the Page reading needs from CDP before it runs. */
-interface PageStructure {
-  readonly listenerPaths: number[][];
-  /** The document property holding this read's closed shadow roots. */
-  readonly shadowRootsKey: string | undefined;
+/** One browser target's documents and which of them owns each node. */
+interface TargetDocuments {
+  /** Each document of the target, by its document node. */
+  readonly documents: Map<number, DocumentStructure>;
+  /** The document node that owns each node of the target. */
+  readonly owner: Map<number, number>;
 }
 
 /**
- * Read native click listeners and closed shadow roots without patching the
- * page's APIs. Page JavaScript cannot reach a closed root, so CDP resolves
- * each one and parks them on a randomly named, non-enumerable document
- * property that the Snapshot read removes as it starts (ADR 0074).
+ * Group a target's nodes by the document that owns them. A same-process
+ * Embedded Frame's document appears in its parent's tree as the frame
+ * element's content document; an out-of-process one does not appear at all
+ * and is read through its own target.
  */
-const readPageStructure = async (page: Page): Promise<PageStructure> => {
-  const session = await page.context().newCDPSession(page);
+const documentsOf = (root: DomTreeNode): TargetDocuments => {
+  const documents = new Map<number, DocumentStructure>();
+  const owner = new Map<number, number>();
+  const pending: [DomTreeNode, number][] = [[root, root.backendNodeId]];
+  documents.set(root.backendNodeId, {
+    closedRoots: [],
+    listeners: new Set(),
+  });
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const [node, documentId] = next;
+    owner.set(node.backendNodeId, documentId);
+    for (const shadow of node.shadowRoots ?? []) {
+      if (shadow.shadowRootType === "closed") {
+        documents.get(documentId)?.closedRoots.push(shadow.backendNodeId);
+      }
+      pending.push([shadow, documentId]);
+    }
+    for (const child of node.children ?? []) {
+      pending.push([child, documentId]);
+    }
+    const inner = node.contentDocument;
+    if (inner !== undefined) {
+      documents.set(inner.backendNodeId, {
+        closedRoots: [],
+        listeners: new Set(),
+      });
+      pending.push([inner, inner.backendNodeId]);
+    }
+  }
+  return { documents, owner };
+};
+
+/** The CDP arguments for the nodes that resolved. */
+const presentNodes = (ids: readonly (string | undefined)[]) =>
+  ids.flatMap((objectId) => (objectId === undefined ? [] : [{ objectId }]));
+
+/**
+ * Hand every document of one browser target its native click listeners and
+ * closed shadow roots without patching the page's APIs. Page JavaScript
+ * cannot reach a closed root, so CDP resolves each one and parks them, with
+ * the listening elements, on a randomly named, non-enumerable property of
+ * the document that owns them. That document's Snapshot read removes the
+ * property as it starts (ADR 0074). The target is the Page, or an
+ * out-of-process Embedded Frame (ADR 0075); a same-process frame is handed
+ * its structure through the target it renders in.
+ */
+const parkPageStructure = async (
+  target: Page | Frame,
+  key: string
+): Promise<void> => {
+  const page = "mainFrame" in target ? target : target.page();
+  const session = await page.context().newCDPSession(target);
   try {
     const documentObject = await session.send("Runtime.evaluate", {
       expression: "document",
     });
     const documentId = documentObject.result.objectId;
     if (documentId === undefined) {
-      return { listenerPaths: [], shadowRootsKey: undefined };
+      return;
     }
     // The two walks are independent; overlapping them keeps the cost of
     // looking for closed roots off a Page that has none.
@@ -617,92 +663,69 @@ const readPageStructure = async (page: Page): Promise<PageStructure> => {
       }),
       session.send("DOM.getDocument", { depth: -1, pierce: true }),
     ]);
-    const nodeIds = new Set<number>();
+    const { documents, owner } = documentsOf(root);
     for (const listener of listeners) {
-      if (listener.type === "click" && listener.backendNodeId !== undefined) {
-        nodeIds.add(listener.backendNodeId);
-        if (nodeIds.size >= SNAPSHOT_LIMIT) {
-          break;
-        }
+      if (listener.type !== "click" || listener.backendNodeId === undefined) {
+        continue;
+      }
+      const structure = documents.get(
+        owner.get(listener.backendNodeId) ?? Number.NaN
+      );
+      if (
+        structure !== undefined &&
+        structure.listeners.size < SNAPSHOT_LIMIT
+      ) {
+        structure.listeners.add(listener.backendNodeId);
       }
     }
-    const paths = await Promise.all(
-      [...nodeIds].map(async (backendNodeId) => {
+    const resolveObject = async (backendNodeId: number) => {
+      try {
+        const { object } = await session.send("DOM.resolveNode", {
+          backendNodeId,
+        });
+        return object.objectId;
+      } catch {
+        // A node may leave the document between discovery and resolve.
+      }
+    };
+    await Promise.all(
+      [...documents].map(async ([backendNodeId, structure]) => {
+        if (
+          structure.closedRoots.length === 0 &&
+          structure.listeners.size === 0
+        ) {
+          return;
+        }
+        const [documentObjectId, roots, clicked] = await Promise.all([
+          resolveObject(backendNodeId),
+          Promise.all(structure.closedRoots.map(resolveObject)),
+          Promise.all([...structure.listeners].map(resolveObject)),
+        ]);
+        if (documentObjectId === undefined) {
+          return;
+        }
+        const handedRoots = presentNodes(roots);
         try {
-          const { object } = await session.send("DOM.resolveNode", {
-            backendNodeId,
-          });
-          if (object.objectId === undefined) {
-            return;
-          }
-          const { result } = await session.send("Runtime.callFunctionOn", {
-            // Piercing also reports child frames' listeners (#652). This runs
-            // in the node's own frame, and only the top document's paths can
-            // be replayed against it.
-            functionDeclaration: `function() {
-              if (window !== window.top || this.ownerDocument !== document) return null;
-              const path = [];
-              for (let node = this; node !== document.documentElement;) {
-                const parent = node?.parentNode;
-                if (!parent) return null;
-                const index = Array.prototype.indexOf.call(parent.children, node);
-                if (index === -1) return null;
-                path.unshift(index);
-                if (parent.nodeType === 11 && parent.host) {
-                  path.unshift(-1);
-                  node = parent.host;
-                } else {
-                  node = parent;
-                }
-              }
-              return path;
+          await session.send("Runtime.callFunctionOn", {
+            arguments: [
+              { value: key },
+              { value: handedRoots.length },
+              ...handedRoots,
+              ...presentNodes(clicked),
+            ],
+            functionDeclaration: `function(key, rootCount, ...nodes) {
+              Object.defineProperty(this, key, {
+                configurable: true,
+                value: { listeners: nodes.slice(rootCount), roots: nodes.slice(0, rootCount) },
+              });
             }`,
-            objectId: object.objectId,
-            returnByValue: true,
+            objectId: documentObjectId,
           });
-          const value: unknown = result.value;
-          if (!Array.isArray(value) || !value.every(isPathStep)) {
-            return;
-          }
-          return value;
         } catch {
-          // A listener may leave the document between discovery and resolve.
+          // A frame may navigate away between discovery and the handoff.
         }
       })
     );
-    const listenerPaths = paths.filter(
-      (path): path is number[] => path !== undefined
-    );
-    const closed = closedShadowRootIds(root);
-    if (closed.length === 0) {
-      return { listenerPaths, shadowRootsKey: undefined };
-    }
-    const roots = await Promise.all(
-      closed.map(async (backendNodeId) => {
-        try {
-          const { object } = await session.send("DOM.resolveNode", {
-            backendNodeId,
-          });
-          return object.objectId;
-        } catch {
-          // A root may leave the document between discovery and resolve.
-        }
-      })
-    );
-    const shadowRootsKey = randomUUID();
-    await session.send("Runtime.callFunctionOn", {
-      arguments: [
-        { value: shadowRootsKey },
-        ...roots.flatMap((objectId) =>
-          objectId === undefined ? [] : [{ objectId }]
-        ),
-      ],
-      functionDeclaration: `function(key, ...roots) {
-        Object.defineProperty(this, key, { configurable: true, value: roots });
-      }`,
-      objectId: documentId,
-    });
-    return { listenerPaths, shadowRootsKey };
   } finally {
     await session.detach();
   }
@@ -712,9 +735,14 @@ const readPageStructure = async (page: Page): Promise<PageStructure> => {
 interface SnapshotRequest {
   /** Keep only controls and clickable rows. */
   readonly interactive: boolean;
-  readonly listenerPaths: readonly (readonly number[])[];
+  /**
+   * The document property holding this read's click listeners and closed
+   * shadow roots, when CDP handed any in.
+   */
+  readonly handoffKey: string;
+  /** How many nodes the read may return. */
+  readonly limit: number;
   readonly offset: number;
-  readonly shadowRootsKey: string | undefined;
   /** Inspect reads the elements under one viewport point and nothing else. */
   readonly point: { readonly x: number; readonly y: number } | undefined;
   readonly selector: string | undefined;
@@ -733,24 +761,22 @@ interface SnapshotRequest {
  * read twice keeps the reference it was first given.
  */
 const SNAPSHOT_SCRIPT = ({
+  handoffKey,
   interactive,
-  listenerPaths,
+  limit,
   offset,
   point,
   selector,
-  shadowRootsKey,
   urls,
 }: SnapshotRequest) => `((known) => {${PAGE_READING_PRELUDE}
-  // Closed shadow roots arrive on a randomly named document property that
-  // exists only until this read takes them.
-  const shadowRootsKey = ${JSON.stringify(shadowRootsKey)};
-  if (shadowRootsKey !== undefined) {
-    const handed = document[shadowRootsKey];
-    delete document[shadowRootsKey];
-    for (const root of Array.isArray(handed) ? handed : []) {
-      if (isShadowRoot(root)) {
-        shadowRoots.set(root.host, root);
-      }
+  // Click listeners and closed shadow roots arrive on a randomly named
+  // document property that exists only until this read takes them.
+  const handoffKey = ${JSON.stringify(handoffKey)};
+  const handed = document[handoffKey];
+  delete document[handoffKey];
+  for (const root of Array.isArray(handed?.roots) ? handed.roots : []) {
+    if (isShadowRoot(root)) {
+      shadowRoots.set(root.host, root);
     }
   }
   for (const element of known) {
@@ -773,17 +799,13 @@ const SNAPSHOT_SCRIPT = ({
     }
   }
   const nativeClickTargets = new Set(
-    ${JSON.stringify(listenerPaths)}.map((path) => {
-      let element = document.documentElement;
-      for (const index of path) {
-        // -1 steps from a host into its shadow tree.
-        element = index === -1
-          ? (element && shadowRootOf(element))
-          : element?.children[index];
-      }
-      return element;
-    }).filter(Boolean)
+    (Array.isArray(handed?.listeners) ? handed.listeners : []).filter((node) =>
+      node?.nodeType === 1 && node.ownerDocument === document && node.isConnected
+    )
   );
+  for (const element of nativeClickTargets) {
+    learnShadowRoots(element);
+  }
   // React delegates native clicks to its root. Its handler is still attached
   // to the individual row through the DOM node's current props.
   const hasReactClick = (element) => Object.keys(element).some((key) =>
@@ -867,8 +889,21 @@ const SNAPSHOT_SCRIPT = ({
   const clickable = new Set();
   const access = new Map();
   const textual = [];
+  // Embedded Frames are read as their own documents (ADR 0075). Here each
+  // one is the container its content is placed under; a hidden or empty
+  // frame shows nothing, so it is left out as hidden elements are.
+  const frames = [];
+  const isFrame = (element) =>
+    element.tagName === "IFRAME" || element.tagName === "FRAME";
   for (const element of everyElement) {
     if (SKIPPED_TAGS.has(element.tagName)) {
+      continue;
+    }
+    if (isFrame(element)) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && isVisible(element)) {
+        frames.push(element);
+      }
       continue;
     }
     const isControl = element.matches(CONTROL_SELECTOR);
@@ -922,7 +957,7 @@ const SNAPSHOT_SCRIPT = ({
   };
   // An Inspect read sees only the ancestors of one point, so it has no
   // descendants to fold text into and keeps the selection as it was.
-  const kept = new Set([...controls, ...contextual, ...textual]);
+  const kept = new Set([...controls, ...frames, ...contextual, ...textual]);
   const isInline = (element) => styleOf(element).display === "inline";
   if (!point) {
     // An inline run of text — a bold word, a price in a span — reads as part
@@ -983,7 +1018,9 @@ const SNAPSHOT_SCRIPT = ({
     if (name !== undefined) {
       return name;
     }
-    if (point) {
+    if (isFrame(element)) {
+      name = element.getAttribute("aria-label") || element.title || "";
+    } else if (point) {
       name = accessibleName(element);
     } else if (controlSet.has(element) && !hostsControls.has(element)) {
       name = accessibleName(element);
@@ -1055,8 +1092,9 @@ const SNAPSHOT_SCRIPT = ({
         }
       }
     }
+    // An unnamed frame still holds a document, which is read under it.
     const isEmptyStructure = (element) =>
-      !controlSet.has(element) && nameOf(element) === "";
+      !controlSet.has(element) && !isFrame(element) && nameOf(element) === "";
     const occupied = new Set();
     for (const element of kept) {
       if (isEmptyStructure(element)) {
@@ -1080,7 +1118,7 @@ const SNAPSHOT_SCRIPT = ({
     return rect.bottom > 0 && rect.right > 0 &&
       rect.top < innerHeight && rect.left < innerWidth;
   };
-  const tiers = (interactiveOnly ? [controls] : [controls, contextual, textual])
+  const tiers = (interactiveOnly ? [controls, frames] : [controls, frames, contextual, textual])
     .map((tier) => tier.filter((element) => kept.has(element)));
   const eligible = point
     ? tiers.flat()
@@ -1096,10 +1134,13 @@ const SNAPSHOT_SCRIPT = ({
       element.checked, element.disabled, bounds.x, bounds.y, bounds.width, bounds.height,
       access.get(element)?.blocker];
   }));
-  const picked = point ? controls[0] ?? ancestors.find((element) =>
+  // A point over an Embedded Frame is resolved inside it, so the frame is
+  // what this document has there.
+  const picked = point ? frames.find((frame) => frame === ancestors[0]) ??
+    controls[0] ?? ancestors.find((element) =>
     eligible.includes(element) && ownsText(element)) ?? eligible[0] : undefined;
   const candidates = point ? (picked ? [picked] : []) :
-    eligible.slice(${offset}, ${offset} + ${SNAPSHOT_LIMIT});
+    eligible.slice(${offset}, ${offset} + ${limit});
   const included = new Set(candidates);
   // The budget picks controls first, but the Snapshot is a tree read in
   // document order: \`depth\` counts included ancestors, and a reader walks
@@ -1159,6 +1200,15 @@ const SNAPSHOT_SCRIPT = ({
     }
     if (clickable.has(element)) {
       node.clickable = true;
+    }
+    if (isFrame(element)) {
+      // Where the frame's own viewport starts: its content box, inside the
+      // border and padding.
+      const style = styleOf(element);
+      node.embeds = {
+        x: bounds.x + element.clientLeft + parseFloat(style.paddingLeft),
+        y: bounds.y + element.clientTop + parseFloat(style.paddingTop),
+      };
     }
     if (element.matches(CONTROL_SELECTOR)) {
       const item = itemContext(element);
@@ -1271,6 +1321,10 @@ const CollectedNodes = Schema.Array(
     context: Schema.optional(Schema.String),
     depth: Schema.Int,
     disabled: Schema.optional(Schema.Boolean),
+    /** Where an Embedded Frame's own viewport starts, in its document's viewport. */
+    embeds: Schema.optional(
+      Schema.Struct({ x: Schema.Finite, y: Schema.Finite })
+    ),
     height: Schema.Finite,
     interactive: Schema.optional(Schema.Boolean),
     known: Schema.Int,
@@ -1369,19 +1423,20 @@ const disposeHandles = (
   });
 
 /**
- * Run the Snapshot script against the elements earlier reads named. The
- * script evaluates to a function, so the known elements travel as arguments
- * rather than being written anywhere the page could see them.
+ * Run the Snapshot script in one document against the elements earlier reads
+ * named there. The script evaluates to a function, so the known elements
+ * travel as arguments rather than being written anywhere the page could see
+ * them.
  */
 const evaluateSnapshot = (
-  page: Page,
+  frame: Frame,
   request: SnapshotRequest,
   known: readonly ElementHandle[]
 ): Effect.Effect<JSHandle<PageReading>, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not read the Page", cause),
     try: async () => {
-      const read = await page.evaluateHandle<ReadPage>(
+      const read = await frame.evaluateHandle<ReadPage>(
         SNAPSHOT_SCRIPT(request)
       );
       try {
@@ -1391,15 +1446,11 @@ const evaluateSnapshot = (
         );
       } finally {
         await read.dispose().catch(ignoreDisposeFailure);
-        // The read takes the closed roots as it starts; a read that failed
-        // first must not leave them on the document.
-        if (request.shadowRootsKey !== undefined) {
-          await page
-            .evaluate(
-              `delete document[${JSON.stringify(request.shadowRootsKey)}]`
-            )
-            .catch(ignoreDisposeFailure);
-        }
+        // The read takes the handoff as it starts; a read that failed first
+        // must not leave it on the document.
+        await frame
+          .evaluate(`delete document[${JSON.stringify(request.handoffKey)}]`)
+          .catch(ignoreDisposeFailure);
       }
     },
   });
@@ -1409,6 +1460,92 @@ const releaseGuard = (guard: JSHandle<SnapshotGuard | null>) =>
     Effect.ignore,
     Effect.andThen(disposeHandles([guard]))
   );
+
+/** One document's answer to a Snapshot read, decoded, with its element handles. */
+interface CollectedDocument {
+  readonly guard: JSHandle<SnapshotGuard | null>;
+  readonly handles: Map<string, JSHandle>;
+  readonly identity: typeof CollectedPage.Type;
+  readonly nodes: typeof CollectedNodes.Type;
+}
+
+/** Read one document and take its answer apart into handles and values. */
+const collectDocument = (
+  frame: Frame,
+  request: SnapshotRequest,
+  known: readonly ElementHandle[]
+): Effect.Effect<CollectedDocument, BrowserRpcErrorType> =>
+  Effect.acquireUseRelease(
+    evaluateSnapshot(frame, request, known),
+    (handle) =>
+      Effect.gen(function* readCollectedPage() {
+        const nodesHandle = yield* property(handle, "nodes");
+        const elementsHandle = yield* property(handle, "elements");
+        const rawNodes = yield* Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not read the Browser Snapshot", cause),
+          try: () => nodesHandle.jsonValue(),
+        });
+        const titleHandle = yield* property(handle, "title");
+        const urlHandle = yield* property(handle, "url");
+        const focusedIndexHandle = yield* property(handle, "focusedIndex");
+        const totalHandle = yield* property(handle, "total");
+        const guard = yield* property<SnapshotGuard | null>(handle, "guard");
+        const rawPage = yield* Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not read the Browser Snapshot", cause),
+          try: async () => ({
+            focusedIndex: await focusedIndexHandle.jsonValue(),
+            title: await titleHandle.jsonValue(),
+            total: await totalHandle.jsonValue(),
+            url: await urlHandle.jsonValue(),
+          }),
+        });
+        const handles = yield* Effect.tryPromise({
+          catch: (cause) =>
+            browserFailure("Could not read the Browser Snapshot", cause),
+          try: () => elementsHandle.getProperties(),
+        });
+        yield* disposeHandles([
+          elementsHandle,
+          focusedIndexHandle,
+          nodesHandle,
+          titleHandle,
+          urlHandle,
+          totalHandle,
+        ]);
+        // The page is untrusted: its answer is decoded where it arrives.
+        const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
+          rawPage
+        ).pipe(
+          Effect.mapError((cause) =>
+            browserFailure("Invalid snapshot metadata", cause)
+          )
+        );
+        const nodes = yield* Schema.decodeUnknownEffect(CollectedNodes)(
+          rawNodes
+        ).pipe(
+          Effect.mapError(() =>
+            makeBrowserRpcError(
+              "agent_browser_failed",
+              "The Page answered a Browser Snapshot that could not be decoded."
+            )
+          )
+        );
+        return { guard, handles, identity, nodes };
+      }),
+    (handle) => disposeHandles([handle])
+  );
+
+/** The host an Embedded Frame's document comes from, as Domain Scope names hosts. */
+const frameHost = (frame: Frame): string => {
+  try {
+    const { host } = new URL(frame.url());
+    return host === "" ? frame.url() : host;
+  } catch {
+    return frame.url();
+  }
+};
 
 const matchesContinuation = (
   continuation: SnapshotContinuation | undefined,
@@ -1552,6 +1689,33 @@ export const makeAgentElementRegistry = (
   let documentUrl: string | undefined;
   /** The focused reference minted by the most recent Snapshot. */
   let focused: AgentElementRef | undefined;
+  /** The document, top-level or Embedded Frame, each reference was read in. */
+  const frameOf = new Map<string, Frame>();
+  /** Where each Embedded Frame's document was when its references were read. */
+  const frameUrls = new Map<Frame, string>();
+
+  /** Release the references read in some documents, and nothing else. */
+  const forgetRefs = (refs: Iterable<string>): Effect.Effect<void> => {
+    const released: ElementHandle[] = [];
+    for (const ref of refs) {
+      const handle = elements.get(ref);
+      if (handle !== undefined) {
+        released.push(handle);
+      }
+      elements.delete(ref);
+      bounds.delete(ref);
+      subjects.delete(ref);
+      frameOf.delete(ref);
+      if (focused === ref) {
+        focused = undefined;
+      }
+    }
+    return disposeHandles(released);
+  };
+
+  /** The live references read in one document, in reference order. */
+  const refsIn = (frame: Frame): string[] =>
+    [...elements.keys()].filter((ref) => frameOf.get(ref) === frame);
 
   const clear = (): Effect.Effect<void> =>
     Effect.gen(function* clearRegistry() {
@@ -1559,6 +1723,8 @@ export const makeAgentElementRegistry = (
       elements.clear();
       bounds.clear();
       subjects.clear();
+      frameOf.clear();
+      frameUrls.clear();
       documentUrl = undefined;
       focused = undefined;
       for (const continuation of continuations.values()) {
@@ -1583,6 +1749,7 @@ export const makeAgentElementRegistry = (
       elements.delete(ref);
       bounds.delete(ref);
       subjects.delete(ref);
+      frameOf.delete(ref);
     }
     return disposeHandles(released);
   };
@@ -1666,16 +1833,64 @@ export const makeAgentElementRegistry = (
    * old one cannot even be passed to the new one. Its references end exactly
    * as a navigation's do.
    */
-  const forgetReplacedDocument = (page: Page): Effect.Effect<void> =>
-    elements.size === 0
+  const forgetReplacedDocument = (page: Page): Effect.Effect<void> => {
+    const known = refsIn(page.mainFrame()).flatMap((ref) => {
+      const handle = elements.get(ref);
+      return handle === undefined ? [] : [handle];
+    });
+    return known.length === 0
       ? Effect.void
       : Effect.tryPromise(() =>
-          page.evaluate((known) => known.length, [...elements.values()])
+          page.evaluate((handles) => handles.length, known)
         ).pipe(
           Effect.as(true),
           Effect.orElseSucceed(() => false),
           Effect.flatMap((same) => (same ? Effect.void : clear()))
         );
+  };
+
+  /**
+   * An Embedded Frame that navigated, reloaded, or left the Page ends the
+   * references read in it, and only those (ADR 0075). A frame nested in it
+   * leaves the Page with the document that held it, so its references end
+   * too. The top-level document keeps its references.
+   */
+  const forgetStaleFrames = (page: Page): Effect.Effect<void> =>
+    Effect.gen(function* expireFrameReferences() {
+      const main = page.mainFrame();
+      const stale = new Set<Frame>();
+      for (const [frame, url] of frameUrls) {
+        if (frame === main) {
+          continue;
+        }
+        if (frame.isDetached() || frame.url() !== url) {
+          stale.add(frame);
+          continue;
+        }
+        const known = refsIn(frame).flatMap((ref) => {
+          const handle = elements.get(ref);
+          return handle === undefined ? [] : [handle];
+        });
+        // A handle from a replaced document cannot be passed to the new one.
+        const same =
+          known.length === 0 ||
+          (yield* Effect.tryPromise(() =>
+            frame.evaluate((handles) => handles.length, known)
+          ).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false)
+          ));
+        if (!same) {
+          stale.add(frame);
+        }
+      }
+      for (const frame of stale) {
+        frameUrls.delete(frame);
+      }
+      yield* forgetRefs(
+        [...frameOf].flatMap(([ref, frame]) => (stale.has(frame) ? [ref] : []))
+      );
+    });
 
   /**
    * The reference for an element a read returned. One an earlier read named
@@ -1702,6 +1917,170 @@ export const makeAgentElementRegistry = (
     return ref;
   };
 
+  /** One node a document read returned, placed in the Page's viewport. */
+  interface PlacedNode {
+    readonly element: ElementHandle;
+    readonly frame: Frame;
+    /** The Embedded Frame's host, absent for the top-level document. */
+    readonly host: string | undefined;
+    readonly knownRef: string | undefined;
+    readonly node: Omit<
+      (typeof CollectedNodes.Type)[number],
+      "embeds" | "known"
+    >;
+    readonly documentUrl: string;
+  }
+
+  /** What one document read and the Embedded Frames under it returned. */
+  interface PlacedDocument {
+    readonly focused: PlacedNode | undefined;
+    readonly nodes: PlacedNode[];
+    /** Nodes the reads found but had no budget for. */
+    readonly omitted: number;
+  }
+
+  /**
+   * Place one document's nodes in the Page, reading each Embedded Frame they
+   * contain right after its container (ADR 0075). A frame's nodes sit one
+   * level under the container and are moved by the container's content box,
+   * so bounds and hit-testing read in the Page's viewport. Each frame reads
+   * within what is left of the Snapshot's budget.
+   */
+  const placeDocument = (
+    frame: Frame,
+    host: string | undefined,
+    collected: CollectedDocument,
+    knownRefs: readonly string[],
+    placement: {
+      readonly depth: number;
+      readonly x: number;
+      readonly y: number;
+    },
+    request: Pick<SnapshotRequest, "handoffKey" | "interactive" | "urls">,
+    budget: { remaining: number },
+    point: { readonly x: number; readonly y: number } | undefined,
+    orphaned: JSHandle<unknown>[]
+  ): Effect.Effect<PlacedDocument, BrowserRpcErrorType> =>
+    Effect.gen(function* placeDocumentNodes() {
+      const { identity, nodes: decoded } = collected;
+      const placed: PlacedNode[] = [];
+      let focusedNode: PlacedNode | undefined;
+      let omitted = 0;
+      let index = 0;
+      for (const [, entry] of collected.handles) {
+        const element = entry.asElement();
+        const collectedNode = decoded[index];
+        const position = index;
+        index += 1;
+        if (element === null || collectedNode === undefined) {
+          orphaned.push(entry);
+          continue;
+        }
+        const { embeds, known, ...rest } = collectedNode;
+        const node = {
+          ...rest,
+          bounds:
+            rest.bounds === undefined
+              ? undefined
+              : {
+                  ...rest.bounds,
+                  x: rest.bounds.x + placement.x,
+                  y: rest.bounds.y + placement.y,
+                },
+          depth: rest.depth + placement.depth,
+          x: rest.x + placement.x,
+          y: rest.y + placement.y,
+        };
+        const child =
+          embeds === undefined
+            ? null
+            : yield* Effect.tryPromise(() => element.contentFrame()).pipe(
+                Effect.map((content) =>
+                  content === null || content.isDetached() ? null : content
+                ),
+                Effect.orElseSucceed(() => null)
+              );
+        const childHost = child === null ? undefined : frameHost(child);
+        // A frame's container names the host of the document it holds.
+        const container: PlacedNode = {
+          documentUrl: identity.url,
+          element,
+          frame,
+          host: childHost ?? host,
+          knownRef: knownRefs[known],
+          node,
+        };
+        placed.push(container);
+        if (position === identity.focusedIndex) {
+          focusedNode = container;
+        }
+        if (embeds === undefined || child === null || childHost === undefined) {
+          continue;
+        }
+        if (point === undefined && budget.remaining <= 0) {
+          omitted += 1;
+          continue;
+        }
+        const origin = {
+          x: placement.x + embeds.x,
+          y: placement.y + embeds.y,
+        };
+        // An out-of-process frame is its own target and is handed its
+        // structure here; a same-process one was handed it with its parent.
+        yield* Effect.tryPromise(() =>
+          parkPageStructure(child, request.handoffKey)
+        ).pipe(Effect.ignore);
+        const childRefs = refsIn(child);
+        const childRead = yield* Effect.result(
+          collectDocument(
+            child,
+            {
+              ...request,
+              limit: Math.max(budget.remaining, 1),
+              offset: 0,
+              point:
+                point === undefined
+                  ? undefined
+                  : { x: point.x - origin.x, y: point.y - origin.y },
+              selector: undefined,
+            },
+            childRefs.flatMap((ref) => {
+              const handle = elements.get(ref);
+              return handle === undefined ? [] : [handle];
+            })
+          )
+        );
+        // A frame that navigates or detaches mid-read shows nothing yet; the
+        // rest of the Page still reads.
+        if (Result.isFailure(childRead)) {
+          continue;
+        }
+        yield* releaseGuard(childRead.success.guard);
+        frameUrls.set(child, child.url());
+        const inner = yield* placeDocument(
+          child,
+          childHost,
+          childRead.success,
+          childRefs.filter((ref) => elements.has(ref)),
+          { depth: node.depth + 1, ...origin },
+          request,
+          budget,
+          point,
+          orphaned
+        );
+        budget.remaining -= inner.nodes.length;
+        omitted +=
+          inner.omitted +
+          Math.max(0, childRead.success.identity.total - inner.nodes.length);
+        // The frame holds focus for the Page; what holds it is inside.
+        if (focusedNode === container && inner.focused !== undefined) {
+          focusedNode = inner.focused;
+        }
+        placed.push(...inner.nodes);
+      }
+      return { focused: focusedNode, nodes: placed, omitted };
+    });
+
   const readSnapshot = (
     page: Page,
     options: AgentSnapshotOptions = {},
@@ -1727,129 +2106,103 @@ export const makeAgentElementRegistry = (
       const scope = scopeOf(options, continuation);
       const offset = continuation?.offset ?? 0;
       yield* forgetReplacedDocument(page);
+      yield* forgetStaleFrames(page);
+      const main = page.mainFrame();
       // The elements earlier Snapshots of this document named, in reference
       // order, so the Page can say which of them it read again.
-      const knownRefs = [...elements.keys()];
-      const knownHandles = [...elements.values()];
+      const knownRefs = refsIn(main);
+      const knownHandles = knownRefs.flatMap((ref) => {
+        const handle = elements.get(ref);
+        return handle === undefined ? [] : [handle];
+      });
       generation += 1;
       // Evidence identity must never collide across sessions or process lifetimes.
       const snapshotId = AgentSnapshotId.make(`snapshot-${randomUUID()}`);
-      const structure = yield* Effect.tryPromise(() =>
-        readPageStructure(page)
-      ).pipe(
-        Effect.orElseSucceed((): PageStructure => ({
-          listenerPaths: [],
-          shadowRootsKey: undefined,
-        }))
+      const handoffKey = randomUUID();
+      // Every document of the Page may hold a handoff, read or not, until the
+      // whole Snapshot is read.
+      const removeHandoffs = Effect.forEach(
+        page.frames(),
+        (frame) =>
+          Effect.tryPromise(() =>
+            frame.evaluate(`delete document[${JSON.stringify(handoffKey)}]`)
+          ).pipe(Effect.ignore),
+        { concurrency: "unbounded", discard: true }
       );
-      const collected = yield* Effect.acquireUseRelease(
-        evaluateSnapshot(
-          page,
-          { ...scope, ...structure, offset, point },
-          knownHandles
-        ),
-        (handle) =>
-          Effect.gen(function* readCollectedPage() {
-            const nodesHandle = yield* property(handle, "nodes");
-            const elementsHandle = yield* property(handle, "elements");
-            const rawNodes = yield* Effect.tryPromise({
-              catch: (cause) =>
-                browserFailure("Could not read the Browser Snapshot", cause),
-              try: () => nodesHandle.jsonValue(),
-            });
-            const titleHandle = yield* property(handle, "title");
-            const urlHandle = yield* property(handle, "url");
-            const focusedIndexHandle = yield* property(handle, "focusedIndex");
-            const totalHandle = yield* property(handle, "total");
-            const guard = yield* property<SnapshotGuard | null>(
-              handle,
-              "guard"
-            );
-            const rawPage = yield* Effect.tryPromise({
-              catch: (cause) =>
-                browserFailure("Could not read the Browser Snapshot", cause),
-              try: async () => ({
-                focusedIndex: await focusedIndexHandle.jsonValue(),
-                title: await titleHandle.jsonValue(),
-                total: await totalHandle.jsonValue(),
-                url: await urlHandle.jsonValue(),
-              }),
-            });
-            const handles = yield* Effect.tryPromise({
-              catch: (cause) =>
-                browserFailure("Could not read the Browser Snapshot", cause),
-              try: () => elementsHandle.getProperties(),
-            });
-            yield* disposeHandles([
-              elementsHandle,
-              focusedIndexHandle,
-              nodesHandle,
-              titleHandle,
-              urlHandle,
-              totalHandle,
-            ]);
-            return { guard, handles, rawNodes, rawPage };
-          }),
-        (handle) => disposeHandles([handle])
-      );
-      const identity = yield* Schema.decodeUnknownEffect(CollectedPage)(
-        collected.rawPage
-      ).pipe(
-        Effect.mapError((cause) =>
-          browserFailure("Invalid snapshot metadata", cause)
-        )
-      );
-      const valid = yield* matchesContinuation(continuation, collected.guard);
-      if (!valid) {
-        yield* releaseGuard(collected.guard);
-        yield* disposeHandles([...collected.handles.values()]);
-        if (cursor !== undefined && continuation !== undefined) {
-          continuations.delete(cursor);
-          yield* releaseGuard(continuation.guard);
-        }
-        return yield* Effect.fail(
-          makeBrowserRpcError(
-            "agent_element_stale",
-            "The Page changed while paging its snapshot. Take a fresh snapshot."
-          )
-        );
-      }
-      const decodedNodes = yield* Schema.decodeUnknownEffect(CollectedNodes)(
-        collected.rawNodes
-      ).pipe(
-        Effect.mapError(() =>
-          makeBrowserRpcError(
-            "agent_browser_failed",
-            "The Page answered a Browser Snapshot that could not be decoded."
-          )
-        )
-      );
-      const nodes: AgentSnapshotNode[] = [];
       const orphaned: JSHandle<unknown>[] = [];
+      const read = yield* Effect.gen(function* readEveryDocument() {
+        yield* Effect.tryPromise(() =>
+          parkPageStructure(page, handoffKey)
+        ).pipe(Effect.ignore);
+        const collected = yield* collectDocument(
+          main,
+          { ...scope, handoffKey, limit: SNAPSHOT_LIMIT, offset, point },
+          knownHandles
+        );
+        const { identity } = collected;
+        const valid = yield* matchesContinuation(continuation, collected.guard);
+        if (!valid) {
+          yield* releaseGuard(collected.guard);
+          yield* disposeHandles([...collected.handles.values()]);
+          if (cursor !== undefined && continuation !== undefined) {
+            continuations.delete(cursor);
+            yield* releaseGuard(continuation.guard);
+          }
+          return yield* Effect.fail(
+            makeBrowserRpcError(
+              "agent_element_stale",
+              "The Page changed while paging its snapshot. Take a fresh snapshot."
+            )
+          );
+        }
+        const topCount = collected.handles.size;
+        const placed = yield* placeDocument(
+          main,
+          undefined,
+          collected,
+          knownRefs,
+          { depth: 0, x: 0, y: 0 },
+          { handoffKey, interactive: scope.interactive, urls: scope.urls },
+          { remaining: SNAPSHOT_LIMIT - topCount },
+          point,
+          orphaned
+        );
+        return { collected, identity, placed, topCount };
+      }).pipe(Effect.ensuring(removeHandoffs));
+      const { collected, identity, placed, topCount } = read;
+      const nodes: AgentSnapshotNode[] = [];
       if (point === undefined) {
         focused = undefined;
       }
-      let index = 0;
-      for (const [, entry] of collected.handles) {
-        const element = entry.asElement();
-        const collectedNode = decodedNodes[index];
-        index += 1;
-        if (element === null || collectedNode === undefined) {
-          orphaned.push(entry);
-          continue;
-        }
-        const { height, known, url, width, x, y, ...node } = collectedNode;
-        const ref = adopt(knownRefs[known], element, orphaned);
+      for (const entry of placed.nodes) {
+        const { height, url, width, x, y, bounds: box, ...node } = entry.node;
+        const ref = adopt(entry.knownRef, entry.element, orphaned);
+        frameOf.set(ref, entry.frame);
         bounds.set(ref, { depth: node.depth, generation, height, width, x, y });
-        subjects.set(ref, { name: node.name, role: node.role });
-        if (index - 1 === identity.focusedIndex) {
+        subjects.set(
+          ref,
+          entry.host === undefined
+            ? { name: node.name, role: node.role }
+            : { frame: entry.host, name: node.name, role: node.role }
+        );
+        if (entry === placed.focused) {
           focused = ref;
         }
-        nodes.push(
-          url === undefined
-            ? { ...node, ref }
-            : { ...node, ref, url: linkDestination(url, identity.url) }
-        );
+        const located: Mutable<AgentSnapshotNode> = {
+          ...node,
+          depth: Math.min(node.depth, 64),
+          ref,
+        };
+        if (box !== undefined) {
+          located.bounds = box;
+        }
+        if (entry.host !== undefined) {
+          located.frame = entry.host;
+        }
+        if (url !== undefined) {
+          located.url = linkDestination(url, entry.documentUrl);
+        }
+        nodes.push(located);
       }
       yield* disposeHandles(orphaned);
       documentUrl = identity.url;
@@ -1860,13 +2213,22 @@ export const makeAgentElementRegistry = (
         collected.guard,
         offset,
         identity.total,
-        nodes.length,
+        topCount,
         scope,
         point !== undefined
       );
       return {
         capturedAt: now().toISOString(),
-        coverage,
+        coverage:
+          nodes.length === topCount && placed.omitted === 0
+            ? coverage
+            : {
+                ...coverage,
+                returned: nodes.length,
+                total:
+                  coverage.total + nodes.length - topCount + placed.omitted,
+                truncated: coverage.truncated || placed.omitted > 0,
+              },
         nodes,
         snapshotId,
         title: identity.title,
@@ -2013,6 +2375,7 @@ export const makeAgentElementRegistry = (
         })
       ),
       Effect.map(({ selector, spread }): PrivateInputTarget => ({
+        frame: frameOf.get(ref),
         selector,
         spread: spread ?? undefined,
       }))
@@ -2117,9 +2480,13 @@ export const makeAgentElementRegistry = (
     if (bounds.get(ref)?.generation === generation) {
       return Effect.succeed(AgentElementRef.make(ref));
     }
+    // A handle is compared only within its own document.
+    const document = frameOf.get(ref);
     const current = [...bounds].flatMap(([candidate, rectangle]) => {
       const element = elements.get(candidate);
-      return rectangle.generation === generation && element !== undefined
+      return rectangle.generation === generation &&
+        element !== undefined &&
+        frameOf.get(candidate) === document
         ? [{ element, ref: candidate }]
         : [];
     });
@@ -3278,7 +3645,9 @@ const enterVariable = (
   attempt("Could not enter the Variable", async (signal) => {
     const deadline = Date.now() + ACTION_TIMEOUT_MS;
     const remaining = () => Math.max(1, deadline - Date.now());
-    const controls = page.locator(target.selector);
+    // The selectors name controls in the document the reference was read in.
+    const owner = target.frame ?? page.mainFrame();
+    const controls = owner.locator(target.selector);
     const count = await controls.count();
     const characters = [...value];
     if (count === 0) {
@@ -3335,7 +3704,7 @@ const enterVariable = (
       // Poll acceptance, not elapsed time or a submit button. Page-managed
       // distribution can finish after fill returns, but must finish within
       // the same action budget. A prefix never proves complete acceptance.
-      const accepted = await page.waitForFunction(
+      const accepted = await owner.waitForFunction(
         ({ selector, spread, expected, expectedCount, split, anchor }) => {
           if (anchor === null) {
             return false;
@@ -3420,7 +3789,7 @@ export const performVariableInput = (
   pointAtHandle(
     page,
     () =>
-      page
+      (target.frame ?? page.mainFrame())
         .locator(target.selector)
         .first()
         .elementHandle({ timeout: POINTER_TIMEOUT_MS }),

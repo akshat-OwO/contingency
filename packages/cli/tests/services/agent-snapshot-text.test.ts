@@ -148,3 +148,31 @@ test("keeps unnamed blockers explicit and compacts viewport bounds", () => {
     ).text
   ).toContain('blocked by dialog "Consent"');
 });
+
+test("names an Embedded Frame's host once, on its container", () => {
+  const rendered = textSnapshot(
+    snapshotOf([
+      {
+        depth: 0,
+        frame: "js.payments.test",
+        name: "Secure payment",
+        ref: AgentElementRef.make("e1"),
+        role: "frame",
+      },
+      {
+        depth: 1,
+        frame: "js.payments.test",
+        interactive: true,
+        name: "Card number",
+        ref: AgentElementRef.make("e2"),
+        role: "textbox",
+      },
+    ])
+  );
+  expect(rendered.text).toBe(
+    [
+      'frame "Secure payment" [host=js.payments.test]',
+      '  @e2 textbox "Card number"',
+    ].join("\n")
+  );
+});

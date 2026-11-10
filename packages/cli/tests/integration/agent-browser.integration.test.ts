@@ -1918,6 +1918,79 @@ it.live(
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
 
+it.live(
+  "reads and acts inside a cross-origin Embedded Frame and expires only its references",
+  () =>
+    Effect.gen(function* embeddedFrameControls() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const loaded = yield* fixtures.awaitRequest((url) =>
+        url.includes("field=Card")
+      );
+      const session = yield* startSession(
+        agent,
+        fixtures.url("frame-checkout.html"),
+        "frame-start"
+      );
+      yield* Deferred.await(loaded).pipe(Effect.timeout("30 seconds"));
+      const host = `localhost:${new URL(fixtures.url("frame-checkout.html")).port}`;
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      // The frame is a container that names its host; its controls sit
+      // under it and carry the same host. A hidden frame shows nothing.
+      const container = findNode(before.nodes, "frame", "Secure payment");
+      expect(container.frame).toBe(host);
+      expect(before.nodes.some(({ name }) => name === "Tracking pixel")).toBe(
+        false
+      );
+      const field = findNode(before.nodes, "textbox", "Card number");
+      expect(field.frame).toBe(host);
+      expect(field.depth).toBeGreaterThan(container.depth);
+      const review = findNode(before.nodes, "button", "Review order");
+      expect(review.frame).toBeUndefined();
+
+      yield* callTool("agent_browser_act", {
+        action: { ref: field.ref, text: "4242", type: "fill" },
+        operationId: OperationId.make("frame-fill"),
+        sessionId: session.id,
+      });
+      const pay = findNode(before.nodes, "button", "Pay");
+      const paid = yield* callTool("agent_browser_act", {
+        action: { ref: pay.ref, type: "click" },
+        operationId: OperationId.make("frame-pay"),
+        sessionId: session.id,
+      });
+      expect(paid.entry.description).toBe(
+        `Click ${describeActionSubject({ frame: host, name: "Pay", role: "button" })}`
+      );
+      findNode(paid.snapshot.nodes, "paragraph", "Paid 4242");
+
+      // The frame moves to its next document; the page around it stays.
+      const next = findNode(paid.snapshot.nodes, "link", "Next step");
+      const moved = yield* callTool("agent_browser_act", {
+        action: { ref: next.ref, type: "click" },
+        operationId: OperationId.make("frame-next"),
+        sessionId: session.id,
+      });
+      findNode(moved.snapshot.nodes, "button", "Payment done");
+      const expired = yield* Effect.flip(
+        callTool("agent_browser_act", {
+          action: { ref: field.ref, text: "1", type: "fill" },
+          operationId: OperationId.make("frame-stale-fill"),
+          sessionId: session.id,
+        })
+      );
+      expect(expired.code).toBe("agent_element_stale");
+      const reviewed = yield* callTool("agent_browser_act", {
+        action: { ref: review.ref, type: "click" },
+        operationId: OperationId.make("frame-top-click"),
+        sessionId: session.id,
+      });
+      findNode(reviewed.snapshot.nodes, "paragraph", "Order reviewed");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
 it.live("acts on controls inside open and closed shadow roots", () =>
   Effect.gen(function* shadowRootControls() {
     const fixtures = yield* fixtureServer;

@@ -1,7 +1,7 @@
 import { ContingencyRpcs, OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Deferred, Effect, FileSystem } from "effect";
 import { RpcTest } from "effect/rpc";
 
 import {
@@ -93,6 +93,65 @@ it.live(
           ).toHaveLength(2);
           yield* runTool("agent_run_complete", {
             operationId: OperationId.make("navigation-policy-complete"),
+            sessionId,
+          });
+        }).pipe(Effect.provide(agentProcessLayer(root)))
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "acts in an out-of-scope Embedded Frame without a Domain Scope pause but still asks for Confirmation",
+  () =>
+    Effect.gen(function* frameBoundary() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-frame-boundary-",
+      });
+      const fixture = yield* fixtureServer;
+      yield* Effect.scoped(
+        Effect.gen(function* verifyFrameBoundary() {
+          const loaded = yield* fixture.awaitRequest((url) =>
+            url.includes("field=Card")
+          );
+          // The run's scope is the page's host; the payment frame is served
+          // from another one.
+          const started = yield* runTool("agent_run_start", {
+            inputs: [],
+            operationId: OperationId.make("frame-boundary-start"),
+            referencedFlows: [],
+            requestedTask: "Pay for the order",
+            url: fixture.url("frame-checkout.html"),
+          });
+          const sessionId = started.id;
+          yield* Deferred.await(loaded).pipe(Effect.timeout("30 seconds"));
+          const snapshot = yield* sessionTool("agent_browser_snapshot", {
+            sessionId,
+          });
+          const filled = yield* sessionTool("agent_browser_act", {
+            action: {
+              ref: findNode(snapshot.nodes, "textbox", "Card number").ref,
+              text: "4242",
+              type: "fill",
+            },
+            operationId: OperationId.make("frame-boundary-fill"),
+            sessionId,
+          });
+          expect(filled.intervention).toBeUndefined();
+          expect(filled.entry.dispatched).toBe(true);
+          const paused = yield* sessionTool("agent_browser_act", {
+            action: {
+              ref: findNode(snapshot.nodes, "button", "Pay").ref,
+              type: "click",
+            },
+            intent: { irreversible: true, objective: "Pay for the order" },
+            operationId: OperationId.make("frame-boundary-pay"),
+            sessionId,
+          });
+          expect(paused.entry.dispatched).toBe(false);
+          expect(paused.intervention?.reason).toBe("confirmation");
+          yield* runTool("agent_run_complete", {
+            operationId: OperationId.make("frame-boundary-complete"),
             sessionId,
           });
         }).pipe(Effect.provide(agentProcessLayer(root)))

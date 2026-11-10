@@ -7,7 +7,9 @@
       body {
         margin: 0;
       }
-      button {
+      button,
+      input {
+        box-sizing: border-box;
         width: 280px;
         height: 60px;
       }
@@ -16,10 +18,30 @@
   <body>
     <button type="button" id="save"></button>
     <script>
-      // The parent names this frame's button through the query string, so one
-      // child page serves both the same-origin and cross-origin slots.
-      document.getElementById("save").textContent =
-        new URLSearchParams(location.search).get("label") ?? "Frame save";
+      // The parent names this frame's control through the query string, so
+      // one child page serves the same-origin and cross-origin slots and the
+      // embedded field.
+      const query = new URLSearchParams(location.search);
+      const field = query.get("field");
+      if (field === null) {
+        document.getElementById("save").textContent =
+          query.get("label") ?? "Frame save";
+      } else {
+        document.body.innerHTML = `<input id="field" aria-label="${field}" autocomplete="off" />`;
+      }
+      // A payment step: pay with what the field holds, then move the frame
+      // on to its next document while the page around it stays.
+      if (query.has("pay")) {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          `<button type="button" id="pay">Pay</button><p id="paid"></p>` +
+            `<a href="web-matrix-frame.html?label=Payment%20done">Next step</a>`
+        );
+        document.getElementById("pay").addEventListener("click", () => {
+          document.getElementById("paid").textContent =
+            `Paid ${document.getElementById("field").value}`;
+        });
+      }
     </script>
   </body>
 </html>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Embedded checkout</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      iframe {
+        display: block;
+        margin: 10px;
+        width: 300px;
+        height: 240px;
+        border: 2px solid #999;
+        padding: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <button type="button" id="top">Review order</button>
+    <p id="reviewed"></p>
+    <iframe id="payment" title="Secure payment"></iframe>
+    <iframe
+      title="Tracking pixel"
+      style="display: none"
+      src="about:blank"
+    ></iframe>
+    <script>
+      document.getElementById("top").addEventListener("click", () => {
+        document.getElementById("reviewed").textContent = "Order reviewed";
+      });
+      // A different host from the page's, so the checkout renders in its own
+      // process, as a payment provider's does.
+      document.getElementById("payment").src =
+        `http://localhost:${location.port}/web-matrix-frame.html?field=Card%20number&pay=1`;
+    </script>
+  </body>
+</html>
