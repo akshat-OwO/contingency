@@ -8,15 +8,17 @@ Browser Snapshots include controls inside open and closed shadow roots. Agents c
 
 That boundary was set for a reason that no longer applies. PR #8 (issue #7) excluded closed roots because Chrome Recorder–compatible replay had no durable selector that could address them. ADR 0038 removed that replay stack. A Flow is now a written procedure that an agent carries out against a live Browser Snapshot (ADR 0044). A ref is valid only for the current session and document. It is never a stored selector, so a closed root needs no durable address.
 
-Page JavaScript cannot reach a closed root, because `element.shadowRoot` returns `null` in every world. Contingency reads closed roots through CDP, the DOM domain with shadow-piercing traversal, which the runtime already uses through `context.newCDPSession()`. Open roots are read the same way, so both modes go through one traversal. An action on a closed-root ref goes to the node CDP resolved. It keeps the foreground hit-testing rules in ADR 0053.
+Page JavaScript cannot reach a closed root, because `element.shadowRoot` returns `null` in every world. Before each Snapshot read, Contingency finds closed roots through CDP with a shadow-piercing `DOM.getDocument`, using the CDP session the runtime already opens through `context.newCDPSession()`. CDP resolves each root and puts the roots on a document property with a random, non-enumerable name. The Snapshot read deletes that property before it reads anything else, and a failed read deletes it too. The read then walks open and closed roots as one tree. Refs inside a root are ordinary element handles, so actions on them keep the foreground hit-testing rules in ADR 0053. Hit testing also reads the closed roots between a target and the document, which it learns from the target.
 
 ## Considered Options
 
 - **Keep the boundary and record `Click an unidentified control`.** Rejected: the step is no longer lost, but its intent is. This applies to every closed-root component on design-system pages, and a learned Flow then can't say what the user did.
-- **Patch `attachShadow` from an init script to keep closed roots reachable.** Rejected: the patch runs in the page's main world, where the page can detect it and tamper with it. It also misses roots attached before the script runs.
+- **Patch `attachShadow` from an init script to keep closed roots reachable.** Rejected: the patch is a lasting change to a page API, so the page can detect it and tamper with it for its whole life. It also misses roots attached before the script runs. The handoff property is visible only during one Snapshot read, it changes no API, and it gives the page nothing the page does not already own.
+- **Run the whole Snapshot over CDP.** Rejected: refs are Playwright element handles, and Playwright offers no public way to adopt a CDP object. The Snapshot read and every action would need a second implementation.
 
 ## Consequences
 
 - Redaction of sensitive values and the bounds on page-derived data apply inside shadow roots as they do in the light DOM. A closed root does not make its content trusted.
-- Snapshot cost now includes the CDP traversal. Pages with many shadow roots must stay within the existing Snapshot budget.
+- Each Snapshot now also runs a shadow-piercing CDP document read, alongside the existing listener read. On a page without shadow roots, Snapshot time matches the previous implementation within measurement noise.
+- Done-when phrase matching runs without CDP, so it reads open roots and not closed ones.
 - Closed roots stay a gap for accessibility Scans. axe-core runs in page JavaScript and still can't see them, so the Scan report's coverage disclosure remains.

@@ -56,9 +56,6 @@ const NAME_LIMIT = 160;
  */
 const REFERENCE_LIMIT = 1000;
 
-const isIndex = (index: unknown): index is number =>
-  typeof index === "number" && Number.isInteger(index) && index >= 0;
-
 /** Inputs whose values are never copied into a Browser Snapshot. */
 class BrowserInputRefusedError extends Error {
   readonly reason: BrowserFailureReasonType;
@@ -176,6 +173,87 @@ const PAGE_READING_PRELUDE = `
     "TITLE",
   ]);
   const redactSensitive = (text) => text;
+  // Shadow roots the Page reading may enter. Open roots answer
+  // \`shadowRoot\`; a closed root is known only when Contingency handed it in
+  // or when an element it holds was handed in (ADR 0074).
+  const shadowRoots = new Map();
+  const isShadowRoot = (node) =>
+    node !== null && node !== undefined && node.nodeType === 11 && node.host !== undefined;
+  const shadowRootOf = (element) =>
+    element.shadowRoot ?? shadowRoots.get(element) ?? null;
+  const learnShadowRoots = (node) => {
+    for (let root = node.getRootNode(); isShadowRoot(root); root = root.host.getRootNode()) {
+      shadowRoots.set(root.host, root);
+    }
+  };
+  // The parent across a shadow boundary: an element at the top of a shadow
+  // tree belongs to its host.
+  const composedParent = (node) => {
+    if (node.parentElement) {
+      return node.parentElement;
+    }
+    const parent = node.parentNode;
+    return isShadowRoot(parent) ? parent.host : null;
+  };
+  const containsDeep = (ancestor, node) => {
+    for (let current = node; current; current = composedParent(current)) {
+      if (current === ancestor) {
+        return true;
+      }
+    }
+    return false;
+  };
+  // Every element under a scope, each shadow tree read right after its host.
+  const enteredRoots = [];
+  const deepElements = (scope) => {
+    const found = [];
+    const visit = (root) => {
+      for (const element of root.querySelectorAll("*")) {
+        found.push(element);
+        const shadow = shadowRootOf(element);
+        if (shadow) {
+          enteredRoots.push(shadow);
+          visit(shadow);
+        }
+      }
+    };
+    if (scope.nodeType === 1) {
+      found.push(scope);
+      const shadow = shadowRootOf(scope);
+      if (shadow) {
+        enteredRoots.push(shadow);
+        visit(shadow);
+      }
+    }
+    visit(scope);
+    return found;
+  };
+  const deepElementFromPoint = (x, y) => {
+    let target = document.elementFromPoint(x, y);
+    for (let shadow = target && shadowRootOf(target); shadow; shadow = shadowRootOf(target)) {
+      const inner = shadow.elementFromPoint(x, y);
+      if (!inner || inner === target) {
+        break;
+      }
+      target = inner;
+    }
+    return target;
+  };
+  // What renders inside an element: a host shows its shadow tree, and a slot
+  // shows what was assigned to it, or its fallback.
+  const renderedChildren = (element) => {
+    const shadow = shadowRootOf(element);
+    if (shadow) {
+      return shadow.childNodes;
+    }
+    if (element.tagName === "SLOT") {
+      const assigned = element.assignedNodes({ flatten: true });
+      if (assigned.length > 0) {
+        return assigned;
+      }
+    }
+    return element.childNodes;
+  };
   // One computed style per element: visibility and the cursor test below both
   // read it, and the cursor test reads the parent's as well.
   const styles = new Map();
@@ -219,11 +297,11 @@ const PAGE_READING_PRELUDE = `
       [0.9, 0.9],
     ];
     const usable = points.some(([x, y]) => {
-      const target = document.elementFromPoint(
+      const target = deepElementFromPoint(
         left + (right - left) * x,
         top + (bottom - top) * y
       );
-      return target !== null && element.contains(target);
+      return target !== null && containsDeep(element, target);
     });
     hitTestable.set(element, usable);
     return usable;
@@ -265,7 +343,7 @@ const PAGE_READING_PRELUDE = `
     for (
       let node = element;
       node !== null && node !== document.documentElement;
-      node = node.parentElement
+      node = composedParent(node)
     ) {
       if (!isRendered(node)) {
         visible.set(element, false);
@@ -290,7 +368,7 @@ const PAGE_READING_PRELUDE = `
     for (
       let node = element;
       node !== null && node !== document.documentElement;
-      node = node.parentElement
+      node = composedParent(node)
     ) {
       if (!isRendered(node)) {
         return false;
@@ -322,7 +400,7 @@ const PAGE_READING_PRELUDE = `
   };
   const renderedText = (element) => {
     let text = "";
-    for (const child of element.childNodes) {
+    for (const child of renderedChildren(element)) {
       if (child.nodeType === 3) {
         text += child.nodeValue;
         continue;
@@ -339,7 +417,7 @@ const PAGE_READING_PRELUDE = `
     if (styleOf(element).cursor !== "pointer") {
       return false;
     }
-    const parent = element.parentElement;
+    const parent = composedParent(element);
     return parent === null || styleOf(parent).cursor !== "pointer";
   };
   // The smallest element owning a run of text, so a label is reported once
@@ -376,7 +454,8 @@ const PAGE_READING_PRELUDE = `
         ? ""
         : labelled
             .split(/\\s+/)
-            .map((id) => document.getElementById(id)?.textContent || "")
+            .map((id) => (element.getRootNode().getElementById?.(id) ??
+              document.getElementById(id))?.textContent || "")
             .join(" ");
     const labelElement = labelFor(element);
     const label = labelElement ? renderedText(labelElement) : "";
@@ -418,16 +497,12 @@ const PAGE_READING_PRELUDE = `
     const bottom = Math.min(innerHeight, rect.bottom);
     const points = [[0.5, 0.5], [0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]];
     let hit = null;
+    learnShadowRoots(element);
     if (right > left && bottom > top) {
       for (const [dx, dy] of points) {
         const x = left + (right - left) * dx;
         const y = top + (bottom - top) * dy;
-        let target = document.elementFromPoint(x, y);
-        while (target?.shadowRoot) {
-          const inner = target.shadowRoot.elementFromPoint(x, y);
-          if (!inner || inner === target) break;
-          target = inner;
-        }
+        const target = deepElementFromPoint(x, y);
         const labels = [...(element.labels ?? [])];
         let ancestor = target;
         let belongs = false;
@@ -451,7 +526,7 @@ const PAGE_READING_PRELUDE = `
     // unnamed, non-modal, and unpainted: a transparent child inside an opaque
     // sheet still hides the field. Fully transparent layers hide their subtree.
     const seeThrough = (layer) => {
-      for (let node = layer; node && !node.contains(element); node = node.parentElement) {
+      for (let node = layer; node && !containsDeep(node, element); node = composedParent(node)) {
         const paint = getComputedStyle(node);
         if (paint.opacity === "0") continue;
         if (ROLE_BY_TAG[node.tagName] !== "generic" || accessibleName(node) ||
@@ -478,8 +553,50 @@ const PAGE_READING_PRELUDE = `
 
 `;
 
-/** Read native click listeners without patching the page's event APIs. */
-const clickListenerPaths = async (page: Page): Promise<number[][]> => {
+/** One listener path step: a child index, or -1 for a host's shadow tree. */
+const isPathStep = (step: unknown): step is number =>
+  typeof step === "number" && Number.isInteger(step) && step >= -1;
+
+/** A CDP DOM node, as far as finding closed shadow roots needs it. */
+interface DomTreeNode {
+  readonly backendNodeId: number;
+  readonly children?: readonly DomTreeNode[];
+  readonly shadowRoots?: readonly (DomTreeNode & {
+    readonly shadowRootType?: string;
+  })[];
+}
+
+const closedShadowRootIds = (root: DomTreeNode): number[] => {
+  const found: number[] = [];
+  const pending: DomTreeNode[] = [root];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    for (const shadow of node.shadowRoots ?? []) {
+      if (shadow.shadowRootType === "closed") {
+        found.push(shadow.backendNodeId);
+      }
+      pending.push(shadow);
+    }
+    // Child frames are their own documents (#652); their content documents
+    // are not walked.
+    pending.push(...(node.children ?? []));
+  }
+  return found;
+};
+
+/** What the Page reading needs from CDP before it runs. */
+interface PageStructure {
+  readonly listenerPaths: number[][];
+  /** The document property holding this read's closed shadow roots. */
+  readonly shadowRootsKey: string | undefined;
+}
+
+/**
+ * Read native click listeners and closed shadow roots without patching the
+ * page's APIs. Page JavaScript cannot reach a closed root, so CDP resolves
+ * each one and parks them on a randomly named, non-enumerable document
+ * property that the Snapshot read removes as it starts (ADR 0074).
+ */
+const readPageStructure = async (page: Page): Promise<PageStructure> => {
   const session = await page.context().newCDPSession(page);
   try {
     const documentObject = await session.send("Runtime.evaluate", {
@@ -487,12 +604,18 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
     });
     const documentId = documentObject.result.objectId;
     if (documentId === undefined) {
-      return [];
+      return { listenerPaths: [], shadowRootsKey: undefined };
     }
-    const { listeners } = await session.send("DOMDebugger.getEventListeners", {
-      depth: -1,
-      objectId: documentId,
-    });
+    // The two walks are independent; overlapping them keeps the cost of
+    // looking for closed roots off a Page that has none.
+    const [{ listeners }, { root }] = await Promise.all([
+      session.send("DOMDebugger.getEventListeners", {
+        depth: -1,
+        objectId: documentId,
+        pierce: true,
+      }),
+      session.send("DOM.getDocument", { depth: -1, pierce: true }),
+    ]);
     const nodeIds = new Set<number>();
     for (const listener of listeners) {
       if (listener.type === "click" && listener.backendNodeId !== undefined) {
@@ -514,9 +637,16 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
           const { result } = await session.send("Runtime.callFunctionOn", {
             functionDeclaration: `function() {
               const path = [];
-              for (let node = this; node !== document.documentElement; node = node.parentElement) {
-                if (!node?.parentElement) return null;
-                path.unshift(Array.prototype.indexOf.call(node.parentElement.children, node));
+              for (let node = this; node !== document.documentElement;) {
+                const parent = node?.parentNode;
+                if (!parent) return null;
+                path.unshift(Array.prototype.indexOf.call(parent.children, node));
+                if (parent.nodeType === 11 && parent.host) {
+                  path.unshift(-1);
+                  node = parent.host;
+                } else {
+                  node = parent;
+                }
               }
               return path;
             }`,
@@ -524,7 +654,7 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
             returnByValue: true,
           });
           const value: unknown = result.value;
-          if (!Array.isArray(value) || !value.every(isIndex)) {
+          if (!Array.isArray(value) || !value.every(isPathStep)) {
             return;
           }
           return value;
@@ -533,7 +663,39 @@ const clickListenerPaths = async (page: Page): Promise<number[][]> => {
         }
       })
     );
-    return paths.filter((path): path is number[] => path !== undefined);
+    const listenerPaths = paths.filter(
+      (path): path is number[] => path !== undefined
+    );
+    const closed = closedShadowRootIds(root);
+    if (closed.length === 0) {
+      return { listenerPaths, shadowRootsKey: undefined };
+    }
+    const roots = await Promise.all(
+      closed.map(async (backendNodeId) => {
+        try {
+          const { object } = await session.send("DOM.resolveNode", {
+            backendNodeId,
+          });
+          return object.objectId;
+        } catch {
+          // A root may leave the document between discovery and resolve.
+        }
+      })
+    );
+    const shadowRootsKey = randomUUID();
+    await session.send("Runtime.callFunctionOn", {
+      arguments: [
+        { value: shadowRootsKey },
+        ...roots.flatMap((objectId) =>
+          objectId === undefined ? [] : [{ objectId }]
+        ),
+      ],
+      functionDeclaration: `function(key, ...roots) {
+        Object.defineProperty(this, key, { configurable: true, value: roots });
+      }`,
+      objectId: documentId,
+    });
+    return { listenerPaths, shadowRootsKey };
   } finally {
     await session.detach();
   }
@@ -545,6 +707,7 @@ interface SnapshotRequest {
   readonly interactive: boolean;
   readonly listenerPaths: readonly (readonly number[])[];
   readonly offset: number;
+  readonly shadowRootsKey: string | undefined;
   /** Inspect reads the elements under one viewport point and nothing else. */
   readonly point: { readonly x: number; readonly y: number } | undefined;
   readonly selector: string | undefined;
@@ -568,8 +731,24 @@ const SNAPSHOT_SCRIPT = ({
   offset,
   point,
   selector,
+  shadowRootsKey,
   urls,
 }: SnapshotRequest) => `((known) => {${PAGE_READING_PRELUDE}
+  // Closed shadow roots arrive on a randomly named document property that
+  // exists only until this read takes them.
+  const shadowRootsKey = ${JSON.stringify(shadowRootsKey)};
+  if (shadowRootsKey !== undefined) {
+    const handed = document[shadowRootsKey];
+    delete document[shadowRootsKey];
+    for (const root of Array.isArray(handed) ? handed : []) {
+      if (isShadowRoot(root)) {
+        shadowRoots.set(root.host, root);
+      }
+    }
+  }
+  for (const element of known) {
+    learnShadowRoots(element);
+  }
   const knownIndex = new Map(known.map((element, index) => [element, index]));
   const scope = ${JSON.stringify(selector)} === undefined ? document :
     document.querySelector(${JSON.stringify(selector)});
@@ -580,9 +759,9 @@ const SNAPSHOT_SCRIPT = ({
   const interactiveOnly = ${JSON.stringify(interactive)};
   const ancestors = [];
   if (point) {
-    for (let element = document.elementFromPoint(point.x, point.y);
+    for (let element = deepElementFromPoint(point.x, point.y);
          element && element !== document.body && element !== document.documentElement;
-         element = element.parentElement) {
+         element = composedParent(element)) {
       ancestors.push(element);
     }
   }
@@ -590,7 +769,10 @@ const SNAPSHOT_SCRIPT = ({
     ${JSON.stringify(listenerPaths)}.map((path) => {
       let element = document.documentElement;
       for (const index of path) {
-        element = element?.children[index];
+        // -1 steps from a host into its shadow tree.
+        element = index === -1
+          ? (element && shadowRootOf(element))
+          : element?.children[index];
       }
       return element;
     }).filter(Boolean)
@@ -601,12 +783,11 @@ const SNAPSHOT_SCRIPT = ({
     key.startsWith("__reactProps$") &&
     typeof element[key]?.onClick === "function"
   );
-  const reactClickTargets = new Set(
-    Array.from(point ? ancestors : document.querySelectorAll("*")).filter(hasReactClick)
-  );
+  const everyElement = point ? ancestors : deepElements(scope);
+  const reactClickTargets = new Set(everyElement.filter(hasReactClick));
   const delegatedClickTargets = new Set();
   for (const element of reactClickTargets) {
-    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    for (let ancestor = composedParent(element); ancestor; ancestor = composedParent(ancestor)) {
       if (nativeClickTargets.has(ancestor)) {
         delegatedClickTargets.add(ancestor);
       }
@@ -622,7 +803,7 @@ const SNAPSHOT_SCRIPT = ({
     if (!isPointerRoot(element) && !isScriptedClick(element)) {
       return false;
     }
-    for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    for (let ancestor = composedParent(element); ancestor; ancestor = composedParent(ancestor)) {
       if (isPointerRoot(ancestor) || isScriptedClick(ancestor)) {
         return false;
       }
@@ -656,7 +837,7 @@ const SNAPSHOT_SCRIPT = ({
     );
   };
   const itemContext = (element) => {
-    for (let ancestor = element.parentElement; ancestor && ancestor !== document.body; ancestor = ancestor.parentElement) {
+    for (let ancestor = composedParent(element); ancestor && ancestor !== document.body; ancestor = composedParent(ancestor)) {
       if (ancestor.matches("article,li,[role='listitem']")) {
         return ancestor;
       }
@@ -679,9 +860,6 @@ const SNAPSHOT_SCRIPT = ({
   const clickable = new Set();
   const access = new Map();
   const textual = [];
-  const everyElement = point ? ancestors :
-    scope === document ? document.querySelectorAll("*") :
-    [scope, ...scope.querySelectorAll("*")];
   for (const element of everyElement) {
     if (SKIPPED_TAGS.has(element.tagName)) {
       continue;
@@ -747,9 +925,9 @@ const SNAPSHOT_SCRIPT = ({
       if (!isInline(element)) {
         continue;
       }
-      let ancestor = element.parentElement;
+      let ancestor = composedParent(element);
       while (ancestor && !kept.has(ancestor) && isInline(ancestor)) {
-        ancestor = ancestor.parentElement;
+        ancestor = composedParent(ancestor);
       }
       if (ancestor && kept.has(ancestor) &&
           (controlSet.has(ancestor) || ownsText(ancestor))) {
@@ -770,7 +948,7 @@ const SNAPSHOT_SCRIPT = ({
   const textOutside = (withInlineControls) => {
     const read = (element) => {
       let text = "";
-      for (const child of element.childNodes) {
+      for (const child of renderedChildren(element)) {
         if (child.nodeType === 3) {
           text += child.nodeValue;
           continue;
@@ -826,7 +1004,7 @@ const SNAPSHOT_SCRIPT = ({
       if (!kept.has(element)) {
         continue;
       }
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      for (let ancestor = composedParent(element); ancestor; ancestor = composedParent(ancestor)) {
         if (controlSet.has(ancestor) && kept.has(ancestor)) {
           hostsControls.add(ancestor);
         }
@@ -863,7 +1041,7 @@ const SNAPSHOT_SCRIPT = ({
         continue;
       }
       // Text a control already carries as its name is read with the control.
-      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      for (let ancestor = composedParent(element); ancestor; ancestor = composedParent(ancestor)) {
         if (controlSet.has(ancestor) && contentNameOf(ancestor).includes(name)) {
           kept.delete(element);
           break;
@@ -877,7 +1055,7 @@ const SNAPSHOT_SCRIPT = ({
       if (isEmptyStructure(element)) {
         continue;
       }
-      for (let ancestor = element.parentElement; ancestor && !occupied.has(ancestor); ancestor = ancestor.parentElement) {
+      for (let ancestor = composedParent(element); ancestor && !occupied.has(ancestor); ancestor = composedParent(ancestor)) {
         occupied.add(ancestor);
       }
     }
@@ -920,11 +1098,19 @@ const SNAPSHOT_SCRIPT = ({
   // document order: \`depth\` counts included ancestors, and a reader walks
   // back from a node to find them. Out of order, a control's ancestors come
   // after it and whatever precedes it reads as its container.
-  const ordered = Array.from(everyElement).filter((element) =>
+  const ordered = everyElement.filter((element) =>
     included.has(element)
   );
   const elements = [];
   const nodes = [];
+  // Focus inside a shadow tree reads as its host from the document.
+  const deepActiveElement = () => {
+    let active = document.activeElement;
+    for (let shadow = active && shadowRootOf(active); shadow?.activeElement; shadow = shadowRootOf(active)) {
+      active = shadow.activeElement;
+    }
+    return active;
+  };
   // Inputs that hold no text a reader types: their value attribute is a
   // submission token such as "on", not state.
   const VALUELESS_INPUTS = new Set([
@@ -936,9 +1122,9 @@ const SNAPSHOT_SCRIPT = ({
     const isControl = controlSet.has(element);
     let depth = 0;
     for (
-      let ancestor = element.parentElement;
+      let ancestor = composedParent(element);
       ancestor !== null;
-      ancestor = ancestor.parentElement
+      ancestor = composedParent(ancestor)
     ) {
       if (included.has(ancestor)) {
         depth += 1;
@@ -1015,9 +1201,12 @@ const SNAPSHOT_SCRIPT = ({
   };
   if (guard && !guard.observer) {
     guard.observer = new MutationObserver(() => { guard.changed = true; });
-    guard.observer.observe(document.documentElement, {
-      subtree: true, childList: true, attributes: true, characterData: true,
-    });
+    // A shadow tree's mutations do not reach the document's observer.
+    for (const root of [document.documentElement, ...enteredRoots]) {
+      guard.observer.observe(root, {
+        subtree: true, childList: true, attributes: true, characterData: true,
+      });
+    }
     guard.valid = () => guard.document === document.documentElement &&
       guard.url === location.href && !guard.changed &&
       guard.observer.takeRecords().length === 0 && guard.scrollX === scrollX &&
@@ -1028,7 +1217,7 @@ const SNAPSHOT_SCRIPT = ({
     elements,
     guard,
     total: eligible.length,
-    focusedIndex: elements.indexOf(document.activeElement),
+    focusedIndex: elements.indexOf(deepActiveElement()),
     nodes,
     title: document.title,
     url: location.href,
@@ -1044,7 +1233,7 @@ const SNAPSHOT_SCRIPT = ({
  */
 const nameMatchScript = (phrase: string) => `(() => {${PAGE_READING_PRELUDE}
   const wanted = ${JSON.stringify(phrase)}.toLowerCase();
-  for (const element of document.querySelectorAll("*")) {
+  for (const element of deepElements(document)) {
     if (SKIPPED_TAGS.has(element.tagName) || !isVisible(element)) {
       continue;
     }
@@ -1195,6 +1384,15 @@ const evaluateSnapshot = (
         );
       } finally {
         await read.dispose().catch(ignoreDisposeFailure);
+        // The read takes the closed roots as it starts; a read that failed
+        // first must not leave them on the document.
+        if (request.shadowRootsKey !== undefined) {
+          await page
+            .evaluate(
+              `delete document[${JSON.stringify(request.shadowRootsKey)}]`
+            )
+            .catch(ignoreDisposeFailure);
+        }
       }
     },
   });
@@ -1529,13 +1727,18 @@ export const makeAgentElementRegistry = (
       generation += 1;
       // Evidence identity must never collide across sessions or process lifetimes.
       const snapshotId = AgentSnapshotId.make(`snapshot-${randomUUID()}`);
-      const listenerPaths = yield* Effect.tryPromise(() =>
-        clickListenerPaths(page)
-      ).pipe(Effect.orElseSucceed((): number[][] => []));
+      const structure = yield* Effect.tryPromise(() =>
+        readPageStructure(page)
+      ).pipe(
+        Effect.orElseSucceed((): PageStructure => ({
+          listenerPaths: [],
+          shadowRootsKey: undefined,
+        }))
+      );
       const collected = yield* Effect.acquireUseRelease(
         evaluateSnapshot(
           page,
-          { ...scope, listenerPaths, offset, point },
+          { ...scope, ...structure, offset, point },
           knownHandles
         ),
         (handle) =>
@@ -1885,11 +2088,15 @@ export const makeAgentElementRegistry = (
     return handle === undefined
       ? Effect.succeed(false)
       : Effect.tryPromise(() =>
-          handle.evaluate(
-            (element) =>
+          handle.evaluate((element) => {
+            // Focus inside a shadow tree is answered by that tree's root.
+            const root = element.getRootNode();
+            return (
               element.isConnected &&
-              element.ownerDocument.activeElement === element
-          )
+              "activeElement" in root &&
+              root.activeElement === element
+            );
+          })
         ).pipe(Effect.orElseSucceed(() => false));
   };
 

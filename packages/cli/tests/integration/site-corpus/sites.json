@@ -9,7 +9,7 @@
     "category": "docs",
     "id": "mdn",
     "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button",
-    "gap": "the header logo link renders inside a shadow root; Teaching and Inspect read different names for it (#651)"
+    "gap": "Teaching resolves the logo click by Snapshot rectangle and names a <base> link; Inspect hit-tests the light-DOM MDN logo (#655)"
   },
   {
     "category": "news",

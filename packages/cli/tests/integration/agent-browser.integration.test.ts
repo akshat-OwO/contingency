@@ -1917,3 +1917,32 @@ it.live(
       findNode(shadow.snapshot.nodes, "status", "Shadow clicked");
     }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
 );
+
+it.live("acts on controls inside open and closed shadow roots", () =>
+  Effect.gen(function* shadowRootControls() {
+    const fixtures = yield* fixtureServer;
+    const agent = yield* client;
+    const session = yield* startSession(
+      agent,
+      fixtures.url("web-matrix.html"),
+      "shadow-start"
+    );
+    const before = yield* callTool("agent_browser_snapshot", {
+      sessionId: session.id,
+    });
+    // Each button is the shadow tree's own content, not slotted light DOM.
+    for (const [name, outcome] of [
+      ["Open shadow save", "open"],
+      ["Closed shadow save", "closed"],
+    ] as const) {
+      const button = findNode(before.nodes, "button", name);
+      expect(button.blockedBy).toBeUndefined();
+      const clicked = yield* callTool("agent_browser_act", {
+        action: { ref: button.ref, type: "click" },
+        operationId: OperationId.make(`shadow-${outcome}-click`),
+        sessionId: session.id,
+      });
+      findNode(clicked.snapshot.nodes, "paragraph", `Matrix: ${name}`);
+    }
+  }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
