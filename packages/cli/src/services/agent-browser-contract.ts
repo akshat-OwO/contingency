@@ -11,6 +11,7 @@ import type {
   SessionId,
 } from "@contingency/protocol";
 import type { Effect, Scope } from "effect";
+import type { Frame } from "playwright-core";
 
 import type { CreateBrowserService } from "./create-browser-contract.ts";
 
@@ -19,9 +20,12 @@ import type { CreateBrowserService } from "./create-browser-contract.ts";
  * value is typed into: one field, or every box of a split input such as six
  * OTP boxes. `spread` names associated controls in the same widget, which
  * the page may distribute the value across. It is read as evidence that the
- * page accepted the value and is never typed into.
+ * page accepted the value and is never typed into. `frame` is the document
+ * both selectors are read in: an Embedded Frame, or the top-level document
+ * when absent.
  */
 export interface PrivateInputTarget {
+  readonly frame?: Frame | undefined;
   readonly selector: string;
   readonly spread: string | undefined;
 }

@@ -14,6 +14,15 @@ const isActionable = (node: AgentSnapshotNode): boolean =>
 
 const stateOf = (node: AgentSnapshotNode): string[] => {
   const state: string[] = [];
+  // A frame names the host its document comes from; the nodes under it are
+  // that document's, so they need not repeat it.
+  if (
+    node.role === "frame" &&
+    node.frame !== undefined &&
+    node.frame !== null
+  ) {
+    state.push(`host=${node.frame}`);
+  }
   if (node.blockedBy !== undefined && node.blockedBy !== null) {
     state.push(
       node.blockedBy.role === "generic" && node.blockedBy.name === ""

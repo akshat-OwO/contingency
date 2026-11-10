@@ -4290,7 +4290,11 @@ const makeAgentSession = (
         return {
           action,
           description: describeCapturedAction(
-            { name: focused.node.name, role: focused.node.role },
+            {
+              frame: focused.node.frame,
+              name: focused.node.name,
+              role: focused.node.role,
+            },
             action,
             {},
             capture.sensitiveValues()
@@ -4504,7 +4508,11 @@ const makeAgentSession = (
           subject === undefined
             ? UNRESOLVED_CLICK_DESCRIPTION
             : describeCapturedAction(
-                { name: subject.name, role: subject.role },
+                {
+                  frame: subject.frame,
+                  name: subject.name,
+                  role: subject.role,
+                },
                 action,
                 {},
                 capture.sensitiveValues()

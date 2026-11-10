@@ -46,6 +46,8 @@ export type AgentSnapshotId = typeof AgentSnapshotId.Type;
  * clickable row. Text and landmarks keep a reference for Contingency's own
  * use, but the compact text form shows references only on interactive nodes.
  * `url` is a link's destination, present only when the read asked for URLs.
+ * `frame` is the host of the Embedded Frame a node lies in, and on a `frame`
+ * node the host of the document it embeds (ADR 0075).
  */
 export const AgentSnapshotNode = Schema.Struct({
   blockedBy: optionalNullable(
@@ -64,6 +66,7 @@ export const AgentSnapshotNode = Schema.Struct({
   context: optionalNullable(Schema.String),
   depth: Schema.Int.check(Schema.isBetween({ maximum: 64, minimum: 0 })),
   disabled: optionalNullable(Schema.Boolean),
+  frame: optionalNullable(Schema.String),
   interactive: optionalNullable(Schema.Boolean),
   name: Schema.String,
   ref: AgentElementRef,
@@ -444,6 +447,8 @@ export type AgentActSequenceResult = typeof AgentActSequenceResult.Type;
  * description instead.
  */
 export interface AgentActionSubject {
+  /** The host of the Embedded Frame the control lies in, if any. */
+  readonly frame?: string | null | undefined;
   readonly name: string;
   readonly role: string;
 }
@@ -493,7 +498,15 @@ export const isWithheldValue = (value: string): boolean =>
  */
 export const describeActionSubject = (subject: AgentActionSubject): string => {
   const name = subject.name.trim();
-  return name.length === 0 ? subject.role : `${subject.role} ${quoted(name)}`;
+  const control =
+    name.length === 0 ? subject.role : `${subject.role} ${quoted(name)}`;
+  const host = subject.frame?.trim() ?? "";
+  if (host.length === 0) {
+    return control;
+  }
+  return subject.role === "frame"
+    ? `${control} from ${host}`
+    : `${control} in frame ${host}`;
 };
 
 /** How the acted-on control reads: its role and accessible name, else its ref. */

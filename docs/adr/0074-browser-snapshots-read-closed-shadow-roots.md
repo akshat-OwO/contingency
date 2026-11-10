@@ -6,6 +6,8 @@ status: accepted
 
 > Amends [ADR 0004](./0004-cli-owned-cdp-recorder-sidecar.md), [ADR 0012](./0012-playwright-is-the-in-process-browser-runtime.md), and [ADR 0053](./0053-browser-actions-respect-foreground-interception.md).
 
+> Amended by [ADR 0075](./0075-browser-snapshots-read-embedded-frames.md): every document, the top-level one and each Embedded Frame's, is handed its own closed roots and click listeners on the same short-lived property.
+
 Browser Snapshots include controls inside open and closed shadow roots. Agents can act on them through refs, and Teaching names a click on them by role and accessible name. This reverses the boundary that ADRs 0004 and 0012 set: "closed shadow roots are outside the supported recording boundary."
 
 That boundary was set for a reason that no longer applies. PR #8 (issue #7) excluded closed roots because Chrome Recorder–compatible replay had no durable selector that could address them. ADR 0038 removed that replay stack. A Flow is now a written procedure that an agent carries out against a live Browser Snapshot (ADR 0044). A ref is valid only for the current session and document. It is never a stored selector, so a closed root needs no durable address.

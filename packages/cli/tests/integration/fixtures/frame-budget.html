@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Frame budget</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      #catalog {
+        position: absolute;
+        left: 0;
+        top: 2000px;
+        width: 320px;
+        height: 400px;
+      }
+      #payment {
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        width: 300px;
+        height: 80px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- First in the document but off-screen, and larger than one Snapshot. -->
+    <iframe
+      id="catalog"
+      title="Catalog"
+      src="web-matrix-frame.html?many=200&nest=1"
+    ></iframe>
+    <iframe
+      id="payment"
+      title="Secure payment"
+      src="web-matrix-frame.html?field=Card%20number"
+    ></iframe>
+  </body>
+</html>

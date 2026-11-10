@@ -30,7 +30,6 @@ const CONSENT_ACCEPT = { x: 450, y: 440 };
 const DIALOG_CONFIRM = { x: 750, y: 440 };
 
 /** Why a Browser Snapshot cannot name these controls yet. */
-const FRAME_GAP = "Browser Snapshots do not read child frames (#652)";
 const LABEL_GAP =
   "a control's hit area excludes the label that activates it (#654)";
 const UNNAMED_GAP =
@@ -61,13 +60,11 @@ const WEB_MATRIX: readonly {
     point: slot(2),
   },
   {
-    gap: FRAME_GAP,
     name: "Same-frame save",
     pattern: "same-origin iframe",
     point: slot(3),
   },
   {
-    gap: FRAME_GAP,
     name: "Cross-frame save",
     pattern: "cross-origin iframe",
     point: slot(4),
@@ -187,6 +184,90 @@ it.live("names every web-matrix click by the control the user saw", () =>
         })),
         unclaimed: [],
       });
+    }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live("records typing into a field inside a cross-origin frame", () =>
+  Effect.gen(function* teachTheEmbeddedField() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-frame-typing-",
+    });
+    const fixtures = yield* fixtureServer;
+
+    yield* Effect.gen(function* demonstrate() {
+      const paymentFrame = yield* fixtures.awaitRequest((url) =>
+        url.includes("field=Card")
+      );
+      const started = yield* startUserTeaching({
+        activity: "teaching",
+        clientName: "integration-recorder",
+        clientVersion: "1.0.0",
+        group: "",
+        name: "frame-typing",
+        operationId: OperationId.make("frame-typing-start-session"),
+        url: fixtures.url("frame-typing.html"),
+        viewport,
+      });
+      const { recordingId } = started;
+      if (recordingId === null) {
+        return yield* Effect.die("Teaching did not allocate a recording.");
+      }
+      yield* Deferred.await(paymentFrame).pipe(Effect.timeout("30 seconds"));
+      const service = yield* AgentSession;
+      yield* service.startTeachingRecording(
+        started.id,
+        OperationId.make("frame-typing-start-recording")
+      );
+      for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+        yield* service.sendInput(started.id, {
+          button: "left",
+          clickCount: 1,
+          eventType,
+          type: "input_mouse",
+          x: 160,
+          y: 50,
+        });
+      }
+      for (const character of "4242") {
+        yield* service.sendInput(started.id, {
+          eventType: "keyDown",
+          key: character,
+          text: character,
+          type: "input_keyboard",
+        });
+        yield* service.sendInput(started.id, {
+          eventType: "keyUp",
+          key: character,
+          type: "input_keyboard",
+        });
+      }
+      yield* service.stopTeachingRecording(
+        started.id,
+        OperationId.make("frame-typing-stop-recording")
+      );
+
+      const claimOperationId = OperationId.make("frame-typing-claim");
+      yield* teachingRecordingTool("agent_teaching_recording_claim", {
+        action: "take",
+        operationId: claimOperationId,
+        recordingId,
+      });
+      const timeline = yield* teachingRecordingTool(
+        "agent_teaching_timeline_get",
+        { claimOperationId, recordingId }
+      );
+      const host = new URL(fixtures.url("frame-typing.html")).port;
+      const actions = timeline.entries.flatMap((entry) =>
+        entry._tag === "action" ? [`${entry.kind}: ${entry.description}`] : []
+      );
+      // The field is named by its own label and by the frame that holds it,
+      // whichever host the payment provider serves it from.
+      expect(actions).toEqual([
+        `click: Click textbox "Card number" in frame localhost:${host}`,
+        `fill: Fill textbox "Card number" in frame localhost:${host} with "4242"`,
+      ]);
     }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
