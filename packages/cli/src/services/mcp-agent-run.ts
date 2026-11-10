@@ -103,7 +103,7 @@ const FlowRunStartTool = Tool.make("agent_flow_run_start", {
 const AgentRunCompleteTool = Tool.make("agent_run_complete", {
   dependencies: [AgentSession, TeachingRecordingStore],
   description:
-    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local. Share the returned Dry Run viewUrl before asking the user to verify or reject.",
+    "Seal the Run's evidence and close its browser. Assessments alone leave it open. A Dry Run passes only with a working complete outcome, fulfilled required scans, and no Takeover. Ended Runs return the persisted Summary. Evidence remains local. Share the returned Dry Run viewUrl before asking the user to verify or reject on that page.",
   failure: AgentRunFailure,
   parameters: Schema.Struct({
     agentAccount: AgentRunComplete.fields.agentAccount,

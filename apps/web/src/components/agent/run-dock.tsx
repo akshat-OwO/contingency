@@ -339,7 +339,14 @@ export const RunDock = ({
       )}
       {onDismiss === undefined ? null : (
         <Button onClick={onDismiss} type="button" variant="outline">
-          Done
+          {session.dryRun &&
+          sessions.some(
+            (candidate) =>
+              candidate.activity === "teaching" &&
+              candidate.recordingId === session.dryRun?.recordingId
+          )
+            ? "Back to Teaching"
+            : "Done"}
         </Button>
       )}
       {control.action === null ? null : (

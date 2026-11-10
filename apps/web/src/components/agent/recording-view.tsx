@@ -1,11 +1,12 @@
-import { dryRunVideoPath } from "@contingency/protocol";
+import { OperationId, dryRunVideoPath } from "@contingency/protocol";
 import type { TeachingRecordingId } from "@contingency/protocol";
-import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { useEffect } from "react";
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { useEffect, useState } from "react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { RunSummaryView } from "@/components/agent/run-view";
+import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const decisions = {
@@ -23,13 +24,49 @@ export const RecordingViewer = ({
   readonly recordingId: TeachingRecordingId;
   readonly sessionId?: string | null;
 }) => {
-  const { recordingViewAtom } = useRpcDependencies();
+  const {
+    recordingViewAtom,
+    agentTeachingFlowVerifyMutation,
+    agentTeachingFlowRejectMutation,
+  } = useRpcDependencies();
+  const verify = useAtomSet(agentTeachingFlowVerifyMutation, {
+    mode: "promise",
+  });
+  const reject = useAtomSet(agentTeachingFlowRejectMutation, {
+    mode: "promise",
+  });
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+
   const atom = recordingViewAtom(recordingId)(sessionId);
   const result = useAtomValue(atom);
   const refresh = useAtomRefresh(atom);
   useEffect(() => {
     refresh();
   }, [refresh]);
+  const decide = async (decision: "verify" | "reject") => {
+    if (pending) {
+      return;
+    }
+    setPending(true);
+    setError(undefined);
+    try {
+      await (decision === "verify" ? verify : reject)({
+        payload: {
+          operationId: OperationId.make(globalThis.crypto.randomUUID()),
+          recordingId,
+        },
+      });
+      refresh();
+    } catch {
+      setError(
+        "The decision could not be saved. Refresh the review and try again."
+      );
+      refresh();
+    } finally {
+      setPending(false);
+    }
+  };
   if (result._tag === "Initial") {
     return <p role="status">Loading Dry Run Summary…</p>;
   }
@@ -62,6 +99,30 @@ export const RecordingViewer = ({
           ? "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
           : decisions[view.decision]}
       </p>
+      {view.decision === "pending" && view.result?.outcome === "passed" ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={pending}
+            onClick={() => {
+              void decide("verify");
+            }}
+            type="button"
+          >
+            Verify flow
+          </Button>
+          <Button
+            disabled={pending}
+            onClick={() => {
+              void decide("reject");
+            }}
+            type="button"
+            variant="outline"
+          >
+            Reject flow
+          </Button>
+        </div>
+      ) : null}
+      {error === undefined ? null : <p role="alert">{error}</p>}
       {summary}
     </section>
   );
