@@ -8,6 +8,8 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  CircleAlertIcon,
+  CircleIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -293,12 +295,69 @@ const useClamped = <Element extends HTMLElement>() => {
   return [ref, clamped] as const;
 };
 
+/** How a dock state reads: recording, failed, needing attention, or neither. */
+export type DockStateTone = "attention" | "default" | "failed" | "recording";
+
+const dockStateToneClass: Record<DockStateTone, string> = {
+  attention: "text-amber-600 dark:text-amber-400",
+  default: "text-foreground/85",
+  failed: "text-destructive",
+  recording: "text-foreground",
+};
+
+const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
+  if (tone === "recording") {
+    return (
+      <CircleIcon
+        aria-hidden="true"
+        className="size-2.5 shrink-0 fill-current text-red-500"
+      />
+    );
+  }
+  if (tone === "failed" || tone === "attention") {
+    return <CircleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="bg-muted-foreground/60 size-1.5 shrink-0 rounded-full"
+    />
+  );
+};
+
 /**
- * The dock's status tier: the state badges and one line saying where the
+ * A dock state as plain text behind a small mark: a red dot while recording,
+ * the alert icon when failed or waiting on attention, a muted dot otherwise.
+ * No fill or border, so the status tier reads as a line rather than pills.
+ */
+export const DockState = ({
+  children,
+  tone = "default",
+}: {
+  readonly children: React.ReactNode;
+  readonly tone?: DockStateTone;
+}) => (
+  <span
+    className={cn(
+      "inline-flex shrink-0 items-center gap-1.5 text-[13px] leading-5 font-medium whitespace-nowrap",
+      dockStateToneClass[tone]
+    )}
+  >
+    <DockStateMark tone={tone} />
+    {children}
+  </span>
+);
+
+/** A quiet fact beside the dock state, such as demo provenance. */
+export const dockFactClassName =
+  "text-muted-foreground text-xs leading-5 whitespace-nowrap";
+
+/**
+ * The dock's status tier: the state label and one line saying where the
  * session is and what happens next. The line is clamped to one row and
  * expands in place, with `details` (the Agent Step, the task) under it.
  *
- * The badges keep a floor under the sentence: when they leave it less than
+ * The state labels keep a floor under the sentence: when they leave it less than
  * about 12rem, the sentence drops onto its own line rather than ellipsizing
  * after two words (#238). Below a medium dock it always has its own line.
  *
@@ -310,6 +369,7 @@ export const DockStatus = ({
   details,
   note,
 }: {
+  /** The state labels: a `DockState` and any quiet facts beside it. */
   readonly badges: React.ReactNode;
   readonly children: React.ReactNode;
   readonly details?: React.ReactNode;
@@ -323,7 +383,9 @@ export const DockStatus = ({
   return (
     <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
       <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
-        <div className="flex shrink-0 items-center gap-1.5 pt-px">{badges}</div>
+        <div className="flex shrink-0 items-center gap-x-2.5 gap-y-1">
+          {badges}
+        </div>
         {/* On a narrow dock the sentence takes its own full row. */}
         <div className="min-w-48 flex-1 @max-md:basis-full">
           <output

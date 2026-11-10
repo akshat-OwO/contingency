@@ -3,12 +3,7 @@ import type {
   AgentSessionSnapshot,
   TaskAgentRunState,
 } from "@contingency/protocol";
-import {
-  CircleAlertIcon,
-  ListChecksIcon,
-  ScrollTextIcon,
-  TimerIcon,
-} from "lucide-react";
+import { ListChecksIcon, ScrollTextIcon, TimerIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { agentControlPresentation } from "@/components/agent/agent-workspace-state";
@@ -31,10 +26,11 @@ import {
   DockSessionSelect,
   DockShell,
   DockSpacer,
+  DockState,
   DockStatus,
   DockWordmark,
+  dockFactClassName,
 } from "@/components/agent/workspace-dock";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -165,24 +161,24 @@ const ProvenanceBadge = ({
   }
   if (provenance.example) {
     return (
-      <Badge
+      <span
+        className={dockFactClassName}
         title={`Bundled Example Flow on ${provenance.demoSiteName ?? "the demo store"}. It is not your verified work.`}
-        variant="outline"
       >
         Example
-      </Badge>
+      </span>
     );
   }
   if (provenance.demoSiteName === undefined) {
     return null;
   }
   return (
-    <Badge
+    <span
+      className={dockFactClassName}
       title={`Demo work on ${provenance.demoSiteName}, not a real website.`}
-      variant="outline"
     >
       Demo store
-    </Badge>
+    </span>
   );
 };
 
@@ -294,16 +290,9 @@ export const RunDock = ({
         <DockStatus
           badges={
             <>
-              <Badge
-                variant={
-                  presentation.tone === "failed" ? "destructive" : "secondary"
-                }
-              >
-                {presentation.tone === "failed" ? (
-                  <CircleAlertIcon aria-hidden="true" />
-                ) : null}
+              <DockState tone={presentation.tone}>
                 {presentation.badge}
-              </Badge>
+              </DockState>
               <ProvenanceBadge provenance={provenance} />
               <BrowserModificationBadge
                 modifications={taskRun?.browserModifications ?? []}

@@ -514,6 +514,22 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
     "/agent-runs/agentrun-one/video"
   );
   expect(screen.getByText("Dry Run passed")).toBeVisible();
+  // The video sits under the verdict and above the numbers and tabs, so a
+  // tab of another height never moves it.
+  const verdict = screen.getByRole("region", { name: "Run verdict" });
+  const video = screen.getByRole("region", { name: "Run video" });
+  const stats = screen.getByText("Agent findings").closest("dl");
+  const tabs = screen.getByRole("tablist");
+  const order = [
+    ...document.querySelectorAll("section, dl, [role='tablist']"),
+  ].filter((element) => [verdict, video, stats, tabs].includes(element));
+  expect(order).toStrictEqual([verdict, video, stats, tabs]);
+  // The Assessment explains the verdict, so it reads in the verdict header.
+  expect(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
+      dryRunTask.assessment.explanation
+    )
+  ).toBeVisible();
   for (const label of [
     "Run finished",
     "Agent assessment",
@@ -586,6 +602,25 @@ test("fails a Dry Run the Runner observed failing even when every check passes",
   expect(screen.getByText("The cart was empty after reload.")).toBeVisible();
 });
 
+test("drops the Findings tab when the Run has no findings", () => {
+  render(
+    <DryRunSummaryView
+      result={passedResult}
+      summary={{
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+        findings: [],
+      }}
+    />
+  );
+  expect(screen.queryByRole("tab", { name: /Findings/u })).toBeNull();
+  expect(screen.getByRole("tab", { name: "Verdict" })).toBeVisible();
+  expect(screen.getByRole("tab", { name: "Task" })).toBeVisible();
+  expect(screen.getByText("Agent findings").closest("div")).toHaveTextContent(
+    "0"
+  );
+});
+
 test("keeps findings and the task behind their tabs", async () => {
   const user = userEvent.setup();
   render(
@@ -604,7 +639,11 @@ test("keeps findings and the task behind their tabs", async () => {
   expect(checkRow("Run finished")).toHaveTextContent("Closed by user");
   expect(screen.queryByRole("list", { name: "Findings" })).toBeNull();
 
-  await user.click(screen.getByRole("tab", { name: /Findings/u }));
+  const findingsTab = screen.getByRole("tab", { name: /Findings/u });
+  expect(findingsTab).toHaveTextContent(
+    `Findings${dryRunTask.findings.length}`
+  );
+  await user.click(findingsTab);
   expect(screen.getByRole("list", { name: "Findings" })).toHaveTextContent(
     "Delivery is unavailable for the selected area."
   );

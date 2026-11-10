@@ -26,7 +26,7 @@ const WorkspaceRouteComponent = () => {
   if (recording !== undefined) {
     return (
       <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
-        <h1 className="mb-1 text-xl font-semibold tracking-tight">
+        <h1 className="mb-4 text-xl font-semibold tracking-tight">
           Dry Run review
         </h1>
         <RecordingViewer recordingId={recording} />

@@ -30,12 +30,10 @@ import {
   evidenceCount,
   interactiveRunChecks,
   interactiveRunVerdict,
-  noFindings,
   runDuration,
 } from "@/components/agent/dry-run-summary-state";
 import { EvidenceList } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -90,11 +88,16 @@ const Verdict = ({
   </span>
 );
 
-/** The verdict, and why a Run cannot pass, right under it. */
+/**
+ * The verdict, why a Run cannot pass, and the Agent Assessment's explanation
+ * of it, in that order right under it.
+ */
 const SummaryVerdictHeader = ({
+  explanation,
   failure,
   verdict,
 }: {
+  readonly explanation: string | undefined;
   readonly failure: string | undefined;
   readonly verdict: SummaryVerdict;
 }) => (
@@ -103,12 +106,17 @@ const SummaryVerdictHeader = ({
     {failure === undefined ? null : (
       <p className="text-foreground/85 text-sm text-pretty">{failure}</p>
     )}
+    {explanation === undefined ? null : (
+      <p className="text-foreground/85 text-sm text-pretty wrap-anywhere">
+        {explanation}
+      </p>
+    )}
   </section>
 );
 
 /**
- * The Run's video, after the verdict and its checks: the decision rests on
- * those, and the video is there to review them.
+ * The Run's video, directly under the verdict and above the numbers and tabs,
+ * so it keeps its place when a tab of a different height opens.
  */
 const SummaryVideo = ({
   src,
@@ -205,9 +213,11 @@ const Checklist = ({
 );
 
 /**
- * A finished task Run: its verdict, four numbers, the rest behind tabs, and
- * then its video. The Verdict tab opens on the checks, so a failed Run reads as
- * which check is red rather than as paragraphs to compare.
+ * A finished task Run: its verdict, its video, four numbers, and the rest
+ * behind tabs. The video sits above the tabs so switching tabs never moves it.
+ * The Verdict tab opens on the checks, so a failed Run reads as which check is
+ * red rather than as paragraphs to compare. A Run without findings has no
+ * Findings tab; the numbers already say there are none.
  */
 const TaskRunSummaryLayout = ({
   checks,
@@ -229,7 +239,15 @@ const TaskRunSummaryLayout = ({
   readonly videoSrc: string | undefined;
 }) => (
   <div className="space-y-3">
-    <SummaryVerdictHeader failure={failure} verdict={verdict} />
+    <SummaryVerdictHeader
+      explanation={summary.assessment?.explanation}
+      failure={failure}
+      verdict={verdict}
+    />
+    <SummaryVideo
+      src={videoSrc ?? agentRunVideoPath(summary.runId)}
+      summary={summary}
+    />
     <dl className="grid grid-cols-4 divide-x rounded-lg border">
       <Stat label="Duration" value={runDuration(summary)} />
       <Stat label="Actions" value={summary.timeline.length} />
@@ -241,12 +259,14 @@ const TaskRunSummaryLayout = ({
     <Tabs defaultValue="verdict">
       <TabsList className="w-full">
         <TabsTrigger value="verdict">Verdict</TabsTrigger>
-        <TabsTrigger value="findings">
-          Findings
-          {summary.findings.length === 0 ? null : (
-            <Badge variant="secondary">{summary.findings.length}</Badge>
-          )}
-        </TabsTrigger>
+        {summary.findings.length === 0 ? null : (
+          <TabsTrigger value="findings">
+            Findings
+            <span className="text-muted-foreground font-normal tabular-nums">
+              {summary.findings.length}
+            </span>
+          </TabsTrigger>
+        )}
         <TabsTrigger value="task">Task</TabsTrigger>
       </TabsList>
       <TabsContent className="space-y-3 pt-1" value="verdict">
@@ -256,20 +276,11 @@ const TaskRunSummaryLayout = ({
             No Agent Assessment submitted.
           </p>
         ) : (
-          <>
-            <blockquote className="border-l-2 pl-3 text-sm text-pretty wrap-anywhere">
-              {summary.assessment.explanation}
-            </blockquote>
-            <EvidenceList hint evidence={summary.assessment.evidence} />
-          </>
+          <EvidenceList hint evidence={summary.assessment.evidence} />
         )}
       </TabsContent>
-      <TabsContent className="space-y-3 pt-1" value="findings">
-        {summary.findings.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            {noFindings(summary.assessment !== null)}
-          </p>
-        ) : (
+      {summary.findings.length === 0 ? null : (
+        <TabsContent className="space-y-3 pt-1" value="findings">
           <ul aria-label="Findings" className="space-y-3">
             {summary.findings.map((finding) => (
               <li className="flex gap-2.5" key={finding.id}>
@@ -292,8 +303,8 @@ const TaskRunSummaryLayout = ({
               </li>
             ))}
           </ul>
-        )}
-      </TabsContent>
+        </TabsContent>
+      )}
       <TabsContent className="space-y-3 pt-1 text-sm" value="task">
         <p className="text-pretty wrap-anywhere">{summary.requestedTask}</p>
         {summary.instructions.length === 0 ? null : (
@@ -319,10 +330,6 @@ const TaskRunSummaryLayout = ({
         </dl>
       </TabsContent>
     </Tabs>
-    <SummaryVideo
-      src={videoSrc ?? agentRunVideoPath(summary.runId)}
-      summary={summary}
-    />
   </div>
 );
 

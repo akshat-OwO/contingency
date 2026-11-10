@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 import { requestIconClassName } from "./dock-request-parts";
@@ -55,7 +54,9 @@ const CollapsedRequests = ({
         {first.summary}
       </span>
       {rest.length === 0 ? null : (
-        <Badge variant="secondary">+{rest.length} more</Badge>
+        <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+          +{rest.length} more
+        </span>
       )}
       <ChevronUpIcon
         aria-hidden="true"
@@ -119,10 +120,10 @@ export const DockRequests = ({
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
   return (
     <div className="bg-muted-surface max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 py-2.5">
-      {first?.kind === "guided-run-questions" ? (
-        <div className="flex justify-end">{collapse}</div>
-      ) : null}
-      <GuidedRunQuestions session={session} />
+      <GuidedRunQuestions
+        collapse={collapseFor("guided-run-questions")}
+        session={session}
+      />
       <ExecutionBoundary
         key={session.boundary?.id}
         collapse={collapseFor("boundary")}

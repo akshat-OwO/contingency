@@ -15,7 +15,6 @@ import {
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { Badge } from "@/components/ui/badge";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -121,7 +120,9 @@ export const WorkspaceVariables = ({
         action={collapse}
         badge={
           pending.length === 0 ? null : (
-            <Badge variant="secondary">{pending.length} needed</Badge>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {pending.length} needed
+            </span>
           )
         }
         icon={
