@@ -43,7 +43,7 @@ export const makeVerificationElicitation = () => {
         yield* reverse.elicit(
           new McpSchema.ElicitRequestURLParams({
             elicitationId: `verify-${sessionId}`,
-            message: `The Dry Run passed. Open this link to review its Summary, then tell your agent whether to verify or reject the Flow. Opening or dismissing this prompt does not decide.${
+            message: `The Dry Run passed. Open this link to review its Summary. While the decision is pending, choose Verify flow or Reject flow on that page. Opening or dismissing this prompt does not decide.${
               teachingViewUrl === undefined
                 ? ""
                 : ` You can also use Verify flow or Reject flow in the live Teaching Workspace: ${teachingViewUrl}`

@@ -12,7 +12,7 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 afterEach(cleanup);
 
-const setup = (outcome: string, decision = "pending") => {
+const setup = (outcome: string, decision = "pending", refusal?: string) => {
   const calls = vi.fn();
   const view = { decision, result: { outcome }, summary: null };
   const recordingViewAtom = Atom.family(() =>
@@ -34,6 +34,9 @@ const setup = (outcome: string, decision = "pending") => {
       }) =>
         Effect.sync(() => {
           calls(payload);
+          if (refusal !== undefined) {
+            throw new Error(refusal);
+          }
           view.decision = next;
           return {};
         })
@@ -86,3 +89,19 @@ test.each([
   setup(outcome, decision);
   expect(screen.queryByRole("button")).toBeNull();
 });
+
+test.each(["Verify flow", "Reject flow"])(
+  "preserves the server refusal for %s",
+  async (name) => {
+    setup(
+      "passed",
+      "pending",
+      "The Flow changed. Run another Dry Run before verifying."
+    );
+    await userEvent.click(screen.getByRole("button", { name }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The Flow changed. Run another Dry Run before verifying."
+    );
+    expect(screen.getByRole("button", { name })).toBeEnabled();
+  }
+);

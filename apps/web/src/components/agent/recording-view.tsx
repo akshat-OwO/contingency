@@ -7,6 +7,7 @@ import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { Button } from "@/components/ui/button";
+import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const decisions = {
@@ -58,10 +59,8 @@ export const RecordingViewer = ({
         },
       });
       refresh();
-    } catch {
-      setError(
-        "The decision could not be saved. Refresh the review and try again."
-      );
+    } catch (error) {
+      setError(failureMessage(error, "The decision could not be saved."));
       refresh();
     } finally {
       setPending(false);
