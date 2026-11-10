@@ -1,0 +1,222 @@
+{
+  "capturedAt": "2026-11-09T17:33:04.822Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Health",
+      "rect": {
+        "width": 402,
+        "height": 874,
+        "x": 0,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "NavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "Health.WelcomeView",
+      "rect": {
+        "width": 402,
+        "height": 54,
+        "x": 0,
+        "y": 78
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "Other",
+      "kind": "other",
+      "identifier": "UIA.Health.BuddyOnboarding.WelcomeScreen",
+      "rect": {
+        "width": 402,
+        "height": 812,
+        "x": 0,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "width": 402,
+        "height": 812,
+        "x": 0,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 2,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Welcome to Health",
+      "rect": {
+        "width": 326,
+        "height": 26.333333333333314,
+        "x": 38,
+        "y": 475
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "This app brings your health information together in one place.\n\nYou can see important changes or alerts, get insights from your data, and learn about essential topics.",
+      "rect": {
+        "width": 326,
+        "height": 156.66666666666669,
+        "x": 38,
+        "y": 502.3333333333333
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 628,
+        "x": 369,
+        "width": 30,
+        "y": 132
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 30,
+        "x": 62,
+        "width": 278,
+        "y": 727
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 628,
+        "x": 369,
+        "width": 30,
+        "y": 132
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 30,
+        "x": 62,
+        "width": 278,
+        "y": 727
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 3,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Button",
+      "kind": "button",
+      "label": "Continue",
+      "identifier": "UIA.Health.BuddyOnboarding.WelcomeScreen.ContinueButton",
+      "rect": {
+        "x": 38,
+        "width": 326,
+        "height": 52,
+        "y": 784
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 2,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Continue",
+      "rect": {
+        "width": 72,
+        "height": 20.33333333333337,
+        "x": 165,
+        "y": 799.6666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 10,
+      "ref": "e12"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.Health",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

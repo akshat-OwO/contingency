@@ -35,3 +35,33 @@ The fix for a CI timing failure is the race, found and removed. A larger timeout
 Run quality and the affected tests. Every wait must observe an event or use virtual time, as enforced by the test wait lint. Keep any timer exception local and explain it in its disable comment.
 
 Repeating a test locally can help investigate a race. Repeats are optional and do not replace a deterministic regression test.
+
+## Coverage corpora
+
+Three suites test Contingency against the range of interfaces real sites and apps use. Each one is deterministic.
+
+| Suite | What it replays | Runs |
+| --- | --- | --- |
+| `tests/services/native-snapshot-corpus.test.ts` | Raw iOS and Android accessibility trees from the native widget corpus apps and the apps that ship with the simulator and emulator | Unit suite, no device |
+| `tests/integration/web-feature-matrix.integration.test.ts` | One Teaching click per web-platform pattern in `fixtures/web-matrix.html`: shadow roots, frames, ARIA widgets, overlays, canvas | Integration suite |
+| `tests/integration/site-corpus.integration.test.ts` | Recorded real sites, served offline by the site corpus proxy | Locally, when `SITE_CORPUS_ROOT` names a corpus. CI never sets it, so CI skips the suite to keep its run time down. |
+
+### When to run them
+
+Run the suite that matches each area your change touches, from `packages/cli`, before you open a PR. CI runs the first two on every PR, but a failure found locally is cheaper than one found in CI.
+
+| When the change touches | Run |
+| --- | --- |
+| `ios-observation`, `android-observation`, `native-app-hit-test`, or an iOS or Android runtime or workspace service | `vp exec vitest run tests/services/native-snapshot-corpus.test.ts` |
+| `agent-browser.ts` (Snapshot reading, hit testing, naming), Teaching click capture, or user input handling in `agent-session.ts` | `vp exec vitest run --config vitest.integration.config.ts tests/integration/web-feature-matrix.integration.test.ts`, then `site-corpus.integration.test.ts` with `SITE_CORPUS_ROOT` set if this machine has a corpus |
+| A fix for a pinned `gap` | The suite that pins it. Remove the row's `gap` in the same change; the suite fails until you do. |
+| A new native widget pattern, a new iOS or Android version, or an `agent-device` upgrade | Recapture with `native-snapshot-capture.mjs`, run the native suite, and commit the changed trees. Review the tree diff: a control that loses its name or clickability is a regression. |
+| A release | Re-record the site corpus and run the replay suite, so drift on live sites shows up before users meet it. |
+
+A change that touches none of these areas does not need them. If a suite applies but cannot run here (no simulator, no corpus), say so in the PR as an evidence gap rather than skipping it silently.
+
+A known limitation is pinned as a `gap` on its matrix row or site entry. The suite expects the limitation, so fixing it fails the suite until the row drops its `gap`. Never delete a failing row to make a suite pass.
+
+To add native trees, run `vpx .cursor/skills/verify-contingency/bin/native-snapshot-capture.mjs ios` or `android --apk <fixture.apk>`. Each run boots one proof-owned simulator or emulator and removes it. Commit the JSON files under `tests/fixtures/native-snapshots/`; they contain no input values.
+
+To record sites, add entries to `tests/integration/site-corpus/sites.json` and run `SITE_CORPUS_ROOT=<dir> vpx packages/cli/tests/integration/site-corpus/record.ts --only <id>`. Recording reaches the live network; replay never does. The corpus is not committed. A site that records a bot challenge or no exchanges does not belong in the list.

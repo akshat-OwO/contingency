@@ -591,6 +591,14 @@ Preconditions: Build current source. Obtain explicit selection and authorization
 
 This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and untaught activations. Settings restart establishes the declared navigation state; it does not clear application data. A journey needing cleared data or another setup procedure is unsupported.
 
+### Native snapshot corpus
+
+`vpx .cursor/skills/verify-contingency/bin/native-snapshot-capture.mjs ios` builds `fixtures/ios-widgets`, creates and boots a simulator, captures each corpus screen and ten built-in apps, and deletes that simulator by exact UDID. `android --avd Pixel_9 --apk <fixture.apk>` boots a read-only emulator on port 5584, captures `WidgetsActivity` and eight built-in apps, and stops that emulator. Both stop their private agent-device daemon and refuse a device that already exists.
+
+Trees land in `packages/cli/tests/fixtures/native-snapshots/<platform>/` with password values removed. `artifacts/native-snapshots/<platform>/receipt.json` records the device, the resources and their cleanup, any skipped app, and each activation probe: the `Last action:` text before and after a device-layer click on that primitive.
+
+Run `vp exec vitest run tests/services/native-snapshot-corpus.test.ts` from `packages/cli` after a capture. A change to a fixture's screens changes its expected controls in that test.
+
 ### Android Support Matrix
 
 Variable fills use stock agent-device, including password fields. Require `inputConfirmation` on each recorded fill: `confirmed` means readable text matched; `unconfirmed` means input was entered without exact readback. Continue to sign-in and assess the journey outcome in either case. No private-text helper or installation grant is used.

@@ -1,0 +1,94 @@
+[
+  {
+    "category": "reference",
+    "id": "wikipedia",
+    "url": "https://en.wikipedia.org/wiki/Web_browser",
+    "gap": "Teaching names the click on the transparent Main menu checkbox by its navigation landmark; Inspect hit-tests the button (#655)"
+  },
+  {
+    "category": "docs",
+    "id": "mdn",
+    "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button",
+    "gap": "the header logo link renders inside a shadow root; Teaching and Inspect read different names for it (#651)"
+  },
+  {
+    "category": "news",
+    "id": "hackernews",
+    "url": "https://news.ycombinator.com/"
+  },
+  {
+    "category": "news",
+    "id": "bbc",
+    "url": "https://www.bbc.com/news"
+  },
+  {
+    "category": "code",
+    "id": "github-repo",
+    "url": "https://github.com/microsoft/playwright"
+  },
+  {
+    "category": "ecommerce",
+    "id": "saucedemo",
+    "url": "https://www.saucedemo.com/"
+  },
+  {
+    "category": "ecommerce",
+    "id": "books-toscrape",
+    "url": "https://books.toscrape.com/"
+  },
+  {
+    "category": "forms",
+    "id": "the-internet-login",
+    "url": "https://the-internet.herokuapp.com/login"
+  },
+  {
+    "category": "forms",
+    "id": "demoqa-forms",
+    "url": "https://demoqa.com/automation-practice-form"
+  },
+  {
+    "category": "widgets",
+    "id": "uitestingplayground",
+    "url": "http://uitestingplayground.com/"
+  },
+  {
+    "category": "spa",
+    "id": "todomvc-react",
+    "url": "https://todomvc.com/examples/react/dist/"
+  },
+  {
+    "category": "spa",
+    "id": "realworld",
+    "url": "https://demo.realworld.show/"
+  },
+  {
+    "category": "search",
+    "id": "duckduckgo",
+    "url": "https://duckduckgo.com/"
+  },
+  {
+    "category": "government",
+    "id": "gov-uk",
+    "url": "https://www.gov.uk/"
+  },
+  {
+    "category": "travel",
+    "id": "booking",
+    "url": "https://www.booking.com/"
+  },
+  {
+    "category": "saas",
+    "id": "stripe",
+    "url": "https://stripe.com/"
+  },
+  {
+    "category": "docs",
+    "id": "python-docs",
+    "url": "https://docs.python.org/3/"
+  },
+  {
+    "category": "community",
+    "id": "stackoverflow",
+    "url": "https://stackoverflow.com/questions"
+  }
+]

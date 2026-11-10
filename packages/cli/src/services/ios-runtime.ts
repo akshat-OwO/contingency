@@ -23,7 +23,7 @@ import {
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
-import { iosNodeInteraction } from "./ios-observation.ts";
+import { iosNodeInteraction, iosNodeName } from "./ios-observation.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
@@ -507,11 +507,11 @@ const startIosRuntime = (
             device: prepared.device,
             generation: snapshot.refsGeneration,
             id,
-            nodes: snapshot.nodes.map((node) => {
+            nodes: snapshot.nodes.map((node, index) => {
               const interaction = iosNodeInteraction(node);
               const observed: IosObservation["nodes"][number] = {
                 ...interaction,
-                name: node.label ?? node.value ?? node.identifier ?? "",
+                name: iosNodeName(snapshot.nodes, index),
                 packageName: node.bundleId ?? snapshot.appBundleId ?? null,
                 target: `@${node.ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`,
               };

@@ -32,6 +32,16 @@ For filesystem or catalog metadata checks, say where to read after the drive (e.
 
 For Teaching capture issues, the observable outcome is the Teaching Timeline, not the Page. Name the exact actions and descriptions `agent_teaching_timeline_get` must return, and require input driven like a person's: Shift, corrections, and a Page that changes while the user types. The drive in #258 checked only the field's final value, and that check missed one `Fill e42` per keystroke.
 
+## Coverage corpus criterion
+
+When the issue touches native observation, Snapshot reading, hit testing, or Teaching click capture, add the matching suite from [Coverage corpora](./testing.md#coverage-corpora) as a criterion:
+
+```markdown
+- [ ] **Coverage corpus:** run `<suite>` from `packages/cli` and report the result. A fixed `gap` drops its row's `gap` in the same change. A new native widget pattern adds a captured tree and an expected control to `native-snapshot-corpus.test.ts`.
+```
+
+The corpus suites prove that the change holds across many real interfaces. The verify-contingency proof proves the user's path in the live Workspace. A user-visible change needs both.
+
 ## Out of scope for the implementing issue
 
 Updating verify-contingency feature files or fixtures belongs in the same change **only when user-visible behavior changed**. Otherwise mark it out of scope and leave maintenance to `maintain-verification-skill`.

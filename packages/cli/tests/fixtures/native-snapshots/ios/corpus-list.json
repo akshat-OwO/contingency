@@ -1,0 +1,809 @@
+{
+  "capturedAt": "2026-11-09T17:30:17.714Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Contingency Widgets",
+      "rect": {
+        "x": 0,
+        "height": 874,
+        "width": 402,
+        "y": 0
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "NavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "List",
+      "rect": {
+        "x": 0,
+        "height": 54,
+        "width": 402,
+        "y": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "List",
+      "rect": {
+        "x": 186.33333333333334,
+        "height": 20.66666666666667,
+        "width": 29,
+        "y": 73.66666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "Button",
+      "kind": "button",
+      "label": "Edit",
+      "rect": {
+        "x": 327.6666666666667,
+        "height": 36,
+        "width": 54.333333333333314,
+        "y": 66
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Last action: Continue",
+      "rect": {
+        "x": 20,
+        "height": 20.33333333333333,
+        "width": 161.33333333333334,
+        "y": 123.99999999999999
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Table",
+      "kind": "table",
+      "rect": {
+        "x": 0,
+        "height": 638.6666666666667,
+        "width": 402,
+        "y": 152.33333333333331
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Pinned",
+      "rect": {
+        "x": 0,
+        "height": 55.33333206176758,
+        "width": 402,
+        "y": 152.33333333333331
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "x": 20,
+        "height": 62,
+        "width": 362,
+        "y": 207.6666653951009
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Anvil",
+      "rect": {
+        "x": 36,
+        "height": 20.333333333333343,
+        "width": 36.66666666666666,
+        "y": 216.6666653951009
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$7.00",
+      "rect": {
+        "x": 36,
+        "height": 18,
+        "width": 38,
+        "y": 239.9999987284342
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "Button",
+      "kind": "button",
+      "label": "chevron",
+      "rect": {
+        "x": 351.6666666666667,
+        "height": 14,
+        "width": 10.333333333333314,
+        "y": 231.6666653951009
+      },
+      "enabled": false,
+      "hittable": false,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "x": 20,
+        "height": 62,
+        "width": 362,
+        "y": 269.6666653951009
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Rocket skates",
+      "rect": {
+        "y": 278.6666653951009,
+        "height": 20.333333333333314,
+        "width": 106.33333333333331,
+        "x": 35.99999999999999
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 11,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$14.00",
+      "rect": {
+        "y": 301.9999987284342,
+        "height": 18,
+        "width": 47,
+        "x": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 11,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Button",
+      "kind": "button",
+      "label": "chevron",
+      "rect": {
+        "x": 351.6666666666667,
+        "y": 293.6666653951009,
+        "height": 14,
+        "width": 10.333333333333314
+      },
+      "enabled": false,
+      "hittable": false,
+      "depth": 3,
+      "parentIndex": 11,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "All products",
+      "rect": {
+        "x": 0,
+        "height": 38,
+        "width": 402,
+        "y": 348.99999745686847
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "x": 20,
+        "height": 62,
+        "y": 386.99999745686847,
+        "width": 362
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 1",
+      "rect": {
+        "x": 36,
+        "height": 20.333333333333314,
+        "y": 395.99999745686847,
+        "width": 72.33333333333333
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 16,
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$7.00",
+      "rect": {
+        "x": 36,
+        "height": 18,
+        "y": 419.3333307902018,
+        "width": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 16,
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "x": 20,
+        "height": 62,
+        "y": 448.99999745686847,
+        "width": 362
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 2",
+      "rect": {
+        "height": 20.333333333333314,
+        "y": 457.99999745686847,
+        "x": 36,
+        "width": 74.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 19,
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$14.00",
+      "rect": {
+        "height": 18,
+        "y": 481.3333307902018,
+        "x": 36,
+        "width": 47
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 19,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "height": 61.99999999999994,
+        "y": 510.99999745686847,
+        "x": 20,
+        "width": 362
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 3",
+      "rect": {
+        "height": 20.33333333333337,
+        "y": 519.9999974568684,
+        "x": 36,
+        "width": 75
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 22,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$21.00",
+      "rect": {
+        "height": 18,
+        "y": 543.3333307902018,
+        "x": 36,
+        "width": 46.66666666666666
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 22,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "height": 62,
+        "y": 572.9999974568684,
+        "x": 20,
+        "width": 362
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 4",
+      "rect": {
+        "height": 20.33333333333337,
+        "y": 581.9999974568684,
+        "x": 36,
+        "width": 75.33333333333333
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 25,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$28.00",
+      "rect": {
+        "height": 18,
+        "y": 605.3333307902018,
+        "x": 36,
+        "width": 49
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 25,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "height": 62,
+        "y": 634.9999974568684,
+        "x": 20,
+        "width": 362
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 5",
+      "rect": {
+        "width": 75,
+        "x": 36,
+        "height": 20.33333333333337,
+        "y": 643.9999974568684
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 28,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$35.00",
+      "rect": {
+        "x": 36,
+        "height": 18,
+        "y": 667.3333307902019,
+        "width": 49
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 28,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "y": 696.9999974568684,
+        "x": 20,
+        "width": 362,
+        "height": 62
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 6",
+      "rect": {
+        "y": 705.9999974568684,
+        "x": 36,
+        "width": 75.33333333333333,
+        "height": 20.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 31,
+      "ref": "e33"
+    },
+    {
+      "index": 33,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "$42.00",
+      "rect": {
+        "y": 729.3333307902019,
+        "x": 36,
+        "width": 49.33333333333334,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 31,
+      "ref": "e34"
+    },
+    {
+      "index": 34,
+      "type": "Cell",
+      "kind": "cell",
+      "rect": {
+        "x": 20,
+        "width": 362,
+        "height": 32.000002543131586,
+        "y": 758.9999974568684
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e35"
+    },
+    {
+      "index": 35,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Product 7",
+      "rect": {
+        "height": 20.33333333333337,
+        "x": 36,
+        "width": 74,
+        "y": 767.9999974568684
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 34,
+      "ref": "e36"
+    },
+    {
+      "index": 36,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 7 pages",
+      "value": "0%",
+      "rect": {
+        "y": 152.33333333333331,
+        "x": 369,
+        "width": 30,
+        "height": 638.6666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "height": 30,
+        "x": 0,
+        "width": 402,
+        "y": 758
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e38"
+    },
+    {
+      "index": 38,
+      "type": "Other",
+      "kind": "other",
+      "label": "Pinned",
+      "rect": {
+        "height": 55.33333206176758,
+        "x": 20,
+        "width": 362,
+        "y": 152.33333333333331
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "Other",
+      "kind": "other",
+      "label": "All products",
+      "rect": {
+        "width": 362,
+        "x": 20,
+        "y": 348.99999745686847,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 5,
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "TabBar",
+      "kind": "tab-bar",
+      "label": "Tab Bar",
+      "rect": {
+        "width": 402,
+        "x": 0,
+        "y": 791,
+        "height": 83
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "Button",
+      "kind": "button",
+      "label": "Controls",
+      "rect": {
+        "width": 94,
+        "x": 68,
+        "y": 795,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 40,
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "Image",
+      "kind": "image",
+      "label": "edit",
+      "identifier": "slider.horizontal.3",
+      "rect": {
+        "width": 29.333333333333343,
+        "x": 100,
+        "y": 802.6666666666666,
+        "height": 24
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 41,
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "Button",
+      "kind": "button",
+      "label": "List",
+      "rect": {
+        "width": 94,
+        "x": 154,
+        "y": 795,
+        "height": 54
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 40,
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "Image",
+      "kind": "image",
+      "label": "List",
+      "identifier": "list.bullet",
+      "rect": {
+        "width": 29.333333333333343,
+        "x": 186,
+        "y": 804.3333333333334,
+        "height": 21
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 43,
+      "ref": "e45"
+    },
+    {
+      "index": 45,
+      "type": "Button",
+      "kind": "button",
+      "label": "Web",
+      "rect": {
+        "width": 94,
+        "x": 240,
+        "y": 795,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 40,
+      "ref": "e46"
+    },
+    {
+      "index": 46,
+      "type": "Image",
+      "kind": "image",
+      "label": "Globe",
+      "identifier": "globe",
+      "rect": {
+        "width": 27.333333333333314,
+        "x": 273,
+        "y": 801.3333333333334,
+        "height": 27.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 45,
+      "ref": "e47"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "dev.contingency.ioswidgets",
+    "corpus": true,
+    "screen": "list"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

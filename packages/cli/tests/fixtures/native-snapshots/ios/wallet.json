@@ -1,0 +1,312 @@
+{
+  "capturedAt": "2026-11-09T17:34:19.994Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Other",
+      "role": "PBKApplication",
+      "subrole": "UIApplication",
+      "kind": "other",
+      "label": "Wallet",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 402,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "NavigationBar",
+      "role": "PKNavigationBar",
+      "subrole": "UINavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "PKPassGroupsView",
+      "rect": {
+        "x": 0,
+        "y": 62,
+        "width": 402,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Wallet",
+      "rect": {
+        "x": 16,
+        "y": 63.66666666666667,
+        "width": 99,
+        "height": 40.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "Button",
+      "role": "_UIButtonBarButton",
+      "kind": "button",
+      "label": "Add Card",
+      "identifier": "add",
+      "rect": {
+        "x": 232.33333333333334,
+        "y": 66,
+        "width": 36.00000000000003,
+        "height": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Button",
+      "role": "_UIButtonBarButton",
+      "kind": "button",
+      "label": "Search",
+      "identifier": "search",
+      "rect": {
+        "x": 288.33333333333337,
+        "y": 66,
+        "width": 39.666666666666686,
+        "height": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Button",
+      "role": "_UIButtonBarButton",
+      "kind": "button",
+      "label": "More",
+      "identifier": "more",
+      "rect": {
+        "x": 344.00000000000006,
+        "y": 66,
+        "width": 38,
+        "height": 36
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "ScrollView",
+      "role": "PKPassGroupStackView",
+      "subrole": "UIScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 402,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "ScrollView",
+      "role": "UIScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 14,
+        "y": 128,
+        "width": 374,
+        "height": 300
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 6,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "identifier": "PassesTicketsExpanded",
+      "rect": {
+        "x": 14,
+        "y": 128,
+        "width": 374,
+        "height": 300
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "role": "PKDiscoveryCallToActionFooterView",
+      "subrole": "UIView",
+      "kind": "other",
+      "identifier": "cta",
+      "rect": {
+        "x": 20,
+        "y": 338,
+        "width": 362,
+        "height": 90
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Passes and Tickets",
+      "identifier": "title",
+      "rect": {
+        "x": 36,
+        "y": 353,
+        "width": 151.66666666666666,
+        "height": 20.333333333333314
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 9,
+      "ref": "e11"
+    },
+    {
+      "index": 11,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Find apps and start collecting your passes in one place.",
+      "identifier": "message",
+      "rect": {
+        "x": 36,
+        "y": 375.3333333333333,
+        "width": 241,
+        "height": 38
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 9,
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Get",
+      "identifier": "primary",
+      "rect": {
+        "x": 298,
+        "y": 367,
+        "width": 68,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 9,
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Get",
+      "rect": {
+        "x": 319,
+        "y": 374,
+        "width": 25.666666666666686,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 5,
+      "parentIndex": 12,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 62,
+        "y": 841,
+        "width": 278,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 6,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 62,
+        "y": 841,
+        "width": 278,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 6,
+      "ref": "e16"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.Passbook",
+    "corpus": false,
+    "screen": "launch"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

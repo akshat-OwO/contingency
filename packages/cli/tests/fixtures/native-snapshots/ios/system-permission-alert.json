@@ -1,0 +1,116 @@
+{
+  "capturedAt": "2026-11-09T17:31:51.614Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Alert",
+      "kind": "alert",
+      "label": "Allow “Calendar” to use your location?",
+      "rect": {
+        "x": 41,
+        "y": 288,
+        "width": 320,
+        "height": 326
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "Button",
+      "kind": "button",
+      "label": "Allow Once",
+      "rect": {
+        "x": 57,
+        "y": 438,
+        "width": 288,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "Button",
+      "kind": "button",
+      "label": "Allow While Using App",
+      "rect": {
+        "y": 494,
+        "width": 288,
+        "x": 57,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "Button",
+      "kind": "button",
+      "label": "Don’t Allow",
+      "rect": {
+        "y": 550,
+        "x": 57,
+        "width": 288,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Allow “Calendar” to use your location?",
+      "rect": {
+        "y": 310,
+        "width": 260,
+        "height": 42.333333333333314,
+        "x": 71
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Your location is used for time to leave alerts, to improve location searches, and to suggest event locations.",
+      "rect": {
+        "y": 359.6666666666667,
+        "width": 260,
+        "height": 58,
+        "x": 71
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e6"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "com.apple.mobilecal",
+    "corpus": false,
+    "screen": "permission-alert"
+  },
+  "viewport": {
+    "width": 320,
+    "height": 326
+  }
+}

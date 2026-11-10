@@ -1,0 +1,187 @@
+{
+  "capturedAt": "2026-11-09T17:28:10.439Z",
+  "nodes": [
+    {
+      "index": 0,
+      "type": "Application",
+      "kind": "application",
+      "label": "Contingency Widgets",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 402,
+        "height": 874
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 0,
+      "ref": "e1"
+    },
+    {
+      "index": 1,
+      "type": "NavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "Promo",
+      "rect": {
+        "x": 0,
+        "y": 78,
+        "width": 402,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e2"
+    },
+    {
+      "index": 2,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Promo",
+      "rect": {
+        "x": 174.66666666666666,
+        "y": 89.66666666666666,
+        "width": 52.33333333333334,
+        "height": 20.66666666666667
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 1,
+      "ref": "e3"
+    },
+    {
+      "index": 3,
+      "type": "ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 0,
+        "y": 132,
+        "width": 402,
+        "height": 708
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e4"
+    },
+    {
+      "index": 4,
+      "type": "Button",
+      "kind": "button",
+      "label": "Close promo",
+      "rect": {
+        "width": 362,
+        "height": 30,
+        "y": 148,
+        "x": 20
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "StaticText",
+      "kind": "text",
+      "label": "Close promo",
+      "rect": {
+        "x": 157.66666666666666,
+        "height": 18,
+        "width": 87,
+        "y": 154
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 4,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 30,
+        "height": 680,
+        "x": 369,
+        "y": 132
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 346,
+        "height": 30,
+        "x": 28,
+        "y": 807
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "Other",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 30,
+        "height": 680,
+        "x": 369,
+        "y": 132
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Other",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "width": 346,
+        "height": 30,
+        "x": 28,
+        "y": 807
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e10"
+    }
+  ],
+  "platform": "ios",
+  "source": {
+    "app": "dev.contingency.ioswidgets",
+    "corpus": true,
+    "screen": "modal"
+  },
+  "viewport": {
+    "width": 402,
+    "height": 874
+  }
+}

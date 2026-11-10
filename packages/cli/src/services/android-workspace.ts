@@ -38,6 +38,7 @@ import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { nativeHitTest } from "./native-app-hit-test.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
@@ -175,37 +176,6 @@ const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
 const observationSize = (observation: AndroidObservation) => {
   const pixels = Buffer.from(observation.screenshot.image, "base64");
   return { height: pixels.readUInt32BE(20), width: pixels.readUInt32BE(16) };
-};
-const hitTest = (nodes: AndroidObservation["nodes"], x: number, y: number) => {
-  let hit: AndroidObservation["nodes"][number] | undefined;
-  let area = Infinity;
-  for (const node of nodes) {
-    const { bounds } = node;
-    // An unnamed hittable node, such as a scroll container, has no semantic
-    // identity to teach or replay, so a click there activates nothing.
-    if (
-      !(node.editable || (node.hittable && node.name.trim() !== "")) ||
-      bounds === undefined ||
-      bounds.width <= 0 ||
-      bounds.height <= 0
-    ) {
-      continue;
-    }
-    if (
-      x < bounds.x ||
-      y < bounds.y ||
-      x > bounds.x + bounds.width ||
-      y > bounds.y + bounds.height
-    ) {
-      continue;
-    }
-    const size = bounds.width * bounds.height;
-    if (size < area) {
-      hit = node;
-      area = size;
-    }
-  }
-  return hit;
 };
 
 interface SessionState {
@@ -1105,7 +1075,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           const x = command.point.x * width;
           const y = command.point.y * height;
           // Resolve containing candidates first, so a private or foreign child cannot fall through to an eligible parent.
-          const target = hitTest(observed.nodes, x, y);
+          const target = nativeHitTest(observed.nodes, x, y);
           if (target === undefined || target.covered) {
             return yield* denied(
               "Nothing to activate there. No input was sent."
@@ -1119,7 +1089,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               "Private fields need a Variable. No input was sent."
             );
           }
-          const priorTarget = hitTest(
+          const priorTarget = nativeHitTest(
             previous.nodes,
             command.point.x * previous.width,
             command.point.y * previous.height

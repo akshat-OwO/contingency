@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Web feature matrix</title>
+    <!--
+  Web feature matrix: one target per web-platform pattern that real sites use,
+  each in a fixed 280x60 slot so a test clicks the same point a Workspace user
+  would. Slot n sits at column n % 3, row floor(n / 3): left 10 + 300 * column,
+  top 10 + 80 * row. Keep slots in the order of WEB_MATRIX in
+  web-feature-matrix.integration.test.ts.
+-->
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      .slot {
+        position: absolute;
+        width: 280px;
+        height: 60px;
+        box-sizing: border-box;
+      }
+      .slot > *,
+      .fill {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        margin: 0;
+      }
+      iframe {
+        border: 0;
+      }
+      #consent {
+        position: fixed;
+        inset: 0;
+        background: rgb(0 0 0 / 0.4);
+        display: none;
+      }
+      #consent[data-open] {
+        display: block;
+      }
+      #consent > div {
+        position: absolute;
+        left: 310px;
+        top: 410px;
+        width: 280px;
+        height: 60px;
+        background: white;
+      }
+      #consent button {
+        width: 100%;
+        height: 100%;
+      }
+      dialog {
+        position: fixed;
+        left: 610px;
+        top: 410px;
+        margin: 0;
+        padding: 0;
+        width: 280px;
+        height: 60px;
+        border: 0;
+      }
+      dialog button {
+        width: 100%;
+        height: 100%;
+      }
+      [role="option"] {
+        background: #eef;
+        padding: 18px;
+        cursor: pointer;
+      }
+      [role="button"] {
+        background: #efe;
+        padding: 18px;
+        cursor: pointer;
+      }
+      [contenteditable] {
+        border: 1px solid #888;
+        padding: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <p
+      id="outcome"
+      aria-live="polite"
+      style="position: absolute; left: 10px; top: 500px"
+    >
+      Matrix idle
+    </p>
+
+    <!-- 0: native button -->
+    <div class="slot" style="left: 10px; top: 10px">
+      <button type="button" data-outcome="Native button">Place order</button>
+    </div>
+    <!-- 1: open shadow root -->
+    <div class="slot" style="left: 310px; top: 10px">
+      <open-card class="fill"></open-card>
+    </div>
+    <!-- 2: closed shadow root -->
+    <div class="slot" style="left: 610px; top: 10px">
+      <closed-card class="fill"></closed-card>
+    </div>
+    <!-- 3: same-origin iframe -->
+    <div class="slot" style="left: 10px; top: 90px">
+      <iframe
+        title="Same-origin frame"
+        src="web-matrix-frame.html?label=Same-frame%20save"
+      ></iframe>
+    </div>
+    <!-- 4: cross-origin iframe (filled in by script with the localhost origin) -->
+    <div class="slot" style="left: 310px; top: 90px">
+      <iframe id="cross" title="Cross-origin frame"></iframe>
+    </div>
+    <!-- 5: div with role=button -->
+    <div class="slot" style="left: 610px; top: 90px">
+      <div role="button" tabindex="0" data-outcome="Role button">
+        Save draft
+      </div>
+    </div>
+    <!-- 6: icon-only button named by aria-label, clicked on its svg -->
+    <div class="slot" style="left: 10px; top: 170px">
+      <button
+        type="button"
+        aria-label="Add to wishlist"
+        data-outcome="Icon button"
+      >
+        <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+          <path d="M12 21l-8-8a5 5 0 017-7l1 1 1-1a5 5 0 017 7z" />
+        </svg>
+      </button>
+    </div>
+    <!-- 7: custom listbox option -->
+    <div class="slot" style="left: 310px; top: 170px">
+      <div role="listbox" aria-label="Shipping speed" class="fill">
+        <div role="option" aria-selected="false" data-outcome="Option">
+          Express shipping
+        </div>
+      </div>
+    </div>
+    <!-- 8: label wrapping a checkbox, clicked on the label text -->
+    <div class="slot" style="left: 610px; top: 170px">
+      <label style="display: block; padding: 18px"
+        ><input type="checkbox" data-outcome="Checkbox" /> Gift wrap</label
+      >
+    </div>
+    <!-- 9: details/summary disclosure -->
+    <div class="slot" style="left: 10px; top: 250px">
+      <details>
+        <summary style="padding: 18px" data-outcome="Summary">
+          Shipping details
+        </summary>
+        <p>Ships in two days.</p>
+      </details>
+    </div>
+    <!-- 10: link that routes with history.pushState -->
+    <div class="slot" style="left: 310px; top: 250px">
+      <a
+        href="/web-matrix-next"
+        id="spa"
+        style="display: block; padding: 18px"
+        data-outcome="SPA link"
+        >Order history</a
+      >
+    </div>
+    <!-- 11: canvas-drawn control with no accessible semantics -->
+    <div class="slot" style="left: 610px; top: 250px">
+      <canvas
+        id="canvas"
+        width="280"
+        height="60"
+        data-outcome="Canvas"
+      ></canvas>
+    </div>
+    <!-- 12: button whose text is swapped by a framework on press -->
+    <div class="slot" style="left: 10px; top: 330px">
+      <button type="button" id="rerender" data-outcome="Rerendered button">
+        <span>Apply coupon</span>
+      </button>
+    </div>
+    <!-- 13: opens the consent overlay -->
+    <div class="slot" style="left: 310px; top: 330px">
+      <button type="button" id="open-consent">Show consent</button>
+    </div>
+    <!-- 14: opens a modal dialog -->
+    <div class="slot" style="left: 610px; top: 330px">
+      <button type="button" id="open-dialog">Show dialog</button>
+    </div>
+
+    <div id="consent" role="dialog" aria-label="Cookie consent">
+      <div>
+        <button type="button" data-outcome="Consent">Accept all cookies</button>
+      </div>
+    </div>
+    <dialog id="modal" aria-label="Confirm">
+      <button type="button" data-outcome="Dialog">Confirm order</button>
+    </dialog>
+
+    <script>
+      const outcome = document.getElementById("outcome");
+      const record = (text) => {
+        outcome.textContent = `Matrix: ${text}`;
+      };
+      const wire = (root) =>
+        root.addEventListener("click", (event) => {
+          const target = event.target.closest?.("[data-outcome]");
+          if (target) {
+            record(target.dataset.outcome);
+          }
+        });
+      wire(document);
+      for (const [name, mode, label] of [
+        ["open-card", "open", "Open shadow save"],
+        ["closed-card", "closed", "Closed shadow save"],
+      ]) {
+        customElements.define(
+          name,
+          class extends HTMLElement {
+            connectedCallback() {
+              const root = this.attachShadow({ mode });
+              root.innerHTML = `<button type="button" style="width:100%;height:100%" data-outcome="${label}">${label}</button>`;
+              wire(root);
+            }
+          }
+        );
+      }
+      document.getElementById("cross").src =
+        `http://localhost:${location.port}/web-matrix-frame.html?label=Cross-frame%20save`;
+      document.getElementById("spa").addEventListener("click", (event) => {
+        event.preventDefault();
+        history.pushState({}, "", "/web-matrix-history");
+      });
+      const canvas = document.getElementById("canvas");
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#335";
+      context.fillRect(0, 0, 280, 60);
+      context.fillStyle = "white";
+      context.font = "16px sans-serif";
+      context.fillText("Pay now", 110, 36);
+      // Frameworks often re-render a pressed control: the node under the pointer
+      // at mousedown is gone by click.
+      document
+        .getElementById("rerender")
+        .addEventListener("mousedown", (event) => {
+          event.currentTarget.innerHTML = "<span>Apply coupon</span>";
+        });
+      document.getElementById("open-consent").addEventListener("click", () => {
+        document.getElementById("consent").toggleAttribute("data-open", true);
+      });
+      document.getElementById("consent").addEventListener("click", () => {
+        document.getElementById("consent").toggleAttribute("data-open", false);
+      });
+      document.getElementById("open-dialog").addEventListener("click", () => {
+        document.getElementById("modal").showModal();
+      });
+      document.getElementById("modal").addEventListener("click", () => {
+        document.getElementById("modal").close();
+      });
+    </script>
+  </body>
+</html>

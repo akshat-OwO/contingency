@@ -1332,6 +1332,8 @@ export const makeAgentElementRegistry = (
     {
       /** The Snapshot that read this box, so hit-testing can prefer the newest. */
       readonly generation: number;
+      /** Tree depth, so a control filling its container wins a shared box. */
+      readonly depth: number;
       readonly height: number;
       readonly width: number;
       readonly x: number;
@@ -1628,7 +1630,7 @@ export const makeAgentElementRegistry = (
         }
         const { height, known, url, width, x, y, ...node } = collectedNode;
         const ref = adopt(knownRefs[known], element, orphaned);
-        bounds.set(ref, { generation, height, width, x, y });
+        bounds.set(ref, { depth: node.depth, generation, height, width, x, y });
         subjects.set(ref, { name: node.name, role: node.role });
         if (index - 1 === identity.focusedIndex) {
           focused = ref;
@@ -1825,9 +1827,12 @@ export const makeAgentElementRegistry = (
     // Snapshot does not cover is a miss, not an older match.
     const [closest] = matches
       .filter(([, rectangle]) => rectangle.generation === generation)
+      // A button that fills its dialog or card shares the container's box;
+      // the deeper node is the control under the pointer.
       .toSorted(
         ([, left], [, right]) =>
-          left.width * left.height - right.width * right.height
+          left.width * left.height - right.width * right.height ||
+          right.depth - left.depth
       );
     return closest === undefined
       ? Effect.fail(
