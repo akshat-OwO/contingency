@@ -1,0 +1,14 @@
+{
+  "name": "@contingency/docs",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vpx scripts/stage.ts && blume build",
+    "docs:dev": "vpx scripts/stage.ts && blume dev"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "blume": "2.2.6"
+  }
+}

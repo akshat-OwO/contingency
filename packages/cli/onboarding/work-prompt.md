@@ -1,9 +1,9 @@
-# Contingency session
+### Work session
 
-Read `contingency://docs/getting-started` first and follow it. Call `agent_catalog_get` and use its `workspaceUrl` for the introduction; share each session's `viewUrl` as the guide directs.
+This session works on the user's own website and has no demo store. Follow the Start steps above.
 
-Name the agent, working directory, and Catalog Root from the launch context. For a session-only connection, say so and give its reconnect command. Describe a configured connection as configured.
-
-This session has no demo store. For the guided tour or demo work (`demo: ridgeline`), have the user rerun the reconnect command with `--demo`. Do not offer permanent registration.
-
-For learning and verification, read `contingency://prompt/learn-flow`.
+- Mention the Catalog Root only when it differs from what the user expects or is a fallback.
+- When the user needs to reconnect, give the reconnect command. It reconnects for this project only.
+- For the guided tour or demo work (`demo: ridgeline`), have the user rerun the reconnect command with `--demo`.
+- Do not offer permanent registration.
+- For learning and verification, read `contingency://prompt/learn-flow`.

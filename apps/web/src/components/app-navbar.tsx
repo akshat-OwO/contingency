@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 
 import { workspaceChromeAtom } from "@/components/agent/agent-workspace-state";
+import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -44,6 +45,7 @@ const AppNavbar = () => {
         id="workspace-header-actions"
         className="flex items-center gap-1.5 justify-self-end"
       >
+        <DocsLink />
         <ModeToggle />
       </div>
     </header>

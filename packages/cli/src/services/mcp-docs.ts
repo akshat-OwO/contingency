@@ -3,95 +3,22 @@ import path from "node:path";
 import { Effect, FileSystem, Layer, Schema } from "effect";
 import { McpServer, Tool, Toolkit } from "effect/ai";
 
+import { DOC_TOPICS, docUri } from "./doc-topics.ts";
+import type { DocTopic } from "./doc-topics.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { readOnly } from "./mcp-tool-annotations.ts";
 
+export {
+  DOC_TOPICS,
+  DOCS_URI_PREFIX,
+  docUri,
+  type DocTopic,
+} from "./doc-topics.ts";
+
 /**
- * The documentation topics that ship in the package (ADR 0063). A developer
- * reads them on npm or GitHub; an agent reads the same files as MCP resources
- * or through the `docs_get` operation, so there is one source for both.
- *
- * Every agent reads `getting-started` first, whatever launched it; the
+ * The one document every agent reads before acting, whatever launched it; the
  * workflow guides after it are read only when their work begins (ADR 0069).
  */
-
-export const DOCS_URI_PREFIX = "contingency://docs/";
-
-export const DOC_TOPICS = [
-  {
-    description:
-      "Read first in every session: what Contingency is, the start steps, the rules that always apply, and which guide to read for each kind of work.",
-    title: "Getting started",
-    topic: "getting-started",
-  },
-  {
-    description:
-      "Guide: run Flows in an Interactive Run, assess with evidence, complete the Run, and delegate steps to System One Pursuits.",
-    title: "Run Flows",
-    topic: "run",
-  },
-  {
-    description:
-      "Guide: prepare and hand off Teaching so the user records a journey, then learn it.",
-    title: "Teach a journey",
-    topic: "teach",
-  },
-  {
-    description:
-      "Guide: learn a Flow from the user's Source Document in a Guided Run.",
-    title: "Guided Run",
-    topic: "guided-run",
-  },
-  {
-    description:
-      "Guide: start an Android or iOS device session and work within its support limits.",
-    title: "Device sessions",
-    topic: "device",
-  },
-  {
-    description:
-      "Guide: browser devtools and the browser state each Run kind may change: Emulation, cookies, storage, routes, headers, and mutating evaluation.",
-    title: "Browser state",
-    topic: "browser-state",
-  },
-  {
-    description:
-      "System One and Nev: how the user installs a Local System One with contingency system-one setup, endpoint precedence, startup, updates, rollback, and removal.",
-    title: "System One",
-    topic: "system-one",
-  },
-  {
-    description:
-      "Every Setting: config.json locations, precedence, each key with its environment variable, type, and default, and the environment-only Settings.",
-    title: "Settings",
-    topic: "settings",
-  },
-  {
-    description:
-      "What Contingency can and can't do: Platform Runtimes and the Support Matrix, Teaching, Guided Run, Dry Run, Interactive Run, Scan Requirements, Browser Checks, Emulation, and the Execution Boundary.",
-    title: "Capabilities",
-    topic: "capabilities",
-  },
-  {
-    description:
-      "Variables: declaring Flow inputs, what runtime means, how values are supplied, and ignored legacy secret declarations.",
-    title: "Variables",
-    topic: "variables",
-  },
-  {
-    description:
-      "Fixed limits: sessions, Teaching Recordings, browser observation, and agent_code_execute programs.",
-    title: "Limits",
-    topic: "limits",
-  },
-] as const;
-
-export type DocTopic = (typeof DOC_TOPICS)[number]["topic"];
-
-export const docUri = <Topic extends DocTopic>(topic: Topic) =>
-  `${DOCS_URI_PREFIX}${topic}` as const;
-
-/** The one document every agent reads before acting. */
 export const GETTING_STARTED_URI = docUri("getting-started");
 
 /**
@@ -117,23 +44,38 @@ export const readDocTopic = (
       .pipe(Effect.orDie);
   });
 
-export const McpDocsResourcesLayer: Layer.Layer<
-  never,
-  never,
-  FileSystem.FileSystem
-> = Layer.mergeAll(
-  Layer.empty,
-  ...DOC_TOPICS.map((entry) =>
-    McpServer.resource({
-      audience: ["assistant", "user"],
-      content: readDocTopic(entry.topic),
-      description: entry.description,
-      mimeType: "text/markdown",
-      name: `docs/${entry.topic}`,
-      uri: docUri(entry.topic),
-    })
-  )
-);
+/**
+ * This server's own text for the getting-started guide: a session launched
+ * by `contingency start` appends its launch facts and procedure (ADR 0069).
+ */
+export type SessionGuide = Effect.Effect<string, never, FileSystem.FileSystem>;
+
+/** The topic as this server serves it; only getting-started varies. */
+const readServedTopic = (topic: DocTopic, session?: SessionGuide) =>
+  topic === "getting-started" && session !== undefined
+    ? Effect.all([readDocTopic(topic), session]).pipe(
+        Effect.map(([base, appended]) => `${base.trimEnd()}\n\n${appended}`)
+      )
+    : readDocTopic(topic);
+
+export const makeMcpDocsResourcesLayer = (
+  session?: SessionGuide
+): Layer.Layer<never, never, FileSystem.FileSystem> =>
+  Layer.mergeAll(
+    Layer.empty,
+    ...DOC_TOPICS.map((entry) =>
+      McpServer.resource({
+        audience: ["assistant", "user"],
+        content: readServedTopic(entry.topic, session),
+        description: entry.description,
+        mimeType: "text/markdown",
+        name: `docs/${entry.topic}`,
+        uri: docUri(entry.topic),
+      })
+    )
+  );
+
+export const McpDocsResourcesLayer = makeMcpDocsResourcesLayer();
 
 const DocsGetTool = readOnly(
   Tool.make("docs_get", {
@@ -157,15 +99,18 @@ const DocsGetTool = readOnly(
 
 export const DocsTools = withStrictParameters(Toolkit.make(DocsGetTool));
 
-export const DocsToolHandlersLive = DocsTools.toLayer({
-  docs_get: ({ topic }) =>
-    readDocTopic(topic).pipe(
-      Effect.map((markdown) => ({
-        markdown,
-        title:
-          DOC_TOPICS.find((entry) => entry.topic === topic)?.title ?? topic,
-        topic,
-        uri: docUri(topic),
-      }))
-    ),
-});
+export const makeDocsToolHandlers = (session?: SessionGuide) =>
+  DocsTools.toLayer({
+    docs_get: ({ topic }) =>
+      readServedTopic(topic, session).pipe(
+        Effect.map((markdown) => ({
+          markdown,
+          title:
+            DOC_TOPICS.find((entry) => entry.topic === topic)?.title ?? topic,
+          topic,
+          uri: docUri(topic),
+        }))
+      ),
+  });
+
+export const DocsToolHandlersLive = makeDocsToolHandlers();

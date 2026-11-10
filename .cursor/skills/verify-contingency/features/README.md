@@ -63,6 +63,8 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Agent onboarding](./workspace.md#agent-onboarding) proves session-only agent launch, bundled Examples, private demo Variables, fresh Dry Runs, verification, project-local reuse, registration, and shutdown.
 
+- [Docs site](./workspace.md#docs-site) proves the `/docs` redirect, grouped sidebar, MCP resource blocks, linked references, light, dark, and narrow layouts, the site 404, the Workspace Docs link, `contingency docs` reuse and serving, and the getting-started guide each `start` session serves.
+
 - [Dry Run prerequisites](./workspace.md#dry-run-prerequisites) proves startup-fixed verified setup flows, private Workspace supply and refusal, flow-scoped replacement, and a complete cart outcome in one fresh context using the gated prerequisite shop.
 
 - [Teaching setup Variables](./workspace.md#teaching-setup-variables) proves private Workspace supply and refusal before recording, replacement and replay, readable reflected values across handoff, and setup-free learned inputs with the isolated sign-in fixture.

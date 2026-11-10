@@ -1,19 +1,19 @@
-# Contingency onboarding
+### Demo onboarding
 
-Read `contingency://docs/getting-started` first. Follow its guidance for session links, Teaching, Pending Decisions, and Runs.
+This session runs guided onboarding on the bundled demo store. Follow the Start steps above, then this procedure.
 
-## Establish the task
+#### Establish the task
 
-1. Call `agent_catalog_get` and check its Catalog Root against the launch context. Select the expected root if needed. Introduce the agent, working directory, Catalog Root, connection type, and registration command from the launch context.
-2. Share a clickable **Open Workspace** link using `workspaceUrl` before asking the user to choose a task. Ask them to keep Workspace open to watch the Example and Teaching. Each Example, Teaching session, and Dry Run then gets its own `viewUrl` link.
-3. List saved Flows and Teaching Recordings. If the catalog has work, offer relevant unfinished work, saved flows, another example, or new Teaching. A catalog containing only `demo: ridgeline` work is not empty.
+1. Check the Catalog Root from `agent_catalog_get` against the launch context. Select the expected root if needed. Mention it only when it differs from what the user expects or is a fallback.
+2. Ask the user to keep Workspace open to watch the Example and Teaching. Each Example, Teaching session, and Dry Run then gets its own `viewUrl` link.
+3. If the catalog has work, offer relevant unfinished work, saved flows, another example, or new Teaching. A catalog containing only `demo: ridgeline` work is not empty.
 4. For an empty catalog, read `contingency://onboarding/examples`. Introduce Ridgeline Hardware and recommend delivery-and-cart; offer signed-in returns, scans, and a deliberately broken cart as alternatives. Explain each task and its observable result before asking the user to choose.
 
 Explain that the user can watch a prepared journey, teach a variation, and verify it after a test, all on the demo store. For existing work, follow the appropriate guide; for demo work, read the examples resource for the current origin.
 
 Permanent registrations use the current project's `contingency` catalog, created when work is first saved. When no usable current project directory exists, Contingency uses the original onboarding directory. If `agent_catalog_get` reports a `fallback`, name that directory before using the catalog.
 
-## Show and teach
+#### Show and teach
 
 1. Explain the chosen example's intended result and invite the user to watch. Start it with `agent_example_run_start` and its sample inputs. Identify it as a bundled Example limited to the demo store.
 2. Carry out the Example in the session it returned; do not call `agent_run_start`. Use the Run guide for System One and evidence only.
@@ -28,14 +28,14 @@ Permanent registrations use the current project's `contingency` catalog, created
 
 For that sign-in, tell the user to enter demo@ridgeline.test, click the store's Password field, and use **Demo password** and **Enter demo password** in Workspace. This records DEMO_PASSWORD privately. Sign-in performed only during setup is outside the learned journey.
 
-## Learn, test, and verify
+#### Learn, test, and verify
 
 1. Read `contingency://prompt/learn-flow` and follow it to save the variation in the current catalog. For demo work, prefix the description with "Demo:" and declare the ordinary input `demo_origin` for store URLs as the examples resource describes.
 2. Start the first Dry Run automatically and tell the user it tests the draft in a fresh browser context. Change a demonstrated input when the journey permits it. Follow the guide through the persisted result.
 3. If recording evidence shows that the instructions caused a failure, repair and save the flow, then retry in a fresh Dry Run. If the website is broken, report evidence and ask before changing application code. Keep the Teaching Recording until verification.
 4. After a passing Dry Run, show the result and ask for explicit verification or rejection in Workspace or the conversation. A passing Run alone is not user verification. Follow the learn flow to persist the user's choice.
 
-## Registration and next steps
+#### Registration and next steps
 
 After verification, offer session-only use, permanent project registration, or permanent user registration. For registration, run the launch context's command with `--scope project` or `--scope user`. Registered sessions omit the demo store, so demo Flows require `contingency start --demo`.
 
@@ -45,7 +45,7 @@ Offer another example, a similar journey on the user's website, or an applicable
 
 Offer the failure rerun only if the deliberate cart fault affects the newly verified flow's journey. Follow `contingency://onboarding/examples` to run it interactively, report evidence, and restore the healthy store. Explain that detecting the fault shows the flow working as a check and does not undo verification or onboarding.
 
-## Optional Claude Code channels
+#### Optional Claude Code channels
 
 After registration, Claude Code users can opt in to idle-agent wakeups by setting `CONTINGENCY_MCP_CHANNEL=true` on Contingency's stdio MCP registration. Channels are a research preview and require session opt-in and preview allowlisting.
 

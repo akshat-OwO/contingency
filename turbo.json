@@ -31,7 +31,13 @@
         "$TURBO_ROOT$/apps/web/**",
         "!$TURBO_ROOT$/apps/web/dist/**",
         "!$TURBO_ROOT$/apps/web/node_modules/**",
-        "!$TURBO_ROOT$/apps/web/.turbo/**"
+        "!$TURBO_ROOT$/apps/web/.turbo/**",
+        "$TURBO_ROOT$/apps/docs/**",
+        "!$TURBO_ROOT$/apps/docs/dist/**",
+        "!$TURBO_ROOT$/apps/docs/content/**",
+        "!$TURBO_ROOT$/apps/docs/.blume/**",
+        "!$TURBO_ROOT$/apps/docs/node_modules/**",
+        "!$TURBO_ROOT$/apps/docs/.turbo/**"
       ],
       "outputs": ["dist/**"],
       "env": ["CONTINGENCY_BUILD_IOS_FRAMEBUFFER"]
@@ -41,6 +47,22 @@
     },
     "dev": {
       "cache": false,
+      "persistent": true
+    },
+    "@contingency/docs#build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!content/**",
+        "!.blume/**",
+        "$TURBO_ROOT$/packages/cli/docs/**",
+        "$TURBO_ROOT$/packages/cli/resources/**",
+        "$TURBO_ROOT$/packages/cli/src/services/doc-topics.ts"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "@contingencyhq/cli#dev": {
+      "cache": false,
+      "dependsOn": ["@contingency/docs#build"],
       "persistent": true
     },
     "test": {

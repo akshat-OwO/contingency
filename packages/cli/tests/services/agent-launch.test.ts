@@ -20,11 +20,10 @@ import type { AgentLaunchError } from "../../src/services/agent-launch-error.ts"
 import {
   chooseHarness,
   currentInvocation,
-  demoInitialMessage,
+  initialMessage,
   persistentInvocation,
   sessionServerSpec,
   shellQuote,
-  workInitialMessage,
 } from "../../src/services/agent-launch.ts";
 import type { ReadyHarness } from "../../src/services/agent-launch.ts";
 
@@ -369,15 +368,9 @@ it.effect(
     })
 );
 
-it("uses only the starter resource instruction for a demo launch", () => {
-  expect(demoInitialMessage()).toBe(
-    "Read the MCP resource contingency://onboarding/starter-prompt from the contingency server and follow it."
-  );
-});
-
-it("uses only the work resource instruction for a work launch", () => {
-  expect(workInitialMessage()).toBe(
-    "Read the MCP resource contingency://start/work-prompt from the contingency server and follow it."
+it("points every launch at the getting-started guide", () => {
+  expect(initialMessage()).toBe(
+    "Read the MCP resource contingency://docs/getting-started from the contingency server and follow it."
   );
 });
 

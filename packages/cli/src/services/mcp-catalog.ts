@@ -16,6 +16,7 @@ import { Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
 import type { AgentSessionError } from "./agent-session.ts";
+import { DOCS_SITE_PATH } from "./doc-topics.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import type { FlowCatalogError } from "./flow-catalog.ts";
 import { GETTING_STARTED_URI } from "./mcp-docs.ts";
@@ -66,11 +67,12 @@ const AgentCatalogGetTool = readOnly(
   Tool.make("agent_catalog_get", {
     dependencies: [AgentSession, FlowCatalog, McpProcessDiagnostics],
     description:
-      "Read the Workspace URL, Catalog Root, Flow count, and process capabilities. It defaults to the workspace's contingency directory; no tool reads a user-global catalog. Read the returned guide before other work.",
+      "Read the Workspace URL, Catalog Root, Flow count, and process capabilities. It defaults to the workspace's contingency directory; no tool reads a user-global catalog. Read the returned guide before other work. docsUrl is the human docs site; append /<topic> to it when you point the user at a guide.",
     failure: AgentCatalogFailure,
     parameters: NoParameters,
     success: Schema.Struct({
       ...AgentCatalogInfo.fields,
+      docsUrl: Schema.String,
       guide: Schema.Literal(GETTING_STARTED_URI),
       process: McpProcessInfo,
       workspaceUrl: Schema.String,
@@ -194,6 +196,7 @@ export const AgentCatalogToolHandlersLive = AgentCatalogTools.toLayer({
       );
       const diagnostics = yield* McpProcessDiagnostics;
       return {
+        docsUrl: new URL(DOCS_SITE_PATH, workspaceUrl).href,
         guide: GETTING_STARTED_URI,
         process: yield* diagnostics.read,
         ...(yield* catalog.info().pipe(Effect.mapError(failure))),

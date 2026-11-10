@@ -57,6 +57,34 @@ const fixture = Effect.gen(function* makeFixture() {
 });
 
 it.effect(
+  "leaves an installed optional peer to the host unless a dependency needs it",
+  () =>
+    Effect.gen(function* optionalPeer() {
+      const { fs, output, source, writePackage } = yield* fixture;
+      yield* writePackage("node_modules/device", {
+        name: "device",
+        peerDependencies: { sdk: "1" },
+        peerDependenciesMeta: { sdk: { optional: true } },
+      });
+      // Another workspace package installed the peer, so it resolves here.
+      yield* writePackage("node_modules/sdk", { name: "sdk" });
+      yield* vendorPackages(["device"], source, output);
+      expect(yield* fs.exists(path.join(output, "node_modules/sdk"))).toBe(
+        false
+      );
+
+      yield* writePackage("node_modules/consumer", {
+        dependencies: { sdk: "1" },
+        name: "consumer",
+      });
+      yield* vendorPackages(["device", "consumer"], source, output);
+      expect(
+        yield* fs.exists(path.join(output, "node_modules/sdk/package.json"))
+      ).toBe(true);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
   "vendors store symlinks, assets, cycles, peers and conflicting versions into a movable directory",
   () =>
     Effect.gen(function* relocate() {

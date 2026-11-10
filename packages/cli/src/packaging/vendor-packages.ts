@@ -70,6 +70,20 @@ export const shouldVendorFile = (
   !relative.endsWith(".map") &&
   (preserveTypeScript || !typeScriptFile.test(relative));
 
+/**
+ * An optional peer is the host's to supply. Whether one resolves here depends
+ * on what else the workspace installs (the docs build brings `ai`, an optional
+ * peer of agent-device), so the CLI never ships one through that edge; a
+ * package it needs arrives as some package's dependency instead.
+ */
+const isOptionalPeerOnly = (
+  manifest: typeof Manifest.Type,
+  dependency: string
+): boolean =>
+  manifest.peerDependenciesMeta?.[dependency]?.optional === true &&
+  !(dependency in (manifest.dependencies ?? {})) &&
+  !(dependency in (manifest.optionalDependencies ?? {}));
+
 /** Preserve asset paths without shipping pnpm's external store symlinks. */
 export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
   names: readonly string[],
@@ -197,12 +211,13 @@ export const vendorPackages = Effect.fn("vendorPackages")(function* vendor(
         source
       );
       for (const dependency of retained) {
+        if (isOptionalPeerOnly(manifest, dependency)) {
+          continue;
+        }
         const resolved = yield* resolve(
           dependency,
           source,
-          dependency in optional ||
-            (manifest.peerDependenciesMeta?.[dependency]?.optional === true &&
-              !(dependency in (manifest.dependencies ?? {})))
+          dependency in optional
         );
         if (resolved !== undefined) {
           yield* copy(dependency, resolved, target);
