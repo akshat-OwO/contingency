@@ -10,6 +10,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   androidNodeInteraction,
   androidNodeName,
+  COLLECTION_KINDS,
 } from "../../src/services/android-observation.ts";
 import {
   iosNodeInteraction,
@@ -338,6 +339,25 @@ describe("Android widget corpus", () => {
   });
 
   it.each([
+    // A settings row whose switch lies past the viewport edge.
+    ["settings", 521, 697, "group Gboard, English (US)"],
+    // A card whose only child control is its "See more" link.
+    [
+      "chrome",
+      400,
+      1838,
+      "group Continue with this tab, Example Domain, example.com",
+    ],
+  ])("teaches a %s row from its label text at %i,%i", (id, x, y, taught) => {
+    const capture = android.find((candidate) => candidate.id === id);
+    if (capture === undefined) {
+      throw new Error(`No Android capture ${id}`);
+    }
+    const hit = nativeHitTest(observeAndroid(capture), x, y);
+    expect(hit === undefined ? null : `${hit.role} ${hit.name}`).toBe(taught);
+  });
+
+  it.each([
     // Padding inside the controls ScrollView, beside no control.
     ["corpus-controls", 40, 240],
     // Chrome's full-screen frame, between its shortcut tiles.
@@ -366,34 +386,43 @@ describe.each(android.map((capture) => [capture.id, capture] as const))(
       }
     });
 
-    it("makes every on-screen clickable node with content teachable", () => {
-      // A clickable node is taught by its own name, by its children's text,
-      // or through a named control inside it that wins the click.
+    it("teaches every visible label inside a clickable row", () => {
+      // A tap on text a person can see inside a clickable row or card must
+      // teach that row, or a named control within it. Text whose nearest
+      // clickable ancestor is a scroll view or list is padding: refused.
       const unteachable = observed.flatMap((node, index) => {
+        const label = (node.device.label ?? "").trim();
         if (
-          !node.hittable ||
+          node.role !== "text" ||
+          label === "" ||
           node.covered ||
-          node.name.trim() !== "" ||
           !onScreen(node.device.rect, capture.viewport)
         ) {
           return [];
         }
-        const descendants = [];
-        for (const child of observed.slice(index + 1)) {
-          if ((child.device.depth ?? 0) <= (node.device.depth ?? 0)) {
+        let depth = node.device.depth ?? 0;
+        let row: (typeof observed)[number] | undefined;
+        for (const ancestor of observed.slice(0, index).toReversed()) {
+          const ancestorDepth = ancestor.device.depth ?? 0;
+          if (ancestorDepth >= depth) {
+            continue;
+          }
+          depth = ancestorDepth;
+          if (ancestor.hittable || ancestor.editable) {
+            row = ancestor;
             break;
           }
-          descendants.push(child);
         }
-        const content = descendants.some(
-          (child) => (child.device.label ?? "").trim() !== ""
-        );
-        const namedControl = descendants.some(
-          (child) =>
-            (child.hittable || child.editable) && child.name.trim() !== ""
-        );
-        return content && !namedControl
-          ? [`${node.role} ${node.device.ref}`]
+        if (
+          row === undefined ||
+          row.covered ||
+          COLLECTION_KINDS.has(row.role)
+        ) {
+          return [];
+        }
+        const { x, y } = center(node.device.rect);
+        return nativeHitTest(observed, x, y) === undefined
+          ? [`${label} in ${row.role} ${row.device.ref}`]
           : [];
       });
       expect(unteachable).toEqual([]);
