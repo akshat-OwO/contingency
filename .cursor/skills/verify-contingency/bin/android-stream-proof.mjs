@@ -351,15 +351,25 @@ try {
       }
     }
   }
-  for (const pid of driver) {
-    process.kill(pid, "SIGSTOP");
-  }
+  // A Chromium child may exit between listing and signalling; skip it.
+  const signalDriver = (name) => {
+    for (const pid of driver) {
+      try {
+        process.kill(pid, name);
+      } catch (error) {
+        if (
+          !(error instanceof Error && "code" in error && error.code === "ESRCH")
+        ) {
+          throw error;
+        }
+      }
+    }
+  };
   try {
+    signalDriver("SIGSTOP");
     await delay(10_000);
   } finally {
-    for (const pid of driver) {
-      process.kill(pid, "SIGCONT");
-    }
+    signalDriver("SIGCONT");
   }
   await liveDisplay();
   receipt.coverage.stallRecovers = { stalledSeconds: 10 };
