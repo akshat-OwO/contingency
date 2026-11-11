@@ -32,15 +32,13 @@ const DIALOG_CONFIRM = { x: 750, y: 440 };
 /** Why a Browser Snapshot cannot name these controls yet. */
 const LABEL_GAP =
   "a control's hit area excludes the label that activates it (#654)";
-const UNNAMED_GAP =
-  "a click no Snapshot control contains is dropped, not recorded as unidentified (#653)";
 
 /**
  * Each click and the name its Timeline description must carry. `null` marks
  * a target with no accessible name: its click must say it is unidentified
  * rather than borrow a neighbour's name. A `gap` pins a known limitation: the
- * click is expected to be missing from the Timeline, so fixing the gap fails
- * this test until its row drops the `gap`.
+ * click is expected to reach the Timeline unidentified rather than by its
+ * name, so fixing the gap fails this test until its row drops the `gap`.
  */
 const WEB_MATRIX: readonly {
   readonly pattern: string;
@@ -80,12 +78,7 @@ const WEB_MATRIX: readonly {
   },
   { name: "Shipping details", pattern: "details summary", point: slot(9) },
   { name: "Order history", pattern: "pushState link", point: slot(10) },
-  {
-    gap: UNNAMED_GAP,
-    name: null,
-    pattern: "canvas-drawn control",
-    point: slot(11),
-  },
+  { name: null, pattern: "canvas-drawn control", point: slot(11) },
   { name: "Apply coupon", pattern: "re-rendered on press", point: slot(12) },
   { name: "Show consent", pattern: "overlay opener", point: slot(13) },
   {
@@ -164,28 +157,158 @@ it.live("names every web-matrix click by the control the user saw", () =>
           : []
       );
 
-      // Each pattern claims the first unclaimed click that names it, so a
-      // lost click reports the pattern it belonged to.
+      // Each pattern claims the first unclaimed click that names it, or else
+      // the first unidentified one, so a lost or misnamed click reports the
+      // pattern it belonged to.
       const unclaimed = [...clicks];
+      const claim = (matches: (description: string) => boolean) => {
+        const index = unclaimed.findIndex(matches);
+        return index !== -1 && unclaimed.splice(index, 1).length === 1;
+      };
       const recorded = WEB_MATRIX.map(({ name, pattern }) => {
-        const index = unclaimed.findIndex((description) =>
-          name === null
-            ? description === UNRESOLVED_CLICK_DESCRIPTION
-            : description.includes(`"${name}"`)
-        );
-        const [description] =
-          index === -1 ? [null] : unclaimed.splice(index, 1);
-        return { pattern, recorded: description !== null };
+        if (name !== null && claim((text) => text.includes(`"${name}"`))) {
+          return { pattern, recorded: "named" };
+        }
+        return {
+          pattern,
+          recorded: claim((text) => text === UNRESOLVED_CLICK_DESCRIPTION)
+            ? "unidentified"
+            : "missing",
+        };
       });
       expect({ recorded, unclaimed }).toEqual({
-        recorded: WEB_MATRIX.map(({ gap, pattern }) => ({
+        recorded: WEB_MATRIX.map(({ gap, name, pattern }) => ({
           pattern,
-          recorded: gap === undefined,
+          recorded:
+            name === null || gap !== undefined ? "unidentified" : "named",
         })),
         unclaimed: [],
       });
     }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+/** Below the overlay row: no control, only the Page itself. */
+const BLANK_PAGE = { x: 900, y: 540 };
+
+it.live(
+  "records a click no Snapshot control contains as unidentified, with a keyframe",
+  () =>
+    Effect.gen(function* teachUnidentifiedClicks() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-unidentified-click-",
+      });
+      const fixtures = yield* fixtureServer;
+
+      yield* Effect.gen(function* demonstrate() {
+        const started = yield* startUserTeaching({
+          activity: "teaching",
+          clientName: "integration-recorder",
+          clientVersion: "1.0.0",
+          group: "",
+          name: "unidentified-click",
+          operationId: OperationId.make("unidentified-click-start-session"),
+          url: fixtures.url("web-matrix.html"),
+          viewport,
+        });
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("Teaching did not allocate a recording.");
+        }
+        const service = yield* AgentSession;
+        const press = (
+          eventType: "mousePressed" | "mouseReleased",
+          point: { readonly x: number; readonly y: number }
+        ) =>
+          service.sendInput(started.id, {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            ...point,
+          });
+        const click = (point: { readonly x: number; readonly y: number }) =>
+          Effect.andThen(
+            press("mousePressed", point),
+            press("mouseReleased", point)
+          );
+        // Setup sits outside the recording boundary, so it leaves no evidence.
+        yield* click(slot(11));
+        yield* service.startTeachingRecording(
+          started.id,
+          OperationId.make("unidentified-click-start-recording")
+        );
+        yield* service.sendInput(started.id, {
+          eventType: "mouseMoved",
+          type: "input_mouse",
+          ...BLANK_PAGE,
+        });
+        yield* click(slot(11));
+        yield* click(BLANK_PAGE);
+        yield* click(slot(0));
+        // A press is no click until the pointer comes back up.
+        yield* press("mousePressed", BLANK_PAGE);
+        yield* service.stopTeachingRecording(
+          started.id,
+          OperationId.make("unidentified-click-stop-recording")
+        );
+
+        const claimOperationId = OperationId.make("unidentified-click-claim");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId,
+        });
+        const timeline = yield* teachingRecordingTool(
+          "agent_teaching_timeline_get",
+          { claimOperationId, recordingId }
+        );
+        const actions = timeline.entries.flatMap((entry) =>
+          entry._tag === "action" ? [entry] : []
+        );
+        expect(
+          actions.map(({ description, kind, target }) => ({
+            description,
+            kind,
+            target: target === null ? null : "named",
+          }))
+        ).toEqual([
+          {
+            description: UNRESOLVED_CLICK_DESCRIPTION,
+            kind: "click",
+            target: null,
+          },
+          {
+            description: UNRESOLVED_CLICK_DESCRIPTION,
+            kind: "click",
+            target: null,
+          },
+          {
+            description: expect.stringContaining('"Place order"'),
+            kind: "click",
+            target: "named",
+          },
+        ]);
+        for (const action of actions) {
+          const keyframe = timeline.entries.find(
+            (entry) => entry._tag === "keyframe" && entry.actionId === action.id
+          );
+          if (keyframe?._tag !== "keyframe") {
+            return yield* Effect.die(
+              `The click "${action.description}" retained no keyframe.`
+            );
+          }
+          const image = yield* teachingRecordingTool(
+            "agent_teaching_keyframe_get",
+            { claimOperationId, keyframeId: keyframe.id, recordingId }
+          );
+          expect((yield* fileSystem.readFile(image.path)).byteLength).toBe(
+            image.bytes
+          );
+        }
+      }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.live("records typing into a field inside a cross-origin frame", () =>
