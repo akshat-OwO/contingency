@@ -19,7 +19,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "vpx src/packaging/generate-settings.ts && tsdown && vpx src/packaging/vendor-runtime.ts && vpx src/packaging/build-ios-framebuffer.ts && node -e \"const fs=require('node:fs');for(const [from,to] of [['resources','dist/resources'],['demo','dist/demo'],['examples','dist/examples'],['onboarding','dist/onboarding'],['docs','dist/docs']])fs.cpSync(from,to,{recursive:true})\" && vp run --filter @contingency/web build --outDir ../../packages/cli/dist/web --emptyOutDir && vp run --filter @contingency/docs build && node -e \"require('node:fs').cpSync('../../apps/docs/dist','dist/docs-site',{recursive:true})\"",
+    "build": "vpx src/packaging/build.ts",
     "check-types": "tsc --noEmit",
     "dev": "vpx --watch src/index.ts web --no-browser",
     "prepack": "vp run build",
