@@ -34,9 +34,10 @@ const TAGLINE = "watching your features";
 const MIN_COLUMNS = 48;
 
 const ESC = "\u001B[";
-// 256-colour amber: Terminal.app has no truecolor, and every terminal that
-// draws colour at all draws this.
-const amber = (text: string): string => `${ESC}38;5;220m${text}${ESC}39m`;
+// 256-colour because Terminal.app has no truecolor. Colour 136 (#af8700) is a
+// darker amber than the Workspace's: the terminal's background is unknown, and
+// this one keeps about 3:1 on white and 6:1 on black.
+const amber = (text: string): string => `${ESC}38;5;136m${text}${ESC}39m`;
 const bold = (text: string): string => `${ESC}1m${text}${ESC}22m`;
 const dim = (text: string): string => `${ESC}2m${text}${ESC}22m`;
 const underline = (text: string): string => `${ESC}4m${text}${ESC}24m`;

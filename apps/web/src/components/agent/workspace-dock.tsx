@@ -15,7 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
-import { Wordmark } from "@/components/brand";
+import { WatcherMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -189,10 +189,14 @@ const useDockHeight = () => {
 };
 
 /**
- * The dock shell: one floating card over a full-bleed browser, in up to three
- * tiers. What the agent is waiting on comes first, then where the session is,
- * then the controls. The controls are one row that never wraps; anything long
- * lives in the tiers above it, which clamp and expand on their own.
+ * The dock shell: one floating bar over a full-bleed browser. What the agent
+ * is waiting on comes first, as a strip above. On a stage of 64rem or more the
+ * status sits inside the controls row, between the session picker and the
+ * actions, so the whole dock is one row. On a narrower stage, or while the
+ * status is expanded or carries a note, it takes its own tier above the
+ * controls. The
+ * controls are one row that never wraps. A hairline along the top edge
+ * carries the state's tone (`styles.css`).
  *
  * The dock sits inside the browser stage, which the devtools inspector and the
  * Dry Run Summary narrow independently of the window. So it sizes itself with
@@ -219,17 +223,23 @@ export const DockShell = ({
     <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
       <section
         aria-label="Workspace dock"
-        className="material-float pointer-events-auto w-full max-w-3xl overflow-hidden rounded-xl shadow-lg @6xl:max-w-4xl"
+        className="material-float pointer-events-auto relative w-full max-w-3xl overflow-hidden rounded-xl shadow-lg @5xl:max-w-5xl"
+        data-slot="workspace-dock"
         ref={ref}
       >
         {requests}
-        {status}
-        {/*
-          Below a medium dock the session picker takes its own full row, so
-          the session's name stays readable and the actions keep theirs.
-        */}
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap">
-          {children}
+        <div data-slot="dock-row">
+          <div data-slot="dock-status-slot">{status}</div>
+          {/*
+            Below a medium dock the session picker takes its own full row, so
+            the session's name stays readable and the actions keep theirs.
+          */}
+          <div
+            className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap"
+            data-slot="dock-controls"
+          >
+            {children}
+          </div>
         </div>
         {footer}
       </section>
@@ -238,12 +248,19 @@ export const DockShell = ({
 };
 
 /** A spacer that pushes the actions to the end of the controls row. */
-export const DockSpacer = () => <div className="min-w-2 flex-1" />;
+export const DockSpacer = () => (
+  <div className="min-w-2 flex-1" data-slot="dock-spacer" />
+);
 
-/** The wordmark gives way first when the stage narrows. */
+/**
+ * The mark alone, with the name kept for assistive technology: a session
+ * dock spends its width on the session. It gives way first when the stage
+ * narrows.
+ */
 export const DockWordmark = () => (
-  <span className="hidden pl-1 @2xl:inline-flex">
-    <Wordmark />
+  <span className="hidden px-1 @2xl:inline-flex">
+    <WatcherMark />
+    <span className="sr-only">Contingency</span>
   </span>
 );
 
@@ -337,6 +354,8 @@ export const DockState = ({
       "inline-flex shrink-0 items-center gap-1.5 text-[13px] leading-5 font-medium whitespace-nowrap",
       dockStateToneClass[tone]
     )}
+    data-slot="dock-state"
+    data-tone={tone}
   >
     <DockStateMark tone={tone} />
     {children}
@@ -376,8 +395,17 @@ export const DockStatus = ({
   const [sentenceRef, clamped] = useClamped<HTMLOutputElement>();
   const expandable = clamped || expanded || details !== undefined;
   return (
-    <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
-      <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1">
+    <div
+      className="flex items-start gap-2 px-3 pt-2.5 pb-2"
+      // Details and a wrapping note need the dock's width, so they keep the
+      // status on its own tier instead of inside the controls row.
+      data-own-tier={expanded || note !== undefined ? "" : undefined}
+      data-slot="dock-status"
+    >
+      <div
+        className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1"
+        data-slot="dock-status-line"
+      >
         <div className="flex shrink-0 items-center gap-x-2.5 gap-y-1">
           {badges}
         </div>

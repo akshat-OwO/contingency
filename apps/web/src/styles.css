@@ -410,3 +410,77 @@
     animation: watcher-fade 2s ease-in-out infinite;
   }
 }
+
+/*
+ * The Workspace dock as a command bar.
+ *
+ * A hairline along the top edge carries the state's tone, so the state reads
+ * from across the page before the label does.
+ */
+[data-slot="workspace-dock"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  pointer-events: none;
+}
+
+[data-slot="workspace-dock"]:has([data-tone="recording"])::before {
+  background: oklch(0.637 0.237 25.331);
+}
+
+[data-slot="workspace-dock"]:has([data-tone="attention"])::before {
+  background: oklch(0.769 0.188 70.08);
+}
+
+[data-slot="workspace-dock"]:has([data-tone="failed"])::before {
+  background: var(--destructive);
+}
+
+/*
+ * On a stage of 64rem or more the status moves into the controls row: the
+ * controls wrapper dissolves, the status takes the free space between the
+ * session picker and the actions, and everything after the spacer follows it.
+ * A status that is expanded or carries a note keeps its own tier, because
+ * that content needs the width.
+ */
+@container (min-width: 64rem) {
+  [data-slot="dock-row"]:not(:has([data-own-tier])) {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    padding: 0.375rem 0.5rem;
+
+    > [data-slot="dock-controls"] {
+      display: contents;
+    }
+
+    > [data-slot="dock-status-slot"] {
+      order: 2;
+      flex: 1 1 0;
+      min-width: 0;
+      border-inline-start: 1px solid var(--border);
+      margin-inline-start: 0.25rem;
+    }
+
+    [data-slot="dock-status"] {
+      align-items: center;
+      padding: 0 0.25rem 0 0.75rem;
+    }
+
+    /* One line: the sentence clamps beside the label instead of dropping. */
+    [data-slot="dock-status-line"] {
+      flex-wrap: nowrap;
+      align-items: center;
+    }
+
+    [data-slot="dock-spacer"] {
+      display: none;
+    }
+
+    [data-slot="dock-spacer"] ~ * {
+      order: 3;
+    }
+  }
+}
