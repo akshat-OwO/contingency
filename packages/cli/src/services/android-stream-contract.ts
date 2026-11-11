@@ -36,3 +36,12 @@ export const androidWindowVisibility = (
   }
   return "visible";
 };
+
+/**
+ * What viewers see for the focused window's visibility. Unknown visibility
+ * hides frames until the next read; only a stopped stream is `lost`.
+ */
+export const androidVisibilityState = (
+  visibility: "visible" | "secure" | "unknown"
+): "connecting" | "secure" =>
+  visibility === "secure" ? "secure" : "connecting";

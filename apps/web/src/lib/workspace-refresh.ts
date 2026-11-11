@@ -7,7 +7,10 @@ import { createContext, useContext } from "react";
  */
 export const WORKSPACE_REFRESH_INTERVAL = "2 seconds";
 
-/** The Clock that paces Workspace refreshes; tests provide a TestClock. */
+/**
+ * The Clock that paces Workspace refreshes and device stream reconnects;
+ * tests provide a TestClock.
+ */
 export const WorkspaceRefreshClockContext = createContext<Clock.Clock>(
   Effect.runSync(Clock.Clock)
 );

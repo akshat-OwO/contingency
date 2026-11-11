@@ -10,6 +10,7 @@ import { startScrcpy } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
 
 import {
   androidStreamRelease,
+  androidVisibilityState,
   androidWindowVisibility,
 } from "./services/android-stream-contract.ts";
 import type { AndroidStreamPacket } from "./services/android-stream-contract.ts";
@@ -92,31 +93,23 @@ Effect.scoped(
           timeout: 10_000,
         }),
     }).pipe(
-      Effect.flatMap(({ stdout }) =>
+      Effect.map(({ stdout }) => androidWindowVisibility(stdout)),
+      // A failed read leaves visibility unknown, which hides frames like any
+      // other unknown window. The stream itself is still running, so viewers
+      // stay connected and the next read can show frames again.
+      Effect.orElseSucceed(() => "unknown" as const),
+      Effect.flatMap((next) =>
         Effect.gen(function* updateVisibility() {
-          const next = androidWindowVisibility(stdout);
           if (next !== visibility) {
             keyRequired = true;
             visibility = next;
-            const states = {
-              secure: "secure",
-              unknown: "lost",
-              visible: "connecting",
-            } as const;
-            yield* send({ _tag: "state", state: states[next] });
+            yield* send({ _tag: "state", state: androidVisibilityState(next) });
           }
         })
       )
     );
     yield* inspect;
     yield* inspect.pipe(
-      Effect.catchCause(() =>
-        Effect.gen(function* hideUnknownWindow() {
-          visibility = "unknown";
-          keyRequired = true;
-          yield* send({ _tag: "state", state: "lost" });
-        })
-      ),
       Effect.repeat(Schedule.spaced("1 second")),
       Effect.forkScoped
     );
