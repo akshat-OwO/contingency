@@ -272,10 +272,15 @@ it.live("keeps authoring references inside the published package", () =>
     expect(
       resolveAuthoringResourceRoot(path.join(packageRoot, "src", "services"))
     ).toBe(path.join(packageRoot, "resources"));
-    const manifest = yield* fileSystem.readFileString(
+    const manifestText = yield* fileSystem.readFileString(
       path.join(packageRoot, "package.json")
     );
-    expect(manifest).toContain('"resources"');
-    expect(manifest).toContain("['resources','dist/resources']");
+    const manifest = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(
+        Schema.Struct({ files: Schema.Array(Schema.String) })
+      )
+    )(manifestText);
+    expect(manifest.files).toContain("resources");
+    expect(manifest.files).toContain("dist");
   }).pipe(Effect.provide(NodeServices.layer))
 );
