@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Label budget</title>
+    <!--
+  More on-screen text than one Browser Snapshot reads, and a styled checkbox
+  whose native input is display:none. Its label sits at left 10, top 10,
+  290 by 40.
+-->
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      #words {
+        position: absolute;
+        left: 320px;
+        top: 0;
+        width: 300px;
+        display: flex;
+        flex-wrap: wrap;
+        font-size: 6px;
+      }
+      #words p {
+        margin: 0 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <input id="promo" type="checkbox" style="display: none" />
+    <label
+      for="promo"
+      style="
+        position: absolute;
+        left: 10px;
+        top: 10px;
+        width: 290px;
+        height: 40px;
+        box-sizing: border-box;
+        padding: 10px;
+        background: #f4f4f8;
+      "
+      >Budget promo</label
+    >
+    <div id="words"></div>
+    <script>
+      document.getElementById("words").innerHTML = Array.from(
+        { length: 400 },
+        (_, index) => `<p>w${index}</p>`
+      ).join("");
+    </script>
+  </body>
+</html>
