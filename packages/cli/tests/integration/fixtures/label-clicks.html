@@ -157,7 +157,29 @@
       style="left: 10px; top: 280px; height: 40px; display: block"
     ></closed-consent>
 
+    <!-- Row 6 (right): label words inside a span, smaller than the padded label -->
+    <label class="at wide" style="left: 330px; top: 280px; padding: 10px 10px"
+      ><input type="checkbox" /> <span>Span wrap</span></label
+    >
+
+    <!-- Row 7: a label holding a button inside an open shadow root -->
+    <label class="at wide" style="left: 10px; top: 330px"
+      ><input type="checkbox" /> Card insurance
+      <info-button
+        style="position: absolute; right: 10px; top: 5px; display: block"
+      ></info-button
+    ></label>
+
     <script>
+      customElements.define(
+        "info-button",
+        class extends HTMLElement {
+          connectedCallback() {
+            this.attachShadow({ mode: "open" }).innerHTML =
+              '<button type="button" style="width:80px;height:30px;margin:0">Info</button>';
+          }
+        }
+      );
       customElements.define(
         "open-consent",
         class extends HTMLElement {

@@ -98,6 +98,16 @@ const LABEL_CLICKS: readonly {
     pattern: "label inside a closed shadow root",
     point: { x: 150, y: 300 },
   },
+  {
+    description: 'Click checkbox "Span wrap"',
+    pattern: "label words inside a span",
+    point: { x: 380, y: 300 },
+  },
+  {
+    description: 'Click button "Info"',
+    pattern: "button in a shadow root inside a label",
+    point: { x: 260, y: 350 },
+  },
 ];
 
 it.live("records a click on a native label as the control it activates", () =>
@@ -184,4 +194,67 @@ it.live("records a click on a native label as the control it activates", () =>
       );
     }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.live(
+  "records a label click when on-screen text fills the Snapshot budget",
+  () =>
+    Effect.gen(function* teachBudgetedLabel() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-label-budget-",
+      });
+      const fixtures = yield* fixtureServer;
+
+      yield* Effect.gen(function* demonstrate() {
+        const started = yield* startUserTeaching({
+          activity: "teaching",
+          clientName: "integration-recorder",
+          clientVersion: "1.0.0",
+          group: "",
+          name: "label-budget",
+          operationId: OperationId.make("label-budget-start-session"),
+          url: fixtures.url("label-budget.html"),
+          viewport,
+        });
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("Teaching did not allocate a recording.");
+        }
+        const service = yield* AgentSession;
+        yield* service.startTeachingRecording(
+          started.id,
+          OperationId.make("label-budget-start-recording")
+        );
+        for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+          yield* service.sendInput(started.id, {
+            button: "left",
+            clickCount: 1,
+            eventType,
+            type: "input_mouse",
+            x: 150,
+            y: 30,
+          });
+        }
+        yield* service.stopTeachingRecording(
+          started.id,
+          OperationId.make("label-budget-stop-recording")
+        );
+        const claimOperationId = OperationId.make("label-budget-claim");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId,
+        });
+        const timeline = yield* teachingRecordingTool(
+          "agent_teaching_timeline_get",
+          { claimOperationId, recordingId }
+        );
+        expect(
+          timeline.entries.flatMap((entry) =>
+            entry._tag === "action" ? [entry.description] : []
+          )
+        ).toEqual(['Click checkbox "Budget promo"']);
+      }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

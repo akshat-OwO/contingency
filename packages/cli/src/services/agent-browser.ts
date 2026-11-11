@@ -1180,11 +1180,14 @@ const SNAPSHOT_SCRIPT = ({
   // What the viewport shows is read first: a fixed bill, the dialog that just
   // opened, the row under the cursor. Beyond it the budget prefers controls,
   // then landmarks and headings, then text.
-  const inViewport = (element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.bottom > 0 && rect.right > 0 &&
-      rect.top < innerHeight && rect.left < innerWidth;
-  };
+  const showsInViewport = (rect) =>
+    rect.y + rect.height > 0 && rect.x + rect.width > 0 &&
+    rect.y < innerHeight && rect.x < innerWidth;
+  // A control drawn by its label is on screen wherever that label is.
+  const inViewport = (element) =>
+    labelOnly.has(element)
+      ? labelHitRegions(element).some(showsInViewport)
+      : showsInViewport(element.getBoundingClientRect());
   const tiers = (interactiveOnly ? [controls, frames] : [controls, frames, contextual, textual])
     .map((tier) => tier.filter((element) => kept.has(element)));
   const eligible = point
@@ -2586,20 +2589,35 @@ export const makeAgentElementRegistry = (
               const label = [...labels].find(
                 (candidate) => hit !== null && candidate.contains(hit)
               );
-              if (label === undefined) {
+              if (label === undefined || hit === null) {
                 return false;
               }
+              // Interactive content inside a shadow tree under the label
+              // takes the click too, so the walk starts at the deepest hit
+              // an open tree exposes and crosses back out through hosts.
+              let deepest = hit;
               for (
-                let node = hit;
-                node !== null && node !== label;
-                node = node.parentElement
+                let inner = deepest.shadowRoot?.elementFromPoint(
+                  point.x,
+                  point.y
+                );
+                inner !== null && inner !== undefined && inner !== deepest;
+                inner = deepest.shadowRoot?.elementFromPoint(point.x, point.y)
               ) {
+                deepest = inner;
+              }
+              let node: typeof hit | null = deepest;
+              while (node !== null && node !== label) {
                 if (node === control) {
                   return true;
                 }
                 if (node.matches(point.interactive)) {
                   return false;
                 }
+                const nodeRoot = node.getRootNode();
+                node =
+                  node.parentElement ??
+                  ("host" in nodeRoot ? nodeRoot.host : null);
               }
               return true;
             },
@@ -2644,19 +2662,30 @@ export const makeAgentElementRegistry = (
             Number(right.viaLabel) - Number(left.viaLabel) ||
             right.box.depth - left.box.depth
         );
-      for (const { box, ref, region, viaLabel } of candidates) {
-        // A label box is only geometry: what is drawn there decides whether
-        // the click reaches the label's control or something in front of it.
+      // A label box is only geometry: what is drawn there decides whether
+      // the click reaches the label's control or something in front of it.
+      // When it does, the control wins over any smaller box inside the label,
+      // such as a span holding the label's words, as it does in the browser.
+      const activated: typeof candidates = [];
+      for (const candidate of candidates) {
         if (
-          viaLabel &&
-          !(yield* activatesThroughLabel(
-            ref,
-            x - box.origin.x,
-            y - box.origin.y
+          candidate.viaLabel &&
+          (yield* activatesThroughLabel(
+            candidate.ref,
+            x - candidate.box.origin.x,
+            y - candidate.box.origin.y
           ))
         ) {
-          continue;
+          activated.push(candidate);
+          break;
         }
+      }
+      const [chosen] = [
+        ...activated,
+        ...candidates.filter(({ viaLabel }) => !viaLabel),
+      ];
+      if (chosen !== undefined) {
+        const { ref, region } = chosen;
         return {
           rectangle: {
             height: region.height,
