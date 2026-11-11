@@ -203,16 +203,28 @@ try {
       startingScreenReached: true,
     };
     if (decision === "grant") {
-      await adb("shell", "am", "start", "-n", "com.android.settings/.Settings");
+      // Leaving the Target App no longer pauses a session (#573), but a
+      // secure window still does: it cannot be observed.
+      await adb(
+        "shell",
+        "am",
+        "start",
+        "-n",
+        `${appId}/.LoginActivity`,
+        "--ez",
+        "secure",
+        "true"
+      );
       await command({
         _tag: "observe",
         image: false,
         sessionId: session.id,
       }).catch((error) =>
-        journal.push({ expectedOwnershipRefusal: error.message })
+        journal.push({ expectedSecureWindow: error.message })
       );
       const paused = await command({ _tag: "read", sessionId: session.id });
       assert.equal(paused.phase, "paused");
+      assert.ok(paused.captureGaps.includes("secure_window"));
       await control("browser", "goto", "--url", instance.mcpUrl);
       await click("Android");
       await wait("combobox", "Android Agent Session");
