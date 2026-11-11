@@ -9,9 +9,9 @@ export const waitAndroidIdle = async (page) => {
   await page.waitForFunction(
     () => {
       const dock = document.querySelector('[aria-label="Workspace dock"]');
-      const close = [...(dock?.querySelectorAll("button") ?? [])].find(
-        (button) => button.textContent?.trim() === "Close session"
-      );
+      // Match the accessible name: the visible label is "Close" on a narrow
+      // dock and "Close session" on a wider one.
+      const close = dock?.querySelector('button[aria-label="Close session"]');
       return Boolean(
         close &&
         !close.disabled &&
