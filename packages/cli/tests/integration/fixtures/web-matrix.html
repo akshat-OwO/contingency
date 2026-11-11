@@ -8,7 +8,8 @@
   each in a fixed 280x60 slot so a test clicks the same point a Workspace user
   would. Slot n sits at column n % 3, row floor(n / 3): left 10 + 300 * column,
   top 10 + 80 * row. Keep slots in the order of WEB_MATRIX in
-  web-feature-matrix.integration.test.ts.
+  web-feature-matrix.integration.test.ts. Patterns that need a landmark or a
+  stacking order of their own sit in the row below the overlays.
 -->
     <style>
       body {
@@ -190,6 +191,72 @@
     <div class="slot" style="left: 610px; top: 330px">
       <button type="button" id="open-dialog">Show dialog</button>
     </div>
+
+    <!-- Below the overlay row. A logo link drawn over a smaller link it
+      covers: the covered link's box is smaller, but the logo takes the click. -->
+    <div class="slot" style="left: 310px; top: 490px">
+      <a
+        href="#covered"
+        style="
+          position: absolute;
+          left: 100px;
+          top: 15px;
+          width: 80px;
+          height: 30px;
+          z-index: -1;
+        "
+        data-outcome="Covered link"
+        >Skip ahead</a
+      >
+      <a
+        href="#home"
+        class="fill"
+        style="display: block; position: relative; background: #fee"
+        data-outcome="Logo link"
+        ><svg
+          role="img"
+          aria-label="Storefront home"
+          viewBox="0 0 280 60"
+          width="100%"
+          height="100%"
+        >
+          <rect width="280" height="60" fill="#c33" /></svg
+      ></a>
+    </div>
+    <!-- A transparent checkbox laid over its hidden label, overflowing the
+      narrower navigation landmark around it: the landmark's box is smaller,
+      but the checkbox takes the click. -->
+    <nav
+      aria-label="Site"
+      class="slot"
+      style="left: 610px; top: 490px; width: 200px"
+    >
+      <div style="position: relative; width: 280px; height: 60px">
+        <input
+          type="checkbox"
+          id="menu-toggle"
+          role="button"
+          aria-label="Main menu"
+          data-outcome="Menu toggle"
+          style="
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
+            z-index: 1;
+            cursor: pointer;
+          "
+        />
+        <label
+          for="menu-toggle"
+          aria-hidden="true"
+          style="display: block; padding: 18px"
+          >&#9776; <span>Main menu</span></label
+        >
+      </div>
+    </nav>
 
     <div id="consent" role="dialog" aria-label="Cookie consent">
       <div>

@@ -28,6 +28,9 @@ const slot = (index: number) => ({
 /** The overlay controls sit in the row below the grid. */
 const CONSENT_ACCEPT = { x: 450, y: 440 };
 const DIALOG_CONFIRM = { x: 750, y: 440 };
+/** Below the overlays: patterns whose geometry misleads a box search. */
+const COVERED_LINK = { x: 450, y: 520 };
+const MENU_TOGGLE = { x: 750, y: 520 };
 
 /**
  * Each click and the name its Timeline description must carry. `null` marks
@@ -79,6 +82,16 @@ const WEB_MATRIX: readonly {
   },
   { name: "Show dialog", pattern: "dialog opener", point: slot(14) },
   { name: "Confirm order", pattern: "modal dialog", point: DIALOG_CONFIRM },
+  {
+    name: "Storefront home",
+    pattern: "link drawn over a smaller covered link",
+    point: COVERED_LINK,
+  },
+  {
+    name: "Main menu",
+    pattern: "transparent checkbox in a landmark",
+    point: MENU_TOGGLE,
+  },
 ];
 
 it.live("names every web-matrix click by the control the user saw", () =>
@@ -384,4 +397,112 @@ it.live("records typing into a field inside a cross-origin frame", () =>
       ]);
     }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+/** Controls in control-budget.html, after more controls than one Snapshot reads. */
+const BUDGETED_CHECKOUT = { x: 110, y: 420 };
+const BUDGETED_FRAME_CHECKOUT = { x: 400, y: 430 };
+
+it.live(
+  "records clicks on controls the full Snapshot budget leaves out, with their targets",
+  () =>
+    Effect.gen(function* teachBudgetedControl() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-control-budget-",
+      });
+      const fixtures = yield* fixtureServer;
+
+      yield* Effect.gen(function* demonstrate() {
+        const framed = yield* fixtures.awaitRequest((url) =>
+          url.includes("label=Framed")
+        );
+        const started = yield* startUserTeaching({
+          activity: "teaching",
+          clientName: "integration-recorder",
+          clientVersion: "1.0.0",
+          group: "",
+          name: "control-budget",
+          operationId: OperationId.make("control-budget-start-session"),
+          url: fixtures.url("control-budget.html"),
+          viewport,
+        });
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("Teaching did not allocate a recording.");
+        }
+        // One hang guard: a frame that never loads fails here by name.
+        yield* Deferred.await(framed).pipe(Effect.timeout("30 seconds"));
+        const service = yield* AgentSession;
+        const points = [BUDGETED_CHECKOUT, BUDGETED_FRAME_CHECKOUT];
+        const inspected = yield* Effect.all(
+          points.map(({ x, y }) =>
+            service
+              .inspectPoint(started.id, x, y)
+              .pipe(Effect.map(({ description }) => description))
+          )
+        );
+        expect(inspected).toEqual([
+          "button: Checkout",
+          "button: Framed checkout",
+        ]);
+        yield* service.startTeachingRecording(
+          started.id,
+          OperationId.make("control-budget-start-recording")
+        );
+        for (const point of points) {
+          for (const eventType of ["mousePressed", "mouseReleased"] as const) {
+            yield* service.sendInput(started.id, {
+              button: "left",
+              clickCount: 1,
+              eventType,
+              type: "input_mouse",
+              ...point,
+            });
+          }
+        }
+        yield* service.stopTeachingRecording(
+          started.id,
+          OperationId.make("control-budget-stop-recording")
+        );
+        const claimOperationId = OperationId.make("control-budget-claim");
+        yield* teachingRecordingTool("agent_teaching_recording_claim", {
+          action: "take",
+          operationId: claimOperationId,
+          recordingId,
+        });
+        const timeline = yield* teachingRecordingTool(
+          "agent_teaching_timeline_get",
+          { claimOperationId, recordingId }
+        );
+        // The target is read back from the tree recorded before the click, so
+        // a named target proves that tree holds the control.
+        expect(
+          timeline.entries.flatMap((entry) =>
+            entry._tag === "action"
+              ? [
+                  {
+                    description: entry.description,
+                    target:
+                      entry.target === null
+                        ? null
+                        : { name: entry.target.name, role: entry.target.role },
+                  },
+                ]
+              : []
+          )
+        ).toEqual([
+          {
+            description: 'Click button "Checkout"',
+            target: { name: "Checkout", role: "button" },
+          },
+          {
+            description: expect.stringMatching(
+              /^Click button "Framed checkout" in frame /u
+            ),
+            target: { name: "Framed checkout", role: "button" },
+          },
+        ]);
+      }).pipe(Effect.scoped, Effect.provide(agentProcessLayer(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

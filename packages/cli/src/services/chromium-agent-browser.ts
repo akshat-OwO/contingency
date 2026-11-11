@@ -91,6 +91,7 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
                   }
                   yield* performAgentAction(page, registry, action, pointer);
                 }),
+              pointedSnapshot: (x, y) => registry.pointedSnapshot(page, x, y),
               screenshot: (maskSensitive, privateValues, privateSelectors) =>
                 captureAgentScreenshot(
                   page,
@@ -132,7 +133,6 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
       focusedRef: registry.focusedRef,
       hasFocus: registry.hasFocus,
       isSensitive: registry.isSensitive,
-      pointRef: registry.pointRef,
       privateSelector: registry.privateSelector,
       sameElement: registry.sameElement,
       setFiles: (ref, paths) =>

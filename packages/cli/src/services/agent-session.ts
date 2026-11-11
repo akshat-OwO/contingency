@@ -4230,10 +4230,10 @@ const makeAgentSession = (
       });
 
     /**
-     * The control under a released pointer, and the tree it was read in. A
-     * point no Snapshot control contains — a canvas-drawn control, a blank
-     * stretch of Page — leaves the reference unset rather than dropping the
-     * click (#653).
+     * The control under a released pointer, found by Inspect's hit test, and
+     * the tree recorded beside the click with that control read into it. A
+     * point with no control — a canvas-drawn control, a blank stretch of Page
+     * — leaves the reference unset rather than dropping the click (#653).
      */
     const observePointedControl = (
       record: SessionRecord,
@@ -4242,15 +4242,12 @@ const makeAgentSession = (
       y: number
     ): Effect.Effect<PointedControl> =>
       Effect.gen(function* observeUserClickTarget() {
-        const snapshot = yield* observedOrNothing(page.snapshot());
-        if (snapshot === undefined) {
+        const pointed = yield* observedOrNothing(page.pointedSnapshot(x, y));
+        if (pointed === undefined) {
           return { ref: undefined, snapshot: undefined };
         }
-        recordingCapture(record)?.recordSnapshot(snapshot);
-        return {
-          ref: yield* observedOrNothing(record.agentBrowser.pointRef(x, y)),
-          snapshot,
-        };
+        recordingCapture(record)?.recordSnapshot(pointed.snapshot);
+        return { ref: pointed.target?.ref, snapshot: pointed.snapshot };
       });
 
     /**
