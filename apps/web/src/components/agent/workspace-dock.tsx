@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -30,12 +31,6 @@ import { cn } from "@/lib/utils";
  * the same full-bleed browser, so the shell lives here rather than inside the
  * activity that happened to need it first (#209).
  */
-
-export const Wordmark = () => (
-  <span className="shrink-0 text-base font-semibold tracking-tight">
-    Contingency
-  </span>
-);
 
 /**
  * A session label reads `Flow · Activity`, or the bare Flow name
@@ -247,7 +242,7 @@ export const DockSpacer = () => <div className="min-w-2 flex-1" />;
 
 /** The wordmark gives way first when the stage narrows. */
 export const DockWordmark = () => (
-  <span className="hidden pl-1 @2xl:inline">
+  <span className="hidden pl-1 @2xl:inline-flex">
     <Wordmark />
   </span>
 );

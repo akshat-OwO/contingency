@@ -147,6 +147,8 @@
 
   --color-ring: var(--ring);
 
+  --color-brand: var(--brand);
+
   --color-input: var(--input);
 
   --color-border: var(--border);
@@ -246,6 +248,9 @@
   /* Focus is the one hue in the chrome: at least 3:1 on every surface. */
   --ring: oklch(0.55 0.19 258);
 
+  /* The watcher mark is ink here: amber is too faint on white. */
+  --brand: var(--foreground);
+
   --chart-1: oklch(0.87 0 0);
 
   --chart-2: oklch(0.556 0 0);
@@ -312,6 +317,9 @@
 
   --ring: oklch(0.7 0.15 258);
 
+  /* The watcher's amber: besides focus, the only hue in the chrome. */
+  --brand: oklch(0.86 0.175 90);
+
   --chart-1: oklch(0.87 0 0);
 
   --chart-2: oklch(0.556 0 0);
@@ -337,4 +345,68 @@
   --sidebar-border: oklch(1 0 0 / 10%);
 
   --sidebar-ring: var(--ring);
+}
+
+/*
+ * The watcher loader: the eyes look left, look right, then blink. Reduced
+ * motion keeps the eyes still and fades them instead.
+ */
+@keyframes watcher-look {
+  0%,
+  8% {
+    transform: translateX(0);
+  }
+  22%,
+  40% {
+    transform: translateX(-9px);
+  }
+  58%,
+  76% {
+    transform: translateX(9px);
+  }
+  92%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes watcher-blink {
+  0%,
+  82% {
+    transform: scaleY(1);
+  }
+  87% {
+    transform: scaleY(0.08);
+  }
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes watcher-fade {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+[data-slot="watcher-look"] {
+  animation: watcher-look 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+[data-slot="watcher-blink"] {
+  animation: watcher-blink 2.2s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="watcher-look"],
+  [data-slot="watcher-blink"] {
+    animation: none;
+  }
+
+  [data-slot="watcher-loader"] {
+    animation: watcher-fade 2s ease-in-out infinite;
+  }
 }

@@ -111,6 +111,7 @@ import {
   useWorkspaceGesture,
 } from "@/components/agent/workspace-gesture";
 import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
+import { WatcherLoader } from "@/components/brand";
 import {
   keyboardModifiers,
   makeBrowserInputHandlers,
@@ -350,10 +351,7 @@ const LoadingState = ({ onAndroid }: { readonly onAndroid: () => void }) => (
   >
     <WorkspacePlatformControls onAndroid={onAndroid} />
     <section className="max-w-md space-y-4 text-center">
-      <LoaderCircleIcon
-        aria-hidden="true"
-        className="text-muted-foreground mx-auto size-8 animate-spin"
-      />
+      <WatcherLoader className="mx-auto h-7" />
       <div className="space-y-1.5">
         <h1 className="text-xl font-semibold tracking-tight">
           Loading Agent Sessions…
@@ -505,11 +503,8 @@ const SwitchingState = () => (
     aria-live="polite"
     className="bg-background/80 reduce-transparency:bg-background contrast-more:bg-background reduce-transparency:backdrop-blur-none absolute inset-0 z-10 grid place-items-center p-6 backdrop-blur-[2px] contrast-more:backdrop-blur-none"
   >
-    <div className="bg-background flex items-center gap-2 rounded-lg border px-4 py-3 text-sm shadow-sm">
-      <LoaderCircleIcon
-        aria-hidden="true"
-        className="text-muted-foreground size-4 animate-spin"
-      />
+    <div className="text-muted-foreground grid justify-items-center gap-3 text-sm">
+      <WatcherLoader className="h-7" />
       Switching Agent Session…
     </div>
   </div>
@@ -578,10 +573,7 @@ const AgentBrowserCanvas = ({
       {frameReady ? null : (
         <div className="absolute inset-0 grid place-items-center p-6">
           <div className="space-y-2 text-center">
-            <LoaderCircleIcon
-              aria-hidden="true"
-              className="text-muted-foreground mx-auto size-6 animate-spin"
-            />
+            <WatcherLoader className="mx-auto" />
             <p className="text-muted-foreground text-sm">
               Connecting to the live browser…
             </p>

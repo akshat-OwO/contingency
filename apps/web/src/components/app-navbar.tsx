@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { Link, useMatchRoute } from "@tanstack/react-router";
 
 import { workspaceChromeAtom } from "@/components/agent/agent-workspace-state";
+import { Wordmark } from "@/components/brand";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,11 +21,11 @@ const AppNavbar = () => {
   return (
     <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center border-b px-4 sm:px-6">
       <Link
-        className="w-fit text-base font-semibold tracking-tight"
+        className="flex w-fit"
         to="/"
         search={{ run: undefined, session: undefined }}
       >
-        Contingency
+        <Wordmark />
       </Link>
 
       <nav aria-label="Primary navigation">
