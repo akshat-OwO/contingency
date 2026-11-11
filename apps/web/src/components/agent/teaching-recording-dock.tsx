@@ -38,8 +38,8 @@ import {
   DockState,
   DockStatus,
   DockWordmark,
-  Wordmark,
 } from "@/components/agent/workspace-dock";
+import { Wordmark } from "@/components/brand";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -114,7 +114,7 @@ export const WorkspaceEmptyDock = ({
       </DockStatus>
     }
   >
-    <span className="pl-1">
+    <span className="flex pl-1">
       <Wordmark />
     </span>
     {flows}

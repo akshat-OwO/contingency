@@ -7,7 +7,6 @@ import {
   CheckIcon,
   CopyIcon,
   FileVideoIcon,
-  LoaderCircleIcon,
   MaximizeIcon,
   MinimizeIcon,
   PauseIcon,
@@ -28,6 +27,7 @@ import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import { runVideoChapters } from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
+import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -898,10 +898,7 @@ export const RunVideo = ({
         )}
         role="status"
       >
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="size-3.5 animate-spin"
-        />
+        <WatcherLoader className="h-2.5" />
         Preparing video…
       </div>
     );

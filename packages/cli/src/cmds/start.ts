@@ -1,9 +1,11 @@
+import { homedir } from "node:os";
 import path from "node:path";
 
 import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import packageJson from "../../package.json" with { type: "json" };
 import { HARNESS_IDS, olderThan } from "../services/agent-harness.ts";
 import { AgentLaunchError } from "../services/agent-launch-error.ts";
 import {
@@ -15,6 +17,11 @@ import {
 import type { ReadyHarness } from "../services/agent-launch.ts";
 import { CATALOG_DIRECTORY } from "../services/flow-catalog.ts";
 import { loadSettings } from "../services/settings.ts";
+import {
+  renderStartupScreen,
+  supportsStartupScreen,
+  tildify,
+} from "../services/startup-screen.ts";
 
 const pickHarness = (ready: readonly ReadyHarness[]) =>
   Prompt.run(
@@ -113,12 +120,37 @@ export const startCommand = Command.make(
       message,
       spec,
     });
+    // The agent takes over stdout, so the launcher speaks on stderr.
     yield* Console.error(
-      [
-        `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
-        `Catalog Root: ${catalogRoot}`,
-        "Docs: run `contingency docs`, or open /docs on the Workspace link the agent shares.",
-      ].join("\n")
+      renderStartupScreen({
+        rich: supportsStartupScreen({
+          columns: process.stderr.columns,
+          env: process.env,
+          isTTY: process.stderr.isTTY,
+        }),
+        screen: {
+          plain: [
+            `Starting ${chosen.harness.label} ${chosen.version} with Contingency connected for this session${demo ? " and the bundled demo store" : ""}.`,
+            `Catalog Root: ${catalogRoot}`,
+            "Docs: run `contingency docs`, or open /docs on the Workspace link the agent shares.",
+          ],
+          rows: [
+            {
+              label: "Agent",
+              value: `${chosen.harness.label} ${chosen.version}`,
+            },
+            { label: "Catalog Root", value: tildify(catalogRoot, homedir()) },
+            ...(demo ? [{ label: "Demo", value: "bundled demo store" }] : []),
+            {
+              label: "Docs",
+              value:
+                "contingency docs, or /docs on the Workspace link the agent shares",
+            },
+          ],
+          status: `Handing this terminal to ${chosen.harness.label}…`,
+        },
+        version: packageJson.version,
+      })
     );
     if (olderThan(chosen.version, chosen.harness.verifiedVersion)) {
       yield* Console.error(

@@ -147,6 +147,8 @@
 
   --color-ring: var(--ring);
 
+  --color-brand: var(--brand);
+
   --color-input: var(--input);
 
   --color-border: var(--border);
@@ -246,6 +248,9 @@
   /* Focus is the one hue in the chrome: at least 3:1 on every surface. */
   --ring: oklch(0.55 0.19 258);
 
+  /* The watcher mark is ink here: amber is too faint on white. */
+  --brand: var(--foreground);
+
   --chart-1: oklch(0.87 0 0);
 
   --chart-2: oklch(0.556 0 0);
@@ -312,6 +317,9 @@
 
   --ring: oklch(0.7 0.15 258);
 
+  /* The watcher's amber: besides focus, the only hue in the chrome. */
+  --brand: oklch(0.86 0.175 90);
+
   --chart-1: oklch(0.87 0 0);
 
   --chart-2: oklch(0.556 0 0);
@@ -337,4 +345,147 @@
   --sidebar-border: oklch(1 0 0 / 10%);
 
   --sidebar-ring: var(--ring);
+}
+
+/*
+ * The watcher loader: the eyes look left, look right, then blink. Reduced
+ * motion keeps the eyes still and fades them instead.
+ */
+@keyframes watcher-look {
+  0%,
+  8% {
+    transform: translateX(0);
+  }
+  22%,
+  40% {
+    transform: translateX(-9px);
+  }
+  58%,
+  76% {
+    transform: translateX(9px);
+  }
+  92%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes watcher-blink {
+  0%,
+  82% {
+    transform: scaleY(1);
+  }
+  87% {
+    transform: scaleY(0.08);
+  }
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes watcher-fade {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+[data-slot="watcher-look"] {
+  animation: watcher-look 2.2s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+[data-slot="watcher-blink"] {
+  animation: watcher-blink 2.2s infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="watcher-look"],
+  [data-slot="watcher-blink"] {
+    animation: none;
+  }
+
+  [data-slot="watcher-loader"] {
+    animation: watcher-fade 2s ease-in-out infinite;
+  }
+}
+
+/*
+ * The Workspace dock as a command bar.
+ *
+ * A hairline along the top edge carries the state's tone, so the state reads
+ * from across the page before the label does.
+ */
+[data-slot="workspace-dock"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  pointer-events: none;
+}
+
+[data-slot="workspace-dock"]:has([data-tone="recording"])::before {
+  background: oklch(0.637 0.237 25.331);
+}
+
+[data-slot="workspace-dock"]:has([data-tone="attention"])::before {
+  background: oklch(0.769 0.188 70.08);
+}
+
+[data-slot="workspace-dock"]:has([data-tone="failed"])::before {
+  background: var(--destructive);
+}
+
+/*
+ * On a stage of 64rem or more the status moves into the controls row: the
+ * controls wrapper dissolves, the status takes the free space between the
+ * session picker and the actions, and everything after the spacer follows it.
+ * A status that is expanded or carries a note keeps its own tier, because
+ * that content needs the width.
+ */
+@container (min-width: 64rem) {
+  [data-slot="dock-row"]:not(:has([data-own-tier])) {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    padding: 0.375rem 0.5rem;
+
+    > [data-slot="dock-controls"] {
+      display: contents;
+    }
+
+    > [data-slot="dock-status-slot"] {
+      order: 2;
+      flex: 1 1 0;
+      /*
+       * The labels plus the sentence's 12rem floor. Without it a long session
+       * name keeps the picker wide and the sentence paints under the actions;
+       * with it the picker is what shrinks.
+       */
+      min-width: min-content;
+      border-inline-start: 1px solid var(--border);
+      margin-inline-start: 0.25rem;
+    }
+
+    [data-slot="dock-status"] {
+      align-items: center;
+      padding: 0 0.25rem 0 0.75rem;
+    }
+
+    /* One line: the sentence clamps beside the label instead of dropping. */
+    [data-slot="dock-status-line"] {
+      flex-wrap: nowrap;
+      align-items: center;
+    }
+
+    [data-slot="dock-spacer"] {
+      display: none;
+    }
+
+    [data-slot="dock-spacer"] ~ * {
+      order: 3;
+    }
+  }
 }

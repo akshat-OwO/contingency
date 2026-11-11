@@ -1,8 +1,10 @@
+import { homedir } from "node:os";
 import path from "node:path";
 
 import { Config, Console, Effect, FileSystem, Layer } from "effect";
 import { Command, Flag } from "effect/cli";
 
+import packageJson from "../../package.json" with { type: "json" };
 import { makeAgentRunStoreLayer } from "../services/agent-run-store.ts";
 import {
   defaultAgentResourceDirectory,
@@ -14,6 +16,7 @@ import {
   defaultGlobalCatalogRoot,
   makeCatalogBrowserLayer,
 } from "../services/catalog-browser.ts";
+import { DOCS_SITE_PATH } from "../services/doc-topics.ts";
 import {
   defaultCatalogRoot,
   makeFlowCatalogLayer,
@@ -22,6 +25,11 @@ import { makeHttpServerLayer } from "../services/http-server.ts";
 import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { loadSettings } from "../services/settings.ts";
+import {
+  renderStartupScreen,
+  supportsStartupScreen,
+  tildify,
+} from "../services/startup-screen.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -160,10 +168,40 @@ export const webCommand = Command.make(
             teachingRecordingStore,
           }).pipe(Layer.provide(agentSession))
         );
-        if (noBrowser) {
-          yield* Console.log(`Contingency UI available at ${browserUrl}`);
-        } else {
-          yield* Console.log(`Opening Contingency UI at ${browserUrl}...`);
+        yield* Console.log(
+          renderStartupScreen({
+            rich: supportsStartupScreen({
+              columns: process.stdout.columns,
+              env: process.env,
+              isTTY: process.stdout.isTTY,
+            }),
+            screen: {
+              hint: "Ctrl+C to close",
+              plain: [
+                noBrowser
+                  ? `Contingency UI available at ${browserUrl}`
+                  : `Opening Contingency UI at ${browserUrl}...`,
+              ],
+              rows: [
+                { label: "Workspace", link: true, value: browserUrl.href },
+                {
+                  label: "Catalog Root",
+                  value: tildify(selectedCatalogRoot, homedir()),
+                },
+                {
+                  label: "Docs",
+                  link: true,
+                  value: new URL(DOCS_SITE_PATH, browserUrl).href,
+                },
+              ],
+              status: noBrowser
+                ? "Workspace ready"
+                : "Opening the Workspace in your browser",
+            },
+            version: packageJson.version,
+          })
+        );
+        if (!noBrowser) {
           yield* uiInterface.open(browserUrl.href);
         }
         return yield* Effect.never;
