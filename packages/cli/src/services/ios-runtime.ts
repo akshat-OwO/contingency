@@ -23,7 +23,11 @@ import {
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
-import { iosNodeInteraction, iosNodeName } from "./ios-observation.ts";
+import {
+  iosActivationPoint,
+  iosNodeInteraction,
+  iosNodeName,
+} from "./ios-observation.ts";
 import { makeIosPreparation } from "./ios-preparation.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
@@ -407,6 +411,10 @@ const startIosRuntime = (
       });
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const window = yield* Ref.make<IosViewport | null>(null);
+      // Tap points, by target, for controls UIKit draws away from their frame's center.
+      const activationPoints = yield* Ref.make<
+        ReadonlyMap<string, { readonly x: number; readonly y: number }>
+      >(new Map());
       const captureOnce = (step: IosCaptureStep) =>
         Effect.gen(function* captureIos() {
           yield* step("session-before", validate());
@@ -499,6 +507,17 @@ const startIosRuntime = (
             return yield* Effect.fail(iosRuntimeError("observation_stale"));
           }
           yield* Ref.set(window, viewport);
+          const target = (ref: string) =>
+            `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
+          yield* Ref.set(
+            activationPoints,
+            new Map(
+              snapshot.nodes.flatMap((node) => {
+                const point = iosActivationPoint(snapshot.nodes, node);
+                return point === null ? [] : [[target(node.ref), point]];
+              })
+            )
+          );
           const sx = width / viewport.width;
           const sy = height / viewport.height;
           const observation: IosObservation = {
@@ -513,7 +532,7 @@ const startIosRuntime = (
                 ...interaction,
                 name: iosNodeName(snapshot.nodes, index),
                 packageName: node.bundleId ?? snapshot.appBundleId ?? null,
-                target: `@${node.ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`,
+                target: target(node.ref),
               };
               return node.rect === undefined
                 ? observed
@@ -548,15 +567,21 @@ const startIosRuntime = (
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
-            io(
-              (signal) =>
-                client.interactions.click({
-                  ...options(),
-                  ref: target,
-                  signal,
-                }),
-              "activate"
-            ).pipe(Effect.asVoid),
+            Ref.get(activationPoints).pipe(
+              Effect.flatMap((points) => {
+                const point = points.get(target);
+                return io(
+                  (signal) =>
+                    client.interactions.click(
+                      point === undefined
+                        ? { ...options(), ref: target, signal }
+                        : { ...options(), ...point, signal }
+                    ),
+                  "activate"
+                );
+              }),
+              Effect.asVoid
+            ),
           capture,
           close: () => Scope.close(resources, Exit.void),
           fill: (target, text) =>
