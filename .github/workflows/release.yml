@@ -126,10 +126,16 @@ jobs:
       - run: vp exec turbo run quality check-types test
 
   integration:
-    name: Integration (real browser)
+    name: Integration (real browser, ${{ matrix.shard }}/3)
     needs: [preflight]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Shard like CI: one runner outgrows the timeout. Every shard reports, so
+    # one failing shard still shows the others' results.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -144,13 +150,13 @@ jobs:
       - name: Install Chromium
         run: vp exec --filter ./packages/cli playwright-core install chromium
 
-      # Skip apt-get update: the runner's cached Ubuntu index is enough for
-      # ffmpeg, and update also refreshes Google's Chrome repo, which has
-      # intermittently failed with hash-sum mismatches and blocked release.
       - name: Install ffmpeg (ffprobe for the video assertions)
-        run: sudo apt-get install -y ffmpeg
+        uses: ./.github/actions/install-ffmpeg
 
-      - run: vp exec turbo run test:integration
+      - name: Check ffprobe is present
+        run: ffprobe -version
+
+      - run: vp exec turbo run test:integration -- --shard=${{ matrix.shard }}/3
 
   release-artifact:
     name: Verify release artifact
