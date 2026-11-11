@@ -699,15 +699,30 @@ export const CapturedUserInput = Schema.Struct({
 export type CapturedUserInput = typeof CapturedUserInput.Type;
 
 /**
+ * A user click no Browser Snapshot control contains: a canvas-drawn control, a
+ * blank stretch of Page. It names no element, because none was hit that a
+ * recorded tree could be joined back to; its keyframe is the evidence of what
+ * the user clicked.
+ */
+export const CapturedUnresolvedClick = Schema.Struct({
+  type: Schema.Literal("click"),
+});
+export type CapturedUnresolvedClick = typeof CapturedUnresolvedClick.Type;
+
+/**
  * One browser action captured while recording, with who performed it and the
  * Page it left behind. Snapshot ids point into the capture record's snapshot
  * table so hundreds of actions do not repeat one document's accessibility
  * tree.
  */
 export const CapturedAction = Schema.Struct({
-  /** Agent actions, or a low-level input event captured during Takeover. */
+  /**
+   * Agent actions, a user click on no Snapshot control, or a low-level input
+   * event captured during Takeover.
+   */
   action: Schema.Union([
     AgentBrowserAction,
+    CapturedUnresolvedClick,
     Schema.Struct({
       input: CapturedUserInput,
       type: Schema.Literal("input"),

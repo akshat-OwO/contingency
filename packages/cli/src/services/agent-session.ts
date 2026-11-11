@@ -1486,6 +1486,16 @@ interface TypingBurst {
   readonly urlBefore: string;
 }
 
+/**
+ * What a released pointer landed on: the tree read beside the click, and the
+ * control in it under the pointer. Either is unset when it could not be read
+ * or no Snapshot control contains the point.
+ */
+interface PointedControl {
+  readonly ref: AgentElementRef | undefined;
+  readonly snapshot: AgentBrowserSnapshot | undefined;
+}
+
 /** The control a keystroke was sent to, as the tree before it read it. */
 interface FocusedTextControl {
   readonly node: AgentSnapshotNode;
@@ -4219,17 +4229,26 @@ const makeAgentSession = (
         };
       });
 
+    /**
+     * The control under a released pointer, and the tree it was read in. A
+     * point no Snapshot control contains — a canvas-drawn control, a blank
+     * stretch of Page — leaves the reference unset rather than dropping the
+     * click (#653).
+     */
     const observePointedControl = (
       record: SessionRecord,
       page: AgentBrowserTab,
       x: number,
       y: number
-    ) =>
+    ): Effect.Effect<PointedControl> =>
       Effect.gen(function* observeUserClickTarget() {
-        const snapshot = yield* page.snapshot();
+        const snapshot = yield* observedOrNothing(page.snapshot());
+        if (snapshot === undefined) {
+          return { ref: undefined, snapshot: undefined };
+        }
         recordingCapture(record)?.recordSnapshot(snapshot);
         return {
-          ref: yield* record.agentBrowser.pointRef(x, y),
+          ref: yield* observedOrNothing(record.agentBrowser.pointRef(x, y)),
           snapshot,
         };
       });
@@ -4356,9 +4375,7 @@ const makeAgentSession = (
           : undefined;
         const pointed =
           input.type === "input_mouse" && input.eventType === "mouseReleased"
-            ? yield* observedOrNothing(
-                observePointedControl(record, page, input.x, input.y)
-              )
+            ? yield* observePointedControl(record, page, input.x, input.y)
             : undefined;
         // Only the first notch: the rest of the gesture coalesces into it and
         // keeps the state the user actually scrolled away from.
@@ -4371,7 +4388,7 @@ const makeAgentSession = (
           pointed,
           snapshotBefore:
             focused?.snapshot.snapshotId ??
-            pointed?.snapshot.snapshotId ??
+            pointed?.snapshot?.snapshotId ??
             scrolled?.snapshotId ??
             capture.latestSnapshotId() ??
             null,
@@ -4470,12 +4487,7 @@ const makeAgentSession = (
       readonly at: string;
       readonly id: string;
       readonly page: AgentBrowserTab;
-      readonly pointed:
-        | {
-            readonly ref: AgentElementRef;
-            readonly snapshot: AgentBrowserSnapshot;
-          }
-        | undefined;
+      readonly pointed: PointedControl | undefined;
       readonly record: SessionRecord;
       readonly sessionId: AgentSessionId;
       readonly snapshotBefore: AgentSnapshotId | null;
@@ -4492,7 +4504,10 @@ const makeAgentSession = (
           input.page,
           input.urlBefore
         );
-        const action = { ref: input.pointed.ref, type: "click" as const };
+        // A click no Snapshot control contains still happened: it is recorded
+        // as unidentified, with no reference, and its keyframe shows what the
+        // user clicked (#653).
+        const { ref } = input.pointed;
         // The same description the agent-driven path produces, so a recording
         // reads in roles and accessible names whoever performed the click. The
         // subject comes from the tree recorded beside the click rather than
@@ -4500,12 +4515,12 @@ const makeAgentSession = (
         // ever minted: reading it there would describe a named control for a
         // reference the recorded tree cannot resolve, leaving a confident
         // description over a null target.
-        const { pointed } = input;
-        const subject = pointed.snapshot.nodes.find(
-          (node) => node.ref === pointed.ref
-        );
+        const subject =
+          ref === undefined
+            ? undefined
+            : input.pointed.snapshot?.nodes.find((node) => node.ref === ref);
         const description =
-          subject === undefined
+          ref === undefined || subject === undefined
             ? UNRESOLVED_CLICK_DESCRIPTION
             : describeCapturedAction(
                 {
@@ -4513,12 +4528,13 @@ const makeAgentSession = (
                   name: subject.name,
                   role: subject.role,
                 },
-                action,
+                { ref, type: "click" },
                 {},
                 capture.sensitiveValues()
               );
         const captured = capture.recordAction({
-          action,
+          action:
+            ref === undefined ? { type: "click" } : { ref, type: "click" },
           actor: "user",
           at: input.at,
           description,
