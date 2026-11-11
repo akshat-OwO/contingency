@@ -24,6 +24,8 @@ const messages = {
     "Android execution was canceled. Take a fresh observation after explicit recovery; do not replay input.",
   helper_incompatible:
     "The Android helper does not match the pinned release or required API.",
+  helper_newer_installed:
+    "This device has a newer agent-device helper than the release Contingency pins, and Android cannot replace it with an older one. Uninstall com.callstack.agentdevice.snapshothelper from this device, then start a new Android session. No input was sent.",
   helper_owned:
     "An Android helper or device session is already owned. No existing session was adopted.",
   host_unsupported: "iOS Simulator requires a local macOS host.",

@@ -97,6 +97,7 @@ export interface PlatformRuntimeError {
     | "installation_denied"
     | "installation_failed"
     | "helper_incompatible"
+    | "helper_newer_installed"
     | "helper_owned"
     | "target_unsupported"
     | "target_changed"

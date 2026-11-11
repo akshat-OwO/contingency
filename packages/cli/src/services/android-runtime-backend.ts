@@ -151,6 +151,33 @@ const installedHash = (
     );
   });
 
+const escapedHelperPackage = androidHelperRelease.packageName.replaceAll(
+  ".",
+  String.raw`\.`
+);
+const helperVersionCodePattern = new RegExp(
+  `^package:${escapedHelperPackage}\\s+versionCode:(?<versionCode>\\d+)\\s*$`,
+  "mu"
+);
+
+/**
+ * Android refuses to install an older versionCode over a newer one, so a newer
+ * helper is refused with a reason before any installation is authorized.
+ * `pm list packages` filters by substring; only the exact package line counts.
+ */
+export const requireReplaceableHelper = (packageList: string) =>
+  Effect.gen(function* replaceableHelper() {
+    const versionCode = Number(
+      helperVersionCodePattern.exec(packageList)?.groups?.versionCode
+    );
+    if (!Number.isSafeInteger(versionCode)) {
+      return yield* Effect.fail(platformRuntimeError("helper_incompatible"));
+    }
+    if (versionCode > androidHelperRelease.versionCode) {
+      return yield* Effect.fail(platformRuntimeError("helper_newer_installed"));
+    }
+  });
+
 const requireHelper = (serial: string) =>
   Effect.gen(function* validateHelper() {
     // Exact signed APK bytes bind the signer and version as well as the payload.
@@ -289,6 +316,14 @@ export const acquireAndroidBackend = (
       }
       const installed = yield* installedHash(input.device.serial);
       if (installed !== manifest.sha256) {
+        if (installed !== null) {
+          yield* requireReplaceableHelper(
+            yield* adb(input.device.serial, [
+              "shell",
+              `pm list packages --user 0 --show-versioncode ${androidHelperRelease.packageName}`,
+            ])
+          );
+        }
         const grant = input.installationGrant;
         if (
           grant?.serial !== input.device.serial ||
