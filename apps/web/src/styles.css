@@ -459,7 +459,12 @@
     > [data-slot="dock-status-slot"] {
       order: 2;
       flex: 1 1 0;
-      min-width: 0;
+      /*
+       * The labels plus the sentence's 12rem floor. Without it a long session
+       * name keeps the picker wide and the sentence paints under the actions;
+       * with it the picker is what shrinks.
+       */
+      min-width: min-content;
       border-inline-start: 1px solid var(--border);
       margin-inline-start: 0.25rem;
     }
