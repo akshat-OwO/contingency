@@ -43,9 +43,10 @@ export const checkAndroidStream = async (page, flags) => {
     await page.goto(`${origin}/?android=${encodeURIComponent(id)}`, {
       waitUntil: "load",
     });
+    // The canvas is visible only while it shows decoded frames; the status
+    // text is hidden then.
     await page
-      .getByRole("status")
-      .filter({ hasText: "Live device display" })
+      .getByRole("img", { exact: true, name: "Selected device live display" })
       .waitFor({ timeout: 60_000 });
     assert.ok(authorization?.startsWith("Bearer "));
     const headers = { authorization, origin };

@@ -6,6 +6,7 @@ import { Deferred, Effect, Exit, Fiber, Schema, Scope, Stream } from "effect";
 
 import {
   AndroidStreamPacket,
+  androidVisibilityState,
   androidWindowVisibility,
 } from "../../src/services/android-stream-contract.ts";
 import { acquireAndroidStream } from "../../src/services/android-stream.ts";
@@ -133,3 +134,68 @@ it("recognizes secure flags after other flags and ignores unfocused windows", ()
   expect(androidWindowVisibility("mCurrentFocus=null")).toBe("unknown");
   expect(androidWindowVisibility(windows(""))).toBe("unknown");
 });
+
+it("hides frames for unknown visibility without reporting the stream lost", () => {
+  expect(androidVisibilityState("unknown")).toBe("connecting");
+  expect(androidVisibilityState("visible")).toBe("connecting");
+  expect(androidVisibilityState("secure")).toBe("secure");
+});
+
+it.effect(
+  "keeps a viewer connected while visibility is unknown and resumes at a keyframe",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* unknownVisibility() {
+        const scope = yield* Scope.make();
+        const started = yield* Deferred.make<true>();
+        const resumed = yield* Deferred.make<true>();
+        const child = new ChildProcess();
+        const output = new PassThrough();
+        child.stdout = output;
+        child.kill = () => {
+          Object.defineProperty(child, "exitCode", { value: 0 });
+          child.emit("close", 0, null);
+          return true;
+        };
+        const stream = yield* acquireAndroidStream(
+          "agent-unknown",
+          device,
+          scope,
+          () => {
+            Deferred.doneUnsafe(started, Effect.succeed(true));
+            return child;
+          },
+          () => Effect.void
+        );
+        const received: AndroidStreamPacket[] = [];
+        const viewer = yield* Stream.runForEach(stream.frames, (bytes) =>
+          Effect.gen(function* receive() {
+            const packet = parse(Buffer.from(bytes).toString("utf-8").trim());
+            received.push(packet);
+            if (
+              packet._tag === "frame" &&
+              received.filter((item) => item._tag === "frame").length === 2
+            ) {
+              yield* Deferred.succeed(resumed, true);
+            }
+          })
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(started).pipe(Effect.timeout("30 seconds"));
+        const unknown = {
+          _tag: "state",
+          state: androidVisibilityState("unknown"),
+        } as const;
+        yield* Effect.sync(() => {
+          output.write(
+            [frame(true), unknown, frame(false), frame(true)]
+              .map((packet) => `${JSON.stringify(packet)}\n`)
+              .join("")
+          );
+        });
+        yield* Deferred.await(resumed).pipe(Effect.timeout("30 seconds"));
+        expect(received.slice(1)).toEqual([frame(true), unknown, frame(true)]);
+        yield* Scope.close(scope, Exit.void);
+        yield* Fiber.join(viewer);
+      })
+    )
+);

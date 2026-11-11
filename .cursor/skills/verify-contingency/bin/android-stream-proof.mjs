@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -93,6 +94,18 @@ const wait = (name, role = "button") =>
     role,
     "--name",
     name,
+    "--timeout-ms",
+    "60000"
+  );
+// The canvas is visible only while it shows decoded frames.
+const liveDisplay = () =>
+  control(
+    "browser",
+    "wait",
+    "--role",
+    "img",
+    "--name",
+    "Selected device live display",
     "--timeout-ms",
     "60000"
   );
@@ -254,14 +267,7 @@ try {
   receipt.coverage.live = first;
   await snapshot("live");
   await androidPick(control, sessionId, "button", "Change screen");
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Live device display",
-    "--timeout-ms",
-    "60000"
-  );
+  await liveDisplay();
   const second = await check(first.frame);
   assert.notEqual(second.frame, first.frame);
   receipt.coverage.changedFrame = true;
@@ -272,63 +278,101 @@ try {
     control,
     "Record public stream changes; secure content must remain hidden."
   );
-  const { stdout: processes } = await execute("ps", [
-    "-axo",
-    "pid=,ppid=,command=",
-  ]);
-  const workers = processes.split("\n").flatMap((line) => {
-    const match = /^\s*(?<pid>\d+)\s+(?<parent>\d+)\s+(?<command>.+)$/u.exec(
-      line
-    )?.groups;
-    return match &&
-      match.command.includes("/android-stream-worker.js") &&
-      processes.split("\n").some((parent) => {
-        const owner = /^\s*(?<pid>\d+)\s+(?<parent>\d+)\s+/u.exec(
-          parent
-        )?.groups;
-        return (
-          owner &&
-          Number(owner.pid) === Number(match.parent) &&
-          Number(owner.parent) === instance.mcpPid
-        );
-      })
-      ? [Number(match.pid)]
-      : [];
-  });
+  const processTable = async () => {
+    const { stdout } = await execute("ps", ["-axo", "pid=,ppid=,command="]);
+    return stdout.split("\n").flatMap((line) => {
+      const match = /^\s*(?<pid>\d+)\s+(?<parent>\d+)\s+(?<command>.+)$/u.exec(
+        line
+      )?.groups;
+      return match
+        ? [
+            {
+              command: match.command,
+              parent: Number(match.parent),
+              pid: Number(match.pid),
+            },
+          ]
+        : [];
+    });
+  };
+  // Stream workers started by this instance's MCP server, never another one.
+  const streamWorkers = async () => {
+    const table = await processTable();
+    return table
+      .filter(
+        (row) =>
+          row.command.includes("/android-stream-worker.js") &&
+          table.some(
+            (owner) =>
+              owner.pid === row.parent && owner.parent === instance.mcpPid
+          )
+      )
+      .map((row) => row.pid);
+  };
+  const workers = await streamWorkers();
   assert.equal(
     workers.length,
     1,
     "One stream worker must belong to this MCP process"
   );
   process.kill(workers[0], "SIGKILL");
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Device stream lost.",
-    "--timeout-ms",
-    "60000"
-  );
-  await snapshot("stream-lost");
+  // The viewer reconnects on its own, and the server starts a fresh worker.
+  let replacement;
+  for (
+    let attempt = 0;
+    attempt < 60 && replacement === undefined;
+    attempt += 1
+  ) {
+    await delay(1000);
+    const current = await streamWorkers();
+    replacement = current.find((pid) => pid !== workers[0]);
+  }
+  assert.ok(replacement, "The viewer must reconnect to a fresh stream worker");
+  await liveDisplay();
+  await snapshot("reconnected");
   const stillRunning = await command({ _tag: "read", sessionId });
   assert.equal(stillRunning.phase, "running");
   assert.deepEqual(stillRunning.captureGaps, []);
   receipt.coverage.lossPreservesSession = {
     captureGaps: [],
-    inputUnavailableUntilReconnect: true,
     running: true,
   };
-  await click("Reconnect device stream");
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "Live device display",
-    "--timeout-ms",
-    "60000"
-  );
-  await snapshot("reconnected");
-  receipt.coverage.reconnect = true;
+  receipt.coverage.reconnect = { automatic: true };
+  // A stalled tab (for example under swap pressure) resumes to a burst of
+  // queued frames. Pause only this instance's driver browser and its children.
+  const table = await processTable();
+  const driver = new Set([instance.driverPid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const row of table) {
+      if (driver.has(row.parent) && !driver.has(row.pid)) {
+        driver.add(row.pid);
+        grew = true;
+      }
+    }
+  }
+  // A Chromium child may exit between listing and signalling; skip it.
+  const signalDriver = (name) => {
+    for (const pid of driver) {
+      try {
+        process.kill(pid, name);
+      } catch (error) {
+        if (
+          !(error instanceof Error && "code" in error && error.code === "ESRCH")
+        ) {
+          throw error;
+        }
+      }
+    }
+  };
+  try {
+    signalDriver("SIGSTOP");
+    await delay(10_000);
+  } finally {
+    signalDriver("SIGCONT");
+  }
+  await liveDisplay();
+  receipt.coverage.stallRecovers = { stalledSeconds: 10 };
   await androidPick(control, sessionId, "button", "Change screen");
   await snapshot("recorded-change");
   await androidPick(control, sessionId, "button", "Show secure window");
@@ -345,7 +389,9 @@ try {
     hidden: true,
     recovery: "Close session; no hidden canvas input",
   };
-  await click("Stop recording");
+  // A secure window pauses the session, so recording cannot be stopped.
+  const paused = await command({ _tag: "read", sessionId });
+  assert.equal(paused.phase, "paused");
   await wait("Close session");
   await androidIdle(control);
   await click("Close session");
