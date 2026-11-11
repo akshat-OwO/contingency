@@ -703,6 +703,7 @@ The proof installs only the disposable fixture, clears it before each permission
 - No live Workspace has a header band. Do not wait for `link Workspace` or a `Workspace` heading on `/` with no session or on any live session; wait for the `Workspace dock` region instead.
 - The action timeline is no longer rendered anywhere in Workspace. Assert it through `agent_session_get`.
 - Inspect hit-tests the live Page independently of the snapshot node budget. A stale outline means the Page moved, not that the click missed; re-hover rather than clicking the canvas as if it were the DOM.
+- A Teaching click resolves its target through the same hit test as Inspect, and the tree recorded beside it always holds that control. For the same Page state and point, the Timeline description's role and name match Inspect's outline label.
 - Empty means the current `web` or `mcp` process owns zero sessions.
 - A bad `?session=` value names a session that the current process does not own. With no replacement, the notice names the server process. With a live replacement, the URL adopts its id and the dock stays available.
 - Closing Workspace does not pause a real session.

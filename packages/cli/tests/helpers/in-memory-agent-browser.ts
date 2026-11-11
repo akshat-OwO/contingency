@@ -10,7 +10,7 @@ import type {
   AgentBrowserSnapshot,
   AgentSnapshotNode,
 } from "@contingency/protocol";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type {
@@ -255,6 +255,14 @@ export const makeInMemoryAgentBrowser = (input: {
           }))
         ),
       perform,
+      pointedSnapshot: (x, y) =>
+        Effect.gen(function* readPointedFakeSnapshot() {
+          const target = yield* Effect.result(tab.inspect(x, y));
+          return {
+            snapshot: yield* snapshot(),
+            target: Result.isSuccess(target) ? target.success : undefined,
+          };
+        }),
       screenshot: () =>
         Effect.fail(
           makeBrowserRpcError(
@@ -290,7 +298,6 @@ export const makeInMemoryAgentBrowser = (input: {
           Effect.orElseSucceed(() => false)
         ),
       isSensitive: (ref) => resolve(ref).pipe(Effect.as(false)),
-      pointRef,
       privateSelector: (ref) =>
         resolve(ref).pipe(
           Effect.map((control) => ({

@@ -41,6 +41,16 @@ export interface AgentElementBounds {
   readonly ref: AgentElementRef;
 }
 
+/**
+ * The tree read beside a click, and the control in it the click's point hits,
+ * resolved by the same hit test as Inspect. `target` is unset when no control
+ * is under the point.
+ */
+export interface AgentPointedSnapshot {
+  readonly snapshot: AgentBrowserSnapshot;
+  readonly target: AgentElementBounds | undefined;
+}
+
 /** Where the agent's cursor lands, reported before the action it precedes. */
 export type AgentPointerSink = (
   pointer: Pick<BrowserAgentPointer, "action" | "x" | "y">
@@ -73,6 +83,10 @@ export interface AgentBrowserTab {
     x: number,
     y: number
   ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
+  readonly pointedSnapshot: (
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentPointedSnapshot, BrowserRpcErrorType>;
   readonly beginObservation: (
     action: AgentBrowserAction
   ) => Effect.Effect<AgentBrowserObservation, BrowserRpcErrorType>;
@@ -122,10 +136,6 @@ export interface AgentBrowser {
     ref: string,
     segmentCount?: number
   ) => Effect.Effect<PrivateInputTarget, BrowserRpcErrorType>;
-  readonly pointRef: (
-    x: number,
-    y: number
-  ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
   readonly hasFocus: (ref: string) => Effect.Effect<boolean>;
   readonly currentRef: (
     ref: string

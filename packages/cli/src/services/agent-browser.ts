@@ -34,6 +34,7 @@ import type {
 
 import type {
   AgentElementBounds,
+  AgentPointedSnapshot,
   AgentPointerSink,
   PrivateInputTarget,
 } from "./agent-browser-contract.ts";
@@ -812,7 +813,10 @@ interface SnapshotRequest {
  *
  * The script evaluates to a function of the elements earlier Snapshots already
  * named. Each node reports the index of its element among them, so a control
- * read twice keeps the reference it was first given.
+ * read twice keeps the reference it was first given. A full read also takes
+ * the elements it must include whatever its budget picks: the control a hit
+ * test resolved, and the frames that hold it, so the tree recorded beside a
+ * click resolves the reference the click names.
  */
 const SNAPSHOT_SCRIPT = ({
   handoffKey,
@@ -822,7 +826,7 @@ const SNAPSHOT_SCRIPT = ({
   point,
   selector,
   urls,
-}: SnapshotRequest) => `((known) => {${PAGE_READING_PRELUDE}
+}: SnapshotRequest) => `((known, required) => {${PAGE_READING_PRELUDE}
   // Click listeners and closed shadow roots arrive on a randomly named
   // document property that exists only until this read takes them.
   const handoffKey = ${JSON.stringify(handoffKey)};
@@ -1212,6 +1216,14 @@ const SNAPSHOT_SCRIPT = ({
   const candidates = point ? (picked ? [picked] : []) :
     eligible.slice(${offset}, ${offset} + ${limit});
   const included = new Set(candidates);
+  if (!point) {
+    for (const element of required) {
+      if (element?.nodeType === 1 && element.ownerDocument === document &&
+          element.isConnected) {
+        included.add(element);
+      }
+    }
+  }
   // The budget picks controls first, but the Snapshot is a tree read in
   // document order: \`depth\` counts included ancestors, and a reader walks
   // back from a node to find them. Out of order, a control's ancestors come
@@ -1488,7 +1500,10 @@ interface PageReading {
   readonly url: string;
 }
 
-type ReadPage = (known: readonly unknown[]) => PageReading;
+type ReadPage = (
+  known: readonly unknown[],
+  required: readonly unknown[]
+) => PageReading;
 
 const property = <A = unknown>(
   handle: JSHandle<unknown>,
@@ -1521,7 +1536,8 @@ const disposeHandles = (
 const evaluateSnapshot = (
   frame: Frame,
   request: SnapshotRequest,
-  known: readonly ElementHandle[]
+  known: readonly ElementHandle[],
+  required: readonly ElementHandle[]
 ): Effect.Effect<JSHandle<PageReading>, BrowserRpcErrorType> =>
   Effect.tryPromise({
     catch: (cause) => browserFailure("Could not read the Page", cause),
@@ -1531,8 +1547,8 @@ const evaluateSnapshot = (
       );
       try {
         return await read.evaluateHandle(
-          (collect, elements) => collect(elements),
-          [...known]
+          (collect, [elements, include]) => collect(elements, include),
+          [[...known], [...required]] as const
         );
       } finally {
         await read.dispose().catch(ignoreDisposeFailure);
@@ -1563,10 +1579,11 @@ interface CollectedDocument {
 const collectDocument = (
   frame: Frame,
   request: SnapshotRequest,
-  known: readonly ElementHandle[]
+  known: readonly ElementHandle[],
+  required: readonly ElementHandle[] = []
 ): Effect.Effect<CollectedDocument, BrowserRpcErrorType> =>
   Effect.acquireUseRelease(
-    evaluateSnapshot(frame, request, known),
+    evaluateSnapshot(frame, request, known, required),
     (handle) =>
       Effect.gen(function* readCollectedPage() {
         const nodesHandle = yield* property(handle, "nodes");
@@ -1690,14 +1707,10 @@ export interface AgentElementRegistry {
     ref: string,
     segmentCount?: number
   ) => Effect.Effect<PrivateInputTarget, BrowserRpcErrorType>;
-  /** Resolve viewport coordinates through the most recent Snapshot. */
-  readonly pointRef: (
-    x: number,
-    y: number
-  ) => Effect.Effect<AgentElementRef, BrowserRpcErrorType>;
   /**
-   * The same resolution with the bounds the Snapshot read, so a caller can
-   * outline the element it hit rather than guess at where it sits.
+   * Resolve viewport coordinates among the most recent Snapshot's elements,
+   * with the bounds it read, so a caller can outline the element it hit
+   * rather than guess at where it sits.
    */
   readonly pointElement: (
     x: number,
@@ -1734,6 +1747,16 @@ export interface AgentElementRegistry {
     x: number,
     y: number
   ) => Effect.Effect<AgentElementBounds, BrowserRpcErrorType>;
+  /**
+   * A full Snapshot with the control Inspect's hit test finds under the point
+   * read into it, whatever the budget leaves out. The target is unset when no
+   * control is there.
+   */
+  readonly pointedSnapshot: (
+    page: Page,
+    x: number,
+    y: number
+  ) => Effect.Effect<AgentPointedSnapshot, BrowserRpcErrorType>;
   /**
    * Whether two references, minted by the same or different Snapshots, name
    * one live element. A Snapshot keeps an element's reference, but a
@@ -2076,7 +2099,8 @@ export const makeAgentElementRegistry = (
     request: Pick<SnapshotRequest, "handoffKey" | "interactive" | "urls">,
     budget: { remaining: number },
     point: { readonly x: number; readonly y: number } | undefined,
-    orphaned: JSHandle<unknown>[]
+    orphaned: JSHandle<unknown>[],
+    required: ReadonlyMap<Frame, readonly ElementHandle[]>
   ): Effect.Effect<PlacedDocument, BrowserRpcErrorType> =>
     Effect.gen(function* placeDocumentNodes() {
       const { identity, nodes: decoded } = collected;
@@ -2164,8 +2188,12 @@ export const makeAgentElementRegistry = (
       ];
       const contents = new Map<PlacedNode, readonly PlacedNode[]>();
       let omitted = 0;
+      // A frame holding a required element is read past the budget, as the
+      // element itself is.
+      const exhausted = (child: Frame) =>
+        point === undefined && budget.remaining <= 0 && !required.has(child);
       for (const { child, container, host: childHost, origin } of order) {
-        if (point === undefined && budget.remaining <= 0) {
+        if (exhausted(child)) {
           // Its size is unknown unread; it holds at least one node.
           omitted += 1;
           continue;
@@ -2192,7 +2220,8 @@ export const makeAgentElementRegistry = (
             childRefs.flatMap((ref) => {
               const handle = elements.get(ref);
               return handle === undefined ? [] : [handle];
-            })
+            }),
+            required.get(child)
           )
         );
         // A frame that navigates or detaches mid-read shows nothing yet; the
@@ -2215,7 +2244,8 @@ export const makeAgentElementRegistry = (
           request,
           budget,
           point,
-          orphaned
+          orphaned,
+          required
         );
         omitted += inner.omitted;
         contents.set(container, inner.nodes);
@@ -2234,10 +2264,58 @@ export const makeAgentElementRegistry = (
       };
     });
 
+  /**
+   * The elements a full read must include, by document: each referenced
+   * element in its own, and in every enclosing document the frame element
+   * that holds it, so the read reaches the element through its frames.
+   */
+  const requiredElements = (
+    include: readonly string[]
+  ): Effect.Effect<{
+    readonly byFrame: ReadonlyMap<Frame, readonly ElementHandle[]>;
+    readonly containers: readonly ElementHandle[];
+  }> =>
+    Effect.gen(function* collectRequiredElements() {
+      const byFrame = new Map<Frame, ElementHandle[]>();
+      const containers: ElementHandle[] = [];
+      const add = (frame: Frame, element: ElementHandle) => {
+        const listed = byFrame.get(frame);
+        if (listed === undefined) {
+          byFrame.set(frame, [element]);
+        } else if (!listed.includes(element)) {
+          listed.push(element);
+        }
+      };
+      for (const ref of include) {
+        const element = elements.get(ref);
+        const owner = frameOf.get(ref);
+        if (element === undefined || owner === undefined) {
+          continue;
+        }
+        add(owner, element);
+        for (
+          let frame = owner, parent = frame.parentFrame();
+          parent !== null;
+          frame = parent, parent = frame.parentFrame()
+        ) {
+          const container = yield* Effect.option(
+            Effect.tryPromise(() => frame.frameElement())
+          );
+          if (Option.isNone(container)) {
+            break;
+          }
+          containers.push(container.value);
+          add(parent, container.value);
+        }
+      }
+      return { byFrame, containers };
+    });
+
   const readSnapshot = (
     page: Page,
     options: AgentSnapshotOptions = {},
-    point?: { readonly x: number; readonly y: number }
+    point?: { readonly x: number; readonly y: number },
+    include: readonly string[] = []
   ): Effect.Effect<AgentBrowserSnapshot, BrowserRpcErrorType> =>
     Effect.gen(function* captureBrowserSnapshot() {
       const cursor = options.cursor ?? undefined;
@@ -2283,6 +2361,7 @@ export const makeAgentElementRegistry = (
         { concurrency: "unbounded", discard: true }
       );
       const orphaned: JSHandle<unknown>[] = [];
+      const required = yield* requiredElements(include);
       const read = yield* Effect.gen(function* readEveryDocument() {
         yield* Effect.tryPromise(() =>
           parkPageStructure(page, handoffKey)
@@ -2290,7 +2369,8 @@ export const makeAgentElementRegistry = (
         const collected = yield* collectDocument(
           main,
           { ...scope, handoffKey, limit: SNAPSHOT_LIMIT, offset, point },
-          knownHandles
+          knownHandles,
+          required.byFrame.get(main)
         );
         const { identity } = collected;
         const valid = yield* matchesContinuation(continuation, collected.guard);
@@ -2318,10 +2398,14 @@ export const makeAgentElementRegistry = (
           { handoffKey, interactive: scope.interactive, urls: scope.urls },
           { remaining: SNAPSHOT_LIMIT - topCount },
           point,
-          orphaned
+          orphaned,
+          required.byFrame
         );
         return { collected, identity, placed, topCount };
-      }).pipe(Effect.ensuring(removeHandoffs));
+      }).pipe(
+        Effect.ensuring(removeHandoffs),
+        Effect.ensuring(disposeHandles(required.containers))
+      );
       const { collected, identity, placed, topCount } = read;
       const nodes: AgentSnapshotNode[] = [];
       if (point === undefined) {
@@ -2704,17 +2788,41 @@ export const makeAgentElementRegistry = (
       );
     });
 
-  const pointRef = (
-    x: number,
-    y: number
-  ): Effect.Effect<AgentElementRef, BrowserRpcErrorType> =>
-    pointElement(x, y).pipe(Effect.map(({ ref }) => ref));
+  /**
+   * The one DOM hit test Inspect and Teaching share: read what the Page draws
+   * under the point, then choose among only those elements. A box search over
+   * a full Snapshot answers by geometry instead, so a landmark narrower than
+   * the control overflowing it, or a link drawn beneath another, wins a point
+   * the browser gives to something else.
+   */
+  const hitTest = (page: Page, x: number, y: number) =>
+    readSnapshot(page, {}, { x, y }).pipe(
+      Effect.flatMap(() => pointElement(x, y))
+    );
 
   const inspect = (page: Page, x: number, y: number) =>
+    reads.withPermit(hitTest(page, x, y));
+
+  const pointedSnapshot = (page: Page, x: number, y: number) =>
     reads.withPermit(
-      readSnapshot(page, {}, { x, y }).pipe(
-        Effect.flatMap(() => pointElement(x, y))
-      )
+      Effect.gen(function* readPointedSnapshot() {
+        const hit = yield* Effect.result(hitTest(page, x, y));
+        const located = Result.isSuccess(hit) ? hit.success : undefined;
+        const observed = yield* readSnapshot(
+          page,
+          {},
+          undefined,
+          located === undefined ? [] : [located.ref]
+        );
+        // A hit the tree could not read, such as one whose element left the
+        // Page between the two reads, names nothing the tree resolves.
+        const target =
+          located !== undefined &&
+          observed.nodes.some((node) => node.ref === located.ref)
+            ? located
+            : undefined;
+        return { snapshot: observed, target };
+      })
     );
 
   const sameElement = (left: string, right: string): Effect.Effect<boolean> =>
@@ -2820,7 +2928,7 @@ export const makeAgentElementRegistry = (
     inspect,
     isSensitive: (_ref) => Effect.succeed(false),
     pointElement,
-    pointRef,
+    pointedSnapshot,
     privateSelector,
     resolve,
     sameElement,

@@ -2,14 +2,12 @@
   {
     "category": "reference",
     "id": "wikipedia",
-    "url": "https://en.wikipedia.org/wiki/Web_browser",
-    "gap": "Teaching names the click on the transparent Main menu checkbox by its navigation landmark; Inspect hit-tests the button (#655)"
+    "url": "https://en.wikipedia.org/wiki/Web_browser"
   },
   {
     "category": "docs",
     "id": "mdn",
-    "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button",
-    "gap": "Teaching resolves the logo click by Snapshot rectangle and names a <base> link; Inspect hit-tests the light-DOM MDN logo (#655)"
+    "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button"
   },
   {
     "category": "news",

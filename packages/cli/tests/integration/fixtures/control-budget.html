@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Control budget</title>
+    <!--
+  More on-screen controls than one Browser Snapshot reads, all before the
+  Checkout button and the Embedded Frame in document order, so a full
+  Snapshot leaves both out. The button sits at left 10, top 400, 200 by 40;
+  the frame, holding one button, at left 260, top 400, 280 by 60.
+-->
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      #grid {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 640px;
+        display: flex;
+        flex-wrap: wrap;
+      }
+      #grid button {
+        width: 32px;
+        height: 18px;
+        padding: 0;
+        font-size: 8px;
+      }
+      iframe {
+        position: absolute;
+        left: 260px;
+        top: 400px;
+        width: 280px;
+        height: 60px;
+        border: 0;
+      }
+      #checkout {
+        position: absolute;
+        left: 10px;
+        top: 400px;
+        width: 200px;
+        height: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="grid"></div>
+    <button type="button" id="checkout">Checkout</button>
+    <iframe
+      title="Payment frame"
+      src="web-matrix-frame.html?label=Framed%20checkout"
+    ></iframe>
+    <script>
+      document.getElementById("grid").innerHTML = Array.from(
+        { length: 360 },
+        (_, index) => `<button type="button">b${index}</button>`
+      ).join("");
+    </script>
+  </body>
+</html>
