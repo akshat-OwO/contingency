@@ -1356,6 +1356,79 @@ it.live(
 );
 
 it.live(
+  "reads, inspects, and clicks controls reached through their labels",
+  () =>
+    Effect.gen(function* labelledControls() {
+      const fixtures = yield* fixtureServer;
+      const agent = yield* client;
+      const session = yield* startSession(
+        agent,
+        fixtures.url("label-clicks.html"),
+        "label-controls-start"
+      );
+      const before = yield* callTool("agent_browser_snapshot", {
+        sessionId: session.id,
+      });
+      // A native input hidden behind its visible label is still the control
+      // the label checks, and it is reachable there.
+      const promo = findNode(before.nodes, "checkbox", "Promo emails");
+      const pickup = findNode(before.nodes, "radio", "Store pickup");
+      expect([promo.blockedBy, pickup.blockedBy]).toEqual([
+        undefined,
+        undefined,
+      ]);
+      // The label is the control's name, not a second node beside it.
+      expect(
+        before.nodes.filter(({ name }) => name === "Promo emails")
+      ).toHaveLength(1);
+
+      const checked = yield* callTool("agent_browser_act", {
+        action: { ref: promo.ref, type: "click" },
+        operationId: OperationId.make("label-controls-promo"),
+        sessionId: session.id,
+      });
+      expect(
+        findNode(checked.snapshot.nodes, "checkbox", "Promo emails").checked
+      ).toBe(true);
+      const picked = yield* callTool("agent_browser_act", {
+        action: { ref: pickup.ref, type: "click" },
+        operationId: OperationId.make("label-controls-pickup"),
+        sessionId: session.id,
+      });
+      expect(
+        findNode(picked.snapshot.nodes, "radio", "Store pickup").checked
+      ).toBe(true);
+      const newsletter = yield* callTool("agent_browser_act", {
+        action: {
+          ref: findNode(before.nodes, "checkbox", "Newsletter").ref,
+          type: "click",
+        },
+        operationId: OperationId.make("label-controls-newsletter"),
+        sessionId: session.id,
+      });
+      expect(
+        findNode(newsletter.snapshot.nodes, "checkbox", "Newsletter").checked
+      ).toBe(true);
+      // Hovering a label in the Workspace outlines the control it checks; the
+      // space between the two outlines nothing.
+      const hovered = yield* agent("agent.browser.element.inspect", {
+        sessionId: session.id,
+        x: 200,
+        y: 80,
+      });
+      expect(hovered.element.description).toBe("checkbox: Newsletter");
+      const gap = yield* Effect.flip(
+        agent("agent.browser.element.inspect", {
+          sessionId: session.id,
+          x: 60,
+          y: 80,
+        })
+      );
+      expect(gap.message).toContain("contains that point");
+    }).pipe(Effect.scoped, Effect.provide(AgentBrowserLive))
+);
+
+it.live(
   "inspects live controls and bill text the latest snapshot did not read",
   () =>
     Effect.gen(function* inspectLargeCart() {

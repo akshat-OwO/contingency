@@ -29,10 +29,6 @@ const slot = (index: number) => ({
 const CONSENT_ACCEPT = { x: 450, y: 440 };
 const DIALOG_CONFIRM = { x: 750, y: 440 };
 
-/** Why a Browser Snapshot cannot name these controls yet. */
-const LABEL_GAP =
-  "a control's hit area excludes the label that activates it (#654)";
-
 /**
  * Each click and the name its Timeline description must carry. `null` marks
  * a target with no accessible name: its click must say it is unidentified
@@ -70,12 +66,7 @@ const WEB_MATRIX: readonly {
   { name: "Save draft", pattern: "div role=button", point: slot(5) },
   { name: "Add to wishlist", pattern: "icon-only button", point: slot(6) },
   { name: "Express shipping", pattern: "listbox option", point: slot(7) },
-  {
-    gap: LABEL_GAP,
-    name: "Gift wrap",
-    pattern: "checkbox via its label",
-    point: slot(8),
-  },
+  { name: "Gift wrap", pattern: "checkbox via its label", point: slot(8) },
   { name: "Shipping details", pattern: "details summary", point: slot(9) },
   { name: "Order history", pattern: "pushState link", point: slot(10) },
   { name: null, pattern: "canvas-drawn control", point: slot(11) },

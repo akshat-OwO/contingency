@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Label clicks</title>
+    <!--
+  Native controls reached through their labels, each at a fixed position so a
+  test clicks the same point a Workspace user would. Two 290px columns start
+  at left 10 and 330; rows are 40px tall, 50px apart, from top 10. Keep the
+  points in teaching-label-clicks.integration.test.ts in step with this page.
+-->
+    <style>
+      body {
+        margin: 0;
+        font:
+          16px system-ui,
+          sans-serif;
+      }
+      .at {
+        position: absolute;
+        box-sizing: border-box;
+        margin: 0;
+      }
+      label.at {
+        display: block;
+        height: 40px;
+        padding: 10px;
+        background: #f4f4f8;
+      }
+      input.at {
+        width: 16px;
+        height: 16px;
+      }
+      .wide {
+        width: 290px;
+      }
+      .sr-hidden {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        margin: 0;
+      }
+      iframe {
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Row 1: a label wrapping a radio; a for label whose checkbox is display:none -->
+    <label class="at wide" style="left: 10px; top: 10px"
+      ><input type="radio" name="shipping" /> Standard shipping</label
+    >
+    <input id="promo" type="checkbox" style="display: none" />
+    <label class="at wide" for="promo" style="left: 330px; top: 10px"
+      >Promo emails</label
+    >
+
+    <!-- Row 2: a checkbox and its for label, apart; a wrapped radio drawn at no size -->
+    <input
+      id="newsletter"
+      class="at"
+      type="checkbox"
+      style="left: 10px; top: 72px"
+    />
+    <label
+      class="at"
+      for="newsletter"
+      style="left: 110px; top: 60px; width: 190px"
+      >Newsletter</label
+    >
+    <label class="at wide" style="left: 330px; top: 60px"
+      ><input class="sr-hidden" type="radio" name="pickup" /> Store
+      pickup</label
+    >
+
+    <!-- Row 3: one checkbox with two labels; a label holding a details disclosure -->
+    <input
+      id="terms"
+      class="at"
+      type="checkbox"
+      style="left: 10px; top: 122px"
+    />
+    <label class="at" for="terms" style="left: 40px; top: 110px; width: 120px"
+      >Accept terms</label
+    >
+    <label class="at" for="terms" style="left: 180px; top: 110px; width: 120px"
+      >I agree</label
+    >
+    <label class="at wide" style="left: 330px; top: 110px"
+      ><input type="checkbox" /> Shipping notes
+      <details
+        style="
+          position: absolute;
+          right: 0;
+          top: 0;
+          width: 100px;
+          height: 40px;
+          background: #ddd;
+        "
+      ></details
+    ></label>
+
+    <!-- Row 4: a label half covered by an unnamed layer; a link inside a label -->
+    <input
+      id="note"
+      class="at"
+      type="checkbox"
+      style="left: 10px; top: 172px"
+    />
+    <label class="at" for="note" style="left: 40px; top: 160px; width: 260px"
+      >Gift note</label
+    >
+    <div
+      class="at"
+      style="
+        left: 170px;
+        top: 160px;
+        width: 130px;
+        height: 40px;
+        background: #fdd;
+        z-index: 1;
+      "
+    ></div>
+    <label class="at wide" style="left: 330px; top: 160px"
+      ><input type="checkbox" /> Agree to
+      <a
+        href="#policy"
+        onclick="event.preventDefault()"
+        style="
+          position: absolute;
+          right: 10px;
+          top: 10px;
+          width: 80px;
+          height: 20px;
+        "
+        >policy</a
+      ></label
+    >
+
+    <!-- Row 5: a for label inside an open shadow root; a label inside a frame -->
+    <open-consent
+      class="at wide"
+      style="left: 10px; top: 210px; height: 40px; display: block"
+    ></open-consent>
+    <iframe
+      class="at wide"
+      title="Updates frame"
+      src="label-clicks-frame.html"
+      onload="fetch('/label-frame-loaded').catch(() => {})"
+      style="left: 330px; top: 210px; height: 60px"
+    ></iframe>
+
+    <!-- Row 6: a wrapping label inside a closed shadow root -->
+    <closed-consent
+      class="at wide"
+      style="left: 10px; top: 280px; height: 40px; display: block"
+    ></closed-consent>
+
+    <script>
+      customElements.define(
+        "open-consent",
+        class extends HTMLElement {
+          connectedCallback() {
+            this.attachShadow({ mode: "open" }).innerHTML =
+              '<input id="consent" type="checkbox" style="position:absolute;left:0;top:12px;margin:0;width:16px;height:16px">' +
+              '<label for="consent" style="position:absolute;left:100px;top:0;width:190px;height:40px;box-sizing:border-box;padding:10px">Shadow consent</label>';
+          }
+        }
+      );
+      customElements.define(
+        "closed-consent",
+        class extends HTMLElement {
+          connectedCallback() {
+            this.attachShadow({ mode: "closed" }).innerHTML =
+              '<label style="display:block;height:40px;box-sizing:border-box;padding:10px"><input type="checkbox"> Closed consent</label>';
+          }
+        }
+      );
+    </script>
+  </body>
+</html>

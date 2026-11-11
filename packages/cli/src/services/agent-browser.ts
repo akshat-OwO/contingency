@@ -57,6 +57,20 @@ const SNAPSHOT_LIMIT = 300;
 const NAME_LIMIT = 160;
 
 /**
+ * How many label boxes one control's hit area keeps. A label wraps onto one
+ * box per line, and a control may have several labels.
+ */
+const LABEL_REGION_LIMIT = 8;
+
+/**
+ * Content inside a label that takes a click for itself rather than passing it
+ * to the labeled control: the elements Chromium skips label activation for.
+ */
+const LABEL_INTERACTIVE_CONTENT =
+  "a[href],audio[controls],button,details,embed,iframe,img[usemap]," +
+  "input:not([type='hidden']),label,select,textarea,video[controls]";
+
+/**
  * How many element references one Agent Session keeps alive at once. A long
  * journey takes many Browser Snapshots of one document, and every reference
  * holds a browser-side handle, so the oldest are released once past this.
@@ -451,6 +465,24 @@ const PAGE_READING_PRELUDE = `
     }
     return element.closest("label");
   };
+  // The rendered labels a user can click to reach a control. A click on one
+  // activates the control natively, so its boxes are the control's hit area
+  // too, each kept apart so the space between them stays empty.
+  const shownLabels = (element) =>
+    element.labels ? [...element.labels].filter((label) => isVisible(label)) : [];
+  const labelHitRegions = (element) =>
+    shownLabels(element)
+      .flatMap((label) => [...label.getClientRects()])
+      .filter((rect) => rect.width > 0 && rect.height > 0)
+      .slice(0, ${LABEL_REGION_LIMIT})
+      .map((rect) => ({ height: rect.height, width: rect.width, x: rect.x, y: rect.y }));
+  // A styled checkbox or radio often hides its native input and draws the
+  // visible label instead; the label still checks it. Unrelated hidden
+  // content has no rendered label and stays out of the Page.
+  const isLabelActivated = (element) =>
+    element.tagName === "INPUT" &&
+    (element.type === "checkbox" || element.type === "radio") &&
+    shownLabels(element).length > 0;
   // The accessible name computation's precedence, in the order a screen
   // reader applies it. \`placeholder\` is the last resort it is in the
   // standard, not the first thing a text field answers with: a control with a
@@ -527,6 +559,28 @@ const PAGE_READING_PRELUDE = `
           return { blocker: null, point: { x: x - rect.left, y: y - rect.top } };
         }
         hit ??= target;
+      }
+    }
+    // A control drawn by its label has no box of its own: it is reached
+    // wherever one of its labels is.
+    if (!keyboard && rect.width * rect.height === 0) {
+      for (const region of labelHitRegions(element)) {
+        const regionLeft = Math.max(0, region.x);
+        const regionTop = Math.max(0, region.y);
+        const regionRight = Math.min(innerWidth, region.x + region.width);
+        const regionBottom = Math.min(innerHeight, region.y + region.height);
+        if (regionRight <= regionLeft || regionBottom <= regionTop) {
+          continue;
+        }
+        for (const [dx, dy] of points) {
+          const x = regionLeft + (regionRight - regionLeft) * dx;
+          const y = regionTop + (regionBottom - regionTop) * dy;
+          const target = deepElementFromPoint(x, y);
+          if (target && [...element.labels].some((label) => containsDeep(label, target))) {
+            return { blocker: null, point: { x: x - rect.left, y: y - rect.top } };
+          }
+          hit ??= target;
+        }
       }
     }
     if (keyboard && !hit) return { blocker: null, point: null };
@@ -792,10 +846,18 @@ const SNAPSHOT_SCRIPT = ({
   const interactiveOnly = ${JSON.stringify(interactive)};
   const ancestors = [];
   if (point) {
+    // Under a label, the point reaches the control the label activates,
+    // unless it lands on interactive content the label holds.
+    let interactiveBelow = false;
     for (let element = deepElementFromPoint(point.x, point.y);
          element && element !== document.body && element !== document.documentElement;
          element = composedParent(element)) {
+      const control = element.tagName === "LABEL" ? element.control : null;
+      if (control && !interactiveBelow && !ancestors.includes(control)) {
+        ancestors.push(control);
+      }
       ancestors.push(element);
+      interactiveBelow ||= element.matches(${JSON.stringify(LABEL_INTERACTIVE_CONTENT)});
     }
   }
   const nativeClickTargets = new Set(
@@ -889,6 +951,8 @@ const SNAPSHOT_SCRIPT = ({
   const clickable = new Set();
   const access = new Map();
   const textual = [];
+  // Controls reached only through their labels: the native input is hidden.
+  const labelOnly = new Set();
   // Embedded Frames are read as their own documents (ADR 0075). Here each
   // one is the container its content is placed under; a hidden or empty
   // frame shows nothing, so it is left out as hidden elements are.
@@ -913,11 +977,14 @@ const SNAPSHOT_SCRIPT = ({
       nativeClickTargets.has(element) ||
       reactClickTargets.has(element) ||
       styleOf(element).cursor === "pointer";
-    if (
-      !(isControl || isContextual || hasOwnText || mayBeClickable) ||
-      !isVisible(element)
-    ) {
+    if (!(isControl || isContextual || hasOwnText || mayBeClickable)) {
       continue;
+    }
+    if (!isVisible(element)) {
+      if (!isControl || !isLabelActivated(element)) {
+        continue;
+      }
+      labelOnly.add(element);
     }
     if (isControl) {
       access.set(element, pointerAccess(element, false, takesText(element)));
@@ -1197,6 +1264,13 @@ const SNAPSHOT_SCRIPT = ({
       if (name === "") {
         node.bounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
       }
+      const labelRegions = labelHitRegions(element);
+      if (labelRegions.length > 0) {
+        node.labelRegions = labelRegions;
+      }
+      if (labelOnly.has(element)) {
+        node.labelOnly = true;
+      }
     }
     if (clickable.has(element)) {
       node.clickable = true;
@@ -1328,6 +1402,19 @@ const CollectedNodes = Schema.Array(
     height: Schema.Finite,
     interactive: Schema.optional(Schema.Boolean),
     known: Schema.Int,
+    /** The box is not the control's: only its labels reach it. */
+    labelOnly: Schema.optional(Schema.Boolean),
+    /** Each box of a rendered label that activates the control. */
+    labelRegions: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          height: Schema.Finite,
+          width: Schema.Finite,
+          x: Schema.Finite,
+          y: Schema.Finite,
+        })
+      )
+    ),
     name: Schema.String,
     role: Schema.String,
     url: Schema.optional(Schema.String),
@@ -1662,6 +1749,20 @@ export interface AgentElementRegistry {
   ) => Effect.Effect<string, BrowserRpcErrorType>;
 }
 
+/** A box in the Page's viewport. */
+interface PageRegion {
+  readonly height: number;
+  readonly width: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+const containsPoint = (region: PageRegion, x: number, y: number) =>
+  x >= region.x &&
+  x <= region.x + region.width &&
+  y >= region.y &&
+  y <= region.y + region.height;
+
 export const makeAgentElementRegistry = (
   now: () => Date = () => new Date()
 ): AgentElementRegistry => {
@@ -1677,6 +1778,12 @@ export const makeAgentElementRegistry = (
       /** Tree depth, so a control filling its container wins a shared box. */
       readonly depth: number;
       readonly height: number;
+      /** The boxes of the labels that activate the control, in Page coordinates. */
+      readonly labels: readonly PageRegion[];
+      /** Where the control's document starts in the Page's viewport. */
+      readonly origin: { readonly x: number; readonly y: number };
+      /** Whether the box itself is the control's: false when only labels reach it. */
+      readonly own: boolean;
       readonly width: number;
       readonly x: number;
       readonly y: number;
@@ -1924,6 +2031,8 @@ export const makeAgentElementRegistry = (
     /** The Embedded Frame's host, absent for the top-level document. */
     readonly host: string | undefined;
     readonly knownRef: string | undefined;
+    /** Where the node's document starts in the Page's viewport. */
+    readonly origin: { readonly x: number; readonly y: number };
     readonly node: Omit<
       (typeof CollectedNodes.Type)[number],
       "embeds" | "known"
@@ -1998,6 +2107,11 @@ export const makeAgentElementRegistry = (
                   y: rest.bounds.y + placement.y,
                 },
           depth: rest.depth + placement.depth,
+          labelRegions: rest.labelRegions?.map((region) => ({
+            ...region,
+            x: region.x + placement.x,
+            y: region.y + placement.y,
+          })),
           x: rest.x + placement.x,
           y: rest.y + placement.y,
         };
@@ -2019,6 +2133,7 @@ export const makeAgentElementRegistry = (
           host: childHost ?? host,
           knownRef: knownRefs[known],
           node,
+          origin: { x: placement.x, y: placement.y },
         };
         placed.push(container);
         if (position === identity.focusedIndex) {
@@ -2210,10 +2325,30 @@ export const makeAgentElementRegistry = (
         focused = undefined;
       }
       for (const entry of placed.nodes) {
-        const { height, url, width, x, y, bounds: box, ...node } = entry.node;
+        const {
+          height,
+          labelOnly,
+          labelRegions,
+          url,
+          width,
+          x,
+          y,
+          bounds: box,
+          ...node
+        } = entry.node;
         const ref = adopt(entry.knownRef, entry.element, orphaned);
         frameOf.set(ref, entry.frame);
-        bounds.set(ref, { depth: node.depth, generation, height, width, x, y });
+        bounds.set(ref, {
+          depth: node.depth,
+          generation,
+          height,
+          labels: labelRegions ?? [],
+          origin: entry.origin,
+          own: labelOnly !== true,
+          width,
+          x,
+          y,
+        });
         subjects.set(
           ref,
           entry.host === undefined
@@ -2416,49 +2551,129 @@ export const makeAgentElementRegistry = (
       }))
     );
 
+  /**
+   * Whether a point, in its document's viewport, lands on a label of the
+   * referenced control and nothing that takes the click for itself: a
+   * foreground layer, or interactive content inside the label. Label
+   * association is scoped to one tree, so the hit is read in the control's.
+   */
+  const activatesThroughLabel = (
+    ref: string,
+    x: number,
+    y: number
+  ): Effect.Effect<boolean> => {
+    const handle = elements.get(ref);
+    return handle === undefined
+      ? Effect.succeed(false)
+      : Effect.tryPromise(() =>
+          handle.evaluate(
+            (control, point) => {
+              if (!("labels" in control)) {
+                return false;
+              }
+              const { labels } = control;
+              const root = control.getRootNode();
+              if (
+                labels === null ||
+                labels === undefined ||
+                !("elementFromPoint" in root)
+              ) {
+                return false;
+              }
+              // A tree's hit is retargeted into it; a layer outside the tree
+              // answers as itself, which no label of this tree contains.
+              const hit = root.elementFromPoint(point.x, point.y);
+              const label = [...labels].find(
+                (candidate) => hit !== null && candidate.contains(hit)
+              );
+              if (label === undefined) {
+                return false;
+              }
+              for (
+                let node = hit;
+                node !== null && node !== label;
+                node = node.parentElement
+              ) {
+                if (node === control) {
+                  return true;
+                }
+                if (node.matches(point.interactive)) {
+                  return false;
+                }
+              }
+              return true;
+            },
+            { interactive: LABEL_INTERACTIVE_CONTENT, x, y }
+          )
+        ).pipe(Effect.orElseSucceed(() => false));
+  };
+
   const pointElement = (
     x: number,
     y: number
-  ): Effect.Effect<AgentElementBounds, BrowserRpcErrorType> => {
-    const matches = [...bounds].filter(
-      ([, rectangle]) =>
-        x >= rectangle.x &&
-        x <= rectangle.x + rectangle.width &&
-        y >= rectangle.y &&
-        y <= rectangle.y + rectangle.height
-    );
-    // References accumulate across Snapshots of one document, so a point can
-    // sit inside a box an earlier Snapshot read. Only the newest Snapshot's
-    // boxes still describe the Page, and only its nodes are listed in the tree
-    // a caller records beside the hit, so a reference from any other
-    // generation names a control that tree cannot resolve. A point the current
-    // Snapshot does not cover is a miss, not an older match.
-    const [closest] = matches
-      .filter(([, rectangle]) => rectangle.generation === generation)
-      // A button that fills its dialog or card shares the container's box;
-      // the deeper node is the control under the pointer.
-      .toSorted(
-        ([, left], [, right]) =>
-          left.width * left.height - right.width * right.height ||
-          right.depth - left.depth
-      );
-    return closest === undefined
-      ? Effect.fail(
-          makeBrowserRpcError(
-            "agent_element_stale",
-            "No control in the current Browser Snapshot contains that point."
-          )
-        )
-      : Effect.succeed({
+  ): Effect.Effect<AgentElementBounds, BrowserRpcErrorType> =>
+    Effect.gen(function* resolvePoint() {
+      // References accumulate across Snapshots of one document, so a point
+      // can sit inside a box an earlier Snapshot read. Only the newest
+      // Snapshot's boxes still describe the Page, and only its nodes are
+      // listed in the tree a caller records beside the hit, so a reference
+      // from any other generation names a control that tree cannot resolve. A
+      // point the current Snapshot does not cover is a miss, not an older
+      // match.
+      const candidates = [...bounds]
+        .flatMap(([ref, box]) => {
+          if (box.generation !== generation) {
+            return [];
+          }
+          if (box.own && containsPoint(box, x, y)) {
+            return [{ box, ref, region: box, viaLabel: false }];
+          }
+          const region = box.labels.find((label) => containsPoint(label, x, y));
+          return region === undefined
+            ? []
+            : [{ box, ref, region, viaLabel: true }];
+        })
+        // A button that fills its dialog or card shares the container's box;
+        // the deeper node is the control under the pointer. A label that is
+        // itself clickable shares its box with the control it activates, and
+        // the control is what the click reaches.
+        .toSorted(
+          (left, right) =>
+            left.region.width * left.region.height -
+              right.region.width * right.region.height ||
+            Number(right.viaLabel) - Number(left.viaLabel) ||
+            right.box.depth - left.box.depth
+        );
+      for (const { box, ref, region, viaLabel } of candidates) {
+        // A label box is only geometry: what is drawn there decides whether
+        // the click reaches the label's control or something in front of it.
+        if (
+          viaLabel &&
+          !(yield* activatesThroughLabel(
+            ref,
+            x - box.origin.x,
+            y - box.origin.y
+          ))
+        ) {
+          continue;
+        }
+        return {
           rectangle: {
-            height: closest[1].height,
-            width: closest[1].width,
-            x: closest[1].x,
-            y: closest[1].y,
+            height: region.height,
+            width: region.width,
+            x: region.x,
+            y: region.y,
           },
-          ref: AgentElementRef.make(closest[0]),
-        });
-  };
+          ref: AgentElementRef.make(ref),
+        };
+      }
+      return yield* Effect.fail(
+        makeBrowserRpcError(
+          "agent_element_stale",
+          "No control in the current Browser Snapshot contains that point."
+        )
+      );
+    });
 
   const pointRef = (
     x: number,
@@ -3294,6 +3509,26 @@ const pointerActionOptions = (
   return { position, timeout: ACTION_TIMEOUT_MS };
 };
 
+/**
+ * The label a click goes through when the control has no box of its own: a
+ * styled checkbox or radio whose native input is hidden. Anything with a box
+ * is clicked itself.
+ */
+const labelStandIn = (element: ElementHandle) =>
+  element.evaluateHandle((control) => {
+    const box = control.getBoundingClientRect();
+    if (box.width * box.height > 0 || !("labels" in control)) {
+      return null;
+    }
+    const { labels } = control;
+    if (labels === null || labels === undefined) {
+      return null;
+    }
+    return (
+      [...labels].find((label) => label.getClientRects().length > 0) ?? null
+    );
+  });
+
 /** Use the associated label when it owns the observed pointer hit. */
 const clickReachableControl = async (
   element: ElementHandle,
@@ -3319,23 +3554,26 @@ const clickReachableControl = async (
     if (target === null) {
       return await element.click(pointerActionOptions(position));
     }
-    const [box, labelBox] = await Promise.all([
-      element.boundingBox(),
-      target.boundingBox(),
-    ]);
-    if (box === null || labelBox === null || position === undefined) {
+    if (position === undefined) {
       throw new BrowserInputRefusedError(
         "detached",
         "The associated label left the viewport."
       );
     }
-    await target.click({
-      position: {
-        x: box.x + position.x - labelBox.x,
-        y: box.y + position.y - labelBox.y,
+    // Read in the Page: a control drawn by its label has no layout box for
+    // Playwright to measure.
+    const offset = await element.evaluate(
+      (control, [labelElement, point]) => {
+        const box = control.getBoundingClientRect();
+        const labelBox = labelElement.getBoundingClientRect();
+        return {
+          x: box.x + point.x - labelBox.x,
+          y: box.y + point.y - labelBox.y,
+        };
       },
-      timeout: ACTION_TIMEOUT_MS,
-    });
+      [target, position] as const
+    );
+    await target.click({ position: offset, timeout: ACTION_TIMEOUT_MS });
   } finally {
     await label.dispose();
   }
@@ -3467,11 +3705,9 @@ const guardFocusedInput = (page: Page, key: string) =>
         (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
       );
 
-/** Resolve a reference and act on the element it still names, or fail. */
-const onElement = <Success>(
-  page: Page,
-  registry: AgentElementRegistry,
-  ref: string,
+/** Bring one element into reach, point at it, and act on it. */
+const reachElement = <Success>(
+  element: ElementHandle,
   description: string,
   pointer: ElementPointer,
   operation: (
@@ -3479,8 +3715,7 @@ const onElement = <Success>(
     position: { readonly x: number; readonly y: number } | undefined
   ) => Promise<Success>
 ): Effect.Effect<void, BrowserRpcErrorType> =>
-  Effect.gen(function* reachSnapshotTarget() {
-    const element = yield* registry.resolve(ref);
+  Effect.gen(function* reachResolvedTarget() {
     let position = yield* attempt(description, () =>
       reachablePosition(element, pointer.keyboard)
     );
@@ -3503,6 +3738,34 @@ const onElement = <Success>(
     yield* attempt(description, () =>
       operation(element, position ?? undefined)
     );
+  });
+
+/** Resolve a reference and act on the element it still names, or fail. */
+const onElement = <Success>(
+  page: Page,
+  registry: AgentElementRegistry,
+  ref: string,
+  description: string,
+  pointer: ElementPointer,
+  operation: (
+    element: ElementHandle,
+    position: { readonly x: number; readonly y: number } | undefined
+  ) => Promise<Success>,
+  /** Another element that stands in for the target, such as its label. */
+  standIn?: (element: ElementHandle) => Promise<JSHandle>
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* reachSnapshotTarget() {
+    const target = yield* registry.resolve(ref);
+    if (standIn === undefined) {
+      return yield* reachElement(target, description, pointer, operation);
+    }
+    const proxy = yield* attempt(description, () => standIn(target));
+    return yield* reachElement(
+      proxy.asElement() ?? target,
+      description,
+      pointer,
+      operation
+    ).pipe(Effect.ensuring(disposeHandles([proxy])));
   });
 
 const unreachableAction = (action: never): never => {
@@ -3555,7 +3818,8 @@ export const performAgentAction = (
         action.ref,
         `Could not click ${action.ref}`,
         { action: "click", reveal: "scroll", sink: pointer },
-        (element, position) => clickReachableControl(element, position)
+        (element, position) => clickReachableControl(element, position),
+        labelStandIn
       );
     }
     case "hover": {
