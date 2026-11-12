@@ -300,7 +300,10 @@ test("uploads an .apk as the Target App and opens Teaching with its temporary co
         appId: "dev.shop",
       }),
       outcomes: [],
-      setup: expect.objectContaining({ activity: "dev.shop/.Main", conditions: [] }),
+      setup: expect.objectContaining({
+        activity: "dev.shop/.Main",
+        conditions: [],
+      }),
     })
   );
   // The session owns the upload now; it is not discarded here.

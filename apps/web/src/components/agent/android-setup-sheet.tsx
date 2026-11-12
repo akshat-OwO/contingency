@@ -51,13 +51,13 @@ import {
 } from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
+import { NativeOptionalSteps } from "./native-optional-steps";
 import {
   BuildPicker,
   UploadedBuild,
   useBuildUpload,
 } from "./target-app-upload";
 import type { BuildUploadState } from "./target-app-upload";
-import { NativeOptionalSteps } from "./native-optional-steps";
 import { WorkspacePlatformSwitcher } from "./workspace-platform";
 
 /** Roles agent-device reports that a person can name on a screen. */
@@ -638,7 +638,10 @@ const setupSelection = ({
     appBuild: app.versionCode,
     appId: app.package,
     permissions,
-    startingState: start.name === "" ? "Restart the Target App" : `${start.role} ${start.name} is visible`,
+    startingState:
+      start.name === ""
+        ? "Restart the Target App"
+        : `${start.role} ${start.name} is visible`,
   },
   helperConsent: "auto",
   outcomes: outcome.name === "" ? [] : [outcome],
