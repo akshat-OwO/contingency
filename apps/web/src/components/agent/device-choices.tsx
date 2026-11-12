@@ -47,7 +47,13 @@ export const useDeviceStarts = (
       owned.clear();
     };
   }, []);
+  // Synchronous, so a second click before the re-render sends no second boot.
+  const inFlight = useRef(new Set<string>());
   const startDevice = (bootId: string) => {
+    if (inFlight.current.has(bootId)) {
+      return;
+    }
+    inFlight.current.add(bootId);
     setStarts((current) => ({ ...current, [bootId]: { _tag: "starting" } }));
     const fiber = Effect.runFork(
       start(bootId).pipe(
@@ -76,7 +82,10 @@ export const useDeviceStarts = (
       )
     );
     fibers.current.add(fiber);
-    fiber.addObserver(() => fibers.current.delete(fiber));
+    fiber.addObserver(() => {
+      fibers.current.delete(fiber);
+      inFlight.current.delete(bootId);
+    });
   };
   return { startDevice, starts };
 };

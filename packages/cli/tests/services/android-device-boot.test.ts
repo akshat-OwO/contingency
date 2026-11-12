@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import {
   emulatorExitReason,
@@ -18,6 +19,7 @@ const failure = <A, E extends { readonly code: string }>(
 const host = (options: {
   readonly launched: string[];
   readonly running: () => boolean;
+  readonly completed?: () => boolean;
   readonly exited?: Effect.Effect<string>;
 }): AndroidBootHost => ({
   adb: (args) =>
@@ -32,7 +34,7 @@ const host = (options: {
         return "Pixel_9\nOK";
       }
       if (command === "-s emulator-5554 shell getprop sys.boot_completed") {
-        return "1";
+        return (options.completed?.() ?? true) ? "1" : "";
       }
       return "";
     }),
@@ -115,3 +117,40 @@ it("reads the last error line from the emulator log", () => {
     "The emulator exited before it finished starting."
   );
 });
+
+it.effect(
+  "waits on an emulator that is still booting instead of launching another",
+  () =>
+    Effect.gen(function* stillBooting() {
+      const launched: string[] = [];
+      let completed = false;
+      const boot = makeAndroidDeviceBoot(
+        host({ completed: () => completed, launched, running: () => true }),
+        { interval: "1 second" }
+      );
+      const waiting = yield* Effect.forkChild(boot.boot("Pixel_9"));
+      yield* Effect.yieldNow;
+      completed = true;
+      // it.effect provides TestClock, so this advances the readiness interval.
+      yield* TestClock.adjust("1 second");
+      expect(yield* Fiber.join(waiting)).toBe("emulator-5554");
+      expect(launched).toEqual([]);
+    })
+);
+
+it.effect("shares one launch between overlapping starts of the same AVD", () =>
+  Effect.gen(function* overlapping() {
+    const launched: string[] = [];
+    const exit = yield* Deferred.make<string>();
+    const boot = makeAndroidDeviceBoot(
+      host({ exited: Deferred.await(exit), launched, running: () => false })
+    );
+    const first = yield* Effect.forkChild(Effect.flip(boot.boot("Pixel_9")));
+    const second = yield* Effect.forkChild(Effect.flip(boot.boot("Pixel_9")));
+    yield* Effect.yieldNow;
+    yield* Deferred.succeed(exit, "Missing system image");
+    expect((yield* Fiber.join(first)).message).toBe("Missing system image");
+    expect((yield* Fiber.join(second)).message).toBe("Missing system image");
+    expect(launched).toEqual(["Pixel_9"]);
+  })
+);

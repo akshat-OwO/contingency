@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 import type { Duration } from "effect";
-import { Effect } from "effect";
+import { Effect, Fiber, Semaphore } from "effect";
 
 import { androidDiscoveryHost } from "./android-discovery.ts";
 import type { AndroidDiscoveryError } from "./android-discovery.ts";
@@ -130,46 +130,77 @@ export const makeAndroidDeviceBoot = (
     readonly timeout?: Duration.Input;
   } = {}
 ) => {
-  /** The serial of the running emulator for this AVD once it has booted. */
-  const booted = (avd: string) =>
-    Effect.gen(function* readBooted() {
+  /**
+   * The emulator already serving this AVD, in any adb state, and whether
+   * Android on it has finished booting. A starting emulator counts as present.
+   */
+  const present = (avd: string) =>
+    Effect.gen(function* readPresent() {
       const output = yield* io.adb(["devices"]);
       for (const line of output.split(/\r?\n/u).slice(1)) {
-        const [serial, state] = line.trim().split(/\s+/u);
-        if (
-          serial === undefined ||
-          !serial.startsWith("emulator-") ||
-          state !== "device"
-        ) {
+        const [serial] = line.trim().split(/\s+/u);
+        if (serial === undefined || !serial.startsWith("emulator-")) {
           continue;
         }
-        const name = (yield* io.adb(["-s", serial, "emu", "avd", "name"]))
-          .split(/\r?\n/u)[0]
-          ?.trim();
+        const name = yield* io.adb(["-s", serial, "emu", "avd", "name"]).pipe(
+          Effect.map((text) => text.split(/\r?\n/u)[0]?.trim()),
+          Effect.orElseSucceed(() => null)
+        );
         if (name !== avd) {
           continue;
         }
-        const completed = yield* io.adb([
-          "-s",
-          serial,
-          "shell",
-          "getprop",
-          "sys.boot_completed",
-        ]);
-        return completed.trim() === "1" ? serial : null;
+        const completed = yield* io
+          .adb(["-s", serial, "shell", "getprop", "sys.boot_completed"])
+          .pipe(Effect.orElseSucceed(() => ""));
+        return { booted: completed.trim() === "1", serial };
       }
       return null;
     }).pipe(Effect.orElseSucceed(() => null));
   const ready = (avd: string) =>
     Effect.gen(function* awaitBoot() {
       for (;;) {
-        const serial = yield* booted(avd);
-        if (serial !== null) {
-          return serial;
+        const found = yield* present(avd);
+        if (found?.booted === true) {
+          return found.serial;
         }
         yield* Effect.sleep(options.interval ?? "1 second");
       }
     });
+  /**
+   * Emulators this process launched that have not exited, by AVD. Each fiber
+   * completes with the emulator's exit reason, so every boot of that AVD
+   * shares one process and one wait.
+   */
+  const launches = new Map<string, Fiber.Fiber<string>>();
+  const launching = Semaphore.makeUnsafe(1);
+  /**
+   * Checks and launches under one permit, so overlapping starts of an AVD
+   * cannot both see it absent and both spawn an emulator.
+   */
+  const claim = (avd: string) =>
+    Semaphore.withPermits(
+      launching,
+      1
+    )(
+      Effect.gen(function* claimLaunch() {
+        const found = yield* present(avd);
+        if (found?.booted === true) {
+          return { serial: found.serial } as const;
+        }
+        const current = launches.get(avd);
+        if (found !== null || current !== undefined) {
+          return { launch: current } as const;
+        }
+        const launched = yield* io.launch(avd);
+        const started = yield* Effect.forkDetach(
+          launched.exited.pipe(
+            Effect.ensuring(Effect.sync(() => launches.delete(avd)))
+          )
+        );
+        launches.set(avd, started);
+        return { launch: started } as const;
+      })
+    );
   return {
     boot: (avd: string) =>
       Effect.gen(function* bootAvd() {
@@ -194,19 +225,22 @@ export const makeAndroidDeviceBoot = (
         if (!names.includes(avd)) {
           return yield* Effect.fail(unknown);
         }
-        const running = yield* booted(avd);
-        if (running !== null) {
-          return running;
+        const claimed = yield* claim(avd);
+        if ("serial" in claimed) {
+          return claimed.serial;
         }
-        const launched = yield* io.launch(avd);
-        return yield* Effect.raceFirst(
-          ready(avd),
-          launched.exited.pipe(
-            Effect.flatMap((reason) =>
-              Effect.fail(bootError("android_boot_failed", reason))
-            )
-          )
-        ).pipe(
+        // An emulator already starting, ours or not, is waited on, never
+        // launched again.
+        const { launch } = claimed;
+        const exited =
+          launch === undefined
+            ? Effect.never
+            : Fiber.join(launch).pipe(
+                Effect.flatMap((reason) =>
+                  Effect.fail(bootError("android_boot_failed", reason))
+                )
+              );
+        const serial = yield* Effect.raceFirst(ready(avd), exited).pipe(
           Effect.timeoutOrElse({
             duration: options.timeout ?? "4 minutes",
             orElse: () =>
@@ -218,6 +252,12 @@ export const makeAndroidDeviceBoot = (
               ),
           })
         );
+        // Booted: stop watching for an exit, which also removes its log.
+        const owned = launches.get(avd);
+        if (owned !== undefined) {
+          yield* Fiber.interrupt(owned);
+        }
+        return serial;
       }),
   };
 };
