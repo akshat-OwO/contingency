@@ -16,11 +16,10 @@ import { Atom, AsyncResult } from "effect/reactivity";
 import {
   CircleIcon,
   MessageSquareTextIcon,
-  MonitorIcon,
   SmartphoneIcon,
   SquareIcon,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   DockNotices,
@@ -33,7 +32,7 @@ import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
@@ -65,6 +64,8 @@ import {
   useWorkspaceGesture,
 } from "./workspace-gesture";
 import type { GestureRun } from "./workspace-gesture";
+import { WorkspacePlatformBar } from "./workspace-platform";
+import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 interface WorkspaceState {
   readonly session: AndroidWorkspaceSnapshot | null;
@@ -175,17 +176,16 @@ const glassText = (session: AndroidWorkspaceSnapshot) => {
 };
 
 export const AndroidEmptyState = ({
-  onBrowser,
   onOpen,
   onSelect,
   sessions,
 }: {
-  readonly onBrowser: () => void;
   readonly onOpen: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
   <main className="relative flex h-full min-h-0 flex-col">
+    <WorkspacePlatformBar />
     <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
       <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
         <div
@@ -217,10 +217,6 @@ export const AndroidEmptyState = ({
             <SmartphoneIcon />
             Open Android session
           </Button>
-          <Button onClick={onBrowser} size="lg" variant="outline">
-            <MonitorIcon />
-            Browser Workspace
-          </Button>
         </div>
       </section>
     </div>
@@ -240,37 +236,53 @@ const useAndroidSessionSync = (
   session: AndroidWorkspaceSnapshot | null,
   setState: SetState
 ) => {
+  const { runAndroidWorkspaceCommand } = useRpcDependencies();
   useEffect(() => {
+    // `new` asks for the empty Workspace, whatever was shown before.
+    if (requestedSessionId === NEW_NATIVE_SESSION) {
+      setState((current) =>
+        current.session === null ? current : { ...current, session: null }
+      );
+      return;
+    }
     if (
       requestedSessionId === undefined ||
       !Schema.is(AgentSessionId)(requestedSessionId)
     ) {
       return;
     }
+    // A read the route has moved past must not land: interrupting the fiber
+    // can lose the race with its completion.
+    let requested = true;
     const fiber = Effect.runFork(
       runAndroidWorkspaceCommand({
         _tag: "read",
         sessionId: requestedSessionId,
       }).pipe(
         Effect.tap((snapshot) =>
-          Effect.sync(() =>
-            setState((current) => applySnapshot(current, snapshot))
-          )
+          Effect.sync(() => {
+            if (requested) {
+              setState((current) => applySnapshot(current, snapshot));
+            }
+          })
         ),
         Effect.catchCause((failureCause) =>
-          Effect.sync(() =>
-            setState((current) => ({
-              ...current,
-              failure: Cause.pretty(failureCause),
-            }))
-          )
+          Effect.sync(() => {
+            if (requested) {
+              setState((current) => ({
+                ...current,
+                failure: Cause.pretty(failureCause),
+              }));
+            }
+          })
         )
       )
     );
     return () => {
+      requested = false;
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [requestedSessionId, setState]);
+  }, [requestedSessionId, runAndroidWorkspaceCommand, setState]);
   const id = session?.id;
   const running = session?.phase === "running";
   useEffect(() => {
@@ -281,12 +293,18 @@ const useAndroidSessionSync = (
       runAndroidWorkspaceCommand({ _tag: "read", sessionId: id }).pipe(
         Effect.tap((snapshot) =>
           Effect.sync(() =>
-            setState((current) => ({
-              ...current,
-              failure:
-                snapshot.phase === "paused" ? null : Cause.pretty(failureCause),
-              session: snapshot,
-            }))
+            setState((current) =>
+              current.session?.id === id
+                ? {
+                    ...current,
+                    failure:
+                      snapshot.phase === "paused"
+                        ? null
+                        : Cause.pretty(failureCause),
+                    session: snapshot,
+                  }
+                : current
+            )
           )
         ),
         Effect.ignore
@@ -313,7 +331,7 @@ const useAndroidSessionSync = (
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [id, running, setState]);
+  }, [id, running, runAndroidWorkspaceCommand, setState]);
 };
 
 /** The dock's controls row: navigation first, then the state's own actions. */
@@ -321,7 +339,6 @@ const AndroidDockControls = ({
   elements,
   instructing,
   mutate,
-  onBrowser,
   onInstruct,
   onNewSession,
   pending,
@@ -332,7 +349,6 @@ const AndroidDockControls = ({
   readonly elements: React.ReactNode;
   readonly instructing: boolean;
   readonly mutate: Mutate;
-  readonly onBrowser: () => void;
   readonly onInstruct: () => void;
   readonly onNewSession: () => void;
   readonly pending: boolean;
@@ -358,16 +374,6 @@ const AndroidDockControls = ({
       {showsFlowsEntry(androidFlowsSessionView(session)) ? (
         <FlowsDockButton />
       ) : null}
-      {/* The session name has its own row on a phone, so Browser stays. */}
-      <Button
-        aria-label="Browser Workspace"
-        onClick={onBrowser}
-        size="icon-sm"
-        title="Browser Workspace"
-        variant="ghost"
-      >
-        <MonitorIcon />
-      </Button>
       {/* An ended session has no screen to reach. */}
       {isLiveAndroidSession(session) ? elements : null}
       <DockSpacer />
@@ -564,7 +570,6 @@ type InputAction = Extract<
 export const AndroidSessionView = ({
   mutate,
   notices,
-  onBrowser,
   pending,
   run,
   session,
@@ -573,13 +578,13 @@ export const AndroidSessionView = ({
 }: {
   readonly mutate: Mutate;
   readonly notices: React.ReactNode;
-  readonly onBrowser: () => void;
   readonly pending: boolean;
   readonly run: (command: AndroidWorkspaceCommand) => GestureRun;
   readonly session: AndroidWorkspaceSnapshot;
   readonly setState: SetState;
   readonly state: WorkspaceState;
 }) => {
+  const { androidSessionsAtom } = useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
   const pick = useWorkspaceGesture(pickGestureAtom);
   const canAct =
@@ -620,11 +625,12 @@ export const AndroidSessionView = ({
     >
       <main
         className={cn(
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6",
-          // The dock grows over the stage; the device keeps clear of it.
+          // The platform switcher floats above the device, the dock below it.
+          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
+        <WorkspacePlatformBar />
         {notices}
         <AndroidDevice
           canAct={canAct}
@@ -719,7 +725,6 @@ export const AndroidSessionView = ({
             }
             instructing={state.instructing}
             mutate={mutate}
-            onBrowser={onBrowser}
             onInstruct={() =>
               setState((current) => ({
                 ...current,
@@ -755,11 +760,12 @@ export const AndroidSessionView = ({
  * device with nothing sent.
  */
 export const AndroidWorkspace = ({
+  onSessionChange,
   requestedSessionId,
-  onBrowser,
 }: {
+  /** Names the shown session, or `new`, in the route. */
+  readonly onSessionChange?: ((session: string) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
-  readonly onBrowser: () => void;
 }) => {
   const setChrome = useAtomSet(workspaceChromeAtom);
   useEffect(() => {
@@ -767,10 +773,31 @@ export const AndroidWorkspace = ({
     return () => setChrome(false);
   }, [setChrome]);
   const [state, setState] = useAtom(workspaceAtom);
+  const { androidSessionsAtom, runAndroidWorkspaceCommand } =
+    useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
   const refresh = useAtomRefresh(androidSessionsAtom);
   const gesture = useWorkspaceGesture(sessionStartGestureAtom);
   useAndroidSessionSync(requestedSessionId, state.session, setState);
+  // Which session the route names, read when a command settles.
+  const routeRef = useRef(requestedSessionId);
+  useEffect(() => {
+    routeRef.current = requestedSessionId;
+  }, [requestedSessionId]);
+  // A started, selected, or closed session takes the route, so a refresh
+  // reopens what the person was looking at.
+  const id = state.session?.id;
+  const shownId = useRef(id);
+  useEffect(() => {
+    if (shownId.current === id) {
+      return;
+    }
+    shownId.current = id;
+    // Starts, picks, and closes each change the shown session through a
+    // different command; the route follows the result rather than each one.
+    // oxlint-disable-next-line react-doctor/no-pass-data-to-parent
+    onSessionChange?.(id ?? NEW_NATIVE_SESSION);
+  }, [id, onSessionChange]);
   // A sent comment closes its composer only once it saves.
   const { instructionPending } = state;
   useEffect(() => {
@@ -783,17 +810,22 @@ export const AndroidWorkspace = ({
       instructionPending: false,
     }));
   }, [gesture.error, gesture.pending, instructionPending, setState]);
-  const run = (command: AndroidWorkspaceCommand): GestureRun =>
-    runAndroidWorkspaceCommand(command).pipe(
+  const run = (command: AndroidWorkspaceCommand): GestureRun => {
+    const route = routeRef.current;
+    return runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>
         Effect.sync(() => {
-          setState((current) => applySnapshot(current, session));
+          // The route moved on while this ran: it no longer shows the result.
+          if (routeRef.current === route || routeRef.current === session.id) {
+            setState((current) => applySnapshot(current, session));
+          }
           refresh();
         })
       ),
       Effect.mapError(message),
       Effect.asVoid
     );
+  };
   const mutate = (command: AndroidWorkspaceCommand) =>
     gesture.dispatch(run(command));
   const setupOpen = (open: boolean) =>
@@ -801,7 +833,8 @@ export const AndroidWorkspace = ({
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (
-      <DockNotices>
+      // Below the platform switcher, so the way back to Web stays reachable.
+      <DockNotices className="top-11">
         <Alert variant="destructive">
           <AlertTitle>The Android session did not answer</AlertTitle>
           <AlertDescription>{failure}</AlertDescription>
@@ -817,7 +850,6 @@ export const AndroidWorkspace = ({
           summary={undefined}
         >
           <AndroidEmptyState
-            onBrowser={onBrowser}
             onOpen={() => setupOpen(true)}
             onSelect={(value) => {
               if (Schema.is(AgentSessionId)(value)) {
@@ -832,7 +864,6 @@ export const AndroidWorkspace = ({
         <AndroidSessionView
           mutate={mutate}
           notices={notices}
-          onBrowser={onBrowser}
           pending={gesture.pending}
           run={run}
           session={state.session}

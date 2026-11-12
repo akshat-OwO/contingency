@@ -271,10 +271,17 @@ export const DockWordmark = () => (
  */
 export const DockNotices = ({
   children,
+  className,
 }: {
   readonly children: React.ReactNode;
+  readonly className?: string;
 }) => (
-  <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center p-3">
+  <div
+    className={cn(
+      "pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center p-3",
+      className
+    )}
+  >
     <div className="pointer-events-auto max-h-[60svh] w-full max-w-5xl space-y-2 overflow-y-auto">
       {children}
     </div>
