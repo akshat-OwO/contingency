@@ -16,6 +16,7 @@ const discovery = {
         versionName: "1",
       },
     ]),
+  boot: () => Effect.void,
   devices: Effect.succeed([
     {
       api: 36,
@@ -122,6 +123,7 @@ test("disables physical devices with their refusal reason before app discovery",
   render(
     <AndroidSetupSheet
       discovery={{
+        ...discovery,
         apps,
         devices: Effect.succeed([
           {
@@ -148,4 +150,90 @@ test("disables physical devices with their refusal reason before app discovery",
   expect(phone).toBeDisabled();
   expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
   expect(apps).not.toHaveBeenCalled();
+});
+
+test("starts a stopped emulator from its card and selects it once it boots", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  let booted = false;
+  const boot = vi.fn(() =>
+    Effect.sync(() => {
+      booted = true;
+    })
+  );
+  render(
+    <AndroidSetupSheet
+      discovery={{
+        ...discovery,
+        boot,
+        devices: Effect.sync(() => [
+          booted
+            ? emulator
+            : {
+                api: null,
+                avd: "Pixel_9",
+                fingerprint: null,
+                kind: "emulator" as const,
+                model: null,
+                release: null,
+                serial: "avd:Pixel_9",
+                state: "stopped" as const,
+              },
+        ]),
+      }}
+      open
+      onOpen={vi.fn()}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  expect(screen.queryByText(/Android Studio, then refresh/u)).toBeNull();
+  await user.click(
+    await screen.findByRole("button", { name: "Start Pixel_9" })
+  );
+  expect(boot).toHaveBeenCalledWith("Pixel_9");
+  // Discovery refreshes by itself; the one ready device is chosen.
+  expect(
+    await screen.findByRole("button", { name: /Pixel_9/u, pressed: true })
+  ).toBeEnabled();
+  expect(screen.getByRole("group", { name: "Target App" })).toBeEnabled();
+});
+
+test("keeps the sheet usable and shows why a start failed", async () => {
+  const user = userEvent.setup();
+  render(
+    <AndroidSetupSheet
+      discovery={{
+        ...discovery,
+        boot: () =>
+          Effect.fail({ message: "Missing system image for Pixel_9" }),
+        devices: Effect.succeed([
+          {
+            api: null,
+            avd: "Pixel_9",
+            fingerprint: null,
+            kind: "emulator",
+            model: null,
+            release: null,
+            serial: "avd:Pixel_9",
+            state: "stopped",
+          },
+        ]),
+      }}
+      open
+      onOpen={vi.fn()}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Start Pixel_9" })
+  );
+  expect(
+    await screen.findByText("Missing system image for Pixel_9")
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Try starting Pixel_9" })
+  ).toBeEnabled();
+  expect(screen.getByRole("textbox", { name: "Flow name" })).toBeEnabled();
 });

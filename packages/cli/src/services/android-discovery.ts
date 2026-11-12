@@ -167,7 +167,7 @@ const readApk = (serial: string, apk: string) =>
   );
 
 /** The only device commands here are reads, always bound to the explicit serial. */
-const discoveryHost = {
+export const androidDiscoveryHost = {
   adb: (args: readonly string[]) => host("adb", args),
   avds: () => {
     const sdk =
@@ -205,10 +205,10 @@ const appendStoppedAvds = (
 };
 export const makeAndroidDiscovery = (
   io: {
-    readonly adb: typeof discoveryHost.adb;
+    readonly adb: typeof androidDiscoveryHost.adb;
     readonly readApk: typeof readApk;
-    readonly avds?: typeof discoveryHost.avds;
-  } = discoveryHost
+    readonly avds?: typeof androidDiscoveryHost.avds;
+  } = androidDiscoveryHost
 ) => ({
   apps: (selection: AndroidDeviceSelection) =>
     Effect.gen(function* discoverApps() {

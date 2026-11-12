@@ -96,6 +96,14 @@ export const runIosWorkspaceCommand = (command: IosWorkspaceCommand) =>
       });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
+/** Boots an existing simulator; succeeds once it has booted. */
+export const bootIosSimulator = (udid: string) =>
+  Effect.scoped(
+    Effect.gen(function* iosBoot() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("ios.device.boot", { udid });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 /** The bundle id and build a built `.app` on this machine declares. */
 export const inspectIosApp = (path: string) =>
   Effect.scoped(
@@ -129,6 +137,14 @@ export const listAndroidDevices = Effect.scoped(
     return yield* client("android.devices.list", {});
   })
 ).pipe(Effect.provide(RpcProtocolLive));
+/** Boots an existing AVD; succeeds once Android has booted. */
+export const bootAndroidEmulator = (avd: string) =>
+  Effect.scoped(
+    Effect.gen(function* androidBoot() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("android.device.boot", { avd });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
 /** Launchable apps on one identified device, read without installing. */
 export const listAndroidApps = (device: AndroidWorkspaceSelection["device"]) =>
   Effect.scoped(

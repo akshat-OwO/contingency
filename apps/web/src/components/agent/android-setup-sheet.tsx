@@ -12,8 +12,6 @@ import {
   LoaderCircleIcon,
   RefreshCwIcon,
   SearchIcon,
-  SmartphoneIcon,
-  TabletSmartphoneIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -35,14 +33,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { listAndroidApps, listAndroidDevices } from "@/lib/rpc";
+import {
+  bootAndroidEmulator,
+  listAndroidApps,
+  listAndroidDevices,
+} from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import {
+  androidDeviceChoice,
   deviceRelease,
   selectable,
   unavailableReason,
 } from "./android-setup-state";
+import type { DeviceStart } from "./device-choice-state";
+import { DeviceChoices, useDeviceStarts } from "./device-choices";
 
 /** Roles agent-device reports that a person can name on a screen. */
 const ROLES = ["text", "group", "heading", "button", "image"] as const;
@@ -264,116 +269,20 @@ const useRead = <Value,>(
   return result;
 };
 
-const DeviceCard = ({
-  device,
-  onSelect,
-  selected,
-}: {
-  readonly device: AndroidDiscoveredDevice;
-  readonly onSelect: (serial: string) => void;
-  readonly selected: boolean;
-}) => {
-  const reason = unavailableReason(device);
-  const Icon =
-    device.kind === "physical" ? TabletSmartphoneIcon : SmartphoneIcon;
-  return (
-    <button
-      aria-pressed={selected}
-      className={cn(
-        "hover:bg-muted/50 min-w-0 rounded-lg border p-2.5 text-left transition-[background-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
-        selected && "border-primary ring-primary/20 ring-2"
-      )}
-      disabled={reason !== null}
-      onClick={() => onSelect(device.serial)}
-      type="button"
-    >
-      <span className="mb-1 flex items-center justify-between">
-        <Icon aria-hidden="true" className="size-4" />
-        <Badge variant="outline">
-          {device.kind === "physical" ? "Phone" : "Emulator"}
-        </Badge>
-      </span>
-      <span className="block truncate text-sm font-medium">
-        {device.kind === "physical"
-          ? (device.model ?? device.serial)
-          : (device.avd ?? device.serial)}
-      </span>
-      <span className="text-muted-foreground block text-xs">
-        {reason ?? `${device.serial} · API ${device.api}`}
-      </span>
-    </button>
-  );
-};
-
-/**
- * Devices that can be picked come first. The rest fold under a count, so a
- * list of stopped emulators never pushes the Target App off the first screen,
- * and each keeps its reason when opened.
- */
-const DeviceChoices = ({
-  devices,
-  onSelect,
-  selected,
-}: {
-  readonly devices: readonly AndroidDiscoveredDevice[];
-  readonly onSelect: (serial: string) => void;
-  readonly selected: string | null;
-}) => {
-  const ready = devices.filter((device) => unavailableReason(device) === null);
-  const unavailable = devices.filter(
-    (device) => unavailableReason(device) !== null
-  );
-  return (
-    <div className="space-y-2">
-      {ready.length === 0 ? (
-        <p className="text-muted-foreground text-xs">
-          No device is ready. Start an emulator or connect a phone, then
-          refresh.
-        </p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {ready.map((device) => (
-            <DeviceCard
-              device={device}
-              key={device.serial}
-              onSelect={onSelect}
-              selected={selected === device.serial}
-            />
-          ))}
-        </div>
-      )}
-      {unavailable.length === 0 ? null : (
-        <details className="group">
-          <summary className="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs">
-            {unavailable.length} unavailable{" "}
-            {unavailable.length === 1 ? "device" : "devices"}
-          </summary>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {unavailable.map((device) => (
-              <DeviceCard
-                device={device}
-                key={device.serial}
-                onSelect={onSelect}
-                selected={false}
-              />
-            ))}
-          </div>
-        </details>
-      )}
-    </div>
-  );
-};
-
 const DeviceStep = ({
   devices,
   onRefresh,
   onSelect,
+  onStart,
   selected,
+  starts,
 }: {
   readonly devices: Loaded<AndroidDiscoveredDevice>;
   readonly onRefresh: () => void;
   readonly onSelect: (serial: string) => void;
+  readonly onStart: (avd: string) => void;
   readonly selected: string | null;
+  readonly starts: Readonly<Record<string, DeviceStart>>;
 }) => (
   <div className="space-y-2">
     {devices._tag === "loading" ? (
@@ -395,9 +304,12 @@ const DeviceStep = ({
     ) : null}
     {devices._tag === "loaded" && devices.value.length > 0 ? (
       <DeviceChoices
-        devices={devices.value}
+        devices={devices.value.map(androidDeviceChoice)}
+        emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
         onSelect={onSelect}
+        onStart={onStart}
         selected={selected}
+        starts={starts}
       />
     ) : null}
     <Button onClick={onRefresh} size="xs" variant="ghost">
@@ -576,8 +488,15 @@ const selectedApp = (
     ? apps.value.find((entry) => entry.package === id)
     : undefined;
 
-const androidSetupDiscovery = {
+/** What the sheet reads from the host, and how it starts a stopped AVD. */
+interface AndroidSetupDiscovery {
+  readonly apps: typeof listAndroidApps;
+  readonly boot: (avd: string) => Effect.Effect<unknown, unknown>;
+  readonly devices: Effect.Effect<readonly AndroidDiscoveredDevice[], unknown>;
+}
+const androidSetupDiscovery: AndroidSetupDiscovery = {
   apps: listAndroidApps,
+  boot: bootAndroidEmulator,
   devices: listAndroidDevices,
 };
 
@@ -614,7 +533,7 @@ export const AndroidSetupSheet = ({
   open,
   pending,
 }: {
-  readonly discovery?: typeof androidSetupDiscovery;
+  readonly discovery?: AndroidSetupDiscovery;
   readonly onOpen: (
     flowName: FlowName,
     selection: AndroidWorkspaceSelection
@@ -630,6 +549,9 @@ export const AndroidSetupSheet = ({
   const devices = useRead(
     open ? discovery.devices : null,
     `${open}-${refresh}`
+  );
+  const { startDevice, starts } = useDeviceStarts(discovery.boot, () =>
+    setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
   const chosen = chosenSerial(listed, form.device);
@@ -706,6 +628,8 @@ export const AndroidSetupSheet = ({
               <DeviceStep
                 devices={devices}
                 onRefresh={() => setRefresh((value) => value + 1)}
+                onStart={startDevice}
+                starts={starts}
                 onSelect={(serial) =>
                   setForm((current) => ({
                     ...current,
