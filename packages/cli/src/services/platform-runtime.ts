@@ -95,6 +95,7 @@ export interface PlatformRuntimeError {
     | "device_stopped"
     | "device_disconnected"
     | "installation_denied"
+    | "app_installation_refused"
     | "installation_failed"
     | "helper_incompatible"
     | "helper_newer_installed"

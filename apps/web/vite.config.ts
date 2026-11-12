@@ -31,6 +31,8 @@ export default defineConfig({
       // this the player asks the dev server for `/runs/...`, gets the SPA's
       // index.html back, and reports an unplayable video.
       "/runs": { target: "http://127.0.0.1:7777" },
+      // Target App builds upload to the CLI, which keeps them for a session.
+      "/target-app-builds": { target: "http://127.0.0.1:7777" },
       "/ws": {
         target: "http://127.0.0.1:7777",
         ws: true,

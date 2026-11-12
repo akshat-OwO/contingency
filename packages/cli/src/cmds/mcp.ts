@@ -80,6 +80,7 @@ import {
   VIDEO_FAST_FORWARD_MODES,
 } from "../services/settings.ts";
 import { resolveSystemOne } from "../services/system-one-discovery.ts";
+import { TargetAppBuildsLive } from "../services/target-app-builds.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -410,10 +411,17 @@ export const mcpCommand = Command.make(
             )
           )
         );
+        // Uploaded Target App builds, shared by the upload routes and both
+        // device workspaces. Closing the process removes any left.
+        const targetAppBuilds = Layer.succeedContext(
+          yield* Layer.build(TargetAppBuildsLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
             makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
-              Layer.provide(Layer.merge(teachingRecordingStore, catalog))
+              Layer.provide(
+                Layer.mergeAll(teachingRecordingStore, catalog, targetAppBuilds)
+              )
             )
           )
         );
@@ -421,13 +429,18 @@ export const mcpCommand = Command.make(
           yield* Layer.build(
             makeIosWorkspaceLayer({
               root: () => selectedCatalogRoot,
-            }).pipe(Layer.provide(Layer.merge(teachingRecordingStore, catalog)))
+            }).pipe(
+              Layer.provide(
+                Layer.mergeAll(teachingRecordingStore, catalog, targetAppBuilds)
+              )
+            )
           )
         );
         const agentSession = Layer.mergeAll(
           browserSession,
           androidWorkspace,
-          iosWorkspace
+          iosWorkspace,
+          targetAppBuilds
         );
         const shared = Layer.mergeAll(
           agentSession,

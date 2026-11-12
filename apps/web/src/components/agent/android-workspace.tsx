@@ -873,18 +873,18 @@ export const AndroidWorkspace = ({
       )}
       <AndroidSetupSheet
         onOpen={(flowName: FlowName, selection) => {
-          if (
-            mutate({
-              _tag: "start",
-              flowName,
-              kind: "teaching",
-              operationId: operationId(),
-              recordingId: null,
-              selection,
-            })
-          ) {
+          const sent = mutate({
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: operationId(),
+            recordingId: null,
+            selection,
+          });
+          if (sent) {
             setupOpen(false);
           }
+          return sent;
         }}
         onOpenChange={setupOpen}
         open={state.setupOpen}

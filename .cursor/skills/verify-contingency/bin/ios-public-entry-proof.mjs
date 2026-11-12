@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { simulatorInventory } from "./ios-proof-resources.mjs";
-import { iosRpc } from "./ios-workspace-rpc.mjs";
+import { iosRpc, uploadIosApp } from "./ios-workspace-rpc.mjs";
 
 // A bounded post-listing journey supplements a complete pre-listing receipt.
 // It does not replace Teaching, learning, Dry Run, or verification evidence.
@@ -89,6 +89,7 @@ try {
     deviceType: device.deviceType,
     runtimeVersion: device.runtimeVersion,
   };
+  const upload = await uploadIosApp(instance.mcpUrl, appPath);
   const started = await call({
     _tag: "start",
     agentSetup: true,
@@ -97,7 +98,7 @@ try {
     operationId: operation(),
     recordingId: null,
     selection: {
-      appPath,
+      appPath: upload.appPath,
       device,
       environment: {
         build: "1",

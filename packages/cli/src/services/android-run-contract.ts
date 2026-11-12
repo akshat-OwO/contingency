@@ -55,4 +55,8 @@ export interface AndroidRunDriver {
   readonly start: (
     input: AndroidRunInput
   ) => Effect.Effect<AndroidPlatformRuntime, PlatformRuntimeError>;
+  /** The Target App build on the device, read before an installation decision. */
+  readonly installedBuild?: (
+    input: AndroidRunInput
+  ) => Effect.Effect<string | null, PlatformRuntimeError>;
 }

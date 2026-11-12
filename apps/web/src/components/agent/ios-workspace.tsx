@@ -1,11 +1,14 @@
 /* oxlint-disable eslint/no-await-in-loop -- Decode each transport packet in order and release its reader on cancellation. */
 import { AgentSessionId, FlowName, OperationId } from "@contingency/protocol";
 import type {
+  IosDeviceSelection,
+  IosInstalledApp,
   IosWorkspaceCommand,
   IosObservationRefusal,
   IosWorkspaceSnapshot,
   IosWorkspaceSelection,
   IosWorkspaceSummary,
+  UploadedIosApp,
 } from "@contingency/protocol";
 import {
   useAtom,
@@ -13,7 +16,7 @@ import {
   useAtomSet,
   useAtomRefresh,
 } from "@effect/atom-react";
-import { Effect, Fiber, Result, Schema } from "effect";
+import { Effect, Fiber, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
@@ -21,6 +24,7 @@ import {
   CircleSlashIcon,
   CornerDownLeftIcon,
   KeyRoundIcon,
+  LoaderCircleIcon,
   MessageSquareTextIcon,
   RefreshCwIcon,
   RotateCwIcon,
@@ -39,6 +43,7 @@ import {
 } from "@/components/agent/dock-request-parts";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,13 +61,16 @@ import {
 } from "@/components/ui/sheet";
 import {
   bootIosSimulator,
+  discardTargetAppBuild,
   iosDevicesAtom,
   iosSessionsAtom,
   iosEnabledAtom,
-  inspectIosApp,
   iosStreamAccess,
+  listIosApps,
   runIosWorkspaceCommand,
+  uploadIosApp,
 } from "@/lib/rpc";
+import type { AppBundleFile } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
@@ -74,6 +82,7 @@ import {
   deviceCleanupKey,
   deviceSummaryLabel,
 } from "./android-workspace-state";
+import { appInstallationQuestion } from "./app-installation";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { DeviceElements } from "./device-elements";
 import {
@@ -84,6 +93,12 @@ import {
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
+import {
+  BuildPicker,
+  UploadedBuild,
+  useBuildUpload,
+} from "./target-app-upload";
+import type { BuildUploadState } from "./target-app-upload";
 import {
   DockShell,
   DockSpacer,
@@ -409,23 +424,12 @@ const SetupField = ({
 
 const ROLE_OPTIONS = ["text", "group", "heading", "button", "image"] as const;
 
-type IdentityState =
-  | { readonly _tag: "idle" }
-  | { readonly _tag: "reading" }
-  | { readonly _tag: "read"; readonly label: string }
-  | { readonly _tag: "failed"; readonly message: string };
-
-/**
- * Reads a `.app`'s bundle id and build when its path is entered, and fills
- * the fields the person has not typed into themselves.
- */
 const MISSING_WORDS = new Map([
-  ["App build", "the app build"],
-  ["Bundle identifier", "the bundle identifier"],
   ["Device", "a simulator"],
   ["Done when element", "the done-when element"],
   ["Flow name", "a Flow name"],
   ["Starting screen element", "the starting-screen element"],
+  ["Target App", "the Target App"],
 ]);
 
 /** The missing fields as one plain phrase: "a Flow name and a simulator". */
@@ -451,184 +455,162 @@ const missingFields = (form: HTMLFormElement | null): readonly string[] =>
           : []
       );
 
-/**
- * Scrolls a path field to its end. A long path's start is a folder; the .app
- * name at its end is what identifies it. The browser returns an unfocused
- * field to its start as focus leaves, so the scroll waits a frame.
- */
-const restOnAppName = (field: HTMLInputElement) => {
-  field.title = field.value;
-  requestAnimationFrame(() => {
-    field.scrollLeft = field.scrollWidth;
-  });
+/** The Target App: an uploaded simulator build, or an installed app. */
+type IosTarget =
+  | { readonly _tag: "installed"; readonly app: IosInstalledApp }
+  | { readonly _tag: "uploaded"; readonly upload: UploadedIosApp };
+
+/** The bundle identifier and build the Target App carries. */
+const targetIdentity = (target: IosTarget) =>
+  target._tag === "installed" ? target.app : target.upload;
+
+// An upload no session claimed is deleted as soon as it is let go of.
+const releaseUpload = (target: IosTarget | null) => {
+  if (target?._tag === "uploaded") {
+    Effect.runFork(discardTargetAppBuild(target.upload.id));
+  }
 };
 
-const useAppIdentity = (
-  form: React.RefObject<HTMLFormElement | null>,
-  onFilled: () => void
+type InstalledApps =
+  | { readonly _tag: "idle" }
+  | { readonly _tag: "loading" }
+  | { readonly _tag: "failed"; readonly message: string }
+  | { readonly _tag: "loaded"; readonly apps: readonly IosInstalledApp[] };
+
+/** The apps on the chosen simulator, read again when it or refresh changes. */
+const useInstalledIosApps = (
+  device: IosDeviceSelection | undefined,
+  refresh: number
 ) => {
   const [stateAtom] = useState(() =>
-    Atom.make<IdentityState>({ _tag: "idle" })
+    Atom.make<InstalledApps>({ _tag: "idle" })
   );
   const [state, setState] = useAtom(stateAtom);
-  // Only the latest path's read may fill the form: a new read, or clearing
-  // the path, interrupts the one before it.
-  const reading = useRef<Fiber.Fiber<unknown> | null>(null);
-  useEffect(
-    () => () => {
-      if (reading.current !== null) {
-        Effect.runFork(Fiber.interrupt(reading.current));
-      }
-    },
-    []
-  );
-  const read = (value: string) => {
-    const appPath = value.trim();
-    if (reading.current !== null) {
-      Effect.runFork(Fiber.interrupt(reading.current));
-      reading.current = null;
-    }
-    if (appPath === "") {
+  const key = device === undefined ? null : `${device.udid}-${refresh}`;
+  useEffect(() => {
+    if (device === undefined) {
       setState({ _tag: "idle" });
       return;
     }
-    setState({ _tag: "reading" });
-    reading.current = Effect.runFork(
-      inspectIosApp(appPath).pipe(
-        Effect.result,
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            if (Result.isFailure(result)) {
-              setState({
-                _tag: "failed",
-                message: errorMessage(result.failure),
-              });
-              return;
-            }
-            const app = result.success;
-            // However the path was set, it rests on the .app name.
-            const pathField = form.current?.elements.namedItem("path");
-            if (pathField instanceof HTMLInputElement) {
-              restOnAppName(pathField);
-            }
-            for (const [name, filled] of [
-              ["bundle", app.bundleId],
-              ["build", app.build],
-            ] as const) {
-              const field = form.current?.elements.namedItem(name);
-              // A value the person typed is theirs; only an empty or
-              // previously filled field takes the app's own.
-              if (
-                field instanceof HTMLInputElement &&
-                (field.value === "" || field.dataset.filled === "true")
-              ) {
-                field.value = filled;
-                field.dataset.filled = "true";
-              }
-            }
-            setState({
-              _tag: "read",
-              label: `${appPath.split("/").at(-1) ?? appPath} (${app.label}) · ${app.bundleId} · build ${app.build}`,
-            });
-            onFilled();
-          })
-        )
+    setState({ _tag: "loading" });
+    const fiber = Effect.runFork(
+      listIosApps(device).pipe(
+        Effect.match({
+          onFailure: (cause) =>
+            setState({ _tag: "failed", message: errorMessage(cause) }),
+          onSuccess: (apps) => setState({ _tag: "loaded", apps }),
+        })
       )
     );
-  };
-  return { read, state };
+    return () => {
+      Effect.runFork(Fiber.interrupt(fiber));
+    };
+    // The key names the read; the device object is rebuilt every render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, setState]);
+  return state;
 };
 
-/** The Target App group: a built `.app` to read, then its identity. */
+/**
+ * The Target App group: upload a simulator `.app` folder, or pick an app
+ * already on the simulator. The sheet reads the bundle identifier and build
+ * from the app itself, so neither is typed.
+ */
 const IosTargetApp = ({
+  apps,
   done,
-  identity,
+  onRemoveUpload,
+  onSelect,
+  onUpload,
+  target,
+  upload,
 }: {
+  readonly apps: InstalledApps;
   readonly done: boolean;
-  readonly identity: ReturnType<typeof useAppIdentity>;
+  readonly onRemoveUpload: () => void;
+  readonly onSelect: (app: IosInstalledApp) => void;
+  readonly onUpload: (files: readonly AppBundleFile[], name: string) => void;
+  readonly target: IosTarget | null;
+  readonly upload: BuildUploadState;
 }) => (
   <SetupGroup done={done} index={2} title="Target App">
-    <SetupField
-      help={{
-        id: "ios-app-path-help",
-        text: "Optional. Installing a named build asks for a separate decision.",
-      }}
-      htmlFor="ios-path"
-      label="Simulator app path"
-    >
-      <Input
-        aria-describedby="ios-app-path-help ios-app-identity"
-        className="font-mono text-xs md:text-xs"
-        id="ios-path"
-        name="path"
-        onBlur={(event) => {
-          const field = event.currentTarget;
-          restOnAppName(field);
-          identity.read(field.value);
-        }}
-        placeholder="/path/to/App.app"
-        spellCheck={false}
+    {target?._tag === "uploaded" ? (
+      <UploadedBuild
+        detail={`${target.upload.bundleId} · build ${target.upload.build} · installs with your consent`}
+        name={target.upload.name}
+        onRemove={onRemoveUpload}
+        title={target.upload.label || target.upload.name}
       />
-    </SetupField>
-    <p
-      aria-live="polite"
-      className={cn(
-        "text-xs text-pretty empty:hidden",
-        identity.state._tag === "failed"
-          ? "text-destructive"
-          : "text-muted-foreground"
-      )}
-      id="ios-app-identity"
-    >
-      {identity.state._tag === "reading" ? "Reading Info.plist…" : null}
-      {identity.state._tag === "read"
-        ? `Read from Info.plist: ${identity.state.label}. Edit the fields below to override.`
-        : null}
-      {identity.state._tag === "failed" ? identity.state.message : null}
-    </p>
-    <div className="grid min-w-0 gap-3 sm:grid-cols-[1fr_7rem]">
-      <SetupField
-        // Once the app's own Info.plist was read, the line above says so.
-        help={
-          identity.state._tag === "read"
-            ? undefined
-            : {
-                id: "ios-bundle-help",
-                text: "Without an app path, enter CFBundleIdentifier and CFBundleVersion from the installed app's Info.plist.",
-              }
-        }
-        htmlFor="ios-bundle"
-        label="Bundle identifier"
-      >
-        <Input
-          aria-describedby={
-            identity.state._tag === "read" ? undefined : "ios-bundle-help"
-          }
-          className="font-mono"
-          id="ios-bundle"
-          name="bundle"
-          onInput={(event) => {
-            // Typed by the person now; a later read leaves it be.
-            delete event.currentTarget.dataset.filled;
-          }}
-          placeholder="com.example.app"
-          required
-          spellCheck={false}
-        />
-      </SetupField>
-      <SetupField htmlFor="ios-build" label="App build">
-        <Input
-          className="font-mono"
-          id="ios-build"
-          name="build"
-          onInput={(event) => {
-            // Typed by the person now; a later read leaves it be.
-            delete event.currentTarget.dataset.filled;
-          }}
-          placeholder="1"
-          required
-        />
-      </SetupField>
+    ) : (
+      <BuildPicker
+        describedBy="ios-app-upload-status"
+        directory
+        label="Upload a simulator .app"
+        onFiles={onUpload}
+        state={upload}
+      />
+    )}
+    <div className="space-y-1.5">
+      <p className="text-muted-foreground text-xs">
+        Or pick an app already on this simulator.
+      </p>
+      {apps._tag === "idle" ? (
+        <p className="text-muted-foreground text-xs">
+          Pick a running simulator to list its apps.
+        </p>
+      ) : null}
+      {apps._tag === "loading" ? (
+        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+          <LoaderCircleIcon
+            aria-hidden="true"
+            className="size-3.5 animate-spin"
+          />
+          Reading installed apps…
+        </p>
+      ) : null}
+      {apps._tag === "failed" ? (
+        <p className="text-destructive text-xs">{apps.message}</p>
+      ) : null}
+      {apps._tag === "loaded" ? (
+        <ul
+          aria-label="Installed apps"
+          className="max-h-44 overflow-y-auto rounded-lg border"
+        >
+          {apps.apps.length === 0 ? (
+            <li className="text-muted-foreground px-2.5 py-2 text-xs">
+              No apps are installed on this simulator yet.
+            </li>
+          ) : null}
+          {apps.apps.map((app) => {
+            const selected =
+              target?._tag === "installed" &&
+              target.app.bundleId === app.bundleId;
+            return (
+              <li key={app.bundleId}>
+                <button
+                  aria-pressed={selected}
+                  className={cn(
+                    "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
+                    selected && "bg-muted"
+                  )}
+                  onClick={() => onSelect(app)}
+                  type="button"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {app.label || app.bundleId}
+                    {app.label === app.bundleId ? null : (
+                      <span className="text-muted-foreground ml-2 text-xs">
+                        {app.bundleId}
+                      </span>
+                    )}
+                  </span>
+                  <Badge variant="outline">build {app.build}</Badge>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   </SetupGroup>
 );
@@ -657,13 +639,34 @@ const IosSetupSheet = ({
     Atom.make<readonly string[]>(["Flow name"])
   );
   const [fieldsMissing, setMissing] = useAtom(missingAtom);
-  const missing =
-    chosen === null ? ["Device", ...fieldsMissing] : fieldsMissing;
-  const complete = missing.length === 0;
   const formRef = useRef<HTMLFormElement>(null);
-  const identity = useAppIdentity(formRef, () =>
-    setMissing(missingFields(formRef.current))
+  const simulator = running.find((entry) => entry.udid === chosen);
+  const [refreshAtom] = useState(() => Atom.make(0));
+  const [appsRefresh, setAppsRefresh] = useAtom(refreshAtom);
+  const apps = useInstalledIosApps(simulator, appsRefresh);
+  const [targetAtom] = useState(() => Atom.make<IosTarget | null>(null));
+  const [target, setTarget] = useAtom(targetAtom);
+  // The device and Target App are chosen, not typed, so the form cannot
+  // see them missing.
+  const missing = [
+    ...(chosen === null ? ["Device"] : []),
+    ...fieldsMissing,
+    ...(target === null ? ["Target App"] : []),
+  ];
+  const complete = missing.length === 0;
+  const choose = (next: IosTarget | null) => {
+    releaseUpload(target);
+    setTarget(next);
+  };
+  const upload = useBuildUpload(uploadIosApp, (uploaded) =>
+    choose({ _tag: "uploaded", upload: uploaded })
   );
+  const close = () => {
+    upload.reset();
+    releaseUpload(target);
+    setTarget(null);
+    onClose();
+  };
   // The sheet's form mounts once it opens; read what it still needs then.
   useEffect(() => {
     if (!open) {
@@ -678,7 +681,7 @@ const IosSetupSheet = ({
     <Sheet
       onOpenChange={(next) => {
         if (!next) {
-          onClose();
+          close();
         }
       }}
       open={open}
@@ -704,15 +707,16 @@ const IosSetupSheet = ({
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             const found = listed.find((entry) => entry.udid === chosen);
-            if (!found || found.state !== "Booted") {
+            if (!found || found.state !== "Booted" || target === null) {
               return;
             }
             const { state: _state, ...device } = found;
+            const { build, bundleId } = targetIdentity(target);
             const selection: IosWorkspaceSelection = {
               device,
               environment: {
-                build: text(data, "build"),
-                bundleId: text(data, "bundle"),
+                build,
+                bundleId,
                 deviceType: device.deviceType,
                 runtimeVersion: device.runtimeVersion,
               },
@@ -732,15 +736,23 @@ const IosSetupSheet = ({
                 kind: "restart-app",
               },
             };
-            const appPath = text(data, "path");
-            send({
+            const uploaded =
+              target?._tag === "uploaded" ? target.upload : undefined;
+            const sent = send({
               _tag: "start",
               flowName: FlowName.make(text(data, "flow")),
               kind: "teaching",
               operationId: operationId(),
               recordingId: null,
-              selection: appPath === "" ? selection : { ...selection, appPath },
+              selection:
+                uploaded === undefined
+                  ? selection
+                  : { ...selection, appPath: uploaded.appPath },
             });
+            if (sent) {
+              // The session now owns the upload and deletes it when it ends.
+              setTarget(null);
+            }
           }}
         >
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
@@ -762,13 +774,22 @@ const IosSetupSheet = ({
                 <DeviceChoices
                   devices={listed.map(iosDeviceChoice)}
                   emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
-                  onSelect={setPicked}
+                  onSelect={(udid) => {
+                    setPicked(udid);
+                    // An installed app belongs to the simulator it is on.
+                    if (target?._tag === "installed") {
+                      setTarget(null);
+                    }
+                  }}
                   onStart={startDevice}
                   selected={chosen}
                   starts={starts}
                 />
                 <Button
-                  onClick={refresh}
+                  onClick={() => {
+                    refresh();
+                    setAppsRefresh((value) => value + 1);
+                  }}
                   size="xs"
                   type="button"
                   variant="ghost"
@@ -779,11 +800,13 @@ const IosSetupSheet = ({
               </div>
             </SetupGroup>
             <IosTargetApp
-              done={
-                !missing.includes("Bundle identifier") &&
-                !missing.includes("App build")
-              }
-              identity={identity}
+              apps={apps}
+              done={target !== null}
+              onRemoveUpload={() => choose(null)}
+              onSelect={(app) => choose({ _tag: "installed", app })}
+              onUpload={(files, name) => upload.start(files, name)}
+              target={target}
+              upload={upload.state}
             />
             <SetupGroup
               description="An element on screen when the app opens."
@@ -863,7 +886,7 @@ const IosSetupSheet = ({
                   : `Add ${missingPhrase(missing)} to continue.`}
               </p>
             )}
-            <Button onClick={onClose} type="button" variant="outline">
+            <Button onClick={close} type="button" variant="outline">
               Cancel
             </Button>
             <Button
@@ -942,7 +965,12 @@ const IosDecisions = ({
             />
             <p className="text-muted-foreground mt-1 text-xs text-pretty">
               {decision.kind === "app-installation"
-                ? `Install build ${environment.build} of ${environment.bundleId} on ${session.selection.device.name}?`
+                ? appInstallationQuestion({
+                    app: environment.bundleId,
+                    build: environment.build,
+                    device: session.selection.device.name,
+                    installedBuild: decision.installedBuild,
+                  })
                 : null}
               {decision.kind === "confirmation"
                 ? `${session.boundary?.description ?? "iOS action"}. Allow this exact attempt once; a retry needs a fresh Confirmation.`

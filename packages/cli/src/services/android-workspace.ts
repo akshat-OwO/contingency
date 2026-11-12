@@ -25,6 +25,7 @@ import {
   Redacted,
   Schema,
   Scope,
+  Option,
   Semaphore,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
@@ -44,6 +45,11 @@ import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
+import { TargetAppBuilds } from "./target-app-builds.ts";
+import type {
+  ClaimedTargetAppBuild,
+  TargetAppBuildsService,
+} from "./target-app-builds.ts";
 import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -57,6 +63,24 @@ const error = (code: string, message: string): AndroidWorkspaceError => ({
 });
 const denied = (message: string) =>
   Effect.fail(error("android_workspace_refused", message));
+/** Claims an uploaded build for a session, refusing any other path. */
+const claimBuild = (
+  builds: Option.Option<TargetAppBuildsService>,
+  platform: "ios" | "android",
+  buildPath: string,
+  scope: Scope.Closeable
+): Effect.Effect<ClaimedTargetAppBuild, AndroidWorkspaceError> =>
+  // A refused claim closes the session scope it was given.
+  (Option.isNone(builds)
+    ? denied("Uploaded builds are unavailable in this process.")
+    : builds.value
+        .claim(platform, buildPath, scope)
+        .pipe(
+          Effect.mapError((refusal) =>
+            error("android_workspace_refused", refusal.message)
+          )
+        )
+  ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const now = () => new Date().toISOString();
@@ -274,6 +298,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
+      const builds = yield* Effect.serviceOption(TargetAppBuilds);
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -633,7 +658,18 @@ export const makeAndroidWorkspaceLayer = (options: {
               `agent-android-${hash(command.operationId).slice(0, 32)}`
             );
             const scope = yield* Scope.make();
-            const startup: AndroidRunInput = {
+            // An uploaded build belongs to this session: closing its scope
+            // deletes the upload, including when startup fails.
+            const apk =
+              selection.apkPath === undefined
+                ? undefined
+                : yield* claimBuild(
+                    builds,
+                    "android",
+                    selection.apkPath,
+                    scope
+                  );
+            const declared: AndroidRunInput = {
               device: selection.device,
               environment: selection.environment,
               platform: "android",
@@ -643,6 +679,13 @@ export const makeAndroidWorkspaceLayer = (options: {
               targetApp: selection.environment.appId,
               taught,
             };
+            const startup: AndroidRunInput =
+              apk?.sha256 === undefined || apk.sha256 === null
+                ? declared
+                : {
+                    ...declared,
+                    appInstallation: { apk: apk.path, sha256: apk.sha256 },
+                  };
             const create =
               selection.helperConsent === "none"
                 ? factory.android.createRun(startup)

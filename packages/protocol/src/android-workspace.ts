@@ -35,6 +35,8 @@ const apiLevel = Schema.Int.check(Schema.isGreaterThan(0));
 
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSelection = Schema.Struct({
+  /** An uploaded `.apk` to install with consent: the session's temporary copy. */
+  apkPath: Schema.optionalKey(Schema.NonEmptyString),
   device: Schema.Union([
     Schema.Struct({
       api: apiLevel,
@@ -149,6 +151,8 @@ export const AndroidWorkspacePreparation = Schema.Struct({
   pending: Schema.Array(
     Schema.Struct({
       id: text,
+      /** For an app installation: the build it replaces, or null when absent. */
+      installedBuild: Schema.optionalKey(Schema.NullOr(text)),
       kind: Schema.Literals([
         "run-environment-permission",
         "app-installation",

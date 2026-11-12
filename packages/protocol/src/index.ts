@@ -61,6 +61,7 @@ import {
   BrowserStorageSnapshot,
   StorageKind,
 } from "./storage.ts";
+import { IosInstalledApp, TargetAppBuildId } from "./target-app-build.ts";
 import {
   RecordingView,
   GuidedRunCheckDecision,
@@ -1045,18 +1046,17 @@ export class ContingencyRpcs extends RpcGroup.make(
     payload: Schema.Struct({ udid: IosDeviceSelection.fields.udid }),
     success: Schema.Void,
   }),
-  /**
-   * What a built `.app` on this machine says about itself: the bundle id and
-   * build in its Info.plist, so the setup sheet need not ask for them.
-   */
-  Rpc.make("ios.app.inspect", {
+  /** Apps installed on one running simulator, read from their Info.plist. */
+  Rpc.make("ios.apps.list", {
     error: BrowserRpcError,
-    payload: Schema.Struct({ path: Schema.String }),
-    success: Schema.Struct({
-      build: Schema.String,
-      bundleId: Schema.String,
-      label: Schema.String,
-    }),
+    payload: Schema.Struct({ device: IosDeviceSelection }),
+    success: Schema.Array(IosInstalledApp),
+  }),
+  /** Deletes an uploaded Target App build no session has claimed. */
+  Rpc.make("target-app.build.discard", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ id: TargetAppBuildId }),
+    success: Schema.Void,
   }),
   Rpc.make("ios.stream.access", {
     error: BrowserRpcError,
@@ -1342,3 +1342,4 @@ export const BrowserDevtoolsInput = Schema.Struct({
 export * from "./browser-modifications.ts";
 
 export * from "./ios-workspace.ts";
+export * from "./target-app-build.ts";

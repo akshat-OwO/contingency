@@ -1,4 +1,5 @@
 import path from "node:path";
+import { Readable } from "node:stream";
 
 import {
   AgentSessionId,
@@ -45,6 +46,11 @@ import {
 } from "../../src/services/mcp-device-workspace.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
+import {
+  makeTargetAppBuilds,
+  TargetAppBuilds,
+} from "../../src/services/target-app-builds.ts";
+import type { TargetAppBuildsService } from "../../src/services/target-app-builds.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
@@ -99,6 +105,8 @@ const fixture = (
     readonly setNodes: (nodes: AndroidObservation["nodes"]) => void;
     /** Holds the next capture after it starts until the test releases it. */
     readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
+    /** Uploaded Target App builds the workspace can claim. */
+    readonly builds: TargetAppBuildsService;
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -234,6 +242,7 @@ const fixture = (
             capabilities: ["semantic-actions", "screenshots", "private-input"],
             createRun: (input) =>
               createAndroidRun(input, {
+                installedBuild: () => Effect.succeed("1"),
                 preflight: () => Effect.void,
                 start: (startup) => adaptAndroidRuntime({ backend, startup }),
               }),
@@ -249,10 +258,18 @@ const fixture = (
         })
       );
       const store = makeTeachingRecordingStoreLayer({ root: () => root });
+      const builds = yield* makeTargetAppBuilds({
+        badging: () =>
+          Effect.succeed(
+            "package: name='dev.fixture' versionCode='2' versionName='2'\nlaunchable-activity: name='dev.fixture.Home'  label='' icon=''"
+          ),
+        plist: () => Effect.die("No iOS builds in the Android fixture."),
+      });
       const dependencies = Layer.mergeAll(
         store,
         makeFlowCatalogLayer({ root }),
-        factory
+        factory,
+        Layer.succeed(TargetAppBuilds, builds)
       );
       const workspace = makeAndroidWorkspaceLayer({ root: () => root }).pipe(
         Layer.provide(dependencies)
@@ -276,6 +293,7 @@ const fixture = (
           Effect.orDie
         );
       yield* test({
+        builds,
         calls,
         disconnect: () => {
           connected = false;
@@ -422,6 +440,68 @@ const dryRun = (recordingId: TeachingRecordingId) =>
       "user"
     );
   });
+
+it.effect(
+  "installs an uploaded .apk only with consent, and deletes the upload when the session ends",
+  () =>
+    fixture(({ builds, calls }) =>
+      Effect.gen(function* uploadedApk() {
+        const workspace = yield* AndroidWorkspace;
+        const start = (id: string, apkPath: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "teaching",
+              operationId: op(id),
+              recordingId: null,
+              selection: { ...selection, apkPath },
+            },
+            "user"
+          );
+        // A path the person typed is never installed.
+        const typed = yield* start("start-typed", "/tmp/typed.apk").pipe(
+          Effect.flip
+        );
+        expect(typed.message).toContain("no longer uploaded");
+        const uploaded = yield* builds.receiveAndroid(
+          Readable.from([Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00])]),
+          "fixture.apk"
+        );
+        const started = yield* start("start-uploaded", uploaded.apkPath);
+        const [decision] = started.preparation.pending;
+        expect(decision).toMatchObject({
+          installedBuild: "1",
+          kind: "app-installation",
+          targetApp: "dev.fixture",
+        });
+        const refused = yield* workspace.execute(
+          {
+            _tag: "decide",
+            allow: false,
+            decisionId: decision?.id ?? "",
+            operationId: op("refuse-install"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        // Declining sends nothing to the device.
+        expect(refused.preparation.phase).toBe("refused");
+        expect(calls).toEqual([]);
+        const fs = yield* FileSystem.FileSystem;
+        expect(yield* fs.exists(uploaded.apkPath)).toBe(true);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-uploaded"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(yield* fs.exists(uploaded.apkPath)).toBe(false);
+      })
+    )
+);
 
 it.effect("starts, reads, and lists Android through the device tools", () =>
   fixture(() =>

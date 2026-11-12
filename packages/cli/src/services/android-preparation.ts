@@ -4,11 +4,15 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import { readLocalApkBadging } from "./android-discovery.ts";
 import type { AndroidRunInput } from "./android-run-contract.ts";
-import { platformRuntimeError } from "./platform-runtime-error.ts";
+import {
+  appInstallationRefused,
+  platformRuntimeError,
+} from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const execute = promisify(execFile);
@@ -30,6 +34,78 @@ const command = (file: string, args: readonly string[]) =>
   });
 const adb = (input: AndroidRunInput, args: readonly string[]) =>
   command("adb", ["-s", input.device.serial, ...args]);
+
+const refusalPattern = /\b(?<reason>INSTALL_(?:PARSE_)?FAILED_[A-Z0-9_]+)\b/u;
+const OutputSchema = Schema.Struct({
+  stderr: Schema.optional(Schema.String),
+  stdout: Schema.optional(Schema.String),
+});
+
+/** Reads `adb install` output: success, or the device's refusal reason. */
+export const androidInstallOutcome = (output: string) => {
+  const reason = refusalPattern.exec(output)?.groups?.reason;
+  if (reason !== undefined) {
+    return Effect.fail(appInstallationRefused(reason));
+  }
+  return /^Success$/mu.test(output) && !/Failure/u.test(output)
+    ? Effect.void
+    : Effect.fail(platformRuntimeError("preparation_failed"));
+};
+
+/**
+ * Installs or replaces the Target App with `adb install -r`. A refusal such
+ * as a downgrade or a signature mismatch is reported with the device's own
+ * reason; nothing is ever uninstalled, since that deletes the app's data.
+ */
+export const installAndroidApk = (input: AndroidRunInput, apk: string) =>
+  Effect.gen(function* install() {
+    const output = yield* Effect.tryPromise({
+      catch: () => platformRuntimeError("preparation_failed"),
+      try: async (signal) => {
+        try {
+          const result = await execute(
+            "adb",
+            ["-s", input.device.serial, "install", "--user", "0", "-r", apk],
+            { maxBuffer: 8 * 1024 * 1024, signal, timeout: 300_000 }
+          );
+          return `${result.stdout}\n${result.stderr}`;
+        } catch (error) {
+          // adb exits non-zero on a refusal; its output carries the reason.
+          if (!Schema.is(OutputSchema)(error) || signal.aborted) {
+            throw error;
+          }
+          return `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
+        }
+      },
+    });
+    yield* androidInstallOutcome(output);
+  });
+
+/** The installed Target App's build, or null when it is not installed. */
+export const readInstalledAndroidBuild = (input: AndroidRunInput) =>
+  adb(input, [
+    "shell",
+    "pm",
+    "list",
+    "packages",
+    "--user",
+    "0",
+    "--show-versioncode",
+    input.targetApp,
+  ]).pipe(
+    Effect.map(
+      (output) =>
+        output
+          .split(/\r?\n/u)
+          .map(
+            (line) =>
+              /^package:(?<name>\S+) versionCode:(?<code>\d+)$/u.exec(
+                line.trim()
+              )?.groups
+          )
+          .find((entry) => entry?.name === input.targetApp)?.code ?? null
+    )
+  );
 
 export const requireAndroidAppBuild = (input: AndroidRunInput) =>
   Effect.gen(function* appBuild() {
@@ -107,15 +183,9 @@ export const preflightAndroidPreparation = (
     ) {
       return yield* Effect.fail(platformRuntimeError("installation_denied"));
     }
-    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
-    if (sdk === undefined) {
-      return yield* Effect.fail(platformRuntimeError("preparation_failed"));
-    }
-    const metadata = yield* command(path.join(sdk, "build-tools/36.0.0/aapt"), [
-      "dump",
-      "badging",
-      installation.apk,
-    ]);
+    const metadata = yield* readLocalApkBadging(installation.apk).pipe(
+      Effect.mapError(() => platformRuntimeError("preparation_failed"))
+    );
     const identity = apkPattern.exec(metadata)?.groups;
     if (
       identity?.appId !== input.targetApp ||
@@ -182,16 +252,7 @@ export const prepareAndroidStartingState = (
     yield* preflightAndroidPreparation(input);
     const mutate = (args: readonly string[]) => adb(input, args);
     if (input.appInstallation !== undefined) {
-      const result = yield* mutate([
-        "install",
-        "--user",
-        "0",
-        "-r",
-        input.appInstallation.apk,
-      ]);
-      if (!/^Success$/mu.test(result) || /Failure/u.test(result)) {
-        return yield* Effect.fail(platformRuntimeError("preparation_failed"));
-      }
+      yield* installAndroidApk(input, input.appInstallation.apk);
     }
     yield* requireAndroidAppBuild(input);
     yield* mutate([

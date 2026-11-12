@@ -85,60 +85,81 @@ export const validateAndroidRun = (input: AndroidRunInput) =>
 export const createAndroidRun = (
   request: AndroidRunInput,
   driver: AndroidRunDriver
-): Effect.Effect<AndroidRun, PlatformRuntimeError> =>
-  createNativeAppRun<AndroidRunInput, AndroidObservation, AndroidRunDecision>(
-    request,
-    {
-      ...driver,
-      authorize: (input) => input,
-      decisions: (input, runId, differences) => [
-        ...nativeAppEnvironmentPermission({
-          differences,
-          requiresPermission: (difference) =>
-            difference.field !== "startingState",
-          runId,
-          targetApp: input.targetApp,
-        }),
-        ...(input.appInstallation === undefined
-          ? []
-          : [
-              {
-                differences: [],
-                id: randomUUID(),
-                kind: "app-installation" as const,
-                runId,
-                sha256: input.appInstallation.sha256,
-                targetApp: input.targetApp,
-              },
-            ]),
-      ],
-      differences: (input) => {
-        if (input.taught.platform !== "android") {
-          return [];
-        }
-        const { environment } = input.taught;
-        return compareNativeAppEnvironments({
-          display: (field, value) =>
-            field === "permissions"
-              ? JSON.stringify(value ?? [])
-              : String(value),
-          fields,
-          selected: input.environment,
-          taught: environment,
-        });
-      },
-      error: platformRuntimeError,
-      startingConditions: (input, observation) =>
-        input.setup.conditions.every((condition) =>
-          observation.nodes.some(
-            (node) =>
-              node.packageName === input.targetApp &&
-              !node.covered &&
-              !node.password &&
-              node.role === condition.role &&
-              node.name === condition.name
-          )
-        ),
-      validate: validateAndroidRun,
-    }
-  );
+): Effect.Effect<AndroidRun, PlatformRuntimeError> => {
+  // Read once, after the first preflight verified the device, so the
+  // installation decision can say which build it replaces.
+  let installedBuild: string | null | undefined;
+  return createNativeAppRun<
+    AndroidRunInput,
+    AndroidObservation,
+    AndroidRunDecision
+  >(request, {
+    ...driver,
+    authorize: (input) => input,
+    decisions: (input, runId, differences) => [
+      ...nativeAppEnvironmentPermission({
+        differences,
+        requiresPermission: (difference) =>
+          difference.field !== "startingState",
+        runId,
+        targetApp: input.targetApp,
+      }),
+      ...(input.appInstallation === undefined
+        ? []
+        : [
+            {
+              differences: [],
+              id: randomUUID(),
+              installedBuild: installedBuild ?? null,
+              kind: "app-installation" as const,
+              runId,
+              sha256: input.appInstallation.sha256,
+              targetApp: input.targetApp,
+            },
+          ]),
+    ],
+    differences: (input) => {
+      if (input.taught.platform !== "android") {
+        return [];
+      }
+      const { environment } = input.taught;
+      return compareNativeAppEnvironments({
+        display: (field, value) =>
+          field === "permissions" ? JSON.stringify(value ?? []) : String(value),
+        fields,
+        selected: input.environment,
+        taught: environment,
+      });
+    },
+    error: platformRuntimeError,
+    preflight: (input, phase) =>
+      driver.preflight(input, phase).pipe(
+        Effect.andThen(
+          installedBuild !== undefined ||
+            phase !== undefined ||
+            input.appInstallation === undefined ||
+            driver.installedBuild === undefined
+            ? Effect.void
+            : driver.installedBuild(input).pipe(
+                Effect.flatMap((build) =>
+                  Effect.sync(() => {
+                    installedBuild = build;
+                  })
+                )
+              )
+        )
+      ),
+    startingConditions: (input, observation) =>
+      input.setup.conditions.every((condition) =>
+        observation.nodes.some(
+          (node) =>
+            node.packageName === input.targetApp &&
+            !node.covered &&
+            !node.password &&
+            node.role === condition.role &&
+            node.name === condition.name
+        )
+      ),
+    validate: validateAndroidRun,
+  });
+};

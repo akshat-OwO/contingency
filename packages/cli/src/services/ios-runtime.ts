@@ -56,6 +56,8 @@ export interface IosRunInput extends NativeAppRunInput {
   readonly environment: IosWorkspaceSelection["environment"];
   readonly setup: IosWorkspaceSelection["setup"];
   readonly appPath?: string;
+  /** The Target App build on the simulator before installing `appPath`. */
+  readonly installedBuild?: string | null;
   readonly taught: PlatformRequirements;
 }
 export type IosRun = NativeAppRun<
@@ -622,6 +624,7 @@ export const iosRunDecisions = (
         {
           differences: [],
           id: randomUUID(),
+          installedBuild: request.installedBuild ?? null,
           kind: "app-installation" as const,
           runId,
           targetApp: request.targetApp,
@@ -629,7 +632,7 @@ export const iosRunDecisions = (
       ]),
 ];
 
-export const createIosRun = (
+const createIosNativeRun = (
   input: IosRunInput
 ): Effect.Effect<IosRun, PlatformRuntimeError> =>
   createNativeAppRun(input, {
@@ -675,4 +678,28 @@ export const createIosRun = (
         ? Effect.void
         : Effect.fail(iosRuntimeError("capability_missing"));
     },
+  });
+
+/** The Target App build already on the simulator, or null when absent. */
+const readInstalledIosBuild = (request: IosRunInput) =>
+  makeIosDiscovery()
+    .apps(request.device)
+    .pipe(
+      Effect.map(
+        (apps) =>
+          apps.find((app) => app.bundleId === request.environment.bundleId)
+            ?.build ?? null
+      ),
+      Effect.mapError((cause) => iosRuntimeError(cause.code))
+    );
+
+export const createIosRun = (
+  request: IosRunInput
+): Effect.Effect<IosRun, PlatformRuntimeError> =>
+  Effect.gen(function* createRun() {
+    const input =
+      request.appPath === undefined || request.installedBuild !== undefined
+        ? request
+        : { ...request, installedBuild: yield* readInstalledIosBuild(request) };
+    return yield* createIosNativeRun(input);
   });

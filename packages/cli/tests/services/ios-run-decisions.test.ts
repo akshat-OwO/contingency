@@ -44,11 +44,19 @@ it.effect(
         );
         expect(named).toMatchObject([
           {
+            installedBuild: null,
             kind: "app-installation",
             runId: "run",
             targetApp: environment.bundleId,
           },
         ]);
+        // Over an installed build, the decision names the build it replaces.
+        expect(
+          iosRunDecisions(
+            { ...input, appPath: "/build/Fixture.app", installedBuild: "0" },
+            "run"
+          )
+        ).toMatchObject([{ installedBuild: "0", kind: "app-installation" }]);
         const changed = iosRunDecisions(
           {
             ...input,

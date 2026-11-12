@@ -297,7 +297,6 @@ try {
     runtimeVersion: device.runtimeVersion,
   };
   selection = {
-    appPath,
     device,
     environment: {
       build: "1",
@@ -380,10 +379,25 @@ try {
     "--partial",
     "true"
   );
+  // The Target App is the fixture `.app` folder, uploaded through the
+  // sheet's folder picker; its bundle identifier and build are read from it.
+  await control(
+    "browser",
+    "set-input-files",
+    "--label",
+    "Upload a simulator .app",
+    "--path",
+    appPath
+  );
+  await control(
+    "browser",
+    "wait",
+    "--text",
+    "dev.contingency.ioslogin · build 1 · installs with your consent",
+    "--timeout-ms",
+    "120000"
+  );
   for (const [name, value] of [
-    ["Simulator app path", appPath],
-    ["Bundle identifier", selection.environment.bundleId],
-    ["App build", "1"],
     ["Starting screen element", "Login fixture"],
     ["Done when element", `Signed in as ${loginName}`],
   ]) {
