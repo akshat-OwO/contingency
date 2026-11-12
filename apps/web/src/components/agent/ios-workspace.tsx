@@ -22,7 +22,6 @@ import {
   CornerDownLeftIcon,
   KeyRoundIcon,
   MessageSquareTextIcon,
-  MonitorIcon,
   RefreshCwIcon,
   RotateCwIcon,
   ShieldAlertIcon,
@@ -93,6 +92,11 @@ import {
   DockWordmark,
 } from "./workspace-dock";
 import { useWorkspaceGesture } from "./workspace-gesture";
+import {
+  WorkspacePlatformBar,
+  WorkspacePlatformSwitcher,
+} from "./workspace-platform";
+import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 /** A modern iPhone's portrait pixels; the frame takes the real size once drawn. */
 const DEFAULT_IOS_FRAME = { height: 2556, width: 1179 };
@@ -111,26 +115,6 @@ const errorMessage = (cause: unknown) =>
   Schema.is(Schema.Struct({ message: Schema.String }))(cause)
     ? cause.message.replace(/^[a-z][a-z0-9_]*:\s*/u, "")
     : "The iOS session is unavailable.";
-
-/** Whether this process offers iOS sessions at all. */
-export const useIosEntryEnabled = () => {
-  const enabled = useAtomValue(iosEnabledAtom);
-  return AsyncResult.isSuccess(enabled) && enabled.value;
-};
-
-const openIosEntry = () => globalThis.location.assign("/?ios=new");
-
-export const IosEntry = ({ className }: { readonly className?: string }) =>
-  useIosEntryEnabled() ? (
-    <Button
-      className={className}
-      onClick={openIosEntry}
-      size="sm"
-      variant="outline"
-    >
-      iOS
-    </Button>
-  ) : null;
 
 const IosMirror = ({
   session,
@@ -704,6 +688,8 @@ const IosSetupSheet = ({
         className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
       >
         <SheetHeader className="border-b">
+          {/* The sheet covers the Workspace, so it carries the way out. */}
+          <WorkspacePlatformSwitcher className="mb-3 self-start" />
           <SheetTitle>New iOS session</SheetTitle>
           <SheetDescription>
             Pick a running iPhone simulator and the Target App. Each journey
@@ -1207,9 +1193,11 @@ const IosStateBadge = ({
 }) => <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
 
 const IosSessionSelect = ({
+  onSelect,
   session,
   sessions,
 }: {
+  readonly onSelect: (session: string) => void;
   readonly session: IosWorkspaceSnapshot | null;
   readonly sessions: readonly IosWorkspaceSummary[];
 }) => (
@@ -1217,7 +1205,7 @@ const IosSessionSelect = ({
     aria-label="iOS Agent Session"
     className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial @4xl:max-w-96"
     onChange={(event) =>
-      globalThis.location.assign(`/?ios=${event.currentTarget.value || "new"}`)
+      onSelect(event.currentTarget.value || NEW_NATIVE_SESSION)
     }
     size="sm"
     value={session?.id ?? ""}
@@ -1258,6 +1246,7 @@ const IosDockControls = ({
   gesture,
   onComment,
   onNewSession,
+  onSelectSession,
   presentation,
   send,
   session,
@@ -1269,6 +1258,7 @@ const IosDockControls = ({
   readonly gesture: { readonly pending: boolean };
   readonly onComment: () => void;
   readonly onNewSession: () => void;
+  readonly onSelectSession: (session: string) => void;
   readonly presentation: IosDockPresentation;
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
@@ -1278,20 +1268,15 @@ const IosDockControls = ({
   return (
     <>
       <DockWordmark />
-      <IosSessionSelect session={session} sessions={sessions} />
+      <IosSessionSelect
+        onSelect={onSelectSession}
+        session={session}
+        sessions={sessions}
+      />
       {/* Hidden while capturing, as the browser dock does. */}
       {showsFlowsEntry(iosFlowsSessionView(session)) ? (
         <FlowsDockButton />
       ) : null}
-      <Button
-        aria-label="Browser Workspace"
-        onClick={() => globalThis.location.assign("/")}
-        size="icon-sm"
-        title="Browser Workspace"
-        variant="ghost"
-      >
-        <MonitorIcon />
-      </Button>
       {/* An ended session has no screen to reach. */}
       {isLiveIosSession(session) ? elements : null}
       <DockSpacer />
@@ -1396,6 +1381,7 @@ const IosDock = ({
   gesture,
   pickRefused,
   onNewSession,
+  onSelectSession,
   send,
   session,
 }: {
@@ -1404,6 +1390,7 @@ const IosDock = ({
     readonly error: string | undefined;
   };
   readonly onNewSession: () => void;
+  readonly onSelectSession: (session: string) => void;
   /** The last pick was refused, so no field stays picked. */
   readonly pickRefused: boolean;
   readonly send: (command: IosWorkspaceCommand) => boolean;
@@ -1564,6 +1551,7 @@ const IosDock = ({
         gesture={gesture}
         onComment={() => setCommenting(!commenting)}
         onNewSession={onNewSession}
+        onSelectSession={onSelectSession}
         presentation={presentation}
         send={send}
         session={session}
@@ -1585,8 +1573,11 @@ const glassText = (session: IosWorkspaceSnapshot) => {
 };
 
 export const IosWorkspace = ({
+  onSessionChange,
   requestedSessionId,
 }: {
+  /** Shows another session, or `new`, by naming it in the route. */
+  readonly onSessionChange: (session: string) => void;
   readonly requestedSessionId: string;
 }) => {
   const [session, setSession] = useAtom(snapshotAtom);
@@ -1606,12 +1597,22 @@ export const IosWorkspace = ({
     );
   const [lastCommandAtom] = useState(() => Atom.make<string | null>(null));
   const [lastCommand, setLastCommand] = useAtom(lastCommandAtom);
+  // Which session the route names, read when a command settles.
+  const routeRef = useRef(requestedSessionId);
+  useEffect(() => {
+    routeRef.current = requestedSessionId;
+  }, [requestedSessionId]);
   const send = (command: IosWorkspaceCommand) => {
     setLastCommand(command._tag);
+    const route = routeRef.current;
     return gesture.dispatch(
       runIosWorkspaceCommand(command).pipe(
         Effect.tap((next) =>
           Effect.sync(() => {
+            // The route moved on while this ran: it no longer shows the result.
+            if (routeRef.current !== route && routeRef.current !== next.id) {
+              return;
+            }
             apply(next);
             if (command._tag === "start") {
               setSheet(false);
@@ -1623,24 +1624,55 @@ export const IosWorkspace = ({
       )
     );
   };
+  // `new` asks for an empty Workspace and the setup sheet, whatever was
+  // shown before; an id reads that session.
   useEffect(() => {
+    if (requestedSessionId === NEW_NATIVE_SESSION) {
+      setSession(null);
+      setSheet(true);
+      return;
+    }
     if (!Schema.is(AgentSessionId)(requestedSessionId)) {
       return;
     }
+    // A read the route has moved past must not land: interrupting the fiber
+    // can lose the race with its completion.
+    let requested = true;
     const fiber = Effect.runFork(
       runIosWorkspaceCommand({
         _tag: "read",
         sessionId: requestedSessionId,
       }).pipe(
-        Effect.tap((next) => Effect.sync(() => setSession(next))),
+        Effect.tap((next) =>
+          Effect.sync(() => {
+            if (requested) {
+              setSession(next);
+            }
+          })
+        ),
         Effect.ignore
       )
     );
     return () => {
+      requested = false;
       Effect.runFork(Fiber.interrupt(fiber));
     };
   }, [requestedSessionId, setSession]);
   const id = session?.id;
+  // A started or selected session takes the route, so a refresh reopens it.
+  const shownId = useRef(id);
+  useEffect(() => {
+    if (shownId.current === id) {
+      return;
+    }
+    shownId.current = id;
+    if (id !== undefined) {
+      // A start and a selection reach the shown session by different
+      // commands; the route follows the result rather than each one.
+      // oxlint-disable-next-line react-doctor/no-pass-data-to-parent
+      onSessionChange(id);
+    }
+  }, [id, onSessionChange]);
   useEffect(() => {
     if (!id) {
       return;
@@ -1668,7 +1700,8 @@ export const IosWorkspace = ({
   }, [id, setSession]);
   if (!AsyncResult.isSuccess(enabled) || !enabled.value) {
     return (
-      <main className="text-muted-foreground grid h-full place-items-center p-6 text-sm">
+      <main className="text-muted-foreground relative grid h-full place-items-center p-6 text-sm">
+        <WorkspacePlatformBar />
         <p>iOS Workspace is unlisted.</p>
       </main>
     );
@@ -1708,15 +1741,9 @@ export const IosWorkspace = ({
             <Button onClick={() => setSheet(true)} size="lg">
               Open iOS session
             </Button>
-            <Button
-              onClick={() => globalThis.location.assign("/")}
-              size="lg"
-              variant="outline"
-            >
-              Browser Workspace
-            </Button>
           </div>
         </section>
+        <WorkspacePlatformBar />
         {setup}
       </main>
     );
@@ -1746,11 +1773,12 @@ export const IosWorkspace = ({
         aria-busy={gesture.pending}
         aria-label="iOS Workspace"
         className={cn(
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-6",
-          // The dock grows over the stage; the device keeps clear of it.
+          // The platform switcher floats above the device, the dock below it.
+          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
+        <WorkspacePlatformBar />
         <IosMirror
           onPick={(point, frame) => {
             if (session.observation) {
@@ -1771,6 +1799,7 @@ export const IosWorkspace = ({
           gesture={gesture}
           pickRefused={lastCommand === "pick" && gesture.error !== undefined}
           onNewSession={() => setSheet(true)}
+          onSelectSession={onSessionChange}
           send={send}
           session={session}
         />

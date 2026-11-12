@@ -48,6 +48,7 @@ import {
 } from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
+import { WorkspacePlatformSwitcher } from "./workspace-platform";
 
 /** Roles agent-device reports that a person can name on a screen. */
 const ROLES = ["text", "group", "heading", "button", "image"] as const;
@@ -578,6 +579,8 @@ export const AndroidSetupSheet = ({
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
+          {/* The sheet covers the Workspace, so it carries the way out. */}
+          <WorkspacePlatformSwitcher className="mb-3 self-start" />
           <SheetTitle>New Android session</SheetTitle>
           <SheetDescription>
             Choose a device and app, then define where recording starts and

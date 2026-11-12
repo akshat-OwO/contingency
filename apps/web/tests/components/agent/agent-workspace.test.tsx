@@ -19,7 +19,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { TestClock } from "effect/testing";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -27,8 +27,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { GuidedRunQuestions } from "@/components/agent/guided-run-questions";
 import * as browserInput from "@/components/browser/browser-input";
-import { ModeToggle } from "@/components/mode-toggle";
 import type { runAgentBrowserStream } from "@/lib/rpc";
+import { iosEnabledAtom } from "@/lib/rpc";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 import { routeTree } from "@/routeTree.gen";
@@ -570,23 +570,126 @@ test("invites the user to open a session from the empty canvas", async () => {
   });
 });
 
-test("keeps Android beside the existing theme control while sessions load", async () => {
+/** The whole app at `url`, with iOS sessions offered when `ios` is set. */
+const renderRoute = async (url: string, { ios = false } = {}) => {
+  const history = createMemoryHistory({ initialEntries: [url] });
+  const testRouter = createRouter({ history, routeTree });
+  await testRouter.load();
   render(
-    <div id="workspace-header-actions">
-      <ModeToggle />
-    </div>
+    <RpcDependenciesProvider overrides={rpcOverrides}>
+      <WorkspaceRefreshClockContext value={refreshClock}>
+        <RegistryProvider
+          initialValues={
+            ios ? [[iosEnabledAtom, AsyncResult.success(true)]] : []
+          }
+        >
+          <RouterProvider router={testRouter} />
+        </RegistryProvider>
+      </WorkspaceRefreshClockContext>
+    </RpcDependenciesProvider>
   );
-  renderWorkspace({ _tag: "Initial", waiting: true });
-  const android = await screen.findByRole("button", {
+  return { history, testRouter };
+};
+
+const platformSwitcher = (container: HTMLElement = document.body) =>
+  within(container).getByRole("group", { name: "Workspace platform" });
+
+const platformOption = (name: string, container?: HTMLElement) =>
+  within(platformSwitcher(container)).getByRole("button", {
     exact: true,
-    name: "Android",
+    name,
   });
-  await waitFor(() =>
-    expect(android.parentElement?.id).toBe("workspace-header-actions")
-  );
+
+test("switches platforms through the route and its history", async () => {
+  rpc.sessionsResult = { _tag: "Initial", waiting: true };
+  const user = userEvent.setup();
+  const { history, testRouter } = await renderRoute("/");
+  expect(
+    await screen.findByRole("group", { name: "Workspace platform" })
+  ).toBeVisible();
+  expect(platformOption("Web")).toHaveAttribute("aria-pressed", "true");
+  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "false");
+  // The app header keeps the one theme control.
   expect(
     screen.getAllByRole("button", { name: "Change color theme" })
   ).toHaveLength(1);
+
+  await user.click(platformOption("Android"));
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({ android: "new" })
+  );
+  expect(
+    await screen.findByRole("heading", { name: "No Android session" })
+  ).toBeVisible();
+  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "true");
+
+  act(() => history.back());
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  await waitFor(() =>
+    expect(platformOption("Web")).toHaveAttribute("aria-pressed", "true")
+  );
+
+  act(() => history.forward());
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({ android: "new" })
+  );
+  await user.click(platformOption("Web"));
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(
+    screen.queryByRole("heading", { name: "No Android session" })
+  ).toBeNull();
+});
+
+test("reopens a native session URL on the same platform", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const { testRouter } = await renderRoute("/?android=agent-native");
+  expect(
+    await screen.findByRole("heading", { name: "No Android session" })
+  ).toBeVisible();
+  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "true");
+  expect(testRouter.state.location.search).toEqual({
+    android: "agent-native",
+  });
+});
+
+test("offers iOS only where this process enables it", async () => {
+  rpc.sessionsResult = { _tag: "Initial", waiting: true };
+  await renderRoute("/");
+  await screen.findByRole("group", { name: "Workspace platform" });
+  expect(
+    within(platformSwitcher()).queryByRole("button", { name: "iOS" })
+  ).toBeNull();
+});
+
+test("leaves the Android setup sheet through the switcher", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/?android=new");
+  await user.click(
+    await screen.findByRole("button", { name: "Open Android session" })
+  );
+  const sheet = await screen.findByRole("dialog", {
+    name: "New Android session",
+  });
+  await user.click(platformOption("Web", sheet));
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "New Android session" })
+    ).toBeNull()
+  );
+});
+
+test("leaves the iOS setup sheet through the switcher", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/?ios=new", { ios: true });
+  const sheet = await screen.findByRole("dialog", {
+    name: "New iOS session",
+  });
+  expect(platformOption("iOS", sheet)).toHaveAttribute("aria-pressed", "true");
+  await user.click(platformOption("Web", sheet));
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
 });
 
 test("explains when Agent Sessions cannot be loaded", async () => {
@@ -600,9 +703,6 @@ test("explains when Agent Sessions cannot be loaded", async () => {
       "Agent Sessions are unavailable in this server process."
     )
   ).toBeVisible();
-  expect(
-    screen.getByRole("button", { exact: true, name: "Android" })
-  ).toBeEnabled();
   expect(
     screen.getByRole("button", { name: "Change color theme" })
   ).toBeVisible();
@@ -783,9 +883,6 @@ test("shows the Agent Session stream failure reason", async () => {
   expect(
     await screen.findByText("The Agent Session stream disconnected.")
   ).toBeVisible();
-  expect(
-    screen.getByRole("button", { exact: true, name: "Android" })
-  ).toBeEnabled();
   expect(
     screen.getByRole("button", { name: "Change color theme" })
   ).toBeVisible();
