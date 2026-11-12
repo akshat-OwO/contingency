@@ -30,6 +30,7 @@ import {
   supportsStartupScreen,
   tildify,
 } from "../services/startup-screen.ts";
+import { TargetAppBuildsLive } from "../services/target-app-builds.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -119,13 +120,19 @@ export const webCommand = Command.make(
             )
           )
         );
+        // Uploaded Target App builds, shared by the upload routes and both
+        // device workspaces. Closing the process removes any left.
+        const targetAppBuilds = Layer.succeedContext(
+          yield* Layer.build(TargetAppBuildsLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
             makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
               Layer.provide(
-                Layer.merge(
+                Layer.mergeAll(
                   teachingRecordingStore,
-                  makeFlowCatalogLayer({ root: selectedCatalogRoot })
+                  makeFlowCatalogLayer({ root: selectedCatalogRoot }),
+                  targetAppBuilds
                 )
               )
             )
@@ -137,9 +144,10 @@ export const webCommand = Command.make(
               root: () => selectedCatalogRoot,
             }).pipe(
               Layer.provide(
-                Layer.merge(
+                Layer.mergeAll(
                   teachingRecordingStore,
-                  makeFlowCatalogLayer({ root: selectedCatalogRoot })
+                  makeFlowCatalogLayer({ root: selectedCatalogRoot }),
+                  targetAppBuilds
                 )
               )
             )
@@ -148,7 +156,8 @@ export const webCommand = Command.make(
         const agentSession = Layer.mergeAll(
           browserSession,
           androidWorkspace,
-          iosWorkspace
+          iosWorkspace,
+          targetAppBuilds
         );
         yield* Effect.addFinalizer(() =>
           fileSystem

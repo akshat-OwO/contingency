@@ -55,3 +55,40 @@ export const iosRpc = (baseUrl, tag, payload) =>
       }
     });
   });
+
+/**
+ * Uploads a built `.app` folder as the Workspace does. Contingency installs
+ * only an uploaded build, and one upload serves one session, so each session
+ * that installs the fixture uploads it again. Returns the upload's identity;
+ * its `appPath` is the server's temporary copy.
+ */
+export const uploadIosApp = async (baseUrl, bundle) => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const parent = path.dirname(bundle);
+  const entries = await readdir(bundle, {
+    recursive: true,
+    withFileTypes: true,
+  });
+  const parts = [];
+  for (const entry of entries.filter((candidate) => candidate.isFile())) {
+    const full = path.join(entry.parentPath, entry.name);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- Frames are written in order.
+    const bytes = await readFile(full);
+    const name = Buffer.from(path.relative(parent, full));
+    const header = Buffer.alloc(4 + name.length + 8);
+    header.writeUInt32BE(name.length, 0);
+    name.copy(header, 4);
+    header.writeBigUInt64BE(BigInt(bytes.length), 4 + name.length);
+    parts.push(header, bytes);
+  }
+  const response = await fetch(new URL("/target-app-builds/ios", baseUrl), {
+    body: Buffer.concat(parts),
+    headers: { origin: new URL(baseUrl).origin },
+    method: "POST",
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(`iOS build upload refused: ${body.message}`);
+  }
+  return body;
+};

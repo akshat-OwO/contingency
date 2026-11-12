@@ -28,6 +28,8 @@ const discovery = {
       state: "device",
     } as const,
   ]),
+  discard: () => Effect.void,
+  upload: () => Effect.die("No upload in this test."),
 };
 afterEach(cleanup);
 
@@ -122,6 +124,7 @@ test("disables physical devices with their refusal reason before app discovery",
   render(
     <AndroidSetupSheet
       discovery={{
+        ...discovery,
         apps,
         devices: Effect.succeed([
           {
@@ -148,4 +151,70 @@ test("disables physical devices with their refusal reason before app discovery",
   expect(phone).toBeDisabled();
   expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
   expect(apps).not.toHaveBeenCalled();
+});
+
+test("uploads an .apk as the Target App and opens the session with its temporary copy", async () => {
+  const user = userEvent.setup();
+  const onOpen = vi.fn(() => true);
+  const discard = vi.fn(() => Effect.void);
+  const upload = vi.fn((file: File) =>
+    Effect.succeed({
+      apkPath: "/tmp/contingency-builds-x/1/target.apk",
+      app: {
+        label: "Shop",
+        launchActivity: "dev.shop/.Main",
+        package: "dev.shop",
+        versionCode: "2",
+        versionName: "2",
+      },
+      id: "11111111-1111-1111-1111-111111111111",
+      name: file.name,
+    })
+  );
+  render(
+    <AndroidSetupSheet
+      discovery={{ ...discovery, discard, upload }}
+      open
+      onOpen={onOpen}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  await screen.findByRole("button", { name: /Shop/u });
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(picker).toBeInstanceOf(HTMLInputElement);
+  await user.upload(
+    picker ?? document.createElement("input"),
+    new File(["PK"], "shop.apk", {
+      type: "application/vnd.android.package-archive",
+    })
+  );
+  // Build 1 is installed, so installing build 2 replaces it.
+  expect(
+    await screen.findByText(
+      "dev.shop · build 2 · replaces build 1 with your consent"
+    )
+  ).toBeVisible();
+  await user.type(
+    screen.getByRole("textbox", { name: "Starting screen element" }),
+    "Sign in"
+  );
+  await user.type(
+    screen.getByRole("textbox", { name: "Done when element" }),
+    "Done"
+  );
+  await user.click(screen.getByRole("button", { name: "Open session" }));
+  expect(onOpen).toHaveBeenCalledWith(
+    "new-flow",
+    expect.objectContaining({
+      apkPath: "/tmp/contingency-builds-x/1/target.apk",
+      environment: expect.objectContaining({
+        appBuild: "2",
+        appId: "dev.shop",
+      }),
+      setup: expect.objectContaining({ activity: "dev.shop/.Main" }),
+    })
+  );
+  // The session owns the upload now; it is not discarded here.
+  expect(discard).not.toHaveBeenCalled();
 });

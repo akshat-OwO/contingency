@@ -3,6 +3,7 @@ import type {
   AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
+  UploadedAndroidApp,
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber, Option, Schema } from "effect";
@@ -35,7 +36,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { listAndroidApps, listAndroidDevices } from "@/lib/rpc";
+import {
+  discardTargetAppBuild,
+  listAndroidApps,
+  listAndroidDevices,
+  uploadAndroidApk,
+} from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import {
@@ -43,6 +49,12 @@ import {
   selectable,
   unavailableReason,
 } from "./android-setup-state";
+import {
+  BuildPicker,
+  UploadedBuild,
+  useBuildUpload,
+} from "./target-app-upload";
+import type { BuildUploadState } from "./target-app-upload";
 import { WorkspacePlatformSwitcher } from "./workspace-platform";
 
 /** Roles agent-device reports that a person can name on a screen. */
@@ -94,6 +106,13 @@ const INITIAL_FORM: SetupForm = {
   query: "",
   start: { name: "", role: "text" },
 };
+
+/** A new Target App starts its conditions and permissions over. */
+const CLEARED_CONDITIONS = {
+  outcome: INITIAL_FORM.outcome,
+  permissions: {},
+  start: INITIAL_FORM.start,
+} as const;
 
 const failure = (cause: unknown) =>
   Schema.decodeUnknownOption(Schema.Struct({ message: Schema.String }))(
@@ -408,18 +427,133 @@ const DeviceStep = ({
   </div>
 );
 
-const AppStep = ({
+/** The uploaded `.apk`, and whether installing it replaces a build. */
+const UploadedApk = ({
   apps,
+  onRemove,
+  upload,
+}: {
+  readonly apps: Loaded<AndroidDiscoveredApp> | null;
+  readonly onRemove: () => void;
+  readonly upload: UploadedAndroidApp;
+}) => {
+  const installed =
+    apps?._tag === "loaded"
+      ? apps.value.find((entry) => entry.package === upload.app.package)
+      : undefined;
+  return (
+    <UploadedBuild
+      detail={`${upload.app.package} · build ${upload.app.versionCode} · ${
+        installed === undefined
+          ? "installs with your consent"
+          : `replaces build ${installed.versionCode} with your consent`
+      }`}
+      name={upload.name}
+      onRemove={onRemove}
+      title={upload.app.label || upload.name}
+    />
+  );
+};
+
+const InstalledApps = ({
+  apps,
+  matches,
   onQuery,
   onSelect,
   query,
   selected,
 }: {
-  readonly apps: Loaded<AndroidDiscoveredApp> | null;
+  readonly apps: Loaded<AndroidDiscoveredApp>;
+  readonly matches: readonly AndroidDiscoveredApp[];
   readonly onQuery: (query: string) => void;
   readonly onSelect: (appId: string) => void;
   readonly query: string;
   readonly selected: string | null;
+}) => (
+  <div className="space-y-1.5">
+    <div className="relative">
+      <SearchIcon
+        aria-hidden="true"
+        className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+      />
+      <Input
+        aria-label="Search installed apps"
+        className="pl-8"
+        onChange={(event) => onQuery(event.currentTarget.value)}
+        placeholder="Apps installed on this device"
+        value={query}
+      />
+    </div>
+    {apps._tag === "loading" ? (
+      <p className="text-muted-foreground flex items-center gap-2 text-xs">
+        <LoaderCircleIcon
+          aria-hidden="true"
+          className="size-3.5 animate-spin"
+        />
+        Reading installed apps…
+      </p>
+    ) : null}
+    {apps._tag === "failed" ? (
+      <p className="text-destructive text-xs">{apps.message}</p>
+    ) : null}
+    {apps._tag === "loaded" ? (
+      <ul
+        aria-label="Installed apps"
+        className="max-h-44 overflow-y-auto rounded-lg border"
+      >
+        {matches.length === 0 ? (
+          <li className="text-muted-foreground px-2.5 py-2 text-xs">
+            No launchable app matches.
+          </li>
+        ) : null}
+        {matches.map((app) => (
+          <li key={app.package}>
+            <button
+              aria-pressed={selected === app.package}
+              className={cn(
+                "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
+                selected === app.package && "bg-muted"
+              )}
+              onClick={() => onSelect(app.package)}
+              type="button"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                {app.label || app.package}
+                {app.label ? (
+                  <span className="text-muted-foreground ml-2 text-xs">
+                    {app.package}
+                  </span>
+                ) : null}
+              </span>
+              <Badge variant="outline">build {app.versionCode}</Badge>
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : null}
+  </div>
+);
+
+const AppStep = ({
+  apps,
+  onQuery,
+  onRemoveUpload,
+  onSelect,
+  onUpload,
+  query,
+  selected,
+  upload,
+  uploadState,
+}: {
+  readonly apps: Loaded<AndroidDiscoveredApp> | null;
+  readonly onQuery: (query: string) => void;
+  readonly onRemoveUpload: () => void;
+  readonly onSelect: (appId: string) => void;
+  readonly onUpload: (file: File) => void;
+  readonly query: string;
+  readonly selected: string | null;
+  readonly upload: UploadedAndroidApp | null;
+  readonly uploadState: BuildUploadState;
 }) => {
   if (apps === null) {
     return (
@@ -436,67 +570,32 @@ const AppStep = ({
         )
       : [];
   return (
-    <div className="space-y-1.5">
-      <div className="relative">
-        <SearchIcon
-          aria-hidden="true"
-          className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+    <div className="space-y-3">
+      {upload === null ? (
+        <BuildPicker
+          accept=".apk,application/vnd.android.package-archive"
+          describedBy="android-apk-upload-status"
+          directory={false}
+          label="Upload an .apk"
+          onFiles={(files) => {
+            const [first] = files;
+            if (first !== undefined && first.file instanceof File) {
+              onUpload(first.file);
+            }
+          }}
+          state={uploadState}
         />
-        <Input
-          aria-label="Search installed apps"
-          className="pl-8"
-          onChange={(event) => onQuery(event.currentTarget.value)}
-          placeholder="Apps installed on this device"
-          value={query}
-        />
-      </div>
-      {apps._tag === "loading" ? (
-        <p className="text-muted-foreground flex items-center gap-2 text-xs">
-          <LoaderCircleIcon
-            aria-hidden="true"
-            className="size-3.5 animate-spin"
-          />
-          Reading installed apps…
-        </p>
-      ) : null}
-      {apps._tag === "failed" ? (
-        <p className="text-destructive text-xs">{apps.message}</p>
-      ) : null}
-      {apps._tag === "loaded" ? (
-        <ul
-          aria-label="Installed apps"
-          className="max-h-44 overflow-y-auto rounded-lg border"
-        >
-          {matches.length === 0 ? (
-            <li className="text-muted-foreground px-2.5 py-2 text-xs">
-              No launchable app matches.
-            </li>
-          ) : null}
-          {matches.map((app) => (
-            <li key={app.package}>
-              <button
-                aria-pressed={selected === app.package}
-                className={cn(
-                  "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                  selected === app.package && "bg-muted"
-                )}
-                onClick={() => onSelect(app.package)}
-                type="button"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {app.label || app.package}
-                  {app.label ? (
-                    <span className="text-muted-foreground ml-2 text-xs">
-                      {app.package}
-                    </span>
-                  ) : null}
-                </span>
-                <Badge variant="outline">build {app.versionCode}</Badge>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      ) : (
+        <UploadedApk apps={apps} onRemove={onRemoveUpload} upload={upload} />
+      )}
+      <InstalledApps
+        apps={apps}
+        matches={matches}
+        onQuery={onQuery}
+        onSelect={onSelect}
+        query={query}
+        selected={upload === null ? selected : null}
+      />
     </div>
   );
 };
@@ -577,10 +676,57 @@ const selectedApp = (
     ? apps.value.find((entry) => entry.package === id)
     : undefined;
 
+/** The uploaded build, if any, else the installed app picked from the list. */
+const targetApp = (
+  uploaded: UploadedAndroidApp | null,
+  apps: Loaded<AndroidDiscoveredApp> | null,
+  id: string | null
+) => (uploaded === null ? selectedApp(apps, id) : uploaded.app);
+
 const androidSetupDiscovery = {
   apps: listAndroidApps,
   devices: listAndroidDevices,
+  discard: discardTargetAppBuild,
+  upload: uploadAndroidApk,
 };
+
+/** The Android selection the sheet's choices declare. */
+const setupSelection = ({
+  app,
+  device,
+  outcome,
+  permissions,
+  privateInput,
+  release,
+  start,
+}: {
+  readonly app: AndroidDiscoveredApp;
+  readonly device: AndroidWorkspaceSelection["device"];
+  readonly outcome: Condition;
+  readonly permissions: NonNullable<
+    AndroidWorkspaceSelection["environment"]["permissions"]
+  >;
+  readonly privateInput: boolean;
+  readonly release: string;
+  readonly start: Condition;
+}): AndroidWorkspaceSelection => ({
+  device,
+  environment: {
+    androidVersion: release,
+    appBuild: app.versionCode,
+    appId: app.package,
+    permissions,
+    startingState: `${start.role} ${start.name} is visible`,
+  },
+  helperConsent: "auto",
+  outcomes: [outcome],
+  privateInput,
+  setup: {
+    activity: app.launchActivity,
+    conditions: [start],
+    kind: "restart-activity",
+  },
+});
 
 /** What the sheet still needs, said once beside the disabled submit. */
 const setupMissing = ({
@@ -608,6 +754,32 @@ const setupMissing = ({
     : "Name the starting and done elements to continue.";
 };
 
+/**
+ * The uploaded `.apk`, if any. An upload no session claimed is deleted as
+ * soon as it is let go of; one a session claimed is the session's to delete.
+ */
+const useApkUpload = (
+  discovery: typeof androidSetupDiscovery,
+  onUploaded: () => void
+) => {
+  const [uploadAtom] = useState(() =>
+    Atom.make<UploadedAndroidApp | null>(null)
+  );
+  const [uploaded, setUploaded] = useAtom(uploadAtom);
+  const letGo = () => {
+    if (uploaded !== null) {
+      Effect.runFork(discovery.discard(uploaded.id));
+    }
+    setUploaded(null);
+  };
+  const upload = useBuildUpload(discovery.upload, (next) => {
+    letGo();
+    setUploaded(next);
+    onUploaded();
+  });
+  return { claimed: () => setUploaded(null), letGo, upload, uploaded };
+};
+
 export const AndroidSetupSheet = ({
   discovery = androidSetupDiscovery,
   onOpen,
@@ -616,10 +788,11 @@ export const AndroidSetupSheet = ({
   pending,
 }: {
   readonly discovery?: typeof androidSetupDiscovery;
+  /** True when the session start was sent; it then owns any upload. */
   readonly onOpen: (
     flowName: FlowName,
     selection: AndroidWorkspaceSelection
-  ) => void;
+  ) => boolean;
   readonly onOpenChange: (open: boolean) => void;
   readonly open: boolean;
   readonly pending: boolean;
@@ -642,7 +815,10 @@ export const AndroidSetupSheet = ({
     device === null ? "none" : `${device.serial}-${refresh}`
   );
   const apps = device === null ? null : loadedApps;
-  const app = selectedApp(apps, form.app);
+  const { claimed, letGo, upload, uploaded } = useApkUpload(discovery, () =>
+    setForm((current) => ({ ...current, app: null, ...CLEARED_CONDITIONS }))
+  );
+  const app = targetApp(uploaded, apps, form.app);
   const name = form.flowName.trim();
   const validName = Schema.is(FlowName)(name);
   const start = { name: form.start.name.trim(), role: form.start.role };
@@ -654,7 +830,16 @@ export const AndroidSetupSheet = ({
   const ready =
     device !== null && app !== undefined && conditionsReady && validName;
   return (
-    <Sheet onOpenChange={onOpenChange} open={open}>
+    <Sheet
+      onOpenChange={(next) => {
+        if (!next) {
+          upload.reset();
+          letGo();
+        }
+        onOpenChange(next);
+      }}
+      open={open}
+    >
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
           {/* The sheet covers the Workspace, so it carries the way out. */}
@@ -673,24 +858,24 @@ export const AndroidSetupSheet = ({
             if (!ready) {
               return;
             }
-            onOpen(name, {
+            const selection = setupSelection({
+              app,
               device,
-              environment: {
-                androidVersion: release,
-                appBuild: app.versionCode,
-                appId: app.package,
-                permissions,
-                startingState: `${start.role} ${start.name} is visible`,
-              },
-              helperConsent: "auto",
-              outcomes: [outcome],
+              outcome,
+              permissions,
               privateInput: form.privateInput,
-              setup: {
-                activity: app.launchActivity,
-                conditions: [start],
-                kind: "restart-activity",
-              },
+              release,
+              start,
             });
+            const sent = onOpen(
+              name,
+              uploaded === null
+                ? selection
+                : { ...selection, apkPath: uploaded.apkPath }
+            );
+            if (sent) {
+              claimed();
+            }
           }}
         >
           <div className="min-h-0 flex-1 scroll-pb-8 space-y-6 overflow-y-auto px-4 pb-8">
@@ -734,17 +919,23 @@ export const AndroidSetupSheet = ({
                 onQuery={(query) =>
                   setForm((current) => ({ ...current, query }))
                 }
-                onSelect={(appId) =>
+                onRemoveUpload={() => {
+                  letGo();
+                  setForm((current) => ({ ...current, ...CLEARED_CONDITIONS }));
+                }}
+                onSelect={(appId) => {
+                  letGo();
                   setForm((current) => ({
                     ...current,
                     app: appId,
-                    outcome: INITIAL_FORM.outcome,
-                    permissions: {},
-                    start: INITIAL_FORM.start,
-                  }))
-                }
+                    ...CLEARED_CONDITIONS,
+                  }));
+                }}
+                onUpload={(file) => upload.start(file, file.name)}
                 query={form.query}
                 selected={form.app}
+                upload={uploaded}
+                uploadState={upload.state}
               />
             </Step>
             <Step

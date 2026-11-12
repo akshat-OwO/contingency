@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { selectedSimulatorResource } from "./ios-proof-resources.mjs";
-import { iosRpc } from "./ios-workspace-rpc.mjs";
+import { iosRpc, uploadIosApp } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
@@ -46,6 +46,10 @@ try {
     (entry) => entry.udid === process.env.CONTINGENCY_IOS_SELECTED
   );
   assert.ok(device);
+  const upload = await uploadIosApp(
+    instance.mcpUrl,
+    process.env.CONTINGENCY_IOS_FIXTURE
+  );
   const session = await call({
     _tag: "start",
     flowName: "ios-public-login",
@@ -53,7 +57,7 @@ try {
     operationId: operation(),
     recordingId: null,
     selection: {
-      appPath: process.env.CONTINGENCY_IOS_FIXTURE,
+      appPath: upload.appPath,
       device,
       environment: {
         build: "1",

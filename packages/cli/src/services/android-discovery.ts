@@ -12,7 +12,7 @@ import {
   AndroidWorkspaceSelection,
   isAndroidSupportedApi,
 } from "@contingency/protocol";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { yazl } from "playwright-core/lib/utilsBundle";
 
 import {
@@ -26,7 +26,8 @@ export interface AndroidDiscoveryError {
   readonly code:
     | keyof typeof messages
     | "android_discovery_failed"
-    | "android_app_metadata_unavailable";
+    | "android_app_metadata_unavailable"
+    | "android_build_tools_missing";
   readonly message: string;
 }
 const messages = {
@@ -87,6 +88,68 @@ const host = (file: string, args: readonly string[]) =>
     },
   });
 
+/** The newest installed Android SDK build-tools directory. */
+export const androidBuildTools = Effect.gen(function* buildTools() {
+  const sdk =
+    process.env.ANDROID_HOME ??
+    process.env.ANDROID_SDK_ROOT ??
+    path.join(homedir(), "Library/Android/sdk");
+  const tools = path.join(sdk, "build-tools");
+  const missing = {
+    code: "android_build_tools_missing" as const,
+    message: "Install Android SDK build-tools in Android Studio.",
+  };
+  const versions = yield* Effect.tryPromise({
+    catch: () => missing,
+    try: () => readdir(tools),
+  });
+  const [version] = versions
+    .filter((entry) => /^\d+\.\d+\.\d+$/u.test(entry))
+    .toSorted((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  if (version === undefined) {
+    return yield* Effect.fail(missing);
+  }
+  return path.join(tools, version);
+});
+
+/** `aapt2 dump badging` of an APK already on this host. Reads only. */
+export const readLocalApkBadging = (apk: string) =>
+  androidBuildTools.pipe(
+    Effect.flatMap((tools) =>
+      host(path.join(tools, "aapt2"), ["dump", "badging", apk])
+    )
+  );
+
+const launchablePattern = /^launchable-activity: name='(?<activity>[^']+)'/mu;
+
+/**
+ * The installed-app shape of an APK's badging, validated as discovery
+ * validates an installed app. Undefined when a required field is missing.
+ */
+export const parseApkBadging = (
+  metadata: string
+): AndroidDiscoveredApp | undefined => {
+  const match = packagePattern.exec(metadata)?.groups;
+  const activity = launchablePattern.exec(metadata)?.groups?.activity;
+  if (match?.package === undefined || activity === undefined) {
+    return undefined;
+  }
+  const relative = activity.startsWith(`${match.package}.`)
+    ? activity.slice(match.package.length)
+    : activity;
+  const component = `${match.package}/${relative}`;
+  if (!componentPattern.test(component)) {
+    return undefined;
+  }
+  return Schema.decodeUnknownOption(AndroidDiscoveredApp)({
+    label: appLabel(metadata, match.package, component),
+    launchActivity: component,
+    package: match.package,
+    versionCode: match.versionCode,
+    versionName: match.versionName ?? "",
+  }).pipe(Option.getOrUndefined);
+};
+
 /** Copies only to an owned host directory. Never installs or runs device code. */
 const readApk = (serial: string, apk: string) =>
   Effect.scoped(
@@ -99,21 +162,7 @@ const readApk = (serial: string, apk: string) =>
         (owned) =>
           Effect.promise(() => rm(owned, { force: true, recursive: true }))
       );
-      const sdk =
-        process.env.ANDROID_HOME ??
-        process.env.ANDROID_SDK_ROOT ??
-        path.join(homedir(), "Library/Android/sdk");
-      const tools = path.join(sdk, "build-tools");
-      const versions = yield* Effect.tryPromise({
-        catch: () => failure(),
-        try: () => readdir(tools),
-      });
-      const [version] = versions
-        .filter((entry) => /^\d+\.\d+\.\d+$/u.test(entry))
-        .toSorted((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-      if (version === undefined) {
-        return yield* Effect.fail(failure());
-      }
+      const tools = yield* androidBuildTools;
       const local = path.join(directory, "base.apk");
       // Only the manifest and resource table are needed for labels and versions.
       // Stream them out without extracting anything onto the device.
@@ -158,11 +207,7 @@ const readApk = (serial: string, apk: string) =>
           );
         },
       });
-      return yield* host(path.join(tools, version, "aapt2"), [
-        "dump",
-        "badging",
-        local,
-      ]);
+      return yield* host(path.join(tools, "aapt2"), ["dump", "badging", local]);
     })
   );
 

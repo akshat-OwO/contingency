@@ -32,6 +32,8 @@ export interface NativeAppRunDecision<
   readonly targetApp: string;
   readonly kind: "run-environment-permission" | "app-installation";
   readonly differences: readonly Difference[];
+  /** For an app installation: the build it replaces, or null when absent. */
+  readonly installedBuild?: string | null;
 }
 
 export interface NativeAppRunEvidence {

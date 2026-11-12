@@ -17,6 +17,7 @@ import { makeDeviceKeyframeRoutes } from "../routes/device-keyframes.ts";
 import { makeDocsSiteRoutes } from "../routes/docs-site.ts";
 import { makeIosStreamRoutes } from "../routes/ios-stream.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
+import { makeTargetAppBuildRoutes } from "../routes/target-app-builds.ts";
 import type { AgentRunStoreService } from "./agent-run-store.ts";
 import type { AgentSessionService } from "./agent-session.ts";
 import type { CatalogBrowserService } from "./catalog-browser.ts";
@@ -169,6 +170,9 @@ export const makeHttpServerLayer = ({
           Layer.provide(agentSession ?? Layer.empty)
         ),
         makeDeviceKeyframeRoutes(allowedOrigins).pipe(
+          Layer.provide(agentSession ?? Layer.empty)
+        ),
+        makeTargetAppBuildRoutes(allowedOrigins).pipe(
           Layer.provide(agentSession ?? Layer.empty)
         ),
         mcp,

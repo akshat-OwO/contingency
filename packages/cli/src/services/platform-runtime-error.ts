@@ -3,6 +3,8 @@ import type { PlatformRuntimeError } from "./platform-runtime.ts";
 const messages = {
   api_unsupported:
     "This Android API level is outside the Support Matrix. Select a device running API 30 through 36; API levels below 30 are unsupported.",
+  app_installation_refused:
+    "The device refused to install the Target App build. Nothing was uninstalled.",
   capability_missing:
     "The Android runtime does not support a required capability. Coordinate input and Teaching capture are unavailable.",
   capture_incomplete:
@@ -68,4 +70,13 @@ export const platformRuntimeError = (
   _tag: "PlatformRuntimeError",
   code,
   message: messages[code],
+});
+
+/** The device's own reason for refusing a Target App install. Never uninstalls. */
+export const appInstallationRefused = (
+  reason: string
+): PlatformRuntimeError => ({
+  _tag: "PlatformRuntimeError",
+  code: "app_installation_refused",
+  message: `The device refused to install the Target App build: ${reason}. Nothing was uninstalled, so the installed app and its data are unchanged.`,
 });

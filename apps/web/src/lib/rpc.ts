@@ -9,10 +9,16 @@ import type {
   FlowName,
   AgentSessionSnapshot,
   BrowserStreamEvent,
+  IosDeviceSelection,
 } from "@contingency/protocol";
 import {
   ContingencyRpcs,
   DeviceKeyframes,
+  encodeIosBuildEntryHeader,
+  TargetAppBuildRefusal,
+  targetAppBuildPaths,
+  UploadedAndroidApp,
+  UploadedIosApp,
   isBrowserRpcError,
   RunVideoStatus,
   runVideoStatusPath,
@@ -96,14 +102,105 @@ export const runIosWorkspaceCommand = (command: IosWorkspaceCommand) =>
       });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
-/** The bundle id and build a built `.app` on this machine declares. */
-export const inspectIosApp = (path: string) =>
+/** Apps installed on one running simulator, read without changing it. */
+export const listIosApps = (device: IosDeviceSelection) =>
   Effect.scoped(
-    Effect.gen(function* iosAppInspect() {
+    Effect.gen(function* iosApps() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
-      return yield* client("ios.app.inspect", { path });
+      return yield* client("ios.apps.list", { device });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
+
+/** Why an upload did not become a Target App build. */
+export interface TargetAppBuildUploadError {
+  readonly _tag: "TargetAppBuildUploadError";
+  readonly message: string;
+}
+const uploadError = (message: string): TargetAppBuildUploadError => ({
+  _tag: "TargetAppBuildUploadError",
+  message,
+});
+
+const postBuild = <A, I>(
+  path: string,
+  body: Blob,
+  headers: Record<string, string>,
+  answer: Schema.Codec<A, I>
+): Effect.Effect<A, TargetAppBuildUploadError> =>
+  Effect.gen(function* upload() {
+    const response = yield* Effect.tryPromise({
+      catch: () =>
+        uploadError("Could not reach Contingency to upload the build."),
+      try: (signal) =>
+        fetch(path, {
+          body,
+          headers: { "content-type": "application/octet-stream", ...headers },
+          method: "POST",
+          signal,
+        }),
+    });
+    const rejected = `Contingency did not accept the upload (HTTP ${response.status}).`;
+    const text = yield* Effect.tryPromise({
+      catch: () => uploadError(rejected),
+      try: () => response.text(),
+    });
+    if (!response.ok) {
+      const refusal = Schema.decodeUnknownOption(
+        Schema.fromJsonString(TargetAppBuildRefusal)
+      )(text);
+      return yield* Effect.fail(
+        uploadError(refusal._tag === "Some" ? refusal.value.message : rejected)
+      );
+    }
+    return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(answer))(
+      text
+    ).pipe(
+      Effect.mapError(() =>
+        uploadError("Contingency answered the upload in an unknown shape.")
+      )
+    );
+  });
+
+/** One file of a `.app` folder, by its path from the folder's parent. */
+export interface AppBundleFile {
+  readonly file: Blob;
+  readonly path: string;
+}
+
+/**
+ * Uploads a simulator `.app` folder. The CLI rebuilds it in a temporary
+ * directory, checks it, and answers with its identity.
+ */
+export const uploadIosApp = (files: readonly AppBundleFile[]) =>
+  postBuild(
+    targetAppBuildPaths.ios,
+    new Blob(
+      files.flatMap(({ file, path }) => [
+        encodeIosBuildEntryHeader(path, file.size),
+        file,
+      ])
+    ),
+    {},
+    UploadedIosApp
+  );
+
+/** Uploads an `.apk`, read on the CLI as an installed app is read. */
+export const uploadAndroidApk = (file: File) =>
+  postBuild(
+    targetAppBuildPaths.android,
+    file,
+    { "x-target-app-name": encodeURIComponent(file.name) },
+    UploadedAndroidApp
+  );
+
+/** Deletes an upload no session claimed, such as one replaced by another. */
+export const discardTargetAppBuild = (id: string) =>
+  Effect.scoped(
+    Effect.gen(function* discardBuild() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("target-app.build.discard", { id });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.ignore);
 export const iosStreamAccess = (sessionId: AgentSessionId) =>
   Effect.scoped(
     Effect.gen(function* iosAccess() {

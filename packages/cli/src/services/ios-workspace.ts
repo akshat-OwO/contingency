@@ -26,6 +26,7 @@ import {
   Redacted,
   Schema,
   Scope,
+  Option,
   Semaphore,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
@@ -47,6 +48,11 @@ import { nativeHitTest } from "./native-app-hit-test.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
+import { TargetAppBuilds } from "./target-app-builds.ts";
+import type {
+  ClaimedTargetAppBuild,
+  TargetAppBuildsService,
+} from "./target-app-builds.ts";
 import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
 
@@ -60,6 +66,24 @@ const error = (code: string, message: string): IosWorkspaceError => ({
 });
 const denied = (message: string) =>
   Effect.fail(error("ios_workspace_refused", message));
+/** Claims an uploaded build for a session, refusing any other path. */
+const claimBuild = (
+  builds: Option.Option<TargetAppBuildsService>,
+  platform: "ios" | "android",
+  buildPath: string,
+  scope: Scope.Closeable
+): Effect.Effect<ClaimedTargetAppBuild, IosWorkspaceError> =>
+  // A refused claim closes the session scope it was given.
+  (Option.isNone(builds)
+    ? denied("Uploaded builds are unavailable in this process.")
+    : builds.value
+        .claim(platform, buildPath, scope)
+        .pipe(
+          Effect.mapError((refusal) =>
+            error("ios_workspace_refused", refusal.message)
+          )
+        )
+  ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 export const iosWorkspaceRefusal = (
@@ -276,6 +300,7 @@ export const makeIosWorkspaceLayer = (options: {
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
+      const builds = yield* Effect.serviceOption(TargetAppBuilds);
 
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -672,6 +697,13 @@ export const makeIosWorkspaceLayer = (options: {
               `agent-ios-${hash(command.operationId).slice(0, 32)}`
             );
             const scope = yield* Scope.make();
+            // An uploaded build belongs to this session: closing its scope
+            // deletes the upload, including when startup fails.
+            const appPath =
+              selection.appPath === undefined
+                ? undefined
+                : (yield* claimBuild(builds, "ios", selection.appPath, scope))
+                    .path;
             const startup: IosRunInput = {
               device,
               environment: selection.environment,
@@ -684,9 +716,7 @@ export const makeIosWorkspaceLayer = (options: {
               teaching: command.kind === "teaching",
             };
             const create = (options.createRun ?? createIosRun)(
-              selection.appPath === undefined
-                ? startup
-                : { ...startup, appPath: selection.appPath }
+              appPath === undefined ? startup : { ...startup, appPath }
             );
             const created = yield* Effect.result(create);
             if (Result.isFailure(created)) {

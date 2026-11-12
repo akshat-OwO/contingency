@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import {
   ContingencyRpcs,
   makeBrowserRpcError,
@@ -32,9 +30,9 @@ import type {
   CatalogBrowserService,
 } from "../services/catalog-browser.ts";
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
-import { iosSimctlHost } from "../services/ios-simctl.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
 import { recordingView } from "../services/recording-view.ts";
+import { TargetAppBuilds } from "../services/target-app-builds.ts";
 import {
   decideFlow,
   stopDryRun,
@@ -202,27 +200,27 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               makeBrowserRpcError("agent_session_unavailable", cause.message)
             )
           ),
-      "ios.app.inspect": ({ path: bundle }) =>
-        path.isAbsolute(bundle) && bundle.replace(/\/+$/u, "").endsWith(".app")
-          ? iosSimctlHost.readApp(bundle.replace(/\/+$/u, "")).pipe(
-              Effect.map(({ build, bundleId, label }) => ({
+      "ios.apps.list": ({ device }) =>
+        makeIosDiscovery()
+          .apps(device)
+          .pipe(
+            Effect.map((apps) =>
+              apps.map(({ build, bundleId, label }) => ({
                 build,
                 bundleId,
                 label,
-              })),
-              Effect.mapError(() =>
-                makeBrowserRpcError(
-                  "agent_session_unavailable",
-                  "No readable Info.plist in that .app. Enter the bundle id and build yourself."
-                )
-              )
-            )
-          : Effect.fail(
-              makeBrowserRpcError(
-                "agent_session_unavailable",
-                "Give the absolute path to a built .app."
-              )
+              }))
             ),
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
+      "target-app.build.discard": ({ id }) =>
+        Effect.serviceOption(TargetAppBuilds).pipe(
+          Effect.flatMap((builds) =>
+            Option.isSome(builds) ? builds.value.discard(id) : Effect.void
+          )
+        ),
       "ios.workspace.enabled": () => Effect.succeed(true),
       "ios.workspace.command": ({ command, source }) =>
         Effect.gen(function* iosWorkspaceCommand() {

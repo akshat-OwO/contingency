@@ -10,7 +10,7 @@ import {
   selectedSimulatorResource,
   simulatorInventory,
 } from "./ios-proof-resources.mjs";
-import { iosRpc } from "./ios-workspace-rpc.mjs";
+import { iosRpc, uploadIosApp } from "./ios-workspace-rpc.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
@@ -64,7 +64,6 @@ const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
 const device = devices.find((entry) => entry.udid === selected);
 assert.ok(device);
 const selection = {
-  appPath,
   device,
   environment: {
     build: "1",
@@ -80,6 +79,7 @@ const selection = {
 };
 const sessions = [];
 const start = async (kind = "run") => {
+  const upload = await uploadIosApp(instance.mcpUrl, appPath);
   const session = await call(
     {
       _tag: "start",
@@ -87,7 +87,11 @@ const start = async (kind = "run") => {
       kind,
       operationId: operation(),
       recordingId: null,
-      selection,
+      // Each installing session claims its own upload of the fixture.
+      selection: {
+        ...selection,
+        appPath: upload.appPath,
+      },
     },
     kind === "teaching" ? "user" : "agent"
   );

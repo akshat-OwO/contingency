@@ -39,6 +39,7 @@ import {
   androidDockPresentation,
   androidSessionLabel,
 } from "./android-dock-state";
+import { appInstallationQuestion } from "./app-installation";
 import { DockState } from "./workspace-dock";
 
 /** The state label the dock shows. */
@@ -51,10 +52,14 @@ export const AndroidStateBadges = ({
   return <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
 };
 
+const androidDeviceName = (
+  device: AndroidWorkspaceSnapshot["selection"]["device"]
+) => ("avd" in device ? device.avd : device.model);
+
 /**
  * What preparation is waiting on, in the dock's request tier: a Run
- * Environment Permission, or consent to clear the Target App's data on a
- * phone before the journey starts.
+ * Environment Permission, consent to install or replace an uploaded Target
+ * App build, or an action's Confirmation.
  */
 export const AndroidRequests = ({
   onDecide,
@@ -68,10 +73,12 @@ export const AndroidRequests = ({
   session.preparation.pending.length === 0 ? null : (
     <div className="bg-muted-surface space-y-2 border-b px-3 py-2.5">
       {session.preparation.pending.map((decision) => {
-        const title =
-          decision.kind === "confirmation"
-            ? "Confirmation"
-            : "Run Environment Permission";
+        const title = {
+          "app-installation": "App installation",
+          confirmation: "Confirmation",
+          "run-environment-permission": "Run Environment Permission",
+        }[decision.kind];
+        const { environment } = session.selection;
         return (
           <section aria-label={title} key={decision.id}>
             <RequestHeader
@@ -107,9 +114,20 @@ export const AndroidRequests = ({
               title={title}
             />
             <p className="text-muted-foreground text-xs">
+              {decision.kind === "app-installation"
+                ? appInstallationQuestion({
+                    app: environment.appId,
+                    build: environment.appBuild,
+                    device: androidDeviceName(session.selection.device),
+                    installedBuild: decision.installedBuild,
+                  })
+                : null}
               {decision.kind === "confirmation"
                 ? `${session.boundary?.description ?? "Android action"}. Allow this exact attempt once; retry needs fresh Confirmation.`
-                : `The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`}
+                : null}
+              {decision.kind === "run-environment-permission"
+                ? `The agent wants to run on ${decision.targetApp}${session.preparation.differences.length === 0 ? "" : ` with ${session.preparation.differences.map((difference) => `${difference.field} ${difference.selected} (taught on ${difference.taught})`).join(", ")}`}.`
+                : null}
             </p>
           </section>
         );

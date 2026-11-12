@@ -1,7 +1,10 @@
 import type { Effect as EffectType } from "effect";
 import { Effect } from "effect";
 
-import { preflightAndroidPreparation } from "./android-preparation.ts";
+import {
+  preflightAndroidPreparation,
+  readInstalledAndroidBuild,
+} from "./android-preparation.ts";
 import { createAndroidRun } from "./android-run.ts";
 import { acquireAndroidBackend } from "./android-runtime-backend.ts";
 import { androidCapabilities } from "./android-runtime-contract.ts";
@@ -34,6 +37,7 @@ export const makeAndroidRuntimeFactory = (): AndroidRuntimeFactoryService => ({
   capabilities: androidCapabilities,
   createRun: (input) =>
     createAndroidRun(input, {
+      installedBuild: readInstalledAndroidBuild,
       preflight: preflightAndroidPreparation,
       start: (startup) =>
         Effect.gen(function* startPrepared() {

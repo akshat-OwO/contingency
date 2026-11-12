@@ -28,6 +28,7 @@ export const AndroidPreparation = Schema.Struct({
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
 
+// oxlint-disable-next-line eslint/no-redeclare
 export const IosDeviceSelection = Schema.Struct({
   deviceType: Schema.String.check(
     Schema.isPattern(/^com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-/u)
@@ -40,6 +41,7 @@ export const IosDeviceSelection = Schema.Struct({
     Schema.isPattern(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu)
   ),
 });
+export type IosDeviceSelection = typeof IosDeviceSelection.Type;
 /** Physical iPhones decode so Workspace can refuse them before any device command. */
 export const IosPhysicalDeviceSelection = Schema.Struct({
   kind: Schema.Literal("physical"),

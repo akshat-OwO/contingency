@@ -20,7 +20,7 @@ import {
   selectedSimulatorResource,
   simulatorInventory,
 } from "./ios-proof-resources.mjs";
-import { iosRpc } from "./ios-workspace-rpc.mjs";
+import { iosRpc, uploadIosApp } from "./ios-workspace-rpc.mjs";
 
 // Display changes happen to the selected simulator from outside Contingency, as a
 // person rotating or folding the device would. Every journey step still passes
@@ -411,6 +411,7 @@ const sessions = [];
 let device;
 let selection;
 const startTeaching = async (name = flowName) => {
+  const upload = await uploadIosApp(instance.mcpUrl, appPath);
   const started = await call(
     {
       _tag: "start",
@@ -418,7 +419,11 @@ const startTeaching = async (name = flowName) => {
       kind: "teaching",
       operationId: operation(),
       recordingId: null,
-      selection,
+      // Each installing session claims its own upload of the fixture.
+      selection: {
+        ...selection,
+        appPath: upload.appPath,
+      },
     },
     "user"
   );
@@ -986,7 +991,6 @@ try {
     runtimeVersion: device.runtimeVersion,
   };
   selection = {
-    appPath,
     device,
     environment: {
       build: "1",
