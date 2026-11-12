@@ -151,16 +151,14 @@ const TeachingActionIcon = ({
 
 /**
  * The way into the comment composer, with the comment count beside it. The
- * shortcut hint follows focus: with the browser focused, single keys belong to
- * the Page, so only the chord opens the composer.
+ * shortcut hint always shows the chord, which works everywhere. The bare `/`
+ * key still works outside the Page and remains in aria-keyshortcuts.
  */
 const CommentTrigger = ({
-  browserFocused,
   count,
   onComment,
   platform,
 }: {
-  readonly browserFocused: boolean;
   readonly count: number;
   readonly onComment: () => void;
   readonly platform: ShortcutPlatform;
@@ -188,7 +186,7 @@ const CommentTrigger = ({
     <ShortcutKbd
       className="hidden @lg:inline-flex"
       platform={platform}
-      scope={browserFocused ? "chord" : "bare"}
+      scope="chord"
       shortcut="compose"
     />
   </Button>
@@ -207,7 +205,6 @@ const CommentTrigger = ({
  * expands in place.
  */
 export const TeachingRecordingDock = ({
-  browserFocused,
   control,
   controlStatus,
   captureState,
@@ -231,8 +228,6 @@ export const TeachingRecordingDock = ({
 }: {
   readonly control?: React.ReactNode;
   readonly controlStatus?: string;
-  /** Whether the live browser holds focus, which changes the shortcut hint. */
-  readonly browserFocused: boolean;
   readonly captureState: TeachingCaptureState;
   readonly cleanup: TeachingRecordingCleanupState | undefined;
   /** Who holds the browser. Start waits for the agent's setup handoff. */
@@ -366,7 +361,6 @@ export const TeachingRecordingDock = ({
       <DockSpacer />
       {presentation.showsInspect ? (
         <CommentTrigger
-          browserFocused={browserFocused}
           count={instructions.length}
           onComment={onComment}
           platform={platform}

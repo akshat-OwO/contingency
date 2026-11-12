@@ -70,7 +70,6 @@ import type { CommentShortcut } from "@/components/agent/teaching-comment-shortc
 import {
   shortcutPlatform,
   useCommentShortcuts,
-  useElementFocused,
 } from "@/components/agent/teaching-comment-shortcuts";
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
 import {
@@ -2551,7 +2550,6 @@ const BrowserWorkspace = ({
     state.session?.activity === "teaching" &&
     state.session.captureState._tag === "recording";
   const [platform] = useState(shortcutPlatform);
-  const browserFocused = useElementFocused(view.canvasRef);
   useCommentShortcuts({
     browser: view.canvasRef,
     enabled: recording && state.phase !== "unavailable",
@@ -2626,7 +2624,6 @@ const BrowserWorkspace = ({
                 }
                 controlStatus={`${agentControlPresentation(session).holder}. ${agentControlPresentation(session).reason ?? "Stop recording when finished."}`}
                 origin={session.origin}
-                browserFocused={browserFocused}
                 captureState={session.captureState}
                 cleanup={session.recordingCleanup}
                 controller={session.controller}

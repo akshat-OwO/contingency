@@ -1583,8 +1583,9 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   renderWorkspace(resultFor([teachingRecording]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
   const trigger = within(dock).getByRole("button", { name: "Comment" });
-  // Outside the Page the hint is the single key.
-  expect(trigger).toHaveTextContent("/");
+  // The chord hint stays the same as focus moves into and out of the Page.
+  expect(trigger).toHaveTextContent("CtrlShiftK");
+  expect(trigger).toHaveAttribute("aria-keyshortcuts", "/ Control+Shift+K");
 
   const canvas = screen.getByLabelText("Live browser viewport");
   await waitFor(() => {
@@ -1592,9 +1593,11 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   });
   act(() => canvas.focus());
   expect(canvas).toHaveFocus();
-  await waitFor(() => {
-    expect(trigger).toHaveTextContent("Ctrl");
-  });
+  expect(trigger).toHaveTextContent("CtrlShiftK");
+  act(() => trigger.focus());
+  expect(trigger).toHaveFocus();
+  expect(trigger).toHaveTextContent("CtrlShiftK");
+  act(() => canvas.focus());
   rpc.inputCalls.length = 0;
   await user.keyboard("/");
   await waitFor(() => {
