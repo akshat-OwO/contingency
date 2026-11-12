@@ -21,6 +21,7 @@ const host = (options: {
   readonly running: () => boolean;
   readonly completed?: () => boolean;
   readonly exited?: Effect.Effect<string>;
+  readonly released?: string[];
 }): AndroidBootHost => ({
   adb: (args) =>
     Effect.sync(() => {
@@ -42,7 +43,10 @@ const host = (options: {
   launch: (avd) =>
     Effect.sync(() => {
       options.launched.push(avd);
-      return { exited: options.exited ?? Effect.never };
+      return {
+        booted: Effect.sync(() => options.released?.push(avd)),
+        exited: options.exited ?? Effect.never,
+      };
     }),
 });
 
@@ -153,4 +157,33 @@ it.effect("shares one launch between overlapping starts of the same AVD", () =>
     expect((yield* Fiber.join(second)).message).toBe("Missing system image");
     expect(launched).toEqual(["Pixel_9"]);
   })
+);
+
+it.effect(
+  "lets every overlapping start succeed once the shared launch boots",
+  () =>
+    Effect.gen(function* overlappingSuccess() {
+      const launched: string[] = [];
+      const released: string[] = [];
+      let completed = false;
+      const boot = makeAndroidDeviceBoot(
+        host({
+          completed: () => completed,
+          launched,
+          released,
+          running: () => launched.length > 0,
+        }),
+        { interval: "1 second" }
+      );
+      const first = yield* Effect.forkChild(boot.boot("Pixel_9"));
+      const second = yield* Effect.forkChild(boot.boot("Pixel_9"));
+      yield* Effect.yieldNow;
+      completed = true;
+      // it.effect provides TestClock, so this advances both readiness waits.
+      yield* TestClock.adjust("1 second");
+      expect(yield* Fiber.join(first)).toBe("emulator-5554");
+      expect(yield* Fiber.join(second)).toBe("emulator-5554");
+      expect(launched).toEqual(["Pixel_9"]);
+      expect(released).toEqual(["Pixel_9"]);
+    })
 );

@@ -22,8 +22,12 @@ const bootError = (
   message: string
 ): AndroidBootError => ({ code, message });
 
-/** A started emulator. `exited` completes with a reason if it stops first. */
+/**
+ * A started emulator. `exited` completes with a reason when it stops;
+ * `booted` drops what was kept only to explain an early exit.
+ */
 export interface AndroidEmulatorLaunch {
+  readonly booted: Effect.Effect<void>;
   readonly exited: Effect.Effect<string>;
 }
 export interface AndroidBootHost {
@@ -108,9 +112,9 @@ const launchEmulator = (avd: string) =>
       ),
       Effect.ensuring(removeLog)
     );
-    // Once booted, the race interrupts `exited`, which removes the log. The
+    // Once booted, `booted` removes the log. The
     // emulator keeps writing to the unlinked file; nothing reads it.
-    return { exited };
+    return { booted: removeLog, exited };
   });
 
 export const androidBootHost: AndroidBootHost = {
@@ -167,11 +171,19 @@ export const makeAndroidDeviceBoot = (
       }
     });
   /**
-   * Emulators this process launched that have not exited, by AVD. Each fiber
-   * completes with the emulator's exit reason, so every boot of that AVD
-   * shares one process and one wait.
+   * Emulators this process launched that are still starting, by AVD. Each
+   * fiber completes with the emulator's exit reason, so every boot of that
+   * AVD shares one process and one wait. A fiber is never interrupted: other
+   * boots may be joined to it.
    */
-  const launches = new Map<string, Fiber.Fiber<string>>();
+  const launches = new Map<
+    string,
+    {
+      readonly booted: Effect.Effect<void>;
+      readonly exit: Fiber.Fiber<string>;
+      readonly token: object;
+    }
+  >();
   const launching = Semaphore.makeUnsafe(1);
   /**
    * Checks and launches under one permit, so overlapping starts of an AVD
@@ -187,18 +199,26 @@ export const makeAndroidDeviceBoot = (
         if (found?.booted === true) {
           return { serial: found.serial } as const;
         }
-        const current = launches.get(avd);
+        const current = launches.get(avd)?.exit;
         if (found !== null || current !== undefined) {
           return { launch: current } as const;
         }
         const launched = yield* io.launch(avd);
-        const started = yield* Effect.forkDetach(
+        // Forget only this launch, never a later one for the same AVD.
+        const token = { booted: launched.booted };
+        const exit = yield* Effect.forkDetach(
           launched.exited.pipe(
-            Effect.ensuring(Effect.sync(() => launches.delete(avd)))
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (launches.get(avd)?.token === token) {
+                  launches.delete(avd);
+                }
+              })
+            )
           )
         );
-        launches.set(avd, started);
-        return { launch: started } as const;
+        launches.set(avd, { booted: launched.booted, exit, token });
+        return { launch: exit } as const;
       })
     );
   return {
@@ -252,10 +272,12 @@ export const makeAndroidDeviceBoot = (
               ),
           })
         );
-        // Booted: stop watching for an exit, which also removes its log.
+        // Booted: later boots find it through adb, and its early-exit log
+        // is no longer needed. Its exit fiber stays, since others may join it.
         const owned = launches.get(avd);
         if (owned !== undefined) {
-          yield* Fiber.interrupt(owned);
+          launches.delete(avd);
+          yield* owned.booted;
         }
         return serial;
       }),
