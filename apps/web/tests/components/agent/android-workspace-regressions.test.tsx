@@ -74,7 +74,6 @@ test("offers paused and completed sessions without a selected Android session", 
   const onSelect = vi.fn();
   render(
     <AndroidEmptyState
-      onBrowser={vi.fn()}
       onOpen={vi.fn()}
       onSelect={onSelect}
       sessions={[paused, completed]}
@@ -144,7 +143,6 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
   const props = {
     mutate,
     notices: null,
-    onBrowser: vi.fn(),
     pending: false,
     run: vi.fn(),
     session,
@@ -222,7 +220,6 @@ test("a refused pick is said in the dock and set aside while commenting", async 
   const props = {
     mutate: vi.fn(),
     notices: null,
-    onBrowser: vi.fn(),
     pending: false,
     run: vi.fn(() =>
       Effect.fail("Nothing to activate there. No input was sent.")

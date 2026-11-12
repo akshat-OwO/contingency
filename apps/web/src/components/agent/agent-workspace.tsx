@@ -34,11 +34,9 @@ import {
   LoaderCircleIcon,
   LockKeyholeIcon,
   RotateCwIcon,
-  SmartphoneIcon,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { AgentCursor } from "@/components/agent/agent-cursor";
 import {
@@ -136,12 +134,6 @@ import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   InputGroup,
@@ -156,8 +148,22 @@ import {
   WORKSPACE_REFRESH_INTERVAL,
 } from "@/lib/workspace-refresh";
 
-import { IosEntry, IosWorkspace, useIosEntryEnabled } from "./ios-workspace";
+import { IosWorkspace } from "./ios-workspace";
 import { RecordingViewer } from "./recording-view";
+import {
+  WorkspacePlatformBar,
+  WorkspacePlatformSwitcher,
+} from "./workspace-platform";
+import {
+  NEW_NATIVE_SESSION,
+  WorkspacePlatformContext,
+  webPlatform,
+} from "./workspace-platform-state";
+import type {
+  SelectWorkspacePlatform,
+  WorkspacePlatform,
+  WorkspacePlatformTag,
+} from "./workspace-platform-state";
 
 type TeachingSessionSnapshot = Extract<
   AgentSessionSnapshot,
@@ -310,45 +316,39 @@ const workspaceSessionViewport = () =>
     ? { height: 844, width: 390 }
     : { height: 800, width: 1280 };
 
-const WorkspacePlatformControls = ({
-  onAndroid,
-}: {
-  readonly onAndroid: () => void;
-}) => {
+/**
+ * The platform switcher over a browser Workspace with no toolbar: loading,
+ * unavailable, and the empty canvas. Without the app header the theme and
+ * docs controls come along, as the live toolbar carries them.
+ */
+const WorkspacePlatformControls = () => {
   const chrome = useAtomValue(workspaceChromeAtom);
-  const [header, setHeader] = useState<HTMLElement | null>(null);
+  const [header, setHeader] = useState(false);
   useEffect(() => {
     setHeader(
-      chrome ? null : document.querySelector("#workspace-header-actions")
+      !chrome && document.querySelector("#workspace-header-actions") !== null
     );
   }, [chrome]);
-  const action = (
-    <>
-      <Button onClick={onAndroid} size="sm" variant="outline">
-        Android
-      </Button>
-      <IosEntry />
-    </>
-  );
-  if (header !== null) {
-    return createPortal(action, header);
-  }
   return (
-    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-      {action}
-      <DocsLink />
-      <ModeToggle />
-    </div>
+    <>
+      <WorkspacePlatformBar />
+      {header ? null : (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+          <DocsLink />
+          <ModeToggle />
+        </div>
+      )}
+    </>
   );
 };
 
-const LoadingState = ({ onAndroid }: { readonly onAndroid: () => void }) => (
+const LoadingState = () => (
   <main
     aria-busy="true"
     aria-live="polite"
     className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6"
   >
-    <WorkspacePlatformControls onAndroid={onAndroid} />
+    <WorkspacePlatformControls />
     <section className="max-w-md space-y-4 text-center">
       <WatcherLoader className="mx-auto h-7" />
       <div className="space-y-1.5">
@@ -474,15 +474,9 @@ const EmptyState = ({
   );
 };
 
-const UnavailableState = ({
-  message,
-  onAndroid,
-}: {
-  readonly message: string;
-  readonly onAndroid: () => void;
-}) => (
+const UnavailableState = ({ message }: { readonly message: string }) => (
   <main className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
-    <WorkspacePlatformControls onAndroid={onAndroid} />
+    <WorkspacePlatformControls />
     <section className="max-w-lg space-y-4 text-center">
       <Alert className="text-left" variant="destructive">
         <CircleAlertIcon aria-hidden="true" />
@@ -644,40 +638,6 @@ const AddressIcon = ({
 };
 
 /**
- * The device entries on a phone-width toolbar: one menu rather than two
- * labelled buttons, so the address keeps the width.
- */
-const DeviceEntryMenu = ({ onAndroid }: { readonly onAndroid: () => void }) => {
-  const ios = useIosEntryEnabled();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            aria-label="Device sessions"
-            className="sm:hidden"
-            size="icon"
-            variant="outline"
-          />
-        }
-      >
-        <SmartphoneIcon aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onAndroid}>Android</DropdownMenuItem>
-        {ios ? (
-          <DropdownMenuItem
-            onClick={() => globalThis.location.assign("/?ios=new")}
-          >
-            iOS
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-};
-
-/**
  * A browser address bar shows where the Page is, so a blurred field always
  * starts at the scheme and host rather than wherever the caret left it.
  */
@@ -699,7 +659,6 @@ const AgentBrowserToolbar = ({
   onAddressChange,
   onAddressSubmit,
   onNavigate,
-  onAndroid,
   readOnly,
 }: {
   readonly address: string;
@@ -709,11 +668,14 @@ const AgentBrowserToolbar = ({
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
   readonly readOnly: boolean;
-  readonly onAndroid: () => void;
 }) => {
   const addressRef = useAddressStartsVisible(address);
   return (
     <>
+      {/* A phone gives the switcher its own row, so the address keeps the width. */}
+      <div className="bg-background flex justify-center border-b px-2 py-1.5 sm:hidden">
+        <WorkspacePlatformSwitcher className="shadow-none" />
+      </div>
       <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
         <div
           aria-label="Browser navigation"
@@ -782,16 +744,7 @@ const AgentBrowserToolbar = ({
         The theme control lives on the browser chrome rather than in a second
         header band: a live Workspace has no app header to hold it (#209).
       */}
-        <Button
-          className="max-sm:hidden"
-          onClick={onAndroid}
-          size="sm"
-          variant="outline"
-        >
-          Android
-        </Button>
-        <IosEntry className="max-sm:hidden" />
-        <DeviceEntryMenu onAndroid={onAndroid} />
+        <WorkspacePlatformSwitcher className="shadow-none max-sm:hidden" />
         <DocsLink />
         <ModeToggle />
       </div>
@@ -815,7 +768,6 @@ const AgentBrowserToolbar = ({
  * exactly when the agent took over (#209).
  */
 const AgentLiveView = ({
-  onAndroid,
   canvasRef,
   dock,
   input,
@@ -832,7 +784,6 @@ const AgentLiveView = ({
   session,
   state,
 }: {
-  readonly onAndroid: () => void;
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** The floating dock, overlaid on the canvas rather than stacked above it. */
   readonly dock: React.ReactNode;
@@ -874,7 +825,6 @@ const AgentLiveView = ({
   return (
     <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <AgentBrowserToolbar
-        onAndroid={onAndroid}
         address={state.address}
         navigationError={navigation.error}
         navigationPending={navigation.pending}
@@ -2528,12 +2478,10 @@ const WorkspaceLayout = ({
 };
 
 const BrowserWorkspace = ({
-  onAndroid,
   onRecoverSession,
   onSelectSession,
   requestedSessionId,
 }: {
-  readonly onAndroid: () => void;
   readonly onRecoverSession?:
     | ((sessionId?: AgentSessionId) => void)
     | undefined;
@@ -2558,20 +2506,16 @@ const BrowserWorkspace = ({
     picking: state.inspect.open,
   });
   if (sessionsResult._tag === "Initial") {
-    return <LoadingState onAndroid={onAndroid} />;
+    return <LoadingState />;
   }
   if (sessionsResult._tag === "Failure") {
     return (
-      <UnavailableState
-        onAndroid={onAndroid}
-        message="Agent Sessions are unavailable in this server process."
-      />
+      <UnavailableState message="Agent Sessions are unavailable in this server process." />
     );
   }
   if (state.phase === "unavailable") {
     return (
       <UnavailableState
-        onAndroid={onAndroid}
         message={
           state.browserStreamError ??
           "The selected Agent Session is no longer available."
@@ -2583,7 +2527,7 @@ const BrowserWorkspace = ({
     return (
       <div className="relative flex h-svh min-h-0 flex-col">
         <WorkspaceLayout session={undefined} summary={undefined}>
-          <WorkspacePlatformControls onAndroid={onAndroid} />
+          <WorkspacePlatformControls />
           <EmptyState
             error={view.gestures.start.error}
             onOpenSession={view.openSession}
@@ -2596,7 +2540,7 @@ const BrowserWorkspace = ({
     );
   }
   if (state.session === undefined) {
-    return <LoadingState onAndroid={onAndroid} />;
+    return <LoadingState />;
   }
 
   const { session } = state;
@@ -2609,7 +2553,6 @@ const BrowserWorkspace = ({
     <div className="relative flex h-svh min-h-0 flex-col">
       <WorkspaceLayout session={session} summary={finished}>
         <AgentLiveView
-          onAndroid={onAndroid}
           canvasRef={view.canvasRef}
           dock={
             session.activity === "teaching" ? (
@@ -2731,24 +2674,74 @@ const BrowserWorkspace = ({
   );
 };
 
-export const AgentWorkspace = (
-  props: Omit<React.ComponentProps<typeof BrowserWorkspace>, "onAndroid">
-) => {
-  const requestedAndroidSession =
-    new URL(globalThis.location.href).searchParams.get("android") ?? undefined;
-  const [android, setAndroid] = useState(requestedAndroidSession !== undefined);
-  const requestedIosSession = new URL(
-    globalThis.location.href
-  ).searchParams.get("ios");
-  if (requestedIosSession !== null) {
-    return <IosWorkspace requestedSessionId={requestedIosSession} />;
+/**
+ * The Workspace on the platform the route names. The route is the only
+ * source: switching platforms, choosing a native session, and starting one
+ * all move it, so refresh and history land where the person was.
+ */
+export const AgentWorkspace = ({
+  onSelectPlatform,
+  platform = webPlatform,
+  ...props
+}: React.ComponentProps<typeof BrowserWorkspace> & {
+  readonly platform?: WorkspacePlatform | undefined;
+  /** Without it the Workspace stays on `platform` and offers no switcher. */
+  readonly onSelectPlatform?: SelectWorkspacePlatform | undefined;
+}) => {
+  // Each native platform reopens at the session it last showed.
+  const lastSession = useRef<Record<"android" | "ios", string>>({
+    android: NEW_NATIVE_SESSION,
+    ios: NEW_NATIVE_SESSION,
+  });
+  const nativeSession = platform._tag === "web" ? undefined : platform.session;
+  useEffect(() => {
+    if (platform._tag !== "web" && nativeSession !== undefined) {
+      lastSession.current = {
+        ...lastSession.current,
+        [platform._tag]: nativeSession,
+      };
+    }
+  }, [platform._tag, nativeSession]);
+  const onSessionChange = (session: string) => {
+    if (
+      platform._tag !== "web" &&
+      session !== nativeSession &&
+      onSelectPlatform !== undefined
+    ) {
+      onSelectPlatform({ _tag: platform._tag, session }, { replace: true });
+    }
+  };
+  const onSwitch = (tag: WorkspacePlatformTag) => {
+    if (tag === platform._tag || onSelectPlatform === undefined) {
+      return;
+    }
+    onSelectPlatform(
+      tag === "web"
+        ? webPlatform
+        : { _tag: tag, session: lastSession.current[tag] }
+    );
+  };
+  let workspace: React.ReactNode = <BrowserWorkspace {...props} />;
+  if (platform._tag === "ios") {
+    workspace = (
+      <IosWorkspace
+        onSessionChange={onSessionChange}
+        requestedSessionId={platform.session}
+      />
+    );
+  } else if (platform._tag === "android") {
+    workspace = (
+      <AndroidWorkspace
+        onSessionChange={onSessionChange}
+        requestedSessionId={platform.session}
+      />
+    );
   }
-  return android ? (
-    <AndroidWorkspace
-      requestedSessionId={requestedAndroidSession}
-      onBrowser={() => setAndroid(false)}
-    />
+  return onSelectPlatform === undefined ? (
+    workspace
   ) : (
-    <BrowserWorkspace {...props} onAndroid={() => setAndroid(true)} />
+    <WorkspacePlatformContext value={{ onSwitch, platform }}>
+      {workspace}
+    </WorkspacePlatformContext>
   );
 };
