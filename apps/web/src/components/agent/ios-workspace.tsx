@@ -682,7 +682,7 @@ const IosSetupSheet = ({
       >
         <SheetHeader className="border-b">
           {/* The sheet covers the Workspace, so it carries the way out. */}
-          <WorkspacePlatformSwitcher className="mb-3 self-center" />
+          <WorkspacePlatformSwitcher className="mb-3 self-start" />
           <SheetTitle>New iOS session</SheetTitle>
           <SheetDescription>
             Pick a running iPhone simulator and the Target App. Each journey
