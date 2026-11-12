@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent } from "react";
 import type { RefObject } from "react";
 
 export type CommentShortcut = "compose" | "inspect";
@@ -95,28 +95,6 @@ const isEditable = (target: EventTarget | null) =>
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement);
-
-/** Whether the live browser canvas holds focus, so keys go to the Page. */
-export const useElementFocused = (
-  ref: RefObject<HTMLElement | null>
-): boolean => {
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    const update = () => {
-      setFocused(
-        ref.current !== null && document.activeElement === ref.current
-      );
-    };
-    update();
-    document.addEventListener("focusin", update);
-    document.addEventListener("focusout", update);
-    return () => {
-      document.removeEventListener("focusin", update);
-      document.removeEventListener("focusout", update);
-    };
-  }, [ref]);
-  return focused;
-};
 
 /**
  * The one keyboard owner for commenting while recording.
