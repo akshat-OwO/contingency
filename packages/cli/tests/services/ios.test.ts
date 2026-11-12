@@ -648,3 +648,72 @@ it.effect("declared permission states are part of the taught environment", () =>
     expect(compareIosEnvironments(declared, declared)).toEqual([]);
   })
 );
+const shutDownInventory = () =>
+  Effect.succeed(
+    JSON.stringify({
+      devices: {
+        [selected.runtime]: [
+          {
+            dataPath: "/template/data",
+            deviceTypeIdentifier: selected.deviceType,
+            isAvailable: true,
+            name: selected.name,
+            state: "Shutdown",
+            udid: selected.udid,
+          },
+        ],
+      },
+    })
+  );
+it.effect(
+  "boots an existing shut-down simulator by UDID and waits for it",
+  () =>
+    Effect.gen(function* bootExisting() {
+      const { io, commands } = fakeHost();
+      const discovery = makeIosDiscovery({
+        ...io,
+        devices: shutDownInventory,
+      });
+      expect(yield* discovery.boot(selected.udid)).toEqual(selected);
+      expect(commands).toEqual([
+        ["boot", selected.udid],
+        ["bootstatus", selected.udid],
+      ]);
+    })
+);
+it.effect(
+  "never boots a UDID outside the discovered inventory, nor after a host refusal",
+  () =>
+    Effect.gen(function* refuseBoot() {
+      const { io, commands } = fakeHost();
+      const discovery = makeIosDiscovery({ ...io, devices: shutDownInventory });
+      expect(yield* failureCode(discovery.boot(other))).toBe("device_mismatch");
+      expect(yield* failureCode(discovery.boot("booted"))).toBe(
+        "device_mismatch"
+      );
+      expect(
+        yield* failureCode(
+          makeIosDiscovery({
+            ...io,
+            devices: shutDownInventory,
+            xcode: () => Effect.fail(iosError("xcode_missing")),
+          }).boot(selected.udid)
+        )
+      ).toBe("xcode_missing");
+      expect(commands).toEqual([]);
+    })
+);
+it.effect("reports a failed simulator boot with a readable reason", () =>
+  Effect.gen(function* bootFails() {
+    const { io } = fakeHost();
+    const error = yield* Effect.flip(
+      makeIosDiscovery({
+        ...io,
+        device: () => Effect.fail(iosError("preparation_failed")),
+        devices: shutDownInventory,
+      }).boot(selected.udid)
+    );
+    expect(error.code).toBe("boot_failed");
+    expect(error.message).toMatch(/Could not start the selected simulator/u);
+  })
+);
