@@ -1617,12 +1617,22 @@ export const IosWorkspace = ({
     );
   const [lastCommandAtom] = useState(() => Atom.make<string | null>(null));
   const [lastCommand, setLastCommand] = useAtom(lastCommandAtom);
+  // Which session the route names, read when a command settles.
+  const routeRef = useRef(requestedSessionId);
+  useEffect(() => {
+    routeRef.current = requestedSessionId;
+  }, [requestedSessionId]);
   const send = (command: IosWorkspaceCommand) => {
     setLastCommand(command._tag);
+    const route = routeRef.current;
     return gesture.dispatch(
       runIosWorkspaceCommand(command).pipe(
         Effect.tap((next) =>
           Effect.sync(() => {
+            // The route moved on while this ran: it no longer shows the result.
+            if (routeRef.current !== route && routeRef.current !== next.id) {
+              return;
+            }
             apply(next);
             if (command._tag === "start") {
               setSheet(false);
@@ -1645,16 +1655,26 @@ export const IosWorkspace = ({
     if (!Schema.is(AgentSessionId)(requestedSessionId)) {
       return;
     }
+    // A read the route has moved past must not land: interrupting the fiber
+    // can lose the race with its completion.
+    let requested = true;
     const fiber = Effect.runFork(
       runIosWorkspaceCommand({
         _tag: "read",
         sessionId: requestedSessionId,
       }).pipe(
-        Effect.tap((next) => Effect.sync(() => setSession(next))),
+        Effect.tap((next) =>
+          Effect.sync(() => {
+            if (requested) {
+              setSession(next);
+            }
+          })
+        ),
         Effect.ignore
       )
     );
     return () => {
+      requested = false;
       Effect.runFork(Fiber.interrupt(fiber));
     };
   }, [requestedSessionId, setSession]);

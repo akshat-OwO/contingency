@@ -32,7 +32,7 @@ import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { androidSessionsAtom, runAndroidWorkspaceCommand } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
@@ -236,6 +236,7 @@ const useAndroidSessionSync = (
   session: AndroidWorkspaceSnapshot | null,
   setState: SetState
 ) => {
+  const { runAndroidWorkspaceCommand } = useRpcDependencies();
   useEffect(() => {
     // `new` asks for the empty Workspace, whatever was shown before.
     if (requestedSessionId === NEW_NATIVE_SESSION) {
@@ -250,30 +251,38 @@ const useAndroidSessionSync = (
     ) {
       return;
     }
+    // A read the route has moved past must not land: interrupting the fiber
+    // can lose the race with its completion.
+    let requested = true;
     const fiber = Effect.runFork(
       runAndroidWorkspaceCommand({
         _tag: "read",
         sessionId: requestedSessionId,
       }).pipe(
         Effect.tap((snapshot) =>
-          Effect.sync(() =>
-            setState((current) => applySnapshot(current, snapshot))
-          )
+          Effect.sync(() => {
+            if (requested) {
+              setState((current) => applySnapshot(current, snapshot));
+            }
+          })
         ),
         Effect.catchCause((failureCause) =>
-          Effect.sync(() =>
-            setState((current) => ({
-              ...current,
-              failure: Cause.pretty(failureCause),
-            }))
-          )
+          Effect.sync(() => {
+            if (requested) {
+              setState((current) => ({
+                ...current,
+                failure: Cause.pretty(failureCause),
+              }));
+            }
+          })
         )
       )
     );
     return () => {
+      requested = false;
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [requestedSessionId, setState]);
+  }, [requestedSessionId, runAndroidWorkspaceCommand, setState]);
   const id = session?.id;
   const running = session?.phase === "running";
   useEffect(() => {
@@ -284,12 +293,18 @@ const useAndroidSessionSync = (
       runAndroidWorkspaceCommand({ _tag: "read", sessionId: id }).pipe(
         Effect.tap((snapshot) =>
           Effect.sync(() =>
-            setState((current) => ({
-              ...current,
-              failure:
-                snapshot.phase === "paused" ? null : Cause.pretty(failureCause),
-              session: snapshot,
-            }))
+            setState((current) =>
+              current.session?.id === id
+                ? {
+                    ...current,
+                    failure:
+                      snapshot.phase === "paused"
+                        ? null
+                        : Cause.pretty(failureCause),
+                    session: snapshot,
+                  }
+                : current
+            )
           )
         ),
         Effect.ignore
@@ -316,7 +331,7 @@ const useAndroidSessionSync = (
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [id, running, setState]);
+  }, [id, running, runAndroidWorkspaceCommand, setState]);
 };
 
 /** The dock's controls row: navigation first, then the state's own actions. */
@@ -569,6 +584,7 @@ export const AndroidSessionView = ({
   readonly setState: SetState;
   readonly state: WorkspaceState;
 }) => {
+  const { androidSessionsAtom } = useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
   const pick = useWorkspaceGesture(pickGestureAtom);
   const canAct =
@@ -757,10 +773,17 @@ export const AndroidWorkspace = ({
     return () => setChrome(false);
   }, [setChrome]);
   const [state, setState] = useAtom(workspaceAtom);
+  const { androidSessionsAtom, runAndroidWorkspaceCommand } =
+    useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
   const refresh = useAtomRefresh(androidSessionsAtom);
   const gesture = useWorkspaceGesture(sessionStartGestureAtom);
   useAndroidSessionSync(requestedSessionId, state.session, setState);
+  // Which session the route names, read when a command settles.
+  const routeRef = useRef(requestedSessionId);
+  useEffect(() => {
+    routeRef.current = requestedSessionId;
+  }, [requestedSessionId]);
   // A started, selected, or closed session takes the route, so a refresh
   // reopens what the person was looking at.
   const id = state.session?.id;
@@ -787,17 +810,22 @@ export const AndroidWorkspace = ({
       instructionPending: false,
     }));
   }, [gesture.error, gesture.pending, instructionPending, setState]);
-  const run = (command: AndroidWorkspaceCommand): GestureRun =>
-    runAndroidWorkspaceCommand(command).pipe(
+  const run = (command: AndroidWorkspaceCommand): GestureRun => {
+    const route = routeRef.current;
+    return runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>
         Effect.sync(() => {
-          setState((current) => applySnapshot(current, session));
+          // The route moved on while this ran: it no longer shows the result.
+          if (routeRef.current === route || routeRef.current === session.id) {
+            setState((current) => applySnapshot(current, session));
+          }
           refresh();
         })
       ),
       Effect.mapError(message),
       Effect.asVoid
     );
+  };
   const mutate = (command: AndroidWorkspaceCommand) =>
     gesture.dispatch(run(command));
   const setupOpen = (open: boolean) =>
@@ -805,7 +833,8 @@ export const AndroidWorkspace = ({
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (
-      <DockNotices>
+      // Below the platform switcher, so the way back to Web stays reachable.
+      <DockNotices className="top-11">
         <Alert variant="destructive">
           <AlertTitle>The Android session did not answer</AlertTitle>
           <AlertDescription>{failure}</AlertDescription>
