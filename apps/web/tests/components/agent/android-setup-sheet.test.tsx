@@ -46,6 +46,7 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
       pending={false}
     />
   );
+  await user.click(screen.getByText("Optional steps"));
   // A locked step says what unlocks it rather than showing dead inputs.
   expect(
     screen.queryByRole("textbox", { name: "Starting screen element" })
@@ -65,8 +66,8 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     screen.getByRole("textbox", { name: "Starting screen element" })
   ).toBeEnabled();
   expect(
-    screen.queryByRole("combobox", { name: "Camera permission" })
-  ).toBeNull();
+    screen.getByRole("combobox", { name: "Camera permission" })
+  ).toBeEnabled();
   await user.type(
     screen.getByRole("textbox", { name: "Starting screen element" }),
     "Sign in"
@@ -75,6 +76,7 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     screen.getByRole("textbox", { name: "Done when element" }),
     "Done"
   );
+  await user.click(screen.getByRole("button", { name: "Optional steps" }));
   await user.click(screen.getByRole("combobox", { name: "Camera permission" }));
   await user.click(
     await screen.findByRole("option", { name: "Deny before start" })
@@ -93,6 +95,12 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
         ],
       }),
       helperConsent: "auto",
+      outcomes: [{ name: "Done", role: "text" }],
+      setup: {
+        activity: "dev.shop/.Main",
+        conditions: [{ name: "Sign in", role: "text" }],
+        kind: "restart-activity",
+      },
     })
   );
 });
@@ -240,7 +248,7 @@ test("keeps the sheet usable and shows why a start failed", async () => {
   expect(screen.getByRole("textbox", { name: "Flow name" })).toBeEnabled();
 });
 
-test("uploads an .apk as the Target App and opens the session with its temporary copy", async () => {
+test("uploads an .apk as the Target App and opens Teaching with its temporary copy and empty optional conditions", async () => {
   const user = userEvent.setup();
   const onOpen = vi.fn(() => true);
   const discard = vi.fn(() => Effect.void);
@@ -282,14 +290,6 @@ test("uploads an .apk as the Target App and opens the session with its temporary
       "dev.shop · build 2 · replaces build 1 with your consent"
     )
   ).toBeVisible();
-  await user.type(
-    screen.getByRole("textbox", { name: "Starting screen element" }),
-    "Sign in"
-  );
-  await user.type(
-    screen.getByRole("textbox", { name: "Done when element" }),
-    "Done"
-  );
   await user.click(screen.getByRole("button", { name: "Open session" }));
   expect(onOpen).toHaveBeenCalledWith(
     "new-flow",
@@ -299,9 +299,40 @@ test("uploads an .apk as the Target App and opens the session with its temporary
         appBuild: "2",
         appId: "dev.shop",
       }),
-      setup: expect.objectContaining({ activity: "dev.shop/.Main" }),
+      outcomes: [],
+      setup: expect.objectContaining({ activity: "dev.shop/.Main", conditions: [] }),
     })
   );
   // The session owns the upload now; it is not discarded here.
   expect(discard).not.toHaveBeenCalled();
+});
+
+test("opens Teaching with collapsed empty optional conditions", async () => {
+  const user = userEvent.setup();
+  const onOpen = vi.fn();
+  render(
+    <AndroidSetupSheet
+      discovery={discovery}
+      open
+      onOpen={onOpen}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  expect(
+    screen.getByRole("button", { name: "Optional steps" })
+  ).toHaveAttribute("aria-expanded", "false");
+  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await user.click(screen.getByRole("button", { name: "Open session" }));
+  expect(onOpen).toHaveBeenCalledWith(
+    "new-flow",
+    expect.objectContaining({
+      outcomes: [],
+      setup: {
+        activity: "dev.shop/.Main",
+        conditions: [],
+        kind: "restart-activity",
+      },
+    })
+  );
 });

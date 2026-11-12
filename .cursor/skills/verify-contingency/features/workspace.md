@@ -633,6 +633,8 @@ Android lifecycle proofs below use the `agent_device_workspace` and `agent_devic
 
 ### Android workspace
 
+Native setup sheets keep Starting screen and Done when under collapsed **Optional steps**. Leave both empty to teach without a starting gate. To prove declared conditions, first run `control-contingency browser click --role button --name "Optional steps"`, then fill the two elements. For omitted conditions, read the Timeline's `started.observation` and `stopped.observation`, choose visible role and name targets, and supply `nativeConditions:{starting:[...],outcomes:[...]}` to `agent_flow_save`. Read the saved `flow.md` runtime and recording manifest again, then prove the same conditions gate a fresh Dry Run and its outcome. An invented boundary target must refuse saving. User-declared targets remain authoritative.
+
 Preconditions: Build current source, launch an isolated instance, and run `doctor`. Start MCP with `ANDROID_HOME`; Android needs no opt-in. Open the printed **MCP URL**; Android sessions belong to that process. Obtain explicit authorization for the Pixel_9 API 36 emulator. Close existing Android sessions first, including paused sessions.
 
 - **Declare selection:** Export `CONTINGENCY_ANDROID_SERIAL`, `CONTINGENCY_ANDROID_AVD=Pixel_9`, and `CONTINGENCY_ANDROID_FINGERPRINT` from authorized readback. Keep `CONTINGENCY_ANDROID_MODEL` unset. The pinned helper must exist; use `CONTINGENCY_ANDROID_HELPER_CONSENT=install` only with installation consent. The default is `none`.

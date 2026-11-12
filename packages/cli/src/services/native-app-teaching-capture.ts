@@ -4,6 +4,7 @@ import path from "node:path";
 import { ContentHash } from "@contingency/protocol";
 import type {
   TeachingEvent,
+  TeachingObservation,
   TeachingRecordingArtifact,
   TeachingRecordingId,
   OperationId,
@@ -137,7 +138,8 @@ export const makeNativeAppTeachingCapture = <
   const finishRecording = (
     session: CaptureSession,
     operationId: OperationId,
-    failure?: string
+    failure?: string,
+    observation?: TeachingObservation
   ) =>
     Effect.gen(function* stopRetainedSources() {
       const current = input.state(session);
@@ -158,6 +160,7 @@ export const makeNativeAppTeachingCapture = <
         emit(session, {
           _tag: "stopped",
           detail: sourceFailure ?? null,
+          observation,
           reason: sourceFailure === undefined ? "user" : "capture-failed",
         })
       );

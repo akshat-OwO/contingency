@@ -83,6 +83,13 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
 6. Save with agent_flow_save. A refusal returns one diagnostic per broken property; fix those exact paths and save again.
 
+   For native Teaching with omitted conditions:
+
+   - Choose stable role and name targets from `started.observation`, the first screen after launch, and `stopped.observation`, the screen at Stop.
+   - Pass them as `nativeConditions.starting` and `nativeConditions.outcomes`. Saving validates them against those observations and stamps the completed runtime contract into flow.md.
+   - Preserve user-declared conditions. Describe the starting state and outcomes in the Flow for user review.
+   - Correct derived conditions with another save under the same claim. If either screen has no suitable target, ask the user for a new recording.
+
 7. Ask for ordinary inputs again and change at least one demonstrated input when the task permits it. Start a fresh-context Dry Run with agent_flow_dry_run_start.
 
    For an on-demand input omit its value; ask the user to supply it in the returned Workspace, then use its uppercase Variable name with agent_variable_enter. Follow the saved flow outcome under its Teaching hosts and Emulation; you may explore, recover, or choose another route.

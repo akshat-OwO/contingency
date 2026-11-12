@@ -93,6 +93,7 @@ import {
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
+import { NativeOptionalSteps } from "./native-optional-steps";
 import {
   BuildPicker,
   UploadedBuild,
@@ -720,19 +721,25 @@ const IosSetupSheet = ({
                 deviceType: device.deviceType,
                 runtimeVersion: device.runtimeVersion,
               },
-              outcomes: [
-                {
-                  name: text(data, "outcome"),
-                  role: text(data, "outcomeRole"),
-                },
-              ],
+              outcomes:
+                text(data, "outcome") === ""
+                  ? []
+                  : [
+                      {
+                        name: text(data, "outcome"),
+                        role: text(data, "outcomeRole"),
+                      },
+                    ],
               setup: {
-                conditions: [
-                  {
-                    name: text(data, "starting"),
-                    role: text(data, "startingRole"),
-                  },
-                ],
+                conditions:
+                  text(data, "starting") === ""
+                    ? []
+                    : [
+                        {
+                          name: text(data, "starting"),
+                          role: text(data, "startingRole"),
+                        },
+                      ],
                 kind: "restart-app",
               },
             };
@@ -808,72 +815,72 @@ const IosSetupSheet = ({
               target={target}
               upload={upload.state}
             />
-            <SetupGroup
-              description="An element on screen when the app opens."
-              done={!missing.includes("Starting screen element")}
-              index={3}
-              title="Starting screen"
-            >
-              <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-                <SetupField htmlFor="ios-start-role" label="Role">
-                  <NativeSelect
-                    className="w-full min-w-0"
-                    defaultValue="text"
-                    aria-label="Starting screen role"
-                    id="ios-start-role"
-                    name="startingRole"
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <NativeSelectOption key={role} value={role}>
-                        {role}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </SetupField>
-                <SetupField htmlFor="ios-start" label="Element">
-                  <Input
-                    aria-label="Starting screen element"
-                    id="ios-start"
-                    name="starting"
-                    placeholder="Sign in"
-                    required
-                  />
-                </SetupField>
-              </div>
-            </SetupGroup>
-            <SetupGroup
-              description="An element that shows the journey worked."
-              done={!missing.includes("Done when element")}
-              index={4}
-              title="Done when"
-            >
-              <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-                <SetupField htmlFor="ios-done-role" label="Role">
-                  <NativeSelect
-                    className="w-full min-w-0"
-                    defaultValue="text"
-                    aria-label="Done when role"
-                    id="ios-done-role"
-                    name="outcomeRole"
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <NativeSelectOption key={role} value={role}>
-                        {role}
-                      </NativeSelectOption>
-                    ))}
-                  </NativeSelect>
-                </SetupField>
-                <SetupField htmlFor="ios-done" label="Element">
-                  <Input
-                    aria-label="Done when element"
-                    id="ios-done"
-                    name="outcome"
-                    placeholder="Signed in"
-                    required
-                  />
-                </SetupField>
-              </div>
-            </SetupGroup>
+            <NativeOptionalSteps>
+              <SetupGroup
+                description="An element on screen when the app opens."
+                done={!missing.includes("Starting screen element")}
+                index={3}
+                title="Starting screen"
+              >
+                <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
+                  <SetupField htmlFor="ios-start-role" label="Role">
+                    <NativeSelect
+                      className="w-full min-w-0"
+                      defaultValue="text"
+                      aria-label="Starting screen role"
+                      id="ios-start-role"
+                      name="startingRole"
+                    >
+                      {ROLE_OPTIONS.map((role) => (
+                        <NativeSelectOption key={role} value={role}>
+                          {role}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </SetupField>
+                  <SetupField htmlFor="ios-start" label="Element">
+                    <Input
+                      aria-label="Starting screen element"
+                      id="ios-start"
+                      name="starting"
+                      placeholder="Sign in"
+                    />
+                  </SetupField>
+                </div>
+              </SetupGroup>
+              <SetupGroup
+                description="An element that shows the journey worked."
+                done={!missing.includes("Done when element")}
+                index={4}
+                title="Done when"
+              >
+                <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
+                  <SetupField htmlFor="ios-done-role" label="Role">
+                    <NativeSelect
+                      className="w-full min-w-0"
+                      defaultValue="text"
+                      aria-label="Done when role"
+                      id="ios-done-role"
+                      name="outcomeRole"
+                    >
+                      {ROLE_OPTIONS.map((role) => (
+                        <NativeSelectOption key={role} value={role}>
+                          {role}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </SetupField>
+                  <SetupField htmlFor="ios-done" label="Element">
+                    <Input
+                      aria-label="Done when element"
+                      id="ios-done"
+                      name="outcome"
+                      placeholder="Signed in"
+                    />
+                  </SetupField>
+                </div>
+              </SetupGroup>
+            </NativeOptionalSteps>
           </div>
           <SheetFooter className="flex-row items-center justify-end gap-2 border-t">
             {complete ? null : (

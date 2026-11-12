@@ -1343,3 +1343,5 @@ export * from "./browser-modifications.ts";
 
 export * from "./ios-workspace.ts";
 export * from "./target-app-build.ts";
+
+export { NativeTeachingConditions } from "./platform.ts";

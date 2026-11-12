@@ -57,6 +57,7 @@ import {
   useBuildUpload,
 } from "./target-app-upload";
 import type { BuildUploadState } from "./target-app-upload";
+import { NativeOptionalSteps } from "./native-optional-steps";
 import { WorkspacePlatformSwitcher } from "./workspace-platform";
 
 /** Roles agent-device reports that a person can name on a screen. */
@@ -637,14 +638,14 @@ const setupSelection = ({
     appBuild: app.versionCode,
     appId: app.package,
     permissions,
-    startingState: `${start.role} ${start.name} is visible`,
+    startingState: start.name === "" ? "Restart the Target App" : `${start.role} ${start.name} is visible`,
   },
   helperConsent: "auto",
-  outcomes: [outcome],
+  outcomes: outcome.name === "" ? [] : [outcome],
   privateInput,
   setup: {
     activity: app.launchActivity,
-    conditions: [start],
+    conditions: start.name === "" ? [] : [start],
     kind: "restart-activity",
   },
 });
@@ -652,12 +653,10 @@ const setupSelection = ({
 /** What the sheet still needs, said once beside the disabled submit. */
 const setupMissing = ({
   app,
-  conditionsReady,
   device,
   validName,
 }: {
   readonly app: unknown;
-  readonly conditionsReady: boolean;
   readonly device: unknown;
   readonly validName: boolean;
 }): string => {
@@ -670,9 +669,7 @@ const setupMissing = ({
   if (app === undefined) {
     return "Choose the Target App to continue.";
   }
-  return conditionsReady
-    ? "Finish the setup above to continue."
-    : "Name the starting and done elements to continue.";
+  return "Finish the setup above to continue.";
 };
 
 /**
@@ -750,9 +747,7 @@ export const AndroidSetupSheet = ({
   const permissions = Object.entries(form.permissions).map(
     ([permission, decision]) => ({ decision, permission })
   );
-  const conditionsReady = start.name !== "" && outcome.name !== "";
-  const ready =
-    device !== null && app !== undefined && conditionsReady && validName;
+  const ready = device !== null && app !== undefined && validName;
   return (
     <Sheet
       onOpenChange={(next) => {
@@ -770,8 +765,7 @@ export const AndroidSetupSheet = ({
           <WorkspacePlatformSwitcher className="mb-3 self-start" />
           <SheetTitle>New Android session</SheetTitle>
           <SheetDescription>
-            Choose a device and app, then define where recording starts and
-            ends.
+            Choose a device and app to teach a journey.
           </SheetDescription>
         </SheetHeader>
         <form
@@ -865,56 +859,12 @@ export const AndroidSetupSheet = ({
               />
             </Step>
             <Step
-              done={form.start.name.trim() !== ""}
               disabled={app === undefined}
-              index={3}
-              title="Starting screen"
-              waitingFor="Choose the Target App first."
-            >
-              <div className="space-y-1.5">
-                <p className="text-muted-foreground text-xs">
-                  An element that is on screen when{" "}
-                  {app === undefined ? "the app" : app.label || app.package}{" "}
-                  opens. Preparing checks it before you record.
-                </p>
-                <ConditionInput
-                  label="Starting screen element"
-                  onChange={(value) =>
-                    setForm((current) => ({ ...current, start: value }))
-                  }
-                  placeholder="Sign in"
-                  value={form.start}
-                />
-              </div>
-            </Step>
-            <Step
-              done={form.outcome.name.trim() !== ""}
-              disabled={app === undefined}
-              index={4}
-              title="Done when"
-              waitingFor="Choose the Target App first."
-            >
-              <div className="space-y-1.5">
-                <p className="text-muted-foreground text-xs">
-                  An element that shows the journey worked.
-                </p>
-                <ConditionInput
-                  label="Done when element"
-                  onChange={(value) =>
-                    setForm((current) => ({ ...current, outcome: value }))
-                  }
-                  placeholder="Order confirmed"
-                  value={form.outcome}
-                />
-              </div>
-            </Step>
-            <Step
-              disabled={app === undefined || !conditionsReady}
               // Every choice here has a default, so it is done once open.
-              done={app !== undefined && conditionsReady}
-              index={5}
+              done={app !== undefined}
+              index={3}
               title="Permissions and setup"
-              waitingFor="Name the starting and done-when elements first."
+              waitingFor="Choose the Target App first."
             >
               <AndroidPermissionFields
                 value={form.permissions}
@@ -941,6 +891,52 @@ export const AndroidSetupSheet = ({
                 device and installs or updates it if needed.
               </p>
             </Step>
+            <NativeOptionalSteps>
+              <Step
+                done={form.start.name.trim() !== ""}
+                disabled={app === undefined}
+                index={4}
+                title="Starting screen"
+                waitingFor="Choose the Target App first."
+              >
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs">
+                    An element that is on screen when{" "}
+                    {app === undefined ? "the app" : app.label || app.package}{" "}
+                    opens. Preparing checks it before you record.
+                  </p>
+                  <ConditionInput
+                    label="Starting screen element"
+                    onChange={(value) =>
+                      setForm((current) => ({ ...current, start: value }))
+                    }
+                    placeholder="Sign in"
+                    value={form.start}
+                  />
+                </div>
+              </Step>
+              <Step
+                done={form.outcome.name.trim() !== ""}
+                disabled={app === undefined}
+                index={5}
+                title="Done when"
+                waitingFor="Choose the Target App first."
+              >
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs">
+                    An element that shows the journey worked.
+                  </p>
+                  <ConditionInput
+                    label="Done when element"
+                    onChange={(value) =>
+                      setForm((current) => ({ ...current, outcome: value }))
+                    }
+                    placeholder="Order confirmed"
+                    value={form.outcome}
+                  />
+                </div>
+              </Step>
+            </NativeOptionalSteps>
           </div>
         </form>
         <SheetFooter className="flex-row items-center justify-end gap-3 border-t">
@@ -949,7 +945,7 @@ export const AndroidSetupSheet = ({
               className="text-muted-foreground mr-auto text-xs"
               id="android-setup-missing"
             >
-              {setupMissing({ app, conditionsReady, device, validName })}
+              {setupMissing({ app, device, validName })}
             </p>
           )}
           <Button

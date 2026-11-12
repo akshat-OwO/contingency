@@ -14,7 +14,9 @@ ADB connects to emulators and physical devices. The user always selects the devi
 
 Android Teaching initially uses the mirrored screen in Workspace. Contingency records the input it forwards together with before-and-after UI observations. Direct interaction on the device is outside the first version's Teaching capture contract.
 
-A Dry Run must establish its declared starting state. Emulators use a restorable baseline. Physical devices require an explicit setup procedure or an authorized reset. If the required state cannot be established, the Run is blocked rather than treating existing device state as fresh.
+Starting screen and Done when conditions are optional during native Teaching, including iOS. The setup sheets collapse them under Optional steps. When omitted, Teaching restarts the Target App without a starting-condition gate. The learning agent chooses starting conditions from the first observed screen after launch and outcomes from the observation at Stop. Saving validates those targets against the recording and stores them in the Flow for review. User-declared conditions remain authoritative.
+
+A native Flow must have starting conditions and at least one outcome before a Dry Run or later Run. A Dry Run must establish its declared or recording-derived starting state. Emulators use a restorable baseline. Physical devices require an explicit setup procedure or an authorized reset. If the required state cannot be established, the Run is blocked rather than treating existing device state as fresh.
 
 The first Android execution boundary covers one declared Target App and necessary system dialogs. Leaving that boundary pauses for authorization. The Target App remains authorized when a journey leaves it and returns.
 

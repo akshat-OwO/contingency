@@ -688,6 +688,35 @@ test("leaves the iOS setup sheet through the switcher", async () => {
     name: "New iOS session",
   });
   expect(platformOption("iOS", sheet)).toHaveAttribute("aria-pressed", "true");
+  expect(
+    within(sheet).getByRole("button", { name: "Optional steps" })
+  ).toHaveAttribute("aria-expanded", "false");
+  await user.click(within(sheet).getByText("Optional steps"));
+  expect(
+    within(sheet).getByRole("textbox", { name: "Starting screen element" })
+  ).not.toBeRequired();
+  expect(
+    within(sheet).getByRole("textbox", { name: "Done when element" })
+  ).not.toBeRequired();
+  const starting = within(sheet).getByRole("textbox", {
+    name: "Starting screen element",
+  });
+  await user.type(starting, "Welcome");
+  await user.type(
+    within(sheet).getByRole("textbox", { name: "Done when element" }),
+    "Finished"
+  );
+  await user.click(
+    within(sheet).getByRole("button", { name: "Optional steps" })
+  );
+  const form = starting.closest("form");
+  expect(form).not.toBeNull();
+  if (form !== null) {
+    const submitted = new FormData(form);
+    expect(submitted.get("starting")).toBe("Welcome");
+    expect(submitted.get("outcome")).toBe("Finished");
+  }
+
   await user.click(platformOption("Web", sheet));
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
 });

@@ -166,7 +166,11 @@ for (const existing of [false, true]) {
             kind: "teaching",
             operationId: OperationId.make("grouped-start"),
             recordingId: null,
-            selection,
+            selection: {
+              ...selection,
+              outcomes: [],
+              setup: { conditions: [], kind: "restart-app" },
+            },
           };
           if (!existing) {
             command.group = "shop";

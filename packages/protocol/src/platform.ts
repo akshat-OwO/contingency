@@ -18,9 +18,16 @@ export const AndroidStartingCondition = Schema.Struct({
   name: Schema.String.check(Schema.isMinLength(1)),
   role: Schema.String.check(Schema.isMinLength(1)),
 }).annotate({ identifier: "StartingCondition" });
-export const AndroidStartingConditions = Schema.Array(AndroidStartingCondition)
-  .check(Schema.isMinLength(1))
-  .annotate({ identifier: "Conditions" });
+export const AndroidStartingConditions = Schema.Array(
+  AndroidStartingCondition
+).annotate({ identifier: "Conditions" });
+
+/** Conditions authored by the learning agent from native boundary observations. */
+export const NativeTeachingConditions = Schema.Struct({
+  outcomes: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
+  starting: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
+});
+export type NativeTeachingConditions = typeof NativeTeachingConditions.Type;
 export const AndroidPreparation = Schema.Struct({
   activity: Schema.String.check(Schema.isMinLength(1)),
   conditions: AndroidStartingConditions,

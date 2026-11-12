@@ -27,6 +27,7 @@ export type AndroidEnvironment = Extract<
 export type AndroidSetup = AndroidPreparation;
 
 export interface AndroidRunInput extends AndroidRuntimeStartInput {
+  readonly teaching?: boolean;
   readonly taught: PlatformRequirements;
   readonly environment: AndroidEnvironment;
   readonly setup: AndroidSetup;

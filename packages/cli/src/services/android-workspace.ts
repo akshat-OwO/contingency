@@ -97,6 +97,16 @@ const observationSummary = (observation: AndroidObservation) => ({
   title: observation.ownership.focusedPackage,
   url: "",
 });
+const boundaryObservationSummary = (observation: AndroidObservation) =>
+  observationSummary({
+    ...observation,
+    nodes: observation.nodes.filter(
+      (node) =>
+        !node.password &&
+        !node.covered &&
+        node.packageName === observation.ownership.focusedPackage
+    ),
+  });
 const difference = (left: AndroidObservation, right: AndroidObservation) =>
   left.nodes.flatMap((node) =>
     right.nodes.some(
@@ -122,7 +132,7 @@ const supportsWorkspaceRequirements = (
   inputs: readonly { readonly name: string }[]
 ) =>
   requirements.platform === "android" &&
-  requirements.preparation !== undefined &&
+  (requirements.preparation?.conditions.length ?? 0) > 0 &&
   (requirements.outcomes?.length ?? 0) > 0 &&
   (inputs.length === 0 ||
     requirements.capabilities.includes("private-input")) &&
@@ -131,6 +141,16 @@ const supportsWorkspaceRequirements = (
     /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
   ) &&
   new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
+const runSetup = (
+  requirements: PlatformRequirements,
+  fallback: AndroidWorkspaceSummary["selection"]["setup"]
+) =>
+  requirements.platform === "android"
+    ? {
+        ...fallback,
+        conditions: requirements.preparation?.conditions ?? fallback.conditions,
+      }
+    : fallback;
 const actionDescription = (
   action: Extract<
     AndroidWorkspaceCommand,
@@ -203,6 +223,7 @@ const observationSize = (observation: AndroidObservation) => {
 };
 
 interface SessionState {
+  readonly startingObservation: ReturnType<typeof observationSummary> | null;
   readonly pendingInput: Extract<
     AndroidWorkspaceCommand,
     { readonly _tag: "input" }
@@ -614,7 +635,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
           }
-          return { inputs, recordingId, taught };
+          const setup = runSetup(taught, selection.setup);
+          return { inputs, recordingId, setup, taught };
         });
       const start = (
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
@@ -652,7 +674,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                   : `Android binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
               );
             }
-            const { taught, recordingId, inputs } =
+            const { taught, recordingId, inputs, setup } =
               yield* selectRequirements(command);
             const id = AgentSessionId.make(
               `agent-android-${hash(command.operationId).slice(0, 32)}`
@@ -675,9 +697,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               platform: "android",
               requiredCapabilities: taught.capabilities,
               scope,
-              setup: selection.setup,
+              setup,
               targetApp: selection.environment.appId,
               taught,
+              teaching: command.kind === "teaching",
             };
             const startup: AndroidRunInput =
               apk?.sha256 === undefined || apk.sha256 === null
@@ -770,6 +793,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 recording: false,
                 revision: 0,
                 sequence: 0,
+                startingObservation: null,
                 summary,
               }).pipe(Atom.keepAlive),
               stream: yield* acquireAndroidStream(id, selection.device, scope),
@@ -857,13 +881,21 @@ export const makeAndroidWorkspaceLayer = (options: {
             yield* emit(session, {
               _tag: "started",
               emulation: null,
+              observation: state(session).startingObservation ?? undefined,
               url: "",
             });
             const observed = yield* session.run.observe();
             acceptObservation(session, observed);
             yield* keyframe(session, observed, null);
           } else {
-            yield* finishRecording(session, command.operationId);
+            const observed = yield* session.run.observe();
+            acceptObservation(session, observed);
+            yield* finishRecording(
+              session,
+              command.operationId,
+              undefined,
+              boundaryObservationSummary(observed)
+            );
           }
         });
       const inputWorkspace = (
@@ -1464,7 +1496,12 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Preparation requires the user's Workspace action."
               );
             }
-            acceptObservation(session, yield* session.run.prepare());
+            const prepared = yield* session.run.prepare();
+            acceptObservation(session, prepared);
+            update(session, (value) => ({
+              ...value,
+              startingObservation: boundaryObservationSummary(prepared),
+            }));
           } else if (command._tag === "recover") {
             if (source !== "user") {
               return yield* denied(

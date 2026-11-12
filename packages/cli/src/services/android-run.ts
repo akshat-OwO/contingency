@@ -70,7 +70,7 @@ export const validateAndroidRun = (input: AndroidRunInput) =>
       !validPermissions(input) ||
       !activityPattern.test(input.setup.activity) ||
       input.setup.activity.split("/")[0] !== input.targetApp ||
-      input.setup.conditions.length === 0 ||
+      (!input.teaching && input.setup.conditions.length === 0) ||
       input.setup.conditions.some(
         (condition) => !condition.role || !condition.name
       ) ||
