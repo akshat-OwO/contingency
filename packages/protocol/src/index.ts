@@ -1037,6 +1037,15 @@ export class ContingencyRpcs extends RpcGroup.make(
       Schema.Struct({ ...IosDeviceSelection.fields, state: Schema.String })
     ),
   }),
+  /**
+   * Boots an existing iPhone simulator from the discovered inventory and
+   * answers once it has booted. It never creates, clones, or erases one.
+   */
+  Rpc.make("ios.device.boot", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ udid: IosDeviceSelection.fields.udid }),
+    success: Schema.Void,
+  }),
   /** Apps installed on one running simulator, read from their Info.plist. */
   Rpc.make("ios.apps.list", {
     error: BrowserRpcError,
@@ -1076,6 +1085,15 @@ export class ContingencyRpcs extends RpcGroup.make(
     error: BrowserRpcError,
     payload: Schema.Struct({}),
     success: Schema.Array(AndroidDiscoveredDevice),
+  }),
+  /**
+   * Boots an existing AVD by name and answers once Android has booted. It
+   * never creates, clones, wipes, or resets one.
+   */
+  Rpc.make("android.device.boot", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ avd: Schema.NonEmptyString }),
+    success: Schema.Void,
   }),
   Rpc.make("android.apps.list", {
     error: BrowserRpcError,

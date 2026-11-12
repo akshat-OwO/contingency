@@ -49,7 +49,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   NativeSelect,
-  NativeSelectOptGroup,
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import {
@@ -61,6 +60,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  bootIosSimulator,
   discardTargetAppBuild,
   iosDevicesAtom,
   iosSessionsAtom,
@@ -83,6 +83,7 @@ import {
   deviceSummaryLabel,
 } from "./android-workspace-state";
 import { appInstallationQuestion } from "./app-installation";
+import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { DeviceElements } from "./device-elements";
 import {
   iosDockPresentation,
@@ -91,6 +92,7 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
+import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
 import {
   BuildPicker,
   UploadedBuild,
@@ -469,77 +471,6 @@ const releaseUpload = (target: IosTarget | null) => {
   }
 };
 
-/** Step 1: the running simulator the session binds. */
-const IosSimulatorStep = ({
-  done,
-  onPick,
-  onRefresh,
-  running,
-  selected,
-  stopped,
-}: {
-  readonly done: boolean;
-  readonly onPick: (udid: string) => void;
-  readonly onRefresh: () => void;
-  readonly running: readonly IosDeviceSelection[];
-  readonly selected: string;
-  readonly stopped: readonly IosDeviceSelection[];
-}) => (
-  <SetupGroup
-    description={
-      running.length === 0
-        ? "No simulator is running. Start one in Simulator, then refresh."
-        : undefined
-    }
-    done={done}
-    index={1}
-    title="Simulator"
-  >
-    <div className="flex min-w-0 items-end gap-2">
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <Label htmlFor="ios-device">Device</Label>
-        <NativeSelect
-          className="w-full min-w-0"
-          id="ios-device"
-          name="device"
-          onChange={(event) => onPick(event.currentTarget.value)}
-          required
-          value={selected}
-        >
-          {running.map((device) => (
-            <NativeSelectOption key={device.udid} value={device.udid}>
-              {device.name} · iOS {device.runtimeVersion}
-            </NativeSelectOption>
-          ))}
-          {stopped.length === 0 ? null : (
-            <NativeSelectOptGroup label="Stopped · start in Simulator">
-              {stopped.map((device) => (
-                <NativeSelectOption
-                  disabled
-                  key={device.udid}
-                  value={device.udid}
-                >
-                  {device.name} · iOS {device.runtimeVersion}
-                </NativeSelectOption>
-              ))}
-            </NativeSelectOptGroup>
-          )}
-        </NativeSelect>
-      </div>
-      <Button
-        aria-label="Refresh devices"
-        onClick={onRefresh}
-        size="icon"
-        title="Refresh devices"
-        type="button"
-        variant="outline"
-      >
-        <RefreshCwIcon />
-      </Button>
-    </div>
-  </SetupGroup>
-);
-
 type InstalledApps =
   | { readonly _tag: "idle" }
   | { readonly _tag: "loading" }
@@ -699,26 +630,29 @@ const IosSetupSheet = ({
   const refresh = useAtomRefresh(iosDevicesAtom);
   const listed = AsyncResult.isSuccess(devices) ? devices.value : [];
   const running = listed.filter((device) => device.state === "Booted");
-  const stopped = listed.filter((device) => device.state !== "Booted");
+  const [pickedAtom] = useState(() => Atom.make<string | null>(null));
+  const [picked, setPicked] = useAtom(pickedAtom);
+  const chosen = chosenSimulator(listed, picked);
+  const { startDevice, starts } = useDeviceStarts(bootIosSimulator, refresh);
   // The required fields still empty, named as the person sees them.
   const [missingAtom] = useState(() =>
     Atom.make<readonly string[]>(["Flow name"])
   );
-  const [typedMissing, setMissing] = useAtom(missingAtom);
+  const [fieldsMissing, setMissing] = useAtom(missingAtom);
   const formRef = useRef<HTMLFormElement>(null);
-  // The picked simulator; until one is picked, the select shows the first.
-  const [deviceAtom] = useState(() => Atom.make<string | null>(null));
-  const [pickedDevice, setPickedDevice] = useAtom(deviceAtom);
-  const simulator =
-    running.find((entry) => entry.udid === pickedDevice) ?? running[0];
+  const simulator = running.find((entry) => entry.udid === chosen);
   const [refreshAtom] = useState(() => Atom.make(0));
   const [appsRefresh, setAppsRefresh] = useAtom(refreshAtom);
   const apps = useInstalledIosApps(simulator, appsRefresh);
   const [targetAtom] = useState(() => Atom.make<IosTarget | null>(null));
   const [target, setTarget] = useAtom(targetAtom);
-  // The Target App is chosen, not typed, so the form cannot see it missing.
-  const missing =
-    target === null ? [...typedMissing, "Target App"] : typedMissing;
+  // The device and Target App are chosen, not typed, so the form cannot
+  // see them missing.
+  const missing = [
+    ...(chosen === null ? ["Device"] : []),
+    ...fieldsMissing,
+    ...(target === null ? ["Target App"] : []),
+  ];
   const complete = missing.length === 0;
   const choose = (next: IosTarget | null) => {
     releaseUpload(target);
@@ -772,12 +706,11 @@ const IosSetupSheet = ({
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            const device = listed.find(
-              (entry) => entry.udid === text(data, "device")
-            );
-            if (!device || device.state !== "Booted" || target === null) {
+            const found = listed.find((entry) => entry.udid === chosen);
+            if (!found || found.state !== "Booted" || target === null) {
               return;
             }
+            const { state: _state, ...device } = found;
             const { build, bundleId } = targetIdentity(target);
             const selection: IosWorkspaceSelection = {
               device,
@@ -832,23 +765,40 @@ const IosSetupSheet = ({
                 spellCheck={false}
               />
             </SetupField>
-            <IosSimulatorStep
+            <SetupGroup
               done={!missing.includes("Device")}
-              onPick={(udid) => {
-                setPickedDevice(udid);
-                // An installed app belongs to the simulator it is on.
-                if (target?._tag === "installed") {
-                  setTarget(null);
-                }
-              }}
-              onRefresh={() => {
-                refresh();
-                setAppsRefresh((value) => value + 1);
-              }}
-              running={running}
-              selected={simulator?.udid ?? ""}
-              stopped={stopped}
-            />
+              index={1}
+              title="Simulator"
+            >
+              <div className="space-y-2">
+                <DeviceChoices
+                  devices={listed.map(iosDeviceChoice)}
+                  emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
+                  onSelect={(udid) => {
+                    setPicked(udid);
+                    // An installed app belongs to the simulator it is on.
+                    if (target?._tag === "installed") {
+                      setTarget(null);
+                    }
+                  }}
+                  onStart={startDevice}
+                  selected={chosen}
+                  starts={starts}
+                />
+                <Button
+                  onClick={() => {
+                    refresh();
+                    setAppsRefresh((value) => value + 1);
+                  }}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <RefreshCwIcon />
+                  Refresh devices
+                </Button>
+              </div>
+            </SetupGroup>
             <IosTargetApp
               apps={apps}
               done={target !== null}
@@ -932,7 +882,7 @@ const IosSetupSheet = ({
                 id="ios-setup-missing"
               >
                 {running.length === 0
-                  ? "Start a simulator, then refresh."
+                  ? "Start a simulator to continue."
                   : `Add ${missingPhrase(missing)} to continue.`}
               </p>
             )}

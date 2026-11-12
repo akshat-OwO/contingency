@@ -7,6 +7,8 @@ import type {
   AndroidWorkspaceSelection,
 } from "@contingency/protocol";
 
+import type { DeviceChoice } from "./device-choice-state";
+
 /** A device the runtime can open a session on, as a selection. */
 export const selectable = (
   device: AndroidDiscoveredDevice
@@ -44,7 +46,7 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
     return "physical_device_unsupported: Select an Android emulator";
   }
   if (device.state === "stopped") {
-    return "Stopped. Start in Android Studio, then refresh";
+    return "Stopped";
   }
   if (device.state === "unauthorized") {
     return "Allow USB debugging on the device";
@@ -56,6 +58,40 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
     return `API ${device.api ?? "unknown"}; needs API ${androidSupportedApi.minimum}–${androidSupportedApi.maximum}`;
   }
   return selectable(device) === null ? "Identity unreadable" : null;
+};
+
+/** A reported device as the shared device card shows it. */
+export const androidDeviceChoice = (
+  device: AndroidDiscoveredDevice
+): DeviceChoice => {
+  const reason = unavailableReason(device);
+  const base = {
+    detail: `${device.serial} · API ${device.api}`,
+    id: device.serial,
+    kind:
+      device.kind === "physical" ? ("Phone" as const) : ("Emulator" as const),
+    name:
+      device.kind === "physical"
+        ? (device.model ?? device.serial)
+        : (device.avd ?? device.serial),
+  };
+  if (
+    device.kind === "emulator" &&
+    device.state === "stopped" &&
+    device.avd !== null
+  ) {
+    return {
+      ...base,
+      bootId: device.avd,
+      detail: "Android emulator",
+      status: { _tag: "stopped" },
+    };
+  }
+  return {
+    ...base,
+    status:
+      reason === null ? { _tag: "ready" } : { _tag: "unavailable", reason },
+  };
 };
 
 const permissionLine =

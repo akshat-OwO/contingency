@@ -364,15 +364,20 @@ try {
   await control("browser", "goto", "--url", instance.mcpUrl);
   await control("browser", "click", "--role", "button", "--name", "iOS");
   await fill("Flow name", flowName);
+  // Device choice is a card named for the simulator; the name is unique to
+  // this proof-owned UDID.
+  const listedDevices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
+  const selectedDevice = listedDevices.find((entry) => entry.udid === selected);
+  assert.ok(selectedDevice, "The proof-owned simulator must be discovered");
   await control(
     "browser",
-    "select",
+    "click",
     "--role",
-    "combobox",
+    "button",
     "--name",
-    "Device",
-    "--value",
-    selected
+    selectedDevice.name,
+    "--partial",
+    "true"
   );
   // The Target App is the fixture `.app` folder, uploaded through the
   // sheet's folder picker; its bundle identifier and build are read from it.

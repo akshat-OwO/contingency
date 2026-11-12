@@ -22,6 +22,7 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
+import { androidDeviceBoot } from "../services/android-device-boot.ts";
 import { androidDiscovery } from "../services/android-discovery.ts";
 import { AndroidWorkspace } from "../services/android-workspace.ts";
 import { CatalogBrowser } from "../services/catalog-browser.ts";
@@ -200,6 +201,15 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               makeBrowserRpcError("agent_session_unavailable", cause.message)
             )
           ),
+      "ios.device.boot": ({ udid }) =>
+        makeIosDiscovery()
+          .boot(udid)
+          .pipe(
+            Effect.asVoid,
+            Effect.mapError((cause) =>
+              makeBrowserRpcError("agent_session_unavailable", cause.message)
+            )
+          ),
       "ios.apps.list": ({ device }) =>
         makeIosDiscovery()
           .apps(device)
@@ -300,6 +310,13 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               makeBrowserRpcError("agent_session_unavailable", cause.message)
             )
           ),
+      "android.device.boot": ({ avd }) =>
+        androidDeviceBoot.boot(avd).pipe(
+          Effect.asVoid,
+          Effect.mapError((cause) =>
+            makeBrowserRpcError("agent_session_unavailable", cause.message)
+          )
+        ),
       "android.apps.list": ({ device }) =>
         androidDiscovery
           .apps(device)
