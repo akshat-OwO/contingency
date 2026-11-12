@@ -323,100 +323,155 @@ const fixture = (
     })
   ).pipe(Effect.provide(NodeServices.layer));
 
-const taught = Effect.gen(function* recordAndLearn() {
-  const workspace = yield* AndroidWorkspace;
-  const started = yield* workspace.execute(
-    {
-      _tag: "start",
-      flowName,
-      kind: "teaching",
-      operationId: op("start-teaching"),
-      recordingId: null,
-      selection,
-    },
-    "user"
-  );
-  expect(started.observation).toBeNull();
-  yield* workspace.execute(
-    {
-      _tag: "prepare",
-      operationId: op("prepare-teaching"),
-      sessionId: started.id,
-    },
-    "user"
-  );
-  yield* workspace.execute(
-    {
-      _tag: "record",
-      operationId: op("record-start"),
-      sessionId: started.id,
-      start: true,
-    },
-    "user"
-  );
-  const observed = yield* workspace.execute(
-    { _tag: "observe", image: false, sessionId: started.id },
-    "agent"
-  );
-  expect(
-    observed.observation?.nodes.find((node) => node.name === "Edit")?.bounds
-  ).toEqual({ height: 1, width: 1, x: 0, y: 0 });
-  yield* workspace.execute(
-    {
-      _tag: "input",
-      action: { _tag: "activate", target: "@e2" },
-      observationId: observed.observation?.id ?? "",
-      operationId: op("teach-input"),
-      sessionId: started.id,
-    },
-    "user"
-  );
-  yield* workspace.execute(
-    {
-      _tag: "instruction",
-      operationId: op("instruction"),
-      sessionId: started.id,
-      text: "Return to Home; use only public fixture text.",
-    },
-    "user"
-  );
-  const stopped = yield* workspace.execute(
-    {
-      _tag: "record",
-      operationId: op("record-stop"),
-      sessionId: started.id,
-      start: false,
-    },
-    "user"
-  );
-  expect(stopped.captureState?._tag).toBe("ready");
-  if (stopped.recordingId === null) {
-    return yield* Effect.die("Recording missing.");
-  }
-  yield* workspace.execute(
-    { _tag: "close", operationId: op("close-teaching"), sessionId: started.id },
-    "user"
-  );
-  const store = yield* TeachingRecordingStore;
-  yield* store.startLearning({
-    operationId: op("claim"),
-    recordingId: stopped.recordingId,
+const teach = (optional = false) =>
+  Effect.gen(function* recordAndLearn() {
+    const workspace = yield* AndroidWorkspace;
+    const started = yield* workspace.execute(
+      {
+        _tag: "start",
+        flowName,
+        kind: "teaching",
+        operationId: op("start-teaching"),
+        recordingId: null,
+        selection: optional
+          ? {
+              ...selection,
+              outcomes: [],
+              setup: { ...selection.setup, conditions: [] },
+            }
+          : selection,
+      },
+      "user"
+    );
+    expect(started.observation).toBeNull();
+    yield* workspace.execute(
+      {
+        _tag: "prepare",
+        operationId: op("prepare-teaching"),
+        sessionId: started.id,
+      },
+      "user"
+    );
+    yield* workspace.execute(
+      {
+        _tag: "record",
+        operationId: op("record-start"),
+        sessionId: started.id,
+        start: true,
+      },
+      "user"
+    );
+    const observed = yield* workspace.execute(
+      { _tag: "observe", image: false, sessionId: started.id },
+      "agent"
+    );
+    expect(
+      observed.observation?.nodes.find((node) => node.name === "Edit")?.bounds
+    ).toEqual({ height: 1, width: 1, x: 0, y: 0 });
+    yield* workspace.execute(
+      {
+        _tag: "input",
+        action: { _tag: "activate", target: "@e2" },
+        observationId: observed.observation?.id ?? "",
+        operationId: op("teach-input"),
+        sessionId: started.id,
+      },
+      "user"
+    );
+    yield* workspace.execute(
+      {
+        _tag: "instruction",
+        operationId: op("instruction"),
+        sessionId: started.id,
+        text: "Return to Home; use only public fixture text.",
+      },
+      "user"
+    );
+    const stopped = yield* workspace.execute(
+      {
+        _tag: "record",
+        operationId: op("record-stop"),
+        sessionId: started.id,
+        start: false,
+      },
+      "user"
+    );
+    expect(stopped.captureState?._tag).toBe("ready");
+    if (stopped.recordingId === null) {
+      return yield* Effect.die("Recording missing.");
+    }
+    yield* workspace.execute(
+      {
+        _tag: "close",
+        operationId: op("close-teaching"),
+        sessionId: started.id,
+      },
+      "user"
+    );
+    const store = yield* TeachingRecordingStore;
+    yield* store.startLearning({
+      operationId: op("claim"),
+      recordingId: stopped.recordingId,
+    });
+    const learning = yield* TeachingRecordingLearning;
+    const timeline = yield* learning.timeline({
+      claimOperationId: op("claim"),
+      cursor: 0,
+      recordingId: stopped.recordingId,
+    });
+    expect(JSON.stringify(timeline)).toContain("Activate button Edit");
+    if (optional) {
+      const refused = yield* Effect.flip(
+        learning.save({
+          claimOperationId: op("claim"),
+          files: [{ content: flow, path: "flow.md" }],
+          nativeConditions: {
+            outcomes: [{ name: "Home", role: "text" }],
+            starting: [{ name: "Invented", role: "text" }],
+          },
+          operationId: op("invalid-save"),
+          recordingId: stopped.recordingId,
+        })
+      );
+      expect(refused.message).toContain("observed after launch");
+    }
+    yield* learning.save({
+      claimOperationId: op("claim"),
+      files: [{ content: flow, path: "flow.md" }],
+      nativeConditions: {
+        outcomes: [{ name: "Home", role: "text" }],
+        starting: [{ name: "Home", role: "text" }],
+      },
+      operationId: op("save"),
+      recordingId: stopped.recordingId,
+    });
+    if (optional) {
+      yield* learning.save({
+        claimOperationId: op("claim"),
+        files: [{ content: flow, path: "flow.md" }],
+        nativeConditions: {
+          outcomes: [{ name: "Home", role: "text" }],
+          starting: [{ name: "Edit", role: "button" }],
+        },
+        operationId: op("correct-starting"),
+        recordingId: stopped.recordingId,
+      });
+      expect((yield* store.read(stopped.recordingId)).runtime).toMatchObject({
+        preparation: { conditions: [{ name: "Edit", role: "button" }] },
+      });
+      yield* learning.save({
+        claimOperationId: op("claim"),
+        files: [{ content: flow, path: "flow.md" }],
+        nativeConditions: {
+          outcomes: [{ name: "Home", role: "text" }],
+          starting: [{ name: "Home", role: "text" }],
+        },
+        operationId: op("restore-starting"),
+        recordingId: stopped.recordingId,
+      });
+    }
+    return stopped.recordingId;
   });
-  const learning = yield* TeachingRecordingLearning;
-  const timeline = yield* learning.timeline({
-    claimOperationId: op("claim"),
-    cursor: 0,
-    recordingId: stopped.recordingId,
-  });
-  expect(JSON.stringify(timeline)).toContain("Activate button Edit");
-  yield* learning.save({
-    claimOperationId: op("claim"),
-    files: [{ content: flow, path: "flow.md" }],
-    operationId: op("save"),
-    recordingId: stopped.recordingId,
-  });
-  return stopped.recordingId;
-});
 const dryRun = (recordingId: TeachingRecordingId) =>
   Effect.gen(function* startDryRun() {
     const workspace = yield* AndroidWorkspace;
@@ -427,7 +482,10 @@ const dryRun = (recordingId: TeachingRecordingId) =>
         kind: "dry-run",
         operationId: op("start-dry"),
         recordingId,
-        selection,
+        selection: {
+          ...selection,
+          setup: { ...selection.setup, conditions: [] },
+        },
       },
       "agent"
     );
@@ -792,128 +850,132 @@ it.effect(
     )
 );
 
-it.effect(
-  "records forwarded semantic input, stamps Android without browser metadata, verifies and purges evidence",
-  () =>
-    fixture(({ restart, root }) =>
-      Effect.gen(function* lifecycle() {
-        const recordingId = yield* taught;
-        const fs = yield* FileSystem.FileSystem;
-        const packageFile = yield* fs.readFileString(
-          path.join(root, "android-edit", "flow.md")
-        );
-        expect(packageFile).toContain('"platform":"android"');
-        expect(packageFile).not.toContain("emulation:");
-        expect(packageFile).not.toContain("hosts:");
-        const prepared = yield* dryRun(recordingId);
-        const workspace = yield* AndroidWorkspace;
-        yield* workspace.execute(
-          {
-            _tag: "complete",
-            assessment: {
-              explanation: "Home is visible.",
-              observationId: prepared.observation?.id ?? "",
-              outcome: "working",
-            },
-            operationId: op("complete-dry"),
-            sessionId: prepared.id,
-          },
-          "agent"
-        );
-        expect(
-          (yield* workspace.execute(
-            { _tag: "read", sessionId: prepared.id },
-            "agent"
-          )).captureState?._tag
-        ).toBe("dry-run-passed");
-        const denied = yield* Effect.result(
-          workspace.execute(
+for (const optional of [false, true]) {
+  it.effect(
+    `records semantic input with ${optional ? "derived" : "declared"} conditions, verifies and purges evidence`,
+    () =>
+      fixture(({ restart, root }) =>
+        Effect.gen(function* lifecycle() {
+          const recordingId = yield* teach(optional);
+          const fs = yield* FileSystem.FileSystem;
+          const packageFile = yield* fs.readFileString(
+            path.join(root, "android-edit", "flow.md")
+          );
+          expect(packageFile).toContain('"platform":"android"');
+          expect(packageFile).not.toContain("emulation:");
+          expect(packageFile).not.toContain("hosts:");
+          const prepared = yield* dryRun(recordingId);
+          const workspace = yield* AndroidWorkspace;
+          yield* workspace.execute(
             {
-              _tag: "flow-decision",
-              decision: "verify",
-              operationId: op("agent-verify"),
+              _tag: "complete",
+              assessment: {
+                explanation: "Home is visible.",
+                observationId: prepared.observation?.id ?? "",
+                outcome: "working",
+              },
+              operationId: op("complete-dry"),
               sessionId: prepared.id,
             },
             "agent"
-          )
-        );
-        expect(Result.isFailure(denied)).toBe(true);
-        const shot = yield* workspace.keyframes(prepared.id);
-        expect(shot?.keyframes.length).toBeGreaterThan(0);
-        const verified = yield* workspace.execute(
-          {
-            _tag: "flow-decision",
-            decision: "verify",
-            operationId: op("user-verify"),
-            sessionId: prepared.id,
-          },
-          "user"
-        );
-        expect(verified.cleanup?._tag).toBe("purged");
-        expect(verified.observation).toBeNull();
-        // Cleanup deletes the Dry Run's screens but not what they were, so
-        // its Run Summary can say they were deleted, here and after restart.
-        const purgedShots = yield* workspace.keyframes(prepared.id);
-        expect(purgedShots?.keyframes).toEqual(shot?.keyframes);
-        for (const keyframe of shot?.keyframes ?? []) {
+          );
           expect(
-            yield* fs.exists(path.resolve(shot?.directory ?? "", keyframe.path))
+            (yield* workspace.execute(
+              { _tag: "read", sessionId: prepared.id },
+              "agent"
+            )).captureState?._tag
+          ).toBe("dry-run-passed");
+          const denied = yield* Effect.result(
+            workspace.execute(
+              {
+                _tag: "flow-decision",
+                decision: "verify",
+                operationId: op("agent-verify"),
+                sessionId: prepared.id,
+              },
+              "agent"
+            )
+          );
+          expect(Result.isFailure(denied)).toBe(true);
+          const shot = yield* workspace.keyframes(prepared.id);
+          expect(shot?.keyframes.length).toBeGreaterThan(0);
+          const verified = yield* workspace.execute(
+            {
+              _tag: "flow-decision",
+              decision: "verify",
+              operationId: op("user-verify"),
+              sessionId: prepared.id,
+            },
+            "user"
+          );
+          expect(verified.cleanup?._tag).toBe("purged");
+          expect(verified.observation).toBeNull();
+          // Cleanup deletes the Dry Run's screens but not what they were, so
+          // its Run Summary can say they were deleted, here and after restart.
+          const purgedShots = yield* workspace.keyframes(prepared.id);
+          expect(purgedShots?.keyframes).toEqual(shot?.keyframes);
+          for (const keyframe of shot?.keyframes ?? []) {
+            expect(
+              yield* fs.exists(
+                path.resolve(shot?.directory ?? "", keyframe.path)
+              )
+            ).toBe(false);
+          }
+          const reopenedShots = yield* Effect.scoped(
+            Effect.flatMap(restart(), (fresh) => fresh.keyframes(prepared.id))
+          );
+          expect(reopenedShots?.keyframes.map(({ hash }) => hash)).toEqual(
+            shot?.keyframes.map(({ hash }) => hash)
+          );
+          const reopened = yield* Effect.scoped(
+            Effect.flatMap(restart(), (fresh) =>
+              fresh.execute({ _tag: "read", sessionId: prepared.id }, "agent")
+            )
+          );
+          expect(reopened.captureState?._tag).toBe("verified");
+          expect(reopened.cleanup?._tag).toBe("purged");
+          const store = yield* TeachingRecordingStore;
+          expect(
+            yield* fs.exists(
+              path.join(store.directory(recordingId), "events.jsonl")
+            )
           ).toBe(false);
-        }
-        const reopenedShots = yield* Effect.scoped(
-          Effect.flatMap(restart(), (fresh) => fresh.keyframes(prepared.id))
-        );
-        expect(reopenedShots?.keyframes.map(({ hash }) => hash)).toEqual(
-          shot?.keyframes.map(({ hash }) => hash)
-        );
-        const reopened = yield* Effect.scoped(
-          Effect.flatMap(restart(), (fresh) =>
-            fresh.execute({ _tag: "read", sessionId: prepared.id }, "agent")
-          )
-        );
-        expect(reopened.captureState?._tag).toBe("verified");
-        expect(reopened.cleanup?._tag).toBe("purged");
-        const store = yield* TeachingRecordingStore;
-        expect(
-          yield* fs.exists(
-            path.join(store.directory(recordingId), "events.jsonl")
-          )
-        ).toBe(false);
-        expect(
-          yield* fs.exists(path.join(root, "android-edit", "flow.md"))
-        ).toBe(true);
-        const later = yield* workspace.execute(
-          {
-            _tag: "start",
-            flowName,
-            kind: "run",
-            operationId: op("later"),
-            recordingId: null,
-            selection,
-          },
-          "agent"
-        );
-        expect(later.kind).toBe("run");
-        expect(yield* workspace.activeRunFlowNames()).toContain(flowName);
-        yield* workspace.execute(
-          {
-            _tag: "close",
-            operationId: op("close-later-run"),
-            sessionId: later.id,
-          },
-          "user"
-        );
-        expect(yield* workspace.activeRunFlowNames()).toEqual([]);
-      })
-    )
-);
+          expect(
+            yield* fs.exists(path.join(root, "android-edit", "flow.md"))
+          ).toBe(true);
+          const later = yield* workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "run",
+              operationId: op("later"),
+              recordingId: null,
+              selection,
+            },
+            "agent"
+          );
+          expect(later.kind).toBe("run");
+          expect(yield* workspace.activeRunFlowNames()).toContain(flowName);
+          yield* workspace.execute(
+            {
+              _tag: "close",
+              operationId: op("close-later-run"),
+              sessionId: later.id,
+            },
+            "user"
+          );
+          expect(yield* workspace.activeRunFlowNames()).toEqual([]);
+        })
+      )
+  );
+}
 
 it.effect(
   "Takeover disables agent dispatch and prevents a passing Dry Run after return",
   () =>
     fixture(() =>
       Effect.gen(function* takeover() {
-        const recordingId = yield* taught;
+        const recordingId = yield* teach();
         const prepared = yield* dryRun(recordingId);
         const workspace = yield* AndroidWorkspace;
         const taken = yield* workspace.execute(
@@ -1379,7 +1441,7 @@ it.effect("Dry Run allows untaught activation", () =>
   fixture(({ calls, setNodes }) =>
     Effect.gen(function* taughtGate() {
       const workspace = yield* AndroidWorkspace;
-      const recordingId = yield* taught;
+      const recordingId = yield* teach();
       const prepared = yield* dryRun(recordingId);
 
       const activated = yield* workspace.execute(
@@ -2124,7 +2186,7 @@ it.effect(
   () =>
     fixture(({ secure }) =>
       Effect.gen(function* secureWindow() {
-        const recordingId = yield* taught;
+        const recordingId = yield* teach();
         const session = yield* dryRun(recordingId);
         const workspace = yield* AndroidWorkspace;
         secure();
@@ -2164,7 +2226,7 @@ it.effect("Confirmation permits user input during Takeover", () =>
   fixture(({ calls }) =>
     Effect.gen(function* takeoverConfirmation() {
       const workspace = yield* AndroidWorkspace;
-      const prepared = yield* dryRun(yield* taught);
+      const prepared = yield* dryRun(yield* teach());
       const pending = yield* workspace.execute(
         {
           _tag: "input",
@@ -2235,7 +2297,7 @@ for (const source of ["agent", "user"] as const) {
         fixture(({ calls }) =>
           Effect.gen(function* confirmation() {
             const workspace = yield* AndroidWorkspace;
-            const prepared = yield* dryRun(yield* taught);
+            const prepared = yield* dryRun(yield* teach());
             const initial = calls.filter((call) => call === "activate").length;
             const paused = yield* workspace.execute(
               {
@@ -2385,3 +2447,43 @@ for (const existing of [false, true]) {
       )
   );
 }
+
+it.effect(
+  "blocks preparation when a derived starting condition is absent",
+  () =>
+    fixture(({ setNodes }) =>
+      Effect.gen(function* missingStart() {
+        const recordingId = yield* teach(true);
+        setNodes([]);
+        const refused = yield* Effect.flip(dryRun(recordingId));
+        expect(refused.code).toBe("starting_condition_failed");
+      })
+    )
+);
+
+it.effect(
+  "refuses a passing assessment when a derived outcome disappears",
+  () =>
+    fixture(({ setNodes }) =>
+      Effect.gen(function* missingOutcome() {
+        const prepared = yield* dryRun(yield* teach(true));
+        setNodes([]);
+        const workspace = yield* AndroidWorkspace;
+        const completed = yield* workspace.execute(
+          {
+            _tag: "complete",
+            assessment: {
+              explanation: "Claim success without the required outcome.",
+              observationId: prepared.observation?.id ?? "",
+              outcome: "working",
+            },
+            operationId: op("missing-outcome"),
+            sessionId: prepared.id,
+          },
+          "agent"
+        );
+        expect(completed.assessment?.outcome).toBe("inconclusive");
+        expect(completed.captureState?._tag).toBe("dry-run-failed");
+      })
+    )
+);

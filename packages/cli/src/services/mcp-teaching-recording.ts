@@ -6,6 +6,7 @@ import {
   FlowDiagnostic,
   FlowFile,
   FlowSaveResult,
+  NativeTeachingConditions,
   OperationId,
   optionalNullable,
   TeachingKeyframeFile,
@@ -206,11 +207,12 @@ const FlowSaveTool = Tool.make("agent_flow_save", {
     AgentSession,
   ],
   description:
-    'Atomically save a proposed Flow package for the claimed Teaching Recording. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to flow-drafted. A save is refused while any active Run uses this Flow, while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
+    'Atomically save a proposed Flow package for the claimed Teaching Recording. For native Teaching with omitted conditions, supply nativeConditions.starting from the started observation and nativeConditions.outcomes from the stopped observation, each as role and name targets. Declared conditions are preserved; invented targets are refused. The same claim operation id saves again after a failed Dry Run or a rejection, which replaces the package and returns the recording to flow-drafted. A save is refused while any active Run uses this Flow, while a Dry Run is running, and after a passing Dry Run until the user rejects or verifies the flow. flow.md needs YAML frontmatter whose name matches the Flow, a description, every {{placeholder}} declared under inputs as a bare name or as a `- name: <input>` mapping with an optional indented `description:` line, and a "Done when:" line on each numbered step. Supporting Markdown documents may live at any depth outside runs/ and recordings/. Link each supporting document from flow.md with a relative path. A refusal returns one diagnostic per broken property and leaves any previous package unchanged.',
   failure: TeachingRecordingFailure,
   parameters: Schema.Struct({
     claimOperationId: OperationId,
     files: Schema.Array(FlowFile),
+    nativeConditions: Schema.optionalKey(NativeTeachingConditions),
     operationId: OperationId,
     recordingId: TeachingRecordingId,
   }),

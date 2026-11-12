@@ -125,6 +125,7 @@ export interface TeachingRecordingStop extends TeachingRecordingMutation {
 }
 
 export interface TeachingRecordingFlowDraft extends TeachingRecordingMutation {
+  readonly runtime?: TeachingRecordingManifest["runtime"];
   readonly claimOperationId: OperationId;
   readonly files: readonly string[];
 }
@@ -1229,6 +1230,10 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           }
           return Effect.succeed({
             ...manifest,
+            declaredRuntime:
+              manifest.declaredRuntime ??
+              manifest.runtime ??
+              browserRequirements,
             lifecycle: {
               _tag: "flow-drafted" as const,
               claim: lifecycle.claim,
@@ -1237,6 +1242,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               startedAt: lifecycle.startedAt,
               stoppedAt: lifecycle.stoppedAt,
             },
+            runtime: input.runtime ?? manifest.runtime ?? browserRequirements,
           });
         },
         input.files

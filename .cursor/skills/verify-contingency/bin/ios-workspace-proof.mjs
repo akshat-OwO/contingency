@@ -397,6 +397,14 @@ try {
     "--timeout-ms",
     "120000"
   );
+  await control(
+    "browser",
+    "click",
+    "--role",
+    "button",
+    "--name",
+    "Optional steps"
+  );
   for (const [name, value] of [
     ["Starting screen element", "Login fixture"],
     ["Done when element", `Signed in as ${loginName}`],

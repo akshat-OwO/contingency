@@ -110,6 +110,11 @@ const observationSummary = (observation: IosObservation) => ({
   title: observation.appId ?? observation.device.name,
   url: "",
 });
+const boundaryObservationSummary = (observation: IosObservation) =>
+  observationSummary({
+    ...observation,
+    nodes: observation.nodes.filter((node) => !node.password && !node.covered),
+  });
 const difference = (left: IosObservation, right: IosObservation) =>
   left.nodes.flatMap((node) =>
     node.password ||
@@ -135,7 +140,7 @@ const supportsWorkspaceRequirements = (
   inputs: readonly { readonly name: string }[]
 ) =>
   requirements.platform === "ios" &&
-  requirements.preparation !== undefined &&
+  (requirements.preparation?.conditions.length ?? 0) > 0 &&
   (requirements.outcomes?.length ?? 0) > 0 &&
   inputs.length <= 64 &&
   inputs.every(({ name }) =>
@@ -212,6 +217,7 @@ interface SessionState {
     readonly width: number;
     readonly height: number;
   })[];
+  readonly startingObservation: ReturnType<typeof observationSummary> | null;
   readonly pendingInput: Extract<
     IosWorkspaceCommand,
     { readonly _tag: "input" }
@@ -644,7 +650,11 @@ export const makeIosWorkspaceLayer = (options: {
               }
             }
           }
-          return { inputs, recordingId, taught };
+          const setup =
+            command.kind !== "teaching" && taught.platform === "ios"
+              ? (taught.preparation ?? selection.setup)
+              : selection.setup;
+          return { inputs, recordingId, setup, taught };
         });
       const start = (
         command: Extract<IosWorkspaceCommand, { readonly _tag: "start" }>,
@@ -691,7 +701,7 @@ export const makeIosWorkspaceLayer = (options: {
                   : `iOS binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
               );
             }
-            const { taught, recordingId, inputs } =
+            const { taught, recordingId, inputs, setup } =
               yield* selectRequirements(command);
             const id = AgentSessionId.make(
               `agent-ios-${hash(command.operationId).slice(0, 32)}`
@@ -710,7 +720,7 @@ export const makeIosWorkspaceLayer = (options: {
               platform: "ios",
               requiredCapabilities: taught.capabilities,
               scope,
-              setup: selection.setup,
+              setup,
               targetApp: selection.environment.bundleId,
               taught,
               teaching: command.kind === "teaching",
@@ -791,6 +801,7 @@ export const makeIosWorkspaceLayer = (options: {
                 recording: false,
                 revision: 0,
                 sequence: 0,
+                startingObservation: null,
                 summary,
               }).pipe(Atom.keepAlive),
               stream: yield* acquireIosStream(
@@ -893,13 +904,21 @@ export const makeIosWorkspaceLayer = (options: {
             yield* emit(session, {
               _tag: "started",
               emulation: null,
+              observation: state(session).startingObservation ?? undefined,
               url: "",
             });
             const observed = yield* session.run.observe();
             acceptObservation(session, observed);
             yield* keyframe(session, observed, null);
           } else {
-            yield* finishRecording(session, command.operationId);
+            const observed = yield* session.run.observe();
+            acceptObservation(session, observed);
+            yield* finishRecording(
+              session,
+              command.operationId,
+              undefined,
+              boundaryObservationSummary(observed)
+            );
           }
         });
       const inputWorkspace = (
@@ -1492,7 +1511,12 @@ export const makeIosWorkspaceLayer = (options: {
                 "Preparation requires the user's Workspace action."
               );
             }
-            acceptObservation(session, yield* session.run.prepare());
+            const prepared = yield* session.run.prepare();
+            acceptObservation(session, prepared);
+            update(session, (value) => ({
+              ...value,
+              startingObservation: boundaryObservationSummary(prepared),
+            }));
             yield* session.stream.start();
           } else if (
             command._tag === "recover" ||

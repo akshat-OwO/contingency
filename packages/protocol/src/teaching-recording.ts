@@ -267,6 +267,8 @@ const TeachingRecordingManifestBase = {
   approvedHosts: Schema.optionalKey(Schema.Array(nonEmptyString)),
   artifacts: Schema.Array(TeachingRecordingArtifact),
   createdAt: nonEmptyString,
+  /** Original native declarations remain authoritative when a draft is corrected. */
+  declaredRuntime: Schema.optionalKey(PlatformRequirements),
   emulation: Schema.NullOr(DraftEmulation),
   eventOrigin: Schema.optional(Schema.Literals(["agent", "workspace"])),
   flowName: FlowName,
@@ -370,6 +372,7 @@ const teachingEventBase = {
 };
 
 const TeachingStartedEvent = Schema.TaggedStruct("started", {
+  observation: Schema.optional(TeachingObservation),
   ...teachingEventBase,
   emulation: Schema.NullOr(DraftEmulation),
   url: Schema.String,
@@ -473,6 +476,7 @@ export const TeachingStopReason = Schema.Literals([
 export type TeachingStopReason = typeof TeachingStopReason.Type;
 
 const TeachingStoppedEvent = Schema.TaggedStruct("stopped", {
+  observation: Schema.optional(TeachingObservation),
   ...teachingEventBase,
   detail: Schema.NullOr(Schema.String),
   reason: TeachingStopReason,

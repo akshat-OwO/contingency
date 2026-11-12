@@ -163,6 +163,7 @@ export const openAndroidSheet = async (
     "180000"
   );
   await click(selection.environment.appId, true);
+  await click("Optional steps");
   await select(
     "Starting screen element role",
     selection.setup.conditions[0].role

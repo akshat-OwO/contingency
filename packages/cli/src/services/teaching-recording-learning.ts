@@ -8,6 +8,7 @@ import {
   TeachingEvent,
 } from "@contingency/protocol";
 import type {
+  NativeTeachingConditions,
   FlowDiagnostic,
   FlowFile,
   FlowSaveResult,
@@ -43,6 +44,7 @@ import {
   stampFlowProvenance,
   validateFlowPackage,
 } from "./flow-package.ts";
+import { completeNativeTeachingConditions } from "./native-teaching-conditions.ts";
 import {
   parameterizeBrowserCommand,
   stampBrowserState,
@@ -330,6 +332,7 @@ const eventProjection = (
 };
 
 export interface SaveFlowInput {
+  readonly nativeConditions?: NativeTeachingConditions;
   readonly claimOperationId: OperationId;
   readonly files: readonly FlowFile[];
   readonly operationId: OperationId;
@@ -611,6 +614,15 @@ const makeTeachingRecordingLearning = Effect.fn(
         .readClaimed(input.recordingId, input.claimOperationId)
         .pipe(Effect.mapError(fromStoreError));
       const events = yield* readEvents(manifest);
+      const runtime = yield* completeNativeTeachingConditions(
+        manifest.declaredRuntime ?? manifest.runtime,
+        input.nativeConditions,
+        events
+      ).pipe(
+        Effect.mapError((cause) =>
+          learningError("teaching_recording_invalid", cause.message)
+        )
+      );
       const learnedFiles = yield* stampBrowserState(
         parameterizeVariables(files, events),
         events
@@ -704,7 +716,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                         viewport: manifest.emulation.viewport,
                       },
                 hosts: demonstratedHosts,
-                runtime: manifest.runtime,
+                runtime,
               }),
             }
           : file
@@ -855,6 +867,7 @@ const makeTeachingRecordingLearning = Effect.fn(
                     files: stamped.map((file) => file.path),
                     operationId: input.operationId,
                     recordingId: input.recordingId,
+                    runtime,
                   })
                   .pipe(Effect.mapError(fromStoreError));
               }).pipe(
