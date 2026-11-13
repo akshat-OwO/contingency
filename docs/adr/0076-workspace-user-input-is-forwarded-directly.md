@@ -15,7 +15,7 @@ Android and iOS Workspace input must feel as responsive as the browser's. The br
 - **Validation leaves the input path.** Device identity and session checks run at Start, on device and app events, and on a slow background cadence. A failed check pauses the session and marks the Forwarded Input since the last passing check as unverified.
 - **Teaching attributes after dispatch.** Teaching records each Forwarded Input against the latest observation taken before it and an observation taken after it. When the earlier observation predates the last screen change, the target is marked inferred. Keystrokes and scroll gestures coalesce into single actions as the browser's capture does, so native and browser Teaching Timelines read alike.
 - **Observation never blocks input.** Observations run on their own lane, triggered when input settles and on a slow idle cadence. Input arriving mid-observation marks that observation stale instead of waiting for it. An observation that needs no image takes no screenshot.
-- **Transports.** Android injects through the scrcpy control channel its stream already opens. iOS injects through a Contingency-owned simulator HID helper pinned to the Xcode versions of its Support Matrix. Until a spike proves the iOS helper, iOS keeps semantic user input and says so.
+- **Transports.** Android injects through the channel its stream already opens: the emulator's gRPC session on an emulator, and the scrcpy control channel otherwise. iOS injects through a Contingency-owned simulator HID helper pinned to the Xcode versions of its Support Matrix.
 
 ## Considered Options
 

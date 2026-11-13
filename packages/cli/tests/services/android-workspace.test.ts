@@ -1337,6 +1337,46 @@ it.effect(
 );
 
 it.effect(
+  "marks input that arrives during Stop's final observation unverified",
+  () =>
+    fixture(({ holdNextCapture }) =>
+      Effect.gen(function* stopOvertaken() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("stop-overtaken-start"),
+            sessionId: prepared.id,
+            start: true,
+          },
+          "user"
+        );
+        const gate = yield* holdNextCapture();
+        const stopping = yield* workspace
+          .execute(
+            {
+              _tag: "record",
+              operationId: op("stop-overtaken-stop"),
+              sessionId: prepared.id,
+              start: false,
+            },
+            "user"
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(gate.entered);
+        yield* workspace.forward(
+          { inputs: tap(0.5, 0.5), sessionId: prepared.id },
+          "user"
+        );
+        yield* Deferred.succeed(gate.release, true);
+        const stopped = yield* Fiber.join(stopping);
+        expect(stopped.captureGaps).toContain("forwarded_input_unverified");
+      })
+    )
+);
+
+it.effect(
   "validates the environment on a cadence, not on every observation",
   () =>
     fixture(({ disconnect }) =>
@@ -1418,7 +1458,7 @@ it.effect("Dry Run allows untaught activation", () =>
 it.effect(
   "a tapped password field offers its Variables until another tap",
   () =>
-    fixture(({ calls, setNodes }) =>
+    fixture(({ calls, holdNextCapture, setNodes }) =>
       Effect.gen(function* tappedField() {
         const workspace = yield* AndroidWorkspace;
         const prepared = yield* preparePick;
@@ -1449,6 +1489,17 @@ it.effect(
           role: "textbox",
           target: "@picked",
         });
+        // The observation that settles the tap keeps its Variable entry.
+        const gate = yield* holdNextCapture();
+        yield* TestClock.adjust(SETTLE_MILLIS * 2);
+        yield* Deferred.await(gate.entered);
+        yield* Deferred.succeed(gate.release, true);
+        const settled = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "user"
+        );
+        expect(settled.observation?.id).not.toBe(observed.observation?.id);
+        expect(settled.field?.password).toBe(true);
         // Tapping where no field is leaves every field.
         const elsewhere = yield* forward(prepared.id, tap(0.5, 0.75));
         expect(elsewhere.field).toBeNull();

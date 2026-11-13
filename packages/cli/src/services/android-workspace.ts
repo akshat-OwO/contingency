@@ -531,13 +531,22 @@ export const makeAndroidWorkspaceLayer = (options: {
        */
       const acceptObservation = (
         session: Session,
-        observation: AndroidObservation
+        observation: AndroidObservation,
+        {
+          started = session.lane.observing(),
+          keepPassword = false,
+        }: {
+          /** The input count when the observation began. */
+          readonly started?: number;
+          /** The observation shows the result of the user's own input. */
+          readonly keepPassword?: boolean;
+        } = {}
       ) => {
-        session.lane.observed(session.lane.observing());
+        session.lane.observed(started);
         update(session, (current) => ({
           ...current,
           field:
-            current.field?.password !== true &&
+            (keepPassword || current.field?.password !== true) &&
             current.observation !== null &&
             semanticSignature(current.observation.nodes) ===
               semanticSignature(observation.nodes)
@@ -1030,6 +1039,19 @@ export const makeAndroidWorkspaceLayer = (options: {
           (pending) => recordGesture(session, pending, after),
           { discard: true }
         );
+      /** Names Forwarded Input that reached the device unobserved. */
+      const markUnverified = (session: Session) =>
+        update(session, (current) => ({
+          ...current,
+          summary: {
+            ...current.summary,
+            captureGaps: current.summary.captureGaps.includes(
+              "forwarded_input_unverified"
+            )
+              ? current.summary.captureGaps
+              : [...current.summary.captureGaps, "forwarded_input_unverified"],
+          },
+        }));
       /** Pauses, naming the Forwarded Input no observation has checked. */
       const pauseForwarded = (session: Session, cause: AndroidWorkspaceError) =>
         Effect.gen(function* pauseUnverified() {
@@ -1037,16 +1059,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           session.lane.discard();
           yield* pause(session, cause).pipe(Effect.ignore);
           if (unverified > 0) {
-            update(session, (current) => ({
-              ...current,
-              summary: {
-                ...current.summary,
-                captureGaps: [
-                  ...current.summary.captureGaps,
-                  "forwarded_input_unverified",
-                ],
-              },
-            }));
+            markUnverified(session);
             yield* persist(session).pipe(Effect.ignore);
           }
         });
@@ -1069,7 +1082,12 @@ export const makeAndroidWorkspaceLayer = (options: {
               return false;
             }
             const gestures = session.lane.take();
-            acceptObservation(session, observed);
+            // A password field the user just tapped keeps its Variable entry
+            // while the screen around it stays the same.
+            acceptObservation(session, observed, {
+              keepPassword: true,
+              started,
+            });
             yield* recordGestures(session, gestures, observed);
             yield* persist(session);
             return true;
@@ -1145,10 +1163,17 @@ export const makeAndroidWorkspaceLayer = (options: {
             acceptObservation(session, observed);
             yield* keyframe(session, observed, null);
           } else {
+            const started = session.lane.observing();
             const gestures = session.lane.take();
             const observed = yield* session.run.observe();
-            acceptObservation(session, observed);
+            acceptObservation(session, observed, { started });
             yield* recordGestures(session, gestures, observed);
+            if (!session.lane.current(started)) {
+              // Input that arrived during the final observation reached the
+              // device, but nothing shows its result.
+              session.lane.discard();
+              markUnverified(session);
+            }
             yield* finishRecording(
               session,
               command.operationId,

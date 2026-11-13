@@ -493,7 +493,8 @@ try {
   );
   receipt.limits.physicalDeviceNoCommands = true;
 
-  // Teaching through Workspace: public fill, ordinary Variable fill, two activations, and Back.
+  // Teaching through Workspace: public fill, ordinary Variable fill, four activations, and Back.
+  // The login name and password field taps are activations of their own.
   await control("browser", "goto", "--url", instance.mcpUrl);
   await openAndroidSheet(control, selection, flowName, snapshot);
   const listed = await tool("agent_device_sessions_list", {
@@ -585,7 +586,7 @@ try {
   for (const [kind, count] of [
     ["fill", 1],
     ["variable", 1],
-    ["activate", 2],
+    ["activate", 4],
     ["back", 1],
   ]) {
     assert.equal(
