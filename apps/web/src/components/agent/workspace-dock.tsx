@@ -165,14 +165,18 @@ export const DockSessionSelect = ({
 };
 
 /**
- * Publishes the dock's height on the stage it floats over as
- * `--dock-height`, so a stage can keep its content clear of the dock however
- * many request tiers it has grown.
+ * Publishes the height of the dock's deliberate tiers on the stage it floats
+ * over as `--dock-height`, so a stage can keep its content clear of the dock
+ * however many request tiers it has grown. Transient notices float above the
+ * dock outside the measured element, so a refusal appearing or clearing never
+ * resizes the stage's content.
  */
 const useDockHeight = () => {
   const [element, setElement] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    const stage = element?.parentElement?.parentElement;
+    const stage = element?.closest(
+      '[data-slot="workspace-dock-container"]'
+    )?.parentElement;
     if (element === null || stage === null || stage === undefined) {
       return;
     }
@@ -203,49 +207,96 @@ const useDockHeight = () => {
  * container queries on the stage rather than viewport breakpoints: at 1440px
  * with devtools docked right the stage is about 800px, and with the summary
  * open too it is about 360px.
+ *
+ * A transient notice, such as a refused gesture, floats just above the dock
+ * rather than inside it. It takes no layout space, so the device or page
+ * behind keeps its size and the controls stay where they are while refusals
+ * come and go.
  */
 export const DockShell = ({
   children,
   footer,
+  notice,
   requests,
   status,
 }: {
   /** The controls row: wordmark, session picker, and the actions. */
   readonly children: React.ReactNode;
-  /** A refusal under the controls, on its own line. */
+  /**
+   * A deliberate tier under the controls, such as a rename form. It counts
+   * toward the space the stage reserves for the dock.
+   */
   readonly footer?: React.ReactNode;
+  /**
+   * Transient notices such as refusals, as `DockNotice`s. They float above
+   * the dock and never change the space the stage reserves for it.
+   */
+  readonly notice?: React.ReactNode;
   /** What the agent is waiting on, or nothing. */
   readonly requests?: React.ReactNode;
   readonly status: React.ReactNode;
 }) => {
   const ref = useDockHeight();
   return (
-    <div className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3">
-      <section
-        aria-label="Workspace dock"
-        className="material-float pointer-events-auto relative w-full max-w-3xl overflow-hidden rounded-xl shadow-lg @5xl:max-w-5xl"
-        data-slot="workspace-dock"
-        ref={ref}
-      >
-        {requests}
-        <div data-slot="dock-row">
-          <div data-slot="dock-status-slot">{status}</div>
-          {/*
+    <div
+      className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3"
+      data-slot="workspace-dock-container"
+    >
+      <div className="relative w-full max-w-3xl @5xl:max-w-5xl">
+        {/*
+          Pointer events pass through the notices to the device or page
+          behind, so a refusal never blocks the next attempt.
+        */}
+        <div
+          className="absolute inset-x-0 bottom-full mb-2 flex flex-col items-center gap-1.5 empty:hidden"
+          data-slot="dock-notices"
+        >
+          {notice}
+        </div>
+        <section
+          aria-label="Workspace dock"
+          className="material-float pointer-events-auto relative w-full overflow-hidden rounded-xl shadow-lg"
+          data-slot="workspace-dock"
+          ref={ref}
+        >
+          {requests}
+          <div data-slot="dock-row">
+            <div data-slot="dock-status-slot">{status}</div>
+            {/*
             Below a medium dock the session picker takes its own full row, so
             the session's name stays readable and the actions keep theirs.
           */}
-          <div
-            className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap"
-            data-slot="dock-controls"
-          >
-            {children}
+            <div
+              className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap"
+              data-slot="dock-controls"
+            >
+              {children}
+            </div>
           </div>
-        </div>
-        {footer}
-      </section>
+          {footer}
+        </section>
+      </div>
     </div>
   );
 };
+
+/**
+ * One transient notice above the dock: a refused gesture or a failed
+ * control. It is announced as an alert without taking focus.
+ */
+export const DockNotice = ({
+  children,
+}: {
+  readonly children: React.ReactNode;
+}) => (
+  <p
+    className="material-float text-destructive max-w-full rounded-lg px-3 py-1.5 text-xs text-pretty shadow-md"
+    data-slot="dock-notice"
+    role="alert"
+  >
+    {children}
+  </p>
+);
 
 /** A spacer that pushes the actions to the end of the controls row. */
 export const DockSpacer = () => (

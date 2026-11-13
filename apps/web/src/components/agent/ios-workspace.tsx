@@ -107,6 +107,7 @@ import {
 } from "./target-app-upload";
 import type { BuildUploadState } from "./target-app-upload";
 import {
+  DockNotice,
   DockShell,
   DockSpacer,
   DockState,
@@ -1453,24 +1454,18 @@ const IosDock = ({
   const field = typingField(session, dismissedField);
   return (
     <DockShell
-      footer={
+      notice={
         <>
           {gesture.error === undefined ? null : (
-            <p
-              className="text-destructive border-t px-3 py-1.5 text-xs"
-              role="alert"
-            >
-              {gesture.error}
-            </p>
+            <DockNotice>{gesture.error}</DockNotice>
           )}
           {inputRefusal === null ? null : (
-            <p
-              className="text-destructive border-t px-3 py-1.5 text-xs"
-              role="alert"
-            >
-              {inputRefusal}
-            </p>
+            <DockNotice>{inputRefusal}</DockNotice>
           )}
+        </>
+      }
+      footer={
+        <>
           {session.cleanup?._tag === "purge-pending" ? (
             <p
               className="text-destructive border-t px-3 py-1.5 text-xs text-pretty"

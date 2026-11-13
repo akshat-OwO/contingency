@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   DockNotices,
+  DockNotice,
   DockShell,
   DockSpacer,
   DockStatus,
@@ -712,17 +713,12 @@ export const AndroidSessionView = ({
           unavailable={glassText(session)}
         />
         <DockShell
-          footer={
-            // Why the last input sent nothing, said in the dock as iOS says
-            // it, so nothing covers the glass. Opening the comment tier sets
-            // it aside; the next input clears it.
+          notice={
+            // Why the last input sent nothing, said just above the dock so it
+            // never resizes the device. Opening the comment tier sets it
+            // aside; the next input clears it.
             state.inputRefusal === null || state.refusalDismissed ? null : (
-              <p
-                className="text-destructive border-t px-3 py-1.5 text-xs"
-                role="alert"
-              >
-                {state.inputRefusal}
-              </p>
+              <DockNotice>{state.inputRefusal}</DockNotice>
             )
           }
           requests={
