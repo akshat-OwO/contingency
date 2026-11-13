@@ -11,6 +11,10 @@ import {
 } from "./ios-proof-resources.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
+// A tap that focuses a field is recorded as its own forwarded action.
+const focusTap = (entry) =>
+  entry.kind === "activate" &&
+  (entry.target?.role ?? "").endsWith("text-field");
 const root = path.resolve(import.meta.dirname, "../../../..");
 const directory = process.env.CONTINGENCY_VERIFY_DIR;
 const selected = process.env.CONTINGENCY_IOS_SELECTED;
@@ -426,8 +430,8 @@ try {
   process.stdout.write("iOS Workspace preparation passed\n");
   await click("Start recording");
   await pick(teaching.id, "text-field", "Login name");
-  await fill("Text for Login name", loginName);
-  await click("Type");
+  // The keys are Forwarded Input, typed on the focused live display.
+  await control("browser", "device-type", "--text", loginName);
   await pick(teaching.id, "secure-text-field", "Password");
   await click("Request Variable");
   await fill("PASSWORD", password);
@@ -504,7 +508,14 @@ try {
     cursor: 0,
     recordingId,
   });
-  const actions = timeline.entries.filter((entry) => entry._tag === "action");
+  const recorded = timeline.entries.filter((entry) => entry._tag === "action");
+  assert.ok(
+    recorded.some(
+      (entry) => focusTap(entry) && entry.target?.name === "Login name"
+    ),
+    "The tap that focused Login name is missing."
+  );
+  const actions = recorded.filter((entry) => !focusTap(entry));
   assert.deepEqual(
     actions.map((entry) => entry.kind),
     [
@@ -519,7 +530,7 @@ try {
   assert.deepEqual(
     actions.map((entry) => entry.description),
     [
-      "Enter public fixture text in text-field Login name",
+      "Enter text in text-field Login name",
       `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
       "Activate button Sign in privately",
       ...(teachingTapRefused ? [] : ["Activate button Open device settings"]),
@@ -527,7 +538,7 @@ try {
       "Activate button Return to account",
     ]
   );
-  assert.equal(actions[0].inputConfirmation, "confirmed");
+  // Forwarded typing has no exact readback; the private Variable stays unconfirmed.
   assert.equal(actions[1].inputConfirmation, "unconfirmed");
   assert.ok(actions.every((entry) => entry.before.ios && entry.after.ios));
   await writeFile(

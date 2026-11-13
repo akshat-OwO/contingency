@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 const digestFrame = async () => {
   const canvas = document.querySelector(
-    'canvas[aria-label="Selected device live display"]'
+    'canvas[aria-label^="Selected device live display"]'
   );
   if (!canvas || canvas.classList.contains("invisible")) {
     return null;
@@ -46,7 +46,7 @@ export const checkAndroidStream = async (page, flags) => {
     // The canvas is visible only while it shows decoded frames; the status
     // text is hidden then.
     await page
-      .getByRole("img", { exact: true, name: "Selected device live display" })
+      .locator('canvas[aria-label^="Selected device live display"]')
       .waitFor({ timeout: 60_000 });
     assert.ok(authorization?.startsWith("Bearer "));
     const headers = { authorization, origin };
@@ -99,7 +99,7 @@ export const checkAndroidStream = async (page, flags) => {
       await page.waitForFunction(
         async (prior) => {
           const canvas = document.querySelector(
-            'canvas[aria-label="Selected device live display"]'
+            'canvas[aria-label^="Selected device live display"]'
           );
           if (!canvas || canvas.classList.contains("invisible")) {
             return false;

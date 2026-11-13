@@ -34,6 +34,8 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
+import { makeIosHid } from "./ios-hid.ts";
+import type { IosHid } from "./ios-hid.ts";
 import {
   createIosRun,
   iosCapabilities,
@@ -44,8 +46,10 @@ import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
-import { nativeHitTest } from "./native-app-hit-test.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import { describeGesture } from "./native-forwarded-input.ts";
+import { makeForwardedLane } from "./native-forwarded-lane.ts";
+import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
@@ -239,10 +243,15 @@ interface WorkspaceVariable {
   readonly status: "requested" | "supplied" | "refused";
   readonly value?: Redacted.Redacted<string>;
 }
+type IosNode = IosObservation["nodes"][number];
 interface Session {
   readonly boundary: ExecutionBoundary;
   readonly variables: Atom.Writable<readonly WorkspaceVariable[]>;
   readonly stream: IosDeviceStream;
+  /** The simulator's input helper, for the user's Forwarded Input only. */
+  readonly hid: IosHid;
+  /** The user's Forwarded Input, which never waits on `lock`. */
+  readonly lane: ForwardedLane<IosObservation, IosNode, IosWorkspaceError>;
   readonly state: Atom.Writable<SessionState>;
   readonly run: IosRun;
   readonly scope: Scope.Closeable;
@@ -299,10 +308,13 @@ const keyframeIndexFile = (summaryFile: string) =>
 export const makeIosWorkspaceLayer = (options: {
   readonly root: () => string;
   readonly createRun?: typeof createIosRun;
+  /** The simulator input helper; tests substitute their own. */
+  readonly makeHid?: typeof makeIosHid;
 }) =>
   Layer.effect(
     IosWorkspace,
     Effect.gen(function* makeWorkspace() {
+      const makeHid = options.makeHid ?? makeIosHid;
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
@@ -505,6 +517,7 @@ export const makeIosWorkspaceLayer = (options: {
         session: Session,
         observation: IosObservation
       ) => {
+        session.lane.observed(session.lane.observing());
         update(session, (current) => ({
           ...current,
           field:
@@ -787,6 +800,41 @@ export const makeIosWorkspaceLayer = (options: {
                 sessionId: id,
               }),
               directory,
+              hid: yield* makeHid(
+                () =>
+                  "udid" in selection.device ? selection.device.udid : null,
+                scope
+              ),
+              lane: makeForwardedLane({
+                focus: (target, observation) => {
+                  update(session, (value) => ({
+                    ...value,
+                    field:
+                      target === undefined || observation === null
+                        ? null
+                        : {
+                            name: target.name,
+                            observationId: observation.id,
+                            password: target.password,
+                            role: target.role,
+                            target: target.target,
+                          },
+                  }));
+                },
+                frame: (observation) => ({
+                  nodes: observation.nodes,
+                  ...observationSize(observation),
+                }),
+                latest: () => state(session).observation,
+                send: (batch) =>
+                  session.hid
+                    .forward(batch)
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        error("ios_workspace_refused", cause.message)
+                      )
+                    ),
+              }),
               lock: Semaphore.makeUnsafe(1),
               receipts: new Map(),
               run,
@@ -866,6 +914,147 @@ export const makeIosWorkspaceLayer = (options: {
           })
         );
 
+      /** One forwarded gesture as Teaching or Run evidence, against the observation of its result. */
+      const recordGesture = (
+        session: Session,
+        {
+          gesture,
+          before,
+          target,
+          inferred,
+        }: PendingGesture<IosObservation, IosNode>,
+        after: IosObservation
+      ) =>
+        Effect.gen(function* recordForwardedGesture() {
+          const current = state(session);
+          const actionId = `ios-action-${randomUUID()}`;
+          const described = describeGesture(gesture, target);
+          if (current.recording) {
+            if (before !== null) {
+              yield* keyframe(session, before, actionId);
+            }
+            yield* emit(session, {
+              _tag: "action",
+              actor: "user",
+              after: observationSummary(after),
+              appeared: before === null ? [] : difference(after, before),
+              before: observationSummary(before ?? after),
+              description: described.description,
+              detail: described.detail,
+              disappeared: before === null ? [] : difference(before, after),
+              id: actionId,
+              kind: described.kind,
+              outcome: "succeeded",
+              target:
+                target === undefined
+                  ? null
+                  : {
+                      checked: null,
+                      context: [current.summary.selection.environment.bundleId],
+                      disabled: null,
+                      name: target.name,
+                      role: target.role,
+                      value: gesture._tag === "type" ? gesture.text : null,
+                      valueWithheld: null,
+                    },
+              targetInferred: inferred,
+            });
+            yield* keyframe(session, after, actionId);
+          } else if (current.summary.kind !== "teaching") {
+            yield* io(
+              fs.writeFileString(
+                path.join(session.directory, "actions.jsonl"),
+                `${JSON.stringify({ action: described.kind, actionId, after: after.id, at: now(), before: before?.id ?? null, controller: "user", description: described.description, detail: described.detail, forwarded: true, targetInferred: inferred })}\n`,
+                { flag: "a", mode: 0o600 }
+              )
+            );
+            yield* keyframe(session, after, actionId);
+          }
+        });
+      const recordGestures = (
+        session: Session,
+        gestures: readonly PendingGesture<IosObservation, IosNode>[],
+        after: IosObservation
+      ) =>
+        Effect.forEach(
+          gestures,
+          (pending) => recordGesture(session, pending, after),
+          { discard: true }
+        );
+      /** Pauses, naming the Forwarded Input no observation has checked. */
+      const pauseForwarded = (session: Session, cause: IosWorkspaceError) =>
+        Effect.gen(function* pauseUnverified() {
+          const unverified = session.lane.unobserved();
+          session.lane.discard();
+          yield* pause(session, cause).pipe(Effect.ignore);
+          if (unverified > 0) {
+            update(session, (current) => ({
+              ...current,
+              summary: {
+                ...current.summary,
+                captureGaps: [
+                  ...current.summary.captureGaps,
+                  "forwarded_input_unverified",
+                ],
+              },
+            }));
+            yield* persist(session).pipe(Effect.ignore);
+          }
+        });
+      /**
+       * Observes the result of the user's quiet input and records it. An
+       * observation that later input overtook is stale and is discarded, so
+       * the lane tries again. It reports failures by pausing the session.
+       */
+      const settleForwarded = (session: Session): Effect.Effect<boolean> =>
+        session.lock.withPermits(1)(
+          Effect.gen(function* settleForwardedInput() {
+            const { summary } = state(session);
+            if (summary.phase !== "running" || summary.controller !== "user") {
+              session.lane.discard();
+              return true;
+            }
+            const started = session.lane.observing();
+            const observed = yield* session.run.mirror();
+            if (!session.lane.current(started)) {
+              return false;
+            }
+            const gestures = session.lane.take();
+            acceptObservation(session, observed);
+            yield* recordGestures(session, gestures, observed);
+            yield* persist(session);
+            return true;
+          }).pipe(
+            Effect.result,
+            // Paused before the lock is released, so no command sees the
+            // session between the failure and its pause.
+            Effect.flatMap((settled) =>
+              Result.isSuccess(settled)
+                ? Effect.succeed(settled.success)
+                : pauseForwarded(session, settled.failure).pipe(Effect.as(true))
+            )
+          )
+        );
+      const forwardWorkspace = (
+        session: Session,
+        command: Extract<IosWorkspaceCommand, { readonly _tag: "forward" }>,
+        source: "agent" | "user"
+      ) =>
+        Effect.gen(function* forwardWorkspaceInput() {
+          const { summary } = state(session);
+          if (
+            source !== "user" ||
+            summary.controller !== "user" ||
+            summary.phase !== "running"
+          ) {
+            return yield* denied(
+              "Only the user controlling a running session can send input. Nothing was sent."
+            );
+          }
+          yield* session.lane.forward(command.inputs);
+          yield* session.lane.wake(session.scope, settleForwarded(session));
+          return yield* snapshot(session);
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<IosWorkspaceCommand, { readonly _tag: "record" }>,
@@ -911,8 +1100,10 @@ export const makeIosWorkspaceLayer = (options: {
             acceptObservation(session, observed);
             yield* keyframe(session, observed, null);
           } else {
+            const gestures = session.lane.take();
             const observed = yield* session.run.observe();
             acceptObservation(session, observed);
+            yield* recordGestures(session, gestures, observed);
             yield* finishRecording(
               session,
               command.operationId,
@@ -1135,97 +1326,6 @@ export const makeIosWorkspaceLayer = (options: {
             yield* keyframe(session, after, actionId);
           }
         });
-      const pickWorkspace = (
-        session: Session,
-        command: Extract<IosWorkspaceCommand, { readonly _tag: "pick" }>,
-        source: "agent" | "user"
-      ) =>
-        Effect.gen(function* pickWorkspaceCommand() {
-          const current = state(session);
-          const { summary } = current;
-          if (
-            source !== "user" ||
-            summary.controller !== source ||
-            summary.phase !== "running"
-          ) {
-            return yield* denied(
-              "Only the user controlling a running session can pick. No input was sent."
-            );
-          }
-          const previous = current.observations.find(
-            (observation) => observation.id === command.observationId
-          );
-          if (previous === undefined) {
-            return yield* denied(
-              "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
-            );
-          }
-          const observed = yield* session.run.observe();
-          acceptObservation(session, observed);
-          const { width, height } = observationSize(observed);
-          const ratio = width / height;
-          const frameRatio = command.frame.width / command.frame.height;
-          if (
-            Math.sign(width - height) !==
-              Math.sign(command.frame.width - command.frame.height) ||
-            Math.abs(frameRatio / ratio - 1) > 0.02
-          ) {
-            return yield* denied(
-              "The stream size or orientation changed. No input was sent."
-            );
-          }
-          const x = command.point.x * width;
-          const y = command.point.y * height;
-          // Resolve containing candidates before their parents.
-          const target = nativeHitTest(observed.nodes, x, y);
-          if (target === undefined || target.covered) {
-            return yield* denied(
-              "Nothing to activate there. No input was sent."
-            );
-          }
-          const priorTarget = nativeHitTest(
-            previous.nodes,
-            command.point.x * previous.width,
-            command.point.y * previous.height
-          );
-          if (
-            priorTarget === undefined ||
-            priorTarget.role !== target.role ||
-            priorTarget.name !== target.name ||
-            priorTarget.editable !== target.editable ||
-            priorTarget.password !== target.password ||
-            priorTarget.packageName !== target.packageName
-          ) {
-            return yield* denied(
-              "The element moved or changed. No input was sent."
-            );
-          }
-          if (target.editable) {
-            update(session, (value) => ({
-              ...value,
-              field: {
-                name: target.name,
-                observationId: observed.id,
-                password: target.password,
-                role: target.role,
-                target: target.target,
-              },
-            }));
-            return;
-          }
-          yield* inputWorkspace(
-            session,
-            {
-              _tag: "input",
-              action: { _tag: "activate", target: target.target },
-              observationId: observed.id,
-              operationId: command.operationId,
-              sessionId: command.sessionId,
-            },
-            source,
-            observed
-          );
-        });
       const completeWorkspace = (
         session: Session,
         command: Extract<IosWorkspaceCommand, { readonly _tag: "complete" }>,
@@ -1305,7 +1405,10 @@ export const makeIosWorkspaceLayer = (options: {
         });
       const perform = (
         session: Session,
-        command: Exclude<IosWorkspaceCommand, { readonly _tag: "start" }>,
+        command: Exclude<
+          IosWorkspaceCommand,
+          { readonly _tag: "start" | "forward" }
+        >,
         source: "agent" | "user"
       ) =>
         // Closed command dispatch; capture, input, and assessment have separate handlers.
@@ -1564,13 +1667,17 @@ export const makeIosWorkspaceLayer = (options: {
             if (source === "user" && current.field?.password === true) {
               return yield* snapshot(session, command.image);
             }
-            if (source === "agent" || summary.controller === "user") {
-              acceptObservation(
-                session,
-                yield* source === "user"
-                  ? session.run.mirror()
-                  : session.run.observe()
-              );
+            if (source === "agent") {
+              acceptObservation(session, yield* session.run.observe());
+            } else if (summary.controller === "user") {
+              // Forwarded Input that overtakes this observation makes it stale.
+              const started = session.lane.observing();
+              const mirrored = yield* session.run.mirror();
+              if (session.lane.current(started)) {
+                const gestures = session.lane.take();
+                acceptObservation(session, mirrored);
+                yield* recordGestures(session, gestures, mirrored);
+              }
             }
             return yield* snapshot(session, command.image && source === "user");
           } else if (command._tag === "control") {
@@ -1579,6 +1686,7 @@ export const makeIosWorkspaceLayer = (options: {
                 "Run control changes require Workspace. Teaching remains user-led."
               );
             }
+            const gestures = session.lane.take();
             update(session, (value) => ({
               ...value,
               observation: null,
@@ -1591,7 +1699,9 @@ export const makeIosWorkspaceLayer = (options: {
                   command.controller === "user",
               },
             }));
-            acceptObservation(session, yield* session.run.observe());
+            const controlled = yield* session.run.observe();
+            acceptObservation(session, controlled);
+            yield* recordGestures(session, gestures, controlled);
           } else if (command._tag === "record") {
             yield* recordWorkspace(session, command, source);
           } else if (command._tag === "instruction") {
@@ -1605,8 +1715,6 @@ export const makeIosWorkspaceLayer = (options: {
               target: null,
               text: command.text,
             });
-          } else if (command._tag === "pick") {
-            yield* pickWorkspace(session, command, source);
           } else if (command._tag === "input") {
             yield* inputWorkspace(session, command, source);
           } else if (command._tag === "complete") {
@@ -1702,6 +1810,11 @@ export const makeIosWorkspaceLayer = (options: {
                 }
                 return yield* snapshotPersisted(summary);
               });
+            }
+            if (command._tag === "forward") {
+              // Input never waits behind an observation. It is not replayable,
+              // so it carries no receipt.
+              return forwardWorkspace(session, command, source);
             }
             const serialized = session.lock.withPermits(1)(
               Effect.gen(function* serializedCommand() {

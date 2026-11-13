@@ -1,5 +1,6 @@
 import { AgentSessionId, OperationId } from "@contingency/protocol";
 import type {
+  NativeInput,
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
@@ -19,7 +20,7 @@ import {
   SmartphoneIcon,
   SquareIcon,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   DockNotices,
@@ -59,6 +60,7 @@ import {
   deviceSummaryLabel,
 } from "./android-workspace-state";
 import { DeviceElements } from "./device-elements";
+import { makeNativeInputQueue } from "./native-input";
 import {
   sessionStartGestureAtom,
   useWorkspaceGesture,
@@ -78,23 +80,22 @@ interface WorkspaceState {
    * until it saves, so a refusal leaves them for another try.
    */
   readonly instructionPending: boolean;
-  /** The last refused pick was set aside when the comment tier opened. */
+  /** Why the last Forwarded Input sent nothing, until more input is sent. */
+  readonly inputRefusal: string | null;
+  /** The input refusal was set aside when the comment tier opened. */
   readonly refusalDismissed: boolean;
   readonly setupOpen: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
   dismissedField: null,
   failure: null,
+  inputRefusal: null,
   instructing: false,
   instructionPending: false,
   refusalDismissed: false,
   session: null,
   setupOpen: false,
 });
-/** A click on the stream, kept apart so a refusal never reads as a failed gesture. */
-const pickGestureAtom = Atom.keepAlive(
-  Atom.fn((request: { readonly run: GestureRun }) => request.run)
-);
 const applySnapshot = (
   current: WorkspaceState,
   session: AndroidWorkspaceSnapshot
@@ -224,12 +225,15 @@ export const AndroidEmptyState = ({
 );
 
 type SetState = (update: (current: WorkspaceState) => WorkspaceState) => void;
+/** How often an idle session is observed. Input never waits on it. */
+const IDLE_OBSERVATION = "3 seconds";
 type Mutate = (command: AndroidWorkspaceCommand) => boolean;
 
 /**
- * Reads a `?android=` session once, then keeps the selected session's
- * retained observation current so the server can tell a stale pick from a
- * fresh one. The stream, not this, is what the person sees.
+ * Reads a `?android=` session once, then refreshes the selected session's
+ * observation on a slow idle cadence. The server observes each burst of the
+ * user's input itself once it settles, so this only keeps an idle screen and
+ * the device checks current. The stream, not this, is what the person sees.
  */
 const useAndroidSessionSync = (
   requestedSessionId: string | undefined,
@@ -324,7 +328,7 @@ const useAndroidSessionSync = (
                 : current
             )
           );
-          yield* Effect.sleep("1 second");
+          yield* Effect.sleep(IDLE_OBSERVATION);
         })
       ).pipe(Effect.catchCause(reportMirrorFailure))
     );
@@ -571,7 +575,6 @@ export const AndroidSessionView = ({
   mutate,
   notices,
   pending,
-  run,
   session,
   setState,
   state,
@@ -579,26 +582,48 @@ export const AndroidSessionView = ({
   readonly mutate: Mutate;
   readonly notices: React.ReactNode;
   readonly pending: boolean;
-  readonly run: (command: AndroidWorkspaceCommand) => GestureRun;
   readonly session: AndroidWorkspaceSnapshot;
   readonly setState: SetState;
   readonly state: WorkspaceState;
 }) => {
-  const { androidSessionsAtom } = useRpcDependencies();
+  const { androidSessionsAtom, runAndroidWorkspaceCommand } =
+    useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
-  const pick = useWorkspaceGesture(pickGestureAtom);
-  const canAct =
-    session.controller === "user" && session.phase === "running" && !pending;
-  // Teaching types only while recording: a stopped recording keeps the
-  // session, but nothing typed then would be captured.
-  // A refused pick leaves no field picked: typing into the previous one would
-  // land somewhere the person did not just choose.
+  const canAct = session.controller === "user" && session.phase === "running";
+  // One queue per session keeps each session's input in order.
+  const [queues] = useState(
+    () => new Map<AgentSessionId, (input: NativeInput) => void>()
+  );
+  const onInput = (value: NativeInput) => {
+    if (state.inputRefusal !== null) {
+      setState((current) => ({ ...current, inputRefusal: null }));
+    }
+    let forward = queues.get(session.id);
+    if (forward === undefined) {
+      const sessionId = session.id;
+      forward = makeNativeInputQueue(
+        (inputs) =>
+          runAndroidWorkspaceCommand({ _tag: "forward", inputs, sessionId }),
+        (cause) =>
+          setState((current) => ({
+            ...current,
+            inputRefusal: message(cause),
+            refusalDismissed: false,
+          }))
+      );
+      queues.set(sessionId, forward);
+    }
+    forward(value);
+  };
+  // Text goes to the device as the user types on it. A password field also
+  // offers its Variables, and Teaching offers them only while recording.
   const field =
     canAct &&
-    pick.error === undefined &&
+    !pending &&
     (session.kind !== "teaching" ||
       session.captureState?._tag === "recording") &&
     session.field !== null &&
+    session.field.password === true &&
     fieldKey(session.field) !== state.dismissedField
       ? session.field
       : null;
@@ -638,47 +663,38 @@ export const AndroidSessionView = ({
           ended={!isLiveAndroidSession(session)}
           live={session.phase === "running" || session.phase === "paused"}
           onBack={() => {
-            if (session.observation !== null) {
-              input({ _tag: "back" }, session.observation.id);
+            for (const action of ["down", "up"] as const) {
+              onInput({
+                _tag: "key",
+                action,
+                at: performance.now(),
+                code: "",
+                key: "GoBack",
+                modifiers: 0,
+              });
             }
           }}
-          onPick={(point, frame) => {
-            pick.dispatch(
-              run({
-                _tag: "pick",
-                frame,
-                observationId: session.observation?.id ?? "none",
-                operationId: operationId(),
-                point,
-                sessionId: session.id,
-              })
-            );
-            setState((current) => ({
-              ...current,
-              dismissedField: null,
-              refusalDismissed: false,
-            }));
-          }}
+          onInput={onInput}
           paused={session.phase === "paused"}
           secure={
             session.phase === "paused" &&
             session.captureGaps.at(-1) === "secure_window"
           }
-          pending={pick.pending}
+          pending={pending}
           sessionId={session.id}
           unavailable={glassText(session)}
         />
         <DockShell
           footer={
-            // Why the last click sent nothing, said in the dock as iOS says
+            // Why the last input sent nothing, said in the dock as iOS says
             // it, so nothing covers the glass. Opening the comment tier sets
-            // it aside; the next pick replaces it.
-            pick.error === undefined || state.refusalDismissed ? null : (
+            // it aside; the next input clears it.
+            state.inputRefusal === null || state.refusalDismissed ? null : (
               <p
                 className="text-destructive border-t px-3 py-1.5 text-xs"
                 role="alert"
               >
-                {pick.error}
+                {state.inputRefusal}
               </p>
             )
           }
@@ -702,24 +718,12 @@ export const AndroidSessionView = ({
           <AndroidDockControls
             elements={
               <DeviceElements
-                disabled={!canAct || pick.pending}
+                disabled={!canAct}
                 observation={session.observation}
-                onPick={({ frame, point }) => {
-                  pick.dispatch(
-                    run({
-                      _tag: "pick",
-                      frame,
-                      observationId: session.observation?.id ?? "none",
-                      operationId: operationId(),
-                      point,
-                      sessionId: session.id,
-                    })
-                  );
-                  setState((current) => ({
-                    ...current,
-                    dismissedField: null,
-                    refusalDismissed: false,
-                  }));
+                onActivate={(inputs) => {
+                  for (const value of inputs) {
+                    onInput(value);
+                  }
                 }}
               />
             }
@@ -865,7 +869,6 @@ export const AndroidWorkspace = ({
           mutate={mutate}
           notices={notices}
           pending={gesture.pending}
-          run={run}
           session={state.session}
           setState={setState}
           state={state}

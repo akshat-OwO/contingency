@@ -235,6 +235,49 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
 });
 export type AndroidWorkspaceSnapshot = typeof AndroidWorkspaceSnapshot.Type;
 
+const fraction = Schema.Finite.check(
+  Schema.isBetween({ maximum: 1, minimum: 0 })
+);
+/** When the Workspace saw the input, in its own milliseconds. Orders and times gestures only. */
+const inputTime = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+
+/**
+ * One piece of Forwarded Input: what the user did on a native Workspace
+ * canvas, sent straight to the device rather than resolved to a semantic
+ * target first. Points are fractions of the displayed screen.
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const NativeInput = Schema.Union([
+  Schema.TaggedStruct("touch", {
+    action: Schema.Literals(["down", "move", "up"]),
+    at: inputTime,
+    x: fraction,
+    y: fraction,
+  }),
+  Schema.TaggedStruct("scroll", {
+    at: inputTime,
+    deltaX: Schema.Finite.check(
+      Schema.isBetween({ maximum: 10_000, minimum: -10_000 })
+    ),
+    deltaY: Schema.Finite.check(
+      Schema.isBetween({ maximum: 10_000, minimum: -10_000 })
+    ),
+    x: fraction,
+    y: fraction,
+  }),
+  Schema.TaggedStruct("key", {
+    action: Schema.Literals(["down", "up"]),
+    at: inputTime,
+    /** The physical key, as `KeyboardEvent.code` names it. */
+    code: Schema.String.check(Schema.isMaxLength(32)),
+    /** The key's meaning, as `KeyboardEvent.key` names it. */
+    key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32)),
+    /** Alt 1, Control 2, Meta 4, Shift 8. */
+    modifiers: Schema.Int.check(Schema.isBetween({ maximum: 15, minimum: 0 })),
+  }),
+]);
+export type NativeInput = typeof NativeInput.Type;
+
 const deviceSessionId = AgentSessionId.annotate({ identifier: "Id" });
 const deviceOperationId = OperationId.annotate({ identifier: "Op" });
 const session = { sessionId: deviceSessionId };
@@ -281,17 +324,10 @@ export const AndroidWorkspaceCommand = Schema.Union([
     allow: Schema.Boolean,
     decisionId: text,
   }),
-  Schema.TaggedStruct("pick", {
-    ...mutation,
-    frame: Schema.Struct({
-      height: Schema.Int.check(Schema.isGreaterThan(0)),
-      width: Schema.Int.check(Schema.isGreaterThan(0)),
-    }),
-    observationId: text,
-    point: Schema.Struct({
-      x: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: 0 })),
-      y: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: 0 })),
-    }),
+  // Workspace-only Forwarded Input. Never exposed in the MCP tool's schema.
+  Schema.TaggedStruct("forward", {
+    ...session,
+    inputs: Schema.NonEmptyArray(NativeInput).check(Schema.isMaxLength(256)),
   }),
   Schema.TaggedStruct("input", {
     ...mutation,

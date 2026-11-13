@@ -8,6 +8,7 @@ import type {
   IosWorkspaceSnapshot,
   IosWorkspaceSelection,
   IosWorkspaceSummary,
+  NativeInput,
   UploadedIosApp,
 } from "@contingency/protocol";
 import {
@@ -21,7 +22,6 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
   CircleIcon,
-  CircleSlashIcon,
   CornerDownLeftIcon,
   KeyRoundIcon,
   LoaderCircleIcon,
@@ -86,6 +86,10 @@ import { appInstallationQuestion } from "./app-installation";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { DeviceElements } from "./device-elements";
 import {
+  makeFirstResponseProbe,
+  probeNativeInput,
+} from "./first-response-probe";
+import {
   iosDockPresentation,
   iosFlowsSessionView,
   iosSessionLabel,
@@ -93,6 +97,7 @@ import {
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
+import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { NativeOptionalSteps } from "./native-optional-steps";
 import {
   BuildPicker,
@@ -134,23 +139,18 @@ const errorMessage = (cause: unknown) =>
 
 const IosMirror = ({
   session,
-  onPick,
+  onInput,
   unavailable,
 }: {
   readonly session: IosWorkspaceSnapshot;
   readonly unavailable: string;
-  readonly onPick: (
-    point: { x: number; y: number },
-    frame: { width: number; height: number }
-  ) => void;
+  /** Forwards the user's input to the simulator. */
+  readonly onInput: (input: NativeInput) => void;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const pointer = useRef<{
-    readonly id: number;
-    readonly x: number;
-    readonly y: number;
-  } | null>(null);
-  const [gestureError, setGestureError] = useState<string | null>(null);
+  const [probe] = useState(() =>
+    makeFirstResponseProbe("ios", () => canvas.current)
+  );
   const [transport, setTransport] = useState("connecting");
   const [frame, setFrame] = useState(DEFAULT_IOS_FRAME);
   const live = session.phase === "running" || session.phase === "paused";
@@ -211,6 +211,7 @@ const IosMirror = ({
                             : { height: value.height, width: value.width }
                         );
                         target.getContext("2d")?.drawImage(image, 0, 0);
+                        probe.frame();
                         setTransport("live");
                       }
                     } else {
@@ -236,8 +237,22 @@ const IosMirror = ({
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [session.id, session.phase, live]);
+  }, [probe, session.id, session.phase, live]);
   const paused = transport === "transport_lost" && live;
+  const interactive =
+    live && !paused && transport === "live" && session.controller === "user";
+  // The handlers outlive renders; they read the latest state.
+  const accepting = useRef({ interactive, onInput });
+  useEffect(() => {
+    accepting.current = { interactive, onInput };
+  }, [interactive, onInput]);
+  const [handlers] = useState(() =>
+    makeNativeInputHandlers(
+      (input) => accepting.current.onInput(input),
+      () => accepting.current.interactive,
+      probeNativeInput(probe)
+    )
+  );
   if (!live && session.phase !== "pending") {
     return (
       <DeviceLastScreen
@@ -255,59 +270,22 @@ const IosMirror = ({
         <DeviceFrame frame={frame}>
           {live ? (
             <canvas
-              aria-label="Live iOS viewport"
+              aria-label={
+                interactive
+                  ? "Live iOS viewport. Pointer, wheel, and keyboard input go to the simulator."
+                  : "Live iOS viewport"
+              }
+              aria-roledescription={interactive ? "device display" : undefined}
               className={cn(
-                "absolute inset-0 size-full touch-none",
-                session.controller === "user" && !paused
-                  ? "cursor-pointer"
-                  : "cursor-default",
+                "absolute inset-0 size-full touch-none outline-none",
+                interactive ? "cursor-pointer" : "cursor-default",
                 paused && "opacity-40"
               )}
               data-observation-id={session.observation?.id}
               ref={canvas}
-              role="img"
-              onPointerDown={(event) => {
-                pointer.current = {
-                  id: event.pointerId,
-                  x: event.clientX,
-                  y: event.clientY,
-                };
-                event.currentTarget.setPointerCapture(event.pointerId);
-              }}
-              onPointerCancel={() => {
-                pointer.current = null;
-              }}
-              onPointerUp={(event) => {
-                const down = pointer.current;
-                pointer.current = null;
-                if (!down || down.id !== event.pointerId) {
-                  return;
-                }
-                if (
-                  Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
-                ) {
-                  setGestureError(
-                    "capability_missing: iOS swipes, including edge swipes, are unsupported. No input was sent."
-                  );
-                  return;
-                }
-                setGestureError(null);
-                if (
-                  transport !== "live" ||
-                  !canvas.current ||
-                  session.controller !== "user"
-                ) {
-                  return;
-                }
-                const box = event.currentTarget.getBoundingClientRect();
-                onPick(
-                  {
-                    x: (event.clientX - box.left) / box.width,
-                    y: (event.clientY - box.top) / box.height,
-                  },
-                  { height: canvas.current.height, width: canvas.current.width }
-                );
-              }}
+              role={interactive ? "application" : "img"}
+              tabIndex={interactive ? 0 : -1}
+              {...handlers}
             />
           ) : (
             <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-neutral-400">
@@ -339,22 +317,6 @@ const IosMirror = ({
             ? "iOS mirror paused. No input is sent until transport is restored."
             : ""}
         </p>
-        {gestureError === null ? null : (
-          <p
-            className="bg-background flex items-start gap-2 rounded-xl border px-3 py-2 text-xs shadow-sm"
-            role="alert"
-          >
-            <CircleSlashIcon
-              aria-hidden="true"
-              className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
-            />
-            <span>
-              Swipes, including edge swipes, are not supported on iOS. No input
-              was sent.
-              <span className="sr-only"> {gestureError}</span>
-            </span>
-          </p>
-        )}
       </div>
     </div>
   );
@@ -1391,22 +1353,21 @@ const IosDockControls = ({
 };
 
 /**
- * The field the person can type into now: only while they hold a running
- * session (and, when teaching, while recording), never after a refused pick,
- * and not once they dismissed it.
+ * The password field whose Variables the dock offers: only while the person
+ * holds a running session (and, when teaching, while recording), and not once
+ * they dismissed it. Other text goes to the simulator as they type on it.
  */
 const typingField = (
   session: IosWorkspaceSnapshot,
-  pickRefused: boolean,
   dismissedField: string | null
 ): IosField | null => {
   const canType =
-    !pickRefused &&
     session.phase === "running" &&
     session.controller === "user" &&
     (session.kind !== "teaching" || session.captureState?._tag === "recording");
   return canType &&
     session.field !== null &&
+    session.field.password === true &&
     session.field.observationId !== dismissedField
     ? session.field
     : null;
@@ -1414,7 +1375,8 @@ const typingField = (
 
 const IosDock = ({
   gesture,
-  pickRefused,
+  inputRefusal,
+  onInput,
   onNewSession,
   onSelectSession,
   send,
@@ -1424,10 +1386,11 @@ const IosDock = ({
     readonly pending: boolean;
     readonly error: string | undefined;
   };
+  /** Why the last Forwarded Input sent nothing, if it was refused. */
+  readonly inputRefusal: string | null;
+  readonly onInput: (input: NativeInput) => void;
   readonly onNewSession: () => void;
   readonly onSelectSession: (session: string) => void;
-  /** The last pick was refused, so no field stays picked. */
-  readonly pickRefused: boolean;
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
 }) => {
@@ -1459,7 +1422,7 @@ const IosDock = ({
     : [session, ...sessions];
   const presentation = iosDockPresentation(session);
   const recording = session.captureState?._tag === "recording";
-  const field = typingField(session, pickRefused, dismissedField);
+  const field = typingField(session, dismissedField);
   return (
     <DockShell
       footer={
@@ -1470,6 +1433,14 @@ const IosDock = ({
               role="alert"
             >
               {gesture.error}
+            </p>
+          )}
+          {inputRefusal === null ? null : (
+            <p
+              className="text-destructive border-t px-3 py-1.5 text-xs"
+              role="alert"
+            >
+              {inputRefusal}
             </p>
           )}
           {session.cleanup?._tag === "purge-pending" ? (
@@ -1569,16 +1540,9 @@ const IosDock = ({
               session.controller !== "user"
             }
             observation={session.observation}
-            onPick={({ frame, point }) => {
-              if (session.observation !== null) {
-                send({
-                  _tag: "pick",
-                  frame,
-                  observationId: session.observation.id,
-                  operationId: operationId(),
-                  point,
-                  sessionId: session.id,
-                });
+            onActivate={(inputs) => {
+              for (const input of inputs) {
+                onInput(input);
               }
             }}
           />
@@ -1630,15 +1594,14 @@ export const IosWorkspace = ({
         ? current
         : next
     );
-  const [lastCommandAtom] = useState(() => Atom.make<string | null>(null));
-  const [lastCommand, setLastCommand] = useAtom(lastCommandAtom);
+  const [inputRefusalAtom] = useState(() => Atom.make<string | null>(null));
+  const [inputRefusal, setInputRefusal] = useAtom(inputRefusalAtom);
   // Which session the route names, read when a command settles.
   const routeRef = useRef(requestedSessionId);
   useEffect(() => {
     routeRef.current = requestedSessionId;
   }, [requestedSessionId]);
   const send = (command: IosWorkspaceCommand) => {
-    setLastCommand(command._tag);
     const route = routeRef.current;
     return gesture.dispatch(
       runIosWorkspaceCommand(command).pipe(
@@ -1658,6 +1621,33 @@ export const IosWorkspace = ({
         Effect.mapError(errorMessage)
       )
     );
+  };
+  // One queue per session keeps each session's input in order.
+  const [queues] = useState(
+    () => new Map<AgentSessionId, (input: NativeInput) => void>()
+  );
+  const onInput = (input: NativeInput) => {
+    const forwardedSession = session?.id;
+    if (forwardedSession === undefined) {
+      return;
+    }
+    if (inputRefusal !== null) {
+      setInputRefusal(null);
+    }
+    let forward = queues.get(forwardedSession);
+    if (forward === undefined) {
+      forward = makeNativeInputQueue(
+        (inputs) =>
+          runIosWorkspaceCommand({
+            _tag: "forward",
+            inputs,
+            sessionId: forwardedSession,
+          }),
+        (cause) => setInputRefusal(errorMessage(cause))
+      );
+      queues.set(forwardedSession, forward);
+    }
+    forward(input);
   };
   // `new` asks for an empty Workspace and the setup sheet, whatever was
   // shown before; an id reads that session.
@@ -1815,24 +1805,14 @@ export const IosWorkspace = ({
       >
         <WorkspacePlatformBar />
         <IosMirror
-          onPick={(point, frame) => {
-            if (session.observation) {
-              send({
-                _tag: "pick",
-                frame,
-                observationId: session.observation.id,
-                operationId: operationId(),
-                point,
-                sessionId: session.id,
-              });
-            }
-          }}
+          onInput={onInput}
           session={session}
           unavailable={glassText(session)}
         />
         <IosDock
           gesture={gesture}
-          pickRefused={lastCommand === "pick" && gesture.error !== undefined}
+          inputRefusal={inputRefusal}
+          onInput={onInput}
           onNewSession={() => setSheet(true)}
           onSelectSession={onSessionChange}
           send={send}

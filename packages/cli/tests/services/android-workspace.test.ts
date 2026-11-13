@@ -7,9 +7,11 @@ import {
   AndroidWorkspaceSnapshot,
   FlowName,
   OperationId,
+  TeachingEvent,
 } from "@contingency/protocol";
 import type {
   AndroidWorkspaceSelection,
+  NativeInput,
   TeachingRecordingId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
@@ -26,6 +28,7 @@ import {
   Stream,
 } from "effect";
 import type { Scope } from "effect";
+import { TestClock } from "effect/testing";
 import type { Mutable } from "effect/Types";
 
 import { createAndroidRun } from "../../src/services/android-run.ts";
@@ -34,6 +37,7 @@ import type {
   AndroidObservation,
 } from "../../src/services/android-runtime-contract.ts";
 import { adaptAndroidRuntime } from "../../src/services/android-runtime.ts";
+import type { acquireAndroidStream } from "../../src/services/android-stream.ts";
 import {
   AndroidWorkspace,
   makeAndroidWorkspaceLayer,
@@ -44,6 +48,8 @@ import {
   DeviceWorkspaceTools,
   DeviceWorkspaceToolHandlersLive,
 } from "../../src/services/mcp-device-workspace.ts";
+import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
+import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -103,7 +109,12 @@ const fixture = (
     readonly disconnect: () => void;
     readonly reconnect: () => void;
     readonly setNodes: (nodes: AndroidObservation["nodes"]) => void;
-    /** Holds the next capture after it starts until the test releases it. */
+    /** Forwarded Input batches the device stream received, in order. */
+    readonly forwarded: NativeInput[][];
+    /**
+     * Holds the next capture after it starts until the test releases it.
+     * Releasing with `false` fails that capture as a lost device.
+     */
     readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
     /** Uploaded Target App builds the workspace can claim. */
     readonly builds: TargetAppBuildsService;
@@ -130,6 +141,18 @@ const fixture = (
       });
       const calls: string[] = [];
       const resolved: string[] = [];
+      const forwarded: NativeInput[][] = [];
+      // The display and input transport, without a device.
+      const acquireStream: typeof acquireAndroidStream = () =>
+        Effect.succeed({
+          access: { path: "/android/stream/fixture", token: "fixture" },
+          authorized: () => false,
+          forward: (inputs) =>
+            Effect.sync(() => {
+              forwarded.push([...inputs]);
+            }),
+          frames: Stream.empty,
+        });
       let secure = false;
       let connected = true;
       let generation = 0;
@@ -152,7 +175,12 @@ const fixture = (
             return gate === undefined
               ? Effect.void
               : Deferred.succeed(gate.entered, true).pipe(
-                  Effect.andThen(Deferred.await(gate.release))
+                  Effect.andThen(Deferred.await(gate.release)),
+                  Effect.flatMap((completed) =>
+                    completed
+                      ? Effect.void
+                      : Effect.fail(platformRuntimeError("device_disconnected"))
+                  )
                 );
           }).pipe(
             Effect.map((): AndroidObservation => {
@@ -271,14 +299,15 @@ const fixture = (
         factory,
         Layer.succeed(TargetAppBuilds, builds)
       );
-      const workspace = makeAndroidWorkspaceLayer({ root: () => root }).pipe(
-        Layer.provide(dependencies)
-      );
+      const workspace = makeAndroidWorkspaceLayer({
+        acquireStream,
+        root: () => root,
+      }).pipe(Layer.provide(dependencies));
       const learning = TeachingRecordingLearningLive.pipe(Layer.provide(store));
       const services = yield* Effect.context<FileSystem.FileSystem>();
       const restart = () =>
         Layer.build(
-          makeAndroidWorkspaceLayer({ root: () => root }).pipe(
+          makeAndroidWorkspaceLayer({ acquireStream, root: () => root }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 makeTeachingRecordingStoreLayer({ root: () => root }),
@@ -298,6 +327,7 @@ const fixture = (
         disconnect: () => {
           connected = false;
         },
+        forwarded,
         holdNextCapture: () =>
           Effect.gen(function* holdCapture() {
             const gate = {
@@ -1124,319 +1154,209 @@ const pickNode = (
   target: "@picked",
   ...overrides,
 });
-it.effect("picks a button once and records only its semantic action", () =>
-  fixture(({ calls }) =>
-    Effect.gen(function* pickButton() {
-      const workspace = yield* AndroidWorkspace;
-      const prepared = yield* preparePick;
-      yield* workspace.execute(
-        {
-          _tag: "record",
-          operationId: op("pick-record"),
-          sessionId: prepared.id,
-          start: true,
-        },
-        "user"
-      );
-      const command = {
-        _tag: "pick",
-        frame: { height: 1, width: 1 },
-        observationId: prepared.observation?.id ?? "",
-        operationId: op("pick-button"),
-        point: { x: 0.4, y: 0.6 },
-        sessionId: prepared.id,
-      } as const;
-      yield* workspace.execute(command, "user");
-      yield* workspace.execute(command, "user");
-      expect(calls).toEqual(["activate"]);
-      const stopped = yield* workspace.execute(
-        {
-          _tag: "record",
-          operationId: op("pick-stop"),
-          sessionId: prepared.id,
-          start: false,
-        },
-        "user"
-      );
-      const store = yield* TeachingRecordingStore;
-      const fs = yield* FileSystem.FileSystem;
-      if (stopped.recordingId === null) {
-        return yield* Effect.die("Recording missing.");
-      }
-      yield* store.read(stopped.recordingId);
+const tap = (x: number, y: number): [NativeInput, ...NativeInput[]] => [
+  { _tag: "touch", action: "down", at: 0, x, y },
+  { _tag: "touch", action: "up", at: 50, x, y },
+];
+const forward = (
+  sessionId: AgentSessionId,
+  inputs: readonly [NativeInput, ...NativeInput[]]
+) =>
+  Effect.gen(function* forwardInput() {
+    const workspace = yield* AndroidWorkspace;
+    return yield* workspace.execute(
+      { _tag: "forward", inputs, sessionId },
+      "user"
+    );
+  });
+const teachingEvents = (recordingId: TeachingRecordingId | null) =>
+  Effect.gen(function* readTeachingEvents() {
+    const store = yield* TeachingRecordingStore;
+    const fs = yield* FileSystem.FileSystem;
+    if (recordingId === null) {
+      return yield* Effect.die("Recording missing.");
+    }
+    return yield* fs.readFileString(
+      path.join(store.directory(recordingId), "events.jsonl")
+    );
+  });
 
-      const events = yield* fs.readFileString(
-        path.join(store.directory(stopped.recordingId), "events.jsonl")
-      );
-      expect(events).toContain("Activate button Edit");
-      expect(events).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
-      expect(
-        yield* fs.exists(
-          path.join(store.directory(stopped.recordingId), "actions.jsonl")
-        )
-      ).toBe(false);
-    })
-  )
-);
-for (const [name, nodes, message] of [
-  ["empty", [], "Nothing to activate there. No input was sent."],
-  [
-    "non-hittable container and text",
-    [
-      pickNode({ hittable: false, name: "", role: "group" }),
-      pickNode({
-        bounds: { height: 0.5, width: 0.5, x: 0.25, y: 0.25 },
-        hittable: false,
-        name: "Checkout",
-        role: "text",
-        target: "@text",
-      }),
-    ],
-    "Nothing to activate there. No input was sent.",
-  ],
-  [
-    "unnamed hittable scroll container",
-    [pickNode({ name: "", role: "scroll-area" })],
-    "Nothing to activate there. No input was sent.",
-  ],
-  [
-    "private",
-    [
-      pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
-      pickNode({ editable: true, password: true }),
-    ],
-    "Private fields need a Variable. No input was sent.",
-  ],
-  [
-    "covered",
-    [pickNode({ covered: true })],
-    "Nothing to activate there. No input was sent.",
-  ],
-] as const) {
-  it.effect(`refuses ${name} picks without dispatch`, () =>
-    fixture(({ calls, setNodes }) =>
-      Effect.gen(function* refusedPick() {
-        const workspace = yield* AndroidWorkspace;
-        const prepared = yield* preparePick;
-        setNodes(nodes);
-        const observed = yield* workspace.execute(
-          { _tag: "observe", image: false, sessionId: prepared.id },
-          "user"
-        );
-        const result = yield* Effect.result(
-          workspace.execute(
-            {
-              _tag: "pick",
-              frame: { height: 1, width: 1 },
-              observationId: observed.observation?.id ?? "",
-              operationId: op("refused-pick"),
-              point: { x: 0.5, y: 0.5 },
-              sessionId: prepared.id,
-            },
-            "user"
-          )
-        );
-        expect(Result.isFailure(result) && result.failure.message).toBe(
-          message
-        );
-        expect(calls).toEqual([]);
-      })
-    )
-  );
-}
-it.effect("activates a hittable button inside a non-hittable container", () =>
-  fixture(({ calls, setNodes }) =>
-    Effect.gen(function* nestedButtonPick() {
-      const workspace = yield* AndroidWorkspace;
-      const prepared = yield* preparePick;
-      setNodes([
-        pickNode({
-          bounds: { height: 2, width: 2, x: 0, y: 0 },
-          hittable: false,
-          name: "",
-          role: "group",
-          target: "@container",
-        }),
-        pickNode(),
-        pickNode({
-          bounds: { height: 0.5, width: 0.5, x: 0.25, y: 0.25 },
-          hittable: false,
-          name: "Label",
-          role: "text",
-          target: "@label",
-        }),
-      ]);
-      const observed = yield* workspace.execute(
-        { _tag: "observe", image: false, sessionId: prepared.id },
-        "user"
-      );
-      yield* workspace.execute(
-        {
-          _tag: "pick",
-          frame: { height: 1, width: 1 },
-          observationId: observed.observation?.id ?? "",
-          operationId: op("nested-button-pick"),
-          point: { x: 0.5, y: 0.5 },
-          sessionId: prepared.id,
-        },
-        "user"
-      );
-      expect(calls).toEqual(["activate"]);
-    })
-  )
-);
 it.effect(
-  "picks the smallest field without input, then fills its retained observation",
+  "forwards a tap to the device and records it as an attributed action",
   () =>
-    fixture(({ calls, setNodes }) =>
-      Effect.gen(function* pickField() {
+    fixture(({ calls, forwarded }) =>
+      Effect.gen(function* forwardTap() {
         const workspace = yield* AndroidWorkspace;
         const prepared = yield* preparePick;
-        setNodes([
-          pickNode({ bounds: { height: 2, width: 2, x: 0, y: 0 } }),
-          pickNode({
-            editable: true,
-            hittable: false,
-            name: "Name",
-            role: "textbox",
-            target: "@field",
-          }),
-        ]);
-        const observed = yield* workspace.execute(
-          { _tag: "observe", image: false, sessionId: prepared.id },
-          "user"
-        );
-        const picked = yield* workspace.execute(
+        yield* workspace.execute(
           {
-            _tag: "pick",
-            frame: { height: 1, width: 1 },
-            observationId: observed.observation?.id ?? "",
-            operationId: op("field-pick"),
-            point: { x: 0.5, y: 0.5 },
+            _tag: "record",
+            operationId: op("forward-record"),
             sessionId: prepared.id,
+            start: true,
           },
           "user"
         );
+        yield* forward(prepared.id, tap(0.4, 0.6));
+        // The input reached the device as it was, with no semantic dispatch.
+        expect(forwarded).toEqual([tap(0.4, 0.6)]);
         expect(calls).toEqual([]);
-        expect(picked.field).toEqual({
-          name: "Name",
-          observationId: picked.observation?.id,
-          password: false,
-          role: "textbox",
-          target: "@field",
-        });
-        for (let index = 0; index < 10; index += 1) {
-          yield* workspace.execute(
-            { _tag: "observe", image: false, sessionId: prepared.id },
-            "user"
-          );
-        }
-        const filled = yield* workspace.execute(
+        const stopped = yield* workspace.execute(
           {
-            _tag: "input",
-            action: {
-              _tag: "fill",
-              target: picked.field?.target ?? "",
-              text: "public",
-            },
-            observationId: picked.field?.observationId ?? "",
-            operationId: op("field-fill"),
+            _tag: "record",
+            operationId: op("forward-stop"),
             sessionId: prepared.id,
+            start: false,
           },
           "user"
         );
-        expect(calls).toEqual(["fill"]);
-        expect(filled.field).toBeNull();
+        const events = yield* teachingEvents(stopped.recordingId);
+        expect(events).toContain("Activate button Edit");
+        expect(events).toContain('"targetInferred":false');
+        expect(events).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
       })
     )
 );
-it.effect("refuses mismatched stream geometry without input", () =>
-  fixture(({ calls }) =>
-    Effect.gen(function* mismatchedFrame() {
+
+it.effect("refuses Forwarded Input from anyone but the controlling user", () =>
+  fixture(({ forwarded }) =>
+    Effect.gen(function* refuseForward() {
       const workspace = yield* AndroidWorkspace;
       const prepared = yield* preparePick;
-      const result = yield* Effect.result(
+      const agent = yield* Effect.result(
         workspace.execute(
-          {
-            _tag: "pick",
-            frame: { height: 200, width: 100 },
-            observationId: prepared.observation?.id ?? "",
-            operationId: op("wrong-frame"),
-            point: { x: 0.5, y: 0.5 },
-            sessionId: prepared.id,
-          },
-          "user"
+          { _tag: "forward", inputs: tap(0.5, 0.5), sessionId: prepared.id },
+          "agent"
         )
       );
-      expect(Result.isFailure(result)).toBe(true);
-      expect(calls).toEqual([]);
+      expect(Result.isFailure(agent) && agent.failure.message).toBe(
+        "Only the user controlling a running session can send input. Nothing was sent."
+      );
+      expect(forwarded).toEqual([]);
     })
   )
 );
 
-it.effect("refuses a moved control instead of activating its replacement", () =>
-  fixture(({ calls, setNodes }) =>
-    Effect.gen(function* movedPick() {
-      const workspace = yield* AndroidWorkspace;
-      const prepared = yield* preparePick;
-      setNodes([pickNode({ name: "Replacement" })]);
-      const result = yield* Effect.result(
-        workspace.execute(
-          {
-            _tag: "pick",
-            frame: { height: 1, width: 1 },
-            observationId: prepared.observation?.id ?? "",
-            operationId: op("moved-pick"),
-            point: { x: 0.5, y: 0.5 },
-            sessionId: prepared.id,
-          },
-          "user"
-        )
-      );
-      expect(Result.isFailure(result) && result.failure.message).toBe(
-        "The element moved or changed. No input was sent."
-      );
-      expect(calls).toEqual([]);
-    })
-  )
-);
-for (const origin of ["unknown", "evicted"] as const) {
-  it.effect(`refuses a pick from an ${origin} observation without input`, () =>
-    fixture(({ calls, setNodes }) =>
-      Effect.gen(function* stalePick() {
+it.effect("input never waits behind an observation and makes it stale", () =>
+  fixture(({ forwarded, holdNextCapture }) =>
+    Effect.scoped(
+      Effect.gen(function* inputOvertakesObservation() {
         const workspace = yield* AndroidWorkspace;
         const prepared = yield* preparePick;
-        setNodes([pickNode({ name: "Replacement" })]);
-        for (let index = 0; index < 10; index += 1) {
-          yield* workspace.execute(
+        const gate = yield* holdNextCapture();
+        const observing = yield* workspace
+          .execute(
             { _tag: "observe", image: false, sessionId: prepared.id },
             "user"
-          );
-        }
-        const result = yield* Effect.result(
-          workspace.execute(
-            {
-              _tag: "pick",
-              frame: { height: 1, width: 1 },
-              observationId:
-                origin === "unknown"
-                  ? "none"
-                  : (prepared.observation?.id ?? ""),
-              operationId: op(`stale-pick-${origin}`),
-              point: { x: 0.5, y: 0.5 },
-              sessionId: prepared.id,
-            },
-            "user"
           )
+          .pipe(Effect.forkScoped);
+        yield* Deferred.await(gate.entered);
+        // The observation holds the session lock; input still reaches the device.
+        yield* forward(prepared.id, tap(0.5, 0.5));
+        expect(forwarded).toHaveLength(1);
+        yield* Deferred.succeed(gate.release, true);
+        const observed = yield* Fiber.join(observing);
+        expect(observed.observation?.id).toBe(prepared.observation?.id);
+      })
+    )
+  )
+);
+
+it.effect(
+  "observes quiet input once it settles and records that observation as its result",
+  () =>
+    fixture(({ holdNextCapture }) =>
+      Effect.gen(function* settleForwardedInput() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        const recording = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("settle-record"),
+            sessionId: prepared.id,
+            start: true,
+          },
+          "user"
         );
-        expect(calls).toEqual([]);
-        expect(Result.isFailure(result) && result.failure.message).toBe(
-          "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
+        const before = recording.observation?.id;
+        const gate = yield* holdNextCapture();
+        yield* forward(prepared.id, tap(0.5, 0.5));
+        // it.effect provides TestClock, so this ends the quiet interval.
+        yield* TestClock.adjust(SETTLE_MILLIS * 2);
+        yield* Deferred.await(gate.entered);
+        yield* Deferred.succeed(gate.release, true);
+        // A read queues behind the settling observation on the session lock.
+        const settled = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "user"
+        );
+        expect(settled.phase).toBe("running");
+        const events = yield* teachingEvents(settled.recordingId);
+        const action = events
+          .trim()
+          .split("\n")
+          .map((line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(TeachingEvent))(line)
+          )
+          .find((event) => event._tag === "action");
+        expect(action?.description).toBe("Activate button Edit");
+        expect(action?.after.android?.observationId).not.toBe(before);
+      })
+    )
+);
+
+it.effect(
+  "pauses and marks Forwarded Input unverified when its observation fails",
+  () =>
+    fixture(({ holdNextCapture }) =>
+      Effect.gen(function* unverifiedForwardedInput() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        const gate = yield* holdNextCapture();
+        yield* forward(prepared.id, tap(0.5, 0.5));
+        yield* TestClock.adjust(SETTLE_MILLIS * 2);
+        yield* Deferred.await(gate.entered);
+        yield* Deferred.succeed(gate.release, false);
+        const paused = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "user"
+        );
+        expect(paused.phase).toBe("paused");
+        expect(paused.captureGaps).toEqual(
+          expect.arrayContaining([
+            "device_disconnected",
+            "forwarded_input_unverified",
+          ])
         );
       })
     )
-  );
-}
+);
+
+it.effect(
+  "validates the environment on a cadence, not on every observation",
+  () =>
+    fixture(({ disconnect }) =>
+      Effect.gen(function* validationCadence() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        disconnect();
+        // Within the cadence, an observation of the same app is not checked.
+        const unchecked = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        expect(unchecked.phase).toBe("running");
+        yield* TestClock.adjust(OBSERVATION_VALIDATION_MILLIS);
+        const checked = yield* Effect.result(
+          workspace.execute(
+            { _tag: "observe", image: false, sessionId: prepared.id },
+            "user"
+          )
+        );
+        expect(Result.isFailure(checked)).toBe(true);
+      })
+    )
+);
 it.effect("Dry Run allows untaught activation", () =>
   fixture(({ calls, setNodes }) =>
     Effect.gen(function* taughtGate() {
@@ -1492,49 +1412,46 @@ it.effect("Dry Run allows untaught activation", () =>
   )
 );
 it.effect(
-  "clears a picked field when its screen changes or the session closes",
+  "a tapped password field offers its Variables until another tap",
   () =>
-    fixture(({ setNodes }) =>
-      Effect.gen(function* clearPickedField() {
+    fixture(({ calls, setNodes }) =>
+      Effect.gen(function* tappedField() {
         const workspace = yield* AndroidWorkspace;
         const prepared = yield* preparePick;
-        setNodes([pickNode({ editable: true, name: "Name", role: "textbox" })]);
+        setNodes([
+          pickNode({
+            bounds: { height: 0.5, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+          }),
+          pickNode({
+            bounds: { height: 0.5, width: 1, x: 0, y: 0.5 },
+            name: "Done",
+            target: "@done",
+          }),
+        ]);
         const observed = yield* workspace.execute(
           { _tag: "observe", image: false, sessionId: prepared.id },
           "user"
         );
-        const command = {
-          _tag: "pick",
-          frame: { height: 1, width: 1 },
-          observationId: observed.observation?.id ?? "",
-          operationId: op("clear-field-pick"),
-          point: { x: 0.5, y: 0.5 },
-          sessionId: prepared.id,
-        } as const;
-        expect((yield* workspace.execute(command, "user")).field?.name).toBe(
-          "Name"
-        );
-        setNodes([
-          pickNode({ editable: true, name: "Other field", role: "textbox" }),
-        ]);
-        const changed = yield* workspace.execute(
-          { _tag: "observe", image: false, sessionId: prepared.id },
-          "user"
-        );
-        expect(changed.field).toBeNull();
-        const selected = yield* workspace.execute(
-          {
-            ...command,
-            observationId: changed.observation?.id ?? "",
-            operationId: op("select-other-field"),
-          },
-          "user"
-        );
-        expect(selected.field?.name).toBe("Other field");
+        const tapped = yield* forward(prepared.id, tap(0.5, 0.25));
+        expect(calls).toEqual([]);
+        expect(tapped.field).toEqual({
+          name: "Password",
+          observationId: observed.observation?.id,
+          password: true,
+          role: "textbox",
+          target: "@picked",
+        });
+        // Tapping where no field is leaves every field.
+        const elsewhere = yield* forward(prepared.id, tap(0.5, 0.75));
+        expect(elsewhere.field).toBeNull();
         const closed = yield* workspace.execute(
           {
             _tag: "close",
-            operationId: op("close-picked-field"),
+            operationId: op("close-tapped-field"),
             sessionId: prepared.id,
           },
           "user"
@@ -1544,35 +1461,50 @@ it.effect(
     )
 );
 
-it("validates stream points and dimensions and keeps MCP input semantic", () => {
+it("validates Forwarded Input and keeps it out of the MCP tool", () => {
+  const sessionId = AgentSessionId.make("agent-android-schema");
   const command = {
-    _tag: "pick",
-    frame: { height: 200, width: 100 },
-    observationId: "observed",
-    operationId: op("validate-pick"),
-    point: { x: 0, y: 1 },
-    sessionId: AgentSessionId.make("agent-android-schema"),
+    _tag: "forward",
+    inputs: [
+      { _tag: "touch", action: "down", at: 0, x: 0, y: 1 },
+      {
+        _tag: "scroll",
+        at: 1,
+        deltaX: 0,
+        deltaY: -120,
+        x: 0.5,
+        y: 0.5,
+      },
+      {
+        _tag: "key",
+        action: "down",
+        at: 2,
+        code: "KeyA",
+        key: "a",
+        modifiers: 0,
+      },
+    ],
+    sessionId,
   } as const;
+  const observationId = "observed";
+  const operationId = op("validate-forward");
   expect(Schema.is(AndroidWorkspaceCommand)(command)).toBe(true);
-  for (const point of [
-    { x: -0.1, y: 0 },
-    { x: 0, y: 1.1 },
-    { x: Number.NaN, y: 0 },
-    { x: Infinity, y: 0 },
+  for (const input of [
+    { _tag: "touch", action: "down", at: 0, x: -0.1, y: 0 },
+    { _tag: "touch", action: "down", at: 0, x: 0, y: 1.1 },
+    { _tag: "touch", action: "down", at: 0, x: Number.NaN, y: 0 },
+    { _tag: "touch", action: "tap", at: 0, x: 0, y: 0 },
+    { _tag: "scroll", at: 0, deltaX: 0, deltaY: Infinity, x: 0, y: 0 },
+    { _tag: "key", action: "down", at: 0, code: "", key: "", modifiers: 0 },
+    { _tag: "key", action: "down", at: 0, code: "", key: "a", modifiers: 16 },
   ]) {
-    expect(Schema.is(AndroidWorkspaceCommand)({ ...command, point })).toBe(
-      false
-    );
+    expect(
+      Schema.is(AndroidWorkspaceCommand)({ ...command, inputs: [input] })
+    ).toBe(false);
   }
-  for (const frame of [
-    { height: 0, width: 1 },
-    { height: 1, width: -1 },
-    { height: 1, width: 1.5 },
-  ]) {
-    expect(Schema.is(AndroidWorkspaceCommand)({ ...command, frame })).toBe(
-      false
-    );
-  }
+  expect(Schema.is(AndroidWorkspaceCommand)({ ...command, inputs: [] })).toBe(
+    false
+  );
   const parameters =
     DeviceWorkspaceTools.tools.agent_device_workspace.parametersSchema;
   expect(Schema.is(parameters)({ command, platform: "android" })).toBe(false);
@@ -1581,9 +1513,9 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
       command: {
         _tag: "variable-supply",
         name: "PASSWORD",
-        operationId: command.operationId,
+        operationId,
         requestId: "request",
-        sessionId: command.sessionId,
+        sessionId,
         value: "private",
       },
       platform: "android",
@@ -1594,9 +1526,9 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
       command: {
         _tag: "input",
         action: { _tag: "activate", target: "@button" },
-        observationId: command.observationId,
-        operationId: command.operationId,
-        sessionId: command.sessionId,
+        observationId,
+        operationId,
+        sessionId,
       },
       platform: "android",
     })
@@ -1607,7 +1539,7 @@ it("validates stream points and dimensions and keeps MCP input semantic", () => 
         _tag: "start",
         flowName,
         kind: "teaching",
-        operationId: command.operationId,
+        operationId,
         recordingId: null,
         selection,
       },
@@ -1767,17 +1699,8 @@ it.effect(
           { _tag: "observe", image: false, sessionId },
           "user"
         );
-        const picked = yield* workspace.execute(
-          {
-            _tag: "pick",
-            frame: { height: 1, width: 1 },
-            observationId: required(observed.observation).id,
-            operationId: op("private-pick"),
-            point: { x: 0.5, y: 0.5 },
-            sessionId,
-          },
-          "user"
-        );
+        expect(observed.observation).not.toBeNull();
+        const picked = yield* forward(sessionId, tap(0.5, 0.5));
         const mirrored = yield* workspace.execute(
           { _tag: "observe", image: false, sessionId },
           "user"
@@ -2190,6 +2113,8 @@ it.effect(
         const session = yield* dryRun(recordingId);
         const workspace = yield* AndroidWorkspace;
         secure();
+        // The environment is checked on its cadence, not on every observation.
+        yield* TestClock.adjust(OBSERVATION_VALIDATION_MILLIS);
         const refused = yield* workspace
           .execute(
             { _tag: "observe", image: false, sessionId: session.id },
@@ -2362,8 +2287,8 @@ for (const source of ["agent", "user"] as const) {
   }
 }
 
-it.effect("Workspace Teaching can pick another app", () =>
-  fixture(({ calls, setNodes }) =>
+it.effect("Workspace Teaching can tap another app", () =>
+  fixture(({ calls, forwarded, setNodes }) =>
     Effect.gen(function* systemPick() {
       const workspace = yield* AndroidWorkspace;
       const prepared = yield* preparePick;
@@ -2377,18 +2302,11 @@ it.effect("Workspace Teaching can pick another app", () =>
         { _tag: "observe", image: false, sessionId: prepared.id },
         "user"
       );
-      yield* workspace.execute(
-        {
-          _tag: "pick",
-          frame: { height: 1, width: 1 },
-          observationId: observed.observation?.id ?? "",
-          operationId: op("system-pick"),
-          point: { x: 0.5, y: 0.5 },
-          sessionId: prepared.id,
-        },
-        "user"
-      );
-      expect(calls).toContain("activate");
+      expect(observed.observation).not.toBeNull();
+      yield* forward(prepared.id, tap(0.5, 0.5));
+      // Forwarded Input reaches any app on the device.
+      expect(forwarded).toEqual([tap(0.5, 0.5)]);
+      expect(calls).toEqual([]);
     })
   )
 );

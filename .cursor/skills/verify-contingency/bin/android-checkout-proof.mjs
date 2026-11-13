@@ -15,6 +15,7 @@ import {
   androidComment,
   androidIdle,
   androidPick,
+  deviceType,
   openAndroidSheet,
 } from "./android-ui.mjs";
 
@@ -151,17 +152,6 @@ const waitText = (text) =>
     "--partial",
     "--timeout-ms",
     "90000"
-  );
-const fill = (name, value) =>
-  control(
-    "browser",
-    "fill",
-    "--role",
-    "textbox",
-    "--name",
-    name,
-    "--value",
-    value
   );
 const snapshot = async (name) => {
   await control(
@@ -457,114 +447,34 @@ try {
   await click("Start recording");
   await wait("Stop recording");
   await snapshot("teaching-started");
-  // Read the append-only capture to prove refusals add no action, then compare the
-  // complete claimed Timeline below. Never retain frame pixels from this file.
-  const actionCount = async () => {
-    const events = await readFile(
-      path.join(
-        instance.stateDir,
-        "catalog",
-        flowName,
-        "recordings",
-        recordingId,
-        "events.jsonl"
-      ),
-      "utf-8"
-    );
-    return events
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .filter((entry) => entry._tag === "action").length;
-  };
   const noOverlays = JSON.parse(
     await control("browser", "android-no-overlays")
   );
   assert.equal(noOverlays.noOverlays, true);
   receipt.coverage.noOverlays = noOverlays;
   await snapshot("no-overlays");
-  const beforeRefusals = await actionCount();
-  // The sign-in fixture leaves the lower half blank, before the IME is opened.
-  const empty = JSON.parse(
-    await control(
-      "browser",
-      "android-pick",
-      "--session-id",
-      taughtSession.id,
-      "--fx",
-      "0.5",
-      "--fy",
-      "0.75"
-    )
-  );
-  await waitText("Nothing to activate there. No input was sent.");
-  assert.equal(await actionCount(), beforeRefusals);
-  receipt.coverage.pickRefusesEmpty = {
-    ...empty,
-    actionsAfter: await actionCount(),
-    actionsBefore: beforeRefusals,
-    noInput: true,
-  };
-  await snapshot("pick-refuses-empty");
+  // Workspace input is Forwarded Input: a tap and the keys go straight to the
+  // device, and the observation that settles after them is recorded.
   await androidPick(control, taughtSession.id, "text-field", "Shopper name");
-  await wait("Type into Shopper name", "form");
-  await snapshot("field-picked");
-  await fill("Text for Shopper name", shopper);
-  await click("Type");
+  await snapshot("field-tapped");
+  await deviceType(control, shopper);
+  const typedDeadline = Date.now() + 30_000;
+  let typed = await observe(taughtSession.id);
+  while (!nodes(typed).some((node) => node.name.includes(shopper))) {
+    assert.ok(
+      Date.now() < typedDeadline,
+      "Fresh observation does not contain typed shopper name."
+    );
+    await sleep(500);
+    typed = await observe(taughtSession.id);
+  }
   await androidIdle(control);
-  const typed = await observe(taughtSession.id);
-  assert.ok(
-    nodes(typed).some((node) => node.name.includes(shopper)),
-    "Fresh observation does not contain typed shopper name."
-  );
   receipt.coverage.fieldTyping = {
-    form: "Type into Shopper name",
+    input: "device keyboard",
     observationId: typed.observation.id,
     value: shopper,
   };
   await snapshot("field-typed");
-  // Typing leaves the soft keyboard open. Its keys are hittable elements of
-  // another app, named "Other window" in the observation; aim at one.
-  const keyboard = typed.observation;
-  const foreign = nodes(typed)
-    .filter(
-      (node) =>
-        node.name === "Other window" &&
-        node.bounds !== undefined &&
-        node.bounds.width > 0 &&
-        node.bounds.height > 0 &&
-        node.bounds.y > keyboard.height / 2
-    )
-    .toSorted(
-      (left, right) =>
-        left.bounds.width * left.bounds.height -
-        right.bounds.width * right.bounds.height
-    )
-    .find((node) => node.role === "text" || node.role === "button");
-  assert.ok(foreign, "The soft keyboard is not open after typing.");
-  const beforeOutside = await actionCount();
-  const outsidePick = JSON.parse(
-    await control(
-      "browser",
-      "android-pick",
-      "--session-id",
-      taughtSession.id,
-      "--fx",
-      String((foreign.bounds.x + foreign.bounds.width / 2) / keyboard.width),
-      "--fy",
-      String((foreign.bounds.y + foreign.bounds.height / 2) / keyboard.height)
-    )
-  );
-  await waitText("That element belongs to another app. No input was sent.");
-  assert.equal(await actionCount(), beforeOutside);
-  receipt.coverage.pickRefusesOutsideApp = {
-    ...outsidePick,
-    actionsAfter: await actionCount(),
-    actionsBefore: beforeOutside,
-    noInput: true,
-  };
-  await snapshot("pick-refuses-outside-app");
   await androidPick(control, taughtSession.id, "button", "Sign in");
   await untilShown(taughtSession.id, reversibleActions[1]);
   await snapshot("pick-activates");
@@ -615,7 +525,8 @@ try {
   assert.deepEqual(
     actions.map((entry) => entry.description),
     [
-      "Enter public fixture text in text-field Shopper name",
+      "Activate text-field Shopper name",
+      "Enter text in text-field Shopper name",
       "Activate button Sign in",
       "Activate button Add Anvil to cart",
       "Activate button Open cart",

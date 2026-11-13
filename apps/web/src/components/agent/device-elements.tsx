@@ -1,4 +1,7 @@
-import type { AndroidWorkspaceObservation } from "@contingency/protocol";
+import type {
+  AndroidWorkspaceObservation,
+  NativeInput,
+} from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
@@ -24,12 +27,6 @@ import {
 } from "@/components/ui/tooltip";
 
 type ObservedNode = AndroidWorkspaceObservation["nodes"][number];
-
-/** A pick at an element's centre, as the device mirror would send it. */
-export interface ElementPick {
-  readonly frame: { readonly height: number; readonly width: number };
-  readonly point: { readonly x: number; readonly y: number };
-}
 
 const CONTROL_ROLES = new Set([
   "button",
@@ -111,11 +108,11 @@ const inStatusBar = (
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
-/** Where a click on this element would land, or nothing without bounds. */
-const elementPick = (
+/** A tap at this element's centre, or nothing without bounds. */
+const elementTap = (
   observation: AndroidWorkspaceObservation,
   node: ObservedNode
-): ElementPick | undefined => {
+): readonly NativeInput[] | undefined => {
   const { bounds } = node;
   if (
     bounds === undefined ||
@@ -124,28 +121,30 @@ const elementPick = (
   ) {
     return undefined;
   }
-  return {
-    frame: { height: observation.height, width: observation.width },
-    point: {
-      x: clamp((bounds.x + bounds.width / 2) / observation.width),
-      y: clamp((bounds.y + bounds.height / 2) / observation.height),
-    },
+  const point = {
+    x: clamp((bounds.x + bounds.width / 2) / observation.width),
+    y: clamp((bounds.y + bounds.height / 2) / observation.height),
   };
+  const at = performance.now();
+  return [
+    { _tag: "touch", action: "down", at, ...point },
+    { _tag: "touch", action: "up", at, ...point },
+  ];
 };
 
 /**
  * The device's screen as a list of the elements on it, for anyone who does
- * not point at the mirror: each one sends the same pick a click at its centre
+ * not point at the mirror: each one sends the same tap a click at its centre
  * would, so a keyboard reaches everything a pointer does and nothing more.
  */
 export const DeviceElements = ({
   disabled,
   observation,
-  onPick,
+  onActivate,
 }: {
   readonly disabled: boolean;
   readonly observation: AndroidWorkspaceObservation | null;
-  readonly onPick: (pick: ElementPick) => void;
+  readonly onActivate: (inputs: readonly NativeInput[]) => void;
 }) => {
   const [openAtom] = useState(() => Atom.make(false));
   const [open, setOpen] = useAtom(openAtom);
@@ -159,7 +158,7 @@ export const DeviceElements = ({
           (node) =>
             !node.covered &&
             !inStatusBar(observation, node) &&
-            elementPick(observation, node) !== undefined
+            node.bounds !== undefined
         );
   // An element with no name still gets one a person can tell apart: its role
   // and where it falls among others of that role.
@@ -266,9 +265,9 @@ export const DeviceElements = ({
                             if (observation === null) {
                               return;
                             }
-                            const pick = elementPick(observation, node);
-                            if (pick !== undefined) {
-                              onPick(pick);
+                            const tap = elementTap(observation, node);
+                            if (tap !== undefined) {
+                              onActivate(tap);
                               setOpen(false);
                             }
                           }}

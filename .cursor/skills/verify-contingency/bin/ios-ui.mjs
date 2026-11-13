@@ -57,16 +57,16 @@ export const pickIos = async (page, flags) => {
   const [{ bounds }] = nodes;
   const fx = (bounds.x + bounds.width / 2) / observed.observation.width;
   const fy = (bounds.y + bounds.height / 2) / observed.observation.height;
-  const display = page.locator('canvas[aria-label="Live iOS viewport"]');
+  const display = page.locator('canvas[aria-label^="Live iOS viewport"]');
   await page.waitForFunction(() => {
     const canvas = document.querySelector(
-      'canvas[aria-label="Live iOS viewport"]'
+      'canvas[aria-label^="Live iOS viewport"]'
     );
     return canvas && canvas.width > 0 && canvas.height > 0;
   });
   await page.waitForFunction(
     (id) =>
-      document.querySelector('canvas[aria-label="Live iOS viewport"]')?.dataset
+      document.querySelector('canvas[aria-label^="Live iOS viewport"]')?.dataset
         .observationId === id,
     observed.observation.id
   );
@@ -80,22 +80,20 @@ export const pickIos = async (page, flags) => {
   return { fx, fy, name: flags.name, role: flags.role, sessionId };
 };
 
+/** Drag across the display; the swipe is Forwarded Input sent to the simulator. */
 export const swipeIos = async (page) => {
-  const canvas = page.getByRole("img", { name: "Live iOS viewport" });
+  const canvas = page.locator('canvas[aria-label^="Live iOS viewport"]');
   const box = await canvas.boundingBox();
   assert.ok(box && box.width > 20 && box.height > 20);
-  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  const before = await page.evaluate(
+    () => globalThis.__workspaceCommandReplies.length
+  );
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.75);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.35, {
     steps: 8,
   });
   await page.mouse.up();
-  await page
-    .getByRole("alert")
-    .filter({
-      hasText:
-        "iOS swipes, including edge swipes, are unsupported. No input was sent.",
-    })
-    .waitFor();
-  return { inputSent: false, refused: "capability_missing" };
+  await waitReply(page, before);
+  return { inputSent: true };
 };

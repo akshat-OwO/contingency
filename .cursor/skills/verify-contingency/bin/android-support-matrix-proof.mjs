@@ -8,7 +8,12 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
-import { androidIdle, androidPick, openAndroidSheet } from "./android-ui.mjs";
+import {
+  androidIdle,
+  androidPick,
+  deviceType,
+  openAndroidSheet,
+} from "./android-ui.mjs";
 
 // One Support Matrix cell: Teaching, a Dry Run, and verification of activate,
 // public fill, ordinary Variable fill, and Back, then every documented-limit refusal.
@@ -505,16 +510,21 @@ try {
   let current = await observe(teaching.id);
   const nameField = find(current, loginNameField, "login name field");
   await androidPick(control, teaching.id, nameField.role, nameField.name);
-  const label = nameField.name || nameField.role;
-  await wait(`Type into ${label}`, "form");
-  await fill(`Text for ${label}`, loginName);
-  await click("Type");
-  await androidIdle(control);
+  // The keys are Forwarded Input, typed on the focused live display.
+  await deviceType(control, loginName);
+  const typedDeadline = Date.now() + 30_000;
   current = await observe(teaching.id);
-  assert.ok(
-    current.observation.nodes.some((node) => node.name.includes(loginName)),
-    "The public fill is not visible in a fresh observation."
-  );
+  while (
+    !current.observation.nodes.some((node) => node.name.includes(loginName))
+  ) {
+    assert.ok(
+      Date.now() < typedDeadline,
+      "The typed name is not visible in a fresh observation."
+    );
+    await delay(500);
+    current = await observe(teaching.id);
+  }
+  await androidIdle(control);
   const field = find(current, (node) => node.password, "password field");
   await androidPick(control, teaching.id, field.role, field.name);
   await fill("Variable name", "PASSWORD");
@@ -768,11 +778,10 @@ try {
       "0.8"
     )
   );
-  await waitText("Nothing to activate there. No input was sent.");
-  receipt.limits.rawCoordinates.workspace = {
-    ...blank,
-    refusal: "Nothing to activate there. No input was sent.",
-  };
+  // Workspace input is Forwarded Input: a tap on blank space reaches the
+  // device, and the ARIA snapshot below shows no refusal.
+  await androidIdle(control);
+  receipt.limits.rawCoordinates.workspace = { ...blank, forwarded: true };
   await snapshot("limit-raw-coordinates");
   await click("Return control");
   await androidIdle(control);

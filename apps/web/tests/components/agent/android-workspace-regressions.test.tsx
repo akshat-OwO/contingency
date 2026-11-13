@@ -1,6 +1,9 @@
 import { AgentSessionId, FlowName } from "@contingency/protocol";
-import type { AndroidWorkspaceSnapshot } from "@contingency/protocol";
-import { cleanup, render, screen } from "@testing-library/react";
+import type {
+  AndroidWorkspaceCommand,
+  AndroidWorkspaceSnapshot,
+} from "@contingency/protocol";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
@@ -10,6 +13,10 @@ import {
   AndroidSessionView,
   AndroidEmptyState,
 } from "@/components/agent/android-workspace";
+import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+import type { RpcDependencies } from "@/lib/rpc-dependencies";
+
+type WorkspaceState = Parameters<typeof AndroidSessionView>[0]["state"];
 
 const app = {
   label: "Permission fixture",
@@ -140,16 +147,24 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
     phase: "running",
   };
   const mutate = vi.fn();
+  const forwarded: AndroidWorkspaceCommand[] = [];
+  const overrides: Partial<RpcDependencies> = {
+    runAndroidWorkspaceCommand: (command) =>
+      Effect.sync(() => {
+        forwarded.push(command);
+        return session;
+      }),
+  };
   const props = {
     mutate,
     notices: null,
     pending: false,
-    run: vi.fn(),
     session,
     setState: vi.fn(),
     state: {
       dismissedField: null,
       failure: null,
+      inputRefusal: null,
       instructing: false,
       instructionPending: false,
       refusalDismissed: false,
@@ -157,7 +172,13 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
       setupOpen: false,
     },
   };
-  const view = render(<AndroidSessionView {...props} />);
+  const view = render(<AndroidSessionView {...props} />, {
+    wrapper: ({ children }) => (
+      <RpcDependenciesProvider overrides={overrides}>
+        {children}
+      </RpcDependenciesProvider>
+    ),
+  });
   expect(screen.queryByText("Device disconnected")).toBeNull();
   expect(screen.getByRole("button", { name: "Android Back" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "Take control" }));
@@ -171,16 +192,20 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
     />
   );
   await user.click(screen.getByRole("button", { name: "Android Back" }));
-  expect(mutate).toHaveBeenCalledWith(
-    expect.objectContaining({
-      _tag: "input",
-      action: { _tag: "back" },
-      observationId: "observed",
-    })
+  // Back is Forwarded Input: the GoBack key goes straight to the device.
+  await waitFor(() =>
+    expect(
+      forwarded.flatMap((command) =>
+        command._tag === "forward" ? command.inputs : []
+      )
+    ).toEqual([
+      expect.objectContaining({ _tag: "key", action: "down", key: "GoBack" }),
+      expect.objectContaining({ _tag: "key", action: "up", key: "GoBack" }),
+    ])
   );
 });
 
-test("a refused pick is said in the dock and set aside while commenting", async () => {
+test("refused input is said in the dock and set aside while commenting", async () => {
   const user = userEvent.setup();
   const session: AndroidWorkspaceSnapshot = {
     ...completed,
@@ -208,9 +233,10 @@ test("a refused pick is said in the dock and set aside while commenting", async 
     },
     phase: "running",
   };
-  const state = {
+  const state: WorkspaceState = {
     dismissedField: null,
     failure: null,
+    inputRefusal: null,
     instructing: false,
     instructionPending: false,
     refusalDismissed: false,
@@ -221,27 +247,45 @@ test("a refused pick is said in the dock and set aside while commenting", async 
     mutate: vi.fn(),
     notices: null,
     pending: false,
-    run: vi.fn(() =>
-      Effect.fail("Nothing to activate there. No input was sent.")
-    ),
     session,
-    setState: vi.fn(),
+    setState:
+      vi.fn<(update: (current: WorkspaceState) => WorkspaceState) => void>(),
     state,
   };
-  const view = render(<AndroidSessionView {...props} />);
+  const overrides: Partial<RpcDependencies> = {
+    runAndroidWorkspaceCommand: () =>
+      Effect.fail(
+        new Error(
+          "Only the user controlling a running session can send input. Nothing was sent."
+        )
+      ),
+  };
+  const view = render(<AndroidSessionView {...props} />, {
+    wrapper: ({ children }) => (
+      <RpcDependenciesProvider overrides={overrides}>
+        {children}
+      </RpcDependenciesProvider>
+    ),
+  });
   await user.click(screen.getByRole("button", { name: "Screen elements" }));
   await user.click(
     await screen.findByRole("button", { name: "Activate Banner" })
   );
+  await waitFor(() => expect(props.setState).toHaveBeenCalled());
+  let refused = state;
+  for (const [update] of props.setState.mock.calls) {
+    refused = update(refused);
+  }
+  view.rerender(<AndroidSessionView {...props} state={refused} />);
   const dock = screen.getByRole("region", { name: "Workspace dock" });
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Nothing to activate there. No input was sent."
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Only the user controlling a running session can send input. Nothing was sent."
   );
   expect(dock).toContainElement(screen.getByRole("alert"));
   view.rerender(
     <AndroidSessionView
       {...props}
-      state={{ ...state, instructing: true, refusalDismissed: true }}
+      state={{ ...refused, instructing: true, refusalDismissed: true }}
     />
   );
   expect(screen.queryByRole("alert")).toBeNull();

@@ -2,12 +2,15 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
+import { NativeInput } from "@contingency/protocol";
 import { NodeRuntime } from "@effect/platform-node";
-import { Effect, Schedule } from "effect";
+import { Effect, Schedule, Schema } from "effect";
 import { startScrcpy } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
 
+import { androidControlPackets } from "./services/android-control.ts";
 import {
   androidStreamRelease,
   androidVisibilityState,
@@ -78,12 +81,32 @@ Effect.scoped(
       ),
       (owned) => io(() => owned.close()).pipe(Effect.orDie)
     );
-    // No control-socket writes, input API, SessionRecorder, installation API, or replay.
+    // Forwarded Input is the only control-socket write. No SessionRecorder,
+    // installation API, or replay is reachable.
     let visibility: "visible" | "secure" | "unknown" | undefined;
     let keyRequired = true;
     let configuration = Buffer.alloc(0);
     let { width } = stream.meta;
     let { height } = stream.meta;
+    const decodeInput = Schema.decodeUnknownOption(
+      Schema.fromJsonString(NativeInput)
+    );
+    const lines = createInterface({ input: process.stdin });
+    yield* Effect.addFinalizer(() => Effect.sync(() => lines.close()));
+    // Each line is one input, written in order at the current frame size.
+    lines.on("line", (line) => {
+      const input = decodeInput(line);
+      // The parent validated the input; a line that does not decode is dropped.
+      if (input._tag === "None") {
+        return;
+      }
+      for (const packet of androidControlPackets(input.value, {
+        height,
+        width,
+      })) {
+        stream.controlSocket.write(packet);
+      }
+    });
     const inspect = Effect.tryPromise({
       catch: () => new Error("Android window visibility unavailable"),
       try: (signal) =>

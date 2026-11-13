@@ -217,10 +217,9 @@ try {
     404
   );
   await click("Take control");
-  const beforeSwipe = await read(inputSession);
-  receipt.limits.edgeSwipe = JSON.parse(await control("browser", "ios-swipe"));
+  // A swipe is Forwarded Input: it reaches the simulator instead of being refused.
+  receipt.limits.swipe = JSON.parse(await control("browser", "ios-swipe"));
   let current = await read(inputSession);
-  assert.equal(current.observation.id, beforeSwipe.observation.id);
   const field = current.observation.nodes.find(
     (node) => node.role === "text-field"
   );
