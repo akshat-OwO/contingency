@@ -87,12 +87,15 @@ export const runVideoChapters = ({
   barCount,
   condensed,
   durationMs,
+  subject = "Run",
   timeMap,
   timeline,
 }: {
   readonly barCount: number;
   readonly condensed: boolean;
   readonly durationMs: number;
+  /** What the video records, naming a video with no actions placed in it. */
+  readonly subject?: string;
   readonly timeMap: RunVideoTimeMap | undefined;
   readonly timeline: readonly AgentTimelineEntry[];
 }): readonly RunVideoChapter[] => {
@@ -145,7 +148,9 @@ export const runVideoChapters = ({
             action: undefined,
             atMs: 0,
             label:
-              first === undefined ? "Run video" : "Before the first action",
+              first === undefined
+                ? `${subject} video`
+                : "Before the first action",
           },
         ]
       : []),

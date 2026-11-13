@@ -36,6 +36,7 @@ import type {
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
 import { androidWindowVisibility } from "./android-stream-contract.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
+import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -649,6 +650,37 @@ export const acquireAndroidBackend = (
             fillPublic({ ...options(), ref, signal, text })
           ),
         recover: lifecycle.recover,
+        // Whole screen, touches hidden: the agent may use the whole emulator,
+        // and showing touches would change the device under test (ADR 0079).
+        screenRecorder: makeAgentDeviceScreenRecorder({
+          record: ({ action, path: file, signal }) =>
+            client.recording.record(
+              file === undefined
+                ? {
+                    ...options(),
+                    action,
+                    hideTouches: true,
+                    recordingScope: "device",
+                    signal,
+                  }
+                : {
+                    ...options(),
+                    action,
+                    hideTouches: true,
+                    path: file,
+                    recordingScope: "device",
+                    signal,
+                  }
+            ),
+          visibility: adb(input.device.serial, [
+            "shell",
+            "dumpsys",
+            "window",
+          ]).pipe(
+            Effect.map(androidWindowVisibility),
+            Effect.orElseSucceed(() => "unknown" as const)
+          ),
+        }),
         sessionId,
         validate,
       };

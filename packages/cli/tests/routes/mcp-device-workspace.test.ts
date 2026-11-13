@@ -70,6 +70,7 @@ it.live("routes public iOS calls to iOS without accessing Android", () =>
       keyframes: () => Effect.succeed(null),
       list: () => Effect.succeed([]),
       stream: () => Effect.succeed(null),
+      video: () => Effect.succeed(null),
     }),
     Effect.scoped,
     Effect.provide(NodeServices.layer)

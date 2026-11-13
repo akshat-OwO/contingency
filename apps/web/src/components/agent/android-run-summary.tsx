@@ -1,13 +1,21 @@
-import { deviceKeyframePath, deviceKeyframesPath } from "@contingency/protocol";
+import {
+  deviceKeyframePath,
+  deviceKeyframesPath,
+  deviceVideoPath,
+  deviceVideoStatusPath,
+} from "@contingency/protocol";
 import type {
   AndroidWorkspaceSnapshot,
   DevicePlatform,
+  DeviceVideoCapture,
+  DeviceVideoStatus,
 } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { CircleAlertIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -16,6 +24,8 @@ import {
   deviceCleanupKey,
 } from "./android-workspace-state";
 import { EvidenceReference } from "./evidence-reference";
+import { RunVideoPlayer } from "./run-video";
+import { videoOffsetMs } from "./run-video-timeline";
 
 const OUTCOME = {
   blocked: "Blocked",
@@ -117,17 +127,229 @@ export const DeviceLastScreen = ({
   );
 };
 
+const GAP_REASON: Record<DeviceVideoCapture["gaps"][number]["reason"], string> =
+  {
+    "recorder-lost": "the recorder stopping unexpectedly",
+    "recorder-stopped-early": "the recorder stopping before the session did",
+    "recorder-unconfirmed": "the recorder not confirming its footage",
+    "session-recovered": "the session recovering",
+    "size-limit": "the video size limit",
+  };
+
+const seconds = (ms: number) => `${Math.max(1, Math.round(ms / 1000))} s`;
+
 /**
- * What the session kept of its screens. A device session records no video;
- * its keyframes are the screens it photographed as the journey went, so they
- * stand where the browser summary shows its video.
+ * What a ready video does not show: footage the device never recorded, and
+ * secure screens it hid on purpose.
+ */
+const coverageNotes = (capture: DeviceVideoCapture): readonly string[] => {
+  const notes: string[] = [];
+  if (!capture.complete) {
+    const reasons = [
+      ...new Set(capture.gaps.map((gap) => GAP_REASON[gap.reason])),
+    ];
+    const lost = capture.gaps.reduce(
+      (total, gap) => total + Math.max(0, gap.toMs - gap.fromMs),
+      0
+    );
+    notes.push(
+      `The video is incomplete: ${lost > 0 ? `about ${seconds(lost)} was not recorded` : "part of the session may not be recorded"}${reasons.length > 0 ? `, because of ${reasons.join(" and ")}` : ""}. Those moments are marked "Capture gap".`
+    );
+  }
+  if (capture.hidden.length > 0) {
+    const hidden = capture.hidden.reduce(
+      (total, span) => total + (span.toMs - span.fromMs),
+      0
+    );
+    notes.push(
+      `Secure screens are hidden for ${seconds(hidden)}; the video shows a card in their place.`
+    );
+  }
+  if (capture.note !== undefined) {
+    notes.push(capture.note);
+  }
+  return notes;
+};
+
+/**
+ * A device session's video, read again whenever its cleanup state changes,
+ * since Cleanup can delete it here or from another process.
+ */
+const useDeviceVideo = (
+  platform: DevicePlatform,
+  sessionId: string,
+  cleanup: string
+) => {
+  const { deviceVideoStatusAtom } = useRpcDependencies();
+  const atom = deviceVideoStatusAtom(
+    deviceVideoStatusPath(platform, sessionId)
+  );
+  const result = useAtomValue(atom);
+  const refresh = useAtomRefresh(atom);
+  const seen = useRef(cleanup);
+  useEffect(() => {
+    if (seen.current !== cleanup) {
+      seen.current = cleanup;
+      refresh();
+    }
+  }, [cleanup, refresh]);
+  return { refresh, result };
+};
+
+/** Where a moment of the session plays in its video, if it does. */
+const videoMomentAt = (
+  status: DeviceVideoStatus | null | undefined,
+  at: string
+): number | undefined => {
+  if (status?.state !== "ready") {
+    return undefined;
+  }
+  const runMs = Date.parse(at) - Date.parse(status.timeMap.startedAt);
+  return videoOffsetMs(status.timeMap, status.pacing === "condensed", runMs);
+};
+
+/**
+ * The session's own screen recording ([ADR 0079](../../../../../docs/adr/0079-native-recordings-use-agent-device-screen-recording.md)).
+ * Teaching plays in real time; a Run or Dry Run is condensed like a browser
+ * Run. Until it is rendered the summary says so, and a session without one
+ * says why.
+ */
+const DeviceVideo = ({
+  platform,
+  result,
+  retry,
+  seekRequest,
+  sessionId,
+  teaching,
+}: {
+  readonly platform: DevicePlatform;
+  readonly result: ReturnType<typeof useDeviceVideo>["result"];
+  readonly retry: () => void;
+  readonly seekRequest:
+    | { readonly ms: number; readonly key: number }
+    | undefined;
+  readonly sessionId: string;
+  readonly teaching: boolean;
+}) => {
+  const body = (() => {
+    if (
+      result._tag === "Initial" ||
+      (AsyncResult.isSuccess(result) && result.value?.state === "preparing")
+    ) {
+      return (
+        <div
+          aria-live="polite"
+          className="text-muted-foreground flex w-full items-center justify-center gap-2 rounded-lg border py-3 text-xs"
+          role="status"
+        >
+          <WatcherLoader className="h-2.5" />
+          Preparing video…
+        </div>
+      );
+    }
+    if (result._tag === "Failure") {
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-muted-foreground text-pretty" role="alert">
+            The video could not be read.
+          </p>
+          <Button onClick={retry} size="sm" variant="outline">
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    const status = result.value;
+    if (status === null) {
+      return (
+        <p className="text-muted-foreground text-pretty">
+          This Workspace no longer holds the session, so its video cannot be
+          read here.
+        </p>
+      );
+    }
+    if (status.state === "purged") {
+      return (
+        <p className="text-muted-foreground text-pretty">
+          Cleanup deleted this session&apos;s video, with its recording.
+        </p>
+      );
+    }
+    if (status.state === "not-recorded") {
+      return (
+        <p className="text-muted-foreground text-pretty">{status.reason}</p>
+      );
+    }
+    if (status.state === "unavailable") {
+      return (
+        <div className="space-y-1.5" role="status">
+          <p className="font-medium">
+            This session&apos;s video is not available.
+          </p>
+          <p className="text-muted-foreground text-pretty">{status.reason}</p>
+          {status.directory === undefined ? null : (
+            <EvidenceReference id={status.directory} kind="Video folder" />
+          )}
+        </div>
+      );
+    }
+    if (status.state !== "ready") {
+      return null;
+    }
+    const notes = coverageNotes(status.capture);
+    return (
+      <div className="space-y-1.5">
+        <RunVideoPlayer
+          className={undefined}
+          condensed={status.pacing === "condensed"}
+          path={status.path}
+          src={deviceVideoPath(platform, sessionId)}
+          subject={teaching ? "Teaching session" : "Run"}
+          timeMap={status.timeMap}
+          timeline={[]}
+          videoClassName="max-h-[28rem]"
+          {...(seekRequest === undefined ? {} : { seekRequest })}
+        />
+        {status.fallback === undefined ? null : (
+          <p className="text-muted-foreground text-xs text-pretty">
+            {status.fallback}
+          </p>
+        )}
+        {notes.map((note) => (
+          <p className="text-muted-foreground text-xs text-pretty" key={note}>
+            {note}
+          </p>
+        ))}
+      </div>
+    );
+  })();
+  return (
+    <section aria-labelledby="device-video" className="space-y-2">
+      <h3
+        className="text-muted-foreground text-xs font-medium"
+        id="device-video"
+      >
+        Video
+      </h3>
+      {body}
+    </section>
+  );
+};
+
+/**
+ * What the session kept of its screens: the keyframes it photographed as the
+ * journey went. Beside a video that plays, choosing one shows that moment in
+ * the video.
  */
 const DeviceRecording = ({
   cleanup,
+  onShow,
   platform,
   sessionId,
 }: {
   readonly cleanup: string;
+  /** Shows a keyframe's moment in the video; absent without one to play. */
+  readonly onShow: ((capturedAt: string) => void) | undefined;
   readonly platform: DevicePlatform;
   readonly sessionId: string;
 }) => {
@@ -164,7 +386,7 @@ const DeviceRecording = ({
     if (keyframes.length === 0) {
       return (
         <p className="text-muted-foreground text-pretty">
-          The session kept no screens. A device session records no video.
+          The session kept no screens.
         </p>
       );
     }
@@ -227,6 +449,21 @@ const DeviceRecording = ({
                   {index + 1} · {elapsed(first, keyframe.capturedAt)}
                 </span>{" "}
                 ·{" "}
+                {onShow === undefined ? null : (
+                  <>
+                    <button
+                      aria-label={`Show screen ${index + 1} in the video`}
+                      className="text-foreground underline underline-offset-2"
+                      onClick={() => {
+                        onShow(keyframe.capturedAt);
+                      }}
+                      type="button"
+                    >
+                      In video
+                    </button>{" "}
+                    ·{" "}
+                  </>
+                )}
                 <a
                   className="text-foreground underline underline-offset-2"
                   href={src}
@@ -252,6 +489,58 @@ const DeviceRecording = ({
       </h3>
       {body}
     </section>
+  );
+};
+
+/**
+ * The session's video and its screens, together, so a screen can be shown
+ * in the video.
+ */
+const DeviceEvidence = ({
+  cleanup,
+  platform,
+  sessionId,
+  teaching,
+}: {
+  readonly cleanup: string;
+  readonly platform: DevicePlatform;
+  readonly sessionId: string;
+  readonly teaching: boolean;
+}) => {
+  const { refresh, result } = useDeviceVideo(platform, sessionId, cleanup);
+  const [seekRequest, setSeekRequest] = useState<
+    { readonly ms: number; readonly key: number } | undefined
+  >();
+  const status = AsyncResult.isSuccess(result) ? result.value : undefined;
+  const onShow =
+    status?.state === "ready"
+      ? (capturedAt: string) => {
+          const ms = videoMomentAt(status, capturedAt);
+          if (ms !== undefined) {
+            setSeekRequest((previous) => ({
+              key: (previous?.key ?? 0) + 1,
+              ms,
+            }));
+          }
+        }
+      : undefined;
+  return (
+    <>
+      <DeviceVideo
+        platform={platform}
+        result={result}
+        retry={refresh}
+        seekRequest={seekRequest}
+        sessionId={sessionId}
+        teaching={teaching}
+      />
+      <DeviceRecording
+        cleanup={cleanup}
+        onShow={onShow}
+        platform={platform}
+        sessionId={sessionId}
+      />
+    </>
   );
 };
 
@@ -326,10 +615,11 @@ export const DeviceRunSummary = ({
         )}
       </section>
     )}
-    <DeviceRecording
+    <DeviceEvidence
       cleanup={deviceCleanupKey(session.cleanup)}
       platform={platform}
       sessionId={session.id}
+      teaching={session.kind === "teaching"}
     />
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
       <dt className="text-muted-foreground">Session</dt>

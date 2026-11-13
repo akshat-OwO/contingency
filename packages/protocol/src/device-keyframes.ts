@@ -4,8 +4,9 @@ import { ContentHash } from "./teaching-recording.ts";
 
 /**
  * One screen a device session kept: the PNG photographed after an action, or
- * at the start and end of the session. A device session records no video, so
- * these are what its Run Summary can show of what happened.
+ * at the start and end of the session. Keyframes stay linked to actions as
+ * precise evidence beside the session's video, and are all a session recorded
+ * before device video existed.
  */
 // oxlint-disable-next-line eslint/no-redeclare
 export const DeviceKeyframe = Schema.Struct({

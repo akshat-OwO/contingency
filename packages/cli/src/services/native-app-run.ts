@@ -269,6 +269,8 @@ export const createNativeAppRun = <
             })
           )
         ),
+      screenRecorder: () =>
+        terminal === undefined ? runtime?.screenRecorder : undefined,
       state,
     };
   });

@@ -1,6 +1,7 @@
 import type { PlatformCapability } from "@contingency/protocol";
 import type { Effect, Redacted, Scope } from "effect";
 
+import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import type {
   PlatformObservation,
   PlatformRuntimeError,
@@ -58,6 +59,8 @@ export interface NativeAppRuntime<
     observationId: string,
     request: NativeAppVariableFillRequest
   ) => Effect.Effect<NativeAppVariableFillResult, PlatformRuntimeError>;
+  /** The device's own screen recorder, when the platform has one. */
+  readonly screenRecorder?: NativeScreenRecorder | undefined;
 }
 
 /** Platform modules supply evaluated operations and their target safety policy. */
@@ -77,6 +80,11 @@ export interface NativeAppRuntimeBackend<
   ) => Effect.Effect<PlatformFillResult, PlatformRuntimeError>;
   readonly back?: () => Effect.Effect<void, PlatformRuntimeError>;
   readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
+  /**
+   * Records the device's screen. It runs beside the runtime's input and
+   * observations, so a recorder failure never pauses the session.
+   */
+  readonly screenRecorder?: NativeScreenRecorder | undefined;
 }
 
 export interface NativeAppActionPolicy<

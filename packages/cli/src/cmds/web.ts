@@ -16,6 +16,7 @@ import {
   defaultGlobalCatalogRoot,
   makeCatalogBrowserLayer,
 } from "../services/catalog-browser.ts";
+import { DeviceVideoRendererLive } from "../services/device-video-renderer.ts";
 import { DOCS_SITE_PATH } from "../services/doc-topics.ts";
 import {
   defaultCatalogRoot,
@@ -125,6 +126,11 @@ export const webCommand = Command.make(
         const targetAppBuilds = Layer.succeedContext(
           yield* Layer.build(TargetAppBuildsLive)
         );
+        // Renders device sessions' footage into their videos, and serves
+        // their status; one per process, shared by both device workspaces.
+        const deviceVideoRenderer = Layer.succeedContext(
+          yield* Layer.build(DeviceVideoRendererLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
             makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
@@ -132,7 +138,8 @@ export const webCommand = Command.make(
                 Layer.mergeAll(
                   teachingRecordingStore,
                   makeFlowCatalogLayer({ root: selectedCatalogRoot }),
-                  targetAppBuilds
+                  targetAppBuilds,
+                  deviceVideoRenderer
                 )
               )
             )
@@ -147,7 +154,8 @@ export const webCommand = Command.make(
                 Layer.mergeAll(
                   teachingRecordingStore,
                   makeFlowCatalogLayer({ root: selectedCatalogRoot }),
-                  targetAppBuilds
+                  targetAppBuilds,
+                  deviceVideoRenderer
                 )
               )
             )
@@ -157,7 +165,8 @@ export const webCommand = Command.make(
           browserSession,
           androidWorkspace,
           iosWorkspace,
-          targetAppBuilds
+          targetAppBuilds,
+          deviceVideoRenderer
         );
         yield* Effect.addFinalizer(() =>
           fileSystem

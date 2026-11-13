@@ -247,6 +247,7 @@ export const adaptNativeAppRuntime = <
             })
           )
         ),
+      screenRecorder: input.backend.screenRecorder,
       state,
     };
   });

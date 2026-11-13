@@ -5,6 +5,7 @@ import type {
   NativeAppRuntime,
   NativeAppRuntimeStartInput,
 } from "./native-app-runtime-contract.ts";
+import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import type {
   PlatformObservation,
   PlatformRuntimeError,
@@ -82,6 +83,8 @@ export interface NativeAppRun<Observation extends PlatformObservation, State> {
   readonly enterVariable: NativeAppRuntime<Observation>["enterVariable"];
   readonly recover: NativeAppRuntime<Observation>["recover"];
   readonly close: NativeAppRuntime<Observation>["close"];
+  /** The prepared device's screen recorder; absent before preparation. */
+  readonly screenRecorder: () => NativeScreenRecorder | undefined;
 }
 
 /** Preparation and environment interpretation belong to the platform. */

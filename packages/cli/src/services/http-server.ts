@@ -14,6 +14,7 @@ import {
 } from "../routes/agent-run-artifacts.ts";
 import { makeAndroidStreamRoutes } from "../routes/android-stream.ts";
 import { makeDeviceKeyframeRoutes } from "../routes/device-keyframes.ts";
+import { makeDeviceVideoRoutes } from "../routes/device-video.ts";
 import { makeDocsSiteRoutes } from "../routes/docs-site.ts";
 import { makeIosStreamRoutes } from "../routes/ios-stream.ts";
 import { makeRpcRoutes } from "../routes/rpc.ts";
@@ -170,6 +171,9 @@ export const makeHttpServerLayer = ({
           Layer.provide(agentSession ?? Layer.empty)
         ),
         makeDeviceKeyframeRoutes(allowedOrigins).pipe(
+          Layer.provide(agentSession ?? Layer.empty)
+        ),
+        makeDeviceVideoRoutes(allowedOrigins).pipe(
           Layer.provide(agentSession ?? Layer.empty)
         ),
         makeTargetAppBuildRoutes(allowedOrigins).pipe(

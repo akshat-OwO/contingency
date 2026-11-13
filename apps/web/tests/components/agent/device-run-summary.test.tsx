@@ -1,6 +1,6 @@
 import { AgentSessionId, ContentHash } from "@contingency/protocol";
-import type { DeviceKeyframes } from "@contingency/protocol";
-import { cleanup, render, screen } from "@testing-library/react";
+import type { DeviceKeyframes, DeviceVideoStatus } from "@contingency/protocol";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import { afterEach, expect, test } from "vitest";
@@ -24,7 +24,17 @@ const session = {
   takeoverOccurred: false,
 } as const;
 
-const summary = (keyframes: DeviceKeyframes | null | Error) =>
+const notRecorded: DeviceVideoStatus = {
+  reason: "This session kept no video.",
+  state: "not-recorded",
+};
+const videoAtom = (video: DeviceVideoStatus | null) => () =>
+  Atom.make(Effect.succeed(video));
+
+const summary = (
+  keyframes: DeviceKeyframes | null | Error,
+  video: DeviceVideoStatus | null = notRecorded
+) =>
   render(
     <RpcDependenciesProvider
       overrides={{
@@ -34,6 +44,7 @@ const summary = (keyframes: DeviceKeyframes | null | Error) =>
               ? Effect.fail(keyframes)
               : Effect.succeed(keyframes)
           ),
+        deviceVideoStatusAtom: videoAtom(video),
       }}
     >
       <DeviceRunSummary
@@ -87,9 +98,16 @@ test("says what became of screens cleanup deleted", () => {
 });
 
 test("tells a forgotten session from a failed read, which it can retry", () => {
-  summary(null);
+  summary(null, null);
   expect(
-    screen.getByText(/This Workspace no longer holds the session/u)
+    screen.getByText(
+      /This Workspace no longer holds the session, so its screens/u
+    )
+  ).toBeVisible();
+  expect(
+    screen.getByText(
+      /This Workspace no longer holds the session, so its video/u
+    )
   ).toBeVisible();
   expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   cleanup();
@@ -165,7 +183,12 @@ test("a mounted ended session drops its screens when cleanup purges them", async
   // One list atom, read again on refresh, as the Workspace's family is.
   const list = Atom.make(Effect.sync(() => served));
   const view = (cleanupState: typeof session.cleanup | PurgedCleanup) => (
-    <RpcDependenciesProvider overrides={{ deviceKeyframesAtom: () => list }}>
+    <RpcDependenciesProvider
+      overrides={{
+        deviceKeyframesAtom: () => list,
+        deviceVideoStatusAtom: videoAtom(notRecorded),
+      }}
+    >
       <DeviceLastScreen
         cleanup={deviceCleanupKey(cleanupState)}
         fallback={<p>Simulator released.</p>}
@@ -192,4 +215,101 @@ test("a mounted ended session drops its screens when cleanup purges them", async
   ).toBeVisible();
   expect(screen.queryByRole("img")).toBeNull();
   expect(screen.getByText("Simulator released.")).toBeVisible();
+});
+
+const ready: DeviceVideoStatus = {
+  capture: {
+    complete: false,
+    gaps: [{ fromMs: 6000, reason: "recorder-lost", toMs: 9000 }],
+    hidden: [{ fromMs: 1000, toMs: 3000 }],
+  },
+  pacing: "real-time",
+  path: "/catalog/runs/agentrun-1/video/video.webm",
+  state: "ready",
+  timeMap: {
+    fastForward: "capped",
+    segments: [
+      {
+        kind: "real-time",
+        rate: 1,
+        runFromMs: 0,
+        runToMs: 9000,
+        videoFromMs: 0,
+        videoToMs: 9000,
+      },
+    ],
+    startedAt: "2026-11-05T10:00:00.000Z",
+  },
+};
+
+test("plays the session's video and says what it does not show", () => {
+  summary(
+    {
+      keyframes: [
+        { capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") },
+        { capturedAt: "2026-11-05T10:00:05.000Z", hash: hash("b") },
+      ],
+      retained: true,
+    },
+    ready
+  );
+  const video = screen.getByLabelText("Recorded Teaching session video");
+  expect(video).toHaveAttribute("src", "/ios/sessions/agent-ios-ended/video");
+  expect(
+    screen.getByText(
+      /The video is incomplete: about 3 s was not recorded, because of the recorder stopping unexpectedly/u
+    )
+  ).toBeVisible();
+  expect(screen.getByText(/Secure screens are hidden for 2 s/u)).toBeVisible();
+  // Each kept screen can be shown in the video.
+  expect(
+    screen.getByRole("button", { name: "Show screen 1 in the video" })
+  ).toHaveTextContent("In video");
+  expect(
+    screen.getByRole("button", { name: "Show screen 2 in the video" })
+  ).toBeVisible();
+});
+
+test("a chosen screen moves the video to its moment", () => {
+  summary(
+    {
+      keyframes: [
+        { capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") },
+        { capturedAt: "2026-11-05T10:00:05.000Z", hash: hash("b") },
+      ],
+      retained: true,
+    },
+    ready
+  );
+  const video = screen.getByLabelText<HTMLVideoElement>(
+    "Recorded Teaching session video"
+  );
+  // jsdom loads no media; the element reports a known duration instead.
+  Object.defineProperty(video, "duration", { configurable: true, value: 9 });
+  fireEvent.loadedMetadata(video);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Show screen 2 in the video" })
+  );
+  expect(video.currentTime).toBe(5);
+});
+
+test("says why there is no video to play", () => {
+  summary({ keyframes: [], retained: true }, { state: "preparing" });
+  expect(screen.getByText("Preparing video…")).toBeVisible();
+  cleanup();
+  summary({ keyframes: [], retained: true }, { state: "purged" });
+  expect(
+    screen.getByText(/Cleanup deleted this session's video/u)
+  ).toBeVisible();
+  cleanup();
+  summary(
+    { keyframes: [], retained: true },
+    {
+      directory: "/catalog/runs/agentrun-1/video",
+      reason: "The recording was never finalized.",
+      state: "unavailable",
+    }
+  );
+  expect(screen.getByText("The recording was never finalized.")).toBeVisible();
+  expect(screen.queryByText("In video")).toBeNull();
 });

@@ -7,6 +7,7 @@ import type {
   AndroidWorkspaceSummary,
   FlowName,
   NativeAgentRunSummary,
+  RunVideoTimeMap,
 } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 import type { FileSystem } from "effect";
@@ -54,6 +55,8 @@ export const nativeRunSummary = (input: {
   readonly outcome: AgentTaskRunOutcome;
   readonly platform: NativeAgentRunSummary["platform"];
   readonly ran: boolean;
+  /** Where the Run's device video places each moment, when it kept footage. */
+  readonly videoTimeMap?: RunVideoTimeMap | undefined;
   /** An Android or iOS session summary; both share these fields. */
   readonly summary: Pick<
     AndroidWorkspaceSummary,
@@ -93,6 +96,7 @@ export const nativeRunSummary = (input: {
     startedAt: summary.startedAt,
     takeoverOccurred: summary.takeoverOccurred,
     title: `${PLATFORM_LABEL[input.platform]} ${KIND_LABEL[summary.kind]} · ${summary.flowName}`,
+    videoTimeMap: input.videoTimeMap,
   };
 };
 

@@ -705,10 +705,12 @@ const PlayerControls = ({
  * rise through Action Windows and drop through fast-forwarded Idle Gaps.
  * Fullscreen keeps every control except the file path.
  */
-const RunVideoPlayer = ({
+export const RunVideoPlayer = ({
   className,
   condensed,
+  subject = "Run",
   path,
+  seekRequest,
   src,
   timeMap,
   timeline,
@@ -716,7 +718,14 @@ const RunVideoPlayer = ({
 }: {
   readonly className: string | undefined;
   readonly condensed: boolean;
+  /** What the video records, as its name and cue say: a Run by default. */
+  readonly subject?: string;
   readonly path: string | undefined;
+  /**
+   * A moment to show, in video milliseconds, from outside the player, such
+   * as a keyframe chosen beside it. A new `key` repeats the same moment.
+   */
+  readonly seekRequest?: { readonly ms: number; readonly key: number };
   readonly src: string;
   readonly timeMap: RunVideoTimeMap | undefined;
   readonly timeline: readonly AgentTimelineEntry[];
@@ -724,12 +733,31 @@ const RunVideoPlayer = ({
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const playback = usePlayback();
+  const { seek, durationMs } = playback;
+  const seekKey = seekRequest?.key;
+  const seekMs = seekRequest?.ms;
+  // Only a new request seeks; the player's own seeks are left alone.
+  const handled = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      seekKey === undefined ||
+      seekMs === undefined ||
+      durationMs <= 0 ||
+      handled.current === seekKey
+    ) {
+      return;
+    }
+    handled.current = seekKey;
+    seek(seekMs);
+    rootRef.current?.focus();
+  }, [durationMs, seek, seekKey, seekMs]);
   const { fullscreen, toggleFullscreen } = useFullscreen(rootRef);
   const [barCount, setBarCount] = useState(0);
   const chapters = runVideoChapters({
     barCount,
     condensed,
     durationMs: playback.durationMs,
+    subject,
     timeMap,
     timeline,
   });
@@ -765,7 +793,7 @@ const RunVideoPlayer = ({
   return (
     // Clicking the video focuses the player, so its shortcuts work at once.
     <div
-      aria-label="Run video player"
+      aria-label={`${subject} video player`}
       className={cn(
         "bg-card text-card-foreground relative isolate overflow-hidden outline-none select-none",
         // Inline, it is one card of the panel; fullscreen is a dark room
@@ -799,9 +827,9 @@ const RunVideoPlayer = ({
         {/* Captions are not recorded; the track keeps the element valid. */}
         <video
           aria-description={
-            playback.started ? undefined : "Play to watch the Run."
+            playback.started ? undefined : `Play to watch the ${subject}.`
           }
-          aria-label="Recorded Run video"
+          aria-label={`Recorded ${subject} video`}
           className={cn(
             "block w-full cursor-pointer object-contain",
             fullscreen ? "h-full" : videoClassName
@@ -826,7 +854,7 @@ const RunVideoPlayer = ({
           >
             <span className="bg-foreground text-background flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium shadow-sm ring-1 ring-white/40 dark:ring-black/40">
               <PlayIcon className="size-3.5 fill-current" />
-              Play to watch the Run
+              Play to watch the {subject}
             </span>
           </div>
         )}
