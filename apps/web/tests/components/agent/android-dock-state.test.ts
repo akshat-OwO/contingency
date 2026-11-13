@@ -48,12 +48,22 @@ const pending = {
   takeoverOccurred: false,
 } satisfies AndroidWorkspaceSnapshot;
 
-test("offers emulator preparation and recovery", () => {
+test("offers initial preparation retry and recovery only after preparation", () => {
   const presentation = androidDockPresentation(pending);
   expect(presentation.action?.label).toBe("Prepare emulator");
   expect(presentation.nextStep).toContain("Prepare Pixel_9");
   expect(
     androidDockPresentation({ ...pending, phase: "paused" }).action?.label
+  ).toBe("Retry preparation");
+  expect(
+    androidDockPresentation({
+      ...pending,
+      phase: "paused",
+      preparation: {
+        ...pending.preparation,
+        evidence: [{ observationId: "ready", type: "observation" }],
+      },
+    }).action?.label
   ).toBe("Recover same emulator");
 });
 

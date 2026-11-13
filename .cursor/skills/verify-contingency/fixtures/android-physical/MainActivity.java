@@ -28,6 +28,14 @@ public class MainActivity extends FixtureActivity {
             freshness.setText("Existing fixture data");
         });
         content.addView(dirty);
+        Button fresh = new Button(this);
+        fresh.setAllCaps(false);
+        fresh.setText("Clear fixture marker");
+        fresh.setOnClickListener(view -> {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("dirty", false).commit();
+            freshness.setText("Fresh fixture data");
+        });
+        content.addView(fresh);
         setContentView(content);
         if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);

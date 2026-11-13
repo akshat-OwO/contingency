@@ -1,11 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect } from "effect";
+import { Effect, Scope } from "effect";
 
 import {
   performAndroidFill,
+  helperReplacement,
+  installAuthorizedAndroidHelper,
   requireReplaceableHelper,
 } from "../../src/services/android-runtime-backend.ts";
+import type { AndroidRuntimeStartInput } from "../../src/services/android-runtime-contract.ts";
 import { androidHelperRelease } from "../../src/services/android-runtime-contract.ts";
 
 it.effect("confirms an SDK fill with matching readback", () =>
@@ -113,4 +116,139 @@ it.effect("fails closed when the installed versionCode is unreadable", () =>
       )
     ).toBe("helper_incompatible");
   })
+);
+
+it.effect(
+  "only automatic authorization allows replacing a newer helper and still validates its identity",
+  () =>
+    Effect.gen(function* authorizedReplacement() {
+      expect(
+        yield* helperReplacement(
+          helperListing(androidHelperRelease.versionCode + 1),
+          true
+        )
+      ).toBe(true);
+      expect(
+        (yield* Effect.flip(
+          helperReplacement(
+            helperListing(androidHelperRelease.versionCode + 1),
+            false
+          )
+        )).code
+      ).toBe("helper_newer_installed");
+      expect(
+        yield* helperReplacement(
+          helperListing(androidHelperRelease.versionCode),
+          true
+        )
+      ).toBe(false);
+      expect((yield* Effect.flip(helperReplacement("", true))).code).toBe(
+        "helper_incompatible"
+      );
+    })
+);
+
+it.effect(
+  "installs only the supported helper under device-bound authorization",
+  () =>
+    Effect.gen(function* authorizedHelperInstall() {
+      const input: AndroidRuntimeStartInput = {
+        device: {
+          api: 36,
+          avd: "fixture",
+          fingerprint: "fixture",
+          host: "local",
+          serial: "selected",
+        },
+        installationGrant: {
+          operation: "auto",
+          replaceNewer: true,
+          serial: "selected",
+          sha256: androidHelperRelease.sha256,
+        },
+        platform: "android",
+        requiredCapabilities: [],
+        scope: yield* Scope.Scope,
+        targetApp: "dev.fixture",
+      };
+      for (const installed of [
+        null,
+        androidHelperRelease.sha256,
+        "older",
+        "newer",
+      ]) {
+        const recorded: string[][] = [];
+        const run = (args: readonly string[]) =>
+          Effect.sync(() => {
+            recorded.push([...args]);
+            return args[0] === "shell"
+              ? helperListing(
+                  androidHelperRelease.versionCode +
+                    (installed === "newer" ? 1 : 0)
+                )
+              : "Success";
+          });
+        yield* installAuthorizedAndroidHelper(
+          input,
+          installed,
+          "/supported.apk",
+          run
+        );
+        const mutations = recorded.filter((args) => args[0] !== "shell");
+        if (installed === androidHelperRelease.sha256) {
+          expect(mutations).toEqual([]);
+        } else if (installed === "newer") {
+          expect(mutations).toEqual([
+            ["uninstall", androidHelperRelease.packageName],
+            ["install", "--user", "0", "/supported.apk"],
+          ]);
+        } else {
+          expect(mutations).toEqual([
+            [
+              "install",
+              "--user",
+              "0",
+              ...(installed === null ? [] : ["-r"]),
+              "/supported.apk",
+            ],
+          ]);
+        }
+      }
+      const { installationGrant: _installationGrant, ...ungranted } = input;
+      for (const grant of [
+        undefined,
+        {
+          operation: "auto" as const,
+          replaceNewer: true,
+          serial: "other",
+          sha256: androidHelperRelease.sha256,
+        },
+        {
+          operation: "auto" as const,
+          replaceNewer: false,
+          serial: "selected",
+          sha256: androidHelperRelease.sha256,
+        },
+      ]) {
+        const commands: string[][] = [];
+        const startup =
+          grant === undefined
+            ? ungranted
+            : { ...ungranted, installationGrant: grant };
+        const result = yield* Effect.flip(
+          installAuthorizedAndroidHelper(
+            startup,
+            "newer",
+            "/supported.apk",
+            (args) =>
+              Effect.sync(() => {
+                commands.push([...args]);
+                return helperListing(androidHelperRelease.versionCode + 1);
+              })
+          )
+        );
+        expect(result.code).toBe("helper_newer_installed");
+        expect(commands.every((args) => args[0] === "shell")).toBe(true);
+      }
+    })
 );

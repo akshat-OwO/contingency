@@ -474,3 +474,62 @@ it.effect("retains fill confirmation without pausing the journey", () =>
     }
   })
 );
+
+it.effect(
+  "retries failed initial acquisition on the same Run without replaying input",
+  () =>
+    Effect.gen(function* retryInitialPreparation() {
+      const f = yield* fixture();
+      let fail = true;
+      let attempts = 0;
+      const run = yield* createAndroidRun(f.input, {
+        ...f.driver,
+        start: (input) =>
+          Effect.suspend(() => {
+            attempts += 1;
+            return fail
+              ? Effect.fail(platformRuntimeError("installation_failed"))
+              : f.driver.start(input);
+          }),
+      });
+      yield* run.decide(run.state().pending[0]?.id ?? "", true);
+      expect((yield* Effect.flip(run.prepare())).code).toBe(
+        "installation_failed"
+      );
+      const failedState = run.state();
+      expect((yield* Effect.flip(run.recover())).code).toBe(
+        "preparation_required"
+      );
+      expect(run.state()).toEqual(failedState);
+      fail = false;
+      yield* run.prepare();
+      expect(run.state().phase).toBe("ready");
+      expect(attempts).toBe(2);
+      expect(f.calls).toEqual(["setup"]);
+      expect(run.state().evidence).toContainEqual({
+        code: "installation_failed",
+        type: "pause",
+      });
+      expect((yield* Effect.flip(run.prepare())).code).toBe(
+        "preparation_required"
+      );
+      expect(attempts).toBe(2);
+    })
+);
+
+it.effect(
+  "releases a runtime whose first capture fails before retrying preparation",
+  () =>
+    Effect.gen(function* retryFirstCapture() {
+      const f = yield* fixture();
+      const run = yield* createAndroidRun(f.input, f.driver);
+      yield* run.decide(run.state().pending[0]?.id ?? "", true);
+      f.showSecureWindow();
+      expect((yield* Effect.flip(run.prepare())).code).toBe("secure_window");
+      expect(f.calls).toEqual(["setup", "close"]);
+      f.hideSecureWindow();
+      yield* run.prepare();
+      expect(run.state().phase).toBe("ready");
+      expect(f.calls).toEqual(["setup", "close", "setup"]);
+    })
+);

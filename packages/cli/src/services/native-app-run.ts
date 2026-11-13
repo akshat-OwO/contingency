@@ -213,8 +213,10 @@ export const createNativeAppRun = <
           guarded(
             Effect.gen(function* prepare() {
               if (
-                currentState().phase !== "pending" ||
+                terminal !== undefined ||
+                !["pending", "paused"].includes(currentState().phase) ||
                 currentState().pending.length !== 0 ||
+                registry.get(prepared) ||
                 runtime !== undefined
               ) {
                 return yield* Effect.fail(makeError("preparation_required"));
@@ -225,14 +227,22 @@ export const createNativeAppRun = <
               record({ type: "setup" });
               const observation = yield* runtime.observe();
               if (!driver.startingConditions(startup, observation)) {
-                yield* runtime.close();
                 return yield* Effect.fail(
                   makeError("starting_condition_failed")
                 );
               }
               registry.set(prepared, true);
               return yield* observed(observation);
-            })
+            }).pipe(
+              Effect.onExit(() =>
+                Effect.gen(function* releaseIncompletePreparation() {
+                  if (!registry.get(prepared) && runtime !== undefined) {
+                    yield* runtime.close();
+                    runtime = undefined;
+                  }
+                })
+              )
+            )
           )
         ),
       recover: () =>

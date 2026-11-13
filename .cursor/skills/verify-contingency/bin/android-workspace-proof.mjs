@@ -219,8 +219,6 @@ const journey = async (sessionId) => {
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
   await openAndroidSheet(control, selection, flowName, snapshot);
-  await wait(prepareName);
-  await click(prepareName);
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
