@@ -14,6 +14,8 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Target App**: The native app a journey is taught and verified against, identified by its package or bundle identifier and build. It names what the journey tests, not where the agent may act: the agent may use the whole emulator OS, including system dialogs, Settings, and other apps. _Avoid_: execution boundary, app scope, cross-app authorization
 
+**Owned Device**: An emulator or simulator that a Contingency process started from Workspace. The process starts it headless and stops it when it closes, after its sessions close. A device that was already running, or that another process started, is never owned. See [ADR 0077](./docs/adr/0077-a-process-owns-the-devices-it-starts.md). _Avoid_: managed device, session device
+
 **Run Environment Permission**: The user's permission for one native-app Run to use an OS version, app build, or app identity that differs from its taught environment. It preserves the taught environment and verification history and does not waive starting-state or capability requirements. _Avoid_: re-verification, permanent environment exception, Confirmation
 
 **Suite**: A named, ordered manifest of Flows that defines the required sanity coverage for one business area. The first version runs members sequentially; after a member fails, the agent pauses and asks the user whether to retry it, continue, or stop. An agent may suggest changes to a Suite, but it may not infer that an unlisted Flow is required or claim complete coverage without running every listed Flow. Suites are not built yet; see `docs/future/agent-flow.md`. _Avoid_: vertical (as the persisted artifact), inferred coverage, test bucket

@@ -4,7 +4,6 @@ import type { IosDevice } from "./ios-contract.ts";
 import {
   IosDeviceSchema,
   iosError,
-  iosUuid,
   isSupportedIosVersion,
 } from "./ios-contract.ts";
 import { decodeIosJson, iosSimctlHost } from "./ios-simctl.ts";
@@ -90,13 +89,6 @@ export const requireIosPrerequisites = (
     }
     return installed;
   });
-/** Starting a simulator fails apart from the runtime's codes. */
-const bootFailed = {
-  _tag: "IosBootError",
-  code: "boot_failed",
-  message:
-    "Could not start the selected simulator. Check its runtime in Xcode, then try again.",
-} as const;
 export const makeIosDiscovery = (io: IosSimctlService = iosSimctlHost) => {
   const inventory = (selected?: IosDevice) =>
     Effect.gen(function* readInventory() {
@@ -158,42 +150,11 @@ export const makeIosDiscovery = (io: IosSimctlService = iosSimctlHost) => {
           : Effect.fail(iosError("device_stopped"))
       )
     );
-  /**
-   * Boots an existing matrix simulator by UDID and waits until it has booted.
-   * It never creates, clones, erases, or resets one: host refusals come first,
-   * and a UDID outside the discovered inventory is refused before `simctl`.
-   */
-  const boot = (udid: string) =>
-    Effect.gen(function* bootSimulator() {
-      if (!iosUuid.test(udid)) {
-        return yield* Effect.fail(iosError("device_mismatch"));
-      }
-      const entry = (yield* inventory()).find(
-        ({ device }) => device.udid === udid
-      );
-      if (entry === undefined) {
-        return yield* Effect.fail(iosError("device_mismatch"));
-      }
-      if (entry.state !== "Booted") {
-        // `simctl boot` refuses a simulator that is already booting; the
-        // bootstatus wait below covers that state.
-        if (entry.state === "Shutdown") {
-          yield* io
-            .device(["boot", udid])
-            .pipe(Effect.mapError(() => bootFailed));
-        }
-        yield* io
-          .device(["bootstatus", udid])
-          .pipe(Effect.mapError(() => bootFailed));
-      }
-      return entry.device;
-    });
   return {
     apps: (selected: IosDevice) =>
       requireRunning(selected).pipe(
         Effect.flatMap(({ dataPath }) => io.apps(dataPath))
       ),
-    boot,
     devices: () =>
       inventory().pipe(
         Effect.map((entries) =>
