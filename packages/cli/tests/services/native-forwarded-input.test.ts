@@ -197,6 +197,17 @@ it("attributes gestures to the smallest named control and describes them", () =>
     detail: "hello",
     kind: "fill",
   });
+  // Text typed into a password field stays out of the evidence.
+  expect(
+    describeGesture(
+      { _tag: "type", text: "hunter2" },
+      { name: "Password", password: true, role: "text-field" }
+    )
+  ).toEqual({
+    description: "Enter text in text-field Password",
+    detail: null,
+    kind: "fill",
+  });
   expect(
     describeGesture({
       _tag: "swipe",

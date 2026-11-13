@@ -1458,7 +1458,7 @@ it.effect("Dry Run allows untaught activation", () =>
 it.effect(
   "a tapped password field offers its Variables until another tap",
   () =>
-    fixture(({ calls, holdNextCapture, setNodes }) =>
+    fixture(({ calls, setNodes }) =>
       Effect.gen(function* tappedField() {
         const workspace = yield* AndroidWorkspace;
         const prepared = yield* preparePick;
@@ -1489,16 +1489,24 @@ it.effect(
           role: "textbox",
           target: "@picked",
         });
-        // The observation that settles the tap keeps its Variable entry.
-        const gate = yield* holdNextCapture();
+        // The keyboard opens. Settling the tap keeps the observation the
+        // Variable entry is bound to, so the private path stays current.
+        setNodes([
+          pickNode({
+            bounds: { height: 0.25, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+          }),
+          pickNode({ name: "Keyboard", target: "@keyboard" }),
+        ]);
         yield* TestClock.adjust(SETTLE_MILLIS * 2);
-        yield* Deferred.await(gate.entered);
-        yield* Deferred.succeed(gate.release, true);
         const settled = yield* workspace.execute(
           { _tag: "read", sessionId: prepared.id },
           "user"
         );
-        expect(settled.observation?.id).not.toBe(observed.observation?.id);
+        expect(settled.observation?.id).toBe(observed.observation?.id);
         expect(settled.field?.password).toBe(true);
         // Tapping where no field is leaves every field.
         const elsewhere = yield* forward(prepared.id, tap(0.5, 0.75));

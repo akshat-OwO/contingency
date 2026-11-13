@@ -534,19 +534,16 @@ export const makeAndroidWorkspaceLayer = (options: {
         observation: AndroidObservation,
         {
           started = session.lane.observing(),
-          keepPassword = false,
         }: {
           /** The input count when the observation began. */
           readonly started?: number;
-          /** The observation shows the result of the user's own input. */
-          readonly keepPassword?: boolean;
         } = {}
       ) => {
         session.lane.observed(started);
         update(session, (current) => ({
           ...current,
           field:
-            (keepPassword || current.field?.password !== true) &&
+            current.field?.password !== true &&
             current.observation !== null &&
             semanticSignature(current.observation.nodes) ===
               semanticSignature(observation.nodes)
@@ -1012,8 +1009,14 @@ export const makeAndroidWorkspaceLayer = (options: {
                       disabled: null,
                       name: target.name,
                       role: target.role,
-                      value: gesture._tag === "type" ? gesture.text : null,
-                      valueWithheld: null,
+                      value:
+                        gesture._tag === "type" && !target.password
+                          ? gesture.text
+                          : null,
+                      valueWithheld:
+                        gesture._tag === "type" && target.password
+                          ? true
+                          : null,
                     },
               targetInferred: inferred,
             });
@@ -1076,18 +1079,28 @@ export const makeAndroidWorkspaceLayer = (options: {
               session.lane.discard();
               return true;
             }
+            const bound = state(session);
+            if (bound.field?.password === true && bound.observation !== null) {
+              // A tapped password field's Variable entry is bound to the
+              // observation it was tapped on. Observing again, as the keyboard
+              // opens, would make that entry stale, so its gestures are
+              // recorded against the bound observation until the user leaves
+              // the field.
+              yield* recordGestures(
+                session,
+                session.lane.take(),
+                bound.observation
+              );
+              yield* persist(session);
+              return true;
+            }
             const started = session.lane.observing();
             const observed = yield* session.run.mirror();
             if (!session.lane.current(started)) {
               return false;
             }
             const gestures = session.lane.take();
-            // A password field the user just tapped keeps its Variable entry
-            // while the screen around it stays the same.
-            acceptObservation(session, observed, {
-              keepPassword: true,
-              started,
-            });
+            acceptObservation(session, observed, { started });
             yield* recordGestures(session, gestures, observed);
             yield* persist(session);
             return true;

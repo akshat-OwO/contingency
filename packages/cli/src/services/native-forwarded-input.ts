@@ -297,7 +297,11 @@ export interface GestureDescription {
 
 export const describeGesture = (
   gesture: ForwardedGesture,
-  target?: { readonly role: string; readonly name: string }
+  target?: {
+    readonly role: string;
+    readonly name: string;
+    readonly password?: boolean;
+  }
 ): GestureDescription => {
   const named =
     target === undefined ? undefined : `${target.role} ${target.name}`.trim();
@@ -343,7 +347,8 @@ export const describeGesture = (
           named === undefined
             ? "Enter text in the focused field"
             : `Enter text in ${named}`,
-        detail: gesture.text,
+        // Text typed into a password field is never evidence.
+        detail: target?.password === true ? null : gesture.text,
         kind: "fill",
       };
     }
