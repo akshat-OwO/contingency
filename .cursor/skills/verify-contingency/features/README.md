@@ -100,3 +100,5 @@ Page zoom and text scale: see [the Emulation scale recipe](workspace.md#page-zoo
 All MCP recipes use `agent_code_execute`. The broker wraps named operation calls in a program; `mcp tools` lists the single execution tool, and signature search discovers operations. See [the single-tool recipe](./workspace.md#single-tool-interface) for proof contracts.
 
 The Workspace recipe includes [recording budget and confirmed discard](workspace.md#recording-video-budget-and-confirmed-discard) proof through the Session Event feed and `agent_code_execute`.
+
+- [Android confirmed preparation](./workspace.md#android-confirmed-preparation) proves cancellation, helper replacement, data-preserving APK reinstall, and same-session retry.

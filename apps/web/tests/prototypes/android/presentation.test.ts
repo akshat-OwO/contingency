@@ -90,7 +90,16 @@ test("waits on a Run Environment Permission instead of preparing", () => {
 });
 
 test("recovers the same emulator after a pause", () => {
-  expect(gesture({ ...pending, phase: "paused" })).toBe("recover");
+  expect(
+    gesture({
+      ...pending,
+      phase: "paused",
+      preparation: {
+        ...pending.preparation,
+        evidence: [{ type: "observation" }],
+      },
+    })
+  ).toBe("recover");
 });
 
 test("starts and stops Teaching on the browser's names", () => {

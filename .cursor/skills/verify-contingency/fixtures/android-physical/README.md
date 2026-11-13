@@ -11,7 +11,7 @@ JAVA_HOME=/path/to/jdk-17 ANDROID_HOME=/path/to/android-sdk \
 
 The builder uses its own pinned Gradle wrapper, Android Gradle plugin 8.12.0, and Material 1.13.0. It builds in a temporary directory with a 1 GB Gradle heap and no persistent daemon, then writes `fixture.apk` and its SHA-256 receipt under `artifacts/android-physical/build/`. It generates a disposable signing key and deletes it with the temporary build. A later build cannot update an installed fixture signed with an earlier key. The proof refuses an existing fixture installation and removes the fixture only if it installed it.
 
-Package: `dev.contingency.physicalfixture`. Starting activity: `.MainActivity`. Starting condition: `text` named `Fresh fixture data`. `Store fixture data` persists a marker; a subsequent authorized clear must restore the fresh screen. The app requests notification permission on launch so preparation must establish its declared grant or denial before the activity starts.
+Package: `dev.contingency.physicalfixture`. Starting activity: `.MainActivity`. Starting condition: `text` named `Fresh fixture data`. `Store fixture data` persists a marker; **Clear fixture marker** clears only that test marker so preparation-retry proofs can reset their precondition; a subsequent authorized clear must restore the fresh screen. The app requests notification permission on launch so preparation must establish its declared grant or denial before the activity starts.
 
 Native password accessibility text is masked. A fill without exact readback is entered but unconfirmed. Readable matching text confirms a fill. Sign-in and the journey outcome decide the assessment.
 

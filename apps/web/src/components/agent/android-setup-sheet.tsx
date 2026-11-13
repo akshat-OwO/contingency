@@ -14,10 +14,18 @@ import {
   RefreshCwIcon,
   SearchIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -701,6 +709,69 @@ const useApkUpload = (
   return { claimed: () => setUploaded(null), letGo, upload, uploaded };
 };
 
+const appName = (app: AndroidDiscoveredApp | undefined) =>
+  app === undefined ? "the app" : app.label || app.package;
+const preparationDescription = (apk: string | undefined) =>
+  apk === undefined
+    ? "Use the installed Target App without reinstalling it."
+    : "Reinstall the selected APK while preserving existing app data and login state.";
+
+interface SetupConfirmation {
+  readonly flowName: FlowName;
+  readonly selection: AndroidWorkspaceSelection;
+  readonly appLabel: string;
+  readonly deviceLabel: string;
+  readonly fingerprint: string;
+}
+const PreparationConfirmation = ({
+  confirmation,
+  open,
+  pending,
+  fingerprint,
+  onCancel,
+  onConfirm,
+}: {
+  readonly confirmation: SetupConfirmation | null;
+  readonly open: boolean;
+  readonly pending: boolean;
+  readonly fingerprint: string;
+  readonly onCancel: () => void;
+  readonly onConfirm: () => void;
+}) => (
+  <Dialog
+    open={confirmation !== null && open}
+    onOpenChange={(next) => {
+      if (!next) {
+        onCancel();
+      }
+    }}
+  >
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Prepare and open app?</DialogTitle>
+        <DialogDescription>
+          Prepare {confirmation?.appLabel} on {confirmation?.deviceLabel}.{" "}
+          {preparationDescription(confirmation?.selection.apkPath)}
+          {
+            " Reinstall the required Contingency device helper if needed, including replacing a newer helper. Then open the Target App."
+          }
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onCancel()}>
+          Cancel
+        </Button>
+        <Button
+          disabled={pending || confirmation?.fingerprint !== fingerprint}
+          onClick={onConfirm}
+        >
+          Confirm preparation
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+);
+
 export const AndroidSetupSheet = ({
   discovery = androidSetupDiscovery,
   onOpen,
@@ -751,10 +822,17 @@ export const AndroidSetupSheet = ({
     ([permission, decision]) => ({ decision, permission })
   );
   const ready = device !== null && app !== undefined && validName;
+  const [confirmationAtom] = useState(() =>
+    Atom.make<SetupConfirmation | null>(null)
+  );
+  const [confirmation, setConfirmation] = useAtom(confirmationAtom);
+  const submitted = useRef(false);
+  const fingerprint = JSON.stringify([form, uploaded, discovered]);
   return (
     <Sheet
       onOpenChange={(next) => {
         if (!next) {
+          setConfirmation(null);
           upload.reset();
           letGo();
         }
@@ -788,15 +866,17 @@ export const AndroidSetupSheet = ({
               release,
               start,
             });
-            const sent = onOpen(
-              name,
-              uploaded === null
-                ? selection
-                : { ...selection, apkPath: uploaded.apkPath }
-            );
-            if (sent) {
-              claimed();
-            }
+            submitted.current = false;
+            setConfirmation({
+              appLabel: appName(app),
+              deviceLabel: discovered?.avd ?? device.serial,
+              fingerprint,
+              flowName: name,
+              selection:
+                uploaded === null
+                  ? selection
+                  : { ...selection, apkPath: uploaded.apkPath },
+            });
           }}
         >
           <div className="min-h-0 flex-1 scroll-pb-8 space-y-6 overflow-y-auto px-4 pb-8">
@@ -890,8 +970,8 @@ export const AndroidSetupSheet = ({
                 Enable Variables
               </label>
               <p className="text-muted-foreground mt-3 text-xs">
-                Opening a session checks agent-device's capture helper on this
-                device and installs or updates it if needed.
+                Preparation installs the supported capture helper on the
+                selected emulator, replacing an incompatible helper when needed.
               </p>
             </Step>
             <NativeOptionalSteps>
@@ -904,9 +984,8 @@ export const AndroidSetupSheet = ({
               >
                 <div className="space-y-1.5">
                   <p className="text-muted-foreground text-xs">
-                    An element that is on screen when{" "}
-                    {app === undefined ? "the app" : app.label || app.package}{" "}
-                    opens. Preparing checks it before you record.
+                    An element that is on screen when {appName(app)} opens.
+                    Preparing checks it before you record.
                   </p>
                   <ConditionInput
                     label="Starting screen element"
@@ -957,10 +1036,32 @@ export const AndroidSetupSheet = ({
             form="android-setup"
             type="submit"
           >
-            Open session
+            Prepare and open app
           </Button>
         </SheetFooter>
       </SheetContent>
+      <PreparationConfirmation
+        confirmation={confirmation}
+        open={open}
+        pending={pending}
+        fingerprint={fingerprint}
+        onCancel={() => setConfirmation(null)}
+        onConfirm={() => {
+          if (
+            confirmation === null ||
+            submitted.current ||
+            pending ||
+            confirmation.fingerprint !== fingerprint
+          ) {
+            return;
+          }
+          submitted.current = true;
+          if (onOpen(confirmation.flowName, confirmation.selection)) {
+            claimed();
+          }
+          setConfirmation(null);
+        }}
+      />
     </Sheet>
   );
 };

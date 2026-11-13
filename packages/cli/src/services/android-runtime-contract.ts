@@ -50,6 +50,8 @@ export interface AndroidInstallationGrant {
   readonly serial: string;
   readonly sha256: typeof androidHelperRelease.sha256;
   readonly operation: "install" | "replace" | "auto";
+  /** Explicit Workspace setup confirmation includes helper downgrade. */
+  readonly replaceNewer?: boolean;
 }
 
 export interface AndroidRuntimeStartInput extends NativeAppRuntimeStartInput<AndroidDeviceSelection> {

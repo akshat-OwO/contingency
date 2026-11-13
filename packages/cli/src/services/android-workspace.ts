@@ -332,6 +332,13 @@ const KeyframeIndex = Schema.fromJsonString(
 const keyframeIndexFile = (summaryFile: string) =>
   summaryFile.replace(/\.json$/u, ".keyframes.json");
 
+const confirmedStartAllowed = (
+  command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
+  source: "agent" | "user"
+) =>
+  !command.prepareAndOpen ||
+  (source === "user" && command.kind === "teaching" && !command.agentSetup);
+
 export const makeAndroidWorkspaceLayer = (options: {
   readonly root: () => string;
   /** The session's display and input transport; tests substitute their own. */
@@ -502,7 +509,11 @@ export const makeAndroidWorkspaceLayer = (options: {
             summary: {
               ...current.summary,
               captureGaps: [...current.summary.captureGaps, cause.code],
-              error: cause.message,
+              error:
+                cause.code === "preparation_required" &&
+                current.summary.error !== null
+                  ? current.summary.error
+                  : cause.message,
               phase: "paused",
             },
           }));
@@ -669,6 +680,54 @@ export const makeAndroidWorkspaceLayer = (options: {
           const setup = runSetup(taught, selection.setup);
           return { inputs, recordingId, setup, taught };
         });
+      const prepareConfirmedSession = (session: Session) =>
+        Effect.gen(function* confirmedPreparation() {
+          for (const decision of session.run.state().pending) {
+            yield* session.run.decide(decision.id, true);
+          }
+          const prepared = yield* session.run.prepare();
+          acceptObservation(session, prepared);
+          update(session, (value) => ({
+            ...value,
+            startingObservation: boundaryObservationSummary(prepared),
+          }));
+          yield* persist(session);
+        }).pipe(
+          Effect.matchEffect({
+            onFailure: (cause) => pause(session, cause),
+            onSuccess: () => Effect.void,
+          }),
+          Effect.onInterrupt(() =>
+            pause(
+              session,
+              error(
+                "execution_canceled",
+                "Android preparation was canceled. Retry preparation explicitly."
+              )
+            )
+          )
+        );
+      const requireAvailableDevice = (
+        selection: AndroidWorkspaceSummary["selection"]
+      ) =>
+        Effect.gen(function* availableDevice() {
+          // The Support Matrix binds one device at a time; another live session keeps its binding.
+          const bound = [...sessions.values()].find((session) =>
+            ["pending", "running", "paused"].includes(
+              state(session).summary.phase
+            )
+          );
+          if (bound !== undefined) {
+            const { id: boundId, selection: boundSelection } =
+              state(bound).summary;
+            const { serial } = boundSelection.device;
+            return yield* denied(
+              serial === selection.device.serial
+                ? `Android session ${boundId} is already bound to ${serial}. Close it before starting another session.`
+                : `Android binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+            );
+          }
+        });
       const start = (
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
@@ -689,22 +748,12 @@ export const makeAndroidWorkspaceLayer = (options: {
               }
             }
             const { selection } = command;
-            // The Support Matrix binds one device at a time; another live session keeps its binding.
-            const bound = [...sessions.values()].find((session) =>
-              ["pending", "running", "paused"].includes(
-                state(session).summary.phase
-              )
-            );
-            if (bound !== undefined) {
-              const { id: boundId, selection: boundSelection } =
-                state(bound).summary;
-              const { serial } = boundSelection.device;
+            if (!confirmedStartAllowed(command, source)) {
               return yield* denied(
-                serial === selection.device.serial
-                  ? `Android session ${boundId} is already bound to ${serial}. Close it before starting another session.`
-                  : `Android binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+                "Prepare and open requires the user's Teaching setup confirmation."
               );
             }
+            yield* requireAvailableDevice(selection);
             const { taught, recordingId, inputs, setup } =
               yield* selectRequirements(command);
             const id = AgentSessionId.make(
@@ -747,6 +796,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                     ...startup,
                     installationGrant: {
                       operation: selection.helperConsent,
+                      replaceNewer: command.prepareAndOpen === true,
                       serial: selection.device.serial,
                       sha256: androidHelperRelease.sha256,
                     },
@@ -902,6 +952,12 @@ export const makeAndroidWorkspaceLayer = (options: {
             if (Result.isFailure(initialized)) {
               yield* close(session).pipe(Effect.ignore);
               return yield* Effect.fail(initialized.failure);
+            }
+            if (command.prepareAndOpen) {
+              // The confirmation names this exact app, artifact, and device.
+              // Retain a failed session so the user can retry its preparation.
+              yield* prepareConfirmedSession(session);
+              return yield* snapshot(session, true);
             }
             return initialized.success;
           })

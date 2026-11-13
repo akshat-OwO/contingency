@@ -2409,3 +2409,148 @@ it.effect(
       })
     )
 );
+
+it.effect(
+  "confirmed setup prepares once and retries failed capture within the retained session",
+  () =>
+    fixture(({ disconnect, reconnect, calls }) =>
+      Effect.gen(function* confirmedSetup() {
+        const workspace = yield* AndroidWorkspace;
+        const command = {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("confirmed-setup"),
+          prepareAndOpen: true,
+          recordingId: null,
+          selection,
+        } as const;
+        expect(
+          (yield* Effect.flip(workspace.execute(command, "agent"))).code
+        ).toBe("android_workspace_refused");
+        disconnect();
+        const failed = yield* workspace.execute(command, "user");
+        expect(failed.phase).toBe("paused");
+        expect(failed.preparation.phase).toBe("paused");
+        const originalError = failed.error;
+        expect(originalError).not.toBeNull();
+        const repeated = yield* workspace.execute(command, "user");
+        expect(repeated.id).toBe(failed.id);
+        expect(repeated.error).toBe(originalError);
+        yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "recover",
+              operationId: op("unusable-recovery"),
+              sessionId: failed.id,
+            },
+            "user"
+          )
+        );
+        const retained = yield* workspace.execute(
+          { _tag: "read", sessionId: failed.id },
+          "user"
+        );
+        expect(retained.error).toBe(originalError);
+        reconnect();
+        const ready = yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("retry-preparation"),
+            sessionId: failed.id,
+          },
+          "user"
+        );
+        expect(ready.id).toBe(failed.id);
+        expect(ready.phase).toBe("running");
+        expect(ready.error).toBeNull();
+        expect(ready.observation).not.toBeNull();
+        expect(calls).not.toContain("activate");
+        const repeatedReady = yield* workspace.execute(command, "user");
+        expect(repeatedReady.id).toBe(ready.id);
+        expect(repeatedReady.phase).toBe("running");
+      })
+    )
+);
+
+it.effect("coalesces concurrent confirmation of the same setup operation", () =>
+  fixture(({ holdNextCapture }) =>
+    Effect.gen(function* concurrentConfirmation() {
+      const workspace = yield* AndroidWorkspace;
+      const gate = yield* holdNextCapture();
+      const command = {
+        _tag: "start",
+        flowName,
+        kind: "teaching",
+        operationId: op("concurrent-confirmation"),
+        prepareAndOpen: true,
+        recordingId: null,
+        selection,
+      } as const;
+      const first = yield* Effect.forkChild(workspace.execute(command, "user"));
+      yield* Deferred.await(gate.entered);
+      const duplicate = yield* Effect.forkChild(
+        workspace.execute(command, "user")
+      );
+      yield* Deferred.succeed(gate.release, true);
+      const prepared = yield* Fiber.join(first);
+      const replay = yield* Fiber.join(duplicate);
+      expect(prepared.phase).toBe("running");
+      expect(replay.id).toBe(prepared.id);
+      expect(
+        replay.preparation.evidence.filter((event) => event.type === "setup")
+      ).toHaveLength(1);
+      expect(
+        (yield* workspace.list()).filter((entry) => entry.phase === "running")
+      ).toHaveLength(1);
+      const stale = yield* Effect.flip(
+        workspace.execute(
+          {
+            ...command,
+            selection: { ...selection, apkPath: "/different.apk" },
+          },
+          "user"
+        )
+      );
+      expect(stale.code).toBe("android_workspace_refused");
+    })
+  )
+);
+
+it.effect(
+  "retains interrupted confirmed preparation for explicit same-session retry",
+  () =>
+    fixture(({ holdNextCapture }) =>
+      Effect.gen(function* interruptedPreparation() {
+        const workspace = yield* AndroidWorkspace;
+        const gate = yield* holdNextCapture();
+        const command = {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("interrupted-confirmation"),
+          prepareAndOpen: true,
+          recordingId: null,
+          selection,
+        } as const;
+        const fiber = yield* Effect.forkChild(
+          workspace.execute(command, "user")
+        );
+        yield* Deferred.await(gate.entered);
+        yield* Fiber.interrupt(fiber);
+        const retained = yield* workspace.execute(command, "user");
+        expect(retained.phase).toBe("paused");
+        expect(retained.error).toContain("canceled");
+        const ready = yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("explicit-retry"),
+            sessionId: retained.id,
+          },
+          "user"
+        );
+        expect(ready.id).toBe(retained.id);
+        expect(ready.phase).toBe("running");
+      })
+    )
+);

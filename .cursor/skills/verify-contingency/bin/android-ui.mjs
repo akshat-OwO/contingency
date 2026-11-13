@@ -234,7 +234,9 @@ export const openAndroidSheet = async (
     );
   }
   await snapshot("setup-sheet");
-  await click("Open session");
+  await click("Prepare and open app");
+  await snapshot("setup-confirmation");
+  await click("Confirm preparation");
   await control(
     "browser",
     "wait",

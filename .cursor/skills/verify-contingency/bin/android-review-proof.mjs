@@ -154,7 +154,6 @@ try {
       selection.environment.permissions
     );
     assert.equal(session.selection.setup.activity, selection.setup.activity);
-    await click("Prepare selected emulator");
     await wait("button", "Start recording");
     const prepared = await command({
       _tag: "observe",

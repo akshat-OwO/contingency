@@ -178,6 +178,71 @@ export const requireReplaceableHelper = (packageList: string) =>
     }
   });
 
+/** Only a confirmed automatic grant may replace a newer helper. */
+export const helperReplacement = (packageList: string, automatic: boolean) =>
+  Effect.gen(function* replacement() {
+    const result = yield* Effect.result(requireReplaceableHelper(packageList));
+    if (result._tag === "Success") {
+      return false;
+    }
+    if (result.failure.code === "helper_newer_installed" && automatic) {
+      return true;
+    }
+    return yield* Effect.fail(result.failure);
+  });
+
+/** Called under the selected device lock, after verifying the bundled APK bytes. */
+export const installAuthorizedAndroidHelper = (
+  input: AndroidRuntimeStartInput,
+  installed: string | null,
+  apk: string,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
+) =>
+  Effect.gen(function* installHelper() {
+    if (installed !== androidHelperRelease.sha256) {
+      const grant = input.installationGrant;
+      const removeNewer =
+        installed !== null &&
+        (yield* helperReplacement(
+          yield* run([
+            "shell",
+            `pm list packages --user 0 --show-versioncode ${androidHelperRelease.packageName}`,
+          ]),
+          grant?.replaceNewer === true &&
+            grant.operation === "auto" &&
+            grant.serial === input.device.serial &&
+            grant.sha256 === androidHelperRelease.sha256
+        ));
+      if (
+        grant?.serial !== input.device.serial ||
+        grant.sha256 !== androidHelperRelease.sha256 ||
+        (grant.operation !== "auto" &&
+          grant.operation !== (installed === null ? "install" : "replace"))
+      ) {
+        return yield* Effect.fail(platformRuntimeError("installation_denied"));
+      }
+      if (removeNewer) {
+        // Only the helper is disposable. Never uninstall the Target App.
+        const removed = yield* run([
+          "uninstall",
+          androidHelperRelease.packageName,
+        ]);
+        if (removed !== "Success") {
+          return yield* Effect.fail(
+            platformRuntimeError("installation_failed")
+          );
+        }
+      }
+      yield* run([
+        "install",
+        "--user",
+        "0",
+        ...(installed === null || removeNewer ? [] : ["-r"]),
+        apk,
+      ]);
+    }
+  });
+
 const requireHelper = (serial: string) =>
   Effect.gen(function* validateHelper() {
     // Exact signed APK bytes bind the signer and version as well as the payload.
@@ -315,35 +380,10 @@ export const acquireAndroidBackend = (
         return yield* Effect.fail(platformRuntimeError("helper_owned"));
       }
       const installed = yield* installedHash(input.device.serial);
-      if (installed !== manifest.sha256) {
-        if (installed !== null) {
-          yield* requireReplaceableHelper(
-            yield* adb(input.device.serial, [
-              "shell",
-              `pm list packages --user 0 --show-versioncode ${androidHelperRelease.packageName}`,
-            ])
-          );
-        }
-        const grant = input.installationGrant;
-        if (
-          grant?.serial !== input.device.serial ||
-          grant.sha256 !== manifest.sha256 ||
-          (grant.operation !== "auto" &&
-            grant.operation !== (installed === null ? "install" : "replace"))
-        ) {
-          return yield* Effect.fail(
-            platformRuntimeError("installation_denied")
-          );
-        }
-        yield* adb(input.device.serial, [
-          "install",
-          "--user",
-          "0",
-          ...(installed === null ? [] : ["-r"]),
-          apk,
-        ]);
-        yield* requireHelper(input.device.serial);
-      }
+      yield* installAuthorizedAndroidHelper(input, installed, apk, (args) =>
+        adb(input.device.serial, args)
+      );
+      yield* requireHelper(input.device.serial);
       // The explicitly authorized installation persists. Session cleanup never uninstalls it.
       const directory = yield* Effect.acquireRelease(
         io(() => mkdtemp(path.join(tmpdir(), "contingency-android-runtime-"))),

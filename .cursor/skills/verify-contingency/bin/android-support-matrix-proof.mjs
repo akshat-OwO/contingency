@@ -504,7 +504,7 @@ try {
   );
   assert.ok(teaching);
   sessions.push(teaching.id);
-  await prepare(teaching.id);
+  await view(teaching.id);
   await click("Start recording");
   await androidIdle(control);
   let current = await observe(teaching.id);

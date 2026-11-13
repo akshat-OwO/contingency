@@ -48,6 +48,7 @@ import {
 } from "./android-dock";
 import {
   androidDockPresentation,
+  hasPreparedAndroidSession,
   androidFlowsSessionView,
   isLiveAndroidSession,
 } from "./android-dock-state";
@@ -166,6 +167,9 @@ const gestureCommand = (
 
 /** What the device glass says while it has no stream to show. */
 const glassText = (session: AndroidWorkspaceSnapshot) => {
+  if (session.phase === "paused" && !hasPreparedAndroidSession(session)) {
+    return "Preparation failed. Retry preparation from the dock.";
+  }
   if (session.phase === "pending") {
     return "Prepare the emulator from the dock to show its screen here.";
   }
@@ -179,8 +183,10 @@ const glassText = (session: AndroidWorkspaceSnapshot) => {
 export const AndroidEmptyState = ({
   onOpen,
   onSelect,
+  pending = false,
   sessions,
 }: {
+  readonly pending?: boolean;
   readonly onOpen: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly sessions: readonly AndroidWorkspaceSummary[];
@@ -197,11 +203,15 @@ export const AndroidEmptyState = ({
         </div>
         <div className="space-y-1.5">
           <h1 className="text-xl font-semibold tracking-tight">
-            No Android session
+            {pending ? "Opening Android session" : "No Android session"}
           </h1>
-          <p className="text-muted-foreground text-sm text-pretty">
-            Open a session to pick a device and an app, then start recording
-            when the journey begins.
+          <p
+            role="status"
+            className="text-muted-foreground text-sm text-pretty"
+          >
+            {pending
+              ? "Preparing the selected app and emulator. Installation can take a moment."
+              : "Open a session to pick a device and an app, then start recording when the journey begins."}
           </p>
         </div>
         {sessions.length === 0 ? null : (
@@ -214,7 +224,7 @@ export const AndroidEmptyState = ({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button onClick={onOpen} size="lg">
+          <Button disabled={pending} onClick={onOpen} size="lg">
             <SmartphoneIcon />
             Open Android session
           </Button>
@@ -672,7 +682,10 @@ export const AndroidSessionView = ({
           canAct={canAct}
           cleanup={deviceCleanupKey(session.cleanup)}
           ended={!isLiveAndroidSession(session)}
-          live={session.phase === "running" || session.phase === "paused"}
+          live={
+            hasPreparedAndroidSession(session) &&
+            (session.phase === "running" || session.phase === "paused")
+          }
           onBack={() => {
             for (const action of ["down", "up"] as const) {
               onInput({
@@ -686,9 +699,12 @@ export const AndroidSessionView = ({
             }
           }}
           onInput={onInput}
-          paused={session.phase === "paused"}
+          paused={
+            session.phase === "paused" && hasPreparedAndroidSession(session)
+          }
           secure={
             session.phase === "paused" &&
+            hasPreparedAndroidSession(session) &&
             session.captureGaps.at(-1) === "secure_window"
           }
           pending={pending}
@@ -866,6 +882,7 @@ export const AndroidWorkspace = ({
         >
           <AndroidEmptyState
             onOpen={() => setupOpen(true)}
+            pending={gesture.pending}
             onSelect={(value) => {
               if (Schema.is(AgentSessionId)(value)) {
                 mutate({ _tag: "read", sessionId: value });
@@ -892,6 +909,7 @@ export const AndroidWorkspace = ({
             flowName,
             kind: "teaching",
             operationId: operationId(),
+            prepareAndOpen: true,
             recordingId: null,
             selection,
           });
