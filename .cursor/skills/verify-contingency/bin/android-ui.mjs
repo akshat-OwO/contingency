@@ -1,7 +1,7 @@
 /* oxlint-disable eslint/no-await-in-loop -- UI gestures run in order. */
 import assert from "node:assert/strict";
 
-/** Wait on the UI command completion, including the separate stream-pick gesture. */
+/** Wait on the UI command completion, including forwarded stream input. */
 export const waitAndroidIdle = async (page) => {
   await page
     .getByRole("region", { exact: true, name: "Workspace dock" })
@@ -23,7 +23,7 @@ export const waitAndroidIdle = async (page) => {
   );
 };
 
-/** Resolve a semantic name only to aim the real mouse; the UI performs the pick. */
+/** Resolve a semantic name only to aim the real mouse; the click goes to the device. */
 export const pickAndroid = async (page, flags, call) => {
   const sessionId = flags["session-id"];
   assert.match(
@@ -79,14 +79,15 @@ export const pickAndroid = async (page, flags, call) => {
   }
   assert.ok(Number.isFinite(fx) && fx >= 0 && fx < 1, "--fx must be in [0,1).");
   assert.ok(Number.isFinite(fy) && fy >= 0 && fy < 1, "--fy must be in [0,1).");
-  const canvas = page.getByRole("img", {
-    exact: true,
-    name: "Selected device live display",
-  });
+  // The display is an image while the agent holds the device and an
+  // application, with a longer name, while the user does.
+  const canvas = page.locator(
+    'canvas[aria-label^="Selected device live display"]'
+  );
   await canvas.waitFor();
   await page.waitForFunction(() => {
     const display = document.querySelector(
-      'canvas[aria-label="Selected device live display"]'
+      'canvas[aria-label^="Selected device live display"]'
     );
     return (
       display && display.width > 0 && !display.classList.contains("invisible")
@@ -94,9 +95,9 @@ export const pickAndroid = async (page, flags, call) => {
   });
   const box = await canvas.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0);
-  // Every pick takes a fresh observation, so the session revision advances
-  // whether the server activates, selects a field, or refuses. Picks travel
-  // over the RPC WebSocket, so there is no HTTP response to wait on.
+  // The click is Forwarded Input: it reaches the device at once, and the
+  // observation that settles after it advances the session revision.
+  // Input travels over the RPC WebSocket, so there is no HTTP response.
   const initial = await call({ _tag: "read", sessionId });
   const before = initial.revision;
   await page.mouse.click(box.x + fx * box.width, box.y + fy * box.height);
@@ -106,11 +107,40 @@ export const pickAndroid = async (page, flags, call) => {
     if (revision > before) {
       break;
     }
-    assert.ok(Date.now() < deadline, "The pick did not reach the session.");
+    assert.ok(Date.now() < deadline, "No observation settled after the click.");
     await page.waitForTimeout(250);
   }
   await waitAndroidIdle(page);
   return { fx, fy, sessionId };
+};
+
+const SHIFTED = new Set('~!@#$%^&*()_+{}|:"<>?');
+
+/**
+ * Types into the focused device field the way a person does on the live
+ * display: it focuses the display, holds Shift for capitals and symbols,
+ * and presses each key. The keys are Forwarded Input; nothing goes through
+ * the dock.
+ */
+export const typeOnDevice = async (page, text) => {
+  const display = page.locator(
+    'canvas[aria-label^="Selected device live display"], canvas[aria-label^="Live iOS viewport"]'
+  );
+  await display.first().focus();
+  for (const character of text) {
+    const shifted =
+      SHIFTED.has(character) ||
+      (character !== character.toLowerCase() &&
+        character === character.toUpperCase());
+    if (shifted) {
+      await page.keyboard.down("Shift");
+    }
+    await page.keyboard.press(character === " " ? "Space" : character);
+    if (shifted) {
+      await page.keyboard.up("Shift");
+    }
+  }
+  return { typed: text.length };
 };
 
 /** Shared accessible setup recipe; all choices are discovered UI entries. */
@@ -232,6 +262,8 @@ export const androidPick = (control, sessionId, role, name) =>
     name
   );
 export const androidIdle = (control) => control("browser", "android-idle");
+export const deviceType = (control, text) =>
+  control("browser", "device-type", "--text", text);
 export const androidComment = async (control, text) => {
   await control("browser", "click", "--role", "button", "--name", "Comment");
   await control(

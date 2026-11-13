@@ -22,6 +22,10 @@ import {
 } from "./ios-proof-resources.mjs";
 import { iosRpc, uploadIosApp } from "./ios-workspace-rpc.mjs";
 
+// A tap that focuses a field is recorded as its own forwarded action.
+const focusTap = (entry) =>
+  entry.kind === "activate" &&
+  (entry.target?.role ?? "").endsWith("text-field");
 // Display changes happen to the selected simulator from outside Contingency, as a
 // person rotating or folding the device would. Every journey step still passes
 // through Workspace or public MCP. CONTINGENCY_IOS_DISPLAY_CASE picks the case:
@@ -436,8 +440,8 @@ const startTeaching = async (name = flowName) => {
 };
 const teachSignIn = async (sessionId) => {
   await pick(sessionId, "text-field", "Login name");
-  await fillField("Text for Login name", loginName);
-  await click("Type");
+  // The keys are Forwarded Input, typed on the focused live display.
+  await control("browser", "device-type", "--text", loginName);
   await pick(sessionId, "secure-text-field", "Password");
   await click("Request Variable");
   await fillField("PASSWORD", password);
@@ -569,11 +573,13 @@ const rotationCase = async () => {
   assertStoppedLast(await events(stopped.recordingId));
   await click("Close session");
   const entries = await learn(stopped.recordingId);
-  const actions = entries.filter((entry) => entry._tag === "action");
+  const actions = entries.filter(
+    (entry) => entry._tag === "action" && !focusTap(entry)
+  );
   assert.deepEqual(
     actions.map((entry) => entry.description),
     [
-      "Enter public fixture text in text-field Login name",
+      "Enter text in text-field Login name",
       `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
       "Activate button Sign in privately",
       "Activate button Open account",
@@ -680,10 +686,10 @@ const foldCase = async () => {
   const entries = await learn(stopped.recordingId);
   assert.deepEqual(
     entries
-      .filter((entry) => entry._tag === "action")
+      .filter((entry) => entry._tag === "action" && !focusTap(entry))
       .map((entry) => entry.description),
     [
-      "Enter public fixture text in text-field Login name",
+      "Enter text in text-field Login name",
       `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
       "Activate button Sign in privately",
       "Activate button Open account",
@@ -951,9 +957,9 @@ const stopRace = async (stage) => {
   const retainedTimeline = await timeline(stopped.recordingId);
   assert.deepEqual(
     retainedTimeline.entries
-      .filter((entry) => entry._tag === "action")
+      .filter((entry) => entry._tag === "action" && !focusTap(entry))
       .map((entry) => entry.description),
-    ["Enter public fixture text in text-field Login name"]
+    ["Enter text in text-field Login name"]
   );
   await evidence(`stop-${stage}`);
   const daemon = await productDaemon();

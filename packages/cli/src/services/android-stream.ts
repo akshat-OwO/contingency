@@ -4,6 +4,7 @@ import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import type { NativeInput } from "@contingency/protocol";
 import { Effect, Queue, Schema, Scope, Semaphore, Stream } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
@@ -22,6 +23,13 @@ export interface AndroidDeviceStream {
   readonly access: AndroidStreamAccess;
   readonly authorized: (token?: string) => boolean;
   readonly frames: Stream.Stream<Uint8Array>;
+  /**
+   * Sends Forwarded Input to the device through the stream's control socket,
+   * in order. It fails when no viewer has started the stream.
+   */
+  readonly forward: (
+    inputs: readonly NativeInput[]
+  ) => Effect.Effect<void, Error>;
 }
 
 const lost: AndroidStreamPacket = { _tag: "state", state: "lost" };
@@ -66,7 +74,10 @@ const cleanupTransport = (device: AndroidDeviceSelection, scid: string) =>
     ]);
   });
 
-/** One display-only hub transport per session, with no listening hub port. */
+/**
+ * One hub transport per session, with no listening hub port. It shows the
+ * device and carries the user's Forwarded Input; nothing else reaches it.
+ */
 export const acquireAndroidStream = (
   sessionId: string,
   device: AndroidDeviceSelection,
@@ -85,7 +96,7 @@ export const acquireAndroidStream = (
           CONTINGENCY_STREAM_SCID: scid,
           CONTINGENCY_STREAM_SERIAL: device.serial,
         },
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: ["pipe", "pipe", "ignore"],
       }
     ),
   cleanup: (scid: string) => Effect.Effect<void, Error> = (scid) =>
@@ -154,6 +165,11 @@ export const acquireAndroidStream = (
             }
             const scid = randomInt(0x80_00_00_00).toString(16).padStart(8, "0");
             const child = launch(scid);
+            // A worker that exits mid-write fails that forward; it must not
+            // throw on the parent.
+            child.stdin?.on("error", () => {
+              // Reported through the write callback.
+            });
             pendingCleanup.add(scid);
             worker = child;
             let pending = "";
@@ -273,6 +289,31 @@ export const acquireAndroidStream = (
         token !== undefined &&
         Buffer.byteLength(token) === Buffer.byteLength(secret) &&
         timingSafeEqual(Buffer.from(token), Buffer.from(secret)),
+      forward: (inputs) =>
+        Effect.suspend(() => {
+          const input = worker?.stdin;
+          if (
+            registry.get(closed) ||
+            input === undefined ||
+            input === null ||
+            !input.writable
+          ) {
+            return Effect.fail(
+              new Error("The device stream is not live. Nothing was sent.")
+            );
+          }
+          return Effect.callback<true, Error>((resume) => {
+            input.write(
+              inputs.map((value) => `${JSON.stringify(value)}\n`).join(""),
+              (cause) =>
+                resume(
+                  cause
+                    ? Effect.fail(new Error("The device stream closed."))
+                    : Effect.succeed(true)
+                )
+            );
+          }).pipe(Effect.asVoid);
+        }),
       frames,
     } satisfies AndroidDeviceStream;
   });

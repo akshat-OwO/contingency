@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Scope } from "effect";
+import { TestClock } from "effect/testing";
 
 import type { AndroidRunInput } from "../../src/services/android-run-contract.ts";
 import { createAndroidRun } from "../../src/services/android-run.ts";
@@ -8,6 +9,7 @@ import type {
   AndroidRuntimeBackend,
 } from "../../src/services/android-runtime-contract.ts";
 import { adaptAndroidRuntime } from "../../src/services/android-runtime.ts";
+import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 
 const request = (scope: Scope.Scope): AndroidRunInput => ({
@@ -362,6 +364,7 @@ it.effect(
       const first = yield* run.prepare();
       sourceAvailable = false;
       f.showSecureWindow();
+      yield* TestClock.adjust(OBSERVATION_VALIDATION_MILLIS);
       yield* Effect.flip(run.observe());
       f.hideSecureWindow();
       const fresh = yield* run.recover();

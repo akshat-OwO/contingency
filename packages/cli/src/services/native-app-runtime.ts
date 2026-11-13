@@ -1,6 +1,6 @@
 import type { PlatformCapability } from "@contingency/protocol";
 import type { Effect as EffectType } from "effect";
-import { Effect, Redacted, Scope, Semaphore } from "effect";
+import { Clock, Effect, Redacted, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { nativeAppRuntimeError } from "./native-app-error.ts";
@@ -29,6 +29,14 @@ export const requireNativeAppCapabilities = (
     : Effect.fail(error("capability_missing"));
 };
 
+/**
+ * How long a passing environment check covers observations. Validation runs
+ * on this slow cadence and when the foreground app changes, never once per
+ * observation, so observing the user's Forwarded Input stays cheap. Agent
+ * actions still validate around every dispatch.
+ */
+export const OBSERVATION_VALIDATION_MILLIS = 10_000;
+
 export const adaptNativeAppRuntime = <
   Observation extends PlatformObservation,
   Device,
@@ -38,6 +46,8 @@ export const adaptNativeAppRuntime = <
   readonly capabilities: readonly PlatformCapability[];
   readonly policy: NativeAppActionPolicy<Observation>;
   readonly error?: typeof nativeAppRuntimeError;
+  /** The app an observation shows in front, when the platform reports one. */
+  readonly foreground?: (observation: Observation) => string | undefined;
 }): EffectType.Effect<
   NativeAppRuntime<Observation, Device>,
   PlatformRuntimeError
@@ -97,10 +107,28 @@ export const adaptNativeAppRuntime = <
         ? Effect.void
         : Effect.fail(error("runtime_paused"))
     );
+    let validatedAt: number | undefined;
+    let validatedForeground: string | undefined;
     const capture = Effect.gen(function* observeAndroid() {
       yield* invalidate;
-      yield* input.backend.validate();
+      const now = yield* Clock.currentTimeMillis;
+      const due =
+        validatedAt === undefined ||
+        now - validatedAt >= OBSERVATION_VALIDATION_MILLIS;
+      if (due) {
+        validatedAt = undefined;
+        yield* input.backend.validate();
+        validatedAt = now;
+      }
       const captured = yield* input.backend.capture();
+      const foreground = input.foreground?.(captured);
+      if (!due && foreground !== validatedForeground) {
+        // Another app came forward since the last check: check again now.
+        validatedAt = undefined;
+        yield* input.backend.validate();
+        validatedAt = yield* Clock.currentTimeMillis;
+      }
+      validatedForeground = foreground;
       registry.set(observation, captured);
       registry.set(status, {
         failure: null,
@@ -213,6 +241,8 @@ export const adaptNativeAppRuntime = <
                 return yield* Effect.fail(error("runtime_closed"));
               }
               yield* input.backend.recover();
+              // A recovered device is checked again before it is trusted.
+              validatedAt = undefined;
               return yield* capture;
             })
           )

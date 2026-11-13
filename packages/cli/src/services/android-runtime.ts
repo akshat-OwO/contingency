@@ -28,6 +28,7 @@ export const adaptAndroidRuntime = (input: {
     ...input,
     capabilities: androidCapabilities,
     error: platformRuntimeError,
+    foreground: (observation) => observation.ownership.focusedPackage,
     policy: nativeAppActionPolicy(platformRuntimeError, true),
   }).pipe(
     Effect.map((runtime) => ({ ...runtime, platform: "android" as const }))

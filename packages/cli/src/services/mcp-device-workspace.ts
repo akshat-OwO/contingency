@@ -58,7 +58,6 @@ export const DeviceWorkspaceTools = withStrictParameters(
           [start, ...sharedCommands, IosReturnToTargetAppCommand].filter(
             (member) =>
               ![
-                "pick",
                 "field-dismiss",
                 "variable-supply",
                 "prepare",

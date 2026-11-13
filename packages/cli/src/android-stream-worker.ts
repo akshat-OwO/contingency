@@ -2,12 +2,22 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
+import { NativeInput } from "@contingency/protocol";
 import { NodeRuntime } from "@effect/platform-node";
-import { Effect, Schedule } from "effect";
-import { startScrcpy } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
+import { Effect, Result, Schedule, Schema } from "effect";
+import { startGrpcSession } from "expo-device-hub/vendor/serve-emu/dist/grpc-session.js";
+import {
+  startScrcpy,
+  startScrcpyControl,
+} from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
 
+import {
+  makeAndroidControlGestures,
+  androidControlPackets,
+} from "./services/android-control.ts";
 import {
   androidStreamRelease,
   androidVisibilityState,
@@ -61,29 +71,125 @@ Effect.scoped(
         controller.abort();
       })
     );
+    const scrcpyServer = {
+      ensureServer: () => Promise.resolve(jar),
+      randomScid: () => scid,
+    };
+    /**
+     * A display stream and where its input goes. An emulator's screen is read
+     * over its own gRPC and encoded on this host with low-delay settings,
+     * which avoids the emulator's slow in-guest encoder; input then goes
+     * through that stream's gesture queue. A physical device, or an emulator
+     * whose gRPC or host encoder is unavailable, streams through scrcpy and
+     * takes control packets directly.
+     */
+    interface DisplayStream {
+      readonly meta: { readonly width: number; readonly height: number };
+      readonly readFrame: Awaited<ReturnType<typeof startScrcpy>>["readFrame"];
+      readonly send: (
+        input: NativeInput,
+        screen: { readonly width: number; readonly height: number }
+      ) => void;
+      readonly close: () => Promise<void>;
+    }
+    const scrcpyStream = io(async (): Promise<DisplayStream> => {
+      const owned = await startScrcpy(
+        {
+          bitRate: 2_000_000,
+          keyFrameInterval: 1,
+          maxFps: 30,
+          maxSize: 1280,
+          repeatFrameMs: 500,
+          serial,
+          signal: controller.signal,
+        },
+        scrcpyServer
+      );
+      return {
+        close: () => owned.close(),
+        meta: owned.meta,
+        readFrame: () => owned.readFrame(),
+        send: (input, screen) => {
+          for (const packet of androidControlPackets(input, screen)) {
+            owned.controlSocket.write(packet);
+          }
+        },
+      };
+    });
+    const emulatorStream = io(async (): Promise<DisplayStream> => {
+      const owned = await startGrpcSession(
+        {
+          bitRate: 8_000_000,
+          encoder: "software",
+          grpcImageMode: "mmap",
+          inputSource: "scrcpy",
+          keyFrameInterval: 1,
+          maxFps: 60,
+          maxSize: 1280,
+          repeatFrameMs: 500,
+          serial,
+          signal: controller.signal,
+        },
+        {
+          startScrcpyControl: (options) =>
+            startScrcpyControl(options, scrcpyServer),
+        }
+      );
+      const gestures = makeAndroidControlGestures();
+      return {
+        close: () => owned.close(),
+        meta: owned.meta,
+        readFrame: () => owned.readFrame(),
+        send: (input, screen) => {
+          for (const gesture of gestures(input)) {
+            // The queue keeps order. A rejected or dropped gesture is not
+            // retried, and a closed queue ends the stream through its own
+            // failure.
+            void (async () => {
+              try {
+                await owned.controls.enqueue(gesture, screen).completion;
+              } catch {
+                // Nothing was sent for this gesture.
+              }
+            })();
+          }
+        },
+      };
+    });
     const stream = yield* Effect.acquireRelease(
-      io(() =>
-        startScrcpy(
-          {
-            bitRate: 2_000_000,
-            keyFrameInterval: 1,
-            maxFps: 30,
-            maxSize: 1280,
-            repeatFrameMs: 500,
-            serial,
-            signal: controller.signal,
-          },
-          { ensureServer: () => Promise.resolve(jar), randomScid: () => scid }
-        )
-      ),
+      /^emulator-\d+$/u.test(serial)
+        ? emulatorStream.pipe(
+            Effect.result,
+            Effect.flatMap((started) =>
+              Result.isSuccess(started)
+                ? Effect.succeed(started.success)
+                : scrcpyStream
+            )
+          )
+        : scrcpyStream,
       (owned) => io(() => owned.close()).pipe(Effect.orDie)
     );
-    // No control-socket writes, input API, SessionRecorder, installation API, or replay.
+    // Forwarded Input is the only input the stream sends. No SessionRecorder,
+    // installation API, or replay is reachable.
     let visibility: "visible" | "secure" | "unknown" | undefined;
     let keyRequired = true;
     let configuration = Buffer.alloc(0);
     let { width } = stream.meta;
     let { height } = stream.meta;
+    const decodeInput = Schema.decodeUnknownOption(
+      Schema.fromJsonString(NativeInput)
+    );
+    const lines = createInterface({ input: process.stdin });
+    yield* Effect.addFinalizer(() => Effect.sync(() => lines.close()));
+    // Each line is one input, written in order at the current frame size.
+    lines.on("line", (line) => {
+      const input = decodeInput(line);
+      // The parent validated the input; a line that does not decode is dropped.
+      if (input._tag === "None") {
+        return;
+      }
+      stream.send(input.value, { height, width });
+    });
     const inspect = Effect.tryPromise({
       catch: () => new Error("Android window visibility unavailable"),
       try: (signal) =>

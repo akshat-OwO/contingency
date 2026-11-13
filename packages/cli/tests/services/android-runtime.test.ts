@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Redacted, Scope } from "effect";
+import { TestClock } from "effect/testing";
 
 import type {
   AndroidObservation,
@@ -10,6 +11,7 @@ import {
   adaptAndroidRuntime,
   makeAndroidRuntimeFactory,
 } from "../../src/services/android-runtime.ts";
+import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { makePlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 
@@ -255,6 +257,7 @@ it.effect(
       });
       const before = yield* runtime.observe();
       valid = false;
+      yield* TestClock.adjust(OBSERVATION_VALIDATION_MILLIS);
       expect((yield* Effect.flip(runtime.observe())).code).toBe(
         "device_mismatch"
       );

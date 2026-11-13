@@ -1,5 +1,5 @@
 import { AndroidStreamPacket } from "@contingency/protocol";
-import type { AgentSessionId } from "@contingency/protocol";
+import type { AgentSessionId, NativeInput } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Clock, Duration, Effect, Fiber, Schema } from "effect";
 import { Atom } from "effect/reactivity";
@@ -10,11 +10,12 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 import { useWorkspaceRefreshClock } from "@/lib/workspace-refresh";
 
-import { framePoint } from "./android-stream-point";
-import type {
-  AndroidStreamFrame,
-  AndroidStreamPoint,
-} from "./android-stream-point";
+import type { AndroidStreamFrame } from "./android-stream-point";
+import {
+  makeFirstResponseProbe,
+  probeNativeInput,
+} from "./first-response-probe";
+import { makeNativeInputHandlers } from "./native-input";
 
 const packet = Schema.decodeUnknownSync(
   Schema.fromJsonString(AndroidStreamPacket)
@@ -64,9 +65,10 @@ const h264Codec = (data: Uint8Array) => {
 
 /**
  * The live display fills its parent edge to edge and draws nothing over the
- * device's own pixels. A click is reported as where it landed on the frame;
- * the server resolves it to a semantic element, so the stream itself never
- * sends input and is never used as Teaching evidence.
+ * device's own pixels. While the user controls the session, what they do on
+ * it is Forwarded Input: it goes straight to the device, and the server
+ * attributes it to an element afterwards. The stream itself is never
+ * Teaching evidence.
  *
  * A dropped connection reconnects on its own. A tab that stalls (for example
  * under memory pressure) receives a burst of frames when it resumes; the
@@ -75,18 +77,25 @@ const h264Codec = (data: Uint8Array) => {
 export const AndroidLiveStream = ({
   dimmed = false,
   onFrame,
-  onPick,
+  onInput,
   sessionId,
 }: {
   readonly dimmed?: boolean;
   /** Reports the decoded frame size whenever it changes. */
   readonly onFrame?: (frame: AndroidStreamFrame) => void;
-  readonly onPick?:
-    | ((point: AndroidStreamPoint, frame: AndroidStreamFrame) => void)
-    | undefined;
+  /** Forwards the user's input, or undefined while they cannot act. */
+  readonly onInput?: ((input: NativeInput) => void) | undefined;
   readonly sessionId: AgentSessionId;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [probe] = useState(() =>
+    makeFirstResponseProbe("android", () => canvas.current)
+  );
+  // The handlers outlive renders; they read the latest callback.
+  const forward = useRef(onInput);
+  useEffect(() => {
+    forward.current = onInput;
+  }, [onInput]);
   const clock = useWorkspaceRefreshClock();
   const { androidStreamAccess } = useRpcDependencies();
   const [stateAtom] = useState(() => Atom.make<StreamState>("connecting"));
@@ -148,6 +157,7 @@ export const AndroidLiveStream = ({
                   }
                   context.drawImage(frame, 0, 0);
                   frame.close();
+                  probe.frame();
                   shown();
                   setState("live");
                 },
@@ -279,30 +289,39 @@ export const AndroidLiveStream = ({
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [androidStreamAccess, clock, sessionId, retry, setState]);
+  }, [androidStreamAccess, clock, probe, sessionId, retry, setState]);
   const live = state === "live";
+  const liveRef = useRef(live);
+  useEffect(() => {
+    liveRef.current = live;
+  }, [live]);
+  const [handlers] = useState(() =>
+    makeNativeInputHandlers(
+      (input) => forward.current?.(input),
+      () => liveRef.current && forward.current !== undefined,
+      probeNativeInput(probe)
+    )
+  );
+  const interactive = live && onInput !== undefined;
   return (
     <div className="absolute inset-0 bg-neutral-950">
       <canvas
-        aria-label="Selected device live display"
+        aria-label={
+          interactive
+            ? "Selected device live display. Pointer, wheel, and keyboard input go to the device."
+            : "Selected device live display"
+        }
+        aria-roledescription={interactive ? "device display" : undefined}
         className={cn(
-          "size-full",
+          "size-full touch-none outline-none",
           live ? "" : "invisible",
-          live && onPick !== undefined ? "cursor-pointer" : "cursor-default",
+          interactive ? "cursor-pointer" : "cursor-default",
           dimmed && "opacity-40 grayscale"
         )}
-        onClick={(event) => {
-          const surface = canvas.current;
-          if (!live || onPick === undefined || surface === null) {
-            return;
-          }
-          const point = framePoint(event, surface.getBoundingClientRect());
-          if (point !== null) {
-            onPick(point, { height: surface.height, width: surface.width });
-          }
-        }}
+        {...handlers}
         ref={canvas}
-        role="img"
+        role={interactive ? "application" : "img"}
+        tabIndex={interactive ? 0 : -1}
       />
       <div
         className={cn(

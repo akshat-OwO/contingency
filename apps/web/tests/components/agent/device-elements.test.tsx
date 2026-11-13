@@ -1,4 +1,7 @@
-import type { AndroidWorkspaceObservation } from "@contingency/protocol";
+import type {
+  AndroidWorkspaceObservation,
+  NativeInput,
+} from "@contingency/protocol";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
@@ -53,7 +56,7 @@ test("lists fields, then controls, then the rest, each label once", async () => 
     <DeviceElements
       disabled={false}
       observation={observation}
-      onPick={vi.fn()}
+      onActivate={vi.fn()}
     />
   );
   await user.click(screen.getByRole("button", { name: "Screen elements" }));
@@ -72,4 +75,24 @@ test("lists fields, then controls, then the rest, each label once", async () => 
   // The button's own text and its heading repeat its label, so they are
   // left out, and so is the status bar's clock.
   expect(names("Other elements")).toEqual([null, "Activate Welcome back"]);
+});
+
+test("activating an element taps the device at its centre", async () => {
+  const user = userEvent.setup();
+  const onActivate = vi.fn<(inputs: readonly NativeInput[]) => void>();
+  render(
+    <DeviceElements
+      disabled={false}
+      observation={observation}
+      onActivate={onActivate}
+    />
+  );
+  await user.click(screen.getByRole("button", { name: "Screen elements" }));
+  await user.click(screen.getByRole("button", { name: "Activate Sign in" }));
+  const taps = onActivate.mock.calls.at(-1)?.[0] ?? [];
+  expect(
+    taps.map((input) =>
+      input._tag === "touch" ? `touch ${input.action}` : input._tag
+    )
+  ).toEqual(["touch down", "touch up"]);
 });

@@ -12,26 +12,9 @@ import {
   selectable,
   unavailableReason,
 } from "@/components/agent/android-setup-state";
-import { framePoint } from "@/components/agent/android-stream-point";
 import { AndroidEmptyState } from "@/components/agent/android-workspace";
 
 afterEach(cleanup);
-
-test("reports a click as fractions of the displayed frame", () => {
-  const box = { height: 800, left: 100, top: 50, width: 360 };
-  expect(framePoint({ clientX: 280, clientY: 450 }, box)).toEqual({
-    x: 0.5,
-    y: 0.5,
-  });
-  // A click on the rounded rim lands on the nearest edge, never outside.
-  expect(framePoint({ clientX: 90, clientY: 900 }, box)).toEqual({
-    x: 0,
-    y: 1,
-  });
-  expect(framePoint({ clientX: 0, clientY: 0 }, { ...box, width: 0 })).toBe(
-    null
-  );
-});
 
 test("offers only identified devices in the API 30 to 36 Support Matrix", () => {
   const emulator = {
@@ -84,7 +67,7 @@ test("the device offers only Back and draws nothing over the stream", () => {
       canAct
       live={false}
       onBack={vi.fn()}
-      onPick={vi.fn()}
+      onInput={vi.fn()}
       paused={false}
       pending={false}
       secure={false}
@@ -181,7 +164,7 @@ test("a secure pause names the hidden window instead of a disconnected device", 
       canAct={false}
       live
       onBack={vi.fn()}
-      onPick={vi.fn()}
+      onInput={vi.fn()}
       paused
       pending={false}
       refusal={null}

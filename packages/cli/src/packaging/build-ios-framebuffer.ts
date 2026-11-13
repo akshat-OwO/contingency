@@ -6,16 +6,36 @@ import { promisify } from "node:util";
 
 import { Effect } from "effect";
 
-import { iosFramebufferVersion } from "../services/ios-framebuffer-release.ts";
+import {
+  iosFramebufferVersion,
+  iosHidVersion,
+} from "../services/ios-framebuffer-release.ts";
 
 const execute = promisify(execFile);
-const output = path.resolve("dist/ios/framebuffer");
-const source = path.resolve("ios/framebuffer/framebuffer.m");
+/** The display helper and the Forwarded Input helper, built the same way. */
+const helpers = [
+  {
+    frameworks: [
+      "Foundation",
+      "CoreImage",
+      "IOSurface",
+      "ImageIO",
+      "CoreGraphics",
+    ],
+    name: "framebuffer",
+    version: iosFramebufferVersion,
+  },
+  {
+    frameworks: ["Foundation", "AppKit", "CoreGraphics"],
+    name: "hid",
+    version: iosHidVersion,
+  },
+] as const;
+const outputOf = (name: string) => path.resolve("dist/ios", name);
 const io = <A>(run: () => Promise<A>) => Effect.tryPromise(run);
 const command = (file: string, args: readonly string[]) =>
   Effect.tryPromise({
-    catch: () =>
-      new Error("Could not build the Contingency iOS framebuffer helper."),
+    catch: () => new Error("Could not build the Contingency iOS helpers."),
     try: (signal) => execute(file, args, { signal, timeout: 120_000 }),
   });
 
@@ -30,60 +50,63 @@ const wanted =
   required ||
   (choice !== "0" && process.platform === "darwin" && process.arch === "arm64");
 
-const build = Effect.gen(function* buildIosFramebuffer() {
-  yield* io(() => mkdir(output, { recursive: true }));
-  const executable = path.join(output, "framebuffer");
-  yield* command("xcrun", [
-    "clang",
-    "-O2",
-    "-Wall",
-    "-Wextra",
-    "-Wno-unused-parameter",
-    "-fobjc-arc",
-    "-arch",
-    "arm64",
-    "-framework",
-    "Foundation",
-    "-framework",
-    "CoreImage",
-    "-framework",
-    "IOSurface",
-    "-framework",
-    "ImageIO",
-    "-framework",
-    "CoreGraphics",
-    source,
-    "-o",
-    executable,
-  ]);
-  yield* command("/usr/bin/codesign", ["--force", "--sign", "-", executable]);
-  yield* command("/usr/bin/codesign", ["--verify", "--strict", executable]);
-  const bytes = yield* io(() => readFile(executable));
-  const sourceBytes = yield* io(() => readFile(source));
-  yield* io(() =>
-    writeFile(
-      path.join(output, "manifest.json"),
-      `${JSON.stringify(
-        {
-          architecture: "arm64",
-          executable: "framebuffer",
-          platform: "darwin",
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-          signing: "ad-hoc",
-          sourceSha256: createHash("sha256").update(sourceBytes).digest("hex"),
-          version: iosFramebufferVersion,
-        },
-        null,
-        2
-      )}\n`
-    )
-  );
-});
+const buildHelper = (helper: (typeof helpers)[number]) =>
+  Effect.gen(function* buildIosHelper() {
+    const output = outputOf(helper.name);
+    const source = path.resolve(`ios/${helper.name}/${helper.name}.m`);
+    yield* io(() => mkdir(output, { recursive: true }));
+    const executable = path.join(output, helper.name);
+    yield* command("xcrun", [
+      "clang",
+      "-O2",
+      "-Wall",
+      "-Wextra",
+      "-Wno-unused-parameter",
+      "-fobjc-arc",
+      "-arch",
+      "arm64",
+      ...helper.frameworks.flatMap((framework) => ["-framework", framework]),
+      source,
+      "-o",
+      executable,
+    ]);
+    yield* command("/usr/bin/codesign", ["--force", "--sign", "-", executable]);
+    yield* command("/usr/bin/codesign", ["--verify", "--strict", executable]);
+    const bytes = yield* io(() => readFile(executable));
+    const sourceBytes = yield* io(() => readFile(source));
+    yield* io(() =>
+      writeFile(
+        path.join(output, "manifest.json"),
+        `${JSON.stringify(
+          {
+            architecture: "arm64",
+            executable: helper.name,
+            platform: "darwin",
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+            signing: "ad-hoc",
+            sourceSha256: createHash("sha256")
+              .update(sourceBytes)
+              .digest("hex"),
+            version: helper.version,
+          },
+          null,
+          2
+        )}\n`
+      )
+    );
+  });
+const build = Effect.forEach(helpers, buildHelper, { discard: true });
+const removeOutputs = Effect.forEach(
+  helpers,
+  (helper) =>
+    io(() => rm(outputOf(helper.name), { force: true, recursive: true })),
+  { discard: true }
+);
 
 await Effect.runPromise(
   Effect.gen(function* packageIosFramebuffer() {
     // Other hosts still build the CLI, but carry no executable iOS backend.
-    yield* io(() => rm(output, { force: true, recursive: true }));
+    yield* removeOutputs;
     if (!wanted || process.platform !== "darwin") {
       return;
     }
@@ -94,10 +117,10 @@ await Effect.runPromise(
     yield* build.pipe(
       Effect.catch(() =>
         Effect.andThen(
-          io(() => rm(output, { force: true, recursive: true })),
+          removeOutputs,
           Effect.sync(() =>
             console.warn(
-              "Skipped the iOS framebuffer helper: Xcode's clang is unavailable. iOS sessions need it; set CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 to make this an error."
+              "Skipped the iOS helpers: Xcode's clang is unavailable. iOS sessions need it; set CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1 to make this an error."
             )
           )
         )

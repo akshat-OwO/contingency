@@ -401,6 +401,12 @@ const TeachingActionEvent = Schema.TaggedStruct("action", {
   kind: nonEmptyString,
   outcome: Schema.Literals(["succeeded", "failed"]),
   target: Schema.NullOr(TeachingEventTarget),
+  /**
+   * Forwarded Input whose target was read from an observation taken before an
+   * earlier input could have changed the screen. It is weaker evidence than a
+   * target resolved from a fresh observation.
+   */
+  targetInferred: Schema.optional(Schema.Boolean),
   variableName: Schema.optional(Schema.String),
 });
 

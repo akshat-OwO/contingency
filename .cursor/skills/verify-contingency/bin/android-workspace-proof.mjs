@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -13,6 +14,7 @@ import {
   androidComment,
   androidIdle,
   androidPick,
+  deviceType,
   openAndroidSheet,
 } from "./android-ui.mjs";
 
@@ -240,23 +242,18 @@ try {
     `${instance.mcpUrl}?android=${taughtSession.id}`
   );
   await androidPick(control, taughtSession.id, "text-field", "Shopper name");
-  await control(
-    "browser",
-    "fill",
-    "--role",
-    "textbox",
-    "--name",
-    "Text for Shopper name",
-    "--value",
-    publicText
-  );
-  await click("Type");
-  await androidIdle(control);
+  // The keys are Forwarded Input, typed on the focused live display.
+  await deviceType(control, publicText);
+  const typedDeadline = Date.now() + 30_000;
   let current = await observe(taughtSession.id);
-  assert.ok(
-    current.observation.nodes.some((node) => showsPublicText(node.name)),
-    "Workspace fill has no readback."
-  );
+  while (
+    !current.observation.nodes.some((node) => showsPublicText(node.name))
+  ) {
+    assert.ok(Date.now() < typedDeadline, "Workspace typing has no readback.");
+    await sleep(500);
+    current = await observe(taughtSession.id);
+  }
+  await androidIdle(control);
   await androidPick(control, taughtSession.id, "button", "Sign in");
   await androidComment(
     control,
@@ -294,9 +291,15 @@ try {
     recordingId,
   });
   const actions = timeline.entries.filter((entry) => entry._tag === "action");
-  assert.equal(actions.filter((entry) => entry.kind === "activate").length, 1);
-  assert.equal(actions.filter((entry) => entry.kind === "fill").length, 1);
-  assert.equal(actions.length, 2);
+  // Forwarded Input records the tap on Shopper name, the typing, and Sign in.
+  assert.deepEqual(
+    actions.map((entry) => entry.description),
+    [
+      "Activate text-field Shopper name",
+      "Enter text in text-field Shopper name",
+      "Activate button Sign in",
+    ]
+  );
   assert.ok(showsPublicText(JSON.stringify(timeline)));
   await writeFile(
     path.join(artifacts, "timeline.json"),

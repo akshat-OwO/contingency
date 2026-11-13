@@ -12,6 +12,7 @@ import {
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
+  NativeForward,
   PlatformRequirements,
 } from "@contingency/protocol";
 import {
@@ -39,8 +40,10 @@ import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
-import { nativeHitTest } from "./native-app-hit-test.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import { describeGesture } from "./native-forwarded-input.ts";
+import { makeForwardedLane } from "./native-forwarded-lane.ts";
+import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
@@ -250,8 +253,15 @@ interface PrivateVariable {
   readonly status: "requested" | "supplied" | "refused";
   readonly value?: Redacted.Redacted<string>;
 }
+type AndroidNode = AndroidObservation["nodes"][number];
 interface Session {
   readonly boundary: ExecutionBoundary;
+  /** The user's Forwarded Input, which never waits on `lock`. */
+  readonly lane: ForwardedLane<
+    AndroidObservation,
+    AndroidNode,
+    AndroidWorkspaceError
+  >;
   readonly variables: Atom.Writable<readonly PrivateVariable[]>;
   readonly stream: AndroidDeviceStream;
   readonly state: Atom.Writable<SessionState>;
@@ -288,6 +298,14 @@ export interface AndroidWorkspaceService {
     command: AndroidWorkspaceCommand,
     source: "agent" | "user"
   ) => Effect.Effect<AndroidWorkspaceSnapshot, AndroidWorkspaceError>;
+  /**
+   * Sends the user's Forwarded Input to the device and answers once it is
+   * written. It never waits on an observation and returns no snapshot.
+   */
+  readonly forward: (
+    input: NativeForward,
+    source: "agent" | "user"
+  ) => Effect.Effect<void, AndroidWorkspaceError>;
   readonly activeRunFlowNames: () => Effect.Effect<readonly string[]>;
   readonly list: () => Effect.Effect<
     readonly AndroidWorkspaceSummary[],
@@ -298,7 +316,11 @@ export const AndroidWorkspace = Context.Service<AndroidWorkspaceService>(
   "@contingency/AndroidWorkspace"
 );
 
-/** Selected-device mirror and capture. There is no stock hub, raw input route, or automatic replay. */
+/**
+ * Selected-device mirror and capture. The user's input is Forwarded Input
+ * through the session's stream; agent input stays semantic. There is no stock
+ * hub or automatic replay.
+ */
 /** A session's persisted keyframes and the folder they are in. */
 const KeyframeIndex = Schema.fromJsonString(
   Schema.Struct({
@@ -319,6 +341,8 @@ const confirmedStartAllowed = (
 
 export const makeAndroidWorkspaceLayer = (options: {
   readonly root: () => string;
+  /** The session's display and input transport; tests substitute their own. */
+  readonly acquireStream?: typeof acquireAndroidStream;
 }) =>
   Layer.effect(
     AndroidWorkspace,
@@ -329,6 +353,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
+      const acquireStream = options.acquireStream ?? acquireAndroidStream;
       const sessions = new Map<AgentSessionId, Session>();
       const receiptSalt = randomUUID();
       const startLock = Semaphore.makeUnsafe(1);
@@ -499,10 +524,22 @@ export const makeAndroidWorkspaceLayer = (options: {
           );
           yield* persist(session);
         });
+      /**
+       * Accepts an observation as the session's latest. A caller whose capture
+       * Forwarded Input could overtake checks `lane.current` first, and takes
+       * the gestures waiting on it before accepting.
+       */
       const acceptObservation = (
         session: Session,
-        observation: AndroidObservation
+        observation: AndroidObservation,
+        {
+          started = session.lane.observing(),
+        }: {
+          /** The input count when the observation began. */
+          readonly started?: number;
+        } = {}
       ) => {
+        session.lane.observed(started);
         update(session, (current) => ({
           ...current,
           field:
@@ -829,6 +866,36 @@ export const makeAndroidWorkspaceLayer = (options: {
                 sessionId: id,
               }),
               directory,
+              lane: makeForwardedLane({
+                focus: (target, observation) => {
+                  update(session, (value) => ({
+                    ...value,
+                    field:
+                      target === undefined || observation === null
+                        ? null
+                        : {
+                            name: target.name,
+                            observationId: observation.id,
+                            password: target.password,
+                            role: target.role,
+                            target: target.target,
+                          },
+                  }));
+                },
+                frame: (observation) => ({
+                  nodes: observation.nodes,
+                  ...observationSize(observation),
+                }),
+                latest: () => state(session).observation,
+                send: (batch) =>
+                  session.stream
+                    .forward(batch)
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        error("android_workspace_refused", cause.message)
+                      )
+                    ),
+              }),
               lock: Semaphore.makeUnsafe(1),
               receipts: new Map(),
               run,
@@ -846,7 +913,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 startingObservation: null,
                 summary,
               }).pipe(Atom.keepAlive),
-              stream: yield* acquireAndroidStream(id, selection.device, scope),
+              stream: yield* acquireStream(id, selection.device, scope),
               summaryFile: path.join(root, ".android-workspace", `${id}.json`),
               variables: Atom.make<readonly PrivateVariable[]>(
                 inputs.map(({ name }) => ({
@@ -902,6 +969,171 @@ export const makeAndroidWorkspaceLayer = (options: {
           })
         );
 
+      /** One forwarded gesture as Teaching or Run evidence, against the observation of its result. */
+      const recordGesture = (
+        session: Session,
+        {
+          gesture,
+          before,
+          target,
+          inferred,
+        }: PendingGesture<AndroidObservation, AndroidNode>,
+        after: AndroidObservation
+      ) =>
+        Effect.gen(function* recordForwardedGesture() {
+          const current = state(session);
+          const actionId = `android-action-${randomUUID()}`;
+          const described = describeGesture(gesture, target);
+          if (current.recording) {
+            if (before !== null) {
+              yield* keyframe(session, before, actionId);
+            }
+            yield* emit(session, {
+              _tag: "action",
+              actor: "user",
+              after: observationSummary(after),
+              appeared: before === null ? [] : difference(after, before),
+              before: observationSummary(before ?? after),
+              description: described.description,
+              detail: described.detail,
+              disappeared: before === null ? [] : difference(before, after),
+              id: actionId,
+              kind: described.kind,
+              outcome: "succeeded",
+              target:
+                target === undefined
+                  ? null
+                  : {
+                      checked: null,
+                      context: [current.summary.selection.environment.appId],
+                      disabled: null,
+                      name: target.name,
+                      role: target.role,
+                      value:
+                        gesture._tag === "type" && !target.password
+                          ? gesture.text
+                          : null,
+                      valueWithheld:
+                        gesture._tag === "type" && target.password
+                          ? true
+                          : null,
+                    },
+              targetInferred: inferred,
+            });
+            yield* keyframe(session, after, actionId);
+          } else if (current.summary.kind !== "teaching") {
+            yield* io(
+              fs.writeFileString(
+                path.join(session.directory, "actions.jsonl"),
+                `${JSON.stringify({ action: described.kind, actionId, after: after.id, at: now(), before: before?.id ?? null, controller: "user", description: described.description, detail: described.detail, forwarded: true, targetInferred: inferred })}\n`,
+                { flag: "a", mode: 0o600 }
+              )
+            );
+            yield* keyframe(session, after, actionId);
+          }
+        });
+      const recordGestures = (
+        session: Session,
+        gestures: readonly PendingGesture<AndroidObservation, AndroidNode>[],
+        after: AndroidObservation
+      ) =>
+        Effect.forEach(
+          gestures,
+          (pending) => recordGesture(session, pending, after),
+          { discard: true }
+        );
+      /** Names Forwarded Input that reached the device unobserved. */
+      const markUnverified = (session: Session) =>
+        update(session, (current) => ({
+          ...current,
+          summary: {
+            ...current.summary,
+            captureGaps: current.summary.captureGaps.includes(
+              "forwarded_input_unverified"
+            )
+              ? current.summary.captureGaps
+              : [...current.summary.captureGaps, "forwarded_input_unverified"],
+          },
+        }));
+      /** Pauses, naming the Forwarded Input no observation has checked. */
+      const pauseForwarded = (session: Session, cause: AndroidWorkspaceError) =>
+        Effect.gen(function* pauseUnverified() {
+          const unverified = session.lane.unobserved();
+          session.lane.discard();
+          yield* pause(session, cause).pipe(Effect.ignore);
+          if (unverified > 0) {
+            markUnverified(session);
+            yield* persist(session).pipe(Effect.ignore);
+          }
+        });
+      /**
+       * Observes the result of the user's quiet input and records it. An
+       * observation that later input overtook is stale and is discarded, so
+       * the lane tries again. It reports failures by pausing the session.
+       */
+      const settleForwarded = (session: Session): Effect.Effect<boolean> =>
+        session.lock.withPermits(1)(
+          Effect.gen(function* settleForwardedInput() {
+            const { summary } = state(session);
+            if (summary.phase !== "running" || summary.controller !== "user") {
+              session.lane.discard();
+              return true;
+            }
+            const bound = state(session);
+            if (bound.field?.password === true && bound.observation !== null) {
+              // A tapped password field's Variable entry is bound to the
+              // observation it was tapped on. Observing again, as the keyboard
+              // opens, would make that entry stale, so its gestures are
+              // recorded against the bound observation until the user leaves
+              // the field.
+              yield* recordGestures(
+                session,
+                session.lane.take(),
+                bound.observation
+              );
+              yield* persist(session);
+              return true;
+            }
+            const started = session.lane.observing();
+            const observed = yield* session.run.mirror();
+            if (!session.lane.current(started)) {
+              return false;
+            }
+            const gestures = session.lane.take();
+            acceptObservation(session, observed, { started });
+            yield* recordGestures(session, gestures, observed);
+            yield* persist(session);
+            return true;
+          }).pipe(
+            Effect.result,
+            // Paused before the lock is released, so no command sees the
+            // session between the failure and its pause.
+            Effect.flatMap((settled) =>
+              Result.isSuccess(settled)
+                ? Effect.succeed(settled.success)
+                : pauseForwarded(session, settled.failure).pipe(Effect.as(true))
+            )
+          )
+        );
+      const forwardWorkspace = (
+        session: Session,
+        inputs: NativeForward["inputs"],
+        source: "agent" | "user"
+      ) =>
+        Effect.gen(function* forwardWorkspaceInput() {
+          const { summary } = state(session);
+          if (
+            source !== "user" ||
+            summary.controller !== "user" ||
+            summary.phase !== "running"
+          ) {
+            return yield* denied(
+              "Only the user controlling a running session can send input. Nothing was sent."
+            );
+          }
+          yield* session.lane.forward(inputs);
+          yield* session.lane.wake(session.scope, settleForwarded(session));
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "record" }>,
@@ -944,8 +1176,17 @@ export const makeAndroidWorkspaceLayer = (options: {
             acceptObservation(session, observed);
             yield* keyframe(session, observed, null);
           } else {
+            const started = session.lane.observing();
+            const gestures = session.lane.take();
             const observed = yield* session.run.observe();
-            acceptObservation(session, observed);
+            acceptObservation(session, observed, { started });
+            yield* recordGestures(session, gestures, observed);
+            if (!session.lane.current(started)) {
+              // Input that arrived during the final observation reached the
+              // device, but nothing shows its result.
+              session.lane.discard();
+              markUnverified(session);
+            }
             yield* finishRecording(
               session,
               command.operationId,
@@ -1163,105 +1404,6 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
             yield* keyframe(session, after, actionId);
           }
-        });
-      const pickWorkspace = (
-        session: Session,
-        command: Extract<AndroidWorkspaceCommand, { readonly _tag: "pick" }>,
-        source: "agent" | "user"
-      ) =>
-        Effect.gen(function* pickWorkspaceCommand() {
-          const current = state(session);
-          const { summary } = current;
-          if (
-            source !== "user" ||
-            summary.controller !== source ||
-            summary.phase !== "running"
-          ) {
-            return yield* denied(
-              "Only the user controlling a running session can pick. No input was sent."
-            );
-          }
-          const previous = current.observations.find(
-            (observation) => observation.id === command.observationId
-          );
-          if (previous === undefined) {
-            return yield* denied(
-              "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
-            );
-          }
-          const observed = yield* session.run.observe();
-          acceptObservation(session, observed);
-          const { width, height } = observationSize(observed);
-          const ratio = width / height;
-          const frameRatio = command.frame.width / command.frame.height;
-          if (
-            Math.sign(width - height) !==
-              Math.sign(command.frame.width - command.frame.height) ||
-            Math.abs(frameRatio / ratio - 1) > 0.02
-          ) {
-            return yield* denied(
-              "The stream size or orientation changed. No input was sent."
-            );
-          }
-          const x = command.point.x * width;
-          const y = command.point.y * height;
-          // Resolve containing candidates first, so a private or foreign child cannot fall through to an eligible parent.
-          const target = nativeHitTest(observed.nodes, x, y);
-          if (target === undefined || target.covered) {
-            return yield* denied(
-              "Nothing to activate there. No input was sent."
-            );
-          }
-          if (
-            target.password &&
-            !summary.requirements.capabilities.includes("private-input")
-          ) {
-            return yield* denied(
-              "Private fields need a Variable. No input was sent."
-            );
-          }
-          const priorTarget = nativeHitTest(
-            previous.nodes,
-            command.point.x * previous.width,
-            command.point.y * previous.height
-          );
-          if (
-            priorTarget === undefined ||
-            priorTarget.role !== target.role ||
-            priorTarget.name !== target.name ||
-            priorTarget.editable !== target.editable ||
-            priorTarget.password !== target.password ||
-            priorTarget.packageName !== target.packageName
-          ) {
-            return yield* denied(
-              "The element moved or changed. No input was sent."
-            );
-          }
-          if (target.editable) {
-            update(session, (value) => ({
-              ...value,
-              field: {
-                name: target.name,
-                observationId: observed.id,
-                password: target.password,
-                role: target.role,
-                target: target.target,
-              },
-            }));
-            return;
-          }
-          yield* inputWorkspace(
-            session,
-            {
-              _tag: "input",
-              action: { _tag: "activate", target: target.target },
-              observationId: observed.id,
-              operationId: command.operationId,
-              sessionId: command.sessionId,
-            },
-            source,
-            observed
-          );
         });
       const completeWorkspace = (
         session: Session,
@@ -1576,13 +1718,17 @@ export const makeAndroidWorkspaceLayer = (options: {
             if (source === "user" && current.field?.password === true) {
               return yield* snapshot(session, command.image);
             }
-            if (source === "agent" || summary.controller === "user") {
-              acceptObservation(
-                session,
-                yield* source === "user"
-                  ? session.run.mirror()
-                  : session.run.observe()
-              );
+            if (source === "agent") {
+              acceptObservation(session, yield* session.run.observe());
+            } else if (summary.controller === "user") {
+              // Forwarded Input that overtakes this observation makes it stale.
+              const started = session.lane.observing();
+              const mirrored = yield* session.run.mirror();
+              if (session.lane.current(started)) {
+                const gestures = session.lane.take();
+                acceptObservation(session, mirrored);
+                yield* recordGestures(session, gestures, mirrored);
+              }
             }
             return yield* snapshot(session, command.image && source === "user");
           } else if (command._tag === "control") {
@@ -1591,6 +1737,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Run control changes require Workspace. Teaching remains user-led."
               );
             }
+            const gestures = session.lane.take();
             update(session, (value) => ({
               ...value,
               observation: null,
@@ -1603,7 +1750,9 @@ export const makeAndroidWorkspaceLayer = (options: {
                   command.controller === "user",
               },
             }));
-            acceptObservation(session, yield* session.run.observe());
+            const controlled = yield* session.run.observe();
+            acceptObservation(session, controlled);
+            yield* recordGestures(session, gestures, controlled);
           } else if (command._tag === "record") {
             yield* recordWorkspace(session, command, source);
           } else if (command._tag === "instruction") {
@@ -1617,8 +1766,6 @@ export const makeAndroidWorkspaceLayer = (options: {
               target: null,
               text: command.text,
             });
-          } else if (command._tag === "pick") {
-            yield* pickWorkspace(session, command, source);
           } else if (command._tag === "input") {
             yield* inputWorkspace(session, command, source);
           } else if (command._tag === "complete") {
@@ -1785,6 +1932,17 @@ export const makeAndroidWorkspaceLayer = (options: {
                   Effect.flatMap(Fiber.join)
                 )
               : serialized;
+          }),
+        forward: ({ inputs, sessionId }, source) =>
+          Effect.suspend(() => {
+            const session = sessions.get(sessionId);
+            // Input never waits behind an observation. It is not replayable,
+            // so it carries no receipt.
+            return session === undefined
+              ? denied(
+                  "This process does not own the Android session. Nothing was sent."
+                )
+              : forwardWorkspace(session, inputs, source);
           }),
         keyframes: (sessionId) => {
           const session = sessions.get(sessionId);

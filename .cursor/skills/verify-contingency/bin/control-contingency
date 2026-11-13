@@ -47,6 +47,8 @@ Commands:
   browser canvas-type --text <text> [--enter]
   browser android-pick --session-id <id> --role <role> --name <name> | --fx <fraction> --fy <fraction>
   browser android-idle
+  browser device-type --text <text>
+  browser measures [--clear]
   browser android-no-overlays
   browser android-allow-request --name <request-region>
   browser android-refuse-request --name <request-region>
@@ -298,10 +300,9 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "android-no-overlays": {
       const main = page.getByRole("main");
-      const canvas = main.getByRole("img", {
-        exact: true,
-        name: "Selected device live display",
-      });
+      const canvas = main.locator(
+        'canvas[aria-label^="Selected device live display"]'
+      );
       await canvas.waitFor();
       const extra = await main.getByRole("button").evaluateAll((buttons) =>
         buttons
@@ -345,6 +346,28 @@ const runPageAction = async (page, appUrl, action, flags) => {
       const { waitAndroidIdle } = await import("./android-ui.mjs");
       await waitAndroidIdle(page);
       return "Android dock ready";
+    }
+    case "device-type": {
+      if (typeof flags.text !== "string") {
+        fail("browser device-type needs --text.");
+      }
+      const { typeOnDevice } = await import("./android-ui.mjs");
+      return JSON.stringify(await typeOnDevice(page, flags.text));
+    }
+    case "measures": {
+      // First visible response durations recorded by the Workspace canvases.
+      const entries = await page.evaluate(() =>
+        performance
+          .getEntriesByType("measure")
+          .filter((entry) =>
+            entry.name.startsWith("contingency:first-visible-response:")
+          )
+          .map((entry) => ({ duration: entry.duration, name: entry.name }))
+      );
+      if (flags.clear === true || flags.clear === "true") {
+        await page.evaluate(() => performance.clearMeasures());
+      }
+      return JSON.stringify(entries);
     }
     case "android-pick": {
       const { pickAndroid } = await import("./android-ui.mjs");

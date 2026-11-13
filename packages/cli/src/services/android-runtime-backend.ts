@@ -553,8 +553,9 @@ export const acquireAndroidBackend = (
             "back"
           ).pipe(Effect.asVoid),
         capture: () =>
+          // The runtime validates the environment on its own cadence; the
+          // device identity of each capture is still checked here.
           Effect.gen(function* captureAndroid() {
-            yield* validate();
             const snapshot = yield* io(
               (signal) =>
                 client.capture.snapshot({
@@ -593,7 +594,6 @@ export const acquireAndroidBackend = (
               "screenshot"
             );
             yield* identities(screenshot.identifiers);
-            yield* validate();
             const image = yield* io(() => readFile(screenshotPath));
             // SDK files and raw screenshots stay in the private session directory.
             const result: AndroidObservation = {

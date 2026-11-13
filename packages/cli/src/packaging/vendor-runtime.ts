@@ -15,11 +15,29 @@ vendorPackages(
       const fs = yield* FileSystem.FileSystem;
       const source = path.resolve("node_modules/expo-device-hub");
       const target = path.resolve("dist/node_modules/expo-device-hub");
-      yield* fs.makeDirectory(path.join(target, "vendor/serve-emu/dist"), {
-        recursive: true,
-      });
-      // Only the stock scrcpy transport is reachable. No dashboard or recorder.
-      for (const file of ["scrcpy.js", "scrcpy-server.js", "exec.js"]) {
+      yield* fs.makeDirectory(
+        path.join(target, "vendor/serve-emu/dist/shared"),
+        { recursive: true }
+      );
+      // Only the stock scrcpy transport and the emulator gRPC stream are
+      // reachable, with what they import. No dashboard or recorder.
+      for (const file of [
+        "control-input-queue.js",
+        "device-capabilities.js",
+        "emulator-grpc.js",
+        "exec.js",
+        "grpc-mmap.js",
+        "grpc-session.js",
+        "h264-encoder.js",
+        "h264-readiness.js",
+        "input.js",
+        "scrcpy-server.js",
+        "scrcpy.js",
+        "session-status.js",
+        "shared/api-contracts.js",
+        "shared/control-contracts.js",
+        "stream-settings.js",
+      ]) {
         yield* fs.copyFile(
           path.join(source, "vendor/serve-emu/dist", file),
           path.join(target, "vendor/serve-emu/dist", file)

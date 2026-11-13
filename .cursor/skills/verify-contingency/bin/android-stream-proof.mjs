@@ -103,9 +103,10 @@ const liveDisplay = () =>
     "browser",
     "wait",
     "--role",
-    "img",
+    "application",
     "--name",
     "Selected device live display",
+    "--partial",
     "--timeout-ms",
     "60000"
   );

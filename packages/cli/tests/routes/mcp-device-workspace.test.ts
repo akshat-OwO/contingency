@@ -66,6 +66,7 @@ it.live("routes public iOS calls to iOS without accessing Android", () =>
           code: "ios_workspace_refused",
           message: "Unknown iOS session.",
         }),
+      forward: () => Effect.void,
       keyframes: () => Effect.succeed(null),
       list: () => Effect.succeed([]),
       stream: () => Effect.succeed(null),

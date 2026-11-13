@@ -148,6 +148,10 @@ import {
   WORKSPACE_REFRESH_INTERVAL,
 } from "@/lib/workspace-refresh";
 
+import {
+  makeFirstResponseProbe,
+  probeBrowserInput,
+} from "./first-response-probe";
 import { IosWorkspace } from "./ios-workspace";
 import { RecordingViewer } from "./recording-view";
 import {
@@ -1019,6 +1023,10 @@ const useAgentView = (
     selected: AgentSessionId | undefined;
   } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [responseProbe] = useState(() =>
+    makeFirstResponseProbe("browser", () => canvasRef.current)
+  );
+  const [probeInput] = useState(() => probeBrowserInput(responseProbe));
   const frameRenderFiberRef = useRef<Fiber.Fiber<void, unknown> | null>(null);
   const frameRenderOwnerRef = useRef<object | null>(null);
   const pendingFrameRef = useRef<Extract<
@@ -1316,6 +1324,7 @@ const useAgentView = (
           activeStreamRef.current === latest.streamId;
         const outcome = yield* Effect.result(
           renderFrame(canvas, latest, isCurrent, (timing) => {
+            responseProbe.frame();
             setStreamMetrics((current) =>
               updateStreamMetrics(current, {
                 frame: latest,
@@ -2145,6 +2154,7 @@ const useAgentView = (
     const sessionId = activeSessionRef.current;
     if (sessionId !== null) {
       enqueueInput(sessionId, browserInput);
+      probeInput(browserInput);
     }
   };
 

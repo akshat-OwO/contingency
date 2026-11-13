@@ -1,4 +1,4 @@
-import type { AgentSessionId } from "@contingency/protocol";
+import type { AgentSessionId, NativeInput } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
@@ -19,10 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { AndroidLiveStream } from "./android-live-stream";
 import { DeviceLastScreen } from "./android-run-summary";
-import type {
-  AndroidStreamFrame,
-  AndroidStreamPoint,
-} from "./android-stream-point";
+import type { AndroidStreamFrame } from "./android-stream-point";
 
 /** Most phones are about 9 by 20; the frame takes the real ratio once decoded. */
 const DEFAULT_FRAME: AndroidStreamFrame = { height: 2400, width: 1080 };
@@ -133,9 +130,8 @@ export const DeviceUnavailable = ({
 
 /**
  * The live device: the frame with the stream filling its glass and its keys
- * on the left. A click goes to
- * `onPick` as a point on the frame; nothing here sends a coordinate to the
- * device.
+ * on the left. While the user can act, what they do on the glass goes to
+ * `onInput` as Forwarded Input.
  */
 export const AndroidDevice = ({
   canAct,
@@ -143,7 +139,7 @@ export const AndroidDevice = ({
   ended = false,
   live,
   onBack,
-  onPick,
+  onInput,
   paused,
   pending,
   sessionId,
@@ -158,10 +154,7 @@ export const AndroidDevice = ({
   /** Whether the session holds a prepared device to stream. */
   readonly live: boolean;
   readonly onBack: () => void;
-  readonly onPick: (
-    point: AndroidStreamPoint,
-    frame: AndroidStreamFrame
-  ) => void;
+  readonly onInput: (input: NativeInput) => void;
   readonly paused: boolean;
   readonly pending: boolean;
   readonly sessionId: AgentSessionId;
@@ -191,7 +184,7 @@ export const AndroidDevice = ({
       */}
       {/* Back sits low beside the frame, where a phone's own keys are. */}
       <div className="flex shrink-0 justify-end self-end pb-16 lg:w-56">
-        <DeviceToolbar canAct={canAct && !pending} onBack={onBack} />
+        <DeviceToolbar canAct={canAct} onBack={onBack} />
       </div>
       <div
         aria-busy={pending}
@@ -205,7 +198,7 @@ export const AndroidDevice = ({
             <AndroidLiveStream
               dimmed={paused}
               onFrame={setFrame}
-              onPick={canAct && !pending ? onPick : undefined}
+              onInput={canAct ? onInput : undefined}
               sessionId={sessionId}
             />
           ) : (
