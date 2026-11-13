@@ -13,6 +13,7 @@ import {
   unavailableReason,
 } from "@/components/agent/android-setup-state";
 import { framePoint } from "@/components/agent/android-stream-point";
+import { AndroidEmptyState } from "@/components/agent/android-workspace";
 
 afterEach(cleanup);
 
@@ -212,4 +213,24 @@ test("a submitted comment keeps its draft until the composer closes", async () =
   expect(onSubmit).toHaveBeenCalledWith("The total must include tax");
   // A refused save leaves the words for another try.
   expect(box).toHaveValue("The total must include tax");
+});
+
+test("announces preparation and prevents another start while opening a session", () => {
+  render(
+    <AndroidEmptyState
+      pending
+      onOpen={vi.fn()}
+      onSelect={vi.fn()}
+      sessions={[]}
+    />
+  );
+  expect(
+    screen.getByRole("heading", { name: "Opening Android session" })
+  ).toBeVisible();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Preparing the selected app and emulator"
+  );
+  expect(
+    screen.getByRole("button", { name: "Open Android session" })
+  ).toBeDisabled();
 });

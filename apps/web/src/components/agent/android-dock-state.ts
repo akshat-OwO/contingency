@@ -112,6 +112,14 @@ const quiet = (
   tone,
 });
 
+export const hasPreparedAndroidSession = (session: AndroidWorkspaceSnapshot) =>
+  session.preparation.evidence.some((event) => event.type === "observation");
+
+const pausedPreparationAction = (session: AndroidWorkspaceSnapshot) =>
+  hasPreparedAndroidSession(session)
+    ? action("recover", "Recover same emulator")
+    : action("prepare", "Retry preparation");
+
 /**
  * The Teaching states, on the browser's own names and gestures. The sentences
  * that name the browser are said about the device instead; the rest are
@@ -278,7 +286,7 @@ export const androidDockPresentation = (
             `The emulator disconnected or capture became unavailable. Recover the same emulator to carry on.`,
           "failed"
         ),
-        action: action("recover", `Recover same emulator`),
+        action: pausedPreparationAction(session),
       };
     }
     case "refused": {

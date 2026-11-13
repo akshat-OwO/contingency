@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
@@ -85,7 +91,18 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     screen.queryByRole("textbox", { name: "Additional permission decisions" })
   ).not.toBeInTheDocument();
   expect(document.querySelector("select")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Open session" }));
+  await user.click(
+    screen.getByRole("button", { name: "Prepare and open app" })
+  );
+  expect(onOpen).not.toHaveBeenCalled();
+  const confirmation = screen.getByRole("dialog", {
+    name: "Prepare and open app?",
+  });
+  expect(confirmation).toHaveTextContent("Shop on Pixel_9");
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm preparation" })
+  );
+  expect(onOpen).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledWith(
     "new-flow",
     expect.objectContaining({
@@ -290,7 +307,18 @@ test("uploads an .apk as the Target App and opens Teaching with its temporary co
       "dev.shop · build 2 · replaces build 1 with your consent"
     )
   ).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Open session" }));
+  await user.click(
+    screen.getByRole("button", { name: "Prepare and open app" })
+  );
+  expect(onOpen).not.toHaveBeenCalled();
+  const confirmation = screen.getByRole("dialog", {
+    name: "Prepare and open app?",
+  });
+  expect(confirmation).toHaveTextContent("Shop on Pixel_9");
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm preparation" })
+  );
+  expect(onOpen).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledWith(
     "new-flow",
     expect.objectContaining({
@@ -326,7 +354,18 @@ test("opens Teaching with collapsed empty optional conditions", async () => {
     screen.getByRole("button", { name: "Optional steps" })
   ).toHaveAttribute("aria-expanded", "false");
   await user.click(await screen.findByRole("button", { name: /Shop/u }));
-  await user.click(screen.getByRole("button", { name: "Open session" }));
+  await user.click(
+    screen.getByRole("button", { name: "Prepare and open app" })
+  );
+  expect(onOpen).not.toHaveBeenCalled();
+  const confirmation = screen.getByRole("dialog", {
+    name: "Prepare and open app?",
+  });
+  expect(confirmation).toHaveTextContent("Shop on Pixel_9");
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm preparation" })
+  );
+  expect(onOpen).toHaveBeenCalledTimes(1);
   expect(onOpen).toHaveBeenCalledWith(
     "new-flow",
     expect.objectContaining({
@@ -338,4 +377,44 @@ test("opens Teaching with collapsed empty optional conditions", async () => {
       },
     })
   );
+});
+
+test("cancel and Escape leave setup unsubmitted, then confirmation submits only once", async () => {
+  const user = userEvent.setup();
+  const onOpen = vi.fn(() => true);
+  render(
+    <AndroidSetupSheet
+      discovery={discovery}
+      open
+      onOpen={onOpen}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  const prepare = screen.getByRole("button", { name: "Prepare and open app" });
+  await user.click(prepare);
+  const dialog = screen.getByRole("dialog", { name: "Prepare and open app?" });
+  expect(dialog).toHaveTextContent("without reinstalling it");
+  expect(dialog).not.toHaveTextContent("Reinstall the selected APK");
+  expect(dialog).toHaveTextContent("including replacing a newer helper");
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(onOpen).not.toHaveBeenCalled();
+  await user.click(prepare);
+  await user.keyboard("{Escape}");
+  expect(onOpen).not.toHaveBeenCalled();
+  await user.click(prepare);
+  fireEvent.change(screen.getByDisplayValue("new-flow"), {
+    target: { value: "changed-flow" },
+  });
+  expect(
+    screen.getByRole("button", { name: "Confirm preparation" })
+  ).toBeDisabled();
+  expect(onOpen).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(prepare);
+  await user.dblClick(
+    screen.getByRole("button", { name: "Confirm preparation" })
+  );
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });

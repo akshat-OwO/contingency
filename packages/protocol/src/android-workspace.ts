@@ -248,6 +248,8 @@ export const AndroidWorkspaceCommand = Schema.Union([
     group: Schema.optionalKey(Schema.String),
     kind: Schema.Literals(["teaching", "dry-run", "run"]),
     operationId: deviceOperationId,
+    /** Workspace confirmation authorizes this exact selection and immediate preparation. */
+    prepareAndOpen: Schema.optionalKey(Schema.Boolean),
     recordingId: Schema.NullOr(TeachingRecordingId),
     selection: AndroidWorkspaceSelection,
   }),

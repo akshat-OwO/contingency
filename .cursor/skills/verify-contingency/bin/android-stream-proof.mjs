@@ -150,7 +150,6 @@ assert.ok(
   Object.values(selection.device).every((value) => value !== undefined),
   "Supply the explicitly authorized device declarations."
 );
-const prepareName = "Prepare selected emulator";
 const flowName = `android-stream-${process.pid}`;
 const receipt = {
   blockers: [],
@@ -249,8 +248,6 @@ try {
     `${instance.mcpUrl}?android=${sessionId}`
   );
 
-  await wait(prepareName);
-  await click(prepareName);
   await wait("Start recording");
 
   const check = async (previous) =>

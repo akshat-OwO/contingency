@@ -451,8 +451,6 @@ try {
     "--url",
     `${instance.mcpUrl}?android=${taughtSession.id}`
   );
-  await wait(prepareName);
-  await click(prepareName);
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
