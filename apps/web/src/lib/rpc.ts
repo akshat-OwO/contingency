@@ -260,6 +260,16 @@ export const androidStreamAccess = (sessionId: AgentSessionId) =>
 export const agentBrowserFrameAckMutation = ContingencyRpcClient.mutation(
   "agent.browser.frame.ack"
 );
+/**
+ * Forwarded Input for a native session. It uses the shared Workspace socket
+ * and answers once the input is written to the device, with no snapshot.
+ */
+export const androidWorkspaceForwardMutation = ContingencyRpcClient.mutation(
+  "android.workspace.forward"
+);
+export const iosWorkspaceForwardMutation = ContingencyRpcClient.mutation(
+  "ios.workspace.forward"
+);
 /** What the user sends to the browser while they hold it during Takeover. */
 export const agentBrowserInputMutation = ContingencyRpcClient.mutation(
   "agent.browser.input.send"

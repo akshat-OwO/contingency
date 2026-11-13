@@ -67,6 +67,7 @@ import {
   iosEnabledAtom,
   iosStreamAccess,
   listIosApps,
+  iosWorkspaceForwardMutation,
   runIosWorkspaceCommand,
   uploadIosApp,
 } from "@/lib/rpc";
@@ -1622,6 +1623,13 @@ export const IosWorkspace = ({
       )
     );
   };
+  const forwardInput = useAtomSet(iosWorkspaceForwardMutation, {
+    mode: "promise",
+  });
+  const forwardInputRef = useRef(forwardInput);
+  useEffect(() => {
+    forwardInputRef.current = forwardInput;
+  }, [forwardInput]);
   // One queue per session keeps each session's input in order.
   const [queues] = useState(
     () => new Map<AgentSessionId, (input: NativeInput) => void>()
@@ -1638,10 +1646,12 @@ export const IosWorkspace = ({
     if (forward === undefined) {
       forward = makeNativeInputQueue(
         (inputs) =>
-          runIosWorkspaceCommand({
-            _tag: "forward",
-            inputs,
-            sessionId: forwardedSession,
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              forwardInputRef.current({
+                payload: { inputs, sessionId: forwardedSession },
+              }),
           }),
         (cause) => setInputRefusal(errorMessage(cause))
       );

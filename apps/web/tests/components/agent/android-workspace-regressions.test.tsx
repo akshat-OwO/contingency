@@ -1,11 +1,12 @@
 import { AgentSessionId, FlowName } from "@contingency/protocol";
 import type {
-  AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
+  NativeForward,
 } from "@contingency/protocol";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
+import { Atom } from "effect/reactivity";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { parseAndroidPermissionDecisions } from "@/components/agent/android-setup-state";
@@ -147,13 +148,14 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
     phase: "running",
   };
   const mutate = vi.fn();
-  const forwarded: AndroidWorkspaceCommand[] = [];
+  const forwarded: NativeForward[] = [];
   const overrides: Partial<RpcDependencies> = {
-    runAndroidWorkspaceCommand: (command) =>
-      Effect.sync(() => {
-        forwarded.push(command);
-        return session;
-      }),
+    androidWorkspaceForwardMutation: Atom.fn(
+      (request: { readonly payload: NativeForward }) =>
+        Effect.sync(() => {
+          forwarded.push(request.payload);
+        })
+    ),
   };
   const props = {
     mutate,
@@ -194,11 +196,7 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
   await user.click(screen.getByRole("button", { name: "Android Back" }));
   // Back is Forwarded Input: the GoBack key goes straight to the device.
   await waitFor(() =>
-    expect(
-      forwarded.flatMap((command) =>
-        command._tag === "forward" ? command.inputs : []
-      )
-    ).toEqual([
+    expect(forwarded.flatMap((request) => request.inputs)).toEqual([
       expect.objectContaining({ _tag: "key", action: "down", key: "GoBack" }),
       expect.objectContaining({ _tag: "key", action: "up", key: "GoBack" }),
     ])
@@ -253,12 +251,13 @@ test("refused input is said in the dock and set aside while commenting", async (
     state,
   };
   const overrides: Partial<RpcDependencies> = {
-    runAndroidWorkspaceCommand: () =>
+    androidWorkspaceForwardMutation: Atom.fn(() =>
       Effect.fail(
         new Error(
           "Only the user controlling a running session can send input. Nothing was sent."
         )
-      ),
+      )
+    ),
   };
   const view = render(<AndroidSessionView {...props} />, {
     wrapper: ({ children }) => (

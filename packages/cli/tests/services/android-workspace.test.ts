@@ -6,6 +6,7 @@ import {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   FlowName,
+  NativeForward,
   OperationId,
   TeachingEvent,
 } from "@contingency/protocol";
@@ -1164,10 +1165,9 @@ const forward = (
 ) =>
   Effect.gen(function* forwardInput() {
     const workspace = yield* AndroidWorkspace;
-    return yield* workspace.execute(
-      { _tag: "forward", inputs, sessionId },
-      "user"
-    );
+    // Forwarding answers with nothing; read the session it changed.
+    yield* workspace.forward({ inputs, sessionId }, "user");
+    return yield* workspace.execute({ _tag: "read", sessionId }, "user");
   });
 const teachingEvents = (recordingId: TeachingRecordingId | null) =>
   Effect.gen(function* readTeachingEvents() {
@@ -1224,8 +1224,8 @@ it.effect("refuses Forwarded Input from anyone but the controlling user", () =>
       const workspace = yield* AndroidWorkspace;
       const prepared = yield* preparePick;
       const agent = yield* Effect.result(
-        workspace.execute(
-          { _tag: "forward", inputs: tap(0.5, 0.5), sessionId: prepared.id },
+        workspace.forward(
+          { inputs: tap(0.5, 0.5), sessionId: prepared.id },
           "agent"
         )
       );
@@ -1251,8 +1251,12 @@ it.effect("input never waits behind an observation and makes it stale", () =>
           )
           .pipe(Effect.forkScoped);
         yield* Deferred.await(gate.entered);
-        // The observation holds the session lock; input still reaches the device.
-        yield* forward(prepared.id, tap(0.5, 0.5));
+        // The observation holds the session lock; input still reaches the
+        // device, and forwarding answers without waiting for that lock.
+        yield* workspace.forward(
+          { inputs: tap(0.5, 0.5), sessionId: prepared.id },
+          "user"
+        );
         expect(forwarded).toHaveLength(1);
         yield* Deferred.succeed(gate.release, true);
         const observed = yield* Fiber.join(observing);
@@ -1463,8 +1467,7 @@ it.effect(
 
 it("validates Forwarded Input and keeps it out of the MCP tool", () => {
   const sessionId = AgentSessionId.make("agent-android-schema");
-  const command = {
-    _tag: "forward",
+  const forwarded = {
     inputs: [
       { _tag: "touch", action: "down", at: 0, x: 0, y: 1 },
       {
@@ -1488,7 +1491,7 @@ it("validates Forwarded Input and keeps it out of the MCP tool", () => {
   } as const;
   const observationId = "observed";
   const operationId = op("validate-forward");
-  expect(Schema.is(AndroidWorkspaceCommand)(command)).toBe(true);
+  expect(Schema.is(NativeForward)(forwarded)).toBe(true);
   for (const input of [
     { _tag: "touch", action: "down", at: 0, x: -0.1, y: 0 },
     { _tag: "touch", action: "down", at: 0, x: 0, y: 1.1 },
@@ -1498,13 +1501,14 @@ it("validates Forwarded Input and keeps it out of the MCP tool", () => {
     { _tag: "key", action: "down", at: 0, code: "", key: "", modifiers: 0 },
     { _tag: "key", action: "down", at: 0, code: "", key: "a", modifiers: 16 },
   ]) {
-    expect(
-      Schema.is(AndroidWorkspaceCommand)({ ...command, inputs: [input] })
-    ).toBe(false);
+    expect(Schema.is(NativeForward)({ ...forwarded, inputs: [input] })).toBe(
+      false
+    );
   }
-  expect(Schema.is(AndroidWorkspaceCommand)({ ...command, inputs: [] })).toBe(
-    false
-  );
+  expect(Schema.is(NativeForward)({ ...forwarded, inputs: [] })).toBe(false);
+  // Forwarded Input is not a Workspace command, so MCP cannot send it.
+  const command = { ...forwarded, _tag: "forward" } as const;
+  expect(Schema.is(AndroidWorkspaceCommand)(command)).toBe(false);
   const parameters =
     DeviceWorkspaceTools.tools.agent_device_workspace.parametersSchema;
   expect(Schema.is(parameters)({ command, platform: "android" })).toBe(false);

@@ -31,6 +31,7 @@ import {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
+  NativeForward,
 } from "./android-workspace.ts";
 import { browserAttachmentsField } from "./browser-checks.ts";
 import { BrowserTabId } from "./browser-identifiers.ts";
@@ -1076,6 +1077,12 @@ export class ContingencyRpcs extends RpcGroup.make(
     }),
     success: IosWorkspaceSnapshot,
   }),
+  /** Forwarded Input; answers once the input is written to the simulator. */
+  Rpc.make("ios.workspace.forward", {
+    error: BrowserRpcError,
+    payload: NativeForward,
+    success: Schema.Void,
+  }),
   Rpc.make("ios.workspace.list", {
     error: BrowserRpcError,
     payload: Schema.Struct({}),
@@ -1104,6 +1111,12 @@ export class ContingencyRpcs extends RpcGroup.make(
     error: BrowserRpcError,
     payload: AndroidWorkspaceCommand,
     success: AndroidWorkspaceSnapshot,
+  }),
+  /** Forwarded Input; answers once the input is written to the device. */
+  Rpc.make("android.workspace.forward", {
+    error: BrowserRpcError,
+    payload: NativeForward,
+    success: Schema.Void,
   }),
   Rpc.make("android.workspace.list", {
     error: BrowserRpcError,

@@ -13,6 +13,7 @@ import type {
   IosWorkspaceCommand,
   IosObservationRefusal,
   IosWorkspaceSnapshot,
+  NativeForward,
   PlatformRequirements,
 } from "@contingency/protocol";
 import {
@@ -283,6 +284,14 @@ export interface IosWorkspaceService {
     command: IosWorkspaceCommand,
     source: "agent" | "user"
   ) => Effect.Effect<IosWorkspaceSnapshot, IosWorkspaceError>;
+  /**
+   * Sends the user's Forwarded Input to the device and answers once it is
+   * written. It never waits on an observation and returns no snapshot.
+   */
+  readonly forward: (
+    input: NativeForward,
+    source: "agent" | "user"
+  ) => Effect.Effect<void, IosWorkspaceError>;
   readonly activeRunFlowNames: () => Effect.Effect<readonly string[]>;
   readonly list: () => Effect.Effect<
     readonly IosWorkspaceSummary[],
@@ -1037,7 +1046,7 @@ export const makeIosWorkspaceLayer = (options: {
         );
       const forwardWorkspace = (
         session: Session,
-        command: Extract<IosWorkspaceCommand, { readonly _tag: "forward" }>,
+        inputs: NativeForward["inputs"],
         source: "agent" | "user"
       ) =>
         Effect.gen(function* forwardWorkspaceInput() {
@@ -1051,9 +1060,8 @@ export const makeIosWorkspaceLayer = (options: {
               "Only the user controlling a running session can send input. Nothing was sent."
             );
           }
-          yield* session.lane.forward(command.inputs);
+          yield* session.lane.forward(inputs);
           yield* session.lane.wake(session.scope, settleForwarded(session));
-          return yield* snapshot(session);
         });
       const recordWorkspace = (
         session: Session,
@@ -1405,10 +1413,7 @@ export const makeIosWorkspaceLayer = (options: {
         });
       const perform = (
         session: Session,
-        command: Exclude<
-          IosWorkspaceCommand,
-          { readonly _tag: "start" | "forward" }
-        >,
+        command: Exclude<IosWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
       ) =>
         // Closed command dispatch; capture, input, and assessment have separate handlers.
@@ -1811,11 +1816,6 @@ export const makeIosWorkspaceLayer = (options: {
                 return yield* snapshotPersisted(summary);
               });
             }
-            if (command._tag === "forward") {
-              // Input never waits behind an observation. It is not replayable,
-              // so it carries no receipt.
-              return forwardWorkspace(session, command, source);
-            }
             const serialized = session.lock.withPermits(1)(
               Effect.gen(function* serializedCommand() {
                 const operationId =
@@ -1886,6 +1886,17 @@ export const makeIosWorkspaceLayer = (options: {
                   Effect.flatMap(Fiber.join)
                 )
               : serialized;
+          }),
+        forward: ({ inputs, sessionId }, source) =>
+          Effect.suspend(() => {
+            const session = sessions.get(sessionId);
+            // Input never waits behind an observation. It is not replayable,
+            // so it carries no receipt.
+            return session === undefined
+              ? denied(
+                  "This process does not own the iOS session. Nothing was sent."
+                )
+              : forwardWorkspace(session, inputs, source);
           }),
         keyframes: (sessionId) => {
           const session = sessions.get(sessionId);

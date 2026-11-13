@@ -12,6 +12,7 @@ import {
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
+  NativeForward,
   PlatformRequirements,
 } from "@contingency/protocol";
 import {
@@ -297,6 +298,14 @@ export interface AndroidWorkspaceService {
     command: AndroidWorkspaceCommand,
     source: "agent" | "user"
   ) => Effect.Effect<AndroidWorkspaceSnapshot, AndroidWorkspaceError>;
+  /**
+   * Sends the user's Forwarded Input to the device and answers once it is
+   * written. It never waits on an observation and returns no snapshot.
+   */
+  readonly forward: (
+    input: NativeForward,
+    source: "agent" | "user"
+  ) => Effect.Effect<void, AndroidWorkspaceError>;
   readonly activeRunFlowNames: () => Effect.Effect<readonly string[]>;
   readonly list: () => Effect.Effect<
     readonly AndroidWorkspaceSummary[],
@@ -1021,7 +1030,7 @@ export const makeAndroidWorkspaceLayer = (options: {
         );
       const forwardWorkspace = (
         session: Session,
-        command: Extract<AndroidWorkspaceCommand, { readonly _tag: "forward" }>,
+        inputs: NativeForward["inputs"],
         source: "agent" | "user"
       ) =>
         Effect.gen(function* forwardWorkspaceInput() {
@@ -1035,9 +1044,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               "Only the user controlling a running session can send input. Nothing was sent."
             );
           }
-          yield* session.lane.forward(command.inputs);
+          yield* session.lane.forward(inputs);
           yield* session.lane.wake(session.scope, settleForwarded(session));
-          return yield* snapshot(session);
         });
       const recordWorkspace = (
         session: Session,
@@ -1384,10 +1392,7 @@ export const makeAndroidWorkspaceLayer = (options: {
         });
       const perform = (
         session: Session,
-        command: Exclude<
-          AndroidWorkspaceCommand,
-          { readonly _tag: "start" | "forward" }
-        >,
+        command: Exclude<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
       ) =>
         // Closed command dispatch; capture, input, and assessment have separate handlers.
@@ -1763,11 +1768,6 @@ export const makeAndroidWorkspaceLayer = (options: {
                 return yield* snapshotPersisted(summary);
               });
             }
-            if (command._tag === "forward") {
-              // Input never waits behind an observation. It is not replayable,
-              // so it carries no receipt.
-              return forwardWorkspace(session, command, source);
-            }
             const serialized = session.lock.withPermits(1)(
               Effect.gen(function* serializedCommand() {
                 const operationId =
@@ -1838,6 +1838,17 @@ export const makeAndroidWorkspaceLayer = (options: {
                   Effect.flatMap(Fiber.join)
                 )
               : serialized;
+          }),
+        forward: ({ inputs, sessionId }, source) =>
+          Effect.suspend(() => {
+            const session = sessions.get(sessionId);
+            // Input never waits behind an observation. It is not replayable,
+            // so it carries no receipt.
+            return session === undefined
+              ? denied(
+                  "This process does not own the Android session. Nothing was sent."
+                )
+              : forwardWorkspace(session, inputs, source);
           }),
         keyframes: (sessionId) => {
           const session = sessions.get(sessionId);

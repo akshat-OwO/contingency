@@ -283,6 +283,18 @@ const deviceOperationId = OperationId.annotate({ identifier: "Op" });
 const session = { sessionId: deviceSessionId };
 const mutation = { ...session, operationId: deviceOperationId };
 
+/**
+ * Workspace-only Forwarded Input for a native session, on Android and iOS.
+ * It has its own RPC that answers once the input is written to the device,
+ * so input never waits on a snapshot. MCP never exposes it.
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const NativeForward = Schema.Struct({
+  ...session,
+  inputs: Schema.NonEmptyArray(NativeInput).check(Schema.isMaxLength(256)),
+});
+export type NativeForward = typeof NativeForward.Type;
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceCommand = Schema.Union([
   Schema.TaggedStruct("start", {
@@ -323,11 +335,6 @@ export const AndroidWorkspaceCommand = Schema.Union([
     ...mutation,
     allow: Schema.Boolean,
     decisionId: text,
-  }),
-  // Workspace-only Forwarded Input. Never exposed in the MCP tool's schema.
-  Schema.TaggedStruct("forward", {
-    ...session,
-    inputs: Schema.NonEmptyArray(NativeInput).check(Schema.isMaxLength(256)),
   }),
   Schema.TaggedStruct("input", {
     ...mutation,

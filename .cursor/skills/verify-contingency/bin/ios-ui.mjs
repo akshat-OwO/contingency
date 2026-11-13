@@ -2,20 +2,20 @@ import assert from "node:assert/strict";
 
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
-const waitReply = async (page, before) => {
+const waitReply = async (page, before, tag = "ios.workspace.command") => {
   await page.waitForFunction(
-    (index) =>
+    ([index, expected]) =>
       globalThis.__workspaceCommandReplies
         .slice(index)
-        .some((reply) => reply.tag === "ios.workspace.command"),
-    before,
+        .some((reply) => reply.tag === expected),
+    [before, tag],
     { timeout: 180_000 }
   );
   const replies = await page.evaluate(
     (index) => globalThis.__workspaceCommandReplies.slice(index),
     before
   );
-  const reply = replies.find((entry) => entry.tag === "ios.workspace.command");
+  const reply = replies.find((entry) => entry.tag === tag);
   assert.equal(
     reply?.success,
     true,
@@ -76,7 +76,8 @@ export const pickIos = async (page, flags) => {
     () => globalThis.__workspaceCommandReplies.length
   );
   await page.mouse.click(box.x + fx * box.width, box.y + fy * box.height);
-  await waitReply(page, before);
+  // The click is Forwarded Input; its reply comes once the tap is sent.
+  await waitReply(page, before, "ios.workspace.forward");
   return { fx, fy, name: flags.name, role: flags.role, sessionId };
 };
 
@@ -94,6 +95,6 @@ export const swipeIos = async (page) => {
     steps: 8,
   });
   await page.mouse.up();
-  await waitReply(page, before);
+  await waitReply(page, before, "ios.workspace.forward");
   return { inputSent: true };
 };

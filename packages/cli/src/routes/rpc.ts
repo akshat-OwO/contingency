@@ -254,6 +254,29 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
               )
             );
         }),
+      // Forwarded Input answers once it is written to the simulator.
+      "ios.workspace.forward": (input) =>
+        Effect.serviceOption(IosWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .forward(input, "user")
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.fail(
+                  makeBrowserRpcError(
+                    "agent_session_unavailable",
+                    "iOS Workspace is unavailable."
+                  )
+                )
+          )
+        ),
       "ios.workspace.list": () =>
         Effect.gen(function* listIosWorkspace() {
           const service = yield* Effect.serviceOption(IosWorkspace);
@@ -331,6 +354,29 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             Option.isSome(service)
               ? service.value
                   .execute(command, "user")
+                  .pipe(
+                    Effect.mapError((cause) =>
+                      makeBrowserRpcError(
+                        "agent_session_unavailable",
+                        cause.message
+                      )
+                    )
+                  )
+              : Effect.fail(
+                  makeBrowserRpcError(
+                    "agent_session_unavailable",
+                    "Experimental Android Workspace is unavailable in this process."
+                  )
+                )
+          )
+        ),
+      // Forwarded Input answers once it is written to the device.
+      "android.workspace.forward": (input) =>
+        Effect.serviceOption(AndroidWorkspace).pipe(
+          Effect.flatMap((service) =>
+            Option.isSome(service)
+              ? service.value
+                  .forward(input, "user")
                   .pipe(
                     Effect.mapError((cause) =>
                       makeBrowserRpcError(

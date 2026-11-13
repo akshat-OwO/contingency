@@ -586,10 +586,17 @@ export const AndroidSessionView = ({
   readonly setState: SetState;
   readonly state: WorkspaceState;
 }) => {
-  const { androidSessionsAtom, runAndroidWorkspaceCommand } =
+  const { androidSessionsAtom, androidWorkspaceForwardMutation } =
     useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
   const canAct = session.controller === "user" && session.phase === "running";
+  const forwardInput = useAtomSet(androidWorkspaceForwardMutation, {
+    mode: "promise",
+  });
+  const forwardInputRef = useRef(forwardInput);
+  useEffect(() => {
+    forwardInputRef.current = forwardInput;
+  }, [forwardInput]);
   // One queue per session keeps each session's input in order.
   const [queues] = useState(
     () => new Map<AgentSessionId, (input: NativeInput) => void>()
@@ -603,7 +610,11 @@ export const AndroidSessionView = ({
       const sessionId = session.id;
       forward = makeNativeInputQueue(
         (inputs) =>
-          runAndroidWorkspaceCommand({ _tag: "forward", inputs, sessionId }),
+          Effect.tryPromise({
+            catch: (cause) => cause,
+            try: () =>
+              forwardInputRef.current({ payload: { inputs, sessionId } }),
+          }),
         (cause) =>
           setState((current) => ({
             ...current,
