@@ -1,4 +1,4 @@
-import { CatalogRootView } from "@contingency/protocol";
+import { CatalogRootView, CatalogRunEntry } from "@contingency/protocol";
 import type { CatalogBrowseResult } from "@contingency/protocol";
 import {
   RegistryProvider,
@@ -823,4 +823,33 @@ test("shows a Run's findings beside its assessment in the Details pane", () => {
   expect(
     within(findings).getByText("The resend link stayed disabled.")
   ).toBeVisible();
+});
+
+test("opens a native Run in its device session's Workspace view", () => {
+  const sessionId = `agent-android-${"d".repeat(32)}`;
+  render(
+    <TestRegistry>
+      <FlowDetails
+        selection={{
+          kind: "run",
+          run: Schema.decodeUnknownSync(CatalogRunEntry)({
+            ...run,
+            assessment: null,
+            kind: "dry-run",
+            native: { platform: "android", sessionId },
+            outcome: "user-closed",
+            ownerFlow: "1mg mobile login",
+            runId: `agentrun-${sessionId}`,
+            title: "Android Dry Run · 1mg mobile login",
+          }),
+          scope: "local",
+        }}
+      />
+    </TestRegistry>
+  );
+  expect(screen.getByText("Android Dry Run")).toBeVisible();
+  // A native Dry Run still opens: its session's ended view shows it.
+  expect(
+    screen.getByRole("link", { name: "Open Run Summary" })
+  ).toHaveAttribute("href", `/?android=${sessionId}`);
 });

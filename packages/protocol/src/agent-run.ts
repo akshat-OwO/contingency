@@ -12,6 +12,7 @@ import { BrowserModification } from "./browser-modifications.ts";
 import { DraftEmulation, IgnoredSecret } from "./emulation.ts";
 import { FlowName } from "./flow-identifiers.ts";
 import { optionalNullable } from "./optional-field.ts";
+import { PlatformRequirements } from "./platform.ts";
 import { RunVideoTimeMap } from "./run-video.ts";
 import { scanRequirementsField, scanReportsField } from "./scans.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
@@ -489,6 +490,40 @@ export const TaskAgentRunSummary = Schema.Struct({
   .annotate({ identifier: "TaskAgentRunSummary" });
 export type TaskAgentRunSummary = typeof TaskAgentRunSummary.Type;
 
+/**
+ * The Run Summary an Android or iOS Run or Dry Run writes when it ends, so the
+ * Run outlives the device session that performed it
+ * ([ADR 0078](../../../docs/adr/0078-native-runs-end-with-a-platform-tagged-run-summary.md)).
+ * Its keyframes and actions sit beside it in the Run's directory.
+ */
+export const NativeAgentRunSummary = Schema.Struct({
+  assessment: Schema.NullOr(
+    Schema.Struct({
+      explanation: nonEmptyString,
+      observationId: nonEmptyString,
+      outcome: AgentAssessmentOutcome,
+    })
+  ),
+  /** Capture the device withheld, such as a secure window. */
+  captureGaps: Schema.Array(nonEmptyString),
+  endedAt: nonEmptyString,
+  flowName: FlowName,
+  kind: Schema.Literals(["run", "dry-run"]),
+  outcome: AgentTaskRunOutcome,
+  platform: Schema.Literals(["android", "ios"]),
+  /** The Teaching Recording a Dry Run belongs to; `null` for a Run. */
+  recordingId: Schema.NullOr(TeachingRecordingId),
+  requirements: PlatformRequirements,
+  runId: AgentRunId,
+  schemaVersion: Schema.Literal(4),
+  /** The device session that performed it; its Workspace view shows the Run. */
+  sessionId: AgentSessionId,
+  startedAt: nonEmptyString,
+  takeoverOccurred: Schema.Boolean,
+  title: nonEmptyString,
+}).annotate({ identifier: "NativeAgentRunSummary" });
+export type NativeAgentRunSummary = typeof NativeAgentRunSummary.Type;
+
 /** Historical step executions retain their version and meaning on decode. */
 export const AgentRunSummary = Schema.Union([
   LegacyAgentFlowRunSummary,
@@ -496,6 +531,16 @@ export const AgentRunSummary = Schema.Union([
   TaskAgentRunSummary,
 ]);
 export type AgentRunSummary = typeof AgentRunSummary.Type;
+
+/**
+ * Every Run Summary a Catalog Root can hold: the browser Run store's, and the
+ * native ones Android and iOS write beside their own evidence.
+ */
+export const CatalogRunSummary = Schema.Union([
+  ...AgentRunSummary.members,
+  NativeAgentRunSummary,
+]);
+export type CatalogRunSummary = typeof CatalogRunSummary.Type;
 
 /** Contract only: task-directed runtime tools are integrated in later phases. */
 export const AgentTaskRunStart = Schema.Struct({

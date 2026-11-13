@@ -448,7 +448,12 @@ export const AndroidSessionSelect = ({
         <SelectValue placeholder="Android session">
           {(value: string | null) => {
             const label = value === null ? undefined : labels.get(value);
-            return label === undefined ? null : (
+            // No live session is selected, such as while an ended one shows.
+            return label === undefined ? (
+              <span className="text-muted-foreground truncate">
+                Android session
+              </span>
+            ) : (
               // The whole label, like iOS: the row truncates it if it must.
               <span className="truncate" title={label}>
                 {label}

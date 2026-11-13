@@ -61,3 +61,10 @@ export const isLifecycleRefusal = <Failure>(failure: Failure): boolean =>
     Option.map(({ code }) => LIFECYCLE_REFUSALS.has(code)),
     Option.getOrElse(() => false)
   );
+
+/** Whether the server has no record of the session the request named. */
+export const isSessionNotFound = <Failure>(failure: Failure): boolean =>
+  decodeRpcError(failure).pipe(
+    Option.map(({ code }) => code === "agent_session_not_found"),
+    Option.getOrElse(() => false)
+  );

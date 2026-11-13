@@ -54,6 +54,15 @@ const agentError = (cause: AgentSessionError): BrowserRpcErrorType =>
     ? cause
     : makeBrowserRpcError(cause.code, cause.message);
 
+/**
+ * A device session with no record says so, so the Workspace can tell an ended
+ * link from a session that did not answer.
+ */
+const nativeSessionErrorCode = (code: string): BrowserRpcErrorType["code"] =>
+  code === "android_session_not_found" || code === "ios_session_not_found"
+    ? "agent_session_not_found"
+    : "agent_session_unavailable";
+
 const teachingRecordingErrorCodes = {
   teaching_recording_conflict: "agent_teaching_conflict",
   teaching_recording_invalid: "agent_teaching_invalid",
@@ -261,7 +270,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             .pipe(
               Effect.mapError((cause) =>
                 makeBrowserRpcError(
-                  "agent_session_unavailable",
+                  nativeSessionErrorCode(cause.code),
                   `${cause.code}: ${cause.message}`
                 )
               )
@@ -365,7 +374,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   .pipe(
                     Effect.mapError((cause) =>
                       makeBrowserRpcError(
-                        "agent_session_unavailable",
+                        nativeSessionErrorCode(cause.code),
                         cause.message
                       )
                     )

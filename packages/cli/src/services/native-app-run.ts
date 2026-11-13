@@ -119,7 +119,13 @@ export const createNativeAppRun = <
           }
         }
         record({ type: "closed" });
-        terminal = { ...registry.get(status), pending: [], phase: "closed" };
+        const ended = registry.get(status);
+        // A refused run stays refused: closing released it, nothing ran.
+        terminal = {
+          ...ended,
+          pending: [],
+          phase: ended.phase === "refused" ? "refused" : "closed",
+        };
         registry.dispose();
       })
     );

@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  AgentRunSummary,
+  CatalogRunSummary,
   FlowName,
   TeachingRecordingManifest,
 } from "@contingency/protocol";
@@ -94,14 +94,32 @@ const MANIFEST_FILE = "manifest.json";
 const READ_CONCURRENCY = 8;
 
 const decodeSummary = Schema.decodeEffect(
-  Schema.fromJsonString(AgentRunSummary)
+  Schema.fromJsonString(CatalogRunSummary)
 );
 const decodeManifest = Schema.decodeEffect(
   Schema.fromJsonString(TeachingRecordingManifest)
 );
 
 /** A Run Summary reduced to its list entry, for every Summary version. */
-export const catalogRunEntry = (summary: AgentRunSummary): CatalogRunEntry => {
+export const catalogRunEntry = (
+  summary: CatalogRunSummary
+): CatalogRunEntry => {
+  if (summary.schemaVersion === 4) {
+    return {
+      assessment: summary.assessment?.outcome ?? null,
+      endedAt: summary.endedAt,
+      explanation: summary.assessment?.explanation,
+      flowNames: [summary.flowName],
+      kind: summary.kind,
+      native: { platform: summary.platform, sessionId: summary.sessionId },
+      outcome: summary.outcome,
+      ownerFlow: null,
+      recordingId: summary.recordingId,
+      runId: summary.runId,
+      startedAt: summary.startedAt,
+      title: summary.title,
+    };
+  }
   if (summary.schemaVersion === 3) {
     return {
       assessment: summary.assessment?.outcome ?? null,

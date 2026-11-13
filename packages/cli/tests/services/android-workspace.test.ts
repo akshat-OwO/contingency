@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import {
   AgentSessionId,
   AndroidWorkspaceCommand,
+  CatalogRunSummary,
   AndroidWorkspaceSnapshot,
   FlowName,
   NativeForward,
@@ -26,9 +27,9 @@ import {
   Layer,
   Result,
   Schema,
+  Scope,
   Stream,
 } from "effect";
-import type { Scope } from "effect";
 import { TestClock } from "effect/testing";
 import type { Mutable } from "effect/Types";
 
@@ -305,7 +306,11 @@ const fixture = (
         root: () => root,
       }).pipe(Layer.provide(dependencies));
       const learning = TeachingRecordingLearningLive.pipe(Layer.provide(store));
-      const services = yield* Effect.context<FileSystem.FileSystem>();
+      // Without the test's own Scope, so a restarted workspace lives only as
+      // long as the scope that builds it, as a process that exits.
+      const services = Context.omit(Scope.Scope)(
+        yield* Effect.context<FileSystem.FileSystem>()
+      );
       const restart = () =>
         Layer.build(
           makeAndroidWorkspaceLayer({ acquireStream, root: () => root }).pipe(
@@ -530,6 +535,294 @@ const dryRun = (recordingId: TeachingRecordingId) =>
     );
   });
 
+const runSummaryFile = (root: string, sessionId: string) =>
+  path.join(
+    root,
+    "android-edit",
+    "runs",
+    `agentrun-${sessionId}`,
+    "summary.json"
+  );
+const readRunSummary = (root: string, sessionId: string) =>
+  Effect.gen(function* readNativeRunSummary() {
+    const fs = yield* FileSystem.FileSystem;
+    const file = runSummaryFile(root, sessionId);
+    if (!(yield* fs.exists(file))) {
+      return null;
+    }
+    return yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(CatalogRunSummary)
+    )(yield* fs.readFileString(file));
+  });
+
+it.effect(
+  "lists only the sessions this process owns and the user can continue",
+  () =>
+    fixture(({ restart, root }) =>
+      Effect.gen(function* liveSessions() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-listed"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        expect((yield* workspace.list()).map(({ id }) => id)).toEqual([
+          started.id,
+        ]);
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-listed"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect((yield* workspace.list()).map(({ phase }) => phase)).toEqual([
+          "running",
+        ]);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-listed"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(yield* workspace.list()).toEqual([]);
+        // The ended session stays readable by id.
+        expect(
+          (yield* workspace.execute(
+            { _tag: "read", sessionId: started.id },
+            "user"
+          )).phase
+        ).toBe("closed");
+
+        // A record another process left running, and one that is corrupt,
+        // are not sessions this process can continue.
+        const fs = yield* FileSystem.FileSystem;
+        const records = path.join(root, ".android-workspace");
+        const record = yield* fs.readFileString(
+          path.join(records, `${started.id}.json`)
+        );
+        const orphan = AgentSessionId.make(`agent-android-${"a".repeat(32)}`);
+        yield* fs.writeFileString(
+          path.join(records, `${orphan}.json`),
+          JSON.stringify({
+            ...JSON.parse(record),
+            completedAt: null,
+            id: orphan,
+            phase: "running",
+          })
+        );
+        yield* fs.writeFileString(
+          path.join(records, `agent-android-${"b".repeat(32)}.json`),
+          "{"
+        );
+        const [listed, reopened] = yield* Effect.scoped(
+          Effect.flatMap(restart(), (fresh) =>
+            Effect.all([
+              fresh.list(),
+              fresh.execute({ _tag: "read", sessionId: orphan }, "user"),
+            ])
+          )
+        );
+        expect(listed).toEqual([]);
+        expect(reopened.phase).toBe("closed");
+        // The record this process just read is its own again only by id.
+        expect(yield* workspace.list()).toEqual([]);
+      })
+    )
+);
+
+it.effect(
+  "native Runs and Dry Runs that ran end with a Run Summary under their Flow",
+  () =>
+    fixture(({ restart, root }) =>
+      Effect.gen(function* nativeRunSummaries() {
+        const recordingId = yield* teach();
+        const workspace = yield* AndroidWorkspace;
+        const dry = yield* dryRun(recordingId);
+        expect(yield* readRunSummary(root, dry.id)).toBeNull();
+        yield* workspace.execute(
+          {
+            _tag: "complete",
+            assessment: {
+              explanation: "Home is visible.",
+              observationId: dry.observation?.id ?? "",
+              outcome: "working",
+            },
+            operationId: op("complete-summary-dry"),
+            sessionId: dry.id,
+          },
+          "agent"
+        );
+        expect(yield* readRunSummary(root, dry.id)).toMatchObject({
+          assessment: { outcome: "working" },
+          flowName,
+          kind: "dry-run",
+          outcome: "completed",
+          platform: "android",
+          recordingId,
+          runId: `agentrun-${dry.id}`,
+          schemaVersion: 4,
+          sessionId: dry.id,
+        });
+        expect(yield* workspace.list()).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "flow-decision",
+            decision: "verify",
+            operationId: op("verify-summary"),
+            sessionId: dry.id,
+          },
+          "user"
+        );
+        const startRun = (id: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "run",
+              operationId: op(id),
+              recordingId: null,
+              selection,
+            },
+            "agent"
+          );
+        const closeRun = (sessionId: AgentSessionId, id: string) =>
+          workspace.execute(
+            { _tag: "close", operationId: op(id), sessionId },
+            "user"
+          );
+
+        // Closed before it was prepared: nothing ran, so no Run Summary.
+        const unprepared = yield* startRun("start-unprepared");
+        yield* closeRun(unprepared.id, "close-unprepared");
+        expect(yield* readRunSummary(root, unprepared.id)).toBeNull();
+
+        const closed = yield* startRun("start-closed");
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-closed"),
+            sessionId: closed.id,
+          },
+          "user"
+        );
+        yield* closeRun(closed.id, "close-closed");
+        // Closing an ended session again keeps its outcome.
+        yield* closeRun(closed.id, "close-closed-again");
+        expect(yield* readRunSummary(root, closed.id)).toMatchObject({
+          assessment: null,
+          kind: "run",
+          outcome: "user-closed",
+          recordingId: null,
+          title: "Android Run · android-edit",
+        });
+        expect(
+          (yield* workspace.execute(
+            { _tag: "read", sessionId: closed.id },
+            "user"
+          )).phase
+        ).toBe("closed");
+
+        // A process that exits mid-Run still leaves the Run's Summary.
+        const exited = yield* Effect.scoped(
+          Effect.gen(function* exitMidRun() {
+            const fresh = yield* restart();
+            const started = yield* fresh.execute(
+              {
+                _tag: "start",
+                flowName,
+                kind: "run",
+                operationId: op("start-exited"),
+                recordingId: null,
+                selection,
+              },
+              "agent"
+            );
+            yield* fresh.execute(
+              {
+                _tag: "prepare",
+                operationId: op("prepare-exited"),
+                sessionId: started.id,
+              },
+              "user"
+            );
+            return started.id;
+          })
+        );
+        expect(yield* readRunSummary(root, exited)).toMatchObject({
+          kind: "run",
+          outcome: "process-exited",
+        });
+      })
+    )
+);
+
+it.effect(
+  "refusing a Dry Run's preparation leaves its recording ready for another attempt",
+  () =>
+    fixture(({ root }) =>
+      Effect.gen(function* refusedDryRun() {
+        const recordingId = yield* teach();
+        const workspace = yield* AndroidWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const startDry = (id: string, appBuild: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op(id),
+              recordingId,
+              selection: {
+                ...selection,
+                environment: { ...selection.environment, appBuild },
+                setup: { ...selection.setup, conditions: [] },
+              },
+            },
+            "agent"
+          );
+        // A changed build asks for the user's Run Environment Permission.
+        const changed = yield* startDry("start-dry-changed", "3");
+        const [decision] = changed.preparation.pending;
+        expect(decision?.kind).toBe("run-environment-permission");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-running"
+        );
+        const refused = yield* workspace.execute(
+          {
+            _tag: "decide",
+            allow: false,
+            decisionId: decision?.id ?? "",
+            operationId: op("refuse-dry"),
+            sessionId: changed.id,
+          },
+          "user"
+        );
+        expect(refused.phase).toBe("refused");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-run-failed"
+        );
+        expect(yield* workspace.list()).toEqual([]);
+        expect(yield* readRunSummary(root, changed.id)).toBeNull();
+        // Another Dry Run of the same recording can start.
+        const retried = yield* startDry("start-dry-retry", "2");
+        expect(retried.kind).toBe("dry-run");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-running"
+        );
+      })
+    )
+);
+
 it.effect(
   "installs an uploaded .apk only with consent, and deletes the upload when the session ends",
   () =>
@@ -577,9 +870,13 @@ it.effect(
         // Declining sends nothing to the device.
         expect(refused.preparation.phase).toBe("refused");
         expect(calls).toEqual([]);
+        // Refusal ends the session and releases what it held, the upload too.
+        expect(refused.phase).toBe("refused");
         const fs = yield* FileSystem.FileSystem;
-        expect(yield* fs.exists(uploaded.apkPath)).toBe(true);
-        yield* workspace.execute(
+        expect(yield* fs.exists(uploaded.apkPath)).toBe(false);
+        expect(yield* workspace.list()).toEqual([]);
+        expect(yield* workspace.stream(started.id)).toBeNull();
+        const closed = yield* workspace.execute(
           {
             _tag: "close",
             operationId: op("close-uploaded"),
@@ -587,7 +884,7 @@ it.effect(
           },
           "user"
         );
-        expect(yield* fs.exists(uploaded.apkPath)).toBe(false);
+        expect(closed.phase).toBe("refused");
       })
     )
 );

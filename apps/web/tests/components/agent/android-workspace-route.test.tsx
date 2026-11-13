@@ -1,4 +1,8 @@
-import { AgentSessionId, FlowName } from "@contingency/protocol";
+import {
+  AgentSessionId,
+  FlowName,
+  makeBrowserRpcError,
+} from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
@@ -121,4 +125,59 @@ test("a session picked before the route moved on does not take it back", async (
   await waitFor(() => expect(onSessionChange).toHaveBeenCalledWith(later));
   await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
   expect(onSessionChange).not.toHaveBeenCalledWith(completed.id);
+});
+
+const routed = (
+  requested: string,
+  command: typeof runAndroidWorkspaceCommand
+) => (
+  <RpcDependenciesProvider
+    overrides={{
+      // The server lists only live sessions; an ended one is not among them.
+      androidSessionsAtom: Atom.make(AsyncResult.success([])),
+      runAndroidWorkspaceCommand: command,
+    }}
+  >
+    <RegistryProvider>
+      <AndroidWorkspace
+        onSessionChange={vi.fn()}
+        requestedSessionId={requested}
+      />
+    </RegistryProvider>
+  </RpcDependenciesProvider>
+);
+
+test("a linked ended session shows its outcome but is no picker choice", async () => {
+  render(routed(completed.id, runAndroidWorkspaceCommand));
+  const picker = await screen.findByRole("combobox", {
+    name: "Android Agent Session",
+  });
+  // Nothing is selected: the trigger shows its placeholder, not the session,
+  // and the listed sessions it would open hold no ended one.
+  await waitFor(() => expect(picker).toHaveTextContent("Android session"));
+  expect(picker).not.toHaveTextContent("finished-checkout");
+  expect(screen.getByRole("button", { name: "New session" })).toBeVisible();
+});
+
+test("a link to a session with no record says it is gone and selects nothing", async () => {
+  const missing = AgentSessionId.make("agent-missing");
+  render(
+    routed(missing, () =>
+      Effect.fail(
+        makeBrowserRpcError(
+          "agent_session_not_found",
+          "No valid persisted Android summary exists for this session."
+        )
+      )
+    )
+  );
+  expect(
+    await screen.findByText(
+      "The session this link named is no longer available."
+    )
+  ).toBeVisible();
+  expect(screen.queryByText("The Android session did not answer")).toBeNull();
+  expect(
+    screen.queryByRole("combobox", { name: "Android Agent Session" })
+  ).toBeNull();
 });

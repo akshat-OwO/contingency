@@ -199,3 +199,78 @@ for (const existing of [false, true]) {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 }
+
+it.effect(
+  "lists only the iOS sessions this process owns and the user can continue",
+  () =>
+    Effect.gen(function* liveIosSessions() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
+      const workspaceLayer = makeIosWorkspaceLayer({
+        createRun: (input) =>
+          createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
+            input,
+            {
+              authorize: (request) => request,
+              decisions: () => [],
+              differences: () => [],
+              error: platformRuntimeError,
+              preflight: () => Effect.void,
+              start: () => Effect.die("Startup must not prepare the simulator"),
+              startingConditions: () => true,
+              validate: () => Effect.void,
+            }
+          ),
+        root: () => root,
+      }).pipe(
+        Layer.provide(Layer.merge(storeLayer, makeFlowCatalogLayer({ root })))
+      );
+      const sessionId = yield* Effect.scoped(
+        Effect.gen(function* listInProcess() {
+          const workspace = yield* IosWorkspace;
+          const started = yield* workspace.execute(
+            {
+              _tag: "start",
+              flowName: FlowName.make("checkout"),
+              group: "shop",
+              kind: "teaching",
+              operationId: OperationId.make("listed-start"),
+              recordingId: null,
+              selection: {
+                ...selection,
+                outcomes: [],
+                setup: { conditions: [], kind: "restart-app" },
+              },
+            },
+            "user"
+          );
+          expect((yield* workspace.list()).map(({ id }) => id)).toEqual([
+            started.id,
+          ]);
+          yield* workspace.execute(
+            {
+              _tag: "close",
+              operationId: OperationId.make("listed-close"),
+              sessionId: started.id,
+            },
+            "user"
+          );
+          expect(yield* workspace.list()).toEqual([]);
+          return started.id;
+        }).pipe(Effect.provide(workspaceLayer))
+      );
+      // After a restart the ended session is readable by id but not listed.
+      const [listed, reopened] = yield* Effect.scoped(
+        Effect.gen(function* afterRestart() {
+          const workspace = yield* IosWorkspace;
+          return yield* Effect.all([
+            workspace.list(),
+            workspace.execute({ _tag: "read", sessionId }, "user"),
+          ]);
+        }).pipe(Effect.provide(workspaceLayer))
+      );
+      expect(listed).toEqual([]);
+      expect(reopened.phase).toBe("closed");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

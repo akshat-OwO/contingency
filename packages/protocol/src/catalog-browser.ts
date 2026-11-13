@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { DemoSiteId } from "./agent-decision.ts";
+import { AgentSessionId } from "./agent-identifiers.ts";
 import { AgentAssessmentOutcome, AgentRunId } from "./agent-run.ts";
 import { FlowName } from "./flow-identifiers.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
@@ -38,7 +39,8 @@ export type CatalogFlowEntry = typeof CatalogFlowEntry.Type;
 
 /**
  * One persisted Run, reduced to what tells it apart in a list. `legacy`
- * covers step-based Summaries written before task Runs.
+ * covers step-based Summaries written before task Runs; `run` is a native
+ * Run of a verified Flow.
  */
 // oxlint-disable-next-line eslint/no-redeclare
 export const CatalogRunEntry = Schema.Struct({
@@ -58,7 +60,17 @@ export const CatalogRunEntry = Schema.Struct({
   ),
   /** The Flows the Run referenced; storage ownership is independent. */
   flowNames: Schema.Array(FlowName),
-  kind: Schema.Literals(["interactive", "dry-run", "legacy"]),
+  kind: Schema.Literals(["interactive", "dry-run", "run", "legacy"]),
+  /**
+   * A native Run's device session, whose Workspace view shows it. Absent for
+   * browser Runs.
+   */
+  native: Schema.optionalKey(
+    Schema.Struct({
+      platform: Schema.Literals(["android", "ios"]),
+      sessionId: AgentSessionId,
+    })
+  ),
   outcome: nonEmptyString,
   /** The containing Flow, or null for a Run stored at the Catalog Root. */
   ownerFlow: Schema.NullOr(FlowName),
