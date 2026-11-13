@@ -22,7 +22,6 @@ import type {
   AgentSessionError,
   AgentSessionService,
 } from "../services/agent-session.ts";
-import { androidDeviceBoot } from "../services/android-device-boot.ts";
 import { androidDiscovery } from "../services/android-discovery.ts";
 import { AndroidWorkspace } from "../services/android-workspace.ts";
 import { CatalogBrowser } from "../services/catalog-browser.ts";
@@ -32,6 +31,8 @@ import type {
 } from "../services/catalog-browser.ts";
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
+import { OwnedDevices } from "../services/owned-devices.ts";
+import type { OwnedDevicesService } from "../services/owned-devices.ts";
 import { recordingView } from "../services/recording-view.ts";
 import { TargetAppBuilds } from "../services/target-app-builds.ts";
 import {
@@ -138,6 +139,25 @@ const catalogBrowserUnavailable = <A>(
     )
   );
 
+/** Device starts belong to the process, which stops them when it closes. */
+const ownedDevices = <A>(
+  operation: (
+    service: OwnedDevicesService
+  ) => Effect.Effect<A, { readonly message: string }>
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.serviceOption(OwnedDevices).pipe(
+    Effect.flatMap((service) =>
+      Option.isSome(service)
+        ? operation(service.value).pipe(Effect.asVoid)
+        : Effect.fail({
+            message: "Starting devices is unavailable in this server process.",
+          })
+    ),
+    Effect.mapError((cause) =>
+      makeBrowserRpcError("agent_session_unavailable", cause.message)
+    )
+  );
+
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.sync(() => {
     const agentUnavailable = <A>(
@@ -202,14 +222,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             )
           ),
       "ios.device.boot": ({ udid }) =>
-        makeIosDiscovery()
-          .boot(udid)
-          .pipe(
-            Effect.asVoid,
-            Effect.mapError((cause) =>
-              makeBrowserRpcError("agent_session_unavailable", cause.message)
-            )
-          ),
+        ownedDevices((devices) => devices.bootIos(udid)),
       "ios.apps.list": ({ device }) =>
         makeIosDiscovery()
           .apps(device)
@@ -334,12 +347,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             )
           ),
       "android.device.boot": ({ avd }) =>
-        androidDeviceBoot.boot(avd).pipe(
-          Effect.asVoid,
-          Effect.mapError((cause) =>
-            makeBrowserRpcError("agent_session_unavailable", cause.message)
-          )
-        ),
+        ownedDevices((devices) => devices.bootAndroid(avd)),
       "android.apps.list": ({ device }) =>
         androidDiscovery
           .apps(device)

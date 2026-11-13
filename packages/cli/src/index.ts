@@ -10,12 +10,16 @@ import { AgentHarnessesLive } from "./services/agent-harnesses.ts";
 import { CreateBrowserLive } from "./services/create-browser.ts";
 import { LocalSystemOneLive } from "./services/local-system-one-live.ts";
 import { superviseLocalSystemOne } from "./services/local-system-one-supervisor.ts";
+import { OwnedDevicesLive } from "./services/owned-devices.ts";
 import { PlatformRuntimeFactoryLive } from "./services/platform-runtime-live.ts";
 import { UiInterfaceLive } from "./services/ui-interface.ts";
 
+// Every command runs inside these services, so the devices this process
+// starts are stopped only after the command's sessions have closed.
 const servicesLayer = Layer.mergeAll(
   AgentHarnessesLive,
   CreateBrowserLive,
+  OwnedDevicesLive,
   UiInterfaceLive,
   PlatformRuntimeFactoryLive.pipe(Layer.provide(CreateBrowserLive))
 ).pipe(Layer.provideMerge(NodeServices.layer));

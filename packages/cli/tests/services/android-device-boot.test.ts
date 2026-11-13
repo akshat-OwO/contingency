@@ -3,6 +3,7 @@ import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  emulatorArguments,
   emulatorExitReason,
   makeAndroidDeviceBoot,
 } from "../../src/services/android-device-boot.ts";
@@ -22,6 +23,7 @@ const host = (options: {
   readonly completed?: () => boolean;
   readonly exited?: Effect.Effect<string>;
   readonly released?: string[];
+  readonly stopped?: string[];
 }): AndroidBootHost => ({
   adb: (args) =>
     Effect.sync(() => {
@@ -41,11 +43,20 @@ const host = (options: {
     }),
   avds: () => Effect.succeed("Pixel_9\nPixel_8\n"),
   launch: (avd) =>
-    Effect.sync(() => {
+    Effect.gen(function* launch() {
       options.launched.push(avd);
+      // Stopping the launch is what makes its process exit.
+      const ended = yield* Deferred.make<string>();
       return {
         booted: Effect.sync(() => options.released?.push(avd)),
-        exited: options.exited ?? Effect.never,
+        exited: Effect.raceFirst(
+          options.exited ?? Effect.never,
+          Deferred.await(ended)
+        ),
+        stop: Effect.gen(function* stop() {
+          options.stopped?.push(avd);
+          yield* Deferred.succeed(ended, "Stopped");
+        }),
       };
     }),
 });
@@ -186,4 +197,173 @@ it.effect(
       expect(launched).toEqual(["Pixel_9"]);
       expect(released).toEqual(["Pixel_9"]);
     })
+);
+
+it("starts the emulator headless", () => {
+  expect(emulatorArguments("Pixel_9")).toEqual([
+    "-avd",
+    "Pixel_9",
+    "-no-window",
+  ]);
+});
+
+it.effect("stops the emulator it started when the process closes", () =>
+  Effect.gen(function* stopsOwned() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({ launched, running: () => launched.length > 0, stopped })
+    );
+    yield* boot.boot("Pixel_9");
+    const [first, second] = yield* Effect.all(
+      [boot.stopOwned, boot.stopOwned],
+      { concurrency: "unbounded" }
+    );
+    expect(first).toEqual([{ device: "Pixel_9", platform: "android" }]);
+    expect(second).toEqual(first);
+    expect(stopped).toEqual(["Pixel_9"]);
+  })
+);
+
+it.effect("never stops an emulator that was already running", () =>
+  Effect.gen(function* preservesExisting() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({ launched, running: () => true, stopped })
+    );
+    yield* boot.boot("Pixel_9");
+    expect(yield* boot.stopOwned).toEqual([]);
+    expect(stopped).toEqual([]);
+  })
+);
+
+it.effect("never stops an emulator already booting when it was asked", () =>
+  Effect.gen(function* preservesBooting() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({ completed: () => false, launched, running: () => true, stopped }),
+      { interval: "1 second" }
+    );
+    const waiting = yield* Effect.forkChild(boot.boot("Pixel_9"));
+    yield* Effect.yieldNow;
+    yield* Fiber.interrupt(waiting);
+    expect(yield* boot.stopOwned).toEqual([]);
+    expect(launched).toEqual([]);
+    expect(stopped).toEqual([]);
+  })
+);
+
+it.effect("keeps a launch whose boot timed out, and stops it on close", () =>
+  Effect.gen(function* timedOut() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({
+        completed: () => false,
+        launched,
+        running: () => launched.length > 0,
+        stopped,
+      }),
+      { interval: "1 second", timeout: "3 seconds" }
+    );
+    const waiting = yield* Effect.forkChild(failure(boot.boot("Pixel_9")));
+    yield* Effect.yieldNow;
+    // it.effect provides TestClock, so this reaches the boot timeout.
+    yield* TestClock.adjust("3 seconds");
+    expect(yield* Fiber.join(waiting)).toBe("android_boot_timeout");
+    expect(yield* boot.stopOwned).toEqual([
+      { device: "Pixel_9", platform: "android" },
+    ]);
+    expect(stopped).toEqual(["Pixel_9"]);
+  })
+);
+
+it.effect("stops a launch whose boot was interrupted", () =>
+  Effect.gen(function* interrupted() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({
+        completed: () => false,
+        launched,
+        running: () => launched.length > 0,
+        stopped,
+      }),
+      { interval: "1 second" }
+    );
+    const waiting = yield* Effect.forkChild(boot.boot("Pixel_9"));
+    yield* Effect.yieldNow;
+    yield* Fiber.interrupt(waiting);
+    yield* boot.stopOwned;
+    expect(launched).toEqual(["Pixel_9"]);
+    expect(stopped).toEqual(["Pixel_9"]);
+  })
+);
+
+it.effect(
+  "forgets a launch once it exits, so a later emulator is not stopped",
+  () =>
+    Effect.gen(function* replaced() {
+      const launched: string[] = [];
+      const stopped: string[] = [];
+      const exit = yield* Deferred.make<string>();
+      const boot = makeAndroidDeviceBoot(
+        host({
+          exited: Deferred.await(exit),
+          launched,
+          running: () => launched.length > 0,
+          stopped,
+        })
+      );
+      yield* boot.boot("Pixel_9");
+      // The user closes it; another tool starts Pixel_9 again.
+      yield* Deferred.succeed(exit, "quit");
+      yield* Effect.yieldNow;
+      expect(yield* boot.stopOwned).toEqual([]);
+      expect(stopped).toEqual([]);
+    })
+);
+
+it.effect("refuses to start an emulator once the process is closing", () =>
+  Effect.gen(function* closing() {
+    const launched: string[] = [];
+    const boot = makeAndroidDeviceBoot(
+      host({ launched, running: () => false })
+    );
+    yield* boot.stopOwned;
+    expect((yield* Effect.flip(boot.boot("Pixel_9"))).message).toBe(
+      "Contingency is closing."
+    );
+    expect(launched).toEqual([]);
+  })
+);
+
+it.effect("reports an emulator it could not stop as left running", () =>
+  Effect.gen(function* stopFails() {
+    const launched: string[] = [];
+    const io = host({ launched, running: () => launched.length > 0 });
+    const boot = makeAndroidDeviceBoot({
+      ...io,
+      launch: (avd) =>
+        io.launch(avd).pipe(
+          Effect.map((launch) => ({
+            ...launch,
+            stop: Effect.fail({
+              code: "android_stop_failed" as const,
+              message: "Emulator process 42 did not exit after SIGKILL.",
+            }),
+          }))
+        ),
+    });
+    yield* boot.boot("Pixel_9");
+    expect(yield* boot.stopOwned).toEqual([
+      {
+        device: "Pixel_9",
+        platform: "android",
+        retained: "Emulator process 42 did not exit after SIGKILL.",
+      },
+    ]);
+  })
 );

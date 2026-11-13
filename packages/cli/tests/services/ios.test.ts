@@ -11,6 +11,11 @@ import type {
   IosDevice,
   IosPreparationInput,
 } from "../../src/services/ios-contract.ts";
+import {
+  makeIosDeviceBoot,
+  readSimulatorProcess,
+} from "../../src/services/ios-device-boot.ts";
+import type { IosBootHost } from "../../src/services/ios-device-boot.ts";
 import { makeIosDiscovery } from "../../src/services/ios-discovery.ts";
 import {
   compareIosEnvironments,
@@ -648,33 +653,76 @@ it.effect("declared permission states are part of the taught environment", () =>
     expect(compareIosEnvironments(declared, declared)).toEqual([]);
   })
 );
-const shutDownInventory = () =>
-  Effect.succeed(
-    JSON.stringify({
-      devices: {
-        [selected.runtime]: [
-          {
-            dataPath: "/template/data",
-            deviceTypeIdentifier: selected.deviceType,
-            isAvailable: true,
-            name: selected.name,
-            state: "Shutdown",
-            udid: selected.udid,
+interface FakeSimulator {
+  nextPid: number;
+  pid: number | undefined;
+  state: string;
+}
+/**
+ * A simulator whose state follows the commands sent to it: `boot` starts a
+ * new `launchd_sim`, `shutdown` ends it, and `bootstatus` waits on `ready`.
+ */
+const simulatorHost = (
+  initial: "Shutdown" | "Booting" | "Booted" = "Shutdown"
+) => {
+  const { io, commands } = fakeHost();
+  const sim: FakeSimulator = {
+    nextPid: 100,
+    pid: initial === "Shutdown" ? undefined : 99,
+    state: initial,
+  };
+  const ready = Deferred.makeUnsafe<boolean>();
+  const simctl: IosSimctlService = {
+    ...io,
+    device: (args) =>
+      Effect.gen(function* command() {
+        commands.push([...args]);
+        if (args[0] === "boot") {
+          sim.state = "Booting";
+          sim.pid = sim.nextPid;
+          sim.nextPid += 1;
+        } else if (args[0] === "shutdown") {
+          sim.state = "Shutdown";
+          sim.pid = undefined;
+        } else if (args[0] === "bootstatus") {
+          yield* Deferred.await(ready);
+          sim.state = "Booted";
+        }
+        return "";
+      }),
+    devices: () =>
+      Effect.sync(() =>
+        JSON.stringify({
+          devices: {
+            [selected.runtime]: [
+              {
+                dataPath: "/template/data",
+                deviceTypeIdentifier: selected.deviceType,
+                isAvailable: true,
+                name: selected.name,
+                state: sim.state,
+                udid: selected.udid,
+              },
+            ],
           },
-        ],
-      },
-    })
-  );
+        })
+      ),
+  };
+  const host: IosBootHost = {
+    simctl,
+    simulatorProcess: () => Effect.sync(() => sim.pid),
+  };
+  return { commands, host, ready, sim, simctl };
+};
 it.effect(
   "boots an existing shut-down simulator by UDID and waits for it",
   () =>
     Effect.gen(function* bootExisting() {
-      const { io, commands } = fakeHost();
-      const discovery = makeIosDiscovery({
-        ...io,
-        devices: shutDownInventory,
-      });
-      expect(yield* discovery.boot(selected.udid)).toEqual(selected);
+      const { commands, host, ready } = simulatorHost();
+      yield* Deferred.succeed(ready, true);
+      expect(yield* makeIosDeviceBoot(host).boot(selected.udid)).toEqual(
+        selected
+      );
       expect(commands).toEqual([
         ["boot", selected.udid],
         ["bootstatus", selected.udid],
@@ -685,18 +733,18 @@ it.effect(
   "never boots a UDID outside the discovered inventory, nor after a host refusal",
   () =>
     Effect.gen(function* refuseBoot() {
-      const { io, commands } = fakeHost();
-      const discovery = makeIosDiscovery({ ...io, devices: shutDownInventory });
-      expect(yield* failureCode(discovery.boot(other))).toBe("device_mismatch");
-      expect(yield* failureCode(discovery.boot("booted"))).toBe(
-        "device_mismatch"
-      );
+      const { commands, host } = simulatorHost();
+      const boot = makeIosDeviceBoot(host);
+      expect(yield* failureCode(boot.boot(other))).toBe("device_mismatch");
+      expect(yield* failureCode(boot.boot("booted"))).toBe("device_mismatch");
       expect(
         yield* failureCode(
-          makeIosDiscovery({
-            ...io,
-            devices: shutDownInventory,
-            xcode: () => Effect.fail(iosError("xcode_missing")),
+          makeIosDeviceBoot({
+            ...host,
+            simctl: {
+              ...host.simctl,
+              xcode: () => Effect.fail(iosError("xcode_missing")),
+            },
           }).boot(selected.udid)
         )
       ).toBe("xcode_missing");
@@ -705,15 +753,135 @@ it.effect(
 );
 it.effect("reports a failed simulator boot with a readable reason", () =>
   Effect.gen(function* bootFails() {
-    const { io } = fakeHost();
+    const { host } = simulatorHost();
     const error = yield* Effect.flip(
-      makeIosDiscovery({
-        ...io,
-        device: () => Effect.fail(iosError("preparation_failed")),
-        devices: shutDownInventory,
+      makeIosDeviceBoot({
+        ...host,
+        simctl: {
+          ...host.simctl,
+          device: () => Effect.fail(iosError("preparation_failed")),
+        },
       }).boot(selected.udid)
     );
     expect(error.code).toBe("boot_failed");
     expect(error.message).toMatch(/Could not start the selected simulator/u);
   })
 );
+it.effect("shuts down the simulator it booted when the process closes", () =>
+  Effect.gen(function* stopsOwned() {
+    const { commands, host, ready, sim } = simulatorHost();
+    yield* Deferred.succeed(ready, true);
+    const boot = makeIosDeviceBoot(host);
+    yield* boot.boot(selected.udid);
+    const [first, second] = yield* Effect.all(
+      [boot.stopOwned, boot.stopOwned],
+      { concurrency: "unbounded" }
+    );
+    expect(first).toEqual([{ device: selected.name, platform: "ios" }]);
+    expect(second).toEqual(first);
+    expect(commands.filter(([name]) => name === "shutdown")).toEqual([
+      ["shutdown", selected.udid],
+    ]);
+    expect(sim.state).toBe("Shutdown");
+  })
+);
+for (const state of ["Booted", "Booting"] as const) {
+  it.effect(`never shuts down a simulator that was already ${state}`, () =>
+    Effect.gen(function* preservesExisting() {
+      const { commands, host, ready } = simulatorHost(state);
+      yield* Deferred.succeed(ready, true);
+      const boot = makeIosDeviceBoot(host);
+      yield* boot.boot(selected.udid);
+      expect(yield* boot.stopOwned).toEqual([]);
+      expect(commands).toEqual([["bootstatus", selected.udid]]);
+    })
+  );
+}
+it.effect("issues one boot for overlapping starts of a simulator", () =>
+  Effect.gen(function* overlapping() {
+    const { commands, host, ready } = simulatorHost();
+    const boot = makeIosDeviceBoot(host);
+    const first = yield* Effect.forkChild(boot.boot(selected.udid));
+    const second = yield* Effect.forkChild(boot.boot(selected.udid));
+    yield* Effect.yieldNow;
+    yield* Deferred.succeed(ready, true);
+    yield* Fiber.join(first);
+    yield* Fiber.join(second);
+    expect(commands.filter(([name]) => name === "boot")).toHaveLength(1);
+    expect(yield* boot.stopOwned).toHaveLength(1);
+  })
+);
+it.effect("shuts down a simulator whose boot wait was interrupted", () =>
+  Effect.gen(function* interrupted() {
+    const { host, sim } = simulatorHost();
+    const boot = makeIosDeviceBoot(host);
+    const waiting = yield* Effect.forkChild(boot.boot(selected.udid));
+    yield* Effect.yieldNow;
+    yield* Fiber.interrupt(waiting);
+    expect(yield* boot.stopOwned).toEqual([
+      { device: selected.name, platform: "ios" },
+    ]);
+    expect(sim.state).toBe("Shutdown");
+  })
+);
+it.effect(
+  "leaves a simulator booted again by someone else after it was stopped",
+  () =>
+    Effect.gen(function* replaced() {
+      const { commands, host, ready, sim } = simulatorHost();
+      yield* Deferred.succeed(ready, true);
+      const boot = makeIosDeviceBoot(host);
+      yield* boot.boot(selected.udid);
+      // Another tool shut it down and booted the same UDID again.
+      sim.pid = 500;
+      expect(yield* boot.stopOwned).toEqual([]);
+      expect(commands.some(([name]) => name === "shutdown")).toBe(false);
+    })
+);
+it.effect("reports a simulator it cannot identify as left running", () =>
+  Effect.gen(function* unidentified() {
+    const { commands, host, ready, sim } = simulatorHost();
+    yield* Deferred.succeed(ready, true);
+    let reads = 0;
+    const boot = makeIosDeviceBoot({
+      ...host,
+      // The process table cannot be read right after the boot.
+      simulatorProcess: () => {
+        reads += 1;
+        return reads === 1
+          ? Effect.fail({ _tag: "IosProcessTableError" as const })
+          : Effect.succeed(sim.pid);
+      },
+    });
+    yield* boot.boot(selected.udid);
+    expect(yield* boot.stopOwned).toEqual([
+      {
+        device: selected.name,
+        platform: "ios",
+        retained:
+          "Contingency could not confirm it is the simulator it started.",
+      },
+    ]);
+    expect(commands.some(([name]) => name === "shutdown")).toBe(false);
+  })
+);
+it.effect("refuses to boot a simulator once the process is closing", () =>
+  Effect.gen(function* closing() {
+    const { commands, host } = simulatorHost();
+    const boot = makeIosDeviceBoot(host);
+    yield* boot.stopOwned;
+    expect((yield* Effect.flip(boot.boot(selected.udid))).message).toBe(
+      "Contingency is closing."
+    );
+    expect(commands).toEqual([]);
+  })
+);
+it("finds a simulator's launchd_sim in the process table", () => {
+  const table = [
+    "  88 /sbin/launchd",
+    `  412 /Library/Developer/CoreSimulator/Volumes/iOS_23A/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/sbin/launchd_sim /Users/me/Library/Developer/CoreSimulator/Devices/${selected.udid}/data/var/run/launchd_bootstrap.plist`,
+    `  413 /usr/bin/tail /Users/me/Library/Developer/CoreSimulator/Devices/${other}/data/log`,
+  ].join("\n");
+  expect(readSimulatorProcess(table, selected.udid)).toBe(412);
+  expect(readSimulatorProcess(table, other)).toBeUndefined();
+});
