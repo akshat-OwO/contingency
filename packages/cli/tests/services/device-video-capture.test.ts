@@ -107,7 +107,6 @@ describe("makeDeviceVideoCapture", () => {
         yield* capture.action(TestClock.adjust("500 millis"));
         yield* TestClock.adjust("4 seconds");
         yield* capture.takeover(14_000);
-        yield* capture.interrupted("session-recovered", 15_000);
         const timeMap = yield* capture.end;
         const folder = path.join(directory, DEVICE_VIDEO_DIRECTORY);
         expect(timeMap?.startedAt).toBe(new Date(10_000).toISOString());
@@ -118,9 +117,6 @@ describe("makeDeviceVideoCapture", () => {
           actions: [{ fromMs: 2000, toMs: 2500 }],
           endedAt: 16_500,
           files: ["recording.mp4"],
-          interruptions: [
-            { fromMs: 5000, reason: "session-recovered", toMs: 6500 },
-          ],
           pacing: "condensed",
           platform: "android",
           startedAt: 10_000,

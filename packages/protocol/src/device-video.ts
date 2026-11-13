@@ -26,7 +26,6 @@ export const DeviceVideoGapReason = Schema.Literals([
   "recorder-lost",
   "recorder-unconfirmed",
   "recorder-stopped-early",
-  "session-recovered",
   "size-limit",
 ]);
 export type DeviceVideoGapReason = typeof DeviceVideoGapReason.Type;

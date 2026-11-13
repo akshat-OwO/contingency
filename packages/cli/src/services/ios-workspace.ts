@@ -284,10 +284,9 @@ interface Session {
   readonly summaryFile: string;
   /** The device's own recording of Teaching, or of a Run's execution. */
   readonly video: DeviceVideoCaptureSession;
-  /** Epoch milliseconds: when a Takeover began, or input paused mid-Run. */
+  /** Epoch milliseconds when a Takeover began. */
   readonly marks: {
     takeoverFrom?: number | undefined;
-    pausedAt?: number | undefined;
   };
 }
 export interface IosWorkspaceService {
@@ -551,9 +550,6 @@ export const makeIosWorkspaceLayer = (options: {
       });
       const pause = (session: Session, cause: IosWorkspaceError) =>
         Effect.gen(function* pauseInput() {
-          if (session.video.recording()) {
-            session.marks.pausedAt ??= Date.now();
-          }
           update(session, (current) => ({
             ...current,
             observation: null,
@@ -1859,11 +1855,6 @@ export const makeIosWorkspaceLayer = (options: {
             // active Teaching interval intact; only transport recovery restarts it.
             if (command._tag === "recover") {
               yield* session.stream.recover();
-            }
-            const { pausedAt } = session.marks;
-            if (pausedAt !== undefined) {
-              session.marks.pausedAt = undefined;
-              yield* session.video.interrupted("session-recovered", pausedAt);
             }
           } else if (command._tag === "observe") {
             if (

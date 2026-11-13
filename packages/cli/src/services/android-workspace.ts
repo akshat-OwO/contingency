@@ -298,10 +298,9 @@ interface Session {
   readonly summaryFile: string;
   /** The device's own recording of Teaching, or of a Run's execution. */
   readonly video: DeviceVideoCaptureSession;
-  /** Epoch milliseconds: when a Takeover began, or input paused mid-Run. */
+  /** Epoch milliseconds when a Takeover began. */
   readonly marks: {
     takeoverFrom?: number | undefined;
-    pausedAt?: number | undefined;
   };
 }
 export interface AndroidWorkspaceService {
@@ -556,9 +555,6 @@ export const makeAndroidWorkspaceLayer = (options: {
       });
       const pause = (session: Session, cause: AndroidWorkspaceError) =>
         Effect.gen(function* pauseInput() {
-          if (session.video.recording()) {
-            session.marks.pausedAt ??= Date.now();
-          }
           update(session, (current) => ({
             ...current,
             observation: null,
@@ -1879,11 +1875,6 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             acceptObservation(session, yield* session.run.recover());
-            const { pausedAt } = session.marks;
-            if (pausedAt !== undefined) {
-              session.marks.pausedAt = undefined;
-              yield* session.video.interrupted("session-recovered", pausedAt);
-            }
           } else if (command._tag === "observe") {
             if (summary.phase !== "running") {
               return yield* denied(

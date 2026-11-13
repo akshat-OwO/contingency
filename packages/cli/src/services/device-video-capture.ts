@@ -1,10 +1,6 @@
 import path from "node:path";
 
-import {
-  DeviceVideoGapReason,
-  DeviceVideoSpan,
-  RunVideoFastForward,
-} from "@contingency/protocol";
+import { DeviceVideoSpan, RunVideoFastForward } from "@contingency/protocol";
 import type { DevicePlatform, RunVideoTimeMap } from "@contingency/protocol";
 import type { Result } from "effect";
 import {
@@ -60,9 +56,6 @@ export const DeviceCaptureManifest = Schema.Struct({
   /** Footage file names inside the video folder, in order. */
   files: Schema.Array(Schema.String),
   hidden: Spans,
-  interruptions: Schema.Array(
-    Schema.Struct({ ...DeviceVideoSpan.fields, reason: DeviceVideoGapReason })
-  ),
   pacing: Schema.Literals(["condensed", "real-time"]),
   platform: Schema.Literals(["android", "ios"]),
   reason: Schema.optional(Schema.String),
@@ -136,7 +129,6 @@ export const captureFacts = (
         durationMs: Math.max(0, manifest.endedAt - manifest.startedAt),
         fastForward: manifest.fastForward,
         hidden: manifest.hidden,
-        interruptions: manifest.interruptions,
         note: captureNote(manifest),
         pacing: manifest.pacing,
         recorder: manifest.recorder,
@@ -166,11 +158,6 @@ export interface DeviceVideoCaptureSession {
   ) => Effect.Effect<A, E, R>;
   /** The user held the device from `fromMs` (epoch) until now. */
   readonly takeover: (fromEpochMs: number) => Effect.Effect<void>;
-  /** The session lost footage from `fromMs` (epoch) until now. */
-  readonly interrupted: (
-    reason: DeviceVideoGapReason,
-    fromEpochMs: number
-  ) => Effect.Effect<void>;
   readonly recording: () => boolean;
 }
 
@@ -303,7 +290,6 @@ export const makeDeviceVideoCapture = (input: {
         fastForward: input.fastForward,
         files: [],
         hidden: [],
-        interruptions: [],
         pacing: input.pacing,
         platform: input.platform,
         startedAt: null,
@@ -481,22 +467,6 @@ export const makeDeviceVideoCapture = (input: {
         }),
       begin,
       end,
-      interrupted: (reason, fromEpochMs) =>
-        Effect.gen(function* markInterruption() {
-          if (recorder === undefined || manifest?.startedAt === null) {
-            return;
-          }
-          const to = yield* Clock.currentTimeMillis;
-          const entry = {
-            fromMs: offset(fromEpochMs),
-            reason,
-            toMs: offset(to),
-          };
-          yield* update((value) => ({
-            ...value,
-            interruptions: [...value.interruptions, entry],
-          }));
-        }),
       recording: () => recorder !== undefined,
       takeover: (fromEpochMs) =>
         Clock.currentTimeMillis.pipe(

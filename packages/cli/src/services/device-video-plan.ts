@@ -50,10 +50,6 @@ export interface DeviceCaptureFacts {
   readonly actions: readonly DeviceVideoSpan[];
   readonly takeovers: readonly DeviceVideoSpan[];
   readonly hidden: readonly DeviceVideoSpan[];
-  /** Spans the session itself knows lost footage, such as a recovery. */
-  readonly interruptions: readonly (DeviceVideoSpan & {
-    readonly reason: DeviceVideoGapReason;
-  })[];
   readonly recorder: "confirmed" | "unconfirmed" | "lost" | undefined;
   /** The recorder stopped on its own before Stop, such as at a time limit. */
   readonly stoppedEarly: boolean;
@@ -98,10 +94,8 @@ export const deviceVideoCapture = (
   chunks: readonly DeviceFootageChunk[]
 ): DeviceVideoCapture => {
   const { durationMs } = facts;
-  const gaps = facts.interruptions.map((interruption) => ({
-    ...interruption,
-    ...clip(interruption, durationMs),
-  }));
+  const gaps: { fromMs: number; toMs: number; reason: DeviceVideoGapReason }[] =
+    [];
   const covered = coveredUntil(chunks);
   if (facts.sizeLimitFromMs !== undefined) {
     gaps.push({

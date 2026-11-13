@@ -132,7 +132,6 @@ const GAP_REASON: Record<DeviceVideoCapture["gaps"][number]["reason"], string> =
     "recorder-lost": "the recorder stopping unexpectedly",
     "recorder-stopped-early": "the recorder stopping before the session did",
     "recorder-unconfirmed": "the recorder not confirming its footage",
-    "session-recovered": "the session recovering",
     "size-limit": "the video size limit",
   };
 

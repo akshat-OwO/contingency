@@ -27,7 +27,6 @@ const recorded: DeviceCaptureManifest = {
   fastForward: "capped",
   files: ["recording.mp4"],
   hidden: [],
-  interruptions: [],
   pacing: "real-time",
   platform: "android",
   recorder: "confirmed",

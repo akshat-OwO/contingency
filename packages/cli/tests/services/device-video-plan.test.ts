@@ -21,7 +21,6 @@ const facts = (
   durationMs: 10_000,
   fastForward: "capped",
   hidden: [],
-  interruptions: [],
   note: undefined,
   pacing: "real-time",
   recorder: "confirmed",
@@ -90,21 +89,6 @@ describe("deviceVideoCapture", () => {
       note: "Video capture ended at its size limit.",
     });
   });
-
-  it("marks footage a session recovery interrupted", () => {
-    const capture = deviceVideoCapture(
-      facts({
-        interruptions: [
-          { fromMs: 4000, reason: "session-recovered", toMs: 7000 },
-        ],
-      }),
-      [chunk(0, [0, 9000])]
-    );
-    expect(capture.complete).toBe(false);
-    expect(capture.gaps).toEqual([
-      { fromMs: 4000, reason: "session-recovered", toMs: 7000 },
-    ]);
-  });
 });
 
 describe("deviceVideoSegments", () => {
@@ -170,18 +154,15 @@ describe("deviceFrameAt", () => {
   });
 
   it("holds the last frame through a gap and says so", () => {
+    // The recorder was lost after the first chunk's last frame.
+    const first = [chunks[0] ?? chunk(0, [0])];
     const lost = deviceVideoCapture(
-      facts({
-        durationMs: 190_000,
-        interruptions: [
-          { fromMs: 5000, reason: "session-recovered", toMs: 9000 },
-        ],
-      }),
-      chunks
+      facts({ durationMs: 190_000, recorder: "lost" }),
+      first
     );
-    expect(deviceFrameAt(chunks, lost, 6000)).toMatchObject({
+    expect(deviceFrameAt(first, lost, 180_000)).toMatchObject({
       chunk: 0,
-      frame: 2,
+      frame: 3,
       gap: true,
     });
   });

@@ -41,10 +41,40 @@ export const clickIos = async (page, name) => {
 export const pickIos = async (page, flags) => {
   const sessionId = flags["session-id"];
   assert.equal(new URL(page.url()).searchParams.get("ios"), sessionId);
-  const observed = await iosRpc(page.url(), "ios.workspace.command", {
-    command: { _tag: "observe", image: false, sessionId },
-    source: "user",
+  const display = page.locator('canvas[aria-label^="Live iOS viewport"]');
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector(
+      'canvas[aria-label^="Live iOS viewport"]'
+    );
+    return canvas && canvas.width > 0 && canvas.height > 0;
   });
+  // Aim only from the observation the display shows. Input such as typing can
+  // settle into a newer observation after this one is read, so read again
+  // until the display shows the one read.
+  const readShown = async (attempts) => {
+    const read = await iosRpc(page.url(), "ios.workspace.command", {
+      command: { _tag: "observe", image: false, sessionId },
+      source: "user",
+    });
+    const shown = await page
+      .waitForFunction(
+        (id) =>
+          document.querySelector('canvas[aria-label^="Live iOS viewport"]')
+            ?.dataset.observationId === id,
+        read.observation?.id,
+        { timeout: 5000 }
+      )
+      .then(
+        () => true,
+        () => false
+      );
+    if (shown || attempts <= 1) {
+      return shown ? read : undefined;
+    }
+    return readShown(attempts - 1);
+  };
+  const observed = await readShown(6);
+  assert.ok(observed, "The display never showed the observation read.");
   const nodes =
     observed.observation?.nodes.filter(
       (node) =>
@@ -57,19 +87,6 @@ export const pickIos = async (page, flags) => {
   const [{ bounds }] = nodes;
   const fx = (bounds.x + bounds.width / 2) / observed.observation.width;
   const fy = (bounds.y + bounds.height / 2) / observed.observation.height;
-  const display = page.locator('canvas[aria-label^="Live iOS viewport"]');
-  await page.waitForFunction(() => {
-    const canvas = document.querySelector(
-      'canvas[aria-label^="Live iOS viewport"]'
-    );
-    return canvas && canvas.width > 0 && canvas.height > 0;
-  });
-  await page.waitForFunction(
-    (id) =>
-      document.querySelector('canvas[aria-label^="Live iOS viewport"]')?.dataset
-        .observationId === id,
-    observed.observation.id
-  );
   const box = await display.boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0);
   const before = await page.evaluate(
