@@ -24,6 +24,7 @@ import { TaskRunDetails } from "@/components/agent/task-run-details";
 import type { SessionDeletion } from "@/components/agent/workspace-dock";
 import {
   DockSessionSelect,
+  DockNotice,
   DockShell,
   DockSpacer,
   DockState,
@@ -273,16 +274,13 @@ export const RunDock = ({
   const provenance = taskRun === undefined ? undefined : runProvenance(taskRun);
   return (
     <DockShell
-      footer={
+      notice={
         /*
-          A refusal takes its own line under the controls rather than a
-          floating alert: the status line already says where the user is, and
-          the primary action has to stay on screen at 390px.
+          A refusal floats just above the dock rather than growing it: the
+          page keeps its size and the primary action stays where it was.
         */
         controlError === undefined ? null : (
-          <p className="text-destructive border-t px-3 py-1.5 text-xs">
-            {controlError}
-          </p>
+          <DockNotice>{controlError}</DockNotice>
         )
       }
       requests={requests}

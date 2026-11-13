@@ -203,7 +203,7 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
   );
 });
 
-test("refused input is said in the dock and set aside while commenting", async () => {
+test("refused input is said above the dock, outside its measured height, and set aside while commenting", async () => {
   const user = userEvent.setup();
   const session: AndroidWorkspaceSnapshot = {
     ...completed,
@@ -280,7 +280,12 @@ test("refused input is said in the dock and set aside while commenting", async (
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Only the user controlling a running session can send input. Nothing was sent."
   );
-  expect(dock).toContainElement(screen.getByRole("alert"));
+  // The refusal floats above the dock rather than growing it, so the device
+  // stage's reserved space (`--dock-height`) never changes with it.
+  const alert = screen.getByRole("alert");
+  expect(dock).not.toContainElement(alert);
+  expect(alert.closest('[data-slot="dock-notices"]')).not.toBeNull();
+  expect(alert).not.toHaveFocus();
   view.rerender(
     <AndroidSessionView
       {...props}
