@@ -3,6 +3,7 @@ import { Effect, Ref } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  deviceFootageBytes,
   footageFiles,
   makeAgentDeviceScreenRecorder,
 } from "../../src/services/native-screen-recorder.ts";
@@ -28,7 +29,47 @@ describe("footageFiles", () => {
   });
 });
 
+describe("deviceFootageBytes", () => {
+  it("counts only this recording's chunks", () => {
+    const listing = [
+      "/sdcard/agent-device-recording-900.mp4 7",
+      "/sdcard/agent-device-recording-1000.mp4 100",
+      "/data/local/tmp/agent-device-recording-1170.mp4 50",
+      "/sdcard/agent-device-recording-active.json 3",
+      "/sdcard/other-1200.mp4 9",
+    ].join("\n");
+    expect(deviceFootageBytes(listing, 1000)).toBe(150);
+    expect(deviceFootageBytes("", 1000)).toBe(0);
+  });
+});
+
 describe("makeAgentDeviceScreenRecorder", () => {
+  it.effect("measures device footage only while it records", () =>
+    Effect.gen(function* deviceFootage() {
+      const since: number[] = [];
+      const recorder = makeAgentDeviceScreenRecorder({
+        deviceFootageBytes: (from) =>
+          Effect.sync(() => {
+            since.push(from);
+            return 42;
+          }),
+        record: (options) =>
+          Promise.resolve(
+            options.action === "start"
+              ? { recording: "started" }
+              : { recording: "stopped" }
+          ),
+      });
+      expect(yield* recorder.footageBytes).toBe(0);
+      yield* TestClock.setTime(7000);
+      yield* recorder.start("/evidence/video/recording.mp4");
+      expect(yield* recorder.footageBytes).toBe(42);
+      expect(since).toEqual([7000]);
+      yield* recorder.stop();
+      expect(yield* recorder.footageBytes).toBe(0);
+    })
+  );
+
   it.effect("records hidden spans from the screen's focus while it runs", () =>
     Effect.gen(function* hiddenSpans() {
       const seen = yield* Ref.make<ScreenVisibility>("visible");

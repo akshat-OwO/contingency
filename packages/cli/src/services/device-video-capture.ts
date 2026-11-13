@@ -342,7 +342,12 @@ export const makeDeviceVideoCapture = (input: {
       }
       recorder = active;
       yield* update((current) => ({ ...current, startedAt: started.success }));
-      monitor = yield* footageBytes.pipe(
+      // Android keeps its chunks on the device until Stop, so the cap counts
+      // what the recorder holds there as well as this folder.
+      const measured = Effect.all([footageBytes, active.footageBytes]).pipe(
+        Effect.map(([local, remote]) => local + remote)
+      );
+      monitor = yield* measured.pipe(
         Effect.flatMap((bytes) =>
           Effect.gen(function* checkFootageSize() {
             if (
@@ -356,13 +361,18 @@ export const makeDeviceVideoCapture = (input: {
             }
             const running = recorder;
             if (bytes > DEVICE_VIDEO_HARD_CAP_BYTES && running !== undefined) {
-              // The cap ends video capture, never the session.
-              const at = yield* Clock.currentTimeMillis;
-              yield* update((current) => ({
-                ...current,
-                sizeLimitFromMs: offset(at),
-              }));
-              capped = { at, stopped: yield* stopRecorder(running) };
+              // The cap ends video capture, never the session. A Stop that
+              // arrives meanwhile waits for this one rather than cutting it.
+              yield* Effect.uninterruptible(
+                Effect.gen(function* stopAtCap() {
+                  const at = yield* Clock.currentTimeMillis;
+                  yield* update((current) => ({
+                    ...current,
+                    sizeLimitFromMs: offset(at),
+                  }));
+                  capped = { at, stopped: yield* stopRecorder(running) };
+                })
+              );
             }
           })
         ),
@@ -393,8 +403,10 @@ export const makeDeviceVideoCapture = (input: {
         ended = { timeMap: undefined };
         return;
       }
-      const stopped = capped?.stopped ?? (yield* stopRecorder(active));
+      // The session ends now; pulling and finalizing footage takes no part
+      // of its time.
       const stoppedAt = yield* Clock.currentTimeMillis;
+      const stopped = capped?.stopped ?? (yield* stopRecorder(active));
       if (stopped._tag === "Failure") {
         yield* update((value) => ({
           ...value,

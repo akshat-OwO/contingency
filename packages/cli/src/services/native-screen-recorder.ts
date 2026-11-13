@@ -58,6 +58,12 @@ export interface NativeScreenRecorder {
     NativeScreenRecording,
     NativeScreenRecorderError
   >;
+  /**
+   * Bytes of the running recording's footage still on the device, which
+   * reach the recording's folder only at Stop. Zero when footage is written
+   * straight to that folder.
+   */
+  readonly footageBytes: Effect.Effect<number>;
 }
 
 const duration = Schema.optional(Schema.Number);
@@ -170,6 +176,11 @@ export const makeAgentDeviceScreenRecorder = (input: {
   }) => Promise<typeof AgentDeviceRecordResult.Encoded>;
   /** Present on Android only. A failed read answers `unknown`. */
   readonly visibility?: Effect.Effect<ScreenVisibility>;
+  /**
+   * Present on Android only: bytes of agent-device footage on the device
+   * named for a start at or after the given epoch millisecond.
+   */
+  readonly deviceFootageBytes?: (sinceEpochMs: number) => Effect.Effect<number>;
 }): NativeScreenRecorder => {
   let active: ActiveRecording | undefined;
   const call = (
@@ -198,7 +209,15 @@ export const makeAgentDeviceScreenRecorder = (input: {
         )
       )
     );
+  // agent-device names each chunk for the host's clock when it starts one.
+  let requestedAt = 0;
+  const { deviceFootageBytes } = input;
   return {
+    footageBytes: Effect.suspend(() =>
+      active === undefined || deviceFootageBytes === undefined
+        ? Effect.succeed(0)
+        : deviceFootageBytes(requestedAt)
+    ),
     start: (file) =>
       Effect.gen(function* startRecording() {
         if (active !== undefined) {
@@ -208,6 +227,7 @@ export const makeAgentDeviceScreenRecorder = (input: {
             })
           );
         }
+        requestedAt = yield* Clock.currentTimeMillis;
         const result = yield* call("start", { action: "start", path: file });
         if (result.recording !== "started") {
           return yield* Effect.fail(
@@ -285,4 +305,22 @@ export const makeAgentDeviceScreenRecorder = (input: {
         } satisfies NativeScreenRecording;
       }),
   };
+};
+
+const DEVICE_CHUNK =
+  /\/agent-device-recording-(?<startedAt>\d{1,20})\.mp4\s+(?<bytes>\d+)$/u;
+
+/**
+ * Bytes of agent-device Android chunks in a `<path> <size>` listing, counting
+ * only those named for a start at or after `sinceEpochMs`.
+ */
+export const deviceFootageBytes = (listing: string, sinceEpochMs: number) => {
+  let total = 0;
+  for (const line of listing.split("\n")) {
+    const chunk = DEVICE_CHUNK.exec(line.trim())?.groups;
+    if (chunk !== undefined && Number(chunk.startedAt) >= sinceEpochMs) {
+      total += Number(chunk.bytes);
+    }
+  }
+  return total;
 };

@@ -266,6 +266,7 @@ const fixture = (
         // The device's screen recorder: it leaves a footage file where it
         // was asked to record.
         screenRecorder: {
+          footageBytes: Effect.succeed(0),
           start: (file) =>
             Effect.sync(() => {
               recorded.push("start");
