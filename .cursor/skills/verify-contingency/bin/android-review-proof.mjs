@@ -254,24 +254,27 @@ try {
     }
     await click("Close session");
     await wait("button", "New session");
+    // An ended session is no longer a choice: the empty Workspace offers no
+    // picker once nothing is live, and the session's link reopens its Summary.
     await control("browser", "goto", "--url", instance.mcpUrl);
     await click("Android");
-    await wait("combobox", "Android Agent Session");
+    await wait("heading", "No Android session");
     await control(
       "browser",
-      "click",
+      "wait",
       "--role",
       "combobox",
       "--name",
-      "Android Agent Session"
+      "Android Agent Session",
+      "--state",
+      "hidden"
     );
+    await snapshot(`${decision}-empty-after-close`);
     await control(
       "browser",
-      "click",
-      "--role",
-      "option",
-      "--name",
-      `${flowName} · Android Teaching`
+      "goto",
+      "--url",
+      `${instance.mcpUrl}?android=${session.id}`
     );
     await wait("button", "New session");
     await snapshot(`${decision}-reopened-summary`);
