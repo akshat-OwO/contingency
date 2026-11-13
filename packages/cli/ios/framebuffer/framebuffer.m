@@ -8,6 +8,7 @@
 #import <unistd.h>
 #import <math.h>
 #import <time.h>
+#include <pthread/qos.h>
 
 // Private selectors, checked at runtime. Xcode changes can break this helper.
 @interface NSObject (SimulatorCapture)
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
         signal(SIGTERM, stopCapture);
         signal(SIGINT, stopCapture);
         signal(SIGPIPE, stopCapture);
+        // Capture and encoding sit on the path from input to the screen.
+        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         NSString *developer = @(argv[1]);
         if (!dlopen("/Library/Developer/PrivateFrameworks/CoreSimulator.framework/CoreSimulator", RTLD_NOW | RTLD_GLOBAL))
             fail(@"CoreSimulator unavailable");
@@ -76,7 +79,11 @@ int main(int argc, char **argv) {
         SEL registration = @selector(registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:);
         if (!screen || ![screen respondsToSelector:registration]) fail(@"Selected display has no capture callbacks");
         NSUUID *token = NSUUID.UUID;
-        dispatch_queue_t callbacks = dispatch_queue_create("contingency.ios.frames", DISPATCH_QUEUE_SERIAL);
+        dispatch_queue_t callbacks = dispatch_queue_create("contingency.ios.frames",
+            dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
+        // Signalled for each presented frame, so capture follows the screen
+        // instead of a timer.
+        dispatch_semaphore_t framePresented = dispatch_semaphore_create(0);
         NSLock *lock = [NSLock new];
         NSString *displayUUID = @(argv[3]);
         __block NSString *requestedDisplay = displayUUID;
@@ -93,6 +100,7 @@ int main(int argc, char **argv) {
         @try {
             [screen registerScreenCallbacksWithUUID:token callbackQueue:callbacks frameCallback:^{
                 [lock lock]; sourceSequence++; presentedMs = nowMs(); [lock unlock];
+                dispatch_semaphore_signal(framePresented);
             } surfacesChangedCallback:^(id primary, id masked) {
                 // Read the current surface for each sample, including after a replacement.
             } propertiesChangedCallback:^(id properties) {}];
@@ -131,6 +139,7 @@ int main(int argc, char **argv) {
                         screen = replacement;
                         [screen registerScreenCallbacksWithUUID:token callbackQueue:callbacks frameCallback:^{
                             [lock lock]; sourceSequence++; presentedMs = nowMs(); [lock unlock];
+                            dispatch_semaphore_signal(framePresented);
                         } surfacesChangedCallback:^(id primary, id masked) {} propertiesChangedCallback:^(id properties) {}];
                         displayUUID = nextDisplay;
                     } @catch (NSException *exception) { fail(@"Active integrated display rebind failed"); }
@@ -156,9 +165,13 @@ int main(int argc, char **argv) {
                     if (stopped || !line) break;
                     fwrite(line.bytes, 1, line.length, stdout); fputc('\n', stdout); fflush(stdout);
                 } @catch (NSException *exception) { fail(@"Framebuffer capture failed"); }
-                // Prototype sampling cadence, never a test synchronization primitive.
-                double remaining = 1000.0 / 30.0 - (nowMs() - sampledMs);
+                // Capture the next presented frame as soon as it appears, at
+                // most 60 times a second. A still screen is sent again after
+                // half a second so viewers and the relay know it is live.
+                double remaining = 1000.0 / 60.0 - (nowMs() - sampledMs);
                 if (remaining > 0) usleep((useconds_t)(remaining * 1000));
+                dispatch_semaphore_wait(framePresented, dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC));
+                while (dispatch_semaphore_wait(framePresented, DISPATCH_TIME_NOW) == 0) {}
             }
         }
         @try { [screen unregisterScreenCallbacksWithUUID:token]; }

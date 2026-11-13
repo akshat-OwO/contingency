@@ -153,12 +153,45 @@ const textPacket = (text: string) => {
   return buffer;
 };
 
+/** What one key input does on Android: text, a keycode, or nothing. */
+type KeyEffect =
+  | { readonly _tag: "text"; readonly text: string }
+  | {
+      readonly _tag: "keycode";
+      readonly action: "down" | "up";
+      readonly keycode: number;
+      readonly meta: number;
+    };
+
 /**
- * The packets one input becomes. Printable text is injected as text, so the
- * device's keyboard layout never changes what was typed; other keys and
- * chords are keycodes. A modifier key alone, or a key Android has no code
- * for, sends nothing.
+ * Printable text is injected as text, so the device's keyboard layout never
+ * changes what was typed; other keys and chords are keycodes. A modifier key
+ * alone, or a key Android has no code for, does nothing.
  */
+const keyEffect = (
+  input: Extract<NativeInput, { _tag: "key" }>
+): KeyEffect | undefined => {
+  // oxlint-disable-next-line eslint/no-bitwise -- Workspace modifier mask.
+  const chord = (input.modifiers & 7) !== 0;
+  if (!chord && [...input.key].length === 1) {
+    return input.action === "down"
+      ? { _tag: "text", text: input.key }
+      : undefined;
+  }
+  const keycode =
+    namedKeycodes.get(input.key) ??
+    (chord ? physicalKeycode(input.code) : undefined);
+  return keycode === undefined
+    ? undefined
+    : {
+        _tag: "keycode",
+        action: input.action,
+        keycode,
+        meta: metaState(input.modifiers),
+      };
+};
+
+/** The scrcpy control packets one input becomes. */
 export const androidControlPackets = (
   input: NativeInput,
   screen: { readonly width: number; readonly height: number }
@@ -169,22 +202,97 @@ export const androidControlPackets = (
   if (input._tag === "scroll") {
     return [scrollPacket(input, screen)];
   }
-  const meta = metaState(input.modifiers);
-  // oxlint-disable-next-line eslint/no-bitwise -- Workspace modifier mask.
-  const chord = (input.modifiers & 7) !== 0;
-  if (!chord && [...input.key].length === 1) {
-    return input.action === "down" ? [textPacket(input.key)] : [];
+  const effect = keyEffect(input);
+  if (effect === undefined) {
+    return [];
   }
-  const keycode =
-    namedKeycodes.get(input.key) ??
-    (chord ? physicalKeycode(input.code) : undefined);
-  return keycode === undefined
-    ? []
+  return effect._tag === "text"
+    ? [textPacket(effect.text)]
     : [
         keyPacket(
-          input.action === "down" ? ACTION_DOWN : ACTION_UP,
-          keycode,
-          meta
+          effect.action === "down" ? ACTION_DOWN : ACTION_UP,
+          effect.keycode,
+          effect.meta
         ),
+      ];
+};
+
+/** A gesture for the emulator stream's input queue, in display fractions. */
+export type AndroidGesture =
+  | {
+      readonly type: "touch";
+      readonly action: "down" | "move" | "up";
+      readonly x: number;
+      readonly y: number;
+    }
+  | {
+      readonly type: "swipe";
+      readonly x1: number;
+      readonly y1: number;
+      readonly x2: number;
+      readonly y2: number;
+      readonly durationMs: number;
+    }
+  | {
+      readonly type: "key";
+      readonly action: "down" | "up";
+      readonly keycode: number;
+      readonly metaState: number;
+    }
+  | { readonly type: "text"; readonly text: string };
+
+/** How far one wheel notch drags, as a fraction of the display. */
+const NOTCH_FRACTION = 0.1;
+/** A wheel drag's length; long enough that Android reads it as a scroll. */
+const WHEEL_DRAG_MILLIS = 80;
+const fraction = (value: number) => Math.min(Math.max(value, 0), 1);
+
+/**
+ * The gestures one input becomes on the emulator stream, which takes input
+ * as gestures in display fractions and has no wheel. A wheel turn is a short
+ * drag, as a finger scrolls: turned down, the content moves up.
+ */
+export const androidControlGestures = (
+  input: NativeInput
+): readonly AndroidGesture[] => {
+  if (input._tag === "touch") {
+    return [{ action: input.action, type: "touch", x: input.x, y: input.y }];
+  }
+  if (input._tag === "scroll") {
+    const dx = (input.deltaX / WHEEL_NOTCH) * NOTCH_FRACTION;
+    const dy = (input.deltaY / WHEEL_NOTCH) * NOTCH_FRACTION;
+    return dx === 0 && dy === 0
+      ? []
+      : [
+          {
+            durationMs: WHEEL_DRAG_MILLIS,
+            type: "swipe",
+            x1: input.x,
+            x2: fraction(input.x - dx),
+            y1: input.y,
+            y2: fraction(input.y - dy),
+          },
+        ];
+  }
+  const effect = keyEffect(input);
+  if (effect === undefined) {
+    return [];
+  }
+  return effect._tag === "text"
+    ? [
+        {
+          text: Buffer.from(effect.text, "utf-8")
+            .subarray(0, MAX_TEXT_BYTES)
+            .toString("utf-8"),
+          type: "text",
+        },
+      ]
+    : [
+        {
+          action: effect.action,
+          keycode: effect.keycode,
+          metaState: effect.meta,
+          type: "key",
+        },
       ];
 };

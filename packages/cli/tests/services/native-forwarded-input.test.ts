@@ -3,7 +3,10 @@ import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
-import { androidControlPackets } from "../../src/services/android-control.ts";
+import {
+  androidControlGestures,
+  androidControlPackets,
+} from "../../src/services/android-control.ts";
 import { iosHidCommands, iosKeyUsage } from "../../src/services/ios-hid.ts";
 import {
   iosCapabilities,
@@ -246,6 +249,43 @@ it("encodes Android text, keys, and chords", () => {
   expect(selectAll?.readInt32BE(2)).toBe(29);
   expect(selectAll?.readInt32BE(10)).toBe(0x10_00);
   expect(androidControlPackets(keyDown("Shift"), screen)).toEqual([]);
+});
+
+it("translates Forwarded Input into emulator stream gestures", () => {
+  expect(androidControlGestures(touch("down", 0.5, 0.25))).toEqual([
+    { action: "down", type: "touch", x: 0.5, y: 0.25 },
+  ]);
+  // A wheel turned down drags the content up, kept on the display.
+  expect(
+    androidControlGestures({
+      _tag: "scroll",
+      at: 0,
+      deltaX: 0,
+      deltaY: 200,
+      x: 0.5,
+      y: 0.1,
+    })
+  ).toEqual([
+    { durationMs: 80, type: "swipe", x1: 0.5, x2: 0.5, y1: 0.1, y2: 0 },
+  ]);
+  expect(
+    androidControlGestures({
+      _tag: "scroll",
+      at: 0,
+      deltaX: 0,
+      deltaY: 0,
+      x: 0.5,
+      y: 0.5,
+    })
+  ).toEqual([]);
+  expect(androidControlGestures(keyDown("é"))).toEqual([
+    { text: "é", type: "text" },
+  ]);
+  expect(androidControlGestures(keyUp("é"))).toEqual([]);
+  expect(
+    androidControlGestures(keyDown("a", { code: "KeyA", modifiers: 2 }))
+  ).toEqual([{ action: "down", keycode: 29, metaState: 0x10_00, type: "key" }]);
+  expect(androidControlGestures(keyDown("Shift"))).toEqual([]);
 });
 
 it("translates Forwarded Input into iOS helper commands", () => {

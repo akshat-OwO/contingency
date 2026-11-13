@@ -8,6 +8,7 @@ A Platform Runtime is the environment an Agent Session uses for Teaching and Run
 
 - **Browser.** Contingency drives its own pinned Chromium build through Playwright. The first Agent Session downloads it.
 - **Android.** Contingency drives one emulator or physical device through `adb`. Android is supported only within its Support Matrix: API levels 30 through 36, proven on API 30 and 36 emulators and one API 36 phone.
+  - An emulator's Workspace display responds faster when `ffmpeg` with the `libx264` encoder is on your `PATH`. Contingency then reads the screen from the emulator and encodes it on your computer; without it, the display streams as on a phone.
 
 What it can't do:
 

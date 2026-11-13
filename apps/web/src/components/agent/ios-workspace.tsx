@@ -120,6 +120,16 @@ import {
 } from "./workspace-platform";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
+// oxlint-disable-next-line eslint/no-redeclare
+const IosStreamFrame = Schema.Struct({
+  _tag: Schema.Literal("jpeg"),
+  data: Schema.String,
+  height: Schema.Number,
+  width: Schema.Number,
+});
+type IosStreamFrame = typeof IosStreamFrame.Type;
+const isIosStreamFrame = Schema.is(IosStreamFrame);
+
 /** A modern iPhone's portrait pixels; the frame takes the real size once drawn. */
 const DEFAULT_IOS_FRAME = { height: 2556, width: 1179 };
 
@@ -159,6 +169,38 @@ const IosMirror = ({
     if (!live) {
       return;
     }
+    // Decodes off the main thread and resizes the canvas only when the
+    // frame size changes, since a resize clears and reallocates it.
+    const drawIosFrame = async (value: IosStreamFrame, signal: AbortSignal) => {
+      // Base64 holds only single-byte characters.
+      const bytes = Uint8Array.from(
+        atob(value.data),
+        (character) => character.codePointAt(0) ?? 0
+      );
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: "image/jpeg" })
+      );
+      try {
+        const target = canvas.current;
+        if (!target || signal.aborted) {
+          return;
+        }
+        if (target.width !== value.width || target.height !== value.height) {
+          target.width = value.width;
+          target.height = value.height;
+          setFrame((current) =>
+            current.width === value.width && current.height === value.height
+              ? current
+              : { height: value.height, width: value.width }
+          );
+        }
+        target.getContext("2d")?.drawImage(bitmap, 0, 0);
+        probe.frame();
+        setTransport("live");
+      } finally {
+        bitmap.close();
+      }
+    };
     const fiber = Effect.runFork(
       iosStreamAccess(session.id).pipe(
         Effect.flatMap((access) =>
@@ -182,43 +224,28 @@ const IosMirror = ({
                     break;
                   }
                   pending += decoder.decode(chunk.value, { stream: true });
+                  // Only the newest complete frame is drawn: an older one
+                  // that arrived in the same read would only add delay.
+                  let newest: IosStreamFrame | undefined;
+                  let lost = false;
                   let newline = pending.indexOf("\n");
                   while (newline !== -1) {
                     const value: unknown = JSON.parse(
                       pending.slice(0, newline)
                     );
                     pending = pending.slice(newline + 1);
-                    if (
-                      Schema.is(
-                        Schema.Struct({
-                          _tag: Schema.Literal("jpeg"),
-                          data: Schema.String,
-                          height: Schema.Number,
-                          width: Schema.Number,
-                        })
-                      )(value)
-                    ) {
-                      const image = new Image();
-                      image.src = `data:image/jpeg;base64,${value.data}`;
-                      await image.decode();
-                      const target = canvas.current;
-                      if (target && !signal.aborted) {
-                        target.width = value.width;
-                        target.height = value.height;
-                        setFrame((current) =>
-                          current.width === value.width &&
-                          current.height === value.height
-                            ? current
-                            : { height: value.height, width: value.width }
-                        );
-                        target.getContext("2d")?.drawImage(image, 0, 0);
-                        probe.frame();
-                        setTransport("live");
-                      }
+                    if (isIosStreamFrame(value)) {
+                      newest = value;
                     } else {
-                      setTransport("transport_lost");
+                      lost = true;
                     }
                     newline = pending.indexOf("\n");
+                  }
+                  if (lost) {
+                    setTransport("transport_lost");
+                  }
+                  if (newest !== undefined) {
+                    await drawIosFrame(newest, signal);
                   }
                 }
                 if (!signal.aborted) {
