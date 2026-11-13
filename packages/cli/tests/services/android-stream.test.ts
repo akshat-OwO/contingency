@@ -8,6 +8,7 @@ import {
   AndroidStreamPacket,
   androidVisibilityState,
   androidWindowVisibility,
+  recordedWindowVisibility,
 } from "../../src/services/android-stream-contract.ts";
 import { acquireAndroidStream } from "../../src/services/android-stream.ts";
 
@@ -133,6 +134,13 @@ it("recognizes secure flags after other flags and ignores unfocused windows", ()
   expect(androidWindowVisibility(windows("0x100"))).toBe("visible");
   expect(androidWindowVisibility("mCurrentFocus=null")).toBe("unknown");
   expect(androidWindowVisibility(windows(""))).toBe("unknown");
+});
+
+it("leaves the moments between windows in a recording, and hides the rest", () => {
+  // Measured on an emulator mid-transition, while recording.
+  expect(recordedWindowVisibility("mCurrentFocus=null\n")).toBe("visible");
+  expect(recordedWindowVisibility(windows("0x2000"))).toBe("secure");
+  expect(recordedWindowVisibility(windows(""))).toBe("unknown");
 });
 
 it("hides frames for unknown visibility without reporting the stream lost", () => {

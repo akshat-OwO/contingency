@@ -45,6 +45,10 @@ import {
   makeAndroidWorkspaceLayer,
 } from "../../src/services/android-workspace.ts";
 import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
+import {
+  DEVICE_VIDEO_DIRECTORY,
+  readDeviceCapture,
+} from "../../src/services/device-video-capture.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
   DeviceWorkspaceTools,
@@ -120,6 +124,8 @@ const fixture = (
     readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
     /** Uploaded Target App builds the workspace can claim. */
     readonly builds: TargetAppBuildsService;
+    /** The device recorder's starts and stops, in order. */
+    readonly recorded: string[];
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -144,6 +150,8 @@ const fixture = (
       const calls: string[] = [];
       const resolved: string[] = [];
       const forwarded: NativeInput[][] = [];
+      const recorded: string[] = [];
+      let recordingFile: string | undefined;
       // The display and input transport, without a device.
       const acquireStream: typeof acquireAndroidStream = () =>
         Effect.succeed({
@@ -255,6 +263,32 @@ const fixture = (
             });
           }),
         recover: () => Effect.void,
+        // The device's screen recorder: it leaves a footage file where it
+        // was asked to record.
+        screenRecorder: {
+          footageBytes: Effect.succeed(0),
+          start: (file) =>
+            Effect.sync(() => {
+              recorded.push("start");
+              recordingFile = file;
+              return Date.now();
+            }),
+          stop: () =>
+            Effect.gen(function* stopFixtureRecorder() {
+              recorded.push("stop");
+              const file = recordingFile ?? "";
+              yield* fs.writeFile(file, new Uint8Array(8)).pipe(Effect.orDie);
+              return {
+                capturedDurationMs: undefined,
+                devicePath: "retired" as const,
+                durationMs: 0,
+                files: [file],
+                hidden: [],
+                recorder: "confirmed" as const,
+                warning: undefined,
+              };
+            }),
+        },
         sessionId: "fixture-session",
         validate: () => {
           if (secure) {
@@ -346,6 +380,7 @@ const fixture = (
         reconnect: () => {
           connected = true;
         },
+        recorded,
         resolved,
         restart,
         root,
@@ -761,6 +796,124 @@ it.effect(
         expect(yield* readRunSummary(root, exited)).toMatchObject({
           kind: "run",
           outcome: "process-exited",
+        });
+      })
+    )
+);
+
+it.effect(
+  "records the device's screen from Teaching's Start to Stop and across a Run's execution",
+  () =>
+    fixture(({ recorded, root }) =>
+      Effect.gen(function* deviceVideo() {
+        const recordingId = yield* teach();
+        // Teaching recorded from Start to Stop only.
+        expect(recorded).toEqual(["start", "stop"]);
+        const workspace = yield* AndroidWorkspace;
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* TeachingRecordingStore;
+        const teaching = yield* readDeviceCapture(
+          path.join(store.directory(recordingId), DEVICE_VIDEO_DIRECTORY)
+        );
+        expect(teaching).toMatchObject({
+          files: ["recording.mp4"],
+          pacing: "real-time",
+          platform: "android",
+          state: "recorded",
+        });
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: op("start-video-dry"),
+            recordingId,
+            selection: {
+              ...selection,
+              setup: { ...selection.setup, conditions: [] },
+            },
+          },
+          "agent"
+        );
+        // Setup before the Run's execution is never recorded.
+        expect(recorded).toEqual(["start", "stop"]);
+        const dry = yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-video-dry"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(recorded).toEqual(["start", "stop", "start"]);
+        expect(yield* workspace.video(dry.id)).toMatchObject({ live: true });
+        yield* workspace.execute(
+          {
+            _tag: "input",
+            action: { _tag: "activate", target: "@e2" },
+            observationId: dry.observation?.id ?? "",
+            operationId: op("video-agent-input"),
+            sessionId: dry.id,
+          },
+          "agent"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "control",
+            controller: "user",
+            operationId: op("video-takeover"),
+            sessionId: dry.id,
+          },
+          "user"
+        );
+        const returned = yield* workspace.execute(
+          {
+            _tag: "control",
+            controller: "agent",
+            operationId: op("video-return"),
+            sessionId: dry.id,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "complete",
+            assessment: {
+              explanation: "Home is visible.",
+              observationId: returned.observation?.id ?? "",
+              outcome: "working",
+            },
+            operationId: op("complete-video-dry"),
+            sessionId: dry.id,
+          },
+          "agent"
+        );
+        expect(recorded).toEqual(["start", "stop", "start", "stop"]);
+        const located = yield* workspace.video(dry.id);
+        expect(located).toEqual({
+          folder: path.join(
+            path.dirname(runSummaryFile(root, dry.id)),
+            DEVICE_VIDEO_DIRECTORY
+          ),
+          live: false,
+          purged: false,
+        });
+        const capture = yield* readDeviceCapture(located?.folder ?? "");
+        expect(capture).toMatchObject({
+          pacing: "condensed",
+          state: "recorded",
+        });
+        expect(capture?.actions).toHaveLength(1);
+        expect(capture?.takeovers).toHaveLength(1);
+        expect(
+          yield* fs.exists(path.join(located?.folder ?? "", "recording.mp4"))
+        ).toBe(true);
+        const summary = yield* readRunSummary(root, dry.id);
+        expect(summary).toMatchObject({
+          videoTimeMap: {
+            fastForward: "capped",
+            startedAt: new Date(capture?.startedAt ?? 0).toISOString(),
+          },
         });
       })
     )

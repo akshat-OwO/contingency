@@ -16,6 +16,7 @@ import type {
   FlowName,
   NativeForward,
   PlatformRequirements,
+  RunVideoFastForward,
 } from "@contingency/protocol";
 import {
   Context,
@@ -33,6 +34,12 @@ import {
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import {
+  DEVICE_VIDEO_DIRECTORY,
+  makeDeviceVideoCapture,
+} from "./device-video-capture.ts";
+import type { DeviceVideoCaptureSession } from "./device-video-capture.ts";
+import { DeviceVideoRenderer } from "./device-video-renderer.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
@@ -57,6 +64,7 @@ import {
   nativeRunSummary,
   writeNativeRunSummary,
 } from "./native-run-summary.ts";
+import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
@@ -274,6 +282,12 @@ interface Session {
   >;
   readonly directory: string;
   readonly summaryFile: string;
+  /** The device's own recording of Teaching, or of a Run's execution. */
+  readonly video: DeviceVideoCaptureSession;
+  /** Epoch milliseconds when a Takeover began. */
+  readonly marks: {
+    takeoverFrom?: number | undefined;
+  };
 }
 export interface IosWorkspaceService {
   readonly stream: (
@@ -287,6 +301,16 @@ export interface IosWorkspaceService {
   readonly keyframes: (sessionId: AgentSessionId) => Effect.Effect<{
     readonly directory: string;
     readonly keyframes: readonly TeachingRecordingArtifact[];
+  } | null>;
+  /**
+   * Where a session's video is, in any phase: its folder, whether the
+   * session is still recording into it, and whether Cleanup purged it.
+   * Nothing for a session this process does not know.
+   */
+  readonly video: (sessionId: AgentSessionId) => Effect.Effect<{
+    readonly folder: string;
+    readonly live: boolean;
+    readonly purged: boolean;
   } | null>;
   readonly execute: (
     command: IosWorkspaceCommand,
@@ -321,12 +345,28 @@ const KeyframeIndex = Schema.fromJsonString(
 /** Where a session's keyframe index sits beside its persisted summary. */
 const keyframeIndexFile = (summaryFile: string) =>
   summaryFile.replace(/\.json$/u, ".keyframes.json");
+/**
+ * Ends the device's recording, closing a Takeover still under way, and
+ * returns the video's time map. Idempotent; a second call answers the
+ * same map.
+ */
+const endVideo = (session: Session) =>
+  Effect.gen(function* endDeviceVideo() {
+    const { takeoverFrom } = session.marks;
+    if (takeoverFrom !== undefined) {
+      session.marks.takeoverFrom = undefined;
+      yield* session.video.takeover(takeoverFrom);
+    }
+    return yield* session.video.end;
+  });
 
 export const makeIosWorkspaceLayer = (options: {
   readonly root: () => string;
   readonly createRun?: typeof createIosRun;
   /** The simulator input helper; tests substitute their own. */
   readonly makeHid?: typeof makeIosHid;
+  /** How a Run's video fast-forwards its Idle Gaps; one per process. */
+  readonly videoFastForward?: RunVideoFastForward;
 }) =>
   Layer.effect(
     IosWorkspace,
@@ -336,6 +376,7 @@ export const makeIosWorkspaceLayer = (options: {
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
+      const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
 
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -484,6 +525,9 @@ export const makeIosWorkspaceLayer = (options: {
         state,
         stopSources: (session) =>
           Effect.gen(function* stopIosCaptureSources() {
+            // Stop finalizes the device's recording first; nothing after
+            // Stop is retained.
+            yield* session.video.end;
             const interval = yield* session.stream.end();
             yield* io(
               fs.writeFileString(
@@ -587,19 +631,41 @@ export const makeIosWorkspaceLayer = (options: {
         session: Session,
         outcome: "completed" | "user-closed" | "interrupted" | "process-exited"
       ) =>
-        Effect.suspend(() => {
+        Effect.gen(function* writeSummary() {
           const current = state(session);
+          const videoTimeMap = yield* endVideo(session);
           const summary = nativeRunSummary({
             endedAt: current.summary.completedAt ?? now(),
             outcome,
             platform: "ios",
             ran: current.ran,
             summary: current.summary,
+            videoTimeMap,
           });
-          return summary === null
-            ? Effect.void
-            : io(writeNativeRunSummary(fs, session.directory, summary));
+          if (summary !== null) {
+            yield* io(writeNativeRunSummary(fs, session.directory, summary));
+          }
         });
+      /**
+       * A session's device video: Teaching in real time, a Run or Dry Run
+       * condensed, rendered by this process once it ends.
+       */
+      const sessionVideo = (
+        kind: "teaching" | "dry-run" | "run",
+        directory: string,
+        run: { readonly screenRecorder: () => NativeScreenRecorder | undefined }
+      ) =>
+        makeDeviceVideoCapture({
+          directory,
+          fastForward: options.videoFastForward ?? "capped",
+          pacing: kind === "teaching" ? "real-time" : "condensed",
+          platform: "ios",
+          recorder: () => run.screenRecorder(),
+          ...Option.match(renderer, {
+            onNone: () => ({}),
+            onSome: (service) => ({ render: service.render }),
+          }),
+        }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
       /** A Run files its evidence under its Flow, as the Run store does. */
       const evidenceDirectory = (
         command: { readonly flowName: FlowName; readonly kind: string },
@@ -653,6 +719,8 @@ export const makeIosWorkspaceLayer = (options: {
             session,
             "The session closed before a complete passing assessment. Cancellation does not undo input."
           );
+          // The recorder belongs to the device runtime; stop it first.
+          yield* endVideo(session);
           yield* session.stream.close();
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
@@ -921,6 +989,7 @@ export const makeIosWorkspaceLayer = (options: {
                     ),
               }),
               lock: Semaphore.makeUnsafe(1),
+              marks: {},
               receipts: new Map(),
               run,
               scope,
@@ -961,6 +1030,7 @@ export const makeIosWorkspaceLayer = (options: {
                   status: "requested" as const,
                 }))
               ).pipe(Atom.keepAlive),
+              video: yield* sessionVideo(command.kind, directory, run),
             };
             registry.get(session.state);
             registry.get(session.variables);
@@ -1200,6 +1270,9 @@ export const makeIosWorkspaceLayer = (options: {
               recordingId: summary.recordingId,
             });
             update(session, (value) => ({ ...value, recording: true }));
+            // Start completes once the device's recorder runs; setup before
+            // it is never recorded.
+            yield* session.video.begin;
             yield* emit(session, {
               _tag: "started",
               emulation: null,
@@ -1505,6 +1578,7 @@ export const makeIosWorkspaceLayer = (options: {
             },
           }));
           clearVariables(session);
+          yield* endVideo(session);
           yield* session.stream.close();
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
@@ -1703,12 +1777,8 @@ export const makeIosWorkspaceLayer = (options: {
               const attempt = state(session).pendingInput;
               update(session, (value) => ({ ...value, pendingInput: null }));
               if (command.allow && attempt !== null) {
-                yield* inputWorkspace(
-                  session,
-                  attempt,
-                  "agent",
-                  undefined,
-                  true
+                yield* session.video.action(
+                  inputWorkspace(session, attempt, "agent", undefined, true)
                 );
               }
               yield* persist(session);
@@ -1755,6 +1825,9 @@ export const makeIosWorkspaceLayer = (options: {
               startingObservation: boundaryObservationSummary(prepared),
             }));
             yield* session.stream.start();
+            if (summary.kind !== "teaching") {
+              yield* session.video.begin;
+            }
           } else if (
             command._tag === "recover" ||
             command._tag === "return-to-target-app"
@@ -1821,6 +1894,13 @@ export const makeIosWorkspaceLayer = (options: {
               );
             }
             const gestures = session.lane.take();
+            const { takeoverFrom } = session.marks;
+            if (command.controller === "user") {
+              session.marks.takeoverFrom ??= Date.now();
+            } else if (takeoverFrom !== undefined) {
+              session.marks.takeoverFrom = undefined;
+              yield* session.video.takeover(takeoverFrom);
+            }
             update(session, (value) => ({
               ...value,
               observation: null,
@@ -1850,7 +1930,10 @@ export const makeIosWorkspaceLayer = (options: {
               text: command.text,
             });
           } else if (command._tag === "input") {
-            yield* inputWorkspace(session, command, source);
+            // An agent action plays at real speed in the condensed video.
+            yield* source === "agent"
+              ? session.video.action(inputWorkspace(session, command, source))
+              : inputWorkspace(session, command, source);
           } else if (command._tag === "complete") {
             yield* completeWorkspace(session, command, source);
           }
@@ -2073,6 +2156,53 @@ export const makeIosWorkspaceLayer = (options: {
               return null;
             }
             return session.stream;
+          }),
+        video: (sessionId) =>
+          Effect.gen(function* locateVideo() {
+            const session = sessions.get(sessionId);
+            let directory = session?.directory;
+            let recordingId =
+              session === undefined ? null : state(session).summary.recordingId;
+            if (session === undefined) {
+              // A session from before this process: its summary names its
+              // recording, and its keyframe index names its folder.
+              const persisted = yield* readPersisted(sessionId).pipe(
+                Effect.option
+              );
+              const index = yield* fs
+                .readFileString(
+                  keyframeIndexFile(
+                    path.join(
+                      options.root(),
+                      ".ios-workspace",
+                      `${sessionId}.json`
+                    )
+                  )
+                )
+                .pipe(
+                  Effect.flatMap(Schema.decodeUnknownEffect(KeyframeIndex)),
+                  Effect.option
+                );
+              if (Option.isNone(persisted) || Option.isNone(index)) {
+                return null;
+              }
+              ({ recordingId } = persisted.value);
+              ({ directory } = index.value);
+            }
+            if (directory === undefined) {
+              return null;
+            }
+            const purged =
+              recordingId !== null &&
+              (yield* store.read(recordingId).pipe(
+                Effect.map(({ cleanup }) => cleanup._tag === "purged"),
+                Effect.orElseSucceed(() => false)
+              ));
+            return {
+              folder: path.join(directory, DEVICE_VIDEO_DIRECTORY),
+              live: session?.video.live() ?? false,
+              purged,
+            };
           }),
       });
     })

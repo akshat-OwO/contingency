@@ -521,6 +521,11 @@ export const NativeAgentRunSummary = Schema.Struct({
   startedAt: nonEmptyString,
   takeoverOccurred: Schema.Boolean,
   title: nonEmptyString,
+  /**
+   * Places the Run's moments in its condensed device video. Absent when the
+   * device recorded no video, and on Summaries written before it did.
+   */
+  videoTimeMap: Schema.optional(RunVideoTimeMap),
 }).annotate({ identifier: "NativeAgentRunSummary" });
 export type NativeAgentRunSummary = typeof NativeAgentRunSummary.Type;
 

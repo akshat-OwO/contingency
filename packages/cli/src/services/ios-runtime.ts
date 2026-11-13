@@ -40,6 +40,7 @@ import type {
 import { createNativeAppRun } from "./native-app-run.ts";
 import type { NativeAppRuntime } from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
+import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 export interface IosObservation extends Omit<
@@ -593,6 +594,28 @@ const startIosRuntime = (
               iosRuntimeError
             ),
           recover: () => validate().pipe(Effect.andThen(access.recover())),
+          // Whole screen, touches hidden (ADR 0079).
+          screenRecorder: makeAgentDeviceScreenRecorder({
+            record: ({ action, path: file, signal }) =>
+              client.recording.record(
+                file === undefined
+                  ? {
+                      ...options(),
+                      action,
+                      hideTouches: true,
+                      recordingScope: "device",
+                      signal,
+                    }
+                  : {
+                      ...options(),
+                      action,
+                      hideTouches: true,
+                      path: file,
+                      recordingScope: "device",
+                      signal,
+                    }
+              ),
+          }),
           sessionId: session,
           validate,
         },

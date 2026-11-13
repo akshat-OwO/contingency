@@ -14,6 +14,7 @@ import type {
 import {
   ContingencyRpcs,
   DeviceKeyframes,
+  DeviceVideoStatus,
   encodeIosBuildEntryHeader,
   TargetAppBuildRefusal,
   targetAppBuildPaths,
@@ -473,6 +474,38 @@ export const deviceKeyframesAtom = Atom.family((listUrl: string) =>
       Effect.flatMap((body) =>
         body === null ? Effect.succeed(null) : decodeDeviceKeyframes(body)
       )
+    )
+  )
+);
+
+const decodeDeviceVideoStatus = Schema.decodeUnknownEffect(DeviceVideoStatus);
+
+/**
+ * Where a device session's video stands, or `null` when this Workspace does
+ * not know the session. It is rendered after the session ends, so the atom
+ * asks until it is no longer preparing. One atom per status URL.
+ */
+export const deviceVideoStatusAtom = Atom.family((statusUrl: string) =>
+  Atom.make(
+    Stream.fromEffect(
+      Effect.tryPromise(async () => {
+        const response = await fetch(statusUrl, { cache: "no-store" });
+        if (response.status === 404) {
+          return null;
+        }
+        if (!response.ok) {
+          throw new Error(`The video status answered ${response.status}.`);
+        }
+        const body: unknown = await response.json();
+        return body;
+      }).pipe(
+        Effect.flatMap((body) =>
+          body === null ? Effect.succeed(null) : decodeDeviceVideoStatus(body)
+        )
+      )
+    ).pipe(
+      Stream.repeat(Schedule.spaced("1 second")),
+      Stream.takeUntil((status) => status?.state !== "preparing")
     )
   )
 );

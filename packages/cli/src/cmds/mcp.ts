@@ -44,6 +44,7 @@ import {
   resolveCatalogDirectory,
 } from "../services/catalog-directory.ts";
 import { makeDemoSiteLayer } from "../services/demo-site-server.ts";
+import { DeviceVideoRendererLive } from "../services/device-video-renderer.ts";
 import { makeFlowCatalogLayer } from "../services/flow-catalog.ts";
 import {
   makeHttpServerLayer,
@@ -416,11 +417,24 @@ export const mcpCommand = Command.make(
         const targetAppBuilds = Layer.succeedContext(
           yield* Layer.build(TargetAppBuildsLive)
         );
+        // Renders device sessions' footage into their videos, and serves
+        // their status; one per process, shared by both device workspaces.
+        const deviceVideoRenderer = Layer.succeedContext(
+          yield* Layer.build(DeviceVideoRendererLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
-            makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
+            makeAndroidWorkspaceLayer({
+              root: () => selectedCatalogRoot,
+              videoFastForward,
+            }).pipe(
               Layer.provide(
-                Layer.mergeAll(teachingRecordingStore, catalog, targetAppBuilds)
+                Layer.mergeAll(
+                  teachingRecordingStore,
+                  catalog,
+                  targetAppBuilds,
+                  deviceVideoRenderer
+                )
               )
             )
           )
@@ -429,9 +443,15 @@ export const mcpCommand = Command.make(
           yield* Layer.build(
             makeIosWorkspaceLayer({
               root: () => selectedCatalogRoot,
+              videoFastForward,
             }).pipe(
               Layer.provide(
-                Layer.mergeAll(teachingRecordingStore, catalog, targetAppBuilds)
+                Layer.mergeAll(
+                  teachingRecordingStore,
+                  catalog,
+                  targetAppBuilds,
+                  deviceVideoRenderer
+                )
               )
             )
           )
@@ -440,7 +460,8 @@ export const mcpCommand = Command.make(
           browserSession,
           androidWorkspace,
           iosWorkspace,
-          targetAppBuilds
+          targetAppBuilds,
+          deviceVideoRenderer
         );
         const shared = Layer.mergeAll(
           agentSession,
