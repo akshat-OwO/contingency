@@ -388,6 +388,9 @@ export const makeDeviceVideoCapture = (input: {
       if (ended !== undefined) {
         return ended.timeMap;
       }
+      // The session ends now. Waiting for a cap stop already under way, and
+      // pulling and finalizing footage, take no part of its time.
+      const stoppedAt = yield* Clock.currentTimeMillis;
       if (monitor !== undefined) {
         yield* Fiber.interrupt(monitor);
         monitor = undefined;
@@ -403,9 +406,6 @@ export const makeDeviceVideoCapture = (input: {
         ended = { timeMap: undefined };
         return;
       }
-      // The session ends now; pulling and finalizing footage takes no part
-      // of its time.
-      const stoppedAt = yield* Clock.currentTimeMillis;
       const stopped = capped?.stopped ?? (yield* stopRecorder(active));
       if (stopped._tag === "Failure") {
         yield* update((value) => ({

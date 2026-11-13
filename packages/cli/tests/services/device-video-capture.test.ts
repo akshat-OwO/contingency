@@ -229,6 +229,42 @@ describe("makeDeviceVideoCapture", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 
+  it.effect("ends the video at Stop while a cap stop is still collecting", () =>
+    Effect.gen(function* stopDuringCap() {
+      const directory = yield* tempDirectory;
+      const reads = yield* Queue.unbounded<number>();
+      const began = yield* Deferred.make<true>();
+      const release = yield* Deferred.make<true>();
+      const { recorder } = yield* fakeRecorder({
+        footageBytes: Effect.succeed(DEVICE_VIDEO_HARD_CAP_BYTES + 1).pipe(
+          Effect.tap((bytes) => Queue.offer(reads, bytes))
+        ),
+        stopGate: { began, release },
+      });
+      yield* TestClock.setTime(10_000);
+      const capture = yield* makeDeviceVideoCapture({
+        directory,
+        fastForward: "capped",
+        pacing: "real-time",
+        platform: "android",
+        recorder: () => recorder,
+      });
+      yield* capture.begin;
+      yield* Queue.take(reads);
+      // The cap stop is pulling footage when the session stops.
+      yield* Deferred.await(began);
+      yield* TestClock.adjust("1 second");
+      const ending = yield* Effect.forkChild(capture.end);
+      yield* TestClock.adjust("10 seconds");
+      yield* Deferred.succeed(release, true);
+      const timeMap = yield* Fiber.join(ending);
+      expect(timeMap?.segments.at(-1)?.runToMs).toBe(1000);
+      expect(
+        yield* readDeviceCapture(path.join(directory, DEVICE_VIDEO_DIRECTORY))
+      ).toMatchObject({ endedAt: 11_000, sizeLimitFromMs: 0 });
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+
   it.effect("stays live while Stop finalizes the record", () =>
     Effect.gen(function* liveThroughStop() {
       const directory = yield* tempDirectory;
