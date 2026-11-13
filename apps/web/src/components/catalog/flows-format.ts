@@ -15,10 +15,33 @@ const RUN_KIND: Record<CatalogRunEntry["kind"], string> = {
   "dry-run": "Dry Run",
   interactive: "Interactive Run",
   legacy: "Run",
+  run: "Run",
 };
 
+const PLATFORM = { android: "Android", ios: "iOS" } as const;
+
 export const runKindLabel = (run: CatalogRunEntry): string =>
-  RUN_KIND[run.kind];
+  run.native === undefined
+    ? RUN_KIND[run.kind]
+    : `${PLATFORM[run.native.platform]} ${RUN_KIND[run.kind]}`;
+
+/**
+ * Where this Workspace opens a Run, or `null` when it cannot: a native Run in
+ * its device session's ended view, and a browser Run in the read-only viewer
+ * over this process's own Run store.
+ */
+export const runSummaryHref = (
+  run: CatalogRunEntry,
+  scope: "local" | "global"
+): string | null => {
+  if (scope !== "local") {
+    return null;
+  }
+  if (run.native !== undefined) {
+    return `/?${run.native.platform}=${run.native.sessionId}`;
+  }
+  return run.kind === "dry-run" ? null : `/?run=${run.runId}`;
+};
 
 const ASSESSMENT = {
   blocked: "Blocked",

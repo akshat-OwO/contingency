@@ -77,7 +77,7 @@ const paused = {
 } as const;
 afterEach(cleanup);
 
-test("offers paused and completed sessions without a selected Android session", async () => {
+test("offers the listed sessions without a selected Android session", async () => {
   const user = userEvent.setup();
   const onSelect = vi.fn();
   render(
@@ -97,6 +97,26 @@ test("offers paused and completed sessions without a selected Android session", 
   ).toBeVisible();
   await user.keyboard("{End}{Enter}");
   expect(onSelect).toHaveBeenCalledWith(completed.id);
+});
+
+test("says a linked session is gone without offering a session selector", () => {
+  render(
+    <AndroidEmptyState
+      onOpen={vi.fn()}
+      onSelect={vi.fn()}
+      sessions={[]}
+      unavailable
+    />
+  );
+  expect(
+    screen.getByText("The session this link named is no longer available.")
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("combobox", { name: "Android Agent Session" })
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Open Android session" })
+  ).toBeEnabled();
 });
 
 test("preserves explicit permission grants and denials and rejects ambiguous declarations", () => {

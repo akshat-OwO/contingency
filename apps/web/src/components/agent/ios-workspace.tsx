@@ -59,6 +59,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { isSessionNotFound } from "@/lib/failure-message";
 import {
   bootIosSimulator,
   discardTargetAppBuild,
@@ -1237,6 +1238,13 @@ const IosSessionSelect = ({
     value={session?.id ?? ""}
   >
     <NativeSelectOption value="">New iOS session</NativeSelectOption>
+    {/* The shown ended session names itself, but is no longer a choice. */}
+    {session === null ||
+    sessions.some((entry) => entry.id === session.id) ? null : (
+      <NativeSelectOption disabled value={session.id}>
+        Ended session
+      </NativeSelectOption>
+    )}
     {sessions.map((entry) => (
       <NativeSelectOption key={entry.id} value={entry.id}>
         {iosSessionLabel(entry)}
@@ -1446,9 +1454,12 @@ const IosDock = ({
   const [dismissedField, setDismissedField] = useAtom(dismissedAtom);
   const listed = useAtomValue(iosSessionsAtom);
   const sessions = AsyncResult.isSuccess(listed) ? listed.value : [];
-  const choices = sessions.some((entry) => entry.id === session.id)
-    ? sessions
-    : [session, ...sessions];
+  // A just-started session may not be listed yet; an ended one is no choice.
+  const choices =
+    sessions.some((entry) => entry.id === session.id) ||
+    !isLiveIosSession(session)
+      ? sessions
+      : [session, ...sessions];
   const presentation = iosDockPresentation(session);
   const recording = session.captureState?._tag === "recording";
   const field = typingField(session, dismissedField);
@@ -1611,6 +1622,8 @@ export const IosWorkspace = ({
   const enabled = useAtomValue(iosEnabledAtom);
   const gesture = useWorkspaceGesture(commandAtom);
   const [sheet, setSheet] = useState(requestedSessionId === "new");
+  /** The route named a session this server has no record of. */
+  const [unavailable, setUnavailable] = useState(false);
   const apply = (next: IosWorkspaceSnapshot) =>
     setSession((current) =>
       current?.id === next.id && current.revision > next.revision
@@ -1686,6 +1699,7 @@ export const IosWorkspace = ({
   useEffect(() => {
     if (requestedSessionId === NEW_NATIVE_SESSION) {
       setSession(null);
+      setUnavailable(false);
       setSheet(true);
       return;
     }
@@ -1703,7 +1717,17 @@ export const IosWorkspace = ({
         Effect.tap((next) =>
           Effect.sync(() => {
             if (requested) {
+              setUnavailable(false);
               setSession(next);
+            }
+          })
+        ),
+        // An ended link to a deleted record selects nothing in its place.
+        Effect.tapError((failure) =>
+          Effect.sync(() => {
+            if (requested && isSessionNotFound(failure)) {
+              setSession(null);
+              setUnavailable(true);
             }
           })
         ),
@@ -1793,6 +1817,14 @@ export const IosWorkspace = ({
               Mirror a running iPhone simulator, then record a journey through
               its Target App.
             </p>
+            {unavailable ? (
+              <p
+                className="text-muted-foreground text-sm text-pretty"
+                role="status"
+              >
+                The session this link named is no longer available.
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => setSheet(true)} size="lg">

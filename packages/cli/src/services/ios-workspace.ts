@@ -13,6 +13,7 @@ import type {
   IosWorkspaceCommand,
   IosObservationRefusal,
   IosWorkspaceSnapshot,
+  FlowName,
   NativeForward,
   PlatformRequirements,
 } from "@contingency/protocol";
@@ -51,6 +52,11 @@ import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
 import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
+import {
+  nativeRunDirectory,
+  nativeRunSummary,
+  writeNativeRunSummary,
+} from "./native-run-summary.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
@@ -217,6 +223,8 @@ const observationSize = (observation: IosObservation) => {
 };
 
 interface SessionState {
+  /** The session reached its first observation, so it is a Run that ran. */
+  readonly ran: boolean;
   /** Bounded semantic selections only; historical frames never retain screenshot pixels. */
   readonly observations: readonly (Pick<IosObservation, "id" | "nodes"> & {
     readonly width: number;
@@ -562,6 +570,7 @@ export const makeIosWorkspaceLayer = (options: {
               ...observationSize(observation),
             },
           ],
+          ran: true,
           summary: {
             ...current.summary,
             error: null,
@@ -570,8 +579,51 @@ export const makeIosWorkspaceLayer = (options: {
           },
         }));
       };
-      const close = (session: Session) =>
+      /**
+       * Leaves the Run Summary of a Run or Dry Run that ran, once, as it ends
+       * (ADR 0078). Teaching, refused, and never-prepared sessions leave none.
+       */
+      const writeRunSummary = (
+        session: Session,
+        outcome: "completed" | "user-closed" | "interrupted" | "process-exited"
+      ) =>
+        Effect.suspend(() => {
+          const current = state(session);
+          const summary = nativeRunSummary({
+            endedAt: current.summary.completedAt ?? now(),
+            outcome,
+            platform: "ios",
+            ran: current.ran,
+            summary: current.summary,
+          });
+          return summary === null
+            ? Effect.void
+            : io(writeNativeRunSummary(fs, session.directory, summary));
+        });
+      /** A Run files its evidence under its Flow, as the Run store does. */
+      const evidenceDirectory = (
+        command: { readonly flowName: FlowName; readonly kind: string },
+        root: string,
+        id: AgentSessionId
+      ) =>
+        command.kind === "run"
+          ? io(nativeRunDirectory(root, command.flowName, id, fs))
+          : Effect.succeed(path.join(root, "runs", id));
+      const terminalPhase = (session: Session) => {
+        const { phase } = state(session).summary;
+        return (
+          phase === "closed" || phase === "completed" || phase === "refused"
+        );
+      };
+      const close = (
+        session: Session,
+        outcome: "user-closed" | "interrupted" | "process-exited"
+      ) =>
         Effect.gen(function* closeWorkspace() {
+          // An ended session already released everything and keeps its outcome.
+          if (terminalPhase(session)) {
+            return;
+          }
           clearVariables(session);
           yield* finishRecording(
             session,
@@ -604,12 +656,15 @@ export const makeIosWorkspaceLayer = (options: {
             },
           }));
           yield* persist(session);
+          yield* writeRunSummary(session, outcome);
         });
       yield* Effect.addFinalizer(() =>
         Effect.forEach(
           [...sessions.values()],
           (session) =>
-            session.lock.withPermits(1)(close(session)).pipe(Effect.ignore),
+            session.lock
+              .withPermits(1)(close(session, "process-exited"))
+              .pipe(Effect.ignore),
           { discard: true }
         ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
       );
@@ -766,7 +821,11 @@ export const makeIosWorkspaceLayer = (options: {
               command.kind === "dry-run" && recordingId !== null
                 ? store.catalogRoot(recordingId)
                 : catalog.root();
-            let directory = path.join(root, "runs", id);
+            // A Run files its evidence under its Flow; a Dry Run's and
+            // Teaching's directories come from the recording store below.
+            let directory = yield* evidenceDirectory(command, root, id).pipe(
+              Effect.onError(() => Scope.close(scope, Exit.void))
+            );
             if (recordingId !== null) {
               if (command.kind === "teaching") {
                 yield* store
@@ -861,6 +920,7 @@ export const makeIosWorkspaceLayer = (options: {
                 observation: null,
                 observations: [],
                 pendingInput: null,
+                ran: false,
                 recording: false,
                 revision: 0,
                 sequence: 0,
@@ -922,7 +982,7 @@ export const makeIosWorkspaceLayer = (options: {
               })
             );
             if (Result.isFailure(initialized)) {
-              yield* close(session).pipe(Effect.ignore);
+              yield* close(session, "interrupted").pipe(Effect.ignore);
               return yield* Effect.fail(initialized.failure);
             }
             return initialized.success;
@@ -1438,6 +1498,7 @@ export const makeIosWorkspaceLayer = (options: {
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
           yield* persist(session);
+          yield* writeRunSummary(session, "completed");
           if (summary.kind === "dry-run" && summary.recordingId !== null) {
             const report = {
               observableOutcome: `${assessment.outcome}: ${assessment.explanation}`,
@@ -1497,7 +1558,10 @@ export const makeIosWorkspaceLayer = (options: {
                 "The user holds this session. Request explicit return of control."
               );
             }
-            yield* close(session);
+            yield* close(
+              session,
+              source === "user" ? "user-closed" : "interrupted"
+            );
             return yield* snapshot(session);
           }
           if (terminal) {
@@ -1646,9 +1710,20 @@ export const makeIosWorkspaceLayer = (options: {
             }
             yield* session.run.decide(command.decisionId, command.allow);
             if (!command.allow) {
+              // Nothing ran and nothing will: release the device now.
+              clearVariables(session);
+              yield* session.stream.close();
+              yield* session.run.close();
+              yield* Scope.close(session.scope, Exit.void);
               update(session, (value) => ({
                 ...value,
-                summary: { ...value.summary, phase: "refused" },
+                observation: null,
+                observations: [],
+                summary: {
+                  ...value.summary,
+                  completedAt: value.summary.completedAt ?? now(),
+                  phase: "refused",
+                },
               }));
             }
           } else if (command._tag === "prepare") {
@@ -1958,20 +2033,20 @@ export const makeIosWorkspaceLayer = (options: {
               Effect.orElseSucceed(() => null)
             );
         },
+        // Only sessions this process owns and the user can continue. An ended
+        // session stays readable by id; what it produced lasts as its Teaching
+        // Recording or Run.
         list: () =>
-          Effect.gen(function* listWorkspace() {
-            const directory = path.join(options.root(), ".ios-workspace");
-            if (!(yield* io(fs.exists(directory)))) {
-              return [];
-            }
-            const files = yield* io(fs.readDirectory(directory));
-            return yield* Effect.forEach(
-              files.filter((file) =>
-                /^agent-ios-[a-f0-9]{32}\.json$/u.test(file)
-              ),
-              (file) => readPersisted(AgentSessionId.make(file.slice(0, -5)))
-            );
-          }),
+          Effect.sync(() =>
+            [...sessions.values()].flatMap((session) => {
+              const { summary } = state(session);
+              return summary.phase === "pending" ||
+                summary.phase === "running" ||
+                summary.phase === "paused"
+                ? [summary]
+                : [];
+            })
+          ),
         stream: (sessionId) =>
           Effect.sync(() => {
             const session = sessions.get(sessionId);

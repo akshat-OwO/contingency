@@ -29,6 +29,7 @@ import {
   recordingPhaseLabel,
   runDuration,
   runKindLabel,
+  runSummaryHref,
   runVerdict,
   stepInstruction,
   when,
@@ -322,25 +323,26 @@ const RunDetail = ({
     </Section>
     {/*
       The read-only viewer reads this process's own Run store, so it opens
-      local Interactive Runs. A Dry Run's evidence lives with its recording,
-      and a global Run belongs to another Catalog Root.
+      local Interactive Runs, and a native Run opens in its device session's
+      view. A browser Dry Run's evidence lives with its recording, and a global
+      Run belongs to another Catalog Root.
     */}
-    {scope === "local" && run.kind !== "dry-run" ? (
+    {runSummaryHref(run, scope) === null ? (
+      <p className="text-muted-foreground text-xs text-pretty">
+        {run.kind === "dry-run"
+          ? "A Dry Run's evidence stays with its recording. Copy the Run ID above and ask your agent to open that Run."
+          : "This Run belongs to another Catalog Root. Open it from a Workspace that uses that root."}
+      </p>
+    ) : (
       <a
         className={buttonVariants({ size: "sm", variant: "outline" })}
-        href={`/?run=${run.runId}`}
+        href={runSummaryHref(run, scope) ?? undefined}
         rel="noreferrer"
         target="_blank"
       >
         <ExternalLinkIcon aria-hidden="true" />
         Open Run Summary
       </a>
-    ) : (
-      <p className="text-muted-foreground text-xs text-pretty">
-        {run.kind === "dry-run"
-          ? "A Dry Run's evidence stays with its recording. Copy the Run ID above and ask your agent to open that Run."
-          : "This Run belongs to another Catalog Root. Open it from a Workspace that uses that root."}
-      </p>
     )}
   </article>
 );

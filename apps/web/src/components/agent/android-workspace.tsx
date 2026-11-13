@@ -34,6 +34,7 @@ import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { isSessionNotFound } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +88,8 @@ interface WorkspaceState {
   /** The input refusal was set aside when the comment tier opened. */
   readonly refusalDismissed: boolean;
   readonly setupOpen: boolean;
+  /** The route named a session this server has no record of. */
+  readonly unavailable: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
   dismissedField: null,
@@ -97,6 +100,7 @@ const workspaceAtom = Atom.make<WorkspaceState>({
   refusalDismissed: false,
   session: null,
   setupOpen: false,
+  unavailable: false,
 });
 const applySnapshot = (
   current: WorkspaceState,
@@ -105,7 +109,7 @@ const applySnapshot = (
   current.session?.id === session.id &&
   current.session.revision > session.revision
     ? current
-    : { ...current, failure: null, session };
+    : { ...current, failure: null, session, unavailable: false };
 const operationId = () =>
   OperationId.make(`workspace-android-${crypto.randomUUID()}`);
 const message = (cause: unknown) =>
@@ -116,14 +120,16 @@ const message = (cause: unknown) =>
     Option.getOrElse(() => "Android Workspace is unavailable.")
   );
 /**
- * The picker always lists the selected session: the session list is a
- * separate query and can lag a session that was just opened.
+ * The picker lists the selected live session: the session list is a separate
+ * query and can lag a session that was just opened. An ended session is no
+ * longer a choice, so it is never added back.
  */
 const withSelected = (
   sessions: readonly AndroidWorkspaceSummary[],
   session: AndroidWorkspaceSnapshot
 ): readonly AndroidWorkspaceSummary[] =>
-  sessions.some((entry) => entry.id === session.id)
+  sessions.some((entry) => entry.id === session.id) ||
+  !isLiveAndroidSession(session)
     ? sessions
     : [session, ...sessions];
 const fieldKey = (field: NonNullable<AndroidWorkspaceSnapshot["field"]>) =>
@@ -186,8 +192,11 @@ export const AndroidEmptyState = ({
   onSelect,
   pending = false,
   sessions,
+  unavailable = false,
 }: {
   readonly pending?: boolean;
+  /** The link named a session that no longer exists. */
+  readonly unavailable?: boolean;
   readonly onOpen: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly sessions: readonly AndroidWorkspaceSummary[];
@@ -214,6 +223,11 @@ export const AndroidEmptyState = ({
               ? "Preparing the selected app and emulator. Installation can take a moment."
               : "Open a session to pick a device and an app, then start recording when the journey begins."}
           </p>
+          {unavailable && !pending ? (
+            <p className="text-muted-foreground text-sm text-pretty">
+              The session this link named is no longer available.
+            </p>
+          ) : null}
         </div>
         {sessions.length === 0 ? null : (
           <div className="flex">
@@ -256,7 +270,9 @@ const useAndroidSessionSync = (
     // `new` asks for the empty Workspace, whatever was shown before.
     if (requestedSessionId === NEW_NATIVE_SESSION) {
       setState((current) =>
-        current.session === null ? current : { ...current, session: null }
+        current.session === null && !current.unavailable
+          ? current
+          : { ...current, session: null, unavailable: false }
       );
       return;
     }
@@ -283,12 +299,19 @@ const useAndroidSessionSync = (
         ),
         Effect.catchCause((failureCause) =>
           Effect.sync(() => {
-            if (requested) {
-              setState((current) => ({
-                ...current,
-                failure: Cause.pretty(failureCause),
-              }));
+            if (!requested) {
+              return;
             }
+            // An ended link to a deleted record is not a failure to answer:
+            // say it is gone, and select nothing in its place.
+            const missing = Cause.findErrorOption(failureCause).pipe(
+              Option.exists(isSessionNotFound)
+            );
+            setState((current) =>
+              missing
+                ? { ...current, session: null, unavailable: true }
+                : { ...current, failure: Cause.pretty(failureCause) }
+            );
           })
         )
       )
@@ -382,7 +405,10 @@ const AndroidDockControls = ({
             mutate({ _tag: "read", sessionId: value });
           }
         }}
-        selectedSessionId={session.id}
+        // An ended session is not a choice; the picker shows its placeholder.
+        selectedSessionId={
+          isLiveAndroidSession(session) ? session.id : undefined
+        }
         sessions={sessions}
       />
       {/* Hidden while capturing, as the browser dock does. */}
@@ -885,6 +911,7 @@ export const AndroidWorkspace = ({
               }
             }}
             sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
+            unavailable={state.unavailable}
           />
           {notices}
         </WorkspaceLayout>
