@@ -767,6 +767,63 @@ it.effect(
 );
 
 it.effect(
+  "refusing a Dry Run's preparation leaves its recording ready for another attempt",
+  () =>
+    fixture(({ root }) =>
+      Effect.gen(function* refusedDryRun() {
+        const recordingId = yield* teach();
+        const workspace = yield* AndroidWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const startDry = (id: string, appBuild: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op(id),
+              recordingId,
+              selection: {
+                ...selection,
+                environment: { ...selection.environment, appBuild },
+                setup: { ...selection.setup, conditions: [] },
+              },
+            },
+            "agent"
+          );
+        // A changed build asks for the user's Run Environment Permission.
+        const changed = yield* startDry("start-dry-changed", "3");
+        const [decision] = changed.preparation.pending;
+        expect(decision?.kind).toBe("run-environment-permission");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-running"
+        );
+        const refused = yield* workspace.execute(
+          {
+            _tag: "decide",
+            allow: false,
+            decisionId: decision?.id ?? "",
+            operationId: op("refuse-dry"),
+            sessionId: changed.id,
+          },
+          "user"
+        );
+        expect(refused.phase).toBe("refused");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-run-failed"
+        );
+        expect(yield* workspace.list()).toEqual([]);
+        expect(yield* readRunSummary(root, changed.id)).toBeNull();
+        // Another Dry Run of the same recording can start.
+        const retried = yield* startDry("start-dry-retry", "2");
+        expect(retried.kind).toBe("dry-run");
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-running"
+        );
+      })
+    )
+);
+
+it.effect(
   "installs an uploaded .apk only with consent, and deletes the upload when the session ends",
   () =>
     fixture(({ builds, calls }) =>

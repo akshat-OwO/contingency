@@ -611,6 +611,27 @@ export const makeAndroidWorkspaceLayer = (options: {
         command.kind === "run"
           ? io(nativeRunDirectory(root, command.flowName, id, fs))
           : Effect.succeed(path.join(root, "runs", id));
+      /**
+       * Ends a Dry Run that never passed, so its recording can be dry-run
+       * again. A no-op for other sessions and a Dry Run already settled.
+       */
+      const failActiveDryRun = (session: Session, observableOutcome: string) =>
+        Effect.gen(function* failDryRunRecording() {
+          const current = state(session).summary;
+          if (current.kind !== "dry-run" || current.recordingId === null) {
+            return;
+          }
+          const manifest = yield* store.read(current.recordingId);
+          if (manifest.lifecycle._tag === "dry-running") {
+            yield* store.failDryRun({
+              observableOutcome,
+              operationId: OperationId.make(
+                `android-close-run-${randomUUID()}`
+              ),
+              recordingId: current.recordingId,
+            });
+          }
+        });
       const terminalPhase = (session: Session) => {
         const { phase } = state(session).summary;
         return (
@@ -632,20 +653,10 @@ export const makeAndroidWorkspaceLayer = (options: {
             OperationId.make(`android-close-${randomUUID()}`),
             "The session closed during capture."
           );
-          const current = state(session).summary;
-          if (current.kind === "dry-run" && current.recordingId !== null) {
-            const manifest = yield* store.read(current.recordingId);
-            if (manifest.lifecycle._tag === "dry-running") {
-              yield* store.failDryRun({
-                observableOutcome:
-                  "The session closed before a complete passing assessment. Cancellation does not undo input.",
-                operationId: OperationId.make(
-                  `android-close-run-${randomUUID()}`
-                ),
-                recordingId: current.recordingId,
-              });
-            }
-          }
+          yield* failActiveDryRun(
+            session,
+            "The session closed before a complete passing assessment. Cancellation does not undo input."
+          );
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
           update(session, (value) => ({
@@ -1747,7 +1758,12 @@ export const makeAndroidWorkspaceLayer = (options: {
             }
             yield* session.run.decide(command.decisionId, command.allow);
             if (!command.allow) {
-              // Nothing ran and nothing will: release the device now.
+              // Nothing ran and nothing will: release the device now, and
+              // leave a refused Dry Run's recording ready for another attempt.
+              yield* failActiveDryRun(
+                session,
+                "The user refused a preparation decision before the Dry Run started."
+              );
               clearVariables(session);
               yield* session.run.close();
               yield* Scope.close(session.scope, Exit.void);
