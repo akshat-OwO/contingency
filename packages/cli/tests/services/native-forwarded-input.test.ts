@@ -4,7 +4,7 @@ import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
-  androidControlGestures,
+  makeAndroidControlGestures,
   androidControlPackets,
 } from "../../src/services/android-control.ts";
 import { iosHidCommands, iosKeyUsage } from "../../src/services/ios-hid.ts";
@@ -33,6 +33,14 @@ const touch = (
   y: number,
   at = 0
 ): NativeInput => ({ _tag: "touch", action, at, x, y });
+const wheel = (deltaY: number, y: number, deltaX = 0): NativeInput => ({
+  _tag: "scroll",
+  at: 0,
+  deltaX,
+  deltaY,
+  x: 0.5,
+  y,
+});
 const key = (
   name: string,
   options: { readonly code?: string; readonly modifiers?: number } = {}
@@ -252,22 +260,31 @@ it("encodes Android text, keys, and chords", () => {
 });
 
 it("translates Forwarded Input into emulator stream gestures", () => {
+  const androidControlGestures = makeAndroidControlGestures();
   expect(androidControlGestures(touch("down", 0.5, 0.25))).toEqual([
     { action: "down", type: "touch", x: 0.5, y: 0.25 },
   ]);
-  // A wheel turned down drags the content up, kept on the display.
-  expect(
-    androidControlGestures({
-      _tag: "scroll",
-      at: 0,
-      deltaX: 0,
-      deltaY: 200,
-      x: 0.5,
-      y: 0.1,
-    })
-  ).toEqual([
-    { durationMs: 80, type: "swipe", x1: 0.5, x2: 0.5, y1: 0.1, y2: 0 },
+  // A wheel turned down drags the content up. Near the top edge the drag
+  // starts lower, so its full length stays on the display.
+  expect(androidControlGestures(wheel(200, 0.1))).toEqual([
+    { durationMs: 80, type: "swipe", x1: 0.5, x2: 0.5, y1: 0.2, y2: 0 },
   ]);
+  // On the edge it would leave, a wheel turn still drags rather than taps.
+  const [edge] = androidControlGestures(wheel(100, 0));
+  expect(edge).toMatchObject({ type: "swipe", y1: 0.1 });
+  expect(edge?.type === "swipe" && edge.y1 - edge.y2).toBeCloseTo(0.1);
+  // Trackpad-sized deltas wait until they add up to a drag Android scrolls on.
+  for (let step = 0; step < 29; step += 1) {
+    expect(androidControlGestures(wheel(1, 0.5))).toEqual([]);
+  }
+  const [trackpad] = androidControlGestures(wheel(1, 0.5));
+  expect(trackpad?.type === "swipe" && trackpad.y1 - trackpad.y2).toBeCloseTo(
+    0.03
+  );
+  // A touch drops a partial wheel delta.
+  androidControlGestures(wheel(20, 0.5));
+  androidControlGestures(touch("up", 0.5, 0.5));
+  expect(androidControlGestures(wheel(20, 0.5))).toEqual([]);
   expect(
     androidControlGestures({
       _tag: "scroll",

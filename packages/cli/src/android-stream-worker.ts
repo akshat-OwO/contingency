@@ -15,7 +15,7 @@ import {
 } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
 
 import {
-  androidControlGestures,
+  makeAndroidControlGestures,
   androidControlPackets,
 } from "./services/android-control.ts";
 import {
@@ -135,12 +135,13 @@ Effect.scoped(
             startScrcpyControl(options, scrcpyServer),
         }
       );
+      const gestures = makeAndroidControlGestures();
       return {
         close: () => owned.close(),
         meta: owned.meta,
         readFrame: () => owned.readFrame(),
         send: (input, screen) => {
-          for (const gesture of androidControlGestures(input)) {
+          for (const gesture of gestures(input)) {
             // The queue keeps order. A rejected or dropped gesture is not
             // retried, and a closed queue ends the stream through its own
             // failure.
