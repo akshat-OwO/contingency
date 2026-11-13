@@ -38,6 +38,19 @@ export const androidWindowVisibility = (
 };
 
 /**
+ * What a device recording keeps out of its video. Only a focused window counts:
+ * between windows nothing has focus and nothing needs hiding, so a recording
+ * hides a secure focused window, or a focused window it cannot classify.
+ * `screenrecord` draws secure windows black either way.
+ */
+export const recordedWindowVisibility = (
+  windows: string
+): "visible" | "secure" | "unknown" =>
+  /mCurrentFocus=null\b/u.test(windows)
+    ? "visible"
+    : androidWindowVisibility(windows);
+
+/**
  * What viewers see for the focused window's visibility. Unknown visibility
  * hides frames until the next read; only a stopped stream is `lost`.
  */

@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
-import { Clock, Effect, FileSystem, Option } from "effect";
+import { Clock, Deferred, Effect, Fiber, FileSystem, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -26,6 +26,11 @@ const fakeRecorder = (
     readonly start?: NativeScreenRecorder["start"];
     readonly stopped?: Partial<NativeScreenRecording>;
     readonly stopFails?: boolean;
+    /** Stop says it began here, then waits for `release`. */
+    readonly stopGate?: {
+      readonly began: Deferred.Deferred<true>;
+      readonly release: Deferred.Deferred<true>;
+    };
   } = {}
 ) =>
   Effect.gen(function* makeFakeRecorder() {
@@ -43,6 +48,10 @@ const fakeRecorder = (
       stop: () =>
         Effect.gen(function* fakeStop() {
           calls.push("stop");
+          if (options.stopGate !== undefined) {
+            yield* Deferred.succeed(options.stopGate.began, true);
+            yield* Deferred.await(options.stopGate.release);
+          }
           if (options.stopFails === true || file === undefined) {
             return yield* Effect.fail(
               new NativeScreenRecorderError({
@@ -100,9 +109,9 @@ describe("makeDeviceVideoCapture", () => {
               rendered.push(folder);
             }),
         });
-        expect(capture.recording()).toBe(false);
+        expect(capture.live()).toBe(false);
         yield* capture.begin;
-        expect(capture.recording()).toBe(true);
+        expect(capture.live()).toBe(true);
         yield* TestClock.adjust("2 seconds");
         yield* capture.action(TestClock.adjust("500 millis"));
         yield* TestClock.adjust("4 seconds");
@@ -130,6 +139,32 @@ describe("makeDeviceVideoCapture", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 
+  it.effect("stays live while Stop finalizes the record", () =>
+    Effect.gen(function* liveThroughStop() {
+      const directory = yield* tempDirectory;
+      const stopGate = {
+        began: yield* Deferred.make<true>(),
+        release: yield* Deferred.make<true>(),
+      };
+      const { recorder } = yield* fakeRecorder({ stopGate });
+      const capture = yield* makeDeviceVideoCapture({
+        directory,
+        fastForward: "capped",
+        pacing: "real-time",
+        platform: "android",
+        recorder: () => recorder,
+      });
+      yield* capture.begin;
+      const ending = yield* Effect.forkChild(capture.end);
+      yield* Deferred.await(stopGate.began);
+      // A status read now must not call the recording interrupted.
+      expect(capture.live()).toBe(true);
+      yield* Deferred.succeed(stopGate.release, true);
+      yield* Fiber.join(ending);
+      expect(capture.live()).toBe(false);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+
   it.effect("says why a device without a recorder kept no video", () =>
     Effect.gen(function* noRecorder() {
       const directory = yield* tempDirectory;
@@ -141,7 +176,7 @@ describe("makeDeviceVideoCapture", () => {
         recorder: () => absentRecorder,
       });
       yield* capture.begin;
-      expect(capture.recording()).toBe(false);
+      expect(capture.live()).toBe(false);
       expect(yield* capture.end).toBeUndefined();
       const manifest = yield* readDeviceCapture(
         path.join(directory, DEVICE_VIDEO_DIRECTORY)
@@ -172,7 +207,7 @@ describe("makeDeviceVideoCapture", () => {
         recorder: () => recorder,
       });
       yield* capture.begin;
-      expect(capture.recording()).toBe(false);
+      expect(capture.live()).toBe(false);
       // Spans after a failed start are not recorded anywhere.
       yield* capture.action(Effect.void);
       expect(yield* capture.end).toBeUndefined();

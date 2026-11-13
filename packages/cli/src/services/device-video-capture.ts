@@ -158,7 +158,12 @@ export interface DeviceVideoCaptureSession {
   ) => Effect.Effect<A, E, R>;
   /** The user held the device from `fromMs` (epoch) until now. */
   readonly takeover: (fromEpochMs: number) => Effect.Effect<void>;
-  readonly recording: () => boolean;
+  /**
+   * This process still owns an unfinished capture: from `begin` until `end`
+   * has finalized its record, so a status read while Stop is finishing is
+   * not mistaken for an interrupted recording.
+   */
+  readonly live: () => boolean;
 }
 
 /**
@@ -467,7 +472,7 @@ export const makeDeviceVideoCapture = (input: {
         }),
       begin,
       end,
-      recording: () => recorder !== undefined,
+      live: () => manifest?.state === "recording" && ended === undefined,
       takeover: (fromEpochMs) =>
         Clock.currentTimeMillis.pipe(
           Effect.flatMap((to) => span("takeovers", fromEpochMs, to))

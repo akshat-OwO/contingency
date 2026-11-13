@@ -34,7 +34,10 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
-import { androidWindowVisibility } from "./android-stream-contract.ts";
+import {
+  androidWindowVisibility,
+  recordedWindowVisibility,
+} from "./android-stream-contract.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
@@ -677,7 +680,7 @@ export const acquireAndroidBackend = (
             "dumpsys",
             "window",
           ]).pipe(
-            Effect.map(androidWindowVisibility),
+            Effect.map(recordedWindowVisibility),
             Effect.orElseSucceed(() => "unknown" as const)
           ),
         }),

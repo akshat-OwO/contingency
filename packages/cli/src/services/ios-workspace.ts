@@ -2200,7 +2200,7 @@ export const makeIosWorkspaceLayer = (options: {
               ));
             return {
               folder: path.join(directory, DEVICE_VIDEO_DIRECTORY),
-              live: session?.video.recording() ?? false,
+              live: session?.video.live() ?? false,
               purged,
             };
           }),
