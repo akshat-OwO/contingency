@@ -346,8 +346,8 @@ it.effect("reports an emulator it could not stop as left running", () =>
     const io = host({ launched, running: () => launched.length > 0 });
     const boot = makeAndroidDeviceBoot({
       ...io,
-      launch: (avd) =>
-        io.launch(avd).pipe(
+      launch: (avd, wipe) =>
+        io.launch(avd, wipe).pipe(
           Effect.map((launch) => ({
             ...launch,
             stop: Effect.fail({

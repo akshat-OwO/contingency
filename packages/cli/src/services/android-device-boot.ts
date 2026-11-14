@@ -15,6 +15,7 @@ export interface AndroidBootError {
     | "android_avd_unknown"
     | "android_boot_failed"
     | "android_boot_timeout"
+    | "android_erase_refused"
     | "android_stop_failed";
   readonly message: string;
 }
@@ -48,8 +49,10 @@ export interface AndroidBootHost {
     args: readonly string[]
   ) => Effect.Effect<string, AndroidDiscoveryError>;
   readonly avds: () => Effect.Effect<string, AndroidDiscoveryError>;
+  /** `wipe` boots with `-wipe-data`: a Device Erase (ADR 0081). */
   readonly launch: (
-    avd: string
+    avd: string,
+    wipe: boolean
   ) => Effect.Effect<AndroidEmulatorLaunch, AndroidBootError>;
 }
 
@@ -72,9 +75,15 @@ export const emulatorExitReason = (log: string) => {
 
 /**
  * Headless: Workspace is the emulator's only window. Rendering is left to the
- * emulator's own GPU choice, so apps draw as they would in a window.
+ * emulator's own GPU choice, so apps draw as they would in a window. A Device
+ * Erase adds `-wipe-data`, which resets the AVD's user data on this boot.
  */
-export const emulatorArguments = (avd: string) => ["-avd", avd, "-no-window"];
+export const emulatorArguments = (avd: string, wipe = false) => [
+  "-avd",
+  avd,
+  "-no-window",
+  ...(wipe ? ["-wipe-data"] : []),
+];
 
 /**
  * How long an emulator may take to close cleanly before it is killed. A
@@ -90,7 +99,7 @@ const KILL_GRACE = "10 seconds";
  * it stops the emulator. Workspace is the device's only window. Its output
  * goes to an owned temporary log, read only for an exit reason.
  */
-const launchEmulator = (avd: string) =>
+const launchEmulator = (avd: string, wipe: boolean) =>
   Effect.gen(function* launch() {
     const failed = () =>
       bootError("android_boot_failed", "Could not run the Android emulator.");
@@ -107,7 +116,7 @@ const launchEmulator = (avd: string) =>
         try {
           const child = spawn(
             path.join(sdkRoot(), "emulator", "emulator"),
-            emulatorArguments(avd),
+            emulatorArguments(avd, wipe),
             { detached: true, stdio: ["ignore", log.fd, log.fd] }
           );
           const state = { running: true };
@@ -189,8 +198,9 @@ export const androidBootHost: AndroidBootHost = {
 };
 
 /**
- * Boots an existing AVD by name. It never creates, clones, wipes, or resets
- * one: an unknown name is refused before any emulator command.
+ * Boots an existing AVD by name. It never creates or clones one, and wipes
+ * one only for a Device Erase the user allowed in Workspace (ADR 0081): an
+ * unknown name is refused before any emulator command.
  */
 export const makeAndroidDeviceBoot = (
   io: AndroidBootHost = androidBootHost,
@@ -268,7 +278,7 @@ export const makeAndroidDeviceBoot = (
    * Checks and launches under one permit, so overlapping starts of an AVD
    * cannot both see it absent and both spawn an emulator.
    */
-  const claim = (avd: string) =>
+  const claim = (avd: string, wipe: boolean) =>
     Semaphore.withPermits(
       launching,
       1
@@ -289,7 +299,7 @@ export const makeAndroidDeviceBoot = (
         // between them would leave an emulator nobody stops.
         return yield* Effect.uninterruptible(
           Effect.gen(function* launchOwned() {
-            const launched = yield* io.launch(avd);
+            const launched = yield* io.launch(avd, wipe);
             // Forget only this launch, never a later one for the same AVD.
             const token = { booted: launched.booted };
             owned.set(token, { avd, stop: launched.stop });
@@ -349,66 +359,109 @@ export const makeAndroidDeviceBoot = (
       Effect.andThen(Deferred.await(closed))
     );
   });
-  return {
-    boot: (avd: string) =>
-      Effect.gen(function* bootAvd() {
-        const unknown = bootError(
-          "android_avd_unknown",
-          `No emulator named ${avd} exists. Contingency starts existing emulators only.`
+  /** Refuses a name that is not an existing AVD, before any emulator command. */
+  const requireAvd = (avd: string) =>
+    Effect.gen(function* requireExistingAvd() {
+      const unknown = bootError(
+        "android_avd_unknown",
+        `No emulator named ${avd} exists. Contingency starts existing emulators only.`
+      );
+      if (!avdPattern.test(avd)) {
+        return yield* Effect.fail(unknown);
+      }
+      const inventory = yield* io
+        .avds()
+        .pipe(
+          Effect.mapError(() =>
+            bootError(
+              "android_boot_failed",
+              "Could not list emulators. Check the Android SDK emulator package."
+            )
+          )
         );
-        if (!avdPattern.test(avd)) {
-          return yield* Effect.fail(unknown);
-        }
-        const inventory = yield* io
-          .avds()
-          .pipe(
-            Effect.mapError(() =>
-              bootError(
-                "android_boot_failed",
-                "Could not list emulators. Check the Android SDK emulator package."
+      const names = inventory.split(/\r?\n/u).map((name) => name.trim());
+      if (!names.includes(avd)) {
+        return yield* Effect.fail(unknown);
+      }
+    });
+  const start = (avd: string, wipe: boolean) =>
+    Effect.gen(function* bootAvd() {
+      const claimed = yield* claim(avd, wipe);
+      if ("serial" in claimed) {
+        return claimed.serial;
+      }
+      // An emulator already starting, ours or not, is waited on, never
+      // launched again.
+      const { launch } = claimed;
+      const exited =
+        launch === undefined
+          ? Effect.never
+          : Fiber.join(launch).pipe(
+              Effect.flatMap((reason) =>
+                Effect.fail(bootError("android_boot_failed", reason))
               )
+            );
+      const serial = yield* Effect.raceFirst(ready(avd), exited).pipe(
+        Effect.timeoutOrElse({
+          duration: options.timeout ?? "4 minutes",
+          orElse: () =>
+            Effect.fail(
+              bootError(
+                "android_boot_timeout",
+                `${avd} is still starting. Refresh devices when it has booted.`
+              )
+            ),
+        })
+      );
+      // Booted: later boots find it through adb, and its early-exit log
+      // is no longer needed. Its exit fiber stays, since others may join it.
+      const starting = launches.get(avd);
+      if (starting !== undefined) {
+        launches.delete(avd);
+        yield* starting.booted;
+      }
+      return serial;
+    });
+  /** Whether this process launched the emulator now serving `avd`. */
+  const ownedLaunch = (avd: string) =>
+    [...owned.values()].find((entry) => entry.avd === avd);
+  /**
+   * Device Erase (ADR 0081): boots the AVD with `-wipe-data`, so every app,
+   * account, and piece of data on it is removed. A running emulator is
+   * stopped first only when this process launched it; one anybody else runs
+   * is refused, and nothing is stopped or wiped.
+   */
+  const erase = (avd: string) =>
+    Effect.gen(function* eraseAvd() {
+      yield* requireAvd(avd);
+      if ((yield* present(avd)) !== null) {
+        const launch = ownedLaunch(avd);
+        if (launch === undefined) {
+          return yield* Effect.fail(
+            bootError(
+              "android_erase_refused",
+              `${avd} is running and Contingency did not start it. Stop this device to erase it.`
             )
           );
-        const names = inventory.split(/\r?\n/u).map((name) => name.trim());
-        if (!names.includes(avd)) {
-          return yield* Effect.fail(unknown);
         }
-        const claimed = yield* claim(avd);
-        if ("serial" in claimed) {
-          return claimed.serial;
+        yield* launch.stop;
+        if ((yield* present(avd)) !== null) {
+          return yield* Effect.fail(
+            bootError(
+              "android_erase_refused",
+              `${avd} is still running. Stop this device to erase it.`
+            )
+          );
         }
-        // An emulator already starting, ours or not, is waited on, never
-        // launched again.
-        const { launch } = claimed;
-        const exited =
-          launch === undefined
-            ? Effect.never
-            : Fiber.join(launch).pipe(
-                Effect.flatMap((reason) =>
-                  Effect.fail(bootError("android_boot_failed", reason))
-                )
-              );
-        const serial = yield* Effect.raceFirst(ready(avd), exited).pipe(
-          Effect.timeoutOrElse({
-            duration: options.timeout ?? "4 minutes",
-            orElse: () =>
-              Effect.fail(
-                bootError(
-                  "android_boot_timeout",
-                  `${avd} is still starting. Refresh devices when it has booted.`
-                )
-              ),
-          })
-        );
-        // Booted: later boots find it through adb, and its early-exit log
-        // is no longer needed. Its exit fiber stays, since others may join it.
-        const starting = launches.get(avd);
-        if (starting !== undefined) {
-          launches.delete(avd);
-          yield* starting.booted;
-        }
-        return serial;
-      }),
+      }
+      return yield* start(avd, true);
+    });
+  return {
+    boot: (avd: string) =>
+      requireAvd(avd).pipe(Effect.andThen(start(avd, false))),
+    erase,
+    /** The AVDs whose running emulator this process launched. */
+    ownedAvds: () => [...new Set([...owned.values()].map(({ avd }) => avd))],
     stopOwned,
   };
 };

@@ -22,6 +22,16 @@ const closingFailed = {
   ...bootFailed,
   message: "Contingency is closing.",
 } as const;
+const eraseFailed = {
+  ...bootFailed,
+  message: "Could not erase the selected simulator. Nothing else was changed.",
+} as const;
+const eraseRefused = (name: string) =>
+  ({
+    _tag: "IosBootError",
+    code: "erase_refused",
+    message: `${name} is running and Contingency did not start it. Stop this device to erase it.`,
+  }) as const;
 
 export interface IosBootHost {
   readonly simctl: IosSimctlService;
@@ -66,9 +76,10 @@ export const iosBootHost: IosBootHost = {
 
 /**
  * Boots existing matrix simulators by UDID and stops, when the process
- * closes, exactly the boots it issued. It never creates, clones, erases, or
- * resets a simulator, and it never opens Simulator.app: Workspace is the
- * simulator's only window.
+ * closes, exactly the boots it issued. It never creates or clones a
+ * simulator, erases one only for a Device Erase the user allowed in Workspace
+ * (ADR 0081), and never opens Simulator.app: Workspace is the simulator's
+ * only window.
  */
 export const makeIosDeviceBoot = (host: IosBootHost = iosBootHost) => {
   const discovery = makeIosDiscovery(host.simctl);
@@ -221,5 +232,62 @@ export const makeIosDeviceBoot = (host: IosBootHost = iosBootHost) => {
       Effect.andThen(Deferred.await(closed))
     );
   });
-  return { boot, stopOwned };
+  /** Whether this process's own boot still serves `udid`. */
+  const ownsRunning = (udid: string) =>
+    Effect.gen(function* readOwnership() {
+      const entry = owned.get(udid);
+      if (entry?.process === undefined) {
+        return false;
+      }
+      const read = yield* Effect.result(host.simulatorProcess(udid));
+      return read._tag === "Success" && read.success === entry.process;
+    });
+  /**
+   * Device Erase (ADR 0081): `simctl erase` removes every app, account, and
+   * piece of data, then the simulator boots as one this process owns. A
+   * booted simulator is shut down first only when this process booted it;
+   * one anybody else runs is refused, and nothing is shut down or erased.
+   */
+  const erase = (udid: string) =>
+    Effect.gen(function* eraseSimulator() {
+      if (!iosUuid.test(udid)) {
+        return yield* Effect.fail(iosError("device_mismatch"));
+      }
+      yield* Semaphore.withPermits(
+        booting,
+        1
+      )(
+        Effect.gen(function* shutDownAndErase() {
+          if (closing) {
+            return yield* Effect.fail(closingFailed);
+          }
+          const entry = yield* stateOf(udid);
+          if (entry === undefined) {
+            return yield* Effect.fail(iosError("device_mismatch"));
+          }
+          if (entry.state !== "Shutdown") {
+            if (!(yield* ownsRunning(udid))) {
+              return yield* Effect.fail(eraseRefused(entry.name));
+            }
+            yield* host.simctl
+              .device(["shutdown", udid])
+              .pipe(Effect.mapError(() => eraseFailed));
+            owned.delete(udid);
+          }
+          yield* host.simctl
+            .device(["erase", udid])
+            .pipe(Effect.mapError(() => eraseFailed));
+        })
+      );
+      return yield* boot(udid);
+    });
+  return {
+    boot,
+    erase,
+    /** The simulators this process's own boot still serves. */
+    ownedUdids: Effect.filter([...owned.keys()], (udid) =>
+      ownsRunning(udid)
+    ).pipe(Effect.orElseSucceed((): readonly string[] => [])),
+    stopOwned,
+  };
 };

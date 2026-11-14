@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   preflightAndroidPreparation,
   readInstalledAndroidBuild,
+  restartAndroidTargetAppOnDevice,
 } from "./android-preparation.ts";
 import { createAndroidRun } from "./android-run.ts";
 import { acquireAndroidBackend } from "./android-runtime-backend.ts";
@@ -40,6 +41,8 @@ export const makeAndroidRuntimeFactory = (): AndroidRuntimeFactoryService => ({
     createAndroidRun(input, {
       installedBuild: readInstalledAndroidBuild,
       preflight: preflightAndroidPreparation,
+      restart: ({ appInstallation: _installed, ...prepared }) =>
+        restartAndroidTargetAppOnDevice(prepared),
       start: (startup) =>
         Effect.gen(function* startPrepared() {
           const backend = yield* acquireAndroidBackend(startup, startup);

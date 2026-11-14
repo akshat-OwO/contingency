@@ -28,10 +28,20 @@ export const NativeTeachingConditions = Schema.Struct({
   starting: Schema.Array(AndroidStartingCondition).check(Schema.isMinLength(1)),
 });
 export type NativeTeachingConditions = typeof NativeTeachingConditions.Type;
+/**
+ * The Target App data a Flow requires before Teaching and every Run (ADR 0081).
+ * `clear` removes only the app's own data; an absent value reads as `keep`.
+ */
+export const StartingData = Schema.Literals(["keep", "clear"]);
+export type StartingData = typeof StartingData.Type;
+export const startingDataOf = (preparation: {
+  readonly startingData?: StartingData;
+}): StartingData => preparation.startingData ?? "keep";
 export const AndroidPreparation = Schema.Struct({
   activity: Schema.String.check(Schema.isMinLength(1)),
   conditions: AndroidStartingConditions,
   kind: Schema.Literal("restart-activity"),
+  startingData: Schema.optionalKey(StartingData),
 });
 export type AndroidPreparation = typeof AndroidPreparation.Type;
 
@@ -70,6 +80,7 @@ export const IosRunEnvironment = Schema.Struct({
 export const IosPreparation = Schema.Struct({
   conditions: AndroidStartingConditions,
   kind: Schema.Literal("restart-app"),
+  startingData: Schema.optionalKey(StartingData),
 });
 
 /** Internal runtime requirements. Browser Emulation remains a separate typed contract. */

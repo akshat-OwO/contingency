@@ -16,6 +16,7 @@ export interface IosListedDevice {
 export const iosDeviceChoice = (device: IosListedDevice): DeviceChoice => {
   const base = {
     detail: `iOS ${device.runtimeVersion}`,
+    eraseId: device.udid,
     id: device.udid,
     kind: "Simulator" as const,
     name: device.name,

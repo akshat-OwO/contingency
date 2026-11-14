@@ -8,6 +8,7 @@ import {
   TeachingRecordingId,
   AndroidWorkspaceSummary,
   TeachingRecordingArtifact,
+  startingDataOf,
 } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
@@ -49,6 +50,7 @@ import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
@@ -159,16 +161,25 @@ const supportsWorkspaceRequirements = (
     /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
   ) &&
   new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
+/**
+ * The setup a session applies. A Dry Run or Run takes its conditions and its
+ * Starting Data from the saved Flow, never from the selection (ADR 0081).
+ */
 const runSetup = (
   requirements: PlatformRequirements,
   fallback: AndroidWorkspaceSummary["selection"]["setup"]
-) =>
-  requirements.platform === "android"
-    ? {
-        ...fallback,
-        conditions: requirements.preparation?.conditions ?? fallback.conditions,
-      }
-    : fallback;
+): AndroidWorkspaceSummary["selection"]["setup"] => {
+  if (requirements.platform !== "android") {
+    return fallback;
+  }
+  const { startingData: _selected, ...rest } = fallback;
+  const saved = requirements.preparation?.startingData;
+  const setup = {
+    ...rest,
+    conditions: requirements.preparation?.conditions ?? fallback.conditions,
+  };
+  return saved === undefined ? setup : { ...setup, startingData: saved };
+};
 const actionDescription = (
   action: Extract<
     AndroidWorkspaceCommand,
@@ -1302,6 +1313,23 @@ export const makeAndroidWorkspaceLayer = (options: {
           yield* session.lane.forward(inputs);
           yield* session.lane.wake(session.scope, settleForwarded(session));
         });
+      /**
+       * A Clear Flow's recording starts where every later Run starts: the
+       * Target App's data is cleared and the app relaunched right before
+       * Start, so setup changes to it are not recorded (ADR 0081).
+       */
+      const restartForRecording = (session: Session) =>
+        Effect.gen(function* restartClearedApp() {
+          if (startingDataOf(session.run.state().setup) !== "clear") {
+            return;
+          }
+          const restarted = yield* session.run.restart();
+          acceptObservation(session, restarted);
+          update(session, (value) => ({
+            ...value,
+            startingObservation: boundaryObservationSummary(restarted),
+          }));
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "record" }>,
@@ -1328,6 +1356,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Start a new complete Teaching session for another recording."
               );
             }
+            yield* restartForRecording(session);
             yield* store.start({
               emulation: null,
               operationId: command.operationId,
@@ -1848,7 +1877,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               yield* persist(session);
               return yield* snapshot(session, source === "user");
             }
-            if (source !== "user") {
+            if (
+              source !== "user" &&
+              !relayedDecisionAllowed(session.run.state(), command.decisionId)
+            ) {
               return yield* denied(
                 "Run Environment Permission requires an explicit Workspace choice."
               );

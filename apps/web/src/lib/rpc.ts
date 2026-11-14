@@ -6,6 +6,7 @@ import type {
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
+  DeviceErasePlatform,
   FlowName,
   AgentSessionSnapshot,
   BrowserStreamEvent,
@@ -241,6 +242,36 @@ export const bootAndroidEmulator = (avd: string) =>
     Effect.gen(function* androidBoot() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
       return yield* client("android.device.boot", { avd });
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+/**
+ * Device Erase (ADR 0081): wipes the emulator or simulator, then boots it as
+ * one this process owns. `requestId` answers an agent's erase request.
+ */
+export const eraseDevice = (input: {
+  readonly device: string;
+  readonly platform: DeviceErasePlatform;
+  readonly requestId?: string;
+}) =>
+  Effect.scoped(
+    Effect.gen(function* deviceErase() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("device.erase", input);
+    })
+  ).pipe(Effect.provide(RpcProtocolLive));
+/** Agent erase requests, and the devices this process may stop to erase. */
+export const readDeviceEraseState = Effect.scoped(
+  Effect.gen(function* deviceEraseState() {
+    const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+    return yield* client("device.erase.state", {});
+  })
+).pipe(Effect.provide(RpcProtocolLive));
+/** Refuses an agent's erase request; nothing is erased. */
+export const dismissDeviceErase = (id: string) =>
+  Effect.scoped(
+    Effect.gen(function* deviceEraseDismiss() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      return yield* client("device.erase.dismiss", { id });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
 /** Launchable apps on one identified device, read without installing. */

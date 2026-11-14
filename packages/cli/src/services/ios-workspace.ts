@@ -8,6 +8,7 @@ import {
   TeachingRecordingId,
   IosWorkspaceSummary,
   TeachingRecordingArtifact,
+  startingDataOf,
 } from "@contingency/protocol";
 import type {
   IosWorkspaceCommand,
@@ -55,6 +56,7 @@ import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
@@ -812,9 +814,12 @@ export const makeIosWorkspaceLayer = (options: {
               }
             }
           }
+          // A Dry Run or Run applies its saved Flow's setup, including its
+          // Starting Data, never the selection's (ADR 0081).
+          const { startingData: _selected, ...fallback } = selection.setup;
           const setup =
             command.kind !== "teaching" && taught.platform === "ios"
-              ? (taught.preparation ?? selection.setup)
+              ? (taught.preparation ?? fallback)
               : selection.setup;
           return { inputs, recordingId, setup, taught };
         });
@@ -1235,6 +1240,23 @@ export const makeIosWorkspaceLayer = (options: {
           yield* session.lane.forward(inputs);
           yield* session.lane.wake(session.scope, settleForwarded(session));
         });
+      /**
+       * A Clear Flow's recording starts where every later Run starts: the
+       * Target App's data is cleared and the app relaunched right before
+       * Start, so setup changes to it are not recorded (ADR 0081).
+       */
+      const restartForRecording = (session: Session) =>
+        Effect.gen(function* restartClearedApp() {
+          if (startingDataOf(session.run.state().setup) !== "clear") {
+            return;
+          }
+          const restarted = yield* session.run.restart();
+          acceptObservation(session, restarted);
+          update(session, (value) => ({
+            ...value,
+            startingObservation: boundaryObservationSummary(restarted),
+          }));
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<IosWorkspaceCommand, { readonly _tag: "record" }>,
@@ -1261,6 +1283,7 @@ export const makeIosWorkspaceLayer = (options: {
                 "Start a new complete Teaching session for another recording."
               );
             }
+            yield* restartForRecording(session);
             if (!(yield* session.stream.begin())) {
               return yield* denied("The iOS mirror is not ready for capture.");
             }
@@ -1784,7 +1807,10 @@ export const makeIosWorkspaceLayer = (options: {
               yield* persist(session);
               return yield* snapshot(session, source === "user");
             }
-            if (source !== "user") {
+            if (
+              source !== "user" &&
+              !relayedDecisionAllowed(session.run.state(), command.decisionId)
+            ) {
               return yield* denied(
                 "Run Environment Permission requires an explicit Workspace choice."
               );

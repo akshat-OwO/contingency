@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 
 import { isStartable, withStarts } from "./device-choice-state";
 import type { DeviceChoice, DeviceStart } from "./device-choice-state";
+import { DeviceEraseButton, DeviceEraseRequests } from "./device-erase";
+import type { DeviceEraseControls } from "./device-erase-state";
 
 const startFailure = (cause: unknown) =>
   Schema.decodeUnknownOption(Schema.Struct({ message: Schema.String }))(
@@ -111,9 +113,11 @@ const cardClass =
 /** A stopped emulator or simulator, with its start's progress or failure. */
 const StartableCard = ({
   device,
+  erase,
   onStart,
 }: {
   readonly device: DeviceChoice;
+  readonly erase: DeviceEraseControls | undefined;
   readonly onStart: (bootId: string) => void;
 }) => {
   const { bootId, status } = device;
@@ -161,27 +165,32 @@ const StartableCard = ({
         {status._tag === "starting" ? "Starting…" : null}
         {status._tag === "stopped" ? "Start" : null}
       </Button>
+      {erase === undefined ? null : (
+        <DeviceEraseButton controls={erase} device={device} />
+      )}
     </div>
   );
 };
 
 const DeviceCard = ({
   device,
+  erase,
   onSelect,
   onStart,
   selected,
 }: {
   readonly device: DeviceChoice;
+  readonly erase: DeviceEraseControls | undefined;
   readonly onSelect: (id: string) => void;
   readonly onStart: (bootId: string) => void;
   readonly selected: boolean;
 }) => {
   if (isStartable(device)) {
-    return <StartableCard device={device} onStart={onStart} />;
+    return <StartableCard device={device} erase={erase} onStart={onStart} />;
   }
   const reason =
     device.status._tag === "unavailable" ? device.status.reason : null;
-  return (
+  const card = (
     <button
       aria-pressed={selected}
       className={cn(
@@ -199,6 +208,15 @@ const DeviceCard = ({
       </span>
     </button>
   );
+  // Erase sits under the card, never inside its select button.
+  return erase === undefined || device.eraseId === undefined ? (
+    card
+  ) : (
+    <div className="grid min-w-0">
+      {card}
+      <DeviceEraseButton controls={erase} device={device} />
+    </div>
+  );
 };
 
 /**
@@ -210,6 +228,7 @@ const DeviceCard = ({
 export const DeviceChoices = ({
   devices,
   emptyMessage,
+  erase,
   onSelect,
   onStart,
   selected,
@@ -218,6 +237,8 @@ export const DeviceChoices = ({
   readonly devices: readonly DeviceChoice[];
   /** Said when no device is ready, after any that can be started. */
   readonly emptyMessage: string;
+  /** Device Erase (ADR 0081); absent where the sheet does not offer it. */
+  readonly erase?: DeviceEraseControls;
   readonly onSelect: (id: string) => void;
   readonly onStart: (bootId: string) => void;
   readonly selected: string | null;
@@ -229,6 +250,9 @@ export const DeviceChoices = ({
   const startable = rest.filter(isStartable);
   return (
     <div className="space-y-2">
+      {erase === undefined ? null : (
+        <DeviceEraseRequests controls={erase} devices={shown} />
+      )}
       {ready.length === 0 ? (
         <p className="text-muted-foreground text-xs">
           {startable.length === 0
@@ -240,6 +264,7 @@ export const DeviceChoices = ({
           {ready.map((device) => (
             <DeviceCard
               device={device}
+              erase={erase}
               key={device.id}
               onSelect={onSelect}
               onStart={onStart}
@@ -258,6 +283,7 @@ export const DeviceChoices = ({
             {rest.map((device) => (
               <DeviceCard
                 device={device}
+                erase={erase}
                 key={device.id}
                 onSelect={onSelect}
                 onStart={onStart}

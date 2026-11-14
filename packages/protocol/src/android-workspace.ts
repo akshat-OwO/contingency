@@ -156,6 +156,7 @@ export const AndroidWorkspacePreparation = Schema.Struct({
       kind: Schema.Literals([
         "run-environment-permission",
         "app-installation",
+        "clear-app-data",
         "confirmation",
       ]),
       serial: Schema.optionalKey(text),

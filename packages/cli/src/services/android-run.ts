@@ -15,7 +15,7 @@ import {
   compareNativeAppEnvironments,
   nativeAppEnvironmentPermission,
 } from "./native-app-environment.ts";
-import { createNativeAppRun } from "./native-app-run.ts";
+import { clearAppDataDecision, createNativeAppRun } from "./native-app-run.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -117,6 +117,7 @@ export const createAndroidRun = (
               targetApp: input.targetApp,
             },
           ]),
+      ...clearAppDataDecision(input, runId),
     ],
     differences: (input) => {
       if (input.taught.platform !== "android") {
