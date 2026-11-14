@@ -12,7 +12,10 @@ import {
   selectable,
   unavailableReason,
 } from "@/components/agent/android-setup-state";
-import { AndroidEmptyState } from "@/components/agent/android-workspace";
+import {
+  AndroidEmptyState,
+  AndroidPreparingState,
+} from "@/components/agent/android-workspace";
 
 afterEach(cleanup);
 
@@ -198,7 +201,49 @@ test("a submitted comment keeps its draft until the composer closes", async () =
   expect(box).toHaveValue("The total must include tax");
 });
 
-test("announces preparation and prevents another start while opening a session", () => {
+test("shows a distinct preparing stage while a confirmed start prepares the app", () => {
+  render(
+    <AndroidPreparingState
+      selection={{
+        device: {
+          api: 36,
+          avd: "Pixel_9",
+          fingerprint: "google/sdk_gphone64_arm64",
+          host: "local",
+          serial: "emulator-5554",
+        },
+        environment: {
+          androidVersion: "16",
+          appBuild: "1",
+          appId: "dev.fixture",
+          startingState: "Fresh fixture data",
+        },
+        helperConsent: "none",
+        outcomes: [{ name: "Done", role: "text" }],
+        setup: {
+          conditions: [{ name: "Fresh fixture data", role: "text" }],
+          kind: "restart-app",
+        },
+      }}
+    />
+  );
+  expect(
+    screen.getByRole("heading", { name: "Preparing your app" })
+  ).toBeVisible();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Installing and launching it on the device"
+  );
+  expect(screen.getByText("dev.fixture")).toBeVisible();
+  expect(screen.getByText("Pixel_9 · API 36")).toBeVisible();
+  expect(
+    document.querySelector('[data-slot="watcher-loader"]')
+  ).toBeInTheDocument();
+  expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "true");
+  // Nothing to press while it prepares: the start is already on its way.
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});
+
+test("keeps the empty state and its disabled Open while a pick opens a session", () => {
   render(
     <AndroidEmptyState
       pending
@@ -210,9 +255,7 @@ test("announces preparation and prevents another start while opening a session",
   expect(
     screen.getByRole("heading", { name: "Opening Android session" })
   ).toBeVisible();
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Preparing the selected app and emulator"
-  );
+  expect(screen.getByRole("status")).toHaveTextContent("Opening the session");
   expect(
     screen.getByRole("button", { name: "Open Android session" })
   ).toBeDisabled();

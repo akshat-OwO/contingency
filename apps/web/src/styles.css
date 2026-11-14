@@ -400,6 +400,20 @@
   transform-origin: center;
 }
 
+/* An indeterminate sweep along a waiting panel's bottom edge. */
+@keyframes preparing-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+[data-slot="preparing-sweep"] {
+  animation: preparing-sweep 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot="watcher-look"],
   [data-slot="watcher-blink"] {
@@ -407,6 +421,10 @@
   }
 
   [data-slot="watcher-loader"] {
+    animation: watcher-fade 2s ease-in-out infinite;
+  }
+
+  [data-slot="preparing-sweep"] {
     animation: watcher-fade 2s ease-in-out infinite;
   }
 }

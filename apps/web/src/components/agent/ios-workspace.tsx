@@ -40,6 +40,7 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
+import { WatcherLoader } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Badge } from "@/components/ui/badge";
@@ -609,6 +610,18 @@ const IosTargetApp = ({
   </SetupGroup>
 );
 
+/** The setup footer while a confirmed start installs and launches the app. */
+const IosOpeningStatus = () => (
+  <p
+    aria-live="polite"
+    className="text-muted-foreground mr-auto flex items-center gap-2 text-xs"
+    role="status"
+  >
+    <WatcherLoader className="h-2.5" />
+    Installing and launching the app…
+  </p>
+);
+
 const IosSetupSheet = ({
   onClose,
   open,
@@ -876,7 +889,8 @@ const IosSetupSheet = ({
             </NativeOptionalSteps>
           </div>
           <SheetFooter className="flex-row items-center justify-end gap-2 border-t">
-            {complete ? null : (
+            {pending ? <IosOpeningStatus /> : null}
+            {complete || pending ? null : (
               <p
                 className="text-muted-foreground mr-auto text-xs"
                 id="ios-setup-missing"
