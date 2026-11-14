@@ -102,11 +102,15 @@ export type FirstResponseProbe = ReturnType<typeof makeFirstResponseProbe>;
 
 /**
  * Starts a measurement for each gesture in a native display's Forwarded
- * Input. A tap or drag is measured from its release, as a browser click is;
- * a key from its press; a scroll from its first notch.
+ * Input. A tap is measured from its release, as a browser click is; a drag
+ * from the move that first carries it past a tap's travel, since the content
+ * should follow the finger from then on; a key from its press; a scroll from
+ * its first notch.
  */
 export const probeNativeInput = (probe: FirstResponseProbe) => {
-  let down: { readonly x: number; readonly y: number } | undefined;
+  let down:
+    | { readonly x: number; readonly y: number; dragging: boolean }
+    | undefined;
   return (input: NativeInput) => {
     if (input._tag === "scroll") {
       probe.input("scroll");
@@ -115,13 +119,22 @@ export const probeNativeInput = (probe: FirstResponseProbe) => {
         probe.input("key");
       }
     } else if (input.action === "down") {
-      down = { x: input.x, y: input.y };
-    } else if (input.action === "up") {
-      const moved =
+      down = { dragging: false, x: input.x, y: input.y };
+    } else if (input.action === "move") {
+      if (
         down !== undefined &&
-        Math.max(Math.abs(input.x - down.x), Math.abs(input.y - down.y)) > 0.02;
+        !down.dragging &&
+        Math.max(Math.abs(input.x - down.x), Math.abs(input.y - down.y)) > 0.02
+      ) {
+        down.dragging = true;
+        probe.input("drag");
+      }
+    } else {
+      const tapped = down !== undefined && !down.dragging;
       down = undefined;
-      probe.input(moved ? "drag" : "tap");
+      if (tapped) {
+        probe.input("tap");
+      }
     }
   };
 };
@@ -131,7 +144,9 @@ export const probeNativeInput = (probe: FirstResponseProbe) => {
  * the same terms as `probeNativeInput`, so the two are comparable.
  */
 export const probeBrowserInput = (probe: FirstResponseProbe) => {
-  let pressed: { readonly x: number; readonly y: number } | undefined;
+  let pressed:
+    | { readonly x: number; readonly y: number; dragging: boolean }
+    | undefined;
   return (input: BrowserInput) => {
     if (input.type === "input_keyboard") {
       if (
@@ -145,14 +160,23 @@ export const probeBrowserInput = (probe: FirstResponseProbe) => {
     } else if (input.eventType === "mouseWheel") {
       probe.input("scroll");
     } else if (input.eventType === "mousePressed") {
-      pressed = { x: input.x, y: input.y };
-    } else if (input.eventType === "mouseReleased") {
+      pressed = { dragging: false, x: input.x, y: input.y };
+    } else if (input.eventType === "mouseMoved") {
       // Browser points are CSS pixels; a few pixels of travel is still a click.
-      const moved =
+      if (
         pressed !== undefined &&
-        Math.hypot(input.x - pressed.x, input.y - pressed.y) > 8;
+        !pressed.dragging &&
+        Math.hypot(input.x - pressed.x, input.y - pressed.y) > 8
+      ) {
+        pressed.dragging = true;
+        probe.input("drag");
+      }
+    } else if (input.eventType === "mouseReleased") {
+      const clicked = pressed !== undefined && !pressed.dragging;
       pressed = undefined;
-      probe.input(moved ? "drag" : "tap");
+      if (clicked) {
+        probe.input("tap");
+      }
     }
   };
 };

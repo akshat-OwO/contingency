@@ -279,3 +279,130 @@ export const androidComment = async (control, text) => {
   await control("browser", "click", "--role", "button", "--name", "Add");
   await androidIdle(control);
 };
+
+/**
+ * Turns the wheel on the live device display and reports how the picture
+ * follows: when it first changed after each gesture began, when the content
+ * stopped after the last wheel event (`settledMs`), and every later change. Trailing change is the backlog a
+ * wheel builds when the device scrolls slower than the wheel turns. Draws are
+ * sampled once per animation frame from a small copy of the canvas, so these
+ * are canvas times, not screen paint times; an animating app keeps drawing.
+ */
+export const scrollCheckDevice = async (page, flags) => {
+  const events = Math.min(Math.max(Number(flags.events ?? 40), 2), 240);
+  const delta = Math.min(Math.max(Number(flags.delta ?? 80), 1), 1000);
+  const gapMs = Math.min(Math.max(Number(flags["gap-ms"] ?? 16), 4), 200);
+  const fy = Number(flags.fy ?? 0.6);
+  const canvas = page.locator('canvas[aria-roledescription="device display"]');
+  await canvas.waitFor({ timeout: 30_000 });
+  const box = await canvas.boundingBox();
+  assert.ok(box, "The live device display has no box.");
+  await page.evaluate(() => {
+    const target = document.querySelector(
+      'canvas[aria-roledescription="device display"]'
+    );
+    const sample = document.createElement("canvas");
+    sample.width = 24;
+    sample.height = 48;
+    const context = sample.getContext("2d", { willReadFrequently: true });
+    const probe = { changes: [], running: true, wheels: [] };
+    let previous;
+    const tick = () => {
+      if (!probe.running) {
+        return;
+      }
+      context.drawImage(target, 0, 0, 24, 48);
+      const { data } = context.getImageData(0, 0, 24, 48);
+      if (previous !== undefined) {
+        let change = 0;
+        for (let index = 0; index < data.length; index += 1) {
+          change += Math.abs(data[index] - previous[index]);
+        }
+        if (change / data.length >= 2) {
+          probe.changes.push(performance.now());
+        }
+      }
+      previous = data;
+      requestAnimationFrame(tick);
+    };
+    target.addEventListener(
+      "wheel",
+      () => probe.wheels.push(performance.now()),
+      { capture: true, passive: true }
+    );
+    globalThis.__contingencyScrollProbe = probe;
+    requestAnimationFrame(tick);
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * fy);
+  const gestures = [];
+  const opening = flags.start === "up" ? -1 : 1;
+  for (const direction of [opening, -opening, opening]) {
+    const startedAt = await page.evaluate(() => performance.now());
+    for (let index = 0; index < events; index += 1) {
+      await page.mouse.wheel(0, direction * delta);
+      await page.waitForTimeout(gapMs);
+    }
+    // Quiet for 1.5 s, or 8 s at most, ends the gesture.
+    const deadline = Date.now() + 8000;
+    while (
+      Date.now() < deadline &&
+      (await page.evaluate(
+        ({ startedAt: start }) => {
+          const probe = globalThis.__contingencyScrollProbe;
+          const last = Math.max(
+            probe.changes.at(-1) ?? start,
+            probe.wheels.at(-1) ?? start
+          );
+          return performance.now() - last <= 1500;
+        },
+        { startedAt }
+      ))
+    ) {
+      await page.waitForTimeout(50);
+    }
+    const result = await page.evaluate(
+      ({ startedAt: start }) => {
+        const probe = globalThis.__contingencyScrollProbe;
+        const wheels = probe.wheels.filter((at) => at >= start);
+        const changes = probe.changes.filter((at) => at >= start);
+        const [first] = wheels;
+        const last = wheels.at(-1);
+        const responded = changes.find((at) => at >= first);
+        const settled = changes.at(-1);
+        // When the picture changed after the last wheel event, in ms.
+        const trailingChangesMs = changes
+          .filter((at) => at > last)
+          .map((at) => Math.round(at - last));
+        // When the content stopped: the end of the run of changes that
+        // follows the last wheel event without a 200 ms pause. A scroll
+        // indicator fading later does not count.
+        let settledMs = 0;
+        for (const offset of trailingChangesMs) {
+          if (offset - settledMs > 200) {
+            break;
+          }
+          settledMs = offset;
+        }
+        return {
+          changedFrames: changes.length,
+          firstResponseMs:
+            responded === undefined ? null : Math.round(responded - first),
+          settledMs,
+          trailingChangesMs,
+          trailingMs:
+            settled === undefined || settled < last
+              ? 0
+              : Math.round(settled - last),
+          wheelEvents: wheels.length,
+          wheelSpanMs: Math.round(last - first),
+        };
+      },
+      { startedAt }
+    );
+    gestures.push({ direction: direction > 0 ? "down" : "up", ...result });
+  }
+  await page.evaluate(() => {
+    globalThis.__contingencyScrollProbe.running = false;
+  });
+  return { delta, events, gapMs, gestures };
+};

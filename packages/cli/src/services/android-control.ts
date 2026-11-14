@@ -1,5 +1,7 @@
 import type { NativeInput } from "@contingency/protocol";
 
+import type { FingerInput } from "./wheel-finger.ts";
+
 /**
  * Forwarded Input as scrcpy control packets, for the control socket the
  * display stream already opens. Positions are in the current video frame's
@@ -226,14 +228,6 @@ export type AndroidGesture =
       readonly y: number;
     }
   | {
-      readonly type: "swipe";
-      readonly x1: number;
-      readonly y1: number;
-      readonly x2: number;
-      readonly y2: number;
-      readonly durationMs: number;
-    }
-  | {
       readonly type: "key";
       readonly action: "down" | "up";
       readonly keycode: number;
@@ -241,84 +235,31 @@ export type AndroidGesture =
     }
   | { readonly type: "text"; readonly text: string };
 
-/** How far one wheel notch drags, as a fraction of the display. */
-const NOTCH_FRACTION = 0.1;
 /**
- * The shortest wheel drag, as a fraction of the display. Android reads a
- * shorter one as a tap, so smaller wheel deltas wait until they add up.
+ * One finger or key input as a gesture for the emulator's input queue, which
+ * has no wheel. A wheel reaches it as a held finger (`makeWheelFinger`).
  */
-const MIN_DRAG_FRACTION = 0.03;
-/** The longest wheel drag, so a drag always fits on the display. */
-const MAX_DRAG_FRACTION = 0.8;
-/** A wheel drag's length; long enough that Android reads it as a scroll. */
-const WHEEL_DRAG_MILLIS = 80;
-const clamp = (value: number, low: number, high: number) =>
-  Math.min(Math.max(value, low), high);
-/** A drag start near `at` whose end, `travel` away, stays on the display. */
-const dragStart = (at: number, travel: number) =>
-  clamp(at, Math.max(0, travel), Math.min(1, 1 + travel));
-
-/**
- * Compiles one stream's input into gestures for the emulator's input queue,
- * which takes gestures in display fractions and has no wheel. A wheel turn is
- * a short drag, as a finger scrolls: turned down, the content moves up. Wheel
- * deltas too small to drag accumulate, and a drag that would leave the
- * display starts further in, so a wheel turn never lands as a tap.
- */
-export const makeAndroidControlGestures = () => {
-  let pendingX = 0;
-  let pendingY = 0;
-  return (input: NativeInput): readonly AndroidGesture[] => {
-    if (input._tag === "touch") {
-      pendingX = 0;
-      pendingY = 0;
-      return [{ action: input.action, type: "touch", x: input.x, y: input.y }];
-    }
-    if (input._tag === "scroll") {
-      pendingX += (input.deltaX / WHEEL_NOTCH) * NOTCH_FRACTION;
-      pendingY += (input.deltaY / WHEEL_NOTCH) * NOTCH_FRACTION;
-      if (
-        Math.max(Math.abs(pendingX), Math.abs(pendingY)) < MIN_DRAG_FRACTION
-      ) {
-        return [];
+export const androidControlGesture = (
+  input: FingerInput
+): AndroidGesture | undefined => {
+  if (input._tag === "touch") {
+    return { action: input.action, type: "touch", x: input.x, y: input.y };
+  }
+  const effect = keyEffect(input);
+  if (effect === undefined) {
+    return undefined;
+  }
+  return effect._tag === "text"
+    ? {
+        text: Buffer.from(effect.text, "utf-8")
+          .subarray(0, MAX_TEXT_BYTES)
+          .toString("utf-8"),
+        type: "text",
       }
-      const dx = clamp(pendingX, -MAX_DRAG_FRACTION, MAX_DRAG_FRACTION);
-      const dy = clamp(pendingY, -MAX_DRAG_FRACTION, MAX_DRAG_FRACTION);
-      pendingX = 0;
-      pendingY = 0;
-      const x1 = dragStart(input.x, dx);
-      const y1 = dragStart(input.y, dy);
-      return [
-        {
-          durationMs: WHEEL_DRAG_MILLIS,
-          type: "swipe",
-          x1,
-          x2: x1 - dx,
-          y1,
-          y2: y1 - dy,
-        },
-      ];
-    }
-    const effect = keyEffect(input);
-    if (effect === undefined) {
-      return [];
-    }
-    return effect._tag === "text"
-      ? [
-          {
-            text: Buffer.from(effect.text, "utf-8")
-              .subarray(0, MAX_TEXT_BYTES)
-              .toString("utf-8"),
-            type: "text",
-          },
-        ]
-      : [
-          {
-            action: effect.action,
-            keycode: effect.keycode,
-            metaState: effect.meta,
-            type: "key",
-          },
-        ];
-  };
+    : {
+        action: effect.action,
+        keycode: effect.keycode,
+        metaState: effect.meta,
+        type: "key",
+      };
 };

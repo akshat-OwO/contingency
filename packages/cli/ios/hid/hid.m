@@ -7,7 +7,6 @@
 // Input: one command per stdin line, applied in order.
 //   touch <down|move|up> <x> <y>   x and y are fractions of the screen
 //   key <down|up> <usage>          a USB HID keyboard-page usage
-//   scroll <x> <y> <dx> <dy>       a short drag from x,y by dx,dy, all fractions
 // Output: "ready <width> <height>" once, then nothing unless a command fails.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
@@ -103,25 +102,8 @@ int main(int argc, char **argv) {
             char action[8] = {0};
             double x = 0;
             double y = 0;
-            double dx = 0;
-            double dy = 0;
             unsigned int usage = 0;
-            if (sscanf(line, "scroll %lf %lf %lf %lf", &x, &y, &dx, &dy) == 4) {
-                double endX = fmin(fmax(x + dx, 0), 1);
-                double endY = fmin(fmax(y + dy, 0), 1);
-                if (x < 0 || x > 1 || y < 0 || y > 1) fail(@"Scroll point outside the screen");
-                CGPoint point = CGPointMake(x * screen.width, y * screen.height);
-                send(mouse(&point, NULL, mainScreenTarget, NSEventTypeLeftMouseDown, 0, screen));
-                // Indigo drops a drag sent within 16 ms of the previous message.
-                for (int step = 1; step <= 8; step++) {
-                    usleep(17000);
-                    point = CGPointMake((x + (endX - x) * step / 8) * screen.width,
-                                        (y + (endY - y) * step / 8) * screen.height);
-                    send(mouse(&point, NULL, mainScreenTarget, NSEventTypeLeftMouseDragged, 0, screen));
-                }
-                usleep(17000);
-                send(mouse(&point, NULL, mainScreenTarget, NSEventTypeLeftMouseUp, 0, screen));
-            } else if (sscanf(line, "touch %7s %lf %lf", action, &x, &y) == 3) {
+            if (sscanf(line, "touch %7s %lf %lf", action, &x, &y) == 3) {
                 if (x < 0 || x > 1 || y < 0 || y > 1) fail(@"Touch point outside the screen");
                 NSEventType eventType;
                 if (strcmp(action, "down") == 0) eventType = NSEventTypeLeftMouseDown;
@@ -129,7 +111,8 @@ int main(int argc, char **argv) {
                 else if (strcmp(action, "up") == 0) eventType = NSEventTypeLeftMouseUp;
                 else fail(@"Unknown touch action");
                 CGPoint point = CGPointMake(x * screen.width, y * screen.height);
-                // Indigo drops a drag sent within 16 ms of the previous one.
+                // Indigo drops a drag sent within 16 ms of the previous one, so
+                // Contingency spaces drags before they reach the helper.
                 send(mouse(&point, NULL, mainScreenTarget, eventType, 0, screen));
             } else if (sscanf(line, "key %7s %u", action, &usage) == 2) {
                 uint32_t operation;

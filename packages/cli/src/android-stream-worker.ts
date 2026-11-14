@@ -15,7 +15,7 @@ import {
 } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";
 
 import {
-  makeAndroidControlGestures,
+  androidControlGesture,
   androidControlPackets,
 } from "./services/android-control.ts";
 import {
@@ -24,6 +24,11 @@ import {
   androidWindowVisibility,
 } from "./services/android-stream-contract.ts";
 import type { AndroidStreamPacket } from "./services/android-stream-contract.ts";
+import {
+  makeWheelFinger,
+  WHEEL_RELEASE_MILLIS,
+} from "./services/wheel-finger.ts";
+import type { FingerInput } from "./services/wheel-finger.ts";
 
 const execute = promisify(execFile);
 const io = <A>(operation: () => Promise<A>) =>
@@ -135,23 +140,47 @@ Effect.scoped(
             startScrcpyControl(options, scrcpyServer),
         }
       );
-      const gestures = makeAndroidControlGestures();
+      // The emulator's queue has no wheel, so a wheel drives a held finger.
+      const finger = makeWheelFinger();
+      let release: ReturnType<typeof setTimeout> | undefined;
+      let latestScreen: { readonly width: number; readonly height: number } =
+        owned.meta;
+      const dispatch = (
+        inputs: readonly FingerInput[],
+        screen: { readonly width: number; readonly height: number }
+      ) => {
+        for (const input of inputs) {
+          const gesture = androidControlGesture(input);
+          if (gesture === undefined) {
+            continue;
+          }
+          // The queue keeps order. A rejected or dropped gesture is not
+          // retried, and a closed queue ends the stream through its own
+          // failure.
+          void (async () => {
+            try {
+              await owned.controls.enqueue(gesture, screen).completion;
+            } catch {
+              // Nothing was sent for this gesture.
+            }
+          })();
+        }
+      };
       return {
-        close: () => owned.close(),
+        close: () => {
+          clearTimeout(release);
+          return owned.close();
+        },
         meta: owned.meta,
         readFrame: () => owned.readFrame(),
         send: (input, screen) => {
-          for (const gesture of gestures(input)) {
-            // The queue keeps order. A rejected or dropped gesture is not
-            // retried, and a closed queue ends the stream through its own
-            // failure.
-            void (async () => {
-              try {
-                await owned.controls.enqueue(gesture, screen).completion;
-              } catch {
-                // Nothing was sent for this gesture.
-              }
-            })();
+          latestScreen = screen;
+          clearTimeout(release);
+          dispatch(finger.feed(input), screen);
+          if (finger.holding()) {
+            release = setTimeout(() => {
+              dispatch(finger.release(performance.now()), latestScreen);
+            }, WHEEL_RELEASE_MILLIS);
           }
         },
       };

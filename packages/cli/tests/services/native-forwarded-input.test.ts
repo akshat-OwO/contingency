@@ -1,13 +1,18 @@
 import type { NativeInput } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber } from "effect";
+import { Clock, Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
-  makeAndroidControlGestures,
+  androidControlGesture,
   androidControlPackets,
 } from "../../src/services/android-control.ts";
-import { iosHidCommands, iosKeyUsage } from "../../src/services/ios-hid.ts";
+import {
+  iosHidCommands,
+  iosKeyUsage,
+  makeIosHidWriter,
+  MOVE_SPACING_MILLIS,
+} from "../../src/services/ios-hid.ts";
 import {
   iosCapabilities,
   iosRuntimeError,
@@ -26,13 +31,25 @@ import {
   makeForwardedLane,
   SETTLE_MILLIS,
 } from "../../src/services/native-forwarded-lane.ts";
+import {
+  makeWheelFinger,
+  MIN_DRAG_FRACTION,
+  REST_MOVES,
+  WHEEL_RELEASE_MILLIS,
+} from "../../src/services/wheel-finger.ts";
 
 const touch = (
   action: "down" | "move" | "up",
   x: number,
   y: number,
   at = 0
-): NativeInput => ({ _tag: "touch", action, at, x, y });
+): Extract<NativeInput, { readonly _tag: "touch" }> => ({
+  _tag: "touch",
+  action,
+  at,
+  x,
+  y,
+});
 const wheel = (deltaY: number, y: number, deltaX = 0): NativeInput => ({
   _tag: "scroll",
   at: 0,
@@ -270,53 +287,89 @@ it("encodes Android text, keys, and chords", () => {
   expect(androidControlPackets(keyDown("Shift"), screen)).toEqual([]);
 });
 
-it("translates Forwarded Input into emulator stream gestures", () => {
-  const androidControlGestures = makeAndroidControlGestures();
-  expect(androidControlGestures(touch("down", 0.5, 0.25))).toEqual([
-    { action: "down", type: "touch", x: 0.5, y: 0.25 },
-  ]);
-  // A wheel turned down drags the content up. Near the top edge the drag
-  // starts lower, so its full length stays on the display.
-  expect(androidControlGestures(wheel(200, 0.1))).toEqual([
-    { durationMs: 80, type: "swipe", x1: 0.5, x2: 0.5, y1: 0.2, y2: 0 },
-  ]);
-  // On the edge it would leave, a wheel turn still drags rather than taps.
-  const [edge] = androidControlGestures(wheel(100, 0));
-  expect(edge).toMatchObject({ type: "swipe", y1: 0.1 });
-  expect(edge?.type === "swipe" && edge.y1 - edge.y2).toBeCloseTo(0.1);
-  // Trackpad-sized deltas wait until they add up to a drag Android scrolls on.
-  for (let step = 0; step < 29; step += 1) {
-    expect(androidControlGestures(wheel(1, 0.5))).toEqual([]);
-  }
-  const [trackpad] = androidControlGestures(wheel(1, 0.5));
-  expect(trackpad?.type === "swipe" && trackpad.y1 - trackpad.y2).toBeCloseTo(
-    0.03
-  );
-  // A touch drops a partial wheel delta.
-  androidControlGestures(wheel(20, 0.5));
-  androidControlGestures(touch("up", 0.5, 0.5));
-  expect(androidControlGestures(wheel(20, 0.5))).toEqual([]);
+it("translates finger and key input into emulator stream gestures", () => {
+  expect(androidControlGesture(touch("down", 0.5, 0.25))).toEqual({
+    action: "down",
+    type: "touch",
+    x: 0.5,
+    y: 0.25,
+  });
+  expect(androidControlGesture(keyDown("é"))).toEqual({
+    text: "é",
+    type: "text",
+  });
+  expect(androidControlGesture(keyUp("é"))).toBe(undefined);
   expect(
-    androidControlGestures({
-      _tag: "scroll",
-      at: 0,
-      deltaX: 0,
-      deltaY: 0,
-      x: 0.5,
-      y: 0.5,
-    })
-  ).toEqual([]);
-  expect(androidControlGestures(keyDown("é"))).toEqual([
-    { text: "é", type: "text" },
-  ]);
-  expect(androidControlGestures(keyUp("é"))).toEqual([]);
-  expect(
-    androidControlGestures(keyDown("a", { code: "KeyA", modifiers: 2 }))
-  ).toEqual([{ action: "down", keycode: 29, metaState: 0x10_00, type: "key" }]);
-  expect(androidControlGestures(keyDown("Shift"))).toEqual([]);
+    androidControlGesture(keyDown("a", { code: "KeyA", modifiers: 2 }))
+  ).toEqual({ action: "down", keycode: 29, metaState: 0x10_00, type: "key" });
+  expect(androidControlGesture(keyDown("Shift"))).toBe(undefined);
 });
 
-it("translates Forwarded Input into iOS helper commands", () => {
+it("drives a held finger from the wheel", () => {
+  const finger = makeWheelFinger();
+  // A wheel turned down drags the content up, from under the pointer.
+  expect(finger.feed(wheel(100, 0.5))).toEqual([
+    touch("down", 0.5, 0.5),
+    touch("move", 0.5, 0.4),
+  ]);
+  expect(finger.holding()).toBe(true);
+  // Each later notch moves the same finger; nothing waits for a swipe.
+  expect(finger.feed(wheel(50, 0.5))).toEqual([touch("move", 0.5, 0.35)]);
+  expect(finger.feed(wheel(-150, 0.5))).toEqual([touch("move", 0.5, 0.5)]);
+  // Once the wheel is quiet it rests in place, so the lift does not fling,
+  // then lifts.
+  expect(finger.release(0)).toEqual([
+    touch("move", 0.5025, 0.5),
+    touch("move", 0.5, 0.5),
+    touch("move", 0.5025, 0.5),
+    touch("move", 0.5, 0.5),
+    touch("up", 0.5, 0.5),
+  ]);
+  expect(finger.holding()).toBe(false);
+  expect(finger.release(0)).toEqual([]);
+});
+
+it("never lands a small or edge wheel turn as a tap", () => {
+  const finger = makeWheelFinger();
+  // Trackpad-sized deltas wait until the first drag passes the touch slop.
+  for (let step = 0; step < 29; step += 1) {
+    expect(finger.feed(wheel(1, 0.5))).toEqual([]);
+  }
+  const [down, move] = finger.feed(wheel(1, 0.5));
+  expect(down).toMatchObject({ action: "down", y: 0.5 });
+  expect(move?._tag === "touch" && 0.5 - move.y).toBeCloseTo(MIN_DRAG_FRACTION);
+  finger.release(0);
+  // At the top edge the finger starts lower, so its drag stays on screen.
+  expect(finger.feed(wheel(200, 0))).toEqual([
+    touch("down", 0.5, 0.2),
+    touch("move", 0.5, 0),
+  ]);
+  // Out of room, it lifts and strokes again from under the pointer.
+  const restroke = finger.feed(wheel(100, 0));
+  expect(restroke).toEqual([
+    touch("up", 0.5, 0),
+    touch("down", 0.5, 0.1),
+    touch("move", 0.5, 0),
+  ]);
+  // A small turn that runs out of room lifts and waits to add up again.
+  expect(finger.feed(wheel(20, 0))).toEqual([touch("up", 0.5, 0)]);
+  // The waiting delta still counts toward the next stroke. A touch lifts a
+  // held finger first and drops any partial wheel delta.
+  finger.feed(wheel(100, 0.5));
+  expect(finger.feed(touch("down", 0.25, 0.25))).toEqual([
+    touch("up", 0.5, 0.38),
+    touch("down", 0.25, 0.25),
+  ]);
+  finger.feed(touch("up", 0.25, 0.25));
+  expect(finger.feed(wheel(20, 0.5))).toEqual([]);
+  expect(finger.feed(wheel(0, 0.5))).toEqual([]);
+  // Keys pass through and leave the finger down.
+  finger.feed(wheel(100, 0.5));
+  expect(finger.feed(keyDown("a"))).toEqual([keyDown("a")]);
+  expect(finger.holding()).toBe(true);
+});
+
+it("translates finger and key input into iOS helper commands", () => {
   expect(iosKeyUsage("KeyA")).toBe(4);
   expect(iosKeyUsage("Digit1")).toBe(30);
   expect(iosKeyUsage("Digit0")).toBe(39);
@@ -326,18 +379,93 @@ it("translates Forwarded Input into iOS helper commands", () => {
     iosHidCommands([
       touch("down", 0.25, 0.5),
       touch("up", 0.25, 0.5),
-      { _tag: "scroll", at: 0, deltaX: 0, deltaY: 200, x: 0.5, y: 0.5 },
-      ...key("A", { code: "KeyA" }),
-      ...key("GoBack"),
+      keyDown("A", { code: "KeyA" }),
+      { ...keyDown("A", { code: "KeyA" }), action: "up" },
+      keyDown("GoBack"),
     ])
   ).toEqual([
     "touch down 0.25 0.5",
     "touch up 0.25 0.5",
-    "scroll 0.5 0.5 0 -0.2",
     "key down 4",
     "key up 4",
   ]);
 });
+
+it.effect(
+  "spaces iOS drags, keeps the latest, and lifts the wheel's finger",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* pacedIosInput() {
+        const scope = yield* Effect.scope;
+        const writes: { readonly at: number; readonly lines: string }[] = [];
+        const wrote = yield* Deferred.make<true>();
+        const writer = makeIosHidWriter(
+          (lines) =>
+            Effect.gen(function* recordWrite() {
+              writes.push({ at: yield* Clock.currentTimeMillis, lines });
+              if (lines.startsWith("touch up")) {
+                yield* Deferred.succeed(wrote, true);
+              }
+            }),
+          scope
+        );
+        yield* TestClock.adjust(1000);
+        yield* writer.forward([touch("down", 0.5, 0.5)]);
+        // Moves inside the spacing wait, and only the latest one goes.
+        yield* writer.forward([touch("move", 0.5, 0.45)]);
+        yield* writer.forward([touch("move", 0.5, 0.4)]);
+        expect(writes.map(({ lines }) => lines)).toEqual([
+          "touch down 0.5 0.5\n",
+        ]);
+        yield* TestClock.adjust(MOVE_SPACING_MILLIS);
+        expect(writes.map(({ lines }) => lines)).toEqual([
+          "touch down 0.5 0.5\n",
+          "touch move 0.5 0.4\n",
+        ]);
+        // A release goes at once, after any drag still waiting.
+        yield* writer.forward([touch("move", 0.5, 0.3)]);
+        yield* writer.forward([touch("up", 0.5, 0.3)]);
+        expect(writes.at(-1)?.lines).toBe(
+          "touch move 0.5 0.3\ntouch up 0.5 0.3\n"
+        );
+        yield* TestClock.adjust(MOVE_SPACING_MILLIS);
+        expect(writes).toHaveLength(3);
+
+        // The wheel holds a finger that lifts only after the wheel is quiet.
+        writes.length = 0;
+        yield* writer.forward([wheel(100, 0.5)]);
+        yield* TestClock.adjust(WHEEL_RELEASE_MILLIS / 2);
+        yield* writer.forward([wheel(100, 0.5)]);
+        yield* TestClock.adjust(WHEEL_RELEASE_MILLIS / 2);
+        expect(writer.holding()).toBe(true);
+        expect(writes.map(({ lines }) => lines)).toEqual([
+          "touch down 0.5 0.5\n",
+          "touch move 0.5 0.4\n",
+          "touch move 0.5 0.3\n",
+        ]);
+        const lifted = yield* Deferred.await(wrote).pipe(Effect.forkScoped);
+        yield* TestClock.adjust(WHEEL_RELEASE_MILLIS);
+        yield* Fiber.join(lifted);
+        expect(writer.holding()).toBe(false);
+        // Resting moves, then the lift, each a drag spacing after the last.
+        const lift = writes.slice(-(REST_MOVES + 1));
+        expect(lift.map(({ lines }) => lines)).toEqual([
+          "touch move 0.5025 0.3\n",
+          "touch move 0.5 0.3\n",
+          "touch move 0.5025 0.3\n",
+          "touch move 0.5 0.3\n",
+          "touch up 0.5 0.3\n",
+        ]);
+        for (const [index, write] of lift.entries()) {
+          if (index > 0) {
+            expect(write.at - (lift[index - 1]?.at ?? 0)).toBe(
+              MOVE_SPACING_MILLIS
+            );
+          }
+        }
+      })
+    )
+);
 
 const laneNode = {
   bounds: { height: 10, width: 10, x: 0, y: 0 },
