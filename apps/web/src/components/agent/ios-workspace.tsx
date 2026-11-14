@@ -24,7 +24,6 @@ import {
   CircleIcon,
   CornerDownLeftIcon,
   KeyRoundIcon,
-  LoaderCircleIcon,
   MessageSquareTextIcon,
   RefreshCwIcon,
   RotateCwIcon,
@@ -104,10 +103,14 @@ import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { NativeOptionalSteps } from "./native-optional-steps";
 import {
   BuildPicker,
+  InstalledAppsFrame,
   UploadedBuild,
   useBuildUpload,
 } from "./target-app-upload";
-import type { BuildUploadState } from "./target-app-upload";
+import type {
+  BuildUploadState,
+  InstalledAppsNotice,
+} from "./target-app-upload";
 import {
   DockNotice,
   DockShell,
@@ -501,6 +504,32 @@ const useInstalledIosApps = (
   return state;
 };
 
+const installedAppsNotice = (
+  apps: InstalledApps
+): InstalledAppsNotice | null => {
+  if (apps._tag === "idle") {
+    return {
+      _tag: "message",
+      text: "Pick a running simulator to list its apps.",
+      tone: "muted",
+    };
+  }
+  if (apps._tag === "loading") {
+    return { _tag: "loading" };
+  }
+  if (apps._tag === "failed") {
+    return { _tag: "message", text: apps.message, tone: "destructive" };
+  }
+  if (apps.apps.length === 0) {
+    return {
+      _tag: "message",
+      text: "No apps are installed on this simulator yet.",
+      tone: "muted",
+    };
+  }
+  return null;
+};
+
 /**
  * The Target App group: upload a simulator `.app` folder, or pick an app
  * already on the simulator. The sheet reads the bundle identifier and build
@@ -544,63 +573,38 @@ const IosTargetApp = ({
       <p className="text-muted-foreground text-xs">
         Or pick an app already on this simulator.
       </p>
-      {apps._tag === "idle" ? (
-        <p className="text-muted-foreground text-xs">
-          Pick a running simulator to list its apps.
-        </p>
-      ) : null}
-      {apps._tag === "loading" ? (
-        <p className="text-muted-foreground flex items-center gap-2 text-xs">
-          <LoaderCircleIcon
-            aria-hidden="true"
-            className="size-3.5 animate-spin"
-          />
-          Reading installed apps…
-        </p>
-      ) : null}
-      {apps._tag === "failed" ? (
-        <p className="text-destructive text-xs">{apps.message}</p>
-      ) : null}
-      {apps._tag === "loaded" ? (
-        <ul
-          aria-label="Installed apps"
-          className="max-h-44 overflow-y-auto rounded-lg border"
-        >
-          {apps.apps.length === 0 ? (
-            <li className="text-muted-foreground px-2.5 py-2 text-xs">
-              No apps are installed on this simulator yet.
-            </li>
-          ) : null}
-          {apps.apps.map((app) => {
-            const selected =
-              target?._tag === "installed" &&
-              target.app.bundleId === app.bundleId;
-            return (
-              <li key={app.bundleId}>
-                <button
-                  aria-pressed={selected}
-                  className={cn(
-                    "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                    selected && "bg-muted"
-                  )}
-                  onClick={() => onSelect(app)}
-                  type="button"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {app.label || app.bundleId}
-                    {app.label === app.bundleId ? null : (
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        {app.bundleId}
-                      </span>
+      <InstalledAppsFrame notice={installedAppsNotice(apps)}>
+        {apps._tag === "loaded"
+          ? apps.apps.map((app) => {
+              const selected =
+                target?._tag === "installed" &&
+                target.app.bundleId === app.bundleId;
+              return (
+                <li key={app.bundleId}>
+                  <button
+                    aria-pressed={selected}
+                    className={cn(
+                      "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
+                      selected && "bg-muted"
                     )}
-                  </span>
-                  <Badge variant="outline">build {app.build}</Badge>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+                    onClick={() => onSelect(app)}
+                    type="button"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {app.label || app.bundleId}
+                      {app.label === app.bundleId ? null : (
+                        <span className="text-muted-foreground ml-2 text-xs">
+                          {app.bundleId}
+                        </span>
+                      )}
+                    </span>
+                    <Badge variant="outline">build {app.build}</Badge>
+                  </button>
+                </li>
+              );
+            })
+          : null}
+      </InstalledAppsFrame>
     </div>
   </SetupGroup>
 );

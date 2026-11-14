@@ -3,8 +3,10 @@ import { Effect, Fiber } from "effect";
 import { Atom } from "effect/reactivity";
 import { LoaderCircleIcon, PackageIcon, UploadIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
@@ -175,5 +177,78 @@ export const UploadedBuild = ({
     >
       <XIcon />
     </Button>
+  </div>
+);
+
+export type InstalledAppsNotice =
+  | { readonly _tag: "loading" }
+  | {
+      readonly _tag: "message";
+      readonly text: string;
+      readonly tone: "muted" | "destructive";
+    };
+
+/**
+ * The apps on a device, in a frame whose height never changes. Loading,
+ * failure and empty notices render inside it, so the steps below stay in
+ * place when the read finishes.
+ */
+/** Name and badge widths that vary like a real app list. */
+const skeletonRows = [
+  { badge: "w-14", name: "w-2/5" },
+  { badge: "w-12", name: "w-1/2" },
+  { badge: "w-14", name: "w-1/3" },
+  { badge: "w-12", name: "w-3/5" },
+  { badge: "w-14", name: "w-2/5" },
+] as const;
+
+export const InstalledAppsFrame = ({
+  children,
+  notice,
+}: {
+  readonly children?: ReactNode;
+  readonly notice: InstalledAppsNotice | null;
+}) => (
+  <div className="h-44 overflow-y-auto rounded-lg border">
+    {notice?._tag === "loading" ? (
+      <>
+        <p className="sr-only" role="status">
+          Reading installed apps…
+        </p>
+        <div aria-hidden="true" className="py-0.5">
+          {skeletonRows.map((row, index) => (
+            <div
+              className="flex items-center justify-between gap-2 px-2.5 py-2"
+              // The rows are fixed placeholders; their order never changes.
+              // oxlint-disable-next-line react/no-array-index-key
+              key={index}
+            >
+              <Skeleton
+                className={cn("h-4 motion-reduce:animate-none", row.name)}
+              />
+              <Skeleton
+                className={cn(
+                  "h-5 rounded-full motion-reduce:animate-none",
+                  row.badge
+                )}
+              />
+            </div>
+          ))}
+        </div>
+      </>
+    ) : null}
+    {notice?._tag === "message" ? (
+      <p
+        className={cn(
+          "flex h-full items-center justify-center px-4 text-center text-xs",
+          notice.tone === "destructive"
+            ? "text-destructive"
+            : "text-muted-foreground"
+        )}
+      >
+        {notice.text}
+      </p>
+    ) : null}
+    {notice === null ? <ul aria-label="Installed apps">{children}</ul> : null}
   </div>
 );

@@ -62,10 +62,14 @@ import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { NativeOptionalSteps } from "./native-optional-steps";
 import {
   BuildPicker,
+  InstalledAppsFrame,
   UploadedBuild,
   useBuildUpload,
 } from "./target-app-upload";
-import type { BuildUploadState } from "./target-app-upload";
+import type {
+  BuildUploadState,
+  InstalledAppsNotice,
+} from "./target-app-upload";
 import { WorkspacePlatformSwitcher } from "./workspace-platform";
 
 /** Roles agent-device reports that a person can name on a screen. */
@@ -373,6 +377,26 @@ const UploadedApk = ({
   );
 };
 
+const installedAppsNotice = (
+  apps: Loaded<AndroidDiscoveredApp>,
+  matches: readonly AndroidDiscoveredApp[]
+): InstalledAppsNotice | null => {
+  if (apps._tag === "loading") {
+    return { _tag: "loading" };
+  }
+  if (apps._tag === "failed") {
+    return { _tag: "message", text: apps.message, tone: "destructive" };
+  }
+  if (matches.length === 0) {
+    return {
+      _tag: "message",
+      text: "No launchable app matches.",
+      tone: "muted",
+    };
+  }
+  return null;
+};
+
 const InstalledApps = ({
   apps,
   matches,
@@ -402,53 +426,31 @@ const InstalledApps = ({
         value={query}
       />
     </div>
-    {apps._tag === "loading" ? (
-      <p className="text-muted-foreground flex items-center gap-2 text-xs">
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="size-3.5 animate-spin"
-        />
-        Reading installed apps…
-      </p>
-    ) : null}
-    {apps._tag === "failed" ? (
-      <p className="text-destructive text-xs">{apps.message}</p>
-    ) : null}
-    {apps._tag === "loaded" ? (
-      <ul
-        aria-label="Installed apps"
-        className="max-h-44 overflow-y-auto rounded-lg border"
-      >
-        {matches.length === 0 ? (
-          <li className="text-muted-foreground px-2.5 py-2 text-xs">
-            No launchable app matches.
-          </li>
-        ) : null}
-        {matches.map((app) => (
-          <li key={app.package}>
-            <button
-              aria-pressed={selected === app.package}
-              className={cn(
-                "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                selected === app.package && "bg-muted"
-              )}
-              onClick={() => onSelect(app.package)}
-              type="button"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {app.label || app.package}
-                {app.label ? (
-                  <span className="text-muted-foreground ml-2 text-xs">
-                    {app.package}
-                  </span>
-                ) : null}
-              </span>
-              <Badge variant="outline">build {app.versionCode}</Badge>
-            </button>
-          </li>
-        ))}
-      </ul>
-    ) : null}
+    <InstalledAppsFrame notice={installedAppsNotice(apps, matches)}>
+      {matches.map((app) => (
+        <li key={app.package}>
+          <button
+            aria-pressed={selected === app.package}
+            className={cn(
+              "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
+              selected === app.package && "bg-muted"
+            )}
+            onClick={() => onSelect(app.package)}
+            type="button"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {app.label || app.package}
+              {app.label ? (
+                <span className="text-muted-foreground ml-2 text-xs">
+                  {app.package}
+                </span>
+              ) : null}
+            </span>
+            <Badge variant="outline">build {app.versionCode}</Badge>
+          </button>
+        </li>
+      ))}
+    </InstalledAppsFrame>
   </div>
 );
 
