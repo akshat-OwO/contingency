@@ -334,3 +334,34 @@ it.effect(
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
+
+it.effect("ships mediabunny's ESM modules without its bundles", () =>
+  Effect.gen(function* muxerModules() {
+    const fs = yield* FileSystem.FileSystem;
+    const output = yield* fs.makeTempDirectoryScoped({
+      prefix: "vendor-mediabunny-",
+    });
+    yield* vendorPackages(["mediabunny"], process.cwd(), output);
+    const root = path.join(output, "node_modules/mediabunny");
+    expect(yield* fs.exists(path.join(root, "dist/bundles"))).toBe(false);
+    expect(yield* fs.exists(path.join(root, "README.md"))).toBe(false);
+    expect(yield* fs.exists(path.join(root, "LICENSE"))).toBe(true);
+    // The hub's recorder imports these from the copied package.
+    yield* fs.writeFileString(
+      path.join(output, "entry.mjs"),
+      'export * from "mediabunny";\n'
+    );
+    const loaded: Record<string, unknown> = yield* Effect.promise(
+      () => import(path.join(output, "entry.mjs"))
+    );
+    for (const name of [
+      "EncodedPacket",
+      "EncodedVideoPacketSource",
+      "Mp4OutputFormat",
+      "Output",
+      "StreamTarget",
+    ]) {
+      expect(typeof loaded[name], name).toBe("function");
+    }
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);

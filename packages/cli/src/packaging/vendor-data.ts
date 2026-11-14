@@ -29,6 +29,12 @@ const reviewed = new Map<string, DataPolicy>(
       hash: "24cfdad86af147af75ed85ef235c41f0e2111369d21131aaf88f599db4d820d8",
       paths: ["changelog-pre10.md"],
     },
+    mediabunny: {
+      hash: "a7ccfcf58bd82f72df3ad210558eec7156e8bf45ea76c83998a7adbfdc75acfd",
+      // The hub's recorder imports it as ESM, which Node resolves to
+      // dist/modules. Only `require` and browser builds load dist/bundles.
+      paths: ["dist/bundles", "README.md"],
+    },
     "playwright-core": {
       hash: "270381ffbce14cc0489bb70b3227d3809d864cb132585e7206a59b84c5fb6455",
       // No package consumer or export loads the test runner's HTML reporter.
