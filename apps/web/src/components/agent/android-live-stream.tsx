@@ -6,6 +6,7 @@ import { Atom } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { decodeBase64 } from "@/lib/base64";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 import { useWorkspaceRefreshClock } from "@/lib/workspace-refresh";
@@ -227,10 +228,7 @@ export const AndroidLiveStream = ({
                       decoder.reset();
                       configured = false;
                     }
-                    const data = Uint8Array.from(
-                      atob(event.data),
-                      (character) => character.codePointAt(0) ?? 0
-                    );
+                    const data = decodeBase64(event.data);
                     if (!configured) {
                       if (!event.key) {
                         continue;
