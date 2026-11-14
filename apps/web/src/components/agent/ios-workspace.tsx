@@ -59,6 +59,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { decodeBase64 } from "@/lib/base64";
 import { isSessionNotFound } from "@/lib/failure-message";
 import {
   bootIosSimulator,
@@ -174,11 +175,7 @@ const IosMirror = ({
     // Decodes off the main thread and resizes the canvas only when the
     // frame size changes, since a resize clears and reallocates it.
     const drawIosFrame = async (value: IosStreamFrame, signal: AbortSignal) => {
-      // Base64 holds only single-byte characters.
-      const bytes = Uint8Array.from(
-        atob(value.data),
-        (character) => character.codePointAt(0) ?? 0
-      );
+      const bytes = decodeBase64(value.data);
       const bitmap = await createImageBitmap(
         new Blob([bytes], { type: "image/jpeg" })
       );
