@@ -120,8 +120,11 @@ const reserveDevice = (
 ): Effect.Effect<void, IosWorkspaceError> =>
   Option.isNone(owned) || device === undefined
     ? Effect.void
-    : owned.value.reserveDevice({ device, holder, platform: "ios" }).pipe(
-        Effect.flatMap((release) => Scope.addFinalizer(scope, release)),
+    : Effect.uninterruptible(
+        owned.value
+          .reserveDevice({ device, holder, platform: "ios" })
+          .pipe(Effect.flatMap((release) => Scope.addFinalizer(scope, release)))
+      ).pipe(
         Effect.mapError((refusal) =>
           error("ios_workspace_refused", refusal.message)
         ),
@@ -850,255 +853,274 @@ export const makeIosWorkspaceLayer = (options: {
         command: Extract<IosWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
       ) =>
-        startLock.withPermits(1)(
-          Effect.gen(function* startWorkspace() {
-            const fingerprint = JSON.stringify(command);
-            const replay = starts.get(command.operationId);
-            if (replay !== undefined) {
-              if (replay.fingerprint !== fingerprint) {
-                return yield* denied(
-                  "The startup operation was already used with different declarations."
+        Effect.suspend(() => {
+          // Startup's scope until the session is published. A startup that
+          // fails or is interrupted first closes it, releasing its device.
+          let unpublished: Scope.Closeable | undefined;
+          return startLock.withPermits(1)(
+            Effect.gen(function* startWorkspace() {
+              const fingerprint = JSON.stringify(command);
+              const replay = starts.get(command.operationId);
+              if (replay !== undefined) {
+                if (replay.fingerprint !== fingerprint) {
+                  return yield* denied(
+                    "The startup operation was already used with different declarations."
+                  );
+                }
+                const retained = sessions.get(replay.id);
+                if (retained !== undefined) {
+                  return yield* snapshot(retained, source === "user");
+                }
+              }
+              const { selection } = command;
+              const { device } = selection;
+              if (device.kind === "physical") {
+                return yield* Effect.fail(
+                  error(
+                    "physical_device_unsupported",
+                    "Physical iPhones are unsupported. Select an iPhone simulator."
+                  )
                 );
               }
-              const retained = sessions.get(replay.id);
-              if (retained !== undefined) {
-                return yield* snapshot(retained, source === "user");
-              }
-            }
-            const { selection } = command;
-            const { device } = selection;
-            if (device.kind === "physical") {
-              return yield* Effect.fail(
-                error(
-                  "physical_device_unsupported",
-                  "Physical iPhones are unsupported. Select an iPhone simulator."
+              // The Support Matrix binds one device at a time; another live session keeps its binding.
+              const bound = [...sessions.values()].find((session) =>
+                ["pending", "running", "paused"].includes(
+                  state(session).summary.phase
                 )
               );
-            }
-            // The Support Matrix binds one device at a time; another live session keeps its binding.
-            const bound = [...sessions.values()].find((session) =>
-              ["pending", "running", "paused"].includes(
-                state(session).summary.phase
-              )
-            );
-            if (bound !== undefined) {
-              const { id: boundId, selection: boundSelection } =
-                state(bound).summary;
-              const { udid: serial } = boundSelection.device;
-              return yield* denied(
-                serial === device.udid
-                  ? `iOS session ${boundId} is already bound to ${serial}. Close it before starting another session.`
-                  : `iOS binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
-              );
-            }
-            const { taught, recordingId, inputs, setup } =
-              yield* selectRequirements(command);
-            const id = AgentSessionId.make(
-              `agent-ios-${hash(command.operationId).slice(0, 32)}`
-            );
-            const scope = yield* Scope.make();
-            // Held from here until the session's cleanup has finished.
-            yield* reserveDevice(ownedDevices, device.udid, id, scope);
-            // An uploaded build belongs to this session: closing its scope
-            // deletes the upload, including when startup fails.
-            const appPath =
-              selection.appPath === undefined
-                ? undefined
-                : (yield* claimBuild(builds, "ios", selection.appPath, scope))
-                    .path;
-            const startup: IosRunInput = {
-              device,
-              environment: selection.environment,
-              platform: "ios",
-              requiredCapabilities: taught.capabilities,
-              scope,
-              setup,
-              targetApp: selection.environment.bundleId,
-              taught,
-              teaching: command.kind === "teaching",
-            };
-            const create = (options.createRun ?? createIosRun)(
-              appPath === undefined ? startup : { ...startup, appPath }
-            );
-            const created = yield* Effect.result(create);
-            if (Result.isFailure(created)) {
-              yield* Scope.close(scope, Exit.void);
-              return yield* Effect.fail(created.failure);
-            }
-            const run = created.success;
-            const root =
-              command.kind === "dry-run" && recordingId !== null
-                ? store.catalogRoot(recordingId)
-                : catalog.root();
-            // A Run files its evidence under its Flow; a Dry Run's and
-            // Teaching's directories come from the recording store below.
-            let directory = yield* evidenceDirectory(command, root, id).pipe(
-              Effect.onError(() => Scope.close(scope, Exit.void))
-            );
-            if (recordingId !== null) {
-              if (command.kind === "teaching") {
-                yield* store
-                  .begin({
-                    emulation: null,
-                    flowName: command.flowName,
-                    group: command.group,
-                    operationId: command.operationId,
-                    recordingId,
-                    runtime: taught,
-                    sessionId: id,
-                  })
-                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
-                directory = store.directory(recordingId);
-              } else {
-                directory = yield* store
-                  .prepareDryRun(recordingId, AgentRunId.make(`agentrun-${id}`))
-                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+              if (bound !== undefined) {
+                const { id: boundId, selection: boundSelection } =
+                  state(bound).summary;
+                const { udid: serial } = boundSelection.device;
+                return yield* denied(
+                  serial === device.udid
+                    ? `iOS session ${boundId} is already bound to ${serial}. Close it before starting another session.`
+                    : `iOS binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+                );
               }
-            }
-            const summary: IosWorkspaceSummary = {
-              assessment: null,
-              captureGaps: [],
-              completedAt: null,
-              controller:
-                command.kind === "teaching" && !command.agentSetup
-                  ? "user"
-                  : "agent",
-              error: null,
-              flowName: command.flowName,
-              id,
-              kind: command.kind,
-              phase: "pending",
-              preparation: run.state(),
-              recordingId,
-              requirements: taught,
-              selection,
-              startedAt: now(),
-              takeoverOccurred: false,
-            };
-            const session: Session = {
-              boundary: makeExecutionBoundary({
-                hosts: [],
-                now: () => new Date(),
-                scope: command.kind === "dry-run" ? "dry-run" : "interactive",
-                sessionId: id,
-              }),
-              directory,
-              hid: yield* makeHid(
-                () =>
-                  "udid" in selection.device ? selection.device.udid : null,
-                scope
-              ),
-              lane: makeForwardedLane({
-                focus: (target, observation) => {
-                  update(session, (value) => ({
-                    ...value,
-                    field:
-                      target === undefined || observation === null
-                        ? null
-                        : {
-                            name: target.name,
-                            observationId: observation.id,
-                            password: target.password,
-                            role: target.role,
-                            target: target.target,
-                          },
-                  }));
-                },
-                frame: (observation) => ({
-                  nodes: observation.nodes,
-                  ...observationSize(observation),
-                }),
-                latest: () => state(session).observation,
-                send: (batch) =>
-                  session.hid
-                    .forward(batch)
-                    .pipe(
-                      Effect.mapError((cause) =>
-                        error("ios_workspace_refused", cause.message)
-                      )
-                    ),
-              }),
-              lock: Semaphore.makeUnsafe(1),
-              marks: {},
-              receipts: new Map(),
-              run,
-              scope,
-              state: Atom.make<SessionState>({
-                artifacts: [],
-                bytes: 0,
-                field: null,
-                observation: null,
-                observations: [],
-                pendingInput: null,
-                ran: false,
-                recording: false,
-                revision: 0,
-                sequence: 0,
-                startingObservation: null,
-                summary,
-              }).pipe(Atom.keepAlive),
-              stream: yield* acquireIosStream(
-                id,
-                () => state(session).observation?.device ?? null,
+              const { taught, recordingId, inputs, setup } =
+                yield* selectRequirements(command);
+              const id = AgentSessionId.make(
+                `agent-ios-${hash(command.operationId).slice(0, 32)}`
+              );
+              const scope = yield* Scope.make();
+              unpublished = scope;
+              // Held from here until the session's cleanup has finished.
+              yield* reserveDevice(ownedDevices, device.udid, id, scope);
+              // An uploaded build belongs to this session: closing its scope
+              // deletes the upload, including when startup fails.
+              const appPath =
+                selection.appPath === undefined
+                  ? undefined
+                  : (yield* claimBuild(builds, "ios", selection.appPath, scope))
+                      .path;
+              const startup: IosRunInput = {
+                device,
+                environment: selection.environment,
+                platform: "ios",
+                requiredCapabilities: taught.capabilities,
                 scope,
-                (code) =>
-                  session.lock
-                    .withPermits(1)(pause(session, platformRuntimeError(code)))
-                    .pipe(Effect.orDie),
-                () => {
-                  const observed = state(session).observation;
-                  return observed ? observationSize(observed) : undefined;
+                setup,
+                targetApp: selection.environment.bundleId,
+                taught,
+                teaching: command.kind === "teaching",
+              };
+              const create = (options.createRun ?? createIosRun)(
+                appPath === undefined ? startup : { ...startup, appPath }
+              );
+              const created = yield* Effect.result(create);
+              if (Result.isFailure(created)) {
+                yield* Scope.close(scope, Exit.void);
+                return yield* Effect.fail(created.failure);
+              }
+              const run = created.success;
+              const root =
+                command.kind === "dry-run" && recordingId !== null
+                  ? store.catalogRoot(recordingId)
+                  : catalog.root();
+              // A Run files its evidence under its Flow; a Dry Run's and
+              // Teaching's directories come from the recording store below.
+              let directory = yield* evidenceDirectory(command, root, id).pipe(
+                Effect.onError(() => Scope.close(scope, Exit.void))
+              );
+              if (recordingId !== null) {
+                if (command.kind === "teaching") {
+                  yield* store
+                    .begin({
+                      emulation: null,
+                      flowName: command.flowName,
+                      group: command.group,
+                      operationId: command.operationId,
+                      recordingId,
+                      runtime: taught,
+                      sessionId: id,
+                    })
+                    .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+                  directory = store.directory(recordingId);
+                } else {
+                  directory = yield* store
+                    .prepareDryRun(
+                      recordingId,
+                      AgentRunId.make(`agentrun-${id}`)
+                    )
+                    .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
                 }
-              ),
-              summaryFile: path.join(root, ".ios-workspace", `${id}.json`),
-              variables: Atom.make<readonly WorkspaceVariable[]>(
-                inputs.map(({ name }) => ({
-                  name: name.toUpperCase(),
-                  purpose: `Input for ${command.flowName}`,
-                  requestId: randomUUID(),
-                  setup: false,
-                  status: "requested" as const,
-                }))
-              ).pipe(Atom.keepAlive),
-              video: yield* sessionVideo(command.kind, directory, run),
-            };
-            registry.get(session.state);
-            registry.get(session.variables);
-            yield* Scope.addFinalizer(
-              scope,
-              Effect.sync(() => {
-                clearVariables(session);
-                session.boundary.dispose();
-              })
-            );
-            sessions.set(id, session);
-            starts.set(command.operationId, { fingerprint, id });
-            const initialized = yield* Effect.result(
-              Effect.gen(function* initializeCapture() {
-                yield* io(fs.makeDirectory(directory, { recursive: true }));
-                if (recordingId !== null && command.kind === "dry-run") {
-                  yield* store.startDryRun({
-                    inputs: inputs.map(({ name }) => ({
-                      changed: false,
-                      name,
-                      value: null,
-                    })),
-                    operationId: command.operationId,
-                    recordingId,
-                    sessionId: id,
-                  });
-                }
-                yield* persist(session);
-                return yield* snapshot(session, source === "user");
-              })
-            );
-            if (Result.isFailure(initialized)) {
-              yield* close(session, "interrupted").pipe(Effect.ignore);
-              return yield* Effect.fail(initialized.failure);
-            }
-            return initialized.success;
-          })
-        );
+              }
+              const summary: IosWorkspaceSummary = {
+                assessment: null,
+                captureGaps: [],
+                completedAt: null,
+                controller:
+                  command.kind === "teaching" && !command.agentSetup
+                    ? "user"
+                    : "agent",
+                error: null,
+                flowName: command.flowName,
+                id,
+                kind: command.kind,
+                phase: "pending",
+                preparation: run.state(),
+                recordingId,
+                requirements: taught,
+                selection,
+                startedAt: now(),
+                takeoverOccurred: false,
+              };
+              const session: Session = {
+                boundary: makeExecutionBoundary({
+                  hosts: [],
+                  now: () => new Date(),
+                  scope: command.kind === "dry-run" ? "dry-run" : "interactive",
+                  sessionId: id,
+                }),
+                directory,
+                hid: yield* makeHid(
+                  () =>
+                    "udid" in selection.device ? selection.device.udid : null,
+                  scope
+                ),
+                lane: makeForwardedLane({
+                  focus: (target, observation) => {
+                    update(session, (value) => ({
+                      ...value,
+                      field:
+                        target === undefined || observation === null
+                          ? null
+                          : {
+                              name: target.name,
+                              observationId: observation.id,
+                              password: target.password,
+                              role: target.role,
+                              target: target.target,
+                            },
+                    }));
+                  },
+                  frame: (observation) => ({
+                    nodes: observation.nodes,
+                    ...observationSize(observation),
+                  }),
+                  latest: () => state(session).observation,
+                  send: (batch) =>
+                    session.hid
+                      .forward(batch)
+                      .pipe(
+                        Effect.mapError((cause) =>
+                          error("ios_workspace_refused", cause.message)
+                        )
+                      ),
+                }),
+                lock: Semaphore.makeUnsafe(1),
+                marks: {},
+                receipts: new Map(),
+                run,
+                scope,
+                state: Atom.make<SessionState>({
+                  artifacts: [],
+                  bytes: 0,
+                  field: null,
+                  observation: null,
+                  observations: [],
+                  pendingInput: null,
+                  ran: false,
+                  recording: false,
+                  revision: 0,
+                  sequence: 0,
+                  startingObservation: null,
+                  summary,
+                }).pipe(Atom.keepAlive),
+                stream: yield* acquireIosStream(
+                  id,
+                  () => state(session).observation?.device ?? null,
+                  scope,
+                  (code) =>
+                    session.lock
+                      .withPermits(1)(
+                        pause(session, platformRuntimeError(code))
+                      )
+                      .pipe(Effect.orDie),
+                  () => {
+                    const observed = state(session).observation;
+                    return observed ? observationSize(observed) : undefined;
+                  }
+                ),
+                summaryFile: path.join(root, ".ios-workspace", `${id}.json`),
+                variables: Atom.make<readonly WorkspaceVariable[]>(
+                  inputs.map(({ name }) => ({
+                    name: name.toUpperCase(),
+                    purpose: `Input for ${command.flowName}`,
+                    requestId: randomUUID(),
+                    setup: false,
+                    status: "requested" as const,
+                  }))
+                ).pipe(Atom.keepAlive),
+                video: yield* sessionVideo(command.kind, directory, run),
+              };
+              registry.get(session.state);
+              registry.get(session.variables);
+              yield* Scope.addFinalizer(
+                scope,
+                Effect.sync(() => {
+                  clearVariables(session);
+                  session.boundary.dispose();
+                })
+              );
+              sessions.set(id, session);
+              // The published session owns the scope from here.
+              unpublished = undefined;
+              starts.set(command.operationId, { fingerprint, id });
+              const initialized = yield* Effect.result(
+                Effect.gen(function* initializeCapture() {
+                  yield* io(fs.makeDirectory(directory, { recursive: true }));
+                  if (recordingId !== null && command.kind === "dry-run") {
+                    yield* store.startDryRun({
+                      inputs: inputs.map(({ name }) => ({
+                        changed: false,
+                        name,
+                        value: null,
+                      })),
+                      operationId: command.operationId,
+                      recordingId,
+                      sessionId: id,
+                    });
+                  }
+                  yield* persist(session);
+                  return yield* snapshot(session, source === "user");
+                })
+              );
+              if (Result.isFailure(initialized)) {
+                yield* close(session, "interrupted").pipe(Effect.ignore);
+                return yield* Effect.fail(initialized.failure);
+              }
+              return initialized.success;
+            }).pipe(
+              Effect.onExit(() =>
+                unpublished === undefined
+                  ? Effect.void
+                  : Scope.close(unpublished, Exit.void)
+              )
+            )
+          );
+        });
 
       /** One forwarded gesture as Teaching or Run evidence, against the observation of its result. */
       const recordGesture = (

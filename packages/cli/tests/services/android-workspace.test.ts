@@ -138,6 +138,8 @@ const fixture = (
     /** The setup each created run applies, and each restart it performed. */
     readonly setups: AndroidRunInput["setup"][];
     readonly restarts: string[];
+    /** Holds the next stream acquisition; resolves once it has begun. */
+    readonly holdNextStream: () => Effect.Effect<Deferred.Deferred<boolean>>;
     /** AVDs the process's Device Erase wiped, in order. */
     readonly erasedAvds: string[];
     /** A fresh workspace over the same root, as after a process restart. */
@@ -170,8 +172,17 @@ const fixture = (
       const restarts: string[] = [];
       let recordingFile: string | undefined;
       // The display and input transport, without a device.
-      const acquireStream: typeof acquireAndroidStream = () =>
-        Effect.succeed({
+      // When set, the next stream acquisition signals it and never returns.
+      let streamHeld: Deferred.Deferred<boolean> | undefined;
+      const acquireStream: typeof acquireAndroidStream = () => {
+        const entered = streamHeld;
+        if (entered !== undefined) {
+          streamHeld = undefined;
+          return Deferred.succeed(entered, true).pipe(
+            Effect.andThen(Effect.never)
+          );
+        }
+        return Effect.succeed({
           access: { path: "/android/stream/fixture", token: "fixture" },
           authorized: () => false,
           forward: (inputs) =>
@@ -181,6 +192,7 @@ const fixture = (
           frames: Stream.empty,
           packets: Stream.empty,
         });
+      };
       // The session's screen recorder: it leaves a footage file where it
       // was asked to record.
       const screenRecorder: NativeScreenRecorder = {
@@ -430,6 +442,14 @@ const fixture = (
             held = gate;
             return gate;
           }),
+        holdNextStream: () =>
+          Deferred.make<boolean>().pipe(
+            Effect.tap((entered) =>
+              Effect.sync(() => {
+                streamHeld = entered;
+              })
+            )
+          ),
         reconnect: () => {
           connected = true;
         },
@@ -3305,6 +3325,42 @@ it.effect(
         );
         yield* owned.erase({ device: "fixture", platform: "android" });
         expect(erasedAvds).toEqual(["fixture"]);
+      })
+    )
+);
+
+it.effect(
+  "releases the emulator when startup is interrupted before the session exists",
+  () =>
+    fixture(({ erasedAvds, holdNextStream }) =>
+      Effect.gen(function* interruptStart() {
+        const workspace = yield* AndroidWorkspace;
+        const owned = yield* OwnedDevices;
+        const startCommand = (name: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "teaching",
+              operationId: op(name),
+              recordingId: null,
+              selection,
+            },
+            "user"
+          );
+        const entered = yield* holdNextStream();
+        const starting = yield* Effect.forkChild(
+          startCommand("start-interrupted")
+        );
+        // Startup holds the reservation and waits inside stream acquisition.
+        yield* Deferred.await(entered);
+        yield* Fiber.interrupt(starting);
+        expect(yield* workspace.list()).toEqual([]);
+        // Neither Device Erase nor a fresh start is blocked by it.
+        yield* owned.erase({ device: "fixture", platform: "android" });
+        expect(erasedAvds).toEqual(["fixture"]);
+        const started = yield* startCommand("start-after-interrupt");
+        expect(started.phase).toBe("pending");
       })
     )
 );
