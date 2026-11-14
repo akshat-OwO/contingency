@@ -130,6 +130,8 @@ export const DeviceLastScreen = ({
 const GAP_REASON: Record<DeviceVideoCapture["gaps"][number]["reason"], string> =
   {
     "recorder-lost": "the recorder stopping unexpectedly",
+    "recorder-restarted":
+      "the recorder starting a new file after the screen changed shape or the stream restarted",
     "recorder-stopped-early": "the recorder stopping before the session did",
     "recorder-unconfirmed": "the recorder not confirming its footage",
     "size-limit": "the video size limit",

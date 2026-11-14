@@ -24,8 +24,11 @@ interface Box {
   readonly end: number;
 }
 
-/** The most a moov box may hold; a recording's tables stay far below it. */
-const MAX_MOOV_BYTES = 64 * 1024 * 1024;
+/**
+ * The most a recording's index may hold: its `moov` box and, for a fragmented
+ * MP4, every `moof` box together. A recording's tables stay far below it.
+ */
+const MAX_INDEX_BYTES = 64 * 1024 * 1024;
 
 const fail = (message: string) => new Mp4FramesError({ message });
 
@@ -207,11 +210,144 @@ const trackFormat = (view: DataView, trak: Box, stbl: Box) => {
   };
 };
 
+/** A track's id, from its header. */
+const trackId = (view: DataView, trak: Box) => {
+  const tkhd = child(view, trak, "tkhd");
+  if (tkhd === undefined) {
+    return;
+  }
+  return view.getUint32(
+    tkhd.start + (view.getUint8(tkhd.start) === 1 ? 20 : 12)
+  );
+};
+
+/** The sample duration a fragmented track's samples use unless they say. */
+const trexDuration = (view: DataView, mvex: Box | undefined, id: number) => {
+  if (mvex === undefined) {
+    return 0;
+  }
+  for (const trex of children(view, mvex.start, mvex.end)) {
+    if (
+      trex.type === "trex" &&
+      trex.start + 20 <= trex.end &&
+      view.getUint32(trex.start + 4) === id
+    ) {
+      return view.getUint32(trex.start + 12);
+    }
+  }
+  return 0;
+};
+
+interface Samples {
+  /** Each sample's decode time, in media ticks. */
+  readonly times: number[];
+  /** Each sample's composition offset, in media ticks. */
+  readonly offsets: number[];
+  /** The decode time after the last sample. */
+  end: number;
+}
+
+/** Appends one `trun` box's samples, from `samples.end` on. */
+const runSamples = (
+  view: DataView,
+  trun: Box,
+  defaultDuration: number,
+  samples: Samples
+) => {
+  if (trun.start + 8 > trun.end) {
+    return;
+  }
+  const signed = view.getUint8(trun.start) === 1;
+  // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+  const run = view.getUint32(trun.start) & 0xff_ff_ff;
+  const count = view.getUint32(trun.start + 4);
+  let offset = trun.start + 8;
+  // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+  offset += run & 0x1 ? 4 : 0;
+  // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+  offset += run & 0x4 ? 4 : 0;
+  const fields = [0x1_00, 0x2_00, 0x4_00, 0x8_00].filter(
+    // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+    (field) => (run & field) !== 0
+  );
+  for (let index = 0; index < count; index += 1) {
+    if (offset + fields.length * 4 > trun.end) {
+      throw fail("The recording's fragment table is truncated.");
+    }
+    let duration = defaultDuration;
+    let composition = 0;
+    for (const field of fields) {
+      if (field === 0x1_00) {
+        duration = view.getUint32(offset);
+      } else if (field === 0x8_00) {
+        composition = signed ? view.getInt32(offset) : view.getUint32(offset);
+      }
+      offset += 4;
+    }
+    samples.times.push(samples.end);
+    samples.offsets.push(composition);
+    samples.end += duration;
+  }
+};
+
+/**
+ * Appends one `moof` box's samples for track `id`: each `traf` starts at its
+ * `tfdt` decode time, or where the samples before it ended, and each `trun`
+ * gives durations and composition offsets or falls back to the defaults.
+ */
+const fragmentSamples = (
+  moof: Uint8Array,
+  id: number,
+  defaultDuration: number,
+  samples: Samples
+) => {
+  const view = new DataView(moof.buffer, moof.byteOffset, moof.byteLength);
+  for (const traf of children(view, 0, moof.byteLength)) {
+    if (traf.type !== "traf") {
+      continue;
+    }
+    const tfhd = child(view, traf, "tfhd");
+    if (tfhd === undefined || tfhd.start + 8 > tfhd.end) {
+      continue;
+    }
+    if (view.getUint32(tfhd.start + 4) !== id) {
+      continue;
+    }
+    // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+    const flags = view.getUint32(tfhd.start) & 0xff_ff_ff;
+    let at = tfhd.start + 8;
+    // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+    at += flags & 0x1 ? 8 : 0;
+    // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+    at += flags & 0x2 ? 4 : 0;
+    const duration =
+      // oxlint-disable-next-line eslint/no-bitwise -- MP4 full-box flags.
+      flags & 0x8 && at + 4 <= tfhd.end ? view.getUint32(at) : defaultDuration;
+    const tfdt = child(view, traf, "tfdt");
+    if (tfdt !== undefined && tfdt.start + 8 <= tfdt.end) {
+      samples.end =
+        view.getUint8(tfdt.start) === 1 && tfdt.start + 12 <= tfdt.end
+          ? Number(view.getBigUint64(tfdt.start + 4))
+          : view.getUint32(tfdt.start + 4);
+    }
+    for (const trun of children(view, traf.start, traf.end)) {
+      if (trun.type === "trun") {
+        runSamples(view, trun, duration, samples);
+      }
+    }
+  }
+};
+
 /** Reads one video track's frames. */
 const trackFrames = (
   view: DataView,
   trak: Box,
-  movie: { readonly timescale: number; readonly durationMs: number }
+  movie: {
+    readonly timescale: number;
+    readonly durationMs: number;
+    readonly mvex: Box | undefined;
+  },
+  fragments: readonly Uint8Array[]
 ): Mp4Frames => {
   const mdia = child(view, trak, "mdia");
   const mdhd = mdia === undefined ? undefined : child(view, mdia, "mdhd");
@@ -225,8 +361,25 @@ const trackFrames = (
   if (media.timescale === 0) {
     throw fail("The recording's video track has no timescale.");
   }
-  const decoded = decodeTimes(view, stts);
-  const offsets = compositionOffsets(view, child(view, stbl, "ctts"));
+  const table = decodeTimes(view, stts);
+  const decoded: Samples = {
+    end: table.end,
+    offsets: compositionOffsets(view, child(view, stbl, "ctts")),
+    times: table.times,
+  };
+  // A fragmented MP4 keeps its samples after the movie box, in `moof` boxes.
+  const id = trackId(view, trak);
+  if (id !== undefined && fragments.length > 0) {
+    // Fragment samples follow the table's own, offsets included.
+    const tabled = decoded.offsets.length;
+    decoded.offsets.length = decoded.times.length;
+    decoded.offsets.fill(0, tabled);
+    const duration = trexDuration(view, movie.mvex, id);
+    for (const moof of fragments) {
+      fragmentSamples(moof, id, duration, decoded);
+    }
+  }
+  const { offsets } = decoded;
   const { empty, shift } = firstEdit(
     view,
     path(view, trak, ["edts", "elst"]),
@@ -273,9 +426,13 @@ const trackFrames = (
 /**
  * Read the frames of the first video track from an MP4's `moov` contents:
  * sample durations (`stts`), composition offsets (`ctts`), and the first edit
- * of an edit list (`elst`), so each time is where a player presents it.
+ * of an edit list (`elst`), so each time is where a player presents it. A
+ * fragmented MP4's samples come from its `moof` contents, in file order.
  */
-export const parseMp4Moov = (moov: Uint8Array): Mp4Frames => {
+export const parseMp4Moov = (
+  moov: Uint8Array,
+  fragments: readonly Uint8Array[] = []
+): Mp4Frames => {
   const view = new DataView(moov.buffer, moov.byteOffset, moov.byteLength);
   const root: Box = { end: moov.byteLength, start: 0, type: "moov" };
   const mvhd = child(view, root, "mvhd");
@@ -291,12 +448,22 @@ export const parseMp4Moov = (moov: Uint8Array): Mp4Frames => {
   if (trak === undefined) {
     throw fail("The recording has no video track.");
   }
-  return trackFrames(view, trak, { durationMs, timescale: movie.timescale });
+  return trackFrames(
+    view,
+    trak,
+    {
+      durationMs,
+      mvex: child(view, root, "mvex"),
+      timescale: movie.timescale,
+    },
+    fragments
+  );
 };
 
 /**
  * Read a recording's frame times without reading its footage: only the
- * top-level box headers and the `moov` box are read from disk.
+ * top-level box headers, the `moov` box, and a fragmented MP4's `moof` boxes
+ * are read from disk.
  */
 export const readMp4Frames = (
   file: string
@@ -329,6 +496,9 @@ export const readMp4Frames = (
           return Option.getOrElse(bytes, () => new Uint8Array());
         });
       let offset = 0;
+      let indexBytes = 0;
+      let moov: Uint8Array | undefined;
+      const fragments: Uint8Array[] = [];
       while (offset + 8 <= size) {
         const header = yield* read(offset, 16);
         if (header.byteLength < 8) {
@@ -356,23 +526,36 @@ export const readMp4Frames = (
         if (boxSize < headerSize) {
           break;
         }
-        if (type === "moov") {
+        // A box cut short by a recorder that never finished is not read.
+        if (offset + boxSize > size) {
+          break;
+        }
+        if (type === "moov" || type === "moof") {
           const length = boxSize - headerSize;
-          if (length > MAX_MOOV_BYTES) {
+          indexBytes += length;
+          if (indexBytes > MAX_INDEX_BYTES) {
             return yield* Effect.fail(
               fail("The recording's index is too large to read.")
             );
           }
-          const moov = yield* read(offset + headerSize, length);
-          return yield* Effect.try({
-            catch: (cause) =>
-              cause instanceof Mp4FramesError
-                ? cause
-                : fail("The recording's index could not be read."),
-            try: () => parseMp4Moov(moov),
-          });
+          const contents = yield* read(offset + headerSize, length);
+          if (type === "moov") {
+            moov ??= contents;
+          } else {
+            fragments.push(contents);
+          }
         }
         offset += boxSize;
+      }
+      if (moov !== undefined) {
+        const index = moov;
+        return yield* Effect.try({
+          catch: (cause) =>
+            cause instanceof Mp4FramesError
+              ? cause
+              : fail("The recording's index could not be read."),
+          try: () => parseMp4Moov(index, fragments),
+        });
       }
       return yield* Effect.fail(
         fail("The recording has no index; it may not have been finished.")

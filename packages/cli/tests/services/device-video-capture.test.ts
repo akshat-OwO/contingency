@@ -87,6 +87,8 @@ const fakeRecorder = (
             files: [file],
             hidden: [],
             recorder: "confirmed",
+            restarts: [],
+            starts: [0],
             warning: undefined,
             ...options.stopped,
           } satisfies NativeScreenRecording;
@@ -184,21 +186,15 @@ describe("makeDeviceVideoCapture", () => {
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 
-  it.effect("stops video at the cap while footage is still on the device", () =>
-    Effect.gen(function* deviceCap() {
+  it.effect("keeps where each file starts and the restarts between them", () =>
+    Effect.gen(function* fileStarts() {
       const directory = yield* tempDirectory;
-      const onDevice = yield* Ref.make(0);
-      const reads = yield* Queue.unbounded<number>();
-      const began = yield* Deferred.make<true>();
-      const release = yield* Deferred.make<true>();
-      yield* Deferred.succeed(release, true);
-      const { calls, recorder } = yield* fakeRecorder({
-        footageBytes: Ref.get(onDevice).pipe(
-          Effect.tap((bytes) => Queue.offer(reads, bytes))
-        ),
-        stopGate: { began, release },
+      const { recorder } = yield* fakeRecorder({
+        stopped: {
+          restarts: [{ fromMs: 200, toMs: 700 }],
+          starts: [700],
+        },
       });
-      yield* TestClock.setTime(10_000);
       const capture = yield* makeDeviceVideoCapture({
         directory,
         fastForward: "capped",
@@ -207,26 +203,63 @@ describe("makeDeviceVideoCapture", () => {
         recorder: () => recorder,
       });
       yield* capture.begin;
-      // The size check reads the folder for real, so wait on each reading.
-      expect(yield* Queue.take(reads)).toBe(0);
-      yield* TestClock.adjust("3 seconds");
-      // Nothing has reached this folder; the device holds it all.
-      yield* Ref.set(onDevice, DEVICE_VIDEO_HARD_CAP_BYTES + 1);
-      yield* TestClock.adjust("7 seconds");
-      expect(yield* Queue.take(reads)).toBe(DEVICE_VIDEO_HARD_CAP_BYTES + 1);
-      yield* Deferred.await(began);
-      expect(calls).toEqual(["start", "stop"]);
-      yield* TestClock.adjust("5 seconds");
+      yield* TestClock.adjust("2 seconds");
       yield* capture.end;
-      expect(calls).toEqual(["start", "stop"]);
       expect(
         yield* readDeviceCapture(path.join(directory, DEVICE_VIDEO_DIRECTORY))
       ).toMatchObject({
-        endedAt: 25_000,
-        sizeLimitFromMs: 10_000,
-        state: "recorded",
+        files: ["recording.mp4"],
+        restarts: [{ fromMs: 200, toMs: 700 }],
+        starts: [700],
       });
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  );
+
+  it.effect(
+    "stops video at the cap while the recorder still holds footage",
+    () =>
+      Effect.gen(function* deviceCap() {
+        const directory = yield* tempDirectory;
+        const onDevice = yield* Ref.make(0);
+        const reads = yield* Queue.unbounded<number>();
+        const began = yield* Deferred.make<true>();
+        const release = yield* Deferred.make<true>();
+        yield* Deferred.succeed(release, true);
+        const { calls, recorder } = yield* fakeRecorder({
+          footageBytes: Ref.get(onDevice).pipe(
+            Effect.tap((bytes) => Queue.offer(reads, bytes))
+          ),
+          stopGate: { began, release },
+        });
+        yield* TestClock.setTime(10_000);
+        const capture = yield* makeDeviceVideoCapture({
+          directory,
+          fastForward: "capped",
+          pacing: "real-time",
+          platform: "android",
+          recorder: () => recorder,
+        });
+        yield* capture.begin;
+        // The size check reads the folder for real, so wait on each reading.
+        expect(yield* Queue.take(reads)).toBe(0);
+        yield* TestClock.adjust("3 seconds");
+        // Nothing has reached this folder; the device holds it all.
+        yield* Ref.set(onDevice, DEVICE_VIDEO_HARD_CAP_BYTES + 1);
+        yield* TestClock.adjust("7 seconds");
+        expect(yield* Queue.take(reads)).toBe(DEVICE_VIDEO_HARD_CAP_BYTES + 1);
+        yield* Deferred.await(began);
+        expect(calls).toEqual(["start", "stop"]);
+        yield* TestClock.adjust("5 seconds");
+        yield* capture.end;
+        expect(calls).toEqual(["start", "stop"]);
+        expect(
+          yield* readDeviceCapture(path.join(directory, DEVICE_VIDEO_DIRECTORY))
+        ).toMatchObject({
+          endedAt: 25_000,
+          sizeLimitFromMs: 10_000,
+          state: "recorded",
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );
 
   it.effect("ends the video at Stop while a cap stop is still collecting", () =>

@@ -127,3 +127,50 @@ declare module "expo-device-hub/vendor/serve-emu/dist/grpc-session.js" {
     close: () => Promise<void>;
   }>;
 }
+
+declare module "expo-device-hub/vendor/serve-emu/dist/screen-recording.js" {
+  /** One recording generation, written as fragmented MP4 into `directory`. */
+  export class ScreenRecording {
+    /** Creates `directory`, which must not exist yet, and its manifest. */
+    static create(options: {
+      directory: string;
+      maxDurationMs?: number;
+      maxFileBytes?: number;
+      minFreeBytes?: number;
+      maxQueuedBytes?: number;
+      finalizeTimeoutMs?: number;
+      clock?: { monotonicUs: () => bigint; epochMs: () => number };
+    }): Promise<ScreenRecording>;
+    /** Waiting for its first keyframe, or recording. */
+    readonly active: boolean;
+    snapshot():
+      | { status: "waiting" | "finalizing" | "complete" }
+      | {
+          status: "recording";
+          firstFrameAt: string;
+          frames: number;
+          queuedBytes: number;
+        }
+      | { status: "failed"; error: string };
+    /**
+     * Takes one H.264 access unit in Annex B form. A keyframe carries its
+     * SPS and PPS. A failure is recorded in the snapshot, never thrown.
+     */
+    accept(
+      packet:
+        | { type: "session"; width: number; height: number }
+        | {
+            type: "frame";
+            data: Uint8Array;
+            pts: bigint;
+            isConfig: boolean;
+            isKey: boolean;
+          },
+      size: { width: number; height: number },
+      source: string
+    ): void;
+    /** Finalizes `recording.mp4` in the directory. */
+    finish(): Promise<{ directory: string }>;
+    fail(reason: Error): void;
+  }
+}

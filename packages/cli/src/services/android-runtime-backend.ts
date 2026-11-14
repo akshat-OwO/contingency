@@ -34,15 +34,8 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
-import {
-  androidWindowVisibility,
-  recordedWindowVisibility,
-} from "./android-stream-contract.ts";
+import { androidWindowVisibility } from "./android-stream-contract.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
-import {
-  deviceFootageBytes,
-  makeAgentDeviceScreenRecorder,
-} from "./native-screen-recorder.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
@@ -656,46 +649,6 @@ export const acquireAndroidBackend = (
             fillPublic({ ...options(), ref, signal, text })
           ),
         recover: lifecycle.recover,
-        // Whole screen, touches hidden: the agent may use the whole emulator,
-        // and showing touches would change the device under test (ADR 0079).
-        screenRecorder: makeAgentDeviceScreenRecorder({
-          // agent-device keeps chunks in /sdcard or /data/local/tmp until Stop.
-          deviceFootageBytes: (since) =>
-            adb(input.device.serial, [
-              "shell",
-              'for f in /sdcard/agent-device-recording-*.mp4 /data/local/tmp/agent-device-recording-*.mp4; do [ -f "$f" ] && echo "$f $(stat -c %s "$f")"; done; true',
-            ]).pipe(
-              Effect.map((listing) => deviceFootageBytes(listing, since)),
-              Effect.orElseSucceed(() => 0)
-            ),
-          record: ({ action, path: file, signal }) =>
-            client.recording.record(
-              file === undefined
-                ? {
-                    ...options(),
-                    action,
-                    hideTouches: true,
-                    recordingScope: "device",
-                    signal,
-                  }
-                : {
-                    ...options(),
-                    action,
-                    hideTouches: true,
-                    path: file,
-                    recordingScope: "device",
-                    signal,
-                  }
-            ),
-          visibility: adb(input.device.serial, [
-            "shell",
-            "dumpsys",
-            "window",
-          ]).pipe(
-            Effect.map(recordedWindowVisibility),
-            Effect.orElseSucceed(() => "unknown" as const)
-          ),
-        }),
         sessionId,
         validate,
       };

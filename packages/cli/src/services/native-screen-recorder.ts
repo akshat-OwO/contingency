@@ -1,7 +1,9 @@
 import path from "node:path";
 
 import type { DeviceVideoSpan } from "@contingency/protocol";
-import { Clock, Data, Effect, Fiber, Schedule, Schema } from "effect";
+import { Clock, Data, Effect, Schema } from "effect";
+
+import { chunkStarts } from "./device-video-plan.ts";
 
 /** A recorder that would not start or stop, said in a sentence a person can act on. */
 export class NativeScreenRecorderError extends Data.TaggedError(
@@ -12,14 +14,22 @@ export class NativeScreenRecorderError extends Data.TaggedError(
 
 /** What a device's screen recorder left once it stopped. */
 export interface NativeScreenRecording {
-  /** The footage files, in order. More than one when Android chunked. */
+  /** The footage files, in order. More than one when a recorder restarted. */
   readonly files: readonly string[];
+  /**
+   * Milliseconds from the recorder's start to each file's first frame. A
+   * file that opens on footage the screen already showed starts before zero.
+   */
+  readonly starts: readonly number[];
+  /**
+   * Spans between files, from the recorder's start, with no footage: the
+   * recorder was starting the next file after a display change or a lost
+   * stream.
+   */
+  readonly restarts: readonly DeviceVideoSpan[];
   /** Wall-clock milliseconds the recorder ran for. */
   readonly durationMs: number;
-  /**
-   * Milliseconds the footage covers. Android encodes a frame only when the
-   * screen changes, so a still ending is not in the file.
-   */
+  /** Milliseconds the footage covers, when the recorder knows. */
   readonly capturedDurationMs: number | undefined;
   /**
    * What the recorder itself was seen doing when it stopped: `confirmed` is
@@ -59,9 +69,8 @@ export interface NativeScreenRecorder {
     NativeScreenRecorderError
   >;
   /**
-   * Bytes of the running recording's footage still on the device, which
-   * reach the recording's folder only at Stop. Zero when footage is written
-   * straight to that folder.
+   * Bytes of the running recording's footage that are not yet a finished
+   * `.mp4` in the recording's folder, such as the file being written.
    */
   readonly footageBytes: Effect.Effect<number>;
 }
@@ -94,9 +103,6 @@ export const AgentDeviceRecordResult = Schema.Struct({
 });
 export type AgentDeviceRecordResult = typeof AgentDeviceRecordResult.Type;
 const decodeRecordResult = Schema.decodeUnknownEffect(AgentDeviceRecordResult);
-
-/** A device's focus as a recording sees it. */
-export type ScreenVisibility = "visible" | "secure" | "unknown";
 
 const recorderState = (
   value: string | undefined
@@ -133,39 +139,12 @@ export const footageFiles = (
 interface ActiveRecording {
   readonly file: string;
   readonly startedAt: number;
-  readonly hidden: DeviceVideoSpan[];
-  hiddenFrom: number | undefined;
-  monitor: Fiber.Fiber<unknown> | undefined;
 }
 
-/** Folds one focus reading into the recording's Hidden Intervals. */
-const observeFocus = (
-  recording: ActiveRecording,
-  visibility: ScreenVisibility
-) =>
-  Effect.gen(function* observeFocusOnce() {
-    const at = Math.max(
-      0,
-      (yield* Clock.currentTimeMillis) - recording.startedAt
-    );
-    if (visibility === "visible") {
-      if (recording.hiddenFrom !== undefined) {
-        recording.hidden.push({
-          fromMs: recording.hiddenFrom,
-          toMs: Math.max(recording.hiddenFrom, at),
-        });
-        recording.hiddenFrom = undefined;
-      }
-    } else if (recording.hiddenFrom === undefined) {
-      recording.hiddenFrom = at;
-    }
-  });
-
 /**
- * A screen recorder over agent-device's `record` command. On Android the
- * screen's focus is checked once a second while it records, because
- * `screenrecord` draws a secure screen black without saying so; each span it
- * was hidden, or could not be classified, becomes a Hidden Interval.
+ * A screen recorder over agent-device's `record` command, which the iOS
+ * simulator records through. Android records its live display stream instead
+ * (`makeAndroidStreamRecorder`).
  */
 export const makeAgentDeviceScreenRecorder = (input: {
   /** Answers agent-device's own `record` result, parsed here. */
@@ -174,13 +153,6 @@ export const makeAgentDeviceScreenRecorder = (input: {
     readonly path?: string;
     readonly signal: AbortSignal;
   }) => Promise<typeof AgentDeviceRecordResult.Encoded>;
-  /** Present on Android only. A failed read answers `unknown`. */
-  readonly visibility?: Effect.Effect<ScreenVisibility>;
-  /**
-   * Present on Android only: bytes of agent-device footage on the device
-   * named for a start at or after the given epoch millisecond.
-   */
-  readonly deviceFootageBytes?: (sinceEpochMs: number) => Effect.Effect<number>;
 }): NativeScreenRecorder => {
   let active: ActiveRecording | undefined;
   const call = (
@@ -209,15 +181,8 @@ export const makeAgentDeviceScreenRecorder = (input: {
         )
       )
     );
-  // agent-device names each chunk for the host's clock when it starts one.
-  let requestedAt = 0;
-  const { deviceFootageBytes } = input;
   return {
-    footageBytes: Effect.suspend(() =>
-      active === undefined || deviceFootageBytes === undefined
-        ? Effect.succeed(0)
-        : deviceFootageBytes(requestedAt)
-    ),
+    footageBytes: Effect.succeed(0),
     start: (file) =>
       Effect.gen(function* startRecording() {
         if (active !== undefined) {
@@ -227,7 +192,6 @@ export const makeAgentDeviceScreenRecorder = (input: {
             })
           );
         }
-        requestedAt = yield* Clock.currentTimeMillis;
         const result = yield* call("start", { action: "start", path: file });
         if (result.recording !== "started") {
           return yield* Effect.fail(
@@ -237,25 +201,7 @@ export const makeAgentDeviceScreenRecorder = (input: {
           );
         }
         const startedAt = yield* Clock.currentTimeMillis;
-        const recording: ActiveRecording = {
-          file,
-          hidden: [],
-          hiddenFrom: undefined,
-          monitor: undefined,
-          startedAt,
-        };
-        active = recording;
-        const { visibility } = input;
-        if (visibility !== undefined) {
-          const check = visibility.pipe(
-            Effect.flatMap((seen) => observeFocus(recording, seen))
-          );
-          yield* check;
-          recording.monitor = yield* check.pipe(
-            Effect.repeat(Schedule.spaced("1 second")),
-            Effect.forkDetach
-          );
-        }
+        active = { file, startedAt };
         return startedAt;
       }),
     stop: () =>
@@ -269,19 +215,7 @@ export const makeAgentDeviceScreenRecorder = (input: {
           );
         }
         active = undefined;
-        if (recording.monitor !== undefined) {
-          yield* Fiber.interrupt(recording.monitor);
-        }
         const stoppedAt = yield* Clock.currentTimeMillis;
-        if (recording.hiddenFrom !== undefined) {
-          recording.hidden.push({
-            fromMs: recording.hiddenFrom,
-            toMs: Math.max(
-              recording.hiddenFrom,
-              stoppedAt - recording.startedAt
-            ),
-          });
-        }
         const result = yield* call("stop", { action: "stop" });
         if (result.recording !== "stopped") {
           return yield* Effect.fail(
@@ -290,14 +224,18 @@ export const makeAgentDeviceScreenRecorder = (input: {
             })
           );
         }
+        const files = footageFiles(recording.file, result);
         return {
           capturedDurationMs: elapsed(result.capturedDurationMs),
           devicePath: devicePathState(result.nativePathDisposition),
           durationMs:
             elapsed(result.durationMs) ?? stoppedAt - recording.startedAt,
-          files: footageFiles(recording.file, result),
-          hidden: recording.hidden,
+          files,
+          hidden: [],
           recorder: recorderState(result.recorder),
+          restarts: [],
+          // agent-device rotates its recorder on a fixed schedule.
+          starts: chunkStarts(files.length),
           warning:
             result.warning === undefined || result.warning.length === 0
               ? undefined
@@ -305,22 +243,4 @@ export const makeAgentDeviceScreenRecorder = (input: {
         } satisfies NativeScreenRecording;
       }),
   };
-};
-
-const DEVICE_CHUNK =
-  /\/agent-device-recording-(?<startedAt>\d{1,20})\.mp4\s+(?<bytes>\d+)$/u;
-
-/**
- * Bytes of agent-device Android chunks in a `<path> <size>` listing, counting
- * only those named for a start at or after `sinceEpochMs`.
- */
-export const deviceFootageBytes = (listing: string, sinceEpochMs: number) => {
-  let total = 0;
-  for (const line of listing.split("\n")) {
-    const chunk = DEVICE_CHUNK.exec(line.trim())?.groups;
-    if (chunk !== undefined && Number(chunk.startedAt) >= sinceEpochMs) {
-      total += Number(chunk.bytes);
-    }
-  }
-  return total;
 };

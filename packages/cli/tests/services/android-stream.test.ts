@@ -8,7 +8,6 @@ import {
   AndroidStreamPacket,
   androidVisibilityState,
   androidWindowVisibility,
-  recordedWindowVisibility,
 } from "../../src/services/android-stream-contract.ts";
 import { acquireAndroidStream } from "../../src/services/android-stream.ts";
 
@@ -136,13 +135,6 @@ it("recognizes secure flags after other flags and ignores unfocused windows", ()
   expect(androidWindowVisibility(windows(""))).toBe("unknown");
 });
 
-it("leaves the moments between windows in a recording, and hides the rest", () => {
-  // Measured on an emulator mid-transition, while recording.
-  expect(recordedWindowVisibility("mCurrentFocus=null\n")).toBe("visible");
-  expect(recordedWindowVisibility(windows("0x2000"))).toBe("secure");
-  expect(recordedWindowVisibility(windows(""))).toBe("unknown");
-});
-
 it("hides frames for unknown visibility without reporting the stream lost", () => {
   expect(androidVisibilityState("unknown")).toBe("connecting");
   expect(androidVisibilityState("visible")).toBe("connecting");
@@ -202,6 +194,140 @@ it.effect(
         });
         yield* Deferred.await(resumed).pipe(Effect.timeout("30 seconds"));
         expect(received.slice(1)).toEqual([frame(true), unknown, frame(true)]);
+        yield* Scope.close(scope, Exit.void);
+        yield* Fiber.join(viewer);
+      })
+    )
+);
+
+it.live(
+  "keeps a worker running for the recorder without a viewer and restarts it when lost",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* recorderHold() {
+        const scope = yield* Scope.make();
+        const firstLaunch = yield* Deferred.make<PassThrough>();
+        const secondLaunch = yield* Deferred.make<PassThrough>();
+        const launches = [firstLaunch, secondLaunch];
+        const children: ChildProcess[] = [];
+        const stream = yield* acquireAndroidStream(
+          "agent-recorder",
+          device,
+          scope,
+          () => {
+            const child = new ChildProcess();
+            const output = new PassThrough();
+            child.stdout = output;
+            child.kill = () => {
+              Object.defineProperty(child, "exitCode", { value: 0 });
+              child.emit("close", 0, null);
+              return true;
+            };
+            const launch = launches[children.length];
+            children.push(child);
+            if (launch !== undefined) {
+              Deferred.doneUnsafe(launch, Effect.succeed(output));
+            }
+            return child;
+          },
+          () => Effect.void
+        );
+        const received: AndroidStreamPacket[] = [];
+        const firstFrame = yield* Deferred.make<true>();
+        const lastFrame = yield* Deferred.make<true>();
+        const seen = [firstFrame, undefined, lastFrame];
+        const recorder = yield* Stream.runForEach(stream.packets, (packet) =>
+          Effect.sync(() => {
+            received.push(packet);
+            const frames = received.filter((item) => item._tag === "frame");
+            const reached = seen[frames.length - 1];
+            if (packet._tag === "frame" && reached !== undefined) {
+              Deferred.doneUnsafe(reached, Effect.succeed(true));
+            }
+          })
+        ).pipe(Effect.forkChild);
+        const connecting = { _tag: "state", state: "connecting" } as const;
+        // No viewer is connected: the recorder alone starts the worker.
+        const first = yield* Deferred.await(firstLaunch).pipe(
+          Effect.timeout("30 seconds")
+        );
+        first.write(
+          `${JSON.stringify(connecting)}\n${JSON.stringify(frame(true))}\n`
+        );
+        yield* Deferred.await(firstFrame).pipe(Effect.timeout("30 seconds"));
+        // The worker dies; the recorder is told, and a new one starts.
+        children[0]?.emit("close", 1, null);
+        const second = yield* Deferred.await(secondLaunch).pipe(
+          Effect.timeout("30 seconds")
+        );
+        second.write(
+          `${JSON.stringify(connecting)}\n${JSON.stringify(frame(false))}\n${JSON.stringify(frame(true))}\n`
+        );
+        yield* Deferred.await(lastFrame).pipe(Effect.timeout("30 seconds"));
+        // A recorder takes every packet, deltas included, and never the
+        // viewer's synthetic join state.
+        expect(received).toEqual([
+          connecting,
+          frame(true),
+          { _tag: "state", state: "lost" },
+          connecting,
+          frame(false),
+          frame(true),
+        ]);
+        yield* Scope.close(scope, Exit.void);
+        yield* Fiber.join(recorder);
+      })
+    )
+);
+
+it.effect(
+  "gives a recorder that joins a running stream the screen from its last keyframe",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* joinRunning() {
+        const scope = yield* Scope.make();
+        const started = yield* Deferred.make<PassThrough>();
+        const child = new ChildProcess();
+        const output = new PassThrough();
+        child.stdout = output;
+        child.kill = () => {
+          Object.defineProperty(child, "exitCode", { value: 0 });
+          child.emit("close", 0, null);
+          return true;
+        };
+        const stream = yield* acquireAndroidStream(
+          "agent-join",
+          device,
+          scope,
+          () => {
+            Deferred.doneUnsafe(started, Effect.succeed(output));
+            return child;
+          },
+          () => Effect.void
+        );
+        const delta = yield* Deferred.make<true>();
+        const viewer = yield* Stream.runForEach(stream.frames, (bytes) => {
+          const packet = parse(Buffer.from(bytes).toString("utf-8").trim());
+          return packet._tag === "frame" && !packet.key
+            ? Deferred.succeed(delta, true)
+            : Effect.void;
+        }).pipe(Effect.forkChild);
+        const connecting = { _tag: "state", state: "connecting" } as const;
+        const later = { ...frame(false), timestamp: 3 };
+        (yield* Deferred.await(started).pipe(
+          Effect.timeout("30 seconds")
+        )).write(
+          [connecting, frame(false), frame(true), later]
+            .map((packet) => `${JSON.stringify(packet)}\n`)
+            .join("")
+        );
+        yield* Deferred.await(delta).pipe(Effect.timeout("30 seconds"));
+        // The recorder joins after the worker sent its keyframe and a delta.
+        const joined = yield* stream.packets.pipe(
+          Stream.take(3),
+          Stream.runCollect
+        );
+        expect([...joined]).toEqual([connecting, frame(true), later]);
         yield* Scope.close(scope, Exit.void);
         yield* Fiber.join(viewer);
       })

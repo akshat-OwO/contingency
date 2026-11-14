@@ -1,6 +1,10 @@
 export { AndroidStreamPacket } from "@contingency/protocol";
 
-/** Pinned display transport. The hub dashboard and recorder are never loaded. */
+/**
+ * Pinned display transport. Its stream feeds viewers and the session's
+ * recorder, which muxes the stream with the hub's `ScreenRecording`. The hub
+ * dashboard and its session recorder are never loaded.
+ */
 export const androidStreamRelease = {
   hub: "0.15.3",
   scrcpy: "4.0",
@@ -36,19 +40,6 @@ export const androidWindowVisibility = (
   }
   return "visible";
 };
-
-/**
- * What a device recording keeps out of its video. Only a focused window counts:
- * between windows nothing has focus and nothing needs hiding, so a recording
- * hides a secure focused window, or a focused window it cannot classify.
- * `screenrecord` draws secure windows black either way.
- */
-export const recordedWindowVisibility = (
-  windows: string
-): "visible" | "secure" | "unknown" =>
-  /mCurrentFocus=null\b/u.test(windows)
-    ? "visible"
-    : androidWindowVisibility(windows);
 
 /**
  * What viewers see for the focused window's visibility. Unknown visibility

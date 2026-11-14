@@ -5,7 +5,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { NativeInput } from "@contingency/protocol";
-import { Effect, Queue, Schema, Scope, Semaphore, Stream } from "effect";
+import {
+  Deferred,
+  Effect,
+  Queue,
+  Schema,
+  Scope,
+  Semaphore,
+  Stream,
+} from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
@@ -24,6 +32,15 @@ export interface AndroidDeviceStream {
   readonly authorized: (token?: string) => boolean;
   readonly frames: Stream.Stream<Uint8Array>;
   /**
+   * Every packet the worker sends, for the session's recorder, starting with
+   * the frames since the last keyframe. While it is consumed the worker runs
+   * without a viewer, and a worker that is lost is
+   * started again, so the packets go on after a `lost` state. A consumer
+   * that falls behind misses frames until the next keyframe, never a frame
+   * a later one depends on. It ends when the session's stream is released.
+   */
+  readonly packets: Stream.Stream<AndroidStreamPacket>;
+  /**
    * Sends Forwarded Input to the device through the stream's control socket,
    * in order. It fails when no viewer has started the stream.
    */
@@ -40,6 +57,15 @@ const decode = Schema.decodeUnknownOption(
   Schema.fromJsonString(AndroidStreamPacket)
 );
 const execute = promisify(execFile);
+/** How long a recorder waits before starting a lost worker again. */
+const RESTART_DELAY = "1 second";
+/** Packets a recorder may fall behind by before it misses frames. */
+const RECORDER_BUFFER = 256;
+/**
+ * The most the frames since the last keyframe may hold before they are no
+ * longer kept for a recorder that joins.
+ */
+const MAX_GROUP_BYTES = 8 * 1024 * 1024;
 
 /** Reap only this generation's forward and working files, even after SIGKILL. */
 const cleanupTransport = (device: AndroidDeviceSelection, scid: string) =>
@@ -113,10 +139,35 @@ export const acquireAndroidStream = (
     const clients = new Set<(packet: AndroidStreamPacket) => void>();
     const pendingCleanup = new Set<string>();
     let worker: ChildProcess | undefined;
+    /** Settles once the current worker has closed and been cleaned up. */
+    let exited: Deferred.Deferred<true> | undefined;
+    /** Whether the current worker has sent a packet of its own yet. */
+    let live = false;
+    /**
+     * The frames since the last keyframe, so a recorder that joins can start
+     * from the screen as it is. The encoder sends a keyframe only every 60
+     * frames, which an idle screen takes 30 seconds to reach.
+     */
+    let group: Extract<AndroidStreamPacket, { readonly _tag: "frame" }>[] = [];
+    let groupBytes = 0;
     let cleaning: Promise<void> = Promise.resolve();
     const broadcast = (packet: AndroidStreamPacket) => {
       if (packet._tag === "state") {
         registry.set(status, packet);
+        // The worker resumes at a keyframe after any state.
+        group = [];
+        groupBytes = 0;
+      } else if (packet.key) {
+        group = [packet];
+        groupBytes = packet.data.length;
+      } else if (group.length > 0) {
+        groupBytes += packet.data.length;
+        if (groupBytes > MAX_GROUP_BYTES) {
+          group = [];
+          groupBytes = 0;
+        } else {
+          group.push(packet);
+        }
       }
       for (const receive of clients) {
         receive(packet);
@@ -172,6 +223,9 @@ export const acquireAndroidStream = (
             });
             pendingCleanup.add(scid);
             worker = child;
+            live = false;
+            const workerExited = Deferred.makeUnsafe<true>();
+            exited = workerExited;
             let pending = "";
             let settled = false;
             const ended = () => {
@@ -179,6 +233,7 @@ export const acquireAndroidStream = (
                 return;
               }
               settled = true;
+              live = false;
               broadcast(lost);
               // Retain the process until it has actually closed, including startup failure.
             };
@@ -201,6 +256,7 @@ export const acquireAndroidStream = (
                       if (worker === child) {
                         worker = undefined;
                       }
+                      Deferred.doneUnsafe(workerExited, Effect.succeed(true));
                     })
                   )
                 )
@@ -224,6 +280,7 @@ export const acquireAndroidStream = (
                   child.kill("SIGTERM");
                   return;
                 }
+                live = !settled;
                 broadcast(packet.value);
                 newline = pending.indexOf("\n");
               }
@@ -279,6 +336,66 @@ export const acquireAndroidStream = (
         }),
       { bufferSize: 8, strategy: "dropping" }
     );
+    const packets = Stream.callback<AndroidStreamPacket>(
+      (queue) =>
+        Effect.gen(function* recordStream() {
+          if (registry.get(closed)) {
+            Queue.endUnsafe(queue);
+            return;
+          }
+          let keyRequired = false;
+          const receive = (packet: AndroidStreamPacket) => {
+            if (registry.get(closed)) {
+              Queue.endUnsafe(queue);
+              return;
+            }
+            if (packet._tag === "frame" && keyRequired && !packet.key) {
+              return;
+            }
+            if (Queue.offerUnsafe(queue, packet)) {
+              if (packet._tag === "frame") {
+                keyRequired = false;
+              }
+            } else if (packet._tag === "frame") {
+              // A missed frame breaks the deltas after it; resume at a key.
+              keyRequired = true;
+            }
+          };
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              clients.add(receive);
+              // A worker already running has told viewers its state; tell
+              // this consumer too, so it knows the stream is live, then give
+              // it the screen from the last keyframe on.
+              const current = registry.get(status);
+              if (live && current._tag === "state") {
+                receive(current);
+                for (const frame of group) {
+                  receive(frame);
+                }
+              }
+            }),
+            () =>
+              Effect.sync(() => {
+                clients.delete(receive);
+              })
+          );
+          // Keep a worker running for as long as this is consumed.
+          yield* Effect.gen(function* holdWorker() {
+            yield* start;
+            if (registry.get(closed)) {
+              Queue.endUnsafe(queue);
+              return yield* Effect.interrupt;
+            }
+            const current = exited;
+            if (current !== undefined) {
+              yield* Deferred.await(current);
+            }
+            yield* Effect.sleep(RESTART_DELAY);
+          }).pipe(Effect.forever, Effect.forkScoped);
+        }),
+      { bufferSize: RECORDER_BUFFER, strategy: "dropping" }
+    );
     return {
       access: {
         path: `/android/stream/${encodeURIComponent(sessionId)}`,
@@ -315,5 +432,6 @@ export const acquireAndroidStream = (
           }).pipe(Effect.asVoid);
         }),
       frames,
+      packets,
     } satisfies AndroidDeviceStream;
   });

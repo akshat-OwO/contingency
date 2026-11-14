@@ -397,6 +397,9 @@ importers:
       lighthouse:
         specifier: 13.5.0
         version: 13.5.0(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))
+      mediabunny:
+        specifier: 1.55.3
+        version: 1.55.3
       open:
         specifier: ^11.0.0
         version: 11.0.4

@@ -51,6 +51,8 @@ export interface DeviceCaptureFacts {
   readonly takeovers: readonly DeviceVideoSpan[];
   readonly hidden: readonly DeviceVideoSpan[];
   readonly recorder: "confirmed" | "unconfirmed" | "lost" | undefined;
+  /** Spans between footage files while the recorder restarted. */
+  readonly restarts: readonly DeviceVideoSpan[];
   /** The recorder stopped on its own before Stop, such as at a time limit. */
   readonly stoppedEarly: boolean;
   /** Footage dropped at the size limit from this offset on. */
@@ -97,6 +99,9 @@ export const deviceVideoCapture = (
   const gaps: { fromMs: number; toMs: number; reason: DeviceVideoGapReason }[] =
     [];
   const covered = coveredUntil(chunks);
+  for (const restart of facts.restarts) {
+    gaps.push({ ...clip(restart, durationMs), reason: "recorder-restarted" });
+  }
   if (facts.sizeLimitFromMs !== undefined) {
     gaps.push({
       fromMs: Math.min(durationMs, facts.sizeLimitFromMs),

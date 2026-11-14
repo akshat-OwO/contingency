@@ -56,6 +56,7 @@ import {
 } from "../../src/services/mcp-device-workspace.ts";
 import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
+import type { NativeScreenRecorder } from "../../src/services/native-screen-recorder.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -162,7 +163,36 @@ const fixture = (
               forwarded.push([...inputs]);
             }),
           frames: Stream.empty,
+          packets: Stream.empty,
         });
+      // The session's screen recorder: it leaves a footage file where it
+      // was asked to record.
+      const screenRecorder: NativeScreenRecorder = {
+        footageBytes: Effect.succeed(0),
+        start: (file) =>
+          Effect.sync(() => {
+            recorded.push("start");
+            recordingFile = file;
+            return Date.now();
+          }),
+        stop: () =>
+          Effect.gen(function* stopFixtureRecorder() {
+            recorded.push("stop");
+            const file = recordingFile ?? "";
+            yield* fs.writeFile(file, new Uint8Array(8)).pipe(Effect.orDie);
+            return {
+              capturedDurationMs: undefined,
+              devicePath: undefined,
+              durationMs: 0,
+              files: [file],
+              hidden: [],
+              recorder: "confirmed" as const,
+              restarts: [],
+              starts: [0],
+              warning: undefined,
+            };
+          }),
+      };
       let secure = false;
       let connected = true;
       let generation = 0;
@@ -263,32 +293,6 @@ const fixture = (
             });
           }),
         recover: () => Effect.void,
-        // The device's screen recorder: it leaves a footage file where it
-        // was asked to record.
-        screenRecorder: {
-          footageBytes: Effect.succeed(0),
-          start: (file) =>
-            Effect.sync(() => {
-              recorded.push("start");
-              recordingFile = file;
-              return Date.now();
-            }),
-          stop: () =>
-            Effect.gen(function* stopFixtureRecorder() {
-              recorded.push("stop");
-              const file = recordingFile ?? "";
-              yield* fs.writeFile(file, new Uint8Array(8)).pipe(Effect.orDie);
-              return {
-                capturedDurationMs: undefined,
-                devicePath: "retired" as const,
-                durationMs: 0,
-                files: [file],
-                hidden: [],
-                recorder: "confirmed" as const,
-                warning: undefined,
-              };
-            }),
-        },
         sessionId: "fixture-session",
         validate: () => {
           if (secure) {
@@ -338,6 +342,7 @@ const fixture = (
       const workspace = makeAndroidWorkspaceLayer({
         acquireStream,
         root: () => root,
+        screenRecorder: () => screenRecorder,
       }).pipe(Layer.provide(dependencies));
       const learning = TeachingRecordingLearningLive.pipe(Layer.provide(store));
       // Without the test's own Scope, so a restarted workspace lives only as
@@ -347,7 +352,11 @@ const fixture = (
       );
       const restart = () =>
         Layer.build(
-          makeAndroidWorkspaceLayer({ acquireStream, root: () => root }).pipe(
+          makeAndroidWorkspaceLayer({
+            acquireStream,
+            root: () => root,
+            screenRecorder: () => screenRecorder,
+          }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 makeTeachingRecordingStoreLayer({ root: () => root }),
