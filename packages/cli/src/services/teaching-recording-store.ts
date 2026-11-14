@@ -40,7 +40,6 @@ import {
 import { readFlowContractFiles } from "./flow-contract-files.ts";
 import { readFlowFrontmatter, stampFlowVerification } from "./flow-package.ts";
 import { browserRequirements } from "./platform-requirements.ts";
-import { processExists } from "./process-liveness.ts";
 import { SessionEventOrigin } from "./session-events.ts";
 
 /**
@@ -270,7 +269,19 @@ const withReceipt = (
   };
 };
 
-const processIsStale = (pid: number): boolean => !processExists(pid);
+const ProcessError = Schema.Struct({ code: Schema.optional(Schema.String) });
+
+/** EPERM means the process exists; only ESRCH proves the claim is abandoned. */
+const processIsStale = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return Schema.decodeUnknownOption(ProcessError)(error).pipe(
+      Option.exists(({ code }) => code === "ESRCH")
+    );
+  }
+};
 
 /**
  * The learning claim a state carries, if it carries one. Only `learning`

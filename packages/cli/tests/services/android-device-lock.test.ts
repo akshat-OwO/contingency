@@ -1,24 +1,20 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 import { expect, it } from "@effect/vitest";
-import { Effect, Exit, Scope } from "effect";
+import { Effect, Exit, Schema } from "effect";
 
 import { acquireAndroidDeviceLock } from "../../src/services/android-device-lock.ts";
 
-const execute = promisify(execFile);
+const holderScript = fileURLToPath(
+  new URL("fixtures/hold-android-device-lock.ts", import.meta.url)
+);
 
 const lockDirectory = Effect.acquireRelease(
   Effect.promise(() => mkdtemp(path.join(tmpdir(), "android-device-lock-"))),
@@ -26,73 +22,51 @@ const lockDirectory = Effect.acquireRelease(
     Effect.promise(() => rm(directory, { force: true, recursive: true }))
 ).pipe(Effect.map((directory) => path.join(directory, "device.lock")));
 
-/** A separate live process, stopped when the test's scope closes. */
-const liveProcess = Effect.acquireRelease(
+const kill = (child: ChildProcess) =>
   Effect.promise(async () => {
-    const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
-      stdio: ["pipe", "ignore", "ignore"],
-    });
-    await once(child, "spawn");
-    return child;
-  }),
-  (child) =>
-    Effect.promise(async () => {
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = once(child, "exit");
-        child.kill("SIGKILL");
-        await exited;
-      }
-    })
-);
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, "exit");
+      child.kill("SIGKILL");
+      await exited;
+    }
+  });
 
-const pidOf = (child: ChildProcess): number => {
-  if (child.pid === undefined) {
-    throw new Error("Child process has no PID.");
-  }
-  return child.pid;
-};
+/** The holder prints one outcome line. */
+const HolderLine = Schema.Tuple([
+  Schema.Literals(["held", "refused device_lock_held"]),
+]);
 
-const startedAt = (pid: number) =>
-  Effect.promise(() =>
-    execute("ps", ["-p", String(pid), "-o", "lstart="]).then(({ stdout }) =>
-      stdout.trim()
-    )
-  );
+interface Holder {
+  readonly child: ChildProcess;
+  /** The holder's first line: `held`, or `refused <code>`. */
+  readonly outcome: string;
+}
 
-/** The PID of a process that has exited and been reaped. */
-const exitedPid = Effect.promise(async () => {
-  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  await once(child, "exit");
-  return pidOf(child);
-});
-
-const writeOwner = (
-  lockPath: string,
-  owner: { pid: number; startedAt: string; token: string }
-) => Effect.promise(() => writeFile(lockPath, JSON.stringify(owner)));
-
-const exists = (file: string) =>
-  Effect.promise(() =>
-    access(file).then(
-      () => true,
-      () => false
-    )
-  );
-
-it.effect("reclaims a lock whose owner process no longer exists", () =>
-  Effect.scoped(
-    Effect.gen(function* reclaimDead() {
-      const lockPath = yield* lockDirectory;
-      const pid = yield* exitedPid;
-      yield* writeOwner(lockPath, { pid, startedAt: "", token: "dead" });
-      const lock = yield* acquireAndroidDeviceLock(lockPath);
-      const owner = JSON.parse(
-        yield* Effect.promise(() => readFile(lockPath, "utf-8"))
+/** Another process trying the production lock, stopped with the test scope. */
+const holder = (lockPath: string) =>
+  Effect.acquireRelease(
+    Effect.promise(async (): Promise<Holder> => {
+      const child = spawn(process.execPath, [holderScript, lockPath], {
+        stdio: ["pipe", "pipe", "inherit"],
+      });
+      const lines = createInterface({ input: child.stdout });
+      const [outcome] = Schema.decodeUnknownSync(HolderLine)(
+        await once(lines, "line")
       );
-      expect(owner.pid).toBe(process.pid);
-      expect(owner.token).not.toBe("dead");
+      return { child, outcome };
+    }),
+    ({ child }) => kill(child)
+  );
+
+it.effect("takes a lock whose owner process was killed", () =>
+  Effect.scoped(
+    Effect.gen(function* afterKill() {
+      const lockPath = yield* lockDirectory;
+      const first = yield* holder(lockPath);
+      expect(first.outcome).toBe("held");
+      yield* kill(first.child);
+      const lock = yield* acquireAndroidDeviceLock(lockPath);
       yield* lock.release;
-      expect(yield* exists(lockPath)).toBe(false);
     })
   )
 );
@@ -101,117 +75,86 @@ it.effect("refuses a lock held by a live process and names the held lock", () =>
   Effect.scoped(
     Effect.gen(function* refuseLive() {
       const lockPath = yield* lockDirectory;
-      const holder = yield* liveProcess;
-      const pid = pidOf(holder);
-      const owner = { pid, startedAt: yield* startedAt(pid), token: "live" };
-      yield* writeOwner(lockPath, owner);
+      expect((yield* holder(lockPath)).outcome).toBe("held");
       const failure = yield* Effect.flip(acquireAndroidDeviceLock(lockPath));
       expect(failure.code).toBe("device_lock_held");
       expect(failure.message).toContain(
         "Another Contingency process is using this Android device"
       );
       expect(failure.message).not.toContain("helper");
-      expect(
-        JSON.parse(yield* Effect.promise(() => readFile(lockPath, "utf-8")))
-      ).toEqual(owner);
     })
   )
 );
 
-it.effect("reclaims a lock whose PID now belongs to a different process", () =>
+it.effect("lets exactly one of several processes take the device", () =>
   Effect.scoped(
-    Effect.gen(function* reclaimReused() {
+    Effect.gen(function* raceProcesses() {
       const lockPath = yield* lockDirectory;
-      const pid = pidOf(yield* liveProcess);
-      yield* writeOwner(lockPath, {
-        pid,
-        startedAt: "Mon Jan  1 00:00:00 2001",
-        token: "reused",
-      });
-      const lock = yield* acquireAndroidDeviceLock(lockPath);
-      const owner = JSON.parse(
-        yield* Effect.promise(() => readFile(lockPath, "utf-8"))
+      const outcomes = yield* Effect.all(
+        [0, 1, 2, 3].map(() => holder(lockPath)),
+        { concurrency: "unbounded" }
       );
-      expect(owner.pid).toBe(process.pid);
-      yield* lock.release;
+      expect(outcomes.map(({ outcome }) => outcome).toSorted()).toEqual([
+        "held",
+        "refused device_lock_held",
+        "refused device_lock_held",
+        "refused device_lock_held",
+      ]);
     })
   )
 );
 
-it.effect("refuses a malformed or legacy lock instead of reclaiming it", () =>
+it.effect("lets exactly one start in this process take the device", () =>
   Effect.scoped(
-    Effect.gen(function* refuseUnreadable() {
+    Effect.gen(function* raceFibers() {
       const lockPath = yield* lockDirectory;
-      yield* Effect.promise(() => writeFile(lockPath, "not json"));
-      const malformed = yield* Effect.flip(acquireAndroidDeviceLock(lockPath));
-      expect(malformed.code).toBe("device_lock_held");
-      expect(malformed.message).toContain(lockPath);
-      expect(yield* Effect.promise(() => readFile(lockPath, "utf-8"))).toBe(
-        "not json"
-      );
-
-      yield* Effect.promise(() => rm(lockPath));
-      yield* Effect.promise(() => mkdir(lockPath));
-      const legacy = yield* Effect.flip(acquireAndroidDeviceLock(lockPath));
-      expect(legacy.code).toBe("device_lock_held");
-      expect(legacy.message).toContain("has no readable owner");
-      expect(yield* exists(lockPath)).toBe(true);
-    })
-  )
-);
-
-it.effect("removes the lock when a start fails after taking it", () =>
-  Effect.gen(function* failedStart() {
-    const scope = yield* Scope.make();
-    const lockPath = yield* lockDirectory.pipe(Scope.provide(scope));
-    const started = yield* Effect.exit(
-      Effect.gen(function* start() {
-        yield* Effect.acquireRelease(
-          acquireAndroidDeviceLock(lockPath),
-          (lock) => Effect.orDie(lock.release)
-        );
-        expect(yield* exists(lockPath)).toBe(true);
-        return yield* Effect.fail("helper running");
-      }).pipe(Effect.scoped)
-    );
-    expect(Exit.isFailure(started)).toBe(true);
-    expect(yield* exists(lockPath)).toBe(false);
-    yield* Scope.close(scope, Exit.void);
-  })
-);
-
-it.effect("lets only one concurrent start take a stale lock", () =>
-  Effect.scoped(
-    Effect.gen(function* raceReclaim() {
-      const lockPath = yield* lockDirectory;
-      const pid = yield* exitedPid;
-      yield* writeOwner(lockPath, { pid, startedAt: "", token: "dead" });
       const results = yield* Effect.all(
         [0, 1, 2].map(() => Effect.result(acquireAndroidDeviceLock(lockPath))),
         { concurrency: "unbounded" }
       );
-      const taken = results.filter((result) => result._tag === "Success");
+      const taken = results.flatMap((result) =>
+        result._tag === "Success" ? [result.success] : []
+      );
       expect(taken).toHaveLength(1);
       for (const result of results) {
         if (result._tag === "Failure") {
           expect(result.failure.code).toBe("device_lock_held");
         }
       }
+      for (const lock of taken) {
+        yield* lock.release;
+      }
     })
   )
 );
 
-it.effect("never removes a lock another holder has since taken", () =>
+it.effect("releases the lock when a start fails after taking it", () =>
   Effect.scoped(
-    Effect.gen(function* keepOthers() {
+    Effect.gen(function* failedStart() {
       const lockPath = yield* lockDirectory;
-      const lock = yield* acquireAndroidDeviceLock(lockPath);
-      const other = { pid: process.pid, startedAt: "", token: "other" };
-      yield* writeOwner(lockPath, other);
-      yield* lock.release;
-      expect(
-        JSON.parse(yield* Effect.promise(() => readFile(lockPath, "utf-8")))
-      ).toEqual(other);
+      const started = yield* Effect.exit(
+        Effect.gen(function* start() {
+          yield* Effect.acquireRelease(
+            acquireAndroidDeviceLock(lockPath),
+            (lock) => Effect.orDie(lock.release)
+          );
+          return yield* Effect.fail("helper running");
+        }).pipe(Effect.scoped)
+      );
+      expect(Exit.isFailure(started)).toBe(true);
+      expect((yield* holder(lockPath)).outcome).toBe("held");
+    })
+  )
+);
+
+it.effect("refuses an old lock directory and names its path", () =>
+  Effect.scoped(
+    Effect.gen(function* refuseLegacy() {
+      const lockPath = yield* lockDirectory;
+      yield* Effect.promise(() => mkdir(lockPath));
+      const failure = yield* Effect.flip(acquireAndroidDeviceLock(lockPath));
+      expect(failure.code).toBe("device_lock_held");
+      expect(failure.message).toContain(lockPath);
     })
   )
 );
