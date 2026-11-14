@@ -2,6 +2,7 @@ import { AgentSessionId, OperationId } from "@contingency/protocol";
 import type {
   NativeInput,
   AndroidWorkspaceCommand,
+  AndroidWorkspaceSelection,
   AndroidWorkspaceSnapshot,
   AndroidWorkspaceSummary,
   FlowName,
@@ -30,6 +31,7 @@ import {
   DockStatus,
   DockWordmark,
 } from "@/components/agent/workspace-dock";
+import { WatcherLoader } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -88,6 +90,11 @@ interface WorkspaceState {
   /** The input refusal was set aside when the comment tier opened. */
   readonly refusalDismissed: boolean;
   readonly setupOpen: boolean;
+  /**
+   * What the last start gesture prepares, when it prepares the app and
+   * device. While it is in flight the stage shows that preparation is running.
+   */
+  readonly preparing: AndroidWorkspaceSelection | null;
   /** The route named a session this server has no record of. */
   readonly unavailable: boolean;
 }
@@ -97,6 +104,7 @@ const workspaceAtom = Atom.make<WorkspaceState>({
   inputRefusal: null,
   instructing: false,
   instructionPending: false,
+  preparing: null,
   refusalDismissed: false,
   session: null,
   setupOpen: false,
@@ -187,6 +195,63 @@ const glassText = (session: AndroidWorkspaceSnapshot) => {
   return "Emulator released.";
 };
 
+const deviceLabel = ({ device }: AndroidWorkspaceSelection) =>
+  `${device.kind === "physical" ? device.model : device.avd} · API ${device.api}`;
+
+/**
+ * The stage while a confirmed start installs and launches the app. It replaces
+ * the empty state, so the wait never reads as the screen before Open.
+ */
+export const AndroidPreparingState = ({
+  selection,
+}: {
+  readonly selection: AndroidWorkspaceSelection;
+}) => (
+  <main aria-busy="true" className="relative flex h-full min-h-0 flex-col">
+    <WorkspacePlatformBar />
+    <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
+      <section
+        aria-labelledby="android-preparing-title"
+        className="material-panel relative w-full max-w-sm overflow-hidden rounded-xl px-5 pt-8 pb-6 text-center shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:px-6"
+      >
+        <WatcherLoader className="mx-auto h-9" />
+        <h1
+          className="mt-6 text-lg font-semibold tracking-tight"
+          id="android-preparing-title"
+        >
+          Preparing your app
+        </h1>
+        <p
+          aria-live="polite"
+          className="text-muted-foreground mt-1.5 text-sm text-pretty"
+          role="status"
+        >
+          Installing and launching it on the device. This can take up to a
+          minute.
+        </p>
+        <dl className="bg-muted/60 mt-5 divide-y rounded-lg border text-left text-xs">
+          <div className="flex items-center justify-between gap-3 px-3 py-2">
+            <dt className="text-muted-foreground">App</dt>
+            <dd className="min-w-0 truncate font-mono">
+              {selection.environment.appId}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3 px-3 py-2">
+            <dt className="text-muted-foreground">Device</dt>
+            <dd className="min-w-0 truncate">{deviceLabel(selection)}</dd>
+          </div>
+        </dl>
+        <div
+          aria-hidden="true"
+          className="bg-border absolute inset-x-0 bottom-0 h-0.5 overflow-hidden"
+        >
+          <div className="bg-brand h-full w-1/3" data-slot="preparing-sweep" />
+        </div>
+      </section>
+    </div>
+  </main>
+);
+
 export const AndroidEmptyState = ({
   onOpen,
   onSelect,
@@ -201,7 +266,7 @@ export const AndroidEmptyState = ({
   readonly onSelect: (sessionId: string) => void;
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
-  <main className="relative flex h-full min-h-0 flex-col">
+  <main aria-busy={pending} className="relative flex h-full min-h-0 flex-col">
     <WorkspacePlatformBar />
     <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
       <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
@@ -220,7 +285,7 @@ export const AndroidEmptyState = ({
             className="text-muted-foreground text-sm text-pretty"
           >
             {pending
-              ? "Preparing the selected app and emulator. Installation can take a moment."
+              ? "Opening the session…"
               : "Open a session to pick a device and an app, then start recording when the journey begins."}
           </p>
           {unavailable && !pending ? (
@@ -879,8 +944,17 @@ export const AndroidWorkspace = ({
       Effect.asVoid
     );
   };
-  const mutate = (command: AndroidWorkspaceCommand) =>
-    gesture.dispatch(run(command));
+  const mutate = (command: AndroidWorkspaceCommand) => {
+    const sent = gesture.dispatch(run(command));
+    if (sent) {
+      const preparing =
+        command._tag === "start" && command.prepareAndOpen === true
+          ? command.selection
+          : null;
+      setState((current) => ({ ...current, preparing }));
+    }
+    return sent;
+  };
   const setupOpen = (open: boolean) =>
     setState((current) => ({ ...current, setupOpen: open }));
   const failure = gesture.error ?? state.failure;
@@ -902,17 +976,21 @@ export const AndroidWorkspace = ({
           flowsSession={undefined}
           summary={undefined}
         >
-          <AndroidEmptyState
-            onOpen={() => setupOpen(true)}
-            pending={gesture.pending}
-            onSelect={(value) => {
-              if (Schema.is(AgentSessionId)(value)) {
-                mutate({ _tag: "read", sessionId: value });
-              }
-            }}
-            sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
-            unavailable={state.unavailable}
-          />
+          {gesture.pending && state.preparing !== null ? (
+            <AndroidPreparingState selection={state.preparing} />
+          ) : (
+            <AndroidEmptyState
+              onOpen={() => setupOpen(true)}
+              pending={gesture.pending}
+              onSelect={(value) => {
+                if (Schema.is(AgentSessionId)(value)) {
+                  mutate({ _tag: "read", sessionId: value });
+                }
+              }}
+              sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
+              unavailable={state.unavailable}
+            />
+          )}
           {notices}
         </WorkspaceLayout>
       ) : (
