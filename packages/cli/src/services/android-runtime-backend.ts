@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm, rmdir } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,10 @@ import { Effect, Exit, Schema, Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
+import {
+  acquireAndroidDeviceLock,
+  androidDeviceLockPath,
+} from "./android-device-lock.ts";
 import {
   androidNodeInteraction,
   androidNodeName,
@@ -361,16 +365,14 @@ export const acquireAndroidBackend = (
       )
     );
     const acquired = Effect.gen(function* acquireOwnedResources() {
-      const lockPath = path.join(
-        tmpdir(),
-        `contingency-android-${createHash("sha256").update(input.device.serial).digest("hex")}.lock`
-      );
+      // A cleanup failure keeps the lock while this process lives; once it
+      // exits, the next start reclaims it.
       yield* Effect.acquireRelease(
-        io(() => mkdir(lockPath, { mode: 0o700 }), "helper_owned"),
-        () =>
+        acquireAndroidDeviceLock(androidDeviceLockPath(input.device.serial)),
+        (lock) =>
           cleanupRegistry.get(cleanupFailure)
             ? Effect.void
-            : finalize(io(() => rmdir(lockPath), "cleanup_failed"))
+            : finalize(lock.release)
       );
       const running = yield* adb(input.device.serial, [
         "shell",

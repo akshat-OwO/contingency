@@ -100,6 +100,7 @@ export interface PlatformRuntimeError {
     | "helper_incompatible"
     | "helper_newer_installed"
     | "helper_owned"
+    | "device_lock_held"
     | "target_unsupported"
     | "target_changed"
     | "runtime_paused"

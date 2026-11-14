@@ -37,6 +37,7 @@ import {
 } from "./device-video-plan.ts";
 import type { DeviceFootageChunk } from "./device-video-plan.ts";
 import { readMp4Frames } from "./mp4-frames.ts";
+import { processExists } from "./process-liveness.ts";
 import {
   fastForwardLabel,
   RUN_VIDEO_FRAME_MS,
@@ -91,15 +92,6 @@ export const DeviceVideoRenderer = Context.Service<DeviceVideoRendererService>(
 
 const failure = (message: string) => new Error(message);
 
-const isAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error instanceof Error && "code" in error && error.code === "EPERM";
-  }
-};
-
 const rounded = (value: number): number => Math.round(value * 1000) / 1000;
 
 const isHevc = (codec: string) => codec === "hvc1" || codec === "hev1";
@@ -133,7 +125,7 @@ export const DeviceVideoRendererLive = Layer.effect(
               .readFileString(file)
               .pipe(Effect.orElseSucceed(() => ""))).trim()
           );
-          if (Number.isInteger(holder) && holder > 0 && isAlive(holder)) {
+          if (Number.isInteger(holder) && holder > 0 && processExists(holder)) {
             return false;
           }
           yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);

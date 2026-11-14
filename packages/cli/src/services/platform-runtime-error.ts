@@ -13,6 +13,8 @@ const messages = {
     "Android cleanup is incomplete. Retained owned state requires inspection before recovery.",
   device_disconnected:
     "The selected Android device is disconnected. Execution is paused.",
+  device_lock_held:
+    "Another Contingency process is using this Android device. Close its Android session or let that process exit, then start a new Android session. No session was adopted.",
   device_mismatch:
     "The selected Android device identity changed. Execution is paused.",
   device_selection_required:
@@ -29,7 +31,7 @@ const messages = {
   helper_newer_installed:
     "This device has a newer agent-device helper than the release Contingency pins, and Android cannot replace it with an older one. Uninstall com.callstack.agentdevice.snapshothelper from this device, then start a new Android session. No input was sent.",
   helper_owned:
-    "An Android helper or device session is already owned. No existing session was adopted.",
+    "The Android helper app is already running on this device, so another automation tool may be using it. Stop that tool, then start a new Android session. No existing session was adopted.",
   host_unsupported: "iOS Simulator requires a local macOS host.",
   installation_denied:
     "Authorize installation or replacement of this exact helper release on the selected device.",
