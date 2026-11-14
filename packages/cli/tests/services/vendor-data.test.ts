@@ -351,7 +351,7 @@ it.effect("ships mediabunny's ESM modules without its bundles", () =>
       path.join(output, "entry.mjs"),
       'export * from "mediabunny";\n'
     );
-    const loaded: Record<string, unknown> = yield* Effect.promise(
+    const loaded = yield* Effect.promise(
       () => import(path.join(output, "entry.mjs"))
     );
     for (const name of [
@@ -361,7 +361,7 @@ it.effect("ships mediabunny's ESM modules without its bundles", () =>
       "Output",
       "StreamTarget",
     ]) {
-      expect(typeof loaded[name], name).toBe("function");
+      expect(loaded, name).toHaveProperty(name, expect.any(Function));
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
