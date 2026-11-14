@@ -25,6 +25,7 @@ Each complete cell receipt includes these checks:
 - Settings causes `foreign_app_foreground`. **Return to Target App** preserves the signed-in state and selected simulator. Teaching remains recording across recovery, and both Teaching and the later Run continue the account journey.
 - The later Run declares `photos` revoked. Workspace shows a permissions difference and Run Environment Permission. After approval and preparation, the first observation reads **Photos access: denied**, without visiting Settings.
 - Raw coordinates are rejected by the command schema. Back returns `capability_missing`. Duplicate binding, physical selection (`physical_device_unsupported`), and selections at iOS 25 and 28 (`os_unsupported`) are refused.
+- Clear Starting Data (ADR 0081) empties the Target App's data container and preferences, then recreates its standard directories. Keychain items and app-group containers survive, because the simulator offers no per-app reset for them. Device Erase resets the whole simulator.
 - Product activity creates or deletes no simulator. The complete before/after inventory matches, and the selected simulator remains running after sessions close.
 
 ## Attempts and fixes

@@ -6,6 +6,8 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 
 - `guided-run` starts only over MCP, waits for the user's Start, captures agent and Takeover user actions with their actor, retains Variable values, and learns through the existing Teaching Recording and Dry Run path.
 
+- `starting-data-device-erase` proves Keep and Clear Starting Data on Android and iOS, clearing again at Start recording, and Device Erase requested by an agent and performed only by the user, with refusal for a running device this process did not start.
+
 - `android-preparation` proves declared emulator activity restart, Run-scoped environment decisions, failed starting-condition refusal, unexpected-app pause, and fresh recovery through the internal Android factory.
 
 - `android-support-matrix` proves one Support Matrix cell: Workspace Teaching, a fresh Dry Run, and verification of activate, text fill, Variable fill, and Back, plus refusals for API 29, multiple bound devices, raw coordinates and secure windows, plus full OS use and Confirmation.
@@ -599,7 +601,7 @@ Preconditions: Build current source. Obtain explicit selection and authorization
 - **Read evidence:** Read `preparation-receipt.json` in the exported evidence directory. Require fresh distinct observation IDs before, outside, and after returning to the Target App, `starting_condition_failed`, and blocked preparation after refusal. Check retained differences, named decisions, grants, refusals, and owned close evidence. The runner independently rereads the persisted receipt. Screenshot hashes are retained; pixels stay in private runtime state and are purged by close.
 - **Cleanup:** Close all owned Runs. Remove the helper only if this proof installed it. Stop only the emulator this proof started. Retain the sanitized receipt and journal. Use the normal `control-contingency cleanup` for any separate browser regression instance.
 
-This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and untaught activations. Settings restart establishes the declared navigation state; it does not clear application data. A journey needing cleared data or another setup procedure is unsupported.
+This is live production-factory proof. It does not prove an Android MCP tool, Workspace permission rendering, mirrored Teaching, app updates, snapshots, destructive reset, or physical devices. Service tests separately exercise decision isolation, build drift, unsupported capabilities, outside-app setup, and untaught activations. Settings restart establishes the declared navigation state; it does not clear application data. A Flow whose Starting Data is **Clear app data** clears only its Target App; follow [Starting Data and Device Erase](#starting-data-and-device-erase). Other setup procedures are unsupported.
 
 ### Native snapshot corpus
 
@@ -943,6 +945,25 @@ vpx .cursor/skills/verify-contingency/bin/android-preparation-proof.mjs
 ```
 
 Install the permission-launcher fixture on the proof emulator first. The proof clears only its fixture marker through the bound device command, then closes that device session and installs the supplied newer helper before Contingency acquires it. It owns a recording browser and closes it on success or failure. Read `artifacts/android-confirmed-preparation/receipt.json` for `ok: true` and `workspace-preparation.webm` for the recording. Close remaining device sessions and run instance cleanup afterward.
+
+## Starting Data and Device Erase
+
+Feature id: `starting-data-device-erase`. Entry points: the **Starting data** choice in **New Android session** and **New iOS session**, **Erase device** on a device card, and the `device-erase-request` command of `agent_device_workspace`.
+
+Preconditions: build current source with `CONTINGENCY_BUILD_IOS_FRAMEBUFFER=1`. Check memory and swap, and run one device proof at a time. Launch an isolated instance, run `doctor`, and start MCP. Create disposable devices for the proof: an AVD from an installed API 36 image, and an iPhone 17 iOS 26.5 simulator from `xcrun simctl create`. Never erase, stop, or boot a device the proof did not create. A running user emulator may only be read for the refusal check.
+
+- **Android, boot an owned emulator:** export `CONTINGENCY_ANDROID_AVD` for the proof AVD and `CONTINGENCY_ANDROID_FOREIGN_AVD` for a running user emulator. Run `vpx .cursor/skills/verify-contingency/bin/android-starting-data-proof.mjs boot`. The user emulator's card reads `Stop this device to erase it.` with no `Erase <name>` button. The proof starts its AVD with `Start <AVD>`; once it is ready, its card offers `Erase <AVD>`.
+- **Android, seed the marker:** install the permission-launcher fixture APK with `adb install`. Through the Device panel command, open `dev.contingency.physicalfixture`, allow notifications, press `Store fixture data`, require `Existing fixture data`, then run the command's `close` so Contingency can acquire the capture helper.
+- **Android, Keep:** run the proof with `keep`. Preparation must show `Existing fixture data`, and the session's setup must read `startingData: "keep"`.
+- **Android, Clear:** reseed the marker, then run the proof with `clear`. The `Prepare and open app?` dialog must include `This removes <app label>'s sign-in and local data now`. Confirming it is the consent, so no further decision follows. The prepared screen must read `Fresh fixture data`. The proof presses `Store fixture data` through `browser android-pick` (Forwarded Input), then `Start recording`. The observation must read `Fresh fixture data` again, and the package must still be installed. The proof grants Notifications before start, because clearing resets runtime grants.
+- **Android, agent erase request:** run the proof with `erase`. The MCP request returns `status: "pending"` with a `next` hint and erases nothing. The sheet's `Device Erase request` region reads `The agent asks to erase <AVD>.`. `Erase device` opens the `Erase <AVD>?` alert. Confirming shows `Erasing…`, then the emulator starts again with wiped data. The fixture package must be gone.
+- **iOS, seed and Keep:** create, boot, and install `fixtures/ios-login` on the proof simulator, then export its UDID as `CONTINGENCY_IOS_SELECTED`. Run `vpx .cursor/skills/verify-contingency/bin/ios-starting-data-proof.mjs keep`. The proof writes `Documents/marker.txt` into the app's data container and a `proofMarker` defaults key. The simulator you booted reads `Stop this device to erase it.`. After `Prepare selected simulator`, both markers remain.
+- **iOS, Clear:** run the proof with `clear`. Workspace shows the `Clear app data` decision, and nothing is cleared before `Allow`. After preparation, both markers are gone and the app is still installed. The proof reseeds the markers and presses `Start recording`; both markers are gone again.
+- **iOS, agent erase request:** shut the proof simulator down, then run the proof with `erase`. The proof dismisses earlier pending requests with `Dismiss` and answers the newest one with `Erase device`. The simulator must be booted again with the fixture gone, and its card must still offer `Erase <name>` because this process now owns it.
+- **Read evidence:** read each `<phase>-receipt.json` under `artifacts/android-starting-data/` and `artifacts/ios-starting-data/` for `ok: true`, along with their ARIA snapshots, screenshots, and `<phase>.webm`.
+- **Cleanup:** wait for each proof session to close before ending a phase, because a live iOS session can boot its simulator again. Run `control-contingency cleanup`, then stop and delete the proof AVD with `avdmanager delete avd` and the proof simulator with `simctl delete <exact UDID>`.
+
+Service and component tests cover the agent-held Teaching decision relay, refusal while a session is bound, failed `pm clear`, and a container path outside the selected simulator. Clear on iOS keeps Keychain items and app-group containers. A pre-existing discovery race can fail an installed-app listing after switching devices mid-listing, so the Android proof retries the listing, never preparation.
 
 ## Forwarded Input latency
 

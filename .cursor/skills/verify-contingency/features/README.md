@@ -49,6 +49,7 @@ Keep implementation details out of the map. Name only user paths, stable handles
 
 - [Android discovery and element bounds](./workspace.md#android-discovery-and-element-bounds) proves read-only Workspace RPC discovery, unauthorized-device refusal, unchanged device state, and observation-bound rectangles on explicitly selected devices.
 
+- [Starting Data and Device Erase](./workspace.md#starting-data-and-device-erase) proves Keep and Clear Starting Data on Android and iOS, clearing again at Start recording, and agent-requested, user-performed Device Erase on disposable devices, with refusal for a running device this process did not start.
 - [Android preparation](./workspace.md#android-preparation) proves the internal Android factory lifecycle, with explicit device selection and sanitized receipts.
 - [Native snapshot corpus](./workspace.md#native-snapshot-corpus) captures raw iOS and Android accessibility trees from the widget corpus apps and built-in apps for device-free replay tests, and probes which primitives the device layer can activate.
 - [Android Support Matrix](./workspace.md#android-support-matrix) proves both emulator cells' Teaching, Dry Run, verification with Cleanup, later Run, system-dialog answer, Confirmation, secure-window pause, and physical-device refusal.
