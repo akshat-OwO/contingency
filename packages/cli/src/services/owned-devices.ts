@@ -53,6 +53,17 @@ export interface OwnedDevicesService {
     readonly operationId: string;
   }) => Effect.Effect<DeviceEraseRequest>;
   readonly dismissErase: (id: string) => Effect.Effect<void>;
+  /**
+   * Reserves a device for a session until the returned release runs. A
+   * session holds it from acquisition until its cleanup has finished, and
+   * Device Erase holds it for the whole erase, so neither can take a device
+   * the other is using.
+   */
+  readonly reserveDevice: (input: {
+    readonly platform: DeviceErasePlatform;
+    readonly device: string;
+    readonly holder: string;
+  }) => Effect.Effect<Effect.Effect<void>, DeviceEraseFailure>;
   readonly eraseState: Effect.Effect<DeviceEraseState>;
 }
 
@@ -103,6 +114,41 @@ export const makeOwnedDevicesLayer = ({
         )
       );
       const requests = new Map<string, DeviceEraseRequest>();
+      // The holder of each reserved device: a session id, or ERASING.
+      const reserved = new Map<string, string>();
+      const ERASING = "erase";
+      const reserve: OwnedDevicesService["reserveDevice"] = ({
+        device,
+        holder,
+        platform,
+      }) =>
+        // Checked and claimed in one step, so two claims cannot interleave.
+        Effect.suspend(() => {
+          const key = `${platform}:${device}`;
+          const current = reserved.get(key);
+          if (current !== undefined) {
+            return Effect.fail<DeviceEraseFailure>(
+              current === ERASING
+                ? {
+                    code: "device_erasing",
+                    message:
+                      "This device is being erased. Start the session once it is running again.",
+                  }
+                : {
+                    code: "device_in_use",
+                    message: `Session ${current} is using this device. Close it before erasing the device.`,
+                  }
+            );
+          }
+          reserved.set(key, holder);
+          return Effect.succeed(
+            Effect.sync(() => {
+              if (reserved.get(key) === holder) {
+                reserved.delete(key);
+              }
+            })
+          );
+        });
       const settle = (
         id: string | undefined,
         status: DeviceEraseRequest["status"],
@@ -119,12 +165,8 @@ export const makeOwnedDevicesLayer = ({
               : { ...request, message, status };
           requests.set(request.id, settled);
         });
-      const erase: OwnedDevicesService["erase"] = ({
-        device,
-        platform,
-        requestId,
-      }) =>
-        (platform === "android"
+      const eraseDevice = (platform: DeviceErasePlatform, device: string) =>
+        platform === "android"
           ? android.erase(device).pipe(Effect.asVoid)
           : ios.erase(device).pipe(
               Effect.asVoid,
@@ -132,7 +174,16 @@ export const makeOwnedDevicesLayer = ({
                 code: failure.code,
                 message: failure.message,
               }))
-            )
+            );
+      const erase: OwnedDevicesService["erase"] = ({
+        device,
+        platform,
+        requestId,
+      }) =>
+        Effect.acquireUseRelease(
+          reserve({ device, holder: ERASING, platform }),
+          () => eraseDevice(platform, device),
+          (release) => release
         ).pipe(
           Effect.tapError((failure) =>
             settle(requestId, "failed", failure.message)
@@ -167,6 +218,7 @@ export const makeOwnedDevicesLayer = ({
             requests.set(operationId, request);
             return request;
           }),
+        reserveDevice: reserve,
       };
     })
   );

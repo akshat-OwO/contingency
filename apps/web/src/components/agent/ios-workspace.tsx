@@ -100,7 +100,11 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
-import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
+import {
+  chosenSimulator,
+  iosDeviceChoice,
+  simulatorInventoryKey,
+} from "./ios-setup-state";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { NativeOptionalSteps } from "./native-optional-steps";
 import { StartingDataField } from "./native-starting-data";
@@ -720,10 +724,17 @@ const IosSetupSheet = ({
   const { startDevice, starts } = useDeviceStarts(bootIosSimulator, refresh);
   const [appsRefreshAtom] = useState(() => Atom.make(0));
   const [appsRefresh, setAppsRefresh] = useAtom(appsRefreshAtom);
-  const erase = useDeviceErase("ios", open, String(appsRefresh), () => {
-    refresh();
-    setAppsRefresh((value) => value + 1);
-  });
+  // Keyed on the inventory, so a simulator this sheet just started is
+  // read as owned once it is running.
+  const erase = useDeviceErase(
+    "ios",
+    open,
+    simulatorInventoryKey(listed),
+    () => {
+      refresh();
+      setAppsRefresh((value) => value + 1);
+    }
+  );
   // The required fields still empty, named as the person sees them.
   const [missingAtom] = useState(() =>
     Atom.make<readonly string[]>(["Flow name"])

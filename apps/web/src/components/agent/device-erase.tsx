@@ -19,11 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  dismissDeviceErase,
-  eraseDevice,
-  readDeviceEraseState,
-} from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 import type { DeviceChoice } from "./device-choice-state";
 import { erasable } from "./device-erase-state";
@@ -48,6 +44,8 @@ export const useDeviceErase = (
   refreshKey: string,
   onErased: () => void
 ) => {
+  const { dismissDeviceErase, eraseDevice, readDeviceEraseState } =
+    useRpcDependencies();
   const [stateAtom] = useState(() =>
     Atom.make<DeviceEraseState>({
       owned: { android: [], ios: [] },
@@ -92,7 +90,7 @@ export const useDeviceErase = (
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [open, refreshKey, revision, setState]);
+  }, [open, readDeviceEraseState, refreshKey, revision, setState]);
   const run = (effect: Effect.Effect<unknown, unknown>) => {
     const fiber = Effect.runFork(effect);
     fibers.current.add(fiber);

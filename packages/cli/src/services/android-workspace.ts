@@ -61,6 +61,8 @@ import {
   writeNativeRunSummary,
 } from "./native-run-summary.ts";
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
+import { OwnedDevices } from "./owned-devices.ts";
+import type { OwnedDevicesService } from "./owned-devices.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
@@ -101,6 +103,29 @@ const claimBuild = (
           )
         )
   ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+/**
+ * Reserves the session's device until its scope closes, after every other
+ * resource has released it, so Device Erase cannot take it meanwhile
+ * (ADR 0081). A device being erased refuses the session.
+ */
+const reserveDevice = (
+  owned: Option.Option<OwnedDevicesService>,
+  selected: AndroidWorkspaceSummary["selection"]["device"],
+  holder: string,
+  scope: Scope.Closeable
+): Effect.Effect<void, AndroidWorkspaceError> =>
+  // Only an emulator can be erased, by its AVD; a phone needs no reservation.
+  Option.isNone(owned) || !("avd" in selected)
+    ? Effect.void
+    : owned.value
+        .reserveDevice({ device: selected.avd, holder, platform: "android" })
+        .pipe(
+          Effect.flatMap((release) => Scope.addFinalizer(scope, release)),
+          Effect.mapError((refusal) =>
+            error("android_workspace_refused", refusal.message)
+          ),
+          Effect.onError(() => Scope.close(scope, Exit.void))
+        );
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const now = () => new Date().toISOString();
@@ -418,6 +443,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
+      const ownedDevices = yield* Effect.serviceOption(OwnedDevices);
       const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
@@ -933,6 +959,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               `agent-android-${hash(command.operationId).slice(0, 32)}`
             );
             const scope = yield* Scope.make();
+            // Held from here until the session's cleanup has finished.
+            yield* reserveDevice(ownedDevices, selection.device, id, scope);
             // An uploaded build belongs to this session: closing its scope
             // deletes the upload, including when startup fails.
             const apk =

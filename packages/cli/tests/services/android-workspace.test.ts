@@ -33,6 +33,7 @@ import {
 import { TestClock } from "effect/testing";
 import type { Mutable } from "effect/Types";
 
+import { makeAndroidDeviceBoot } from "../../src/services/android-device-boot.ts";
 import type { AndroidRunInput } from "../../src/services/android-run-contract.ts";
 import { createAndroidRun } from "../../src/services/android-run.ts";
 import type {
@@ -51,6 +52,7 @@ import {
   readDeviceCapture,
 } from "../../src/services/device-video-capture.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import { makeIosDeviceBoot } from "../../src/services/ios-device-boot.ts";
 import {
   DeviceWorkspaceTools,
   DeviceWorkspaceToolHandlersLive,
@@ -58,6 +60,11 @@ import {
 import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
 import type { NativeScreenRecorder } from "../../src/services/native-screen-recorder.ts";
+import {
+  makeOwnedDevicesLayer,
+  OwnedDevices,
+} from "../../src/services/owned-devices.ts";
+import type { OwnedDevicesService } from "../../src/services/owned-devices.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -131,6 +138,8 @@ const fixture = (
     /** The setup each created run applies, and each restart it performed. */
     readonly setups: AndroidRunInput["setup"][];
     readonly restarts: string[];
+    /** AVDs the process's Device Erase wiped, in order. */
+    readonly erasedAvds: string[];
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -143,6 +152,7 @@ const fixture = (
     | AndroidWorkspaceService
     | TeachingRecordingStoreService
     | TeachingRecordingLearningService
+    | OwnedDevicesService
     | FileSystem.FileSystem
   >
 ) =>
@@ -345,11 +355,32 @@ const fixture = (
           ),
         plist: () => Effect.die("No iOS builds in the Android fixture."),
       });
+      // The process's devices, whose Android erase only records the AVD.
+      const erasedAvds: string[] = [];
+      const owned = Context.get(
+        yield* Layer.build(
+          makeOwnedDevicesLayer({
+            android: {
+              ...makeAndroidDeviceBoot(),
+              erase: (avd: string) =>
+                Effect.sync(() => {
+                  erasedAvds.push(avd);
+                  return "emulator-5554";
+                }),
+              stopOwned: Effect.succeed([]),
+            },
+            ios: { ...makeIosDeviceBoot(), stopOwned: Effect.succeed([]) },
+            report: () => Effect.void,
+          })
+        ),
+        OwnedDevices
+      );
       const dependencies = Layer.mergeAll(
         store,
         makeFlowCatalogLayer({ root }),
         factory,
-        Layer.succeed(TargetAppBuilds, builds)
+        Layer.succeed(TargetAppBuilds, builds),
+        Layer.succeed(OwnedDevices, owned)
       );
       const workspace = makeAndroidWorkspaceLayer({
         acquireStream,
@@ -388,6 +419,7 @@ const fixture = (
         disconnect: () => {
           connected = false;
         },
+        erasedAvds,
         forwarded,
         holdNextCapture: () =>
           Effect.gen(function* holdCapture() {
@@ -413,7 +445,16 @@ const fixture = (
           customNodes = nodes;
         },
         setups,
-      }).pipe(Effect.provide(Layer.mergeAll(workspace, store, learning)));
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            workspace,
+            store,
+            learning,
+            Layer.succeed(OwnedDevices, owned)
+          )
+        )
+      );
     })
   ).pipe(Effect.provide(NodeServices.layer));
 
@@ -3226,6 +3267,44 @@ it.effect(
         );
         // Taught with Keep, so the selection's Clear is ignored.
         expect(setups.at(-1)?.startingData).toBeUndefined();
+      })
+    )
+);
+
+it.effect(
+  "holds its emulator from start until close, so Device Erase waits for it",
+  () =>
+    fixture(({ erasedAvds }) =>
+      Effect.gen(function* holdDevice() {
+        const workspace = yield* AndroidWorkspace;
+        const owned = yield* OwnedDevices;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-held"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        const refused = yield* Effect.flip(
+          owned.erase({ device: "fixture", platform: "android" })
+        );
+        expect(refused.code).toBe("device_in_use");
+        expect(refused.message).toContain(started.id);
+        expect(erasedAvds).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-held"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        yield* owned.erase({ device: "fixture", platform: "android" });
+        expect(erasedAvds).toEqual(["fixture"]);
       })
     )
 );

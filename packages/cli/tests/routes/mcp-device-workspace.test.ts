@@ -167,6 +167,7 @@ it.live("an agent's Device Erase request only asks, and never erases", () =>
         owned: { android: [], ios: [] },
         requests: [],
       }),
+      reserveDevice: () => Effect.die("Reserving is not requested."),
       requestErase: ({ device, operationId, platform }) =>
         Effect.sync(() => {
           asked.push(`${platform}:${device}`);

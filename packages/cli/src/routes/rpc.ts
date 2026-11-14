@@ -167,37 +167,6 @@ const ownedDevices = <A>(
     )
   );
 
-const LIVE_PHASES = new Set(["pending", "running", "paused"]);
-
-/**
- * A live session on the device to erase. Erasing would pull the device out
- * from under it, so Device Erase refuses until the session closes.
- */
-const sessionOnDevice = (platform: "android" | "ios", device: string) =>
-  Effect.gen(function* findBoundSession() {
-    if (platform === "android") {
-      const service = yield* Effect.serviceOption(AndroidWorkspace);
-      const sessions = Option.isSome(service)
-        ? yield* service.value.list().pipe(Effect.orElseSucceed(() => []))
-        : [];
-      return sessions.find(
-        (session) =>
-          LIVE_PHASES.has(session.phase) &&
-          "avd" in session.selection.device &&
-          session.selection.device.avd === device
-      )?.id;
-    }
-    const service = yield* Effect.serviceOption(IosWorkspace);
-    const sessions = Option.isSome(service)
-      ? yield* service.value.list().pipe(Effect.orElseSucceed(() => []))
-      : [];
-    return sessions.find(
-      (session) =>
-        LIVE_PHASES.has(session.phase) &&
-        session.selection.device.udid === device
-    )?.id;
-  });
-
 const ownedDevicesValue = <A>(
   operation: (
     service: OwnedDevicesService
@@ -407,20 +376,14 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
       "android.device.boot": ({ avd }) =>
         ownedDevices((devices) => devices.bootAndroid(avd)),
       "device.erase": ({ device, platform, requestId }) =>
+        // A session holds its device until its cleanup finishes, and erase
+        // refuses a held device (ADR 0081).
         ownedDevices((devices) =>
-          Effect.gen(function* eraseDevice() {
-            const bound = yield* sessionOnDevice(platform, device);
-            if (bound !== undefined) {
-              return yield* Effect.fail({
-                message: `Session ${bound} is using this device. Close it before erasing the device.`,
-              });
-            }
-            yield* devices.erase(
-              requestId === undefined
-                ? { device, platform }
-                : { device, platform, requestId }
-            );
-          })
+          devices.erase(
+            requestId === undefined
+              ? { device, platform }
+              : { device, platform, requestId }
+          )
         ),
       "device.erase.dismiss": ({ id }) =>
         ownedDevices((devices) => devices.dismissErase(id)),

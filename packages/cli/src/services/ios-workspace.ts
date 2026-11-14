@@ -67,6 +67,8 @@ import {
   writeNativeRunSummary,
 } from "./native-run-summary.ts";
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
+import { OwnedDevices } from "./owned-devices.ts";
+import type { OwnedDevicesService } from "./owned-devices.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
@@ -105,6 +107,26 @@ const claimBuild = (
           )
         )
   ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+/**
+ * Reserves the session's device until its scope closes, after every other
+ * resource has released it, so Device Erase cannot take it meanwhile
+ * (ADR 0081). A device being erased refuses the session.
+ */
+const reserveDevice = (
+  owned: Option.Option<OwnedDevicesService>,
+  device: string | undefined,
+  holder: string,
+  scope: Scope.Closeable
+): Effect.Effect<void, IosWorkspaceError> =>
+  Option.isNone(owned) || device === undefined
+    ? Effect.void
+    : owned.value.reserveDevice({ device, holder, platform: "ios" }).pipe(
+        Effect.flatMap((release) => Scope.addFinalizer(scope, release)),
+        Effect.mapError((refusal) =>
+          error("ios_workspace_refused", refusal.message)
+        ),
+        Effect.onError(() => Scope.close(scope, Exit.void))
+      );
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 export const iosWorkspaceRefusal = (
@@ -378,6 +400,7 @@ export const makeIosWorkspaceLayer = (options: {
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
+      const ownedDevices = yield* Effect.serviceOption(OwnedDevices);
       const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
 
       const registry = AtomRegistry.make();
@@ -874,6 +897,8 @@ export const makeIosWorkspaceLayer = (options: {
               `agent-ios-${hash(command.operationId).slice(0, 32)}`
             );
             const scope = yield* Scope.make();
+            // Held from here until the session's cleanup has finished.
+            yield* reserveDevice(ownedDevices, device.udid, id, scope);
             // An uploaded build belongs to this session: closing its scope
             // deletes the upload, including when startup fails.
             const appPath =
