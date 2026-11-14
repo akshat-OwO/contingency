@@ -1,14 +1,14 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { expect, it } from "@effect/vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Effect, Exit, Fiber, Schema } from "effect";
 
 import { acquireAndroidDeviceLock } from "../../src/services/android-device-lock.ts";
 
@@ -102,6 +102,42 @@ it.effect(
           "refused device_lock_held"
         );
         yield* lock.release;
+        expect((yield* holder(lockPath)).outcome).toBe("held");
+      })
+    )
+);
+
+it.effect(
+  "keeps a concurrent start's lock when the file is first created",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* freshPath() {
+        const lockPath = yield* lockDirectory;
+        const opened = Promise.withResolvers<null>();
+        const resume = Promise.withResolvers<null>();
+        // Creates the file like production, but holds its descriptor open
+        // until the test resumes it, the window a concurrent start can hit.
+        const pausedCreate = async (file: string) => {
+          const handle = await open(file, "wx", 0o600);
+          opened.resolve(null);
+          await resume.promise;
+          await handle.close();
+        };
+        const first = yield* Effect.forkChild(
+          Effect.result(acquireAndroidDeviceLock(lockPath, pausedCreate))
+        );
+        yield* Effect.promise(() => opened.promise);
+        const second = yield* acquireAndroidDeviceLock(lockPath);
+        expect((yield* holder(lockPath)).outcome).toBe(
+          "refused device_lock_held"
+        );
+        resume.resolve(null);
+        const firstResult = yield* Fiber.join(first);
+        expect(firstResult._tag).toBe("Failure");
+        expect((yield* holder(lockPath)).outcome).toBe(
+          "refused device_lock_held"
+        );
+        yield* second.release;
         expect((yield* holder(lockPath)).outcome).toBe("held");
       })
     )

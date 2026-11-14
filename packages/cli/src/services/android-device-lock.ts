@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -37,6 +37,12 @@ export const androidDeviceLockPath = (serial: string): string =>
     `contingency-android-${createHash("sha256").update(serial).digest("hex")}.lock`
   );
 
+/** Creates an empty, owner-only file that must not exist yet. */
+export type CreateLockFile = (file: string) => Promise<void>;
+
+const createLockFile: CreateLockFile = (file) =>
+  writeFile(file, "", { flag: "wx", mode: 0o600 });
+
 export interface AndroidDeviceLock {
   readonly release: Effect.Effect<void, PlatformRuntimeError>;
 }
@@ -49,21 +55,32 @@ export interface AndroidDeviceLock {
  * than a start that already opened the old one.
  */
 export const acquireAndroidDeviceLock = (
-  lockPath: string
+  lockPath: string,
+  createFile: CreateLockFile = createLockFile
 ): Effect.Effect<AndroidDeviceLock, PlatformRuntimeError> =>
   Effect.gen(function* acquireLock() {
-    // Closing any descriptor for the file drops every POSIX lock this process
-    // holds on it, including another start's. Only an exclusive create, which
-    // opens no descriptor when the file exists, touches it outside SQLite.
-    yield* Effect.tryPromise({
-      catch: (cause) => cause,
-      try: () => writeFile(lockPath, "", { flag: "wx", mode: 0o600 }),
-    }).pipe(
-      Effect.catch((error) =>
-        errorCode(error) === "EEXIST"
-          ? Effect.void
-          : Effect.fail(unreadable(lockPath))
-      )
+    // Closing any descriptor for the lock file drops every POSIX lock this
+    // process holds on it, including another start's. So the file is made
+    // under a private name and closed first, then linked into place: nothing
+    // but SQLite ever holds a descriptor for the inode at `lockPath`.
+    const staged = `${lockPath}.${randomUUID()}.tmp`;
+    yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        catch: () => unreadable(lockPath),
+        try: () => createFile(staged),
+      }),
+      () =>
+        Effect.tryPromise({
+          catch: (cause) => cause,
+          try: () => link(staged, lockPath),
+        }).pipe(
+          Effect.catch((error) =>
+            errorCode(error) === "EEXIST"
+              ? Effect.void
+              : Effect.fail(unreadable(lockPath))
+          )
+        ),
+      () => Effect.ignore(Effect.tryPromise(() => unlink(staged)))
     );
     const database = yield* Effect.try({
       catch: () => unreadable(lockPath),
