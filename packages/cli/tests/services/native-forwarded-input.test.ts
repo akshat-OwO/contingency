@@ -422,14 +422,19 @@ it.effect(
           "touch down 0.5 0.5\n",
           "touch move 0.5 0.4\n",
         ]);
-        // A release goes at once, after any drag still waiting.
+        // A release follows any drag still waiting, which keeps its spacing.
         yield* writer.forward([touch("move", 0.5, 0.3)]);
-        yield* writer.forward([touch("up", 0.5, 0.3)]);
-        expect(writes.at(-1)?.lines).toBe(
-          "touch move 0.5 0.3\ntouch up 0.5 0.3\n"
-        );
+        const released = yield* writer
+          .forward([touch("up", 0.5, 0.3)])
+          .pipe(Effect.forkScoped);
         yield* TestClock.adjust(MOVE_SPACING_MILLIS);
-        expect(writes).toHaveLength(3);
+        yield* Fiber.join(released);
+        expect(writes.slice(-2)).toEqual([
+          { at: 1000 + 2 * MOVE_SPACING_MILLIS, lines: "touch move 0.5 0.3\n" },
+          { at: 1000 + 2 * MOVE_SPACING_MILLIS, lines: "touch up 0.5 0.3\n" },
+        ]);
+        yield* TestClock.adjust(MOVE_SPACING_MILLIS);
+        expect(writes).toHaveLength(4);
 
         // The wheel holds a finger that lifts only after the wheel is quiet.
         writes.length = 0;
@@ -465,6 +470,46 @@ it.effect(
         }
       })
     )
+);
+
+it.effect("keeps drag spacing when the wheel restrokes at the edge", () =>
+  Effect.scoped(
+    Effect.gen(function* restrokeAtEdge() {
+      const scope = yield* Effect.scope;
+      const writes: { readonly at: number; readonly lines: string }[] = [];
+      const writer = makeIosHidWriter(
+        (lines) =>
+          Effect.gen(function* recordWrite() {
+            writes.push({ at: yield* Clock.currentTimeMillis, lines });
+          }),
+        scope
+      );
+      const edge: NativeInput = {
+        _tag: "scroll",
+        at: 0,
+        deltaX: 0,
+        deltaY: 100,
+        x: 0.5,
+        y: 0,
+      };
+      yield* writer.forward([edge]);
+      yield* TestClock.adjust(8);
+      // The second turn runs out of room and lifts before the first stroke's
+      // drag is due, so the lift waits for that drag instead.
+      const second = yield* writer.forward([edge]).pipe(Effect.forkScoped);
+      yield* TestClock.adjust(2 * MOVE_SPACING_MILLIS);
+      yield* Fiber.join(second);
+      expect(writes).toEqual([
+        { at: 0, lines: "touch down 0.5 0.1\n" },
+        { at: MOVE_SPACING_MILLIS, lines: "touch move 0.5 0\n" },
+        {
+          at: MOVE_SPACING_MILLIS,
+          lines: "touch up 0.5 0\ntouch down 0.5 0.1\n",
+        },
+        { at: 2 * MOVE_SPACING_MILLIS, lines: "touch move 0.5 0\n" },
+      ]);
+    })
+  )
 );
 
 const laneNode = {

@@ -104,22 +104,37 @@ export const makeIosHidWriter = <E>(
       yield* write(commands.map((command) => `${command}\n`).join(""));
       lastWriteAt = yield* Clock.currentTimeMillis;
     });
+  /** How long until a drag may go, from the last write. */
+  const untilDue = Clock.currentTimeMillis.pipe(
+    Effect.map((now) => lastWriteAt + MOVE_SPACING_MILLIS - now)
+  );
+  /**
+   * Sends the waiting drag if it is due. A write made while the flush waited
+   * for the lock restarts the spacing, so this then reports not yet.
+   */
+  const sendDueMove = lock.withPermits(1)(
+    Effect.gen(function* sendDueMove() {
+      if ((yield* untilDue) > 0) {
+        return false;
+      }
+      const move = waitingMove;
+      waitingMove = undefined;
+      if (move !== undefined) {
+        yield* send([move]);
+      }
+      return true;
+    })
+  );
   const flush: Effect.Effect<void> = Effect.gen(function* flushMove() {
     for (;;) {
-      const now = yield* Clock.currentTimeMillis;
-      const wait = lastWriteAt + MOVE_SPACING_MILLIS - now;
-      if (wait <= 0) {
-        break;
+      const wait = yield* untilDue;
+      if (wait > 0) {
+        yield* Effect.sleep(wait);
       }
-      yield* Effect.sleep(wait);
+      if (yield* sendDueMove) {
+        return;
+      }
     }
-    yield* lock.withPermits(1)(
-      Effect.suspend(() => {
-        const move = waitingMove;
-        waitingMove = undefined;
-        return move === undefined ? Effect.void : send([move]);
-      })
-    );
   }).pipe(
     // A failed write fails the next forward instead; nothing is retried.
     Effect.ignore,
@@ -127,20 +142,28 @@ export const makeIosHidWriter = <E>(
   );
   const deliver = (inputs: readonly FingerInput[]) =>
     Effect.gen(function* deliverCommands() {
-      const now = yield* Clock.currentTimeMillis;
-      const ready: string[] = [];
+      let ready: string[] = [];
       for (const command of iosHidCommands(inputs)) {
         if (!isMove(command)) {
-          // A press, release, or key goes at once, after any drag still waiting.
-          if (waitingMove !== undefined) {
-            ready.push(waitingMove);
+          // A press, release, or key goes after any drag still waiting. That
+          // drag keeps its spacing, so a release or restroke right behind it
+          // cannot make the simulator drop it and lose its travel.
+          const move = waitingMove;
+          if (move !== undefined) {
             waitingMove = undefined;
+            yield* send(ready);
+            ready = [];
+            const wait = yield* untilDue;
+            if (wait > 0) {
+              yield* Effect.sleep(wait);
+            }
+            yield* send([move]);
           }
           ready.push(command);
         } else if (
           ready.length === 0 &&
           waitingMove === undefined &&
-          now - lastWriteAt >= MOVE_SPACING_MILLIS
+          (yield* Clock.currentTimeMillis) - lastWriteAt >= MOVE_SPACING_MILLIS
         ) {
           ready.push(command);
         } else {
