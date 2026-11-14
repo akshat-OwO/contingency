@@ -2,11 +2,13 @@ import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type { NativeInput } from "@contingency/protocol";
-import { Effect, Scope, Semaphore } from "effect";
+import { Clock, Effect, Fiber, Scope, Semaphore } from "effect";
 
 import { awaitExit } from "./ffmpeg.ts";
 import { verifyIosHidRelease } from "./ios-framebuffer-release.ts";
 import { iosCommand } from "./ios-simctl.ts";
+import { makeWheelFinger, WHEEL_RELEASE_MILLIS } from "./wheel-finger.ts";
+import type { FingerInput } from "./wheel-finger.ts";
 
 /** USB HID keyboard-page usages for the physical keys a Workspace forwards. */
 const usages: ReadonlyMap<string, number> = new Map([
@@ -60,30 +62,154 @@ export const iosKeyUsage = (code: string): number | undefined => {
   return usages.get(code);
 };
 
-/** How far one browser wheel notch drags, as a fraction of the screen. */
-const NOTCH_FRACTION = 0.1;
-const WHEEL_NOTCH = 100;
-
 /**
- * Forwarded Input as helper commands, in order. A wheel turned down drags the
- * content up, as a finger would; a key the simulator has no usage for sends
- * nothing.
+ * Forwarded Input as helper commands, in order. A key the simulator has no
+ * usage for sends nothing. A wheel reaches the helper as a held finger.
  */
-export const iosHidCommands = (inputs: readonly NativeInput[]): string[] =>
+export const iosHidCommands = (inputs: readonly FingerInput[]): string[] =>
   inputs.flatMap((input) => {
     if (input._tag === "touch") {
       return [`touch ${input.action} ${input.x} ${input.y}`];
     }
-    if (input._tag === "scroll") {
-      const dx = (-input.deltaX / WHEEL_NOTCH) * NOTCH_FRACTION;
-      const dy = (-input.deltaY / WHEEL_NOTCH) * NOTCH_FRACTION;
-      return dx === 0 && dy === 0
-        ? []
-        : [`scroll ${input.x} ${input.y} ${dx} ${dy}`];
-    }
     const usage = iosKeyUsage(input.code);
     return usage === undefined ? [] : [`key ${input.action} ${usage}`];
   });
+
+/** Indigo drops a drag sent within 16 ms of the previous message. */
+export const MOVE_SPACING_MILLIS = 17;
+const isMove = (command: string) => command.startsWith("touch move ");
+
+/**
+ * Writes one session's Forwarded Input to the helper, in order and without
+ * waiting on any gesture. The wheel drives a held finger that lifts once the
+ * wheel is quiet. A drag is sent at most once per `MOVE_SPACING_MILLIS`, and
+ * the latest position replaces one still waiting, so a fast drag or wheel
+ * never builds a backlog the simulator would partly drop.
+ */
+export const makeIosHidWriter = <E>(
+  write: (lines: string) => Effect.Effect<void, E>,
+  scope: Scope.Scope
+) => {
+  const lock = Semaphore.makeUnsafe(1);
+  const finger = makeWheelFinger();
+  let lastWriteAt = Number.NEGATIVE_INFINITY;
+  let waitingMove: string | undefined;
+  let flushing = false;
+  let releasing: Fiber.Fiber<void, never> | undefined;
+  const send = (commands: readonly string[]) =>
+    Effect.gen(function* sendCommands() {
+      if (commands.length === 0) {
+        return;
+      }
+      yield* write(commands.map((command) => `${command}\n`).join(""));
+      lastWriteAt = yield* Clock.currentTimeMillis;
+    });
+  /** How long until a drag may go, from the last write. */
+  const untilDue = Clock.currentTimeMillis.pipe(
+    Effect.map((now) => lastWriteAt + MOVE_SPACING_MILLIS - now)
+  );
+  /**
+   * Sends the waiting drag if it is due. A write made while the flush waited
+   * for the lock restarts the spacing, so this then reports not yet.
+   */
+  const sendDueMove = lock.withPermits(1)(
+    Effect.gen(function* sendDueMove() {
+      if ((yield* untilDue) > 0) {
+        return false;
+      }
+      const move = waitingMove;
+      waitingMove = undefined;
+      if (move !== undefined) {
+        yield* send([move]);
+      }
+      return true;
+    })
+  );
+  const flush: Effect.Effect<void> = Effect.gen(function* flushMove() {
+    for (;;) {
+      const wait = yield* untilDue;
+      if (wait > 0) {
+        yield* Effect.sleep(wait);
+      }
+      if (yield* sendDueMove) {
+        return;
+      }
+    }
+  }).pipe(
+    // A failed write fails the next forward instead; nothing is retried.
+    Effect.ignore,
+    Effect.ensuring(Effect.sync(() => (flushing = false)))
+  );
+  const deliver = (inputs: readonly FingerInput[]) =>
+    Effect.gen(function* deliverCommands() {
+      let ready: string[] = [];
+      for (const command of iosHidCommands(inputs)) {
+        if (!isMove(command)) {
+          // A press, release, or key goes after any drag still waiting. That
+          // drag keeps its spacing, so a release or restroke right behind it
+          // cannot make the simulator drop it and lose its travel.
+          const move = waitingMove;
+          if (move !== undefined) {
+            waitingMove = undefined;
+            yield* send(ready);
+            ready = [];
+            const wait = yield* untilDue;
+            if (wait > 0) {
+              yield* Effect.sleep(wait);
+            }
+            yield* send([move]);
+          }
+          ready.push(command);
+        } else if (
+          ready.length === 0 &&
+          waitingMove === undefined &&
+          (yield* Clock.currentTimeMillis) - lastWriteAt >= MOVE_SPACING_MILLIS
+        ) {
+          ready.push(command);
+        } else {
+          waitingMove = command;
+        }
+      }
+      yield* send(ready);
+      if (waitingMove !== undefined && !flushing) {
+        flushing = true;
+        yield* Effect.forkIn(flush, scope);
+      }
+    });
+  return {
+    forward: (inputs: readonly NativeInput[]) =>
+      lock.withPermits(1)(
+        Effect.gen(function* forwardInput() {
+          if (releasing !== undefined) {
+            yield* Fiber.interrupt(releasing);
+            releasing = undefined;
+          }
+          yield* deliver(inputs.flatMap((input) => finger.feed(input)));
+          if (finger.holding()) {
+            releasing = yield* Effect.sleep(WHEEL_RELEASE_MILLIS).pipe(
+              Effect.andThen(
+                lock.withPermits(1)(
+                  Effect.gen(function* liftFinger() {
+                    releasing = undefined;
+                    // Each resting move and the lift wait out the drag
+                    // spacing, so none merges into the next.
+                    for (const input of finger.release(performance.now())) {
+                      yield* deliver([input]);
+                      yield* Effect.sleep(MOVE_SPACING_MILLIS);
+                    }
+                  })
+                )
+              ),
+              Effect.ignore,
+              Effect.forkIn(scope)
+            );
+          }
+        })
+      ),
+    /** Whether the wheel's finger is down. */
+    holding: () => finger.holding(),
+  };
+};
 
 export interface IosHid {
   /** Sends Forwarded Input to the simulator in order, starting the helper on first use. */
@@ -116,7 +242,6 @@ export const makeIosHid = (
   host: IosHidHost = iosHidHost
 ) =>
   Effect.gen(function* acquireIosHid() {
-    const lock = Semaphore.makeUnsafe(1);
     let child: ChildProcessWithoutNullStreams | undefined;
     let closed = false;
     yield* Scope.addFinalizer(
@@ -170,25 +295,19 @@ export const makeIosHid = (
       child = started;
       return started;
     });
+    const writer = makeIosHidWriter(
+      (lines) =>
+        Effect.gen(function* writeToSimulator() {
+          const helper = yield* start;
+          yield* Effect.callback<true, Error>((resume) => {
+            helper.stdin.write(lines, (cause) =>
+              resume(cause ? Effect.fail(unavailable()) : Effect.succeed(true))
+            );
+          });
+        }),
+      scope
+    );
     return {
-      forward: (inputs) =>
-        lock.withPermits(1)(
-          Effect.gen(function* forwardToSimulator() {
-            const commands = iosHidCommands(inputs);
-            if (commands.length === 0) {
-              return;
-            }
-            const helper = yield* start;
-            yield* Effect.callback<true, Error>((resume) => {
-              helper.stdin.write(
-                commands.map((command) => `${command}\n`).join(""),
-                (cause) =>
-                  resume(
-                    cause ? Effect.fail(unavailable()) : Effect.succeed(true)
-                  )
-              );
-            });
-          })
-        ),
+      forward: writer.forward,
     } satisfies IosHid;
   });

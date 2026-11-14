@@ -394,6 +394,10 @@ const runPageAction = async (page, appUrl, action, flags) => {
       };
       return JSON.stringify(await pickAndroid(page, flags, call));
     }
+    case "device-scroll-check": {
+      const { scrollCheckDevice } = await import("./android-ui.mjs");
+      return JSON.stringify(await scrollCheckDevice(page, flags));
+    }
     case "android-stream-check": {
       const { checkAndroidStream } = await import("./android-stream-check.mjs");
       return JSON.stringify(await checkAndroidStream(page, flags));
