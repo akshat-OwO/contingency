@@ -76,3 +76,81 @@ it("names the device and reason for each outcome", () => {
     "Left the emulator Pixel_9 running: Emulator process 42 did not exit after SIGKILL."
   );
 });
+
+it.effect(
+  "records an agent's erase request without erasing, and settles it on the user's answer",
+  () =>
+    Effect.gen(function* eraseRequests() {
+      const erased: string[] = [];
+      const android = makeAndroidDeviceBoot();
+      const devices = makeOwnedDevicesLayer({
+        android: {
+          ...android,
+          erase: (avd: string) =>
+            avd === "Pixel_9"
+              ? Effect.sync(() => {
+                  erased.push(avd);
+                  return "emulator-5554";
+                })
+              : Effect.fail({
+                  code: "android_erase_refused" as const,
+                  message: `${avd} is running and Contingency did not start it. Stop this device to erase it.`,
+                }),
+          stopOwned: Effect.succeed([]),
+        },
+        ios: stubbed(makeIosDeviceBoot(), Effect.succeed([])),
+        report: () => Effect.void,
+      });
+      yield* Effect.gen(function* answer() {
+        const owned = yield* OwnedDevices;
+        const first = yield* owned.requestErase({
+          device: "Pixel_9",
+          operationId: "erase-1",
+          platform: "android",
+        });
+        // Repeating the operationId reads the same request.
+        expect(
+          yield* owned.requestErase({
+            device: "Pixel_9",
+            operationId: "erase-1",
+            platform: "android",
+          })
+        ).toEqual(first);
+        expect(first.status).toBe("pending");
+        expect(erased).toEqual([]);
+        yield* owned.requestErase({
+          device: "Pixel_8",
+          operationId: "erase-2",
+          platform: "android",
+        });
+        yield* owned.requestErase({
+          device: "Pixel_7",
+          operationId: "erase-3",
+          platform: "android",
+        });
+        yield* owned.erase({
+          device: "Pixel_9",
+          platform: "android",
+          requestId: "erase-1",
+        });
+        yield* Effect.flip(
+          owned.erase({
+            device: "Pixel_8",
+            platform: "android",
+            requestId: "erase-2",
+          })
+        );
+        yield* owned.dismissErase("erase-3");
+        const { requests } = yield* owned.eraseState;
+        expect(
+          requests.map(({ device, status }) => ({ device, status }))
+        ).toEqual([
+          { device: "Pixel_9", status: "erased" },
+          { device: "Pixel_8", status: "failed" },
+          { device: "Pixel_7", status: "dismissed" },
+        ]);
+        expect(requests[1]?.message).toMatch(/Stop this device to erase it/u);
+        expect(erased).toEqual(["Pixel_9"]);
+      }).pipe(Effect.provide(Layer.fresh(devices)));
+    })
+);

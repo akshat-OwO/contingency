@@ -33,6 +33,7 @@ import {
 import { TestClock } from "effect/testing";
 import type { Mutable } from "effect/Types";
 
+import type { AndroidRunInput } from "../../src/services/android-run-contract.ts";
 import { createAndroidRun } from "../../src/services/android-run.ts";
 import type {
   AndroidRuntimeBackend,
@@ -127,6 +128,9 @@ const fixture = (
     readonly builds: TargetAppBuildsService;
     /** The device recorder's starts and stops, in order. */
     readonly recorded: string[];
+    /** The setup each created run applies, and each restart it performed. */
+    readonly setups: AndroidRunInput["setup"][];
+    readonly restarts: string[];
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -152,6 +156,8 @@ const fixture = (
       const resolved: string[] = [];
       const forwarded: NativeInput[][] = [];
       const recorded: string[] = [];
+      const setups: AndroidRunInput["setup"][] = [];
+      const restarts: string[] = [];
       let recordingFile: string | undefined;
       // The display and input transport, without a device.
       const acquireStream: typeof acquireAndroidStream = () =>
@@ -308,12 +314,18 @@ const fixture = (
         PlatformRuntimeFactory.of({
           android: {
             capabilities: ["semantic-actions", "screenshots", "private-input"],
-            createRun: (input) =>
-              createAndroidRun(input, {
+            createRun: (input) => {
+              setups.push(input.setup);
+              return createAndroidRun(input, {
                 installedBuild: () => Effect.succeed("1"),
                 preflight: () => Effect.void,
+                restart: (prepared) =>
+                  Effect.sync(() =>
+                    restarts.push(prepared.setup.startingData ?? "keep")
+                  ),
                 start: (startup) => adaptAndroidRuntime({ backend, startup }),
-              }),
+              });
+            },
             platform: "android",
             start: () => Effect.die("Attach-only runtime must not be used."),
           },
@@ -392,6 +404,7 @@ const fixture = (
         recorded,
         resolved,
         restart,
+        restarts,
         root,
         secure: () => {
           secure = true;
@@ -399,6 +412,7 @@ const fixture = (
         setNodes: (nodes) => {
           customNodes = nodes;
         },
+        setups,
       }).pipe(Effect.provide(Layer.mergeAll(workspace, store, learning)));
     })
   ).pipe(Effect.provide(NodeServices.layer));
@@ -3069,6 +3083,149 @@ it.effect(
         );
         expect(ready.id).toBe(retained.id);
         expect(ready.phase).toBe("running");
+      })
+    )
+);
+
+const clearSelection: AndroidWorkspaceSelection = {
+  ...selection,
+  setup: { ...selection.setup, startingData: "clear" },
+};
+
+it.effect(
+  "Clear Teaching asks first, takes a relayed answer, and clears again at Start",
+  () =>
+    fixture(({ restarts }) =>
+      Effect.gen(function* clearTeaching() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-clear"),
+            recordingId: null,
+            selection: clearSelection,
+          },
+          "user"
+        );
+        const [clear] = started.preparation.pending;
+        expect(started.preparation.pending.map(({ kind }) => kind)).toEqual([
+          "clear-app-data",
+        ]);
+        if (clear === undefined) {
+          return yield* Effect.die("Clear decision missing.");
+        }
+        // The agent may relay the user's answer to this one decision.
+        const decided = yield* workspace.execute(
+          {
+            _tag: "decide",
+            allow: true,
+            decisionId: clear.id,
+            operationId: op("relay-clear"),
+            sessionId: started.id,
+          },
+          "agent"
+        );
+        expect(decided.preparation.pending).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-clear"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(restarts).toEqual([]);
+        const recording = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("record-clear"),
+            sessionId: started.id,
+            start: true,
+          },
+          "user"
+        );
+        // Setup changes to the app never reach the recording.
+        expect(restarts).toEqual(["clear"]);
+        expect(recording.requirements).toMatchObject({
+          preparation: { startingData: "clear" },
+        });
+      })
+    )
+);
+
+it.effect("Keep Teaching never restarts the app at Start", () =>
+  fixture(({ restarts }) =>
+    Effect.gen(function* keepTeaching() {
+      yield* teach();
+      expect(restarts).toEqual([]);
+    })
+  )
+);
+
+it.effect(
+  "an agent cannot relay an app installation, only Clear Starting Data",
+  () =>
+    fixture(({ builds }) =>
+      Effect.gen(function* refuseRelayedInstall() {
+        const workspace = yield* AndroidWorkspace;
+        const upload = yield* builds.receiveAndroid(
+          Readable.from([Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00])]),
+          "fixture.apk"
+        );
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-install"),
+            recordingId: null,
+            selection: { ...clearSelection, apkPath: upload.apkPath },
+          },
+          "user"
+        );
+        const install = started.preparation.pending.find(
+          ({ kind }) => kind === "app-installation"
+        );
+        expect(install).toBeDefined();
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "decide",
+              allow: true,
+              decisionId: install?.id ?? "",
+              operationId: op("relay-install"),
+              sessionId: started.id,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).toContain("explicit Workspace choice");
+      })
+    )
+);
+
+it.effect(
+  "a Dry Run applies its Flow's Starting Data, never the selection's",
+  () =>
+    fixture(({ setups }) =>
+      Effect.gen(function* flowStartingData() {
+        const recordingId = yield* teach();
+        const workspace = yield* AndroidWorkspace;
+        yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: op("start-dry-clear"),
+            recordingId,
+            selection: clearSelection,
+          },
+          "agent"
+        );
+        // Taught with Keep, so the selection's Clear is ignored.
+        expect(setups.at(-1)?.startingData).toBeUndefined();
       })
     )
 );

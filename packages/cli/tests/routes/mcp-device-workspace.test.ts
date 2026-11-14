@@ -1,9 +1,11 @@
+import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import { DeviceWorkspaceTools } from "../../src/services/mcp-device-workspace.ts";
+import { OwnedDevices } from "../../src/services/owned-devices.ts";
 import {
   connectMcp,
   operationParams,
@@ -121,3 +123,63 @@ it("keeps user-only preparation and verification out of MCP", () => {
     ).toBe(false);
   }
 });
+
+const erased: string[] = [];
+const asked: string[] = [];
+it.live("an agent's Device Erase request only asks, and never erases", () =>
+  Effect.gen(function* eraseRequest() {
+    const { request } = yield* connectMcp(yield* servingMcpHttp());
+    const call = (platform: "android" | "ios", device: string) =>
+      request(
+        "tools/call",
+        operationParams("agent_device_workspace", {
+          command: {
+            _tag: "device-erase-request",
+            device,
+            operationId: `erase-${device}`,
+          },
+          platform,
+        })
+      ).pipe(
+        Effect.map((answer) => Schema.decodeUnknownSync(Answer)(answer).result)
+      );
+    const asking = yield* call("android", "Pixel_9");
+    expect(asking.structuredContent.status).not.toBe("program_failed");
+    expect(asking.structuredContent.value).toMatchObject({
+      device: "Pixel_9",
+      platform: "android",
+      status: "pending",
+    });
+    const refused = yield* call("ios", "not-a-udid");
+    expect(refused.structuredContent.diagnostic?.message).toContain("UDID");
+    expect(asked).toEqual(["android:Pixel_9"]);
+    expect(erased).toEqual([]);
+  }).pipe(
+    Effect.provideService(OwnedDevices, {
+      bootAndroid: () => Effect.die("Booting is not requested."),
+      bootIos: () => Effect.die("Booting is not requested."),
+      dismissErase: () => Effect.void,
+      erase: ({ device }) =>
+        Effect.sync(() => {
+          erased.push(device);
+        }),
+      eraseState: Effect.succeed({
+        owned: { android: [], ios: [] },
+        requests: [],
+      }),
+      requestErase: ({ device, operationId, platform }) =>
+        Effect.sync(() => {
+          asked.push(`${platform}:${device}`);
+          return {
+            device,
+            id: OperationId.make(operationId),
+            platform,
+            requestedAt: "2026-11-14T00:00:00.000Z",
+            status: "pending" as const,
+          };
+        }),
+    }),
+    Effect.scoped,
+    Effect.provide(NodeServices.layer)
+  )
+);

@@ -285,8 +285,8 @@ export const makeIosDeviceBoot = (host: IosBootHost = iosBootHost) => {
     boot,
     erase,
     /** The simulators this process's own boot still serves. */
-    ownedUdids: Effect.filter([...owned.keys()], (udid) =>
-      ownsRunning(udid)
+    ownedUdids: Effect.suspend(() =>
+      Effect.filter([...owned.keys()], (udid) => ownsRunning(udid))
     ).pipe(Effect.orElseSucceed((): readonly string[] => [])),
     stopOwned,
   };
