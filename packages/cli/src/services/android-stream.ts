@@ -37,9 +37,9 @@ export interface AndroidDeviceStream {
    * without a viewer, and a worker that is lost is
    * started again, so the packets go on after a `lost` state. A consumer
    * that falls behind misses frames until the next keyframe, never a frame
-   * a later one depends on, and never a state; a `skipped` packet comes
-   * before the keyframe it resumes at. It ends when the session's stream is
-   * released.
+   * a later one depends on, and never a state; a `skipped` packet marks
+   * where frames were first missed, and the next frame after it is a
+   * keyframe. It ends when the session's stream is released.
    */
   readonly packets: Stream.Stream<AndroidRecorderPacket>;
   /**
@@ -62,7 +62,7 @@ const execute = promisify(execFile);
 /** A packet for the session's recorder. */
 export type AndroidRecorderPacket =
   | AndroidStreamPacket
-  /** Frames were missed here; the next frame is a keyframe. */
+  /** Frames were missed from here; the next frame is a keyframe. */
   | { readonly _tag: "skipped" };
 const skipped: AndroidRecorderPacket = { _tag: "skipped" };
 /** How long a recorder waits before starting a lost worker again. */
@@ -368,13 +368,14 @@ export const acquireAndroidStream = (
           }
           if (Queue.sizeUnsafe(queue) >= RECORDER_BUFFER) {
             // A missed frame breaks the deltas after it; resume at a key.
+            // Say so at once, so a Stop before that key still knows.
+            if (!missed) {
+              Queue.offerUnsafe(queue, skipped);
+            }
             missed = true;
             return;
           }
-          if (missed) {
-            Queue.offerUnsafe(queue, skipped);
-            missed = false;
-          }
+          missed = false;
           Queue.offerUnsafe(queue, packet);
         };
         yield* Effect.acquireRelease(

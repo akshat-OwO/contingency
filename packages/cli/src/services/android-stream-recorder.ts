@@ -503,6 +503,7 @@ export const makeAndroidStreamRecorder = (input: {
         yield* closeFile(recording);
         yield* observeHidden(recording, false);
         const files = recording.finished;
+        const durationMs = offset(recording, stoppedAt);
         const restarts: DeviceVideoSpan[] = [];
         for (const [index, finished] of files.entries()) {
           const previous = files[index - 1];
@@ -510,10 +511,16 @@ export const makeAndroidStreamRecorder = (input: {
             restarts.push({ fromMs: previous.endMs, toMs: finished.startMs });
           }
         }
+        // Frames were skipped and no file started after them: nothing
+        // covers the time from the last frame kept to Stop.
+        const keptUntil = files.at(-1)?.endMs ?? 0;
+        if (recording.anchor !== undefined && durationMs > keptUntil) {
+          restarts.push({ fromMs: keptUntil, toMs: durationMs });
+        }
         return {
           capturedDurationMs: files.at(-1)?.endMs,
           devicePath: undefined,
-          durationMs: offset(recording, stoppedAt),
+          durationMs,
           files: files.map((finished) => finished.file),
           hidden: recording.hidden,
           recorder: recording.lost ? "lost" : "confirmed",

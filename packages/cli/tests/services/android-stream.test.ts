@@ -415,8 +415,20 @@ it.effect(
         expect(
           received.filter((packet) => packet._tag === "frame").length
         ).toBeLessThan(300);
-        // The missed frames are marked just before the keyframe after them.
-        expect(received.slice(-2)).toEqual([{ _tag: "skipped" }, resumed]);
+        // The miss is marked where it began, before the state after it, and
+        // the next frame after the mark is the keyframe.
+        const marker = received.findIndex(
+          (packet) => packet._tag === "skipped"
+        );
+        expect(marker).toBeGreaterThan(0);
+        expect(
+          received.findIndex(
+            (packet) => packet._tag === "state" && packet.state === "secure"
+          )
+        ).toBeGreaterThan(marker);
+        expect(
+          received.slice(marker + 1).find((packet) => packet._tag === "frame")
+        ).toEqual(resumed);
         yield* Scope.close(scope, Exit.void);
       })
     )

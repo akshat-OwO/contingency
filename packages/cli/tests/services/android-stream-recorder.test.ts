@@ -353,6 +353,23 @@ describe("makeAndroidStreamRecorder", () => {
     )
   );
 
+  it.effect("marks the time after frames it fell behind on until Stop", () =>
+    Effect.scoped(
+      Effect.gen(function* behindAtStop() {
+        const units = frames(landscape, { height: 48, width: 64 }, 0);
+        const { recording } = yield* record([
+          { packets: [connecting] },
+          ...live(units.slice(0, 3)),
+          { packets: [{ _tag: "skipped" }] },
+          // Stop comes before the stream reaches its next keyframe.
+          { advance: 1000 },
+        ]);
+        expect(recording.files).toHaveLength(1);
+        expect(recording.restarts).toEqual([{ fromMs: 200, toMs: 1300 }]);
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  );
+
   it.effect("starts a new file at a keyframe once a file is large", () =>
     Effect.scoped(
       Effect.gen(function* rotateBySize() {
