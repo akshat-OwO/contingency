@@ -37,9 +37,11 @@ export interface AndroidDeviceStream {
    * without a viewer, and a worker that is lost is
    * started again, so the packets go on after a `lost` state. A consumer
    * that falls behind misses frames until the next keyframe, never a frame
-   * a later one depends on. It ends when the session's stream is released.
+   * a later one depends on, and never a state; a `skipped` packet comes
+   * before the keyframe it resumes at. It ends when the session's stream is
+   * released.
    */
-  readonly packets: Stream.Stream<AndroidStreamPacket>;
+  readonly packets: Stream.Stream<AndroidRecorderPacket>;
   /**
    * Sends Forwarded Input to the device through the stream's control socket,
    * in order. It fails when no viewer has started the stream.
@@ -57,6 +59,12 @@ const decode = Schema.decodeUnknownOption(
   Schema.fromJsonString(AndroidStreamPacket)
 );
 const execute = promisify(execFile);
+/** A packet for the session's recorder. */
+export type AndroidRecorderPacket =
+  | AndroidStreamPacket
+  /** Frames were missed here; the next frame is a keyframe. */
+  | { readonly _tag: "skipped" };
+const skipped: AndroidRecorderPacket = { _tag: "skipped" };
 /** How long a recorder waits before starting a lost worker again. */
 const RESTART_DELAY = "1 second";
 /** Packets a recorder may fall behind by before it misses frames. */
@@ -336,65 +344,72 @@ export const acquireAndroidStream = (
         }),
       { bufferSize: 8, strategy: "dropping" }
     );
-    const packets = Stream.callback<AndroidStreamPacket>(
-      (queue) =>
-        Effect.gen(function* recordStream() {
+    // Unbounded: `receive` bounds the frames it lets in, never the states.
+    const packets = Stream.callback<AndroidRecorderPacket>((queue) =>
+      Effect.gen(function* recordStream() {
+        if (registry.get(closed)) {
+          Queue.endUnsafe(queue);
+          return;
+        }
+        let missed = false;
+        const receive = (packet: AndroidStreamPacket) => {
           if (registry.get(closed)) {
             Queue.endUnsafe(queue);
             return;
           }
-          let keyRequired = false;
-          const receive = (packet: AndroidStreamPacket) => {
-            if (registry.get(closed)) {
-              Queue.endUnsafe(queue);
-              return;
-            }
-            if (packet._tag === "frame" && keyRequired && !packet.key) {
-              return;
-            }
-            if (Queue.offerUnsafe(queue, packet)) {
-              if (packet._tag === "frame") {
-                keyRequired = false;
+          // States are few and small, and the recorder's Hidden Intervals
+          // and losses rest on them, so only frames are ever dropped.
+          if (packet._tag === "state") {
+            Queue.offerUnsafe(queue, packet);
+            return;
+          }
+          if (missed && !packet.key) {
+            return;
+          }
+          if (Queue.sizeUnsafe(queue) >= RECORDER_BUFFER) {
+            // A missed frame breaks the deltas after it; resume at a key.
+            missed = true;
+            return;
+          }
+          if (missed) {
+            Queue.offerUnsafe(queue, skipped);
+            missed = false;
+          }
+          Queue.offerUnsafe(queue, packet);
+        };
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            clients.add(receive);
+            // A worker already running has told viewers its state; tell
+            // this consumer too, so it knows the stream is live, then give
+            // it the screen from the last keyframe on.
+            const current = registry.get(status);
+            if (live && current._tag === "state") {
+              receive(current);
+              for (const frame of group) {
+                receive(frame);
               }
-            } else if (packet._tag === "frame") {
-              // A missed frame breaks the deltas after it; resume at a key.
-              keyRequired = true;
             }
-          };
-          yield* Effect.acquireRelease(
+          }),
+          () =>
             Effect.sync(() => {
-              clients.add(receive);
-              // A worker already running has told viewers its state; tell
-              // this consumer too, so it knows the stream is live, then give
-              // it the screen from the last keyframe on.
-              const current = registry.get(status);
-              if (live && current._tag === "state") {
-                receive(current);
-                for (const frame of group) {
-                  receive(frame);
-                }
-              }
-            }),
-            () =>
-              Effect.sync(() => {
-                clients.delete(receive);
-              })
-          );
-          // Keep a worker running for as long as this is consumed.
-          yield* Effect.gen(function* holdWorker() {
-            yield* start;
-            if (registry.get(closed)) {
-              Queue.endUnsafe(queue);
-              return yield* Effect.interrupt;
-            }
-            const current = exited;
-            if (current !== undefined) {
-              yield* Deferred.await(current);
-            }
-            yield* Effect.sleep(RESTART_DELAY);
-          }).pipe(Effect.forever, Effect.forkScoped);
-        }),
-      { bufferSize: RECORDER_BUFFER, strategy: "dropping" }
+              clients.delete(receive);
+            })
+        );
+        // Keep a worker running for as long as this is consumed.
+        yield* Effect.gen(function* holdWorker() {
+          yield* start;
+          if (registry.get(closed)) {
+            Queue.endUnsafe(queue);
+            return yield* Effect.interrupt;
+          }
+          const current = exited;
+          if (current !== undefined) {
+            yield* Deferred.await(current);
+          }
+          yield* Effect.sleep(RESTART_DELAY);
+        }).pipe(Effect.forever, Effect.forkScoped);
+      })
     );
     return {
       access: {

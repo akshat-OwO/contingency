@@ -135,7 +135,7 @@ declare module "expo-device-hub/vendor/serve-emu/dist/screen-recording.js" {
     static create(options: {
       directory: string;
       maxDurationMs?: number;
-      maxFileBytes?: number;
+      maxFileBytes?: number | undefined;
       minFreeBytes?: number;
       maxQueuedBytes?: number;
       finalizeTimeoutMs?: number;

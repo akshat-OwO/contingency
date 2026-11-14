@@ -11,6 +11,7 @@ import {
   makeAndroidStreamRecorder,
   parameterSets,
 } from "../../src/services/android-stream-recorder.ts";
+import type { AndroidRecorderPacket } from "../../src/services/android-stream.ts";
 import { readMp4Frames } from "../../src/services/mp4-frames.ts";
 
 /**
@@ -81,7 +82,7 @@ const lost: AndroidStreamPacket = { _tag: "state", state: "lost" };
 
 /** Packets, or `advance` milliseconds of virtual time. */
 type Step =
-  | { readonly packets: readonly AndroidStreamPacket[] }
+  | { readonly packets: readonly AndroidRecorderPacket[] }
   | { readonly advance: number };
 
 /**
@@ -92,7 +93,7 @@ type Step =
 const scripted = (
   steps: readonly Step[],
   drained: Deferred.Deferred<true>
-): Stream.Stream<AndroidStreamPacket> =>
+): Stream.Stream<AndroidRecorderPacket> =>
   Stream.concat(
     Stream.fromIterable(steps).pipe(
       Stream.flatMap((step) =>
@@ -110,10 +111,13 @@ const scripted = (
   );
 
 /** Frames as a live stream delivers them, one every 100 ms. */
-const live = (packets: readonly AndroidStreamPacket[]): Step[] =>
+const live = (packets: readonly AndroidRecorderPacket[]): Step[] =>
   packets.flatMap((packet) => [{ packets: [packet] }, { advance: 100 }]);
 
-const record = (steps: readonly Step[]) =>
+const record = (
+  steps: readonly Step[],
+  fileBytes?: { readonly rotate: number; readonly max: number }
+) =>
   Effect.gen(function* recordScript() {
     const fileSystem = yield* FileSystem.FileSystem;
     const folder = yield* fileSystem.makeTempDirectoryScoped({
@@ -121,6 +125,7 @@ const record = (steps: readonly Step[]) =>
     });
     const drained = yield* Deferred.make<true>();
     const recorder = makeAndroidStreamRecorder({
+      fileBytes,
       fileSystem,
       packets: scripted(steps, drained),
     });
@@ -308,6 +313,95 @@ describe("makeAndroidStreamRecorder", () => {
           expect(recording.restarts).toEqual([]);
         }).pipe(Effect.provide(NodeServices.layer))
       )
+  );
+
+  it.effect("keeps a loss until the next stream's footage is kept", () =>
+    Effect.scoped(
+      Effect.gen(function* reconnectOnly() {
+        const { recording } = yield* record([
+          { packets: [connecting] },
+          ...live(frames(landscape, { height: 48, width: 64 }, 0)),
+          { packets: [lost] },
+          { advance: 3000 },
+          // A new worker says it is connecting, but sends no frame.
+          { packets: [connecting] },
+          { advance: 1000 },
+        ]);
+        expect(recording.files).toHaveLength(1);
+        expect(recording.recorder).toBe("lost");
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  );
+
+  it.effect("marks the frames it fell behind on as a gap", () =>
+    Effect.scoped(
+      Effect.gen(function* fellBehind() {
+        const units = frames(landscape, { height: 48, width: 64 }, 0);
+        const { names, recording } = yield* record([
+          { packets: [connecting] },
+          // Frames 0 to 200 ms, then 300 and 400 ms are missed, and the
+          // stream resumes at the 500 ms keyframe.
+          ...live(units.slice(0, 3)),
+          { packets: [{ _tag: "skipped" }] },
+          ...live(units.slice(5)),
+        ]);
+        expect(names).toEqual(["recording-0.mp4", "recording-1.mp4"]);
+        expect(recording.starts).toEqual([0, 500]);
+        expect(recording.restarts).toEqual([{ fromMs: 200, toMs: 500 }]);
+        expect(recording.recorder).toBe("confirmed");
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  );
+
+  it.effect("starts a new file at a keyframe once a file is large", () =>
+    Effect.scoped(
+      Effect.gen(function* rotateBySize() {
+        const { folder, names, recording } = yield* record(
+          [
+            { packets: [connecting] },
+            ...live(frames(landscape, { height: 48, width: 64 }, 0)),
+          ],
+          { max: 4 * 1024 ** 3, rotate: 1 }
+        );
+        const keys = landscape.filter((unit) => unit.key).length;
+        expect(names).toHaveLength(keys);
+        expect(recording.restarts).toEqual([]);
+        expect(recording.warning).toBeUndefined();
+        let played = 0;
+        for (const name of names) {
+          played += (yield* readMp4Frames(path.join(folder, name))).frames
+            .length;
+        }
+        expect(played).toBe(landscape.length);
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
+  );
+
+  it.effect("keeps what a file holds when it reaches the byte limit", () =>
+    Effect.scoped(
+      Effect.gen(function* byteLimit() {
+        const steps = [
+          { packets: [connecting] },
+          ...live(frames(landscape, { height: 48, width: 64 }, 0)),
+        ];
+        const whole = yield* record(steps);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const size = Number(
+          (yield* fileSystem.stat(whole.recording.files[0] ?? "")).size
+        );
+        // The writer fails partway through the footage. Its first write
+        // carries the header with the first fragment, so it must fit.
+        const { folder, names, recording } = yield* record(steps, {
+          max: Math.floor(size * 0.85),
+          rotate: 4 * 1024 ** 3,
+        });
+        expect(recording.warning).toContain("byte limit");
+        const first = yield* readMp4Frames(path.join(folder, names[0] ?? ""));
+        expect(first.frames.length).toBeGreaterThan(0);
+        expect(first.frames.length).toBeLessThan(landscape.length);
+        expect(recording.starts[0]).toBe(0);
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
   );
 
   it.effect("fails a start the stream never makes live", () =>

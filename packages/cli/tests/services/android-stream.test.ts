@@ -9,6 +9,7 @@ import {
   androidVisibilityState,
   androidWindowVisibility,
 } from "../../src/services/android-stream-contract.ts";
+import type { AndroidRecorderPacket } from "../../src/services/android-stream.ts";
 import { acquireAndroidStream } from "../../src/services/android-stream.ts";
 
 const device = {
@@ -27,6 +28,9 @@ const frame = (key: boolean) =>
     timestamp: 1,
     width: 50,
   }) as const;
+/** Packets as the worker writes them, one JSON line each. */
+const lines = (packets: readonly AndroidStreamPacket[]) =>
+  packets.map((packet) => `${JSON.stringify(packet)}\n`).join("");
 const parse = Schema.decodeUnknownSync(
   Schema.fromJsonString(AndroidStreamPacket)
 );
@@ -83,7 +87,7 @@ it.effect(
                 : Effect.void;
             })
         );
-        const received: AndroidStreamPacket[] = [];
+        const received: AndroidRecorderPacket[] = [];
         const viewer = yield* Stream.runForEach(stream.frames, (bytes) =>
           Effect.gen(function* receive() {
             const packet = parse(Buffer.from(bytes).toString("utf-8").trim());
@@ -167,7 +171,7 @@ it.effect(
           },
           () => Effect.void
         );
-        const received: AndroidStreamPacket[] = [];
+        const received: AndroidRecorderPacket[] = [];
         const viewer = yield* Stream.runForEach(stream.frames, (bytes) =>
           Effect.gen(function* receive() {
             const packet = parse(Buffer.from(bytes).toString("utf-8").trim());
@@ -232,7 +236,7 @@ it.live(
           },
           () => Effect.void
         );
-        const received: AndroidStreamPacket[] = [];
+        const received: AndroidRecorderPacket[] = [];
         const firstFrame = yield* Deferred.make<true>();
         const lastFrame = yield* Deferred.make<true>();
         const seen = [firstFrame, undefined, lastFrame];
@@ -330,6 +334,90 @@ it.effect(
         expect([...joined]).toEqual([connecting, frame(true), later]);
         yield* Scope.close(scope, Exit.void);
         yield* Fiber.join(viewer);
+      })
+    )
+);
+
+it.effect(
+  "keeps every state for a recorder that falls behind and marks the frames it missed",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* fallBehind() {
+        const scope = yield* Scope.make();
+        const started = yield* Deferred.make<PassThrough>();
+        const child = new ChildProcess();
+        const output = new PassThrough();
+        child.stdout = output;
+        child.kill = () => {
+          Object.defineProperty(child, "exitCode", { value: 0 });
+          child.emit("close", 0, null);
+          return true;
+        };
+        const stream = yield* acquireAndroidStream(
+          "agent-behind",
+          device,
+          scope,
+          () => {
+            Deferred.doneUnsafe(started, Effect.succeed(output));
+            return child;
+          },
+          () => Effect.void
+        );
+        const gate = yield* Deferred.make<true>();
+        const blocked = yield* Deferred.make<true>();
+        const drained = yield* Deferred.make<true>();
+        const received: AndroidRecorderPacket[] = [];
+        const resumed = { ...frame(true), timestamp: 999 };
+        const recorder = yield* stream.packets.pipe(
+          Stream.tap(() =>
+            received.length === 0
+              ? Deferred.succeed(blocked, true).pipe(
+                  Effect.andThen(Deferred.await(gate))
+                )
+              : Effect.void
+          ),
+          Stream.tap((packet) =>
+            Effect.sync(() => {
+              received.push(packet);
+              if (packet._tag === "state" && packet.state === "secure") {
+                Deferred.doneUnsafe(drained, Effect.succeed(true));
+              }
+            })
+          ),
+          Stream.takeUntil(
+            (packet) => packet._tag === "frame" && packet.timestamp === 999
+          ),
+          Stream.runDrain,
+          Effect.forkChild
+        );
+        const worker = yield* Deferred.await(started).pipe(
+          Effect.timeout("30 seconds")
+        );
+        const connecting = { _tag: "state", state: "connecting" } as const;
+        const secure = { _tag: "state", state: "secure" } as const;
+        worker.write(`${JSON.stringify(connecting)}\n`);
+        // The recorder is stuck on its first packet while the worker sends
+        // more frames than it may fall behind by, then a state.
+        yield* Deferred.await(blocked).pipe(Effect.timeout("30 seconds"));
+        worker.write(
+          lines([
+            frame(true),
+            ...Array.from({ length: 300 }, () => frame(false)),
+            secure,
+          ])
+        );
+        yield* Deferred.succeed(gate, true);
+        // Once it caught up, a delta is still missed, and the stream resumes
+        // at the next keyframe.
+        yield* Deferred.await(drained).pipe(Effect.timeout("30 seconds"));
+        worker.write(lines([frame(false), resumed]));
+        yield* Fiber.join(recorder).pipe(Effect.timeout("30 seconds"));
+        expect(
+          received.filter((packet) => packet._tag === "frame").length
+        ).toBeLessThan(300);
+        // The missed frames are marked just before the keyframe after them.
+        expect(received.slice(-2)).toEqual([{ _tag: "skipped" }, resumed]);
+        yield* Scope.close(scope, Exit.void);
       })
     )
 );
