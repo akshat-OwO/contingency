@@ -86,6 +86,27 @@ it.effect("refuses a lock held by a live process and names the held lock", () =>
   )
 );
 
+it.effect(
+  "keeps the lock held when a start in the same process is refused",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* refusedRetry() {
+        const lockPath = yield* lockDirectory;
+        const lock = yield* acquireAndroidDeviceLock(lockPath);
+        expect((yield* holder(lockPath)).outcome).toBe(
+          "refused device_lock_held"
+        );
+        const retry = yield* Effect.flip(acquireAndroidDeviceLock(lockPath));
+        expect(retry.code).toBe("device_lock_held");
+        expect((yield* holder(lockPath)).outcome).toBe(
+          "refused device_lock_held"
+        );
+        yield* lock.release;
+        expect((yield* holder(lockPath)).outcome).toBe("held");
+      })
+    )
+);
+
 it.effect("lets exactly one of several processes take the device", () =>
   Effect.scoped(
     Effect.gen(function* raceProcesses() {

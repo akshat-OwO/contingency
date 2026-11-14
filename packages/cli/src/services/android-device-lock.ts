@@ -19,6 +19,13 @@ const sqliteCode = (cause: unknown): number | undefined =>
     Option.getOrUndefined
   );
 
+const ErrorCode = Schema.Struct({ code: Schema.optional(Schema.String) });
+const errorCode = (cause: unknown): string | undefined =>
+  Schema.decodeUnknownOption(ErrorCode)(cause).pipe(
+    Option.flatMap(({ code }) => Option.fromNullishOr(code)),
+    Option.getOrUndefined
+  );
+
 const unreadable = (lockPath: string): PlatformRuntimeError => ({
   ...platformRuntimeError("device_lock_held"),
   message: `This Android device's lock at ${lockPath} is not a lock this version of Contingency can take, so it cannot tell whether another process is using the device. If no other Contingency process is using it, delete that path, then start a new Android session.`,
@@ -45,10 +52,19 @@ export const acquireAndroidDeviceLock = (
   lockPath: string
 ): Effect.Effect<AndroidDeviceLock, PlatformRuntimeError> =>
   Effect.gen(function* acquireLock() {
+    // Closing any descriptor for the file drops every POSIX lock this process
+    // holds on it, including another start's. Only an exclusive create, which
+    // opens no descriptor when the file exists, touches it outside SQLite.
     yield* Effect.tryPromise({
-      catch: () => unreadable(lockPath),
-      try: () => writeFile(lockPath, "", { flag: "a", mode: 0o600 }),
-    });
+      catch: (cause) => cause,
+      try: () => writeFile(lockPath, "", { flag: "wx", mode: 0o600 }),
+    }).pipe(
+      Effect.catch((error) =>
+        errorCode(error) === "EEXIST"
+          ? Effect.void
+          : Effect.fail(unreadable(lockPath))
+      )
+    );
     const database = yield* Effect.try({
       catch: () => unreadable(lockPath),
       try: () => new DatabaseSync(lockPath, { timeout: 0 }),
