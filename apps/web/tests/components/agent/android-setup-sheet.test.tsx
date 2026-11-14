@@ -6,7 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AndroidSetupSheet } from "@/components/agent/android-setup-sheet";
@@ -143,6 +143,28 @@ test("waits for a choice when more than one device is ready", async () => {
     await screen.findByRole("button", { name: /Pixel_8/u })
   ).toHaveAttribute("aria-pressed", "false");
   expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
+});
+
+test("keeps the installed-app frame in place while the apps load", async () => {
+  const [shop] = await Effect.runPromise(discovery.apps());
+  const listed = Effect.runSync(Deferred.make<readonly (typeof shop)[]>());
+  render(
+    <AndroidSetupSheet
+      discovery={{ ...discovery, apps: () => Deferred.await(listed) }}
+      open
+      onOpen={vi.fn()}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  const loading = await screen.findByText("Reading installed apps…");
+  const frame = loading.parentElement;
+  expect(frame).toHaveClass("h-44", "rounded-lg", "border");
+  Effect.runSync(Deferred.succeed(listed, [shop]));
+  const list = await screen.findByRole("list", { name: "Installed apps" });
+  // The same frame holds the list, so the steps below it do not move.
+  expect(list.parentElement).toBe(frame);
+  expect(frame).toHaveClass("h-44");
 });
 
 test("disables physical devices with their refusal reason before app discovery", async () => {
