@@ -24,6 +24,7 @@ export type DeviceVideoSpan = typeof DeviceVideoSpan.Type;
 // oxlint-disable-next-line eslint/no-redeclare
 export const DeviceVideoGapReason = Schema.Literals([
   "recorder-lost",
+  "recorder-restarted",
   "recorder-unconfirmed",
   "recorder-stopped-early",
   "size-limit",

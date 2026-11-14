@@ -36,6 +36,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import { androidHelperRelease } from "./android-runtime-contract.ts";
 import type { AndroidObservation } from "./android-runtime-contract.ts";
+import { makeAndroidStreamRecorder } from "./android-stream-recorder.ts";
 import { acquireAndroidStream } from "./android-stream.ts";
 import type { AndroidDeviceStream } from "./android-stream.ts";
 import {
@@ -389,6 +390,13 @@ export const makeAndroidWorkspaceLayer = (options: {
   readonly root: () => string;
   /** The session's display and input transport; tests substitute their own. */
   readonly acquireStream?: typeof acquireAndroidStream;
+  /**
+   * The session's screen recorder, over its display stream (ADR 0080);
+   * tests substitute their own.
+   */
+  readonly screenRecorder?: (
+    stream: AndroidDeviceStream
+  ) => NativeScreenRecorder;
   /** How a Run's video fast-forwards its Idle Gaps; one per process. */
   readonly videoFastForward?: RunVideoFastForward;
 }) =>
@@ -403,6 +411,13 @@ export const makeAndroidWorkspaceLayer = (options: {
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
       const acquireStream = options.acquireStream ?? acquireAndroidStream;
+      const screenRecorder =
+        options.screenRecorder ??
+        ((stream: AndroidDeviceStream) =>
+          makeAndroidStreamRecorder({
+            fileSystem: fs,
+            packets: stream.packets,
+          }));
       const sessions = new Map<AgentSessionId, Session>();
       const receiptSalt = randomUUID();
       const startLock = Semaphore.makeUnsafe(1);
@@ -661,14 +676,14 @@ export const makeAndroidWorkspaceLayer = (options: {
       const sessionVideo = (
         kind: "teaching" | "dry-run" | "run",
         directory: string,
-        run: { readonly screenRecorder: () => NativeScreenRecorder | undefined }
+        recorder: NativeScreenRecorder
       ) =>
         makeDeviceVideoCapture({
           directory,
           fastForward: options.videoFastForward ?? "capped",
           pacing: kind === "teaching" ? "real-time" : "condensed",
           platform: "android",
-          recorder: () => run.screenRecorder(),
+          recorder: () => recorder,
           ...Option.match(renderer, {
             onNone: () => ({}),
             onSome: (service) => ({ render: service.render }),
@@ -1003,6 +1018,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               startedAt: now(),
               takeoverOccurred: false,
             };
+            const stream = yield* acquireStream(id, selection.device, scope);
             const session: Session = {
               boundary: makeExecutionBoundary({
                 hosts: [],
@@ -1060,7 +1076,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 startingObservation: null,
                 summary,
               }).pipe(Atom.keepAlive),
-              stream: yield* acquireStream(id, selection.device, scope),
+              stream,
               summaryFile: path.join(root, ".android-workspace", `${id}.json`),
               variables: Atom.make<readonly PrivateVariable[]>(
                 inputs.map(({ name }) => ({
@@ -1071,7 +1087,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                   status: "requested" as const,
                 }))
               ).pipe(Atom.keepAlive),
-              video: yield* sessionVideo(command.kind, directory, run),
+              video: yield* sessionVideo(
+                command.kind,
+                directory,
+                screenRecorder(stream)
+              ),
             };
             registry.get(session.state);
             registry.get(session.variables);

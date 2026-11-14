@@ -153,6 +153,79 @@ describe("parseMp4Moov", () => {
     expect(parsed.durationMs).toBe(2000);
   });
 
+  it("reads a fragmented MP4's samples from its fragments", () => {
+    // A track header that names track 1, as a fragment's `tfhd` does.
+    const trak = box(
+      "trak",
+      box(
+        "tkhd",
+        full(),
+        zeros(8),
+        u32(1),
+        zeros(64),
+        u32(64 * 65_536),
+        u32(48 * 65_536)
+      ),
+      box(
+        "mdia",
+        mdhd(1000, 0),
+        hdlr("vide"),
+        box("minf", box("stbl", stsd("avc1"), stts([])))
+      )
+    );
+    const mvex = box(
+      "mvex",
+      box("trex", full(), u32(1), u32(1), u32(100), u32(0), u32(0))
+    );
+    const traf = (options: {
+      readonly track?: number;
+      readonly decodeTime: number;
+      readonly samples: readonly [duration: number, offset: number][];
+    }) =>
+      box(
+        "traf",
+        box("tfhd", full(), u32(options.track ?? 1)),
+        box("tfdt", full(), u32(options.decodeTime)),
+        // Each sample states its duration (0x100) and composition offset
+        // (0x800).
+        box(
+          "trun",
+          [0, 0, 0x09, 0],
+          u32(options.samples.length),
+          ...options.samples.map(([duration, offset]) => [
+            ...u32(duration),
+            ...u32(offset),
+          ])
+        )
+      );
+    const parsed = parseMp4Moov(moov(mvhd(1000, 0), trak, mvex), [
+      Uint8Array.from(
+        box(
+          "moof",
+          traf({
+            decodeTime: 0,
+            samples: [
+              [100, 0],
+              [200, 0],
+            ],
+          }),
+          // Another track's samples are not this track's frames.
+          traf({ decodeTime: 0, samples: [[50, 0]], track: 2 })
+        ).slice(8)
+      ),
+      Uint8Array.from(
+        box("moof", traf({ decodeTime: 300, samples: [[100, 20]] })).slice(8)
+      ),
+    ]);
+    expect(parsed).toEqual({
+      codec: "avc1",
+      durationMs: 420,
+      frames: [0, 100, 320],
+      height: 48,
+      width: 64,
+    });
+  });
+
   it("refuses a file with no video track", () => {
     expect(() =>
       parseMp4Moov(

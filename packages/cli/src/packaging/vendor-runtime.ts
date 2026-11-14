@@ -6,7 +6,15 @@ import { Effect, FileSystem } from "effect";
 import { vendorPackages } from "./vendor-packages.ts";
 
 vendorPackages(
-  ["playwright-core", "lighthouse", "puppeteer-core", "agent-device"],
+  // mediabunny is the hub recorder's MP4 muxer; the hub itself is copied
+  // file by file below.
+  [
+    "playwright-core",
+    "lighthouse",
+    "puppeteer-core",
+    "agent-device",
+    "mediabunny",
+  ],
   process.cwd(),
   path.resolve("dist")
 ).pipe(
@@ -19,8 +27,9 @@ vendorPackages(
         path.join(target, "vendor/serve-emu/dist/shared"),
         { recursive: true }
       );
-      // Only the stock scrcpy transport and the emulator gRPC stream are
-      // reachable, with what they import. No dashboard or recorder.
+      // Only the stock scrcpy transport, the emulator gRPC stream, and the
+      // stream recorder that muxes its packets (ADR 0080) are reachable,
+      // with what they import. No dashboard or session recorder.
       for (const file of [
         "control-input-queue.js",
         "device-capabilities.js",
@@ -31,8 +40,10 @@ vendorPackages(
         "h264-encoder.js",
         "h264-readiness.js",
         "input.js",
+        "recording-file-target.js",
         "scrcpy-server.js",
         "scrcpy.js",
+        "screen-recording.js",
         "session-status.js",
         "shared/api-contracts.js",
         "shared/control-contracts.js",

@@ -23,6 +23,7 @@ it.effect(
                     },
                     authorized: (token) => token === "fixture-token",
                     forward: () => Effect.void,
+                    packets: Stream.empty,
                     frames: Stream.make(Buffer.from("display-only\n")),
                   }
                 : null

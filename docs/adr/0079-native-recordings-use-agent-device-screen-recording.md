@@ -4,6 +4,8 @@ status: accepted
 
 # Native recordings use agent-device screen recording
 
+> Partly superseded by [ADR 0080](./0080-android-recordings-mux-the-live-display-stream.md). Android records its live display stream; iOS keeps agent-device recording.
+
 Android and iOS Teaching, Dry Runs, and later Runs retain video for [issue 697](https://github.com/akshat-OwO/contingency/issues/697). The video comes from the pinned agent-device's own screen recorder (`adb screenrecord` on Android, `simctl io recordVideo` on iOS), not from the live display stream. The recorder already owns chunking past Android's 180-second limit, a durable on-device manifest, restart recovery, and a recorder-health result. Reusing it avoids writing an H.264 muxer and a second gap tracker against the stream.
 
 ## Considered Options

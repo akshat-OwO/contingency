@@ -24,7 +24,7 @@ import type {
 export const DEVICE_VIDEO_DIRECTORY = "video";
 /** What the capture recorded about itself; it outlives the footage. */
 export const DEVICE_CAPTURE_FILE = "capture.json";
-/** Where the recorder is asked to write. Android chunks land beside it. */
+/** Where the recorder is asked to write. Further files land beside it. */
 export const DEVICE_RECORDING_FILE = "recording.mp4";
 /** The rendered video, once the footage is encoded. */
 export const DEVICE_VIDEO_FILE = "video.webm";
@@ -62,9 +62,16 @@ export const DeviceCaptureManifest = Schema.Struct({
   recorder: Schema.optional(
     Schema.Literals(["confirmed", "unconfirmed", "lost"])
   ),
+  /** Spans between files with no footage, while the recorder restarted. */
+  restarts: Schema.optional(Spans),
   sizeLimitFromMs: Schema.optional(Schema.Finite),
   /** Epoch milliseconds the recorder reported running: the video's zero. */
   startedAt: Schema.NullOr(Schema.Finite),
+  /**
+   * Milliseconds from the video's zero to each file's first frame. A record
+   * from before it was kept places files by agent-device's rotation.
+   */
+  starts: Schema.optional(Schema.Array(Schema.Finite)),
   /**
    * `recording` until Stop finalizes it; one left `recording` belongs to a
    * process that ended mid-capture. `failed` recorded but kept no footage.
@@ -132,6 +139,7 @@ export const captureFacts = (
         note: captureNote(manifest),
         pacing: manifest.pacing,
         recorder: manifest.recorder,
+        restarts: manifest.restarts ?? [],
         sizeLimitFromMs: manifest.sizeLimitFromMs,
         startedAt: manifest.startedAt,
         stoppedEarly:
@@ -249,6 +257,7 @@ export const makeDeviceVideoCapture = (input: {
       Effect.gen(function* collectFootage() {
         // Keep footage in order until the hard cap; drop the rest.
         const files: string[] = [];
+        const starts: number[] = [];
         let total = 0;
         let sizeLimitFromMs = manifest?.sizeLimitFromMs;
         for (const [index, file] of recording.files.entries()) {
@@ -257,18 +266,20 @@ export const makeDeviceVideoCapture = (input: {
             continue;
           }
           const bytes = Number(info.value.size);
+          const startMs = recording.starts[index] ?? 0;
           if (total + bytes > DEVICE_VIDEO_HARD_CAP_BYTES) {
             sizeLimitFromMs ??= Math.min(
               offset(stoppedAt),
-              index === 0 ? 0 : index * 180_000
+              Math.max(0, startMs)
             );
             yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
             continue;
           }
           total += bytes;
           files.push(path.basename(file));
+          starts.push(startMs);
         }
-        return { files, sizeLimitFromMs, total };
+        return { files, sizeLimitFromMs, starts, total };
       });
 
     const stopRecorder = (active: NativeScreenRecorder) =>
@@ -342,8 +353,8 @@ export const makeDeviceVideoCapture = (input: {
       }
       recorder = active;
       yield* update((current) => ({ ...current, startedAt: started.success }));
-      // Android keeps its chunks on the device until Stop, so the cap counts
-      // what the recorder holds there as well as this folder.
+      // The cap counts what the recorder still holds, such as the file it is
+      // writing, as well as the finished footage in this folder.
       const measured = Effect.all([footageBytes, active.footageBytes]).pipe(
         Effect.map(([local, remote]) => local + remote)
       );
@@ -442,7 +453,9 @@ export const makeDeviceVideoCapture = (input: {
         files: collected.files,
         hidden: recording.hidden,
         recorder: recording.recorder,
+        restarts: recording.restarts,
         sizeLimitFromMs: collected.sizeLimitFromMs,
+        starts: collected.starts,
         state: "recorded",
         warning: recording.warning,
       };

@@ -24,6 +24,7 @@ const facts = (
   note: undefined,
   pacing: "real-time",
   recorder: "confirmed",
+  restarts: [],
   sizeLimitFromMs: undefined,
   startedAt: 1_000_000,
   stoppedEarly: false,
@@ -64,6 +65,21 @@ describe("deviceVideoCapture", () => {
       complete: false,
       gaps: [{ fromMs: 4000, reason: "recorder-lost", toMs: 10_000 }],
     });
+  });
+
+  it("marks the time between a stream's files as a gap", () => {
+    const capture = deviceVideoCapture(
+      facts({ restarts: [{ fromMs: 3000, toMs: 4200 }] }),
+      [chunk(0, [0, 1000, 3000]), chunk(4200, [0, 5800])]
+    );
+    expect(capture).toMatchObject({
+      complete: false,
+      gaps: [{ fromMs: 3000, reason: "recorder-restarted", toMs: 4200 }],
+    });
+    // The gap holds the last frame before it, with its badge.
+    expect(
+      deviceFrameAt([chunk(0, [0, 3000]), chunk(4200, [0])], capture, 3500)
+    ).toMatchObject({ chunk: 0, gap: true, kind: "footage" });
   });
 
   it("says where the size limit dropped footage, and clips Hidden Intervals", () => {

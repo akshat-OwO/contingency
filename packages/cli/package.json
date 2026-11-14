@@ -39,6 +39,7 @@
     "expo-device-hub": "0.15.3",
     "jsonc-parser": "^3.3.1",
     "lighthouse": "13.5.0",
+    "mediabunny": "1.55.3",
     "open": "^11.0.0",
     "playwright-core": "1.64.0",
     "puppeteer-core": "25.12.0",

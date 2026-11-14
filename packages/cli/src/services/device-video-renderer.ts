@@ -288,7 +288,7 @@ export const DeviceVideoRendererLive = Layer.effect(
             );
           }
           const sources: { file: string; frames: DeviceFootageChunk }[] = [];
-          const starts = chunkStarts(manifest.files.length);
+          const starts = manifest.starts ?? chunkStarts(manifest.files.length);
           for (const [index, name] of manifest.files.entries()) {
             const read = yield* decodable(path.join(folder, name));
             sources.push({
