@@ -31,7 +31,11 @@ export interface NativeAppRunDecision<
   readonly id: string;
   readonly runId: string;
   readonly targetApp: string;
-  readonly kind: "run-environment-permission" | "app-installation";
+  readonly kind:
+    | "run-environment-permission"
+    | "app-installation"
+    /** Teaching with Clear Starting Data removes the Target App's data (ADR 0081). */
+    | "clear-app-data";
   readonly differences: readonly Difference[];
   /** For an app installation: the build it replaces, or null when absent. */
   readonly installedBuild?: string | null;
@@ -77,6 +81,11 @@ export interface NativeAppRun<Observation extends PlatformObservation, State> {
     allow: boolean
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly prepare: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  /**
+   * Restarts the prepared Target App under its Starting Data, as preparation
+   * did, without installing anything, and observes the restarted screen.
+   */
+  readonly restart: () => Effect.Effect<Observation, PlatformRuntimeError>;
   readonly observe: NativeAppRuntime<Observation>["observe"];
   readonly dispatch: NativeAppRuntime<Observation>["dispatch"];
   readonly back: NativeAppRuntime<Observation>["back"];
@@ -111,6 +120,13 @@ export interface NativeAppRunDriver<
   readonly start: (
     input: Input
   ) => Effect.Effect<NativeAppRuntime<Observation>, PlatformRuntimeError>;
+  /**
+   * Restarts the prepared Target App under its Starting Data. Never installs.
+   * A platform without it cannot restart a prepared session.
+   */
+  readonly restart?: (
+    input: Input
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly startingConditions: (
     input: Input,
     observation: Observation

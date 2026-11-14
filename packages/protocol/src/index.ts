@@ -43,6 +43,7 @@ import {
   CatalogFlowGet,
   CatalogFlowResult,
 } from "./catalog-browser.ts";
+import { DeviceErasePlatform, DeviceEraseState } from "./device-erase.ts";
 import {
   Geolocation,
   PageZoom,
@@ -89,6 +90,7 @@ export * from "./agent-identifiers.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-session.ts";
 export * from "./platform.ts";
+export * from "./device-erase.ts";
 export * from "./agent-session-compact.ts";
 // oxlint-disable-next-line oxc/no-barrel-file
 export * from "./agent-browser.ts";
@@ -1102,6 +1104,33 @@ export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("android.device.boot", {
     error: BrowserRpcError,
     payload: Schema.Struct({ avd: Schema.NonEmptyString }),
+    success: Schema.Void,
+  }),
+  /**
+   * Device Erase (ADR 0081): wipes a stopped emulator or simulator, or one
+   * this process started, then boots it as an Owned Device. Only Workspace
+   * calls it; an agent can only request it. `requestId` resolves the agent
+   * request the user is answering.
+   */
+  Rpc.make("device.erase", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({
+      device: Schema.NonEmptyString,
+      platform: DeviceErasePlatform,
+      requestId: Schema.optionalKey(Schema.NonEmptyString),
+    }),
+    success: Schema.Void,
+  }),
+  /** Agent erase requests and the devices this process may stop to erase. */
+  Rpc.make("device.erase.state", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({}),
+    success: DeviceEraseState,
+  }),
+  /** Refuses an agent's erase request; nothing is erased. */
+  Rpc.make("device.erase.dismiss", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ id: Schema.NonEmptyString }),
     success: Schema.Void,
   }),
   Rpc.make("android.apps.list", {

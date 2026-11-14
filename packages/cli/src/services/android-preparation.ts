@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { startingDataOf } from "@contingency/protocol";
 import { Effect, Schema } from "effect";
 
 import { requireAndroidDeviceIdentity } from "./android-device-identity.ts";
@@ -55,7 +56,8 @@ export const androidInstallOutcome = (output: string) => {
 /**
  * Installs or replaces the Target App with `adb install -r`. A refusal such
  * as a downgrade or a signature mismatch is reported with the device's own
- * reason; nothing is ever uninstalled, since that deletes the app's data.
+ * reason; nothing is ever uninstalled. Only Clear Starting Data removes the
+ * app's data, and only through `pm clear` (ADR 0081).
  */
 export const installAndroidApk = (input: AndroidRunInput, apk: string) =>
   Effect.gen(function* install() {
@@ -228,6 +230,68 @@ export const prepareAndroidAppData = (
     yield* requireAndroidPermissionState(input, run, "preparation_failed");
   });
 
+/**
+ * Clear Starting Data (ADR 0081): removes only the Target App's own data for
+ * owner user 0, while it stays installed. `pm clear` also resets runtime
+ * permissions, so permission decisions are applied after it.
+ */
+export const clearAndroidAppData = (
+  input: AndroidRunInput,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
+) =>
+  run(["shell", "pm", "clear", "--user", "0", input.targetApp]).pipe(
+    Effect.flatMap((output) =>
+      /^Success$/mu.test(output)
+        ? Effect.void
+        : Effect.fail(platformRuntimeError("preparation_failed"))
+    )
+  );
+
+const launchAndroidTargetApp = (
+  input: AndroidRunInput,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
+) =>
+  Effect.gen(function* launch() {
+    const launched = yield* run([
+      "shell",
+      "am",
+      "start",
+      "--user",
+      "0",
+      "-W",
+      "-n",
+      `'${input.setup.activity}'`,
+    ]);
+    if (!/^Status: ok$/mu.test(launched) || /Error:/u.test(launched)) {
+      return yield* Effect.fail(platformRuntimeError("preparation_failed"));
+    }
+  });
+
+/**
+ * Stops the Target App, applies its Starting Data and permission decisions,
+ * and launches it again. Never installs or uninstalls.
+ */
+export const restartAndroidTargetApp = (
+  input: AndroidRunInput,
+  run: (args: readonly string[]) => Effect.Effect<string, PlatformRuntimeError>
+) =>
+  Effect.gen(function* restart() {
+    yield* run(["shell", "am", "force-stop", "--user", "0", input.targetApp]);
+    if (startingDataOf(input.setup) === "clear") {
+      yield* requireAndroidDeviceIdentity(input.device, run);
+      yield* clearAndroidAppData(input, run);
+    }
+    yield* prepareAndroidAppData(input, run);
+    yield* launchAndroidTargetApp(input, run);
+  });
+
+/** Restarts the Target App on the selected device during a prepared session. */
+export const restartAndroidTargetAppOnDevice = (input: AndroidRunInput) =>
+  Effect.gen(function* restartOnDevice() {
+    yield* requireAndroidAppBuild(input);
+    yield* restartAndroidTargetApp(input, (args) => adb(input, args));
+  });
+
 /** Called only after all Run decisions, inside the selected-device lock. */
 export const prepareAndroidStartingState = (
   request: AndroidRunInput,
@@ -255,26 +319,5 @@ export const prepareAndroidStartingState = (
       yield* installAndroidApk(input, input.appInstallation.apk);
     }
     yield* requireAndroidAppBuild(input);
-    yield* mutate([
-      "shell",
-      "am",
-      "force-stop",
-      "--user",
-      "0",
-      input.targetApp,
-    ]);
-    yield* prepareAndroidAppData(input, (args) => adb(input, args));
-    const launched = yield* mutate([
-      "shell",
-      "am",
-      "start",
-      "--user",
-      "0",
-      "-W",
-      "-n",
-      `'${input.setup.activity}'`,
-    ]);
-    if (!/^Status: ok$/mu.test(launched) || /Error:/u.test(launched)) {
-      return yield* Effect.fail(platformRuntimeError("preparation_failed"));
-    }
+    yield* restartAndroidTargetApp(input, mutate);
   });

@@ -554,8 +554,16 @@ type SummarySession = Pick<
   | "id"
   | "kind"
   | "recordingId"
+  | "requirements"
   | "takeoverOccurred"
 >;
+
+/** The Starting Data the session applied: its Flow's, or Teaching's choice. */
+const startingDataLabel = (requirements: SummarySession["requirements"]) =>
+  requirements.platform !== "web" &&
+  requirements.preparation?.startingData === "clear"
+    ? "App data cleared"
+    : "Existing app data kept";
 
 /**
  * An ended device session's Run Summary, in the browser summary's place.
@@ -629,6 +637,8 @@ export const DeviceRunSummary = ({
       <dd className="wrap-anywhere">{device}</dd>
       <dt className="text-muted-foreground">Target App</dt>
       <dd className="wrap-anywhere">{targetApp}</dd>
+      <dt className="text-muted-foreground">Starting data</dt>
+      <dd>{startingDataLabel(session.requirements)}</dd>
       <dt className="text-muted-foreground">Takeover</dt>
       <dd>
         {session.takeoverOccurred ? "Occurred; a Dry Run cannot pass" : "None"}

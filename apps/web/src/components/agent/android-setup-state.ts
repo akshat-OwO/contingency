@@ -67,6 +67,11 @@ export const androidDeviceChoice = (
   const reason = unavailableReason(device);
   const base = {
     detail: `${device.serial} · API ${device.api}`,
+    // An emulator is erased by its AVD; a phone is never erased.
+    eraseId:
+      device.kind === "emulator" && device.avd !== null
+        ? device.avd
+        : undefined,
     id: device.serial,
     kind:
       device.kind === "physical" ? ("Phone" as const) : ("Emulator" as const),

@@ -21,6 +21,18 @@ const session = {
   error: null,
   id: AgentSessionId.make("agent-ios-ended"),
   kind: "teaching",
+  recordingId: null,
+  requirements: {
+    capabilities: ["semantic-actions", "screenshots"],
+    environment: {
+      build: "1",
+      bundleId: "dev.shop",
+      deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+      runtimeVersion: "26.0",
+    },
+    platform: "ios",
+    preparation: { conditions: [], kind: "restart-app", startingData: "clear" },
+  },
   takeoverOccurred: false,
 } as const;
 
@@ -312,4 +324,10 @@ test("says why there is no video to play", () => {
   );
   expect(screen.getByText("The recording was never finalized.")).toBeVisible();
   expect(screen.queryByText("In video")).toBeNull();
+});
+
+test("names the Starting Data the session applied", () => {
+  summary(null);
+  expect(screen.getByText("Starting data")).toBeTruthy();
+  expect(screen.getByText("App data cleared")).toBeTruthy();
 });

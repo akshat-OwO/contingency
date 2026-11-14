@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { startingDataOf } from "@contingency/protocol";
+import type { StartingData } from "@contingency/protocol";
 import { Effect, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
@@ -17,6 +19,44 @@ import type {
   PlatformObservation,
   PlatformRuntimeError,
 } from "./platform-runtime.ts";
+
+/**
+ * Teaching asks before clearing the Target App's data. A Dry Run or Run
+ * applies its Flow's saved Starting Data without asking again (ADR 0081).
+ */
+export const clearAppDataDecision = (
+  input: {
+    readonly setup: { readonly startingData?: StartingData };
+    readonly targetApp: string;
+    readonly teaching?: boolean;
+  },
+  runId: string
+) =>
+  input.teaching === true && startingDataOf(input.setup) === "clear"
+    ? [
+        {
+          differences: [],
+          id: randomUUID(),
+          kind: "clear-app-data" as const,
+          runId,
+          targetApp: input.targetApp,
+        },
+      ]
+    : [];
+
+/**
+ * Whether the agent may relay the user's answer to a pending preparation
+ * decision over MCP. Only Clear Starting Data qualifies; every other
+ * preparation decision needs an explicit Workspace choice (ADR 0081).
+ */
+export const relayedDecisionAllowed = (
+  state: { readonly pending: readonly NativeAppRunDecision[] },
+  decisionId: string
+) =>
+  state.pending.some(
+    (decision) =>
+      decision.id === decisionId && decision.kind === "clear-app-data"
+  );
 
 export const createNativeAppRun = <
   Input extends NativeAppRunInput,
@@ -266,6 +306,21 @@ export const createNativeAppRun = <
               }
               yield* driver.preflight(startup, "installed");
               return yield* observed(yield* runtime.recover());
+            })
+          )
+        ),
+      restart: () =>
+        lock.withPermits(1)(
+          guarded(
+            Effect.gen(function* restart() {
+              const active = yield* requireRuntime();
+              if (driver.restart === undefined) {
+                return yield* Effect.fail(makeError("capability_missing"));
+              }
+              registry.set(latest, null);
+              yield* driver.restart(driver.authorize(startup));
+              record({ type: "setup" });
+              return yield* observed(yield* active.observe());
             })
           )
         ),

@@ -167,6 +167,24 @@ const ownedDevices = <A>(
     )
   );
 
+const ownedDevicesValue = <A>(
+  operation: (
+    service: OwnedDevicesService
+  ) => Effect.Effect<A, { readonly message: string }>
+): Effect.Effect<A, BrowserRpcErrorType> =>
+  Effect.serviceOption(OwnedDevices).pipe(
+    Effect.flatMap((service) =>
+      Option.isSome(service)
+        ? operation(service.value)
+        : Effect.fail({
+            message: "Starting devices is unavailable in this server process.",
+          })
+    ),
+    Effect.mapError((cause) =>
+      makeBrowserRpcError("agent_session_unavailable", cause.message)
+    )
+  );
+
 export const RpcHandlersLive = ContingencyRpcs.toLayer(
   Effect.sync(() => {
     const agentUnavailable = <A>(
@@ -357,6 +375,20 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           ),
       "android.device.boot": ({ avd }) =>
         ownedDevices((devices) => devices.bootAndroid(avd)),
+      "device.erase": ({ device, platform, requestId }) =>
+        // A session holds its device until its cleanup finishes, and erase
+        // refuses a held device (ADR 0081).
+        ownedDevices((devices) =>
+          devices.erase(
+            requestId === undefined
+              ? { device, platform }
+              : { device, platform, requestId }
+          )
+        ),
+      "device.erase.dismiss": ({ id }) =>
+        ownedDevices((devices) => devices.dismissErase(id)),
+      "device.erase.state": () =>
+        ownedDevicesValue((devices) => devices.eraseState),
       "android.apps.list": ({ device }) =>
         androidDiscovery
           .apps(device)

@@ -8,6 +8,7 @@ import {
   TeachingRecordingId,
   AndroidWorkspaceSummary,
   TeachingRecordingArtifact,
+  startingDataOf,
 } from "@contingency/protocol";
 import type {
   AndroidWorkspaceCommand,
@@ -49,6 +50,7 @@ import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
@@ -59,6 +61,8 @@ import {
   writeNativeRunSummary,
 } from "./native-run-summary.ts";
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
+import { OwnedDevices } from "./owned-devices.ts";
+import type { OwnedDevicesService } from "./owned-devices.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
@@ -99,6 +103,31 @@ const claimBuild = (
           )
         )
   ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+/**
+ * Reserves the session's device until its scope closes, after every other
+ * resource has released it, so Device Erase cannot take it meanwhile
+ * (ADR 0081). A device being erased refuses the session.
+ */
+const reserveDevice = (
+  owned: Option.Option<OwnedDevicesService>,
+  selected: AndroidWorkspaceSummary["selection"]["device"],
+  holder: string,
+  scope: Scope.Closeable
+): Effect.Effect<void, AndroidWorkspaceError> =>
+  // Only an emulator can be erased, by its AVD; a phone needs no reservation.
+  // Claiming and registering the release cannot be split by interruption.
+  Option.isNone(owned) || !("avd" in selected)
+    ? Effect.void
+    : Effect.uninterruptible(
+        owned.value
+          .reserveDevice({ device: selected.avd, holder, platform: "android" })
+          .pipe(Effect.flatMap((release) => Scope.addFinalizer(scope, release)))
+      ).pipe(
+        Effect.mapError((refusal) =>
+          error("android_workspace_refused", refusal.message)
+        ),
+        Effect.onError(() => Scope.close(scope, Exit.void))
+      );
 const hash = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 const now = () => new Date().toISOString();
@@ -159,16 +188,25 @@ const supportsWorkspaceRequirements = (
     /^[A-Z][A-Z0-9_]{0,127}$/u.test(name.toUpperCase())
   ) &&
   new Set(inputs.map(({ name }) => name.toUpperCase())).size === inputs.length;
+/**
+ * The setup a session applies. A Dry Run or Run takes its conditions and its
+ * Starting Data from the saved Flow, never from the selection (ADR 0081).
+ */
 const runSetup = (
   requirements: PlatformRequirements,
   fallback: AndroidWorkspaceSummary["selection"]["setup"]
-) =>
-  requirements.platform === "android"
-    ? {
-        ...fallback,
-        conditions: requirements.preparation?.conditions ?? fallback.conditions,
-      }
-    : fallback;
+): AndroidWorkspaceSummary["selection"]["setup"] => {
+  if (requirements.platform !== "android") {
+    return fallback;
+  }
+  const { startingData: _selected, ...rest } = fallback;
+  const saved = requirements.preparation?.startingData;
+  const setup = {
+    ...rest,
+    conditions: requirements.preparation?.conditions ?? fallback.conditions,
+  };
+  return saved === undefined ? setup : { ...setup, startingData: saved };
+};
 const actionDescription = (
   action: Extract<
     AndroidWorkspaceCommand,
@@ -407,6 +445,7 @@ export const makeAndroidWorkspaceLayer = (options: {
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
+      const ownedDevices = yield* Effect.serviceOption(OwnedDevices);
       const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
@@ -894,248 +933,271 @@ export const makeAndroidWorkspaceLayer = (options: {
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
       ) =>
-        startLock.withPermits(1)(
-          Effect.gen(function* startWorkspace() {
-            const fingerprint = JSON.stringify(command);
-            const replay = starts.get(command.operationId);
-            if (replay !== undefined) {
-              if (replay.fingerprint !== fingerprint) {
+        Effect.suspend(() => {
+          // Startup's scope until the session is published. A startup that
+          // fails or is interrupted first closes it, releasing its device.
+          let unpublished: Scope.Closeable | undefined;
+          return startLock.withPermits(1)(
+            Effect.gen(function* startWorkspace() {
+              const fingerprint = JSON.stringify(command);
+              const replay = starts.get(command.operationId);
+              if (replay !== undefined) {
+                if (replay.fingerprint !== fingerprint) {
+                  return yield* denied(
+                    "The startup operation was already used with different declarations."
+                  );
+                }
+                const retained = sessions.get(replay.id);
+                if (retained !== undefined) {
+                  return yield* snapshot(retained, source === "user");
+                }
+              }
+              const { selection } = command;
+              if (!confirmedStartAllowed(command, source)) {
                 return yield* denied(
-                  "The startup operation was already used with different declarations."
+                  "Prepare and open requires the user's Teaching setup confirmation."
                 );
               }
-              const retained = sessions.get(replay.id);
-              if (retained !== undefined) {
-                return yield* snapshot(retained, source === "user");
-              }
-            }
-            const { selection } = command;
-            if (!confirmedStartAllowed(command, source)) {
-              return yield* denied(
-                "Prepare and open requires the user's Teaching setup confirmation."
+              yield* requireAvailableDevice(selection);
+              const { taught, recordingId, inputs, setup } =
+                yield* selectRequirements(command);
+              const id = AgentSessionId.make(
+                `agent-android-${hash(command.operationId).slice(0, 32)}`
               );
-            }
-            yield* requireAvailableDevice(selection);
-            const { taught, recordingId, inputs, setup } =
-              yield* selectRequirements(command);
-            const id = AgentSessionId.make(
-              `agent-android-${hash(command.operationId).slice(0, 32)}`
-            );
-            const scope = yield* Scope.make();
-            // An uploaded build belongs to this session: closing its scope
-            // deletes the upload, including when startup fails.
-            const apk =
-              selection.apkPath === undefined
-                ? undefined
-                : yield* claimBuild(
-                    builds,
-                    "android",
-                    selection.apkPath,
-                    scope
-                  );
-            const declared: AndroidRunInput = {
-              device: selection.device,
-              environment: selection.environment,
-              platform: "android",
-              requiredCapabilities: taught.capabilities,
-              scope,
-              setup,
-              targetApp: selection.environment.appId,
-              taught,
-              teaching: command.kind === "teaching",
-            };
-            const startup: AndroidRunInput =
-              apk?.sha256 === undefined || apk.sha256 === null
-                ? declared
-                : {
-                    ...declared,
-                    appInstallation: { apk: apk.path, sha256: apk.sha256 },
-                  };
-            const create =
-              selection.helperConsent === "none"
-                ? factory.android.createRun(startup)
-                : factory.android.createRun({
-                    ...startup,
-                    installationGrant: {
-                      operation: selection.helperConsent,
-                      replaceNewer: command.prepareAndOpen === true,
-                      serial: selection.device.serial,
-                      sha256: androidHelperRelease.sha256,
-                    },
-                  });
-            const created = yield* Effect.result(create);
-            if (Result.isFailure(created)) {
-              yield* Scope.close(scope, Exit.void);
-              return yield* Effect.fail(created.failure);
-            }
-            const run = created.success;
-            const root =
-              command.kind === "dry-run" && recordingId !== null
-                ? store.catalogRoot(recordingId)
-                : catalog.root();
-            // A Run files its evidence under its Flow; a Dry Run's and
-            // Teaching's directories come from the recording store below.
-            let directory = yield* evidenceDirectory(command, root, id).pipe(
-              Effect.onError(() => Scope.close(scope, Exit.void))
-            );
-            if (recordingId !== null) {
-              if (command.kind === "teaching") {
-                yield* store
-                  .begin({
-                    emulation: null,
-                    flowName: command.flowName,
-                    group: command.group,
-                    operationId: command.operationId,
-                    recordingId,
-                    runtime: taught,
-                    sessionId: id,
-                  })
-                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
-                directory = store.directory(recordingId);
-              } else {
-                directory = yield* store
-                  .prepareDryRun(recordingId, AgentRunId.make(`agentrun-${id}`))
-                  .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+              const scope = yield* Scope.make();
+              unpublished = scope;
+              // Held from here until the session's cleanup has finished.
+              yield* reserveDevice(ownedDevices, selection.device, id, scope);
+              // An uploaded build belongs to this session: closing its scope
+              // deletes the upload, including when startup fails.
+              const apk =
+                selection.apkPath === undefined
+                  ? undefined
+                  : yield* claimBuild(
+                      builds,
+                      "android",
+                      selection.apkPath,
+                      scope
+                    );
+              const declared: AndroidRunInput = {
+                device: selection.device,
+                environment: selection.environment,
+                platform: "android",
+                requiredCapabilities: taught.capabilities,
+                scope,
+                setup,
+                targetApp: selection.environment.appId,
+                taught,
+                teaching: command.kind === "teaching",
+              };
+              const startup: AndroidRunInput =
+                apk?.sha256 === undefined || apk.sha256 === null
+                  ? declared
+                  : {
+                      ...declared,
+                      appInstallation: { apk: apk.path, sha256: apk.sha256 },
+                    };
+              const create =
+                selection.helperConsent === "none"
+                  ? factory.android.createRun(startup)
+                  : factory.android.createRun({
+                      ...startup,
+                      installationGrant: {
+                        operation: selection.helperConsent,
+                        replaceNewer: command.prepareAndOpen === true,
+                        serial: selection.device.serial,
+                        sha256: androidHelperRelease.sha256,
+                      },
+                    });
+              const created = yield* Effect.result(create);
+              if (Result.isFailure(created)) {
+                yield* Scope.close(scope, Exit.void);
+                return yield* Effect.fail(created.failure);
               }
-            }
-            const summary: AndroidWorkspaceSummary = {
-              assessment: null,
-              captureGaps: [],
-              completedAt: null,
-              controller:
-                command.kind === "teaching" && !command.agentSetup
-                  ? "user"
-                  : "agent",
-              error: null,
-              flowName: command.flowName,
-              id,
-              kind: command.kind,
-              phase: "pending",
-              preparation: run.state(),
-              recordingId,
-              requirements: taught,
-              selection,
-              startedAt: now(),
-              takeoverOccurred: false,
-            };
-            const stream = yield* acquireStream(id, selection.device, scope);
-            const session: Session = {
-              boundary: makeExecutionBoundary({
-                hosts: [],
-                now: () => new Date(),
-                scope: command.kind === "dry-run" ? "dry-run" : "interactive",
-                sessionId: id,
-              }),
-              directory,
-              lane: makeForwardedLane({
-                focus: (target, observation) => {
-                  update(session, (value) => ({
-                    ...value,
-                    field:
-                      target === undefined || observation === null
-                        ? null
-                        : {
-                            name: target.name,
-                            observationId: observation.id,
-                            password: target.password,
-                            role: target.role,
-                            target: target.target,
-                          },
-                  }));
-                },
-                frame: (observation) => ({
-                  nodes: observation.nodes,
-                  ...observationSize(observation),
-                }),
-                latest: () => state(session).observation,
-                send: (batch) =>
-                  session.stream
-                    .forward(batch)
-                    .pipe(
-                      Effect.mapError((cause) =>
-                        error("android_workspace_refused", cause.message)
-                      )
-                    ),
-              }),
-              lock: Semaphore.makeUnsafe(1),
-              marks: {},
-              receipts: new Map(),
-              run,
-              scope,
-              state: Atom.make<SessionState>({
-                artifacts: [],
-                bytes: 0,
-                field: null,
-                observation: null,
-                observations: [],
-                pendingInput: null,
-                ran: false,
-                recording: false,
-                revision: 0,
-                sequence: 0,
-                startingObservation: null,
-                summary,
-              }).pipe(Atom.keepAlive),
-              stream,
-              summaryFile: path.join(root, ".android-workspace", `${id}.json`),
-              variables: Atom.make<readonly PrivateVariable[]>(
-                inputs.map(({ name }) => ({
-                  name: name.toUpperCase(),
-                  purpose: `Private input for ${command.flowName}`,
-                  requestId: randomUUID(),
-                  setup: false,
-                  status: "requested" as const,
-                }))
-              ).pipe(Atom.keepAlive),
-              video: yield* sessionVideo(
-                command.kind,
-                directory,
-                screenRecorder(stream)
-              ),
-            };
-            registry.get(session.state);
-            registry.get(session.variables);
-            yield* Scope.addFinalizer(
-              scope,
-              Effect.sync(() => {
-                clearVariables(session);
-                session.boundary.dispose();
-              })
-            );
-            sessions.set(id, session);
-            starts.set(command.operationId, { fingerprint, id });
-            const initialized = yield* Effect.result(
-              Effect.gen(function* initializeCapture() {
-                yield* io(fs.makeDirectory(directory, { recursive: true }));
-                if (recordingId !== null && command.kind === "dry-run") {
-                  yield* store.startDryRun({
-                    inputs: inputs.map(({ name }) => ({
-                      changed: false,
-                      name,
-                      value: null,
-                    })),
-                    operationId: command.operationId,
-                    recordingId,
-                    sessionId: id,
-                  });
+              const run = created.success;
+              const root =
+                command.kind === "dry-run" && recordingId !== null
+                  ? store.catalogRoot(recordingId)
+                  : catalog.root();
+              // A Run files its evidence under its Flow; a Dry Run's and
+              // Teaching's directories come from the recording store below.
+              let directory = yield* evidenceDirectory(command, root, id).pipe(
+                Effect.onError(() => Scope.close(scope, Exit.void))
+              );
+              if (recordingId !== null) {
+                if (command.kind === "teaching") {
+                  yield* store
+                    .begin({
+                      emulation: null,
+                      flowName: command.flowName,
+                      group: command.group,
+                      operationId: command.operationId,
+                      recordingId,
+                      runtime: taught,
+                      sessionId: id,
+                    })
+                    .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+                  directory = store.directory(recordingId);
+                } else {
+                  directory = yield* store
+                    .prepareDryRun(
+                      recordingId,
+                      AgentRunId.make(`agentrun-${id}`)
+                    )
+                    .pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
                 }
-                yield* persist(session);
-                return yield* snapshot(session, source === "user");
-              })
-            );
-            if (Result.isFailure(initialized)) {
-              yield* close(session, "interrupted").pipe(Effect.ignore);
-              return yield* Effect.fail(initialized.failure);
-            }
-            if (command.prepareAndOpen) {
-              // The confirmation names this exact app, artifact, and device.
-              // Retain a failed session so the user can retry its preparation.
-              yield* prepareConfirmedSession(session);
-              return yield* snapshot(session, true);
-            }
-            return initialized.success;
-          })
-        );
+              }
+              const summary: AndroidWorkspaceSummary = {
+                assessment: null,
+                captureGaps: [],
+                completedAt: null,
+                controller:
+                  command.kind === "teaching" && !command.agentSetup
+                    ? "user"
+                    : "agent",
+                error: null,
+                flowName: command.flowName,
+                id,
+                kind: command.kind,
+                phase: "pending",
+                preparation: run.state(),
+                recordingId,
+                requirements: taught,
+                selection,
+                startedAt: now(),
+                takeoverOccurred: false,
+              };
+              const stream = yield* acquireStream(id, selection.device, scope);
+              const session: Session = {
+                boundary: makeExecutionBoundary({
+                  hosts: [],
+                  now: () => new Date(),
+                  scope: command.kind === "dry-run" ? "dry-run" : "interactive",
+                  sessionId: id,
+                }),
+                directory,
+                lane: makeForwardedLane({
+                  focus: (target, observation) => {
+                    update(session, (value) => ({
+                      ...value,
+                      field:
+                        target === undefined || observation === null
+                          ? null
+                          : {
+                              name: target.name,
+                              observationId: observation.id,
+                              password: target.password,
+                              role: target.role,
+                              target: target.target,
+                            },
+                    }));
+                  },
+                  frame: (observation) => ({
+                    nodes: observation.nodes,
+                    ...observationSize(observation),
+                  }),
+                  latest: () => state(session).observation,
+                  send: (batch) =>
+                    session.stream
+                      .forward(batch)
+                      .pipe(
+                        Effect.mapError((cause) =>
+                          error("android_workspace_refused", cause.message)
+                        )
+                      ),
+                }),
+                lock: Semaphore.makeUnsafe(1),
+                marks: {},
+                receipts: new Map(),
+                run,
+                scope,
+                state: Atom.make<SessionState>({
+                  artifacts: [],
+                  bytes: 0,
+                  field: null,
+                  observation: null,
+                  observations: [],
+                  pendingInput: null,
+                  ran: false,
+                  recording: false,
+                  revision: 0,
+                  sequence: 0,
+                  startingObservation: null,
+                  summary,
+                }).pipe(Atom.keepAlive),
+                stream,
+                summaryFile: path.join(
+                  root,
+                  ".android-workspace",
+                  `${id}.json`
+                ),
+                variables: Atom.make<readonly PrivateVariable[]>(
+                  inputs.map(({ name }) => ({
+                    name: name.toUpperCase(),
+                    purpose: `Private input for ${command.flowName}`,
+                    requestId: randomUUID(),
+                    setup: false,
+                    status: "requested" as const,
+                  }))
+                ).pipe(Atom.keepAlive),
+                video: yield* sessionVideo(
+                  command.kind,
+                  directory,
+                  screenRecorder(stream)
+                ),
+              };
+              registry.get(session.state);
+              registry.get(session.variables);
+              yield* Scope.addFinalizer(
+                scope,
+                Effect.sync(() => {
+                  clearVariables(session);
+                  session.boundary.dispose();
+                })
+              );
+              sessions.set(id, session);
+              // The published session owns the scope from here.
+              unpublished = undefined;
+              starts.set(command.operationId, { fingerprint, id });
+              const initialized = yield* Effect.result(
+                Effect.gen(function* initializeCapture() {
+                  yield* io(fs.makeDirectory(directory, { recursive: true }));
+                  if (recordingId !== null && command.kind === "dry-run") {
+                    yield* store.startDryRun({
+                      inputs: inputs.map(({ name }) => ({
+                        changed: false,
+                        name,
+                        value: null,
+                      })),
+                      operationId: command.operationId,
+                      recordingId,
+                      sessionId: id,
+                    });
+                  }
+                  yield* persist(session);
+                  return yield* snapshot(session, source === "user");
+                })
+              );
+              if (Result.isFailure(initialized)) {
+                yield* close(session, "interrupted").pipe(Effect.ignore);
+                return yield* Effect.fail(initialized.failure);
+              }
+              if (command.prepareAndOpen) {
+                // The confirmation names this exact app, artifact, and device.
+                // Retain a failed session so the user can retry its preparation.
+                yield* prepareConfirmedSession(session);
+                return yield* snapshot(session, true);
+              }
+              return initialized.success;
+            }).pipe(
+              Effect.onExit(() =>
+                unpublished === undefined
+                  ? Effect.void
+                  : Scope.close(unpublished, Exit.void)
+              )
+            )
+          );
+        });
 
       /** One forwarded gesture as Teaching or Run evidence, against the observation of its result. */
       const recordGesture = (
@@ -1302,6 +1364,23 @@ export const makeAndroidWorkspaceLayer = (options: {
           yield* session.lane.forward(inputs);
           yield* session.lane.wake(session.scope, settleForwarded(session));
         });
+      /**
+       * A Clear Flow's recording starts where every later Run starts: the
+       * Target App's data is cleared and the app relaunched right before
+       * Start, so setup changes to it are not recorded (ADR 0081).
+       */
+      const restartForRecording = (session: Session) =>
+        Effect.gen(function* restartClearedApp() {
+          if (startingDataOf(session.run.state().setup) !== "clear") {
+            return;
+          }
+          const restarted = yield* session.run.restart();
+          acceptObservation(session, restarted);
+          update(session, (value) => ({
+            ...value,
+            startingObservation: boundaryObservationSummary(restarted),
+          }));
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "record" }>,
@@ -1328,6 +1407,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Start a new complete Teaching session for another recording."
               );
             }
+            yield* restartForRecording(session);
             yield* store.start({
               emulation: null,
               operationId: command.operationId,
@@ -1848,7 +1928,10 @@ export const makeAndroidWorkspaceLayer = (options: {
               yield* persist(session);
               return yield* snapshot(session, source === "user");
             }
-            if (source !== "user") {
+            if (
+              source !== "user" &&
+              !relayedDecisionAllowed(session.run.state(), command.decisionId)
+            ) {
               return yield* denied(
                 "Run Environment Permission requires an explicit Workspace choice."
               );

@@ -346,8 +346,8 @@ it.effect("reports an emulator it could not stop as left running", () =>
     const io = host({ launched, running: () => launched.length > 0 });
     const boot = makeAndroidDeviceBoot({
       ...io,
-      launch: (avd) =>
-        io.launch(avd).pipe(
+      launch: (avd, wipe) =>
+        io.launch(avd, wipe).pipe(
           Effect.map((launch) => ({
             ...launch,
             stop: Effect.fail({
@@ -365,5 +365,91 @@ it.effect("reports an emulator it could not stop as left running", () =>
         retained: "Emulator process 42 did not exit after SIGKILL.",
       },
     ]);
+  })
+);
+
+/** An emulator that runs exactly while one of this host's launches is live. */
+const liveHost = (options: {
+  readonly launched: string[];
+  readonly stopped: string[];
+  readonly preexisting?: boolean;
+}): AndroidBootHost => {
+  let live = options.preexisting === true;
+  return {
+    ...host({ launched: [], running: () => live }),
+    launch: (avd, wipe) =>
+      Effect.gen(function* launch() {
+        options.launched.push(`${avd}${wipe ? " -wipe-data" : ""}`);
+        live = true;
+        const ended = yield* Deferred.make<string>();
+        return {
+          booted: Effect.void,
+          exited: Deferred.await(ended),
+          stop: Effect.gen(function* stop() {
+            options.stopped.push(avd);
+            live = false;
+            yield* Deferred.succeed(ended, "Stopped");
+          }),
+        };
+      }),
+  };
+};
+
+it("adds -wipe-data only for a Device Erase", () => {
+  expect(emulatorArguments("Pixel_9")).toEqual([
+    "-avd",
+    "Pixel_9",
+    "-no-window",
+  ]);
+  expect(emulatorArguments("Pixel_9", true)).toEqual([
+    "-avd",
+    "Pixel_9",
+    "-no-window",
+    "-wipe-data",
+  ]);
+});
+
+it.effect("erases a stopped AVD by booting it with -wipe-data as owned", () =>
+  Effect.gen(function* eraseStopped() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(liveHost({ launched, stopped }));
+    expect(yield* boot.erase("Pixel_9")).toBe("emulator-5554");
+    expect(launched).toEqual(["Pixel_9 -wipe-data"]);
+    expect(stopped).toEqual([]);
+    expect(boot.ownedAvds()).toEqual(["Pixel_9"]);
+  })
+);
+
+it.effect(
+  "refuses to erase a running emulator it did not start, and stops nothing",
+  () =>
+    Effect.gen(function* refuseForeign() {
+      const launched: string[] = [];
+      const stopped: string[] = [];
+      const boot = makeAndroidDeviceBoot(
+        liveHost({ launched, preexisting: true, stopped })
+      );
+      expect(yield* failure(boot.erase("Pixel_9"))).toBe(
+        "android_erase_refused"
+      );
+      expect(launched).toEqual([]);
+      expect(stopped).toEqual([]);
+      expect(yield* failure(boot.erase("-wipe-data"))).toBe(
+        "android_avd_unknown"
+      );
+    })
+);
+
+it.effect("stops an owned running emulator before erasing it", () =>
+  Effect.gen(function* eraseOwned() {
+    const launched: string[] = [];
+    const stopped: string[] = [];
+    const boot = makeAndroidDeviceBoot(liveHost({ launched, stopped }));
+    yield* boot.boot("Pixel_9");
+    yield* boot.erase("Pixel_9");
+    expect(launched).toEqual(["Pixel_9", "Pixel_9 -wipe-data"]);
+    expect(stopped).toEqual(["Pixel_9"]);
+    expect(boot.ownedAvds()).toEqual(["Pixel_9"]);
   })
 );

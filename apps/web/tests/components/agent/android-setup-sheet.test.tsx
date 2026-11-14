@@ -117,6 +117,7 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
         activity: "dev.shop/.Main",
         conditions: [{ name: "Sign in", role: "text" }],
         kind: "restart-activity",
+        startingData: "keep",
       },
     })
   );
@@ -396,6 +397,7 @@ test("opens Teaching with collapsed empty optional conditions", async () => {
         activity: "dev.shop/.Main",
         conditions: [],
         kind: "restart-activity",
+        startingData: "keep",
       },
     })
   );
@@ -439,4 +441,45 @@ test("cancel and Escape leave setup unsubmitted, then confirmation submits only 
     screen.getByRole("button", { name: "Confirm preparation" })
   );
   expect(onOpen).toHaveBeenCalledTimes(1);
+});
+
+test("saves Clear Starting Data and names the data loss before preparing", async () => {
+  const user = userEvent.setup();
+  const onOpen = vi.fn();
+  render(
+    <AndroidSetupSheet
+      discovery={discovery}
+      open
+      onOpen={onOpen}
+      onOpenChange={vi.fn()}
+      pending={false}
+    />
+  );
+  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  const startingData = screen.getByRole("group", { name: "Starting data" });
+  expect(
+    within(startingData).getByRole("radio", { name: /Keep current data/u })
+  ).toBeChecked();
+  await user.click(
+    within(startingData).getByRole("radio", { name: /Clear app data/u })
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Prepare and open app" })
+  );
+  const confirmation = screen.getByRole("dialog", {
+    name: "Prepare and open app?",
+  });
+  expect(confirmation).toHaveTextContent(
+    "removes Shop's sign-in and local data"
+  );
+  expect(confirmation).not.toHaveTextContent("preserving existing app data");
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm preparation" })
+  );
+  expect(onOpen).toHaveBeenCalledWith(
+    "new-flow",
+    expect.objectContaining({
+      setup: expect.objectContaining({ startingData: "clear" }),
+    })
+  );
 });

@@ -40,6 +40,7 @@ import {
   androidSessionLabel,
 } from "./android-dock-state";
 import { appInstallationQuestion } from "./app-installation";
+import { clearDataQuestion } from "./native-starting-data-copy";
 import { DockState } from "./workspace-dock";
 
 /** The state label the dock shows. */
@@ -75,6 +76,7 @@ export const AndroidRequests = ({
       {session.preparation.pending.map((decision) => {
         const title = {
           "app-installation": "App installation",
+          "clear-app-data": "Clear app data",
           confirmation: "Confirmation",
           "run-environment-permission": "Run Environment Permission",
         }[decision.kind];
@@ -121,6 +123,12 @@ export const AndroidRequests = ({
                     device: androidDeviceName(session.selection.device),
                     installedBuild: decision.installedBuild,
                   })
+                : null}
+              {decision.kind === "clear-app-data"
+                ? clearDataQuestion(
+                    environment.appId,
+                    androidDeviceName(session.selection.device)
+                  )
                 : null}
               {decision.kind === "confirmation"
                 ? `${session.boundary?.description ?? "Android action"}. Allow this exact attempt once; retry needs fresh Confirmation.`

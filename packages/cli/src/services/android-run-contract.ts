@@ -23,7 +23,11 @@ export type AndroidEnvironment = Extract<
   { platform: "android" }
 >["environment"];
 
-/** The only supported fresh-state recipe. No arbitrary shell, reset, or snapshot route. */
+/**
+ * The only supported fresh-state recipe: restart the app, after clearing its
+ * own data when the Flow's Starting Data is Clear. No arbitrary shell, device
+ * reset, or snapshot route.
+ */
 export type AndroidSetup = AndroidPreparation;
 
 export interface AndroidRunInput extends AndroidRuntimeStartInput {
@@ -56,6 +60,10 @@ export interface AndroidRunDriver {
   readonly start: (
     input: AndroidRunInput
   ) => Effect.Effect<AndroidPlatformRuntime, PlatformRuntimeError>;
+  /** Restarts the prepared Target App under its Starting Data. */
+  readonly restart?: (
+    input: AndroidRunInput
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   /** The Target App build on the device, read before an installation decision. */
   readonly installedBuild?: (
     input: AndroidRunInput

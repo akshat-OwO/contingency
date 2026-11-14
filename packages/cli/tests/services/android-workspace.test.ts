@@ -33,6 +33,8 @@ import {
 import { TestClock } from "effect/testing";
 import type { Mutable } from "effect/Types";
 
+import { makeAndroidDeviceBoot } from "../../src/services/android-device-boot.ts";
+import type { AndroidRunInput } from "../../src/services/android-run-contract.ts";
 import { createAndroidRun } from "../../src/services/android-run.ts";
 import type {
   AndroidRuntimeBackend,
@@ -50,6 +52,7 @@ import {
   readDeviceCapture,
 } from "../../src/services/device-video-capture.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import { makeIosDeviceBoot } from "../../src/services/ios-device-boot.ts";
 import {
   DeviceWorkspaceTools,
   DeviceWorkspaceToolHandlersLive,
@@ -57,6 +60,11 @@ import {
 import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
 import type { NativeScreenRecorder } from "../../src/services/native-screen-recorder.ts";
+import {
+  makeOwnedDevicesLayer,
+  OwnedDevices,
+} from "../../src/services/owned-devices.ts";
+import type { OwnedDevicesService } from "../../src/services/owned-devices.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
@@ -127,6 +135,13 @@ const fixture = (
     readonly builds: TargetAppBuildsService;
     /** The device recorder's starts and stops, in order. */
     readonly recorded: string[];
+    /** The setup each created run applies, and each restart it performed. */
+    readonly setups: AndroidRunInput["setup"][];
+    readonly restarts: string[];
+    /** Holds the next stream acquisition; resolves once it has begun. */
+    readonly holdNextStream: () => Effect.Effect<Deferred.Deferred<boolean>>;
+    /** AVDs the process's Device Erase wiped, in order. */
+    readonly erasedAvds: string[];
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -139,6 +154,7 @@ const fixture = (
     | AndroidWorkspaceService
     | TeachingRecordingStoreService
     | TeachingRecordingLearningService
+    | OwnedDevicesService
     | FileSystem.FileSystem
   >
 ) =>
@@ -152,10 +168,21 @@ const fixture = (
       const resolved: string[] = [];
       const forwarded: NativeInput[][] = [];
       const recorded: string[] = [];
+      const setups: AndroidRunInput["setup"][] = [];
+      const restarts: string[] = [];
       let recordingFile: string | undefined;
       // The display and input transport, without a device.
-      const acquireStream: typeof acquireAndroidStream = () =>
-        Effect.succeed({
+      // When set, the next stream acquisition signals it and never returns.
+      let streamHeld: Deferred.Deferred<boolean> | undefined;
+      const acquireStream: typeof acquireAndroidStream = () => {
+        const entered = streamHeld;
+        if (entered !== undefined) {
+          streamHeld = undefined;
+          return Deferred.succeed(entered, true).pipe(
+            Effect.andThen(Effect.never)
+          );
+        }
+        return Effect.succeed({
           access: { path: "/android/stream/fixture", token: "fixture" },
           authorized: () => false,
           forward: (inputs) =>
@@ -165,6 +192,7 @@ const fixture = (
           frames: Stream.empty,
           packets: Stream.empty,
         });
+      };
       // The session's screen recorder: it leaves a footage file where it
       // was asked to record.
       const screenRecorder: NativeScreenRecorder = {
@@ -308,12 +336,18 @@ const fixture = (
         PlatformRuntimeFactory.of({
           android: {
             capabilities: ["semantic-actions", "screenshots", "private-input"],
-            createRun: (input) =>
-              createAndroidRun(input, {
+            createRun: (input) => {
+              setups.push(input.setup);
+              return createAndroidRun(input, {
                 installedBuild: () => Effect.succeed("1"),
                 preflight: () => Effect.void,
+                restart: (prepared) =>
+                  Effect.sync(() =>
+                    restarts.push(prepared.setup.startingData ?? "keep")
+                  ),
                 start: (startup) => adaptAndroidRuntime({ backend, startup }),
-              }),
+              });
+            },
             platform: "android",
             start: () => Effect.die("Attach-only runtime must not be used."),
           },
@@ -333,11 +367,32 @@ const fixture = (
           ),
         plist: () => Effect.die("No iOS builds in the Android fixture."),
       });
+      // The process's devices, whose Android erase only records the AVD.
+      const erasedAvds: string[] = [];
+      const owned = Context.get(
+        yield* Layer.build(
+          makeOwnedDevicesLayer({
+            android: {
+              ...makeAndroidDeviceBoot(),
+              erase: (avd: string) =>
+                Effect.sync(() => {
+                  erasedAvds.push(avd);
+                  return "emulator-5554";
+                }),
+              stopOwned: Effect.succeed([]),
+            },
+            ios: { ...makeIosDeviceBoot(), stopOwned: Effect.succeed([]) },
+            report: () => Effect.void,
+          })
+        ),
+        OwnedDevices
+      );
       const dependencies = Layer.mergeAll(
         store,
         makeFlowCatalogLayer({ root }),
         factory,
-        Layer.succeed(TargetAppBuilds, builds)
+        Layer.succeed(TargetAppBuilds, builds),
+        Layer.succeed(OwnedDevices, owned)
       );
       const workspace = makeAndroidWorkspaceLayer({
         acquireStream,
@@ -376,6 +431,7 @@ const fixture = (
         disconnect: () => {
           connected = false;
         },
+        erasedAvds,
         forwarded,
         holdNextCapture: () =>
           Effect.gen(function* holdCapture() {
@@ -386,12 +442,21 @@ const fixture = (
             held = gate;
             return gate;
           }),
+        holdNextStream: () =>
+          Deferred.make<boolean>().pipe(
+            Effect.tap((entered) =>
+              Effect.sync(() => {
+                streamHeld = entered;
+              })
+            )
+          ),
         reconnect: () => {
           connected = true;
         },
         recorded,
         resolved,
         restart,
+        restarts,
         root,
         secure: () => {
           secure = true;
@@ -399,7 +464,17 @@ const fixture = (
         setNodes: (nodes) => {
           customNodes = nodes;
         },
-      }).pipe(Effect.provide(Layer.mergeAll(workspace, store, learning)));
+        setups,
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            workspace,
+            store,
+            learning,
+            Layer.succeed(OwnedDevices, owned)
+          )
+        )
+      );
     })
   ).pipe(Effect.provide(NodeServices.layer));
 
@@ -3069,6 +3144,223 @@ it.effect(
         );
         expect(ready.id).toBe(retained.id);
         expect(ready.phase).toBe("running");
+      })
+    )
+);
+
+const clearSelection: AndroidWorkspaceSelection = {
+  ...selection,
+  setup: { ...selection.setup, startingData: "clear" },
+};
+
+it.effect(
+  "Clear Teaching asks first, takes a relayed answer, and clears again at Start",
+  () =>
+    fixture(({ restarts }) =>
+      Effect.gen(function* clearTeaching() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-clear"),
+            recordingId: null,
+            selection: clearSelection,
+          },
+          "user"
+        );
+        const [clear] = started.preparation.pending;
+        expect(started.preparation.pending.map(({ kind }) => kind)).toEqual([
+          "clear-app-data",
+        ]);
+        if (clear === undefined) {
+          return yield* Effect.die("Clear decision missing.");
+        }
+        // The agent may relay the user's answer to this one decision.
+        const decided = yield* workspace.execute(
+          {
+            _tag: "decide",
+            allow: true,
+            decisionId: clear.id,
+            operationId: op("relay-clear"),
+            sessionId: started.id,
+          },
+          "agent"
+        );
+        expect(decided.preparation.pending).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-clear"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(restarts).toEqual([]);
+        const recording = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("record-clear"),
+            sessionId: started.id,
+            start: true,
+          },
+          "user"
+        );
+        // Setup changes to the app never reach the recording.
+        expect(restarts).toEqual(["clear"]);
+        expect(recording.requirements).toMatchObject({
+          preparation: { startingData: "clear" },
+        });
+      })
+    )
+);
+
+it.effect("Keep Teaching never restarts the app at Start", () =>
+  fixture(({ restarts }) =>
+    Effect.gen(function* keepTeaching() {
+      yield* teach();
+      expect(restarts).toEqual([]);
+    })
+  )
+);
+
+it.effect(
+  "an agent cannot relay an app installation, only Clear Starting Data",
+  () =>
+    fixture(({ builds }) =>
+      Effect.gen(function* refuseRelayedInstall() {
+        const workspace = yield* AndroidWorkspace;
+        const upload = yield* builds.receiveAndroid(
+          Readable.from([Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00])]),
+          "fixture.apk"
+        );
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-install"),
+            recordingId: null,
+            selection: { ...clearSelection, apkPath: upload.apkPath },
+          },
+          "user"
+        );
+        const install = started.preparation.pending.find(
+          ({ kind }) => kind === "app-installation"
+        );
+        expect(install).toBeDefined();
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "decide",
+              allow: true,
+              decisionId: install?.id ?? "",
+              operationId: op("relay-install"),
+              sessionId: started.id,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).toContain("explicit Workspace choice");
+      })
+    )
+);
+
+it.effect(
+  "a Dry Run applies its Flow's Starting Data, never the selection's",
+  () =>
+    fixture(({ setups }) =>
+      Effect.gen(function* flowStartingData() {
+        const recordingId = yield* teach();
+        const workspace = yield* AndroidWorkspace;
+        yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: op("start-dry-clear"),
+            recordingId,
+            selection: clearSelection,
+          },
+          "agent"
+        );
+        // Taught with Keep, so the selection's Clear is ignored.
+        expect(setups.at(-1)?.startingData).toBeUndefined();
+      })
+    )
+);
+
+it.effect(
+  "holds its emulator from start until close, so Device Erase waits for it",
+  () =>
+    fixture(({ erasedAvds }) =>
+      Effect.gen(function* holdDevice() {
+        const workspace = yield* AndroidWorkspace;
+        const owned = yield* OwnedDevices;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-held"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        const refused = yield* Effect.flip(
+          owned.erase({ device: "fixture", platform: "android" })
+        );
+        expect(refused.code).toBe("device_in_use");
+        expect(refused.message).toContain(started.id);
+        expect(erasedAvds).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-held"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        yield* owned.erase({ device: "fixture", platform: "android" });
+        expect(erasedAvds).toEqual(["fixture"]);
+      })
+    )
+);
+
+it.effect(
+  "releases the emulator when startup is interrupted before the session exists",
+  () =>
+    fixture(({ erasedAvds, holdNextStream }) =>
+      Effect.gen(function* interruptStart() {
+        const workspace = yield* AndroidWorkspace;
+        const owned = yield* OwnedDevices;
+        const startCommand = (name: string) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "teaching",
+              operationId: op(name),
+              recordingId: null,
+              selection,
+            },
+            "user"
+          );
+        const entered = yield* holdNextStream();
+        const starting = yield* Effect.forkChild(
+          startCommand("start-interrupted")
+        );
+        // Startup holds the reservation and waits inside stream acquisition.
+        yield* Deferred.await(entered);
+        yield* Fiber.interrupt(starting);
+        expect(yield* workspace.list()).toEqual([]);
+        // Neither Device Erase nor a fresh start is blocked by it.
+        yield* owned.erase({ device: "fixture", platform: "android" });
+        expect(erasedAvds).toEqual(["fixture"]);
+        const started = yield* startCommand("start-after-interrupt");
+        expect(started.phase).toBe("pending");
       })
     )
 );

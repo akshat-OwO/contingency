@@ -28,7 +28,8 @@ import {
   iosNodeInteraction,
   iosNodeName,
 } from "./ios-observation.ts";
-import { makeIosPreparation } from "./ios-preparation.ts";
+import { makeIosPreparation, restartIosTargetApp } from "./ios-preparation.ts";
+import { iosSimctlHost } from "./ios-simctl.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
 import type {
@@ -37,7 +38,7 @@ import type {
   NativeAppRunInput,
   NativeAppRunState,
 } from "./native-app-run-contract.ts";
-import { createNativeAppRun } from "./native-app-run.ts";
+import { clearAppDataDecision, createNativeAppRun } from "./native-app-run.ts";
 import type { NativeAppRuntime } from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
@@ -653,6 +654,7 @@ export const iosRunDecisions = (
           targetApp: request.targetApp,
         },
       ]),
+  ...clearAppDataDecision(request, runId),
 ];
 
 const createIosNativeRun = (
@@ -678,6 +680,13 @@ const createIosNativeRun = (
           Effect.andThen(verifyIosFramebufferRelease()),
           Effect.asVoid
         ),
+    restart: (request) =>
+      restartIosTargetApp(iosSimctlHost, {
+        bundleId: request.targetApp,
+        environment: request.environment,
+        setup: request.setup,
+        udid: request.device.udid,
+      }).pipe(Effect.mapError((cause) => iosRuntimeError(cause.code))),
     start: startIosRuntime,
     startingConditions: (request, observation) =>
       request.setup.conditions.every((condition) =>

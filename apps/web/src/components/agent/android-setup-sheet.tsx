@@ -1,8 +1,9 @@
-import { FlowName } from "@contingency/protocol";
+import { FlowName, startingDataOf } from "@contingency/protocol";
 import type {
   AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
+  StartingData,
   UploadedAndroidApp,
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
@@ -59,7 +60,11 @@ import {
 } from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
+import { useDeviceErase } from "./device-erase";
+import type { DeviceEraseControls } from "./device-erase-state";
 import { NativeOptionalSteps } from "./native-optional-steps";
+import { StartingDataField } from "./native-starting-data";
+import { clearDataWarning } from "./native-starting-data-copy";
 import {
   BuildPicker,
   InstalledAppsFrame,
@@ -94,6 +99,7 @@ interface SetupForm {
   readonly outcome: Condition;
   readonly query: string;
   readonly start: Condition;
+  readonly startingData: StartingData;
 }
 
 /**
@@ -120,6 +126,7 @@ const INITIAL_FORM: SetupForm = {
   privateInput: false,
   query: "",
   start: { name: "", role: "text" },
+  startingData: "keep",
 };
 
 /** A new Target App starts its conditions and permissions over. */
@@ -301,6 +308,7 @@ const useRead = <Value,>(
 
 const DeviceStep = ({
   devices,
+  erase,
   onRefresh,
   onSelect,
   onStart,
@@ -308,6 +316,7 @@ const DeviceStep = ({
   starts,
 }: {
   readonly devices: Loaded<AndroidDiscoveredDevice>;
+  readonly erase: DeviceEraseControls;
   readonly onRefresh: () => void;
   readonly onSelect: (serial: string) => void;
   readonly onStart: (avd: string) => void;
@@ -336,6 +345,7 @@ const DeviceStep = ({
       <DeviceChoices
         devices={devices.value.map(androidDeviceChoice)}
         emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
+        erase={erase}
         onSelect={onSelect}
         onStart={onStart}
         selected={selected}
@@ -631,6 +641,7 @@ const setupSelection = ({
   privateInput,
   release,
   start,
+  startingData,
 }: {
   readonly app: AndroidDiscoveredApp;
   readonly device: AndroidWorkspaceSelection["device"];
@@ -641,6 +652,7 @@ const setupSelection = ({
   readonly privateInput: boolean;
   readonly release: string;
   readonly start: Condition;
+  readonly startingData: StartingData;
 }): AndroidWorkspaceSelection => ({
   device,
   environment: {
@@ -660,6 +672,7 @@ const setupSelection = ({
     activity: app.launchActivity,
     conditions: start.name === "" ? [] : [start],
     kind: "restart-activity",
+    startingData,
   },
 });
 
@@ -713,10 +726,18 @@ const useApkUpload = (
 
 const appName = (app: AndroidDiscoveredApp | undefined) =>
   app === undefined ? "the app" : app.label || app.package;
-const preparationDescription = (apk: string | undefined) =>
-  apk === undefined
+const preparationDescription = (
+  apk: string | undefined,
+  startingData: StartingData,
+  app: string
+) => {
+  if (startingData === "clear") {
+    return `${apk === undefined ? "Use the installed Target App without reinstalling it." : "Reinstall the selected APK."} ${clearDataWarning(app)}`;
+  }
+  return apk === undefined
     ? "Use the installed Target App without reinstalling it."
     : "Reinstall the selected APK while preserving existing app data and login state.";
+};
 
 interface SetupConfirmation {
   readonly flowName: FlowName;
@@ -753,7 +774,11 @@ const PreparationConfirmation = ({
         <DialogTitle>Prepare and open app?</DialogTitle>
         <DialogDescription>
           Prepare {confirmation?.appLabel} on {confirmation?.deviceLabel}.{" "}
-          {preparationDescription(confirmation?.selection.apkPath)}
+          {preparationDescription(
+            confirmation?.selection.apkPath,
+            startingDataOf(confirmation?.selection.setup ?? {}),
+            confirmation?.appLabel ?? "the app"
+          )}
           {
             " Reinstall the required Contingency device helper if needed, including replacing a newer helper. Then open the Target App."
           }
@@ -772,6 +797,51 @@ const PreparationConfirmation = ({
       </DialogFooter>
     </DialogContent>
   </Dialog>
+);
+
+/** Step 3: what preparation applies before Teaching and every Run. */
+const PreparationChoices = ({
+  form,
+  setForm,
+}: {
+  readonly form: SetupForm;
+  readonly setForm: (update: (current: SetupForm) => SetupForm) => void;
+}) => (
+  <>
+    <AndroidPermissionFields
+      value={form.permissions}
+      onChange={(decisions) =>
+        setForm((current) => ({ ...current, permissions: decisions }))
+      }
+    />
+    <div className="mt-4">
+      <StartingDataField
+        name="android-starting-data"
+        onChange={(startingData) =>
+          setForm((current) => ({ ...current, startingData }))
+        }
+        value={form.startingData}
+      />
+    </div>
+    <label className="mt-4 flex items-center gap-2 text-xs">
+      <input
+        type="checkbox"
+        checked={form.privateInput}
+        onChange={(event) => {
+          const { checked } = event.currentTarget;
+          setForm((current) => ({
+            ...current,
+            privateInput: checked,
+          }));
+        }}
+      />
+      Enable Variables
+    </label>
+    <p className="text-muted-foreground mt-3 text-xs">
+      Preparation installs the supported capture helper on the selected
+      emulator, replacing an incompatible helper when needed.
+    </p>
+  </>
 );
 
 export const AndroidSetupSheet = ({
@@ -800,6 +870,9 @@ export const AndroidSetupSheet = ({
     `${open}-${refresh}`
   );
   const { startDevice, starts } = useDeviceStarts(discovery.boot, () =>
+    setRefresh((value) => value + 1)
+  );
+  const erase = useDeviceErase("android", open, String(refresh), () =>
     setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
@@ -867,6 +940,7 @@ export const AndroidSetupSheet = ({
               privateInput: form.privateInput,
               release,
               start,
+              startingData: form.startingData,
             });
             submitted.current = false;
             setConfirmation({
@@ -896,6 +970,7 @@ export const AndroidSetupSheet = ({
             <Step done={device !== null} index={1} title="Device">
               <DeviceStep
                 devices={devices}
+                erase={erase.controls}
                 onRefresh={() => setRefresh((value) => value + 1)}
                 onStart={startDevice}
                 starts={starts}
@@ -951,30 +1026,7 @@ export const AndroidSetupSheet = ({
               title="Permissions and setup"
               waitingFor="Choose the Target App first."
             >
-              <AndroidPermissionFields
-                value={form.permissions}
-                onChange={(decisions) =>
-                  setForm((current) => ({ ...current, permissions: decisions }))
-                }
-              />
-              <label className="mt-4 flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={form.privateInput}
-                  onChange={(event) => {
-                    const { checked } = event.currentTarget;
-                    setForm((current) => ({
-                      ...current,
-                      privateInput: checked,
-                    }));
-                  }}
-                />
-                Enable Variables
-              </label>
-              <p className="text-muted-foreground mt-3 text-xs">
-                Preparation installs the supported capture helper on the
-                selected emulator, replacing an incompatible helper when needed.
-              </p>
+              <PreparationChoices form={form} setForm={setForm} />
             </Step>
             <NativeOptionalSteps>
               <Step
@@ -1042,6 +1094,7 @@ export const AndroidSetupSheet = ({
           </Button>
         </SheetFooter>
       </SheetContent>
+      {erase.dialog}
       <PreparationConfirmation
         confirmation={confirmation}
         open={open}

@@ -1,11 +1,12 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { startingDataOf } from "@contingency/protocol";
 import { Effect } from "effect";
 
 import { iosError, supportsIosPermissions } from "./ios-contract.ts";
-import type { IosPreparationInput } from "./ios-contract.ts";
+import type { IosEnvironment, IosPreparationInput } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
 import { openIosRunner, stopIosRunner } from "./ios-runner.ts";
 import { iosSimctlHost } from "./ios-simctl.ts";
@@ -15,6 +16,88 @@ const fileIo = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({
     catch: () => iosError("preparation_failed"),
     try: run,
+  });
+
+/** The folders an installed app's data container starts with. */
+const containerFolders = [
+  "Documents",
+  "Library/Caches",
+  "Library/Preferences",
+  "tmp",
+];
+
+/**
+ * Clear Starting Data (ADR 0081). Empties the terminated Target App's data
+ * container on the selected simulator and drops its cached preferences. The
+ * app stays installed. Keychain items and app-group containers are kept: no
+ * simctl command scopes them to one app.
+ */
+export const clearIosAppData = (
+  io: Pick<IosSimctlService, "device">,
+  udid: string,
+  bundleId: string
+) =>
+  Effect.gen(function* clearAppData() {
+    const container = yield* io.device([
+      "get_app_container",
+      udid,
+      bundleId,
+      "data",
+    ]);
+    // Only this simulator's per-app data containers are ever emptied.
+    const expected = `${path.sep}Devices${path.sep}${udid}${path.sep}data${path.sep}Containers${path.sep}Data${path.sep}Application${path.sep}`;
+    if (
+      !path.isAbsolute(container) ||
+      path.normalize(container) !== container ||
+      !container.includes(expected) ||
+      path.basename(path.dirname(container)) !== "Application"
+    ) {
+      return yield* Effect.fail(iosError("preparation_failed"));
+    }
+    // cfprefsd caches the app's preferences; deleting the domain drops them.
+    // An app that never wrote preferences has no domain to delete.
+    yield* io
+      .device(["spawn", udid, "defaults", "delete", bundleId])
+      .pipe(Effect.ignore);
+    yield* fileIo(async () => {
+      const entries = await readdir(container);
+      await Promise.all(
+        entries.map((entry) =>
+          rm(path.join(container, entry), { force: true, recursive: true })
+        )
+      );
+      await Promise.all(
+        containerFolders.map((folder) =>
+          mkdir(path.join(container, folder), { recursive: true })
+        )
+      );
+    });
+  });
+
+/**
+ * Stops the Target App, applies its Starting Data and privacy decisions, and
+ * launches it again. Never installs or uninstalls.
+ */
+export const restartIosTargetApp = (
+  io: Pick<IosSimctlService, "device" | "terminate">,
+  input: {
+    readonly udid: string;
+    readonly bundleId: string;
+    readonly environment: IosEnvironment;
+    readonly setup?: IosPreparationInput["setup"];
+  }
+) =>
+  Effect.gen(function* restart() {
+    const { bundleId, udid } = input;
+    yield* io.terminate(udid, bundleId);
+    if (startingDataOf(input.setup ?? {}) === "clear") {
+      yield* clearIosAppData(io, udid, bundleId);
+    }
+    // Declared states change only the Target App's entries on the selected simulator.
+    for (const { decision, service } of input.environment.permissions ?? []) {
+      yield* io.device(["privacy", udid, decision, service, bundleId]);
+    }
+    yield* io.device(["launch", udid, bundleId]);
   });
 
 export const makeIosPreparation = (
@@ -86,12 +169,12 @@ export const makeIosPreparation = (
           return yield* Effect.fail(iosError("environment_changed"));
         }
       }
-      yield* io.terminate(udid, app.bundleId);
-      // Declared states change only the Target App's entries on the selected simulator.
-      for (const { decision, service } of input.environment.permissions ?? []) {
-        yield* io.device(["privacy", udid, decision, service, app.bundleId]);
-      }
-      yield* io.device(["launch", udid, app.bundleId]);
+      yield* restartIosTargetApp(io, {
+        bundleId: app.bundleId,
+        environment: input.environment,
+        setup: input.setup,
+        udid,
+      });
       yield* runner(udid, app.bundleId, directory);
       return {
         device: input.device,

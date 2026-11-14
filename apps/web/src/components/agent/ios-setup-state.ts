@@ -16,6 +16,7 @@ export interface IosListedDevice {
 export const iosDeviceChoice = (device: IosListedDevice): DeviceChoice => {
   const base = {
     detail: `iOS ${device.runtimeVersion}`,
+    eraseId: device.udid,
     id: device.udid,
     kind: "Simulator" as const,
     name: device.name,
@@ -28,6 +29,14 @@ export const iosDeviceChoice = (device: IosListedDevice): DeviceChoice => {
   }
   return { ...base, status: { _tag: "unavailable", reason: device.state } };
 };
+
+/**
+ * What the sheet's Device Erase ownership read is keyed on. Any change to
+ * the simulators or their states, such as finishing a Start, reads which of
+ * them this process owns again.
+ */
+export const simulatorInventoryKey = (listed: readonly IosListedDevice[]) =>
+  listed.map((device) => `${device.udid}:${device.state}`).join(",");
 
 /**
  * The simulator the sheet sets up: the one the person picked while it is

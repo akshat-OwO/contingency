@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
@@ -21,7 +21,10 @@ import {
   compareIosEnvironments,
   iosEnvironmentPermission,
 } from "../../src/services/ios-environment.ts";
-import { makeIosPreparation } from "../../src/services/ios-preparation.ts";
+import {
+  makeIosPreparation,
+  restartIosTargetApp,
+} from "../../src/services/ios-preparation.ts";
 import { iosRunnerArguments } from "../../src/services/ios-runner.ts";
 import type { IosSimctlService } from "../../src/services/ios-simctl.ts";
 
@@ -885,3 +888,183 @@ it("finds a simulator's launchd_sim in the process table", () => {
   expect(readSimulatorProcess(table, selected.udid)).toBe(412);
   expect(readSimulatorProcess(table, other)).toBeUndefined();
 });
+
+it.effect("erases a shut-down simulator, then boots it as owned", () =>
+  Effect.gen(function* eraseStopped() {
+    const { commands, host, ready } = simulatorHost();
+    yield* Deferred.succeed(ready, true);
+    const boot = makeIosDeviceBoot(host);
+    yield* boot.erase(selected.udid);
+    expect(commands).toEqual([
+      ["erase", selected.udid],
+      ["boot", selected.udid],
+      ["bootstatus", selected.udid],
+    ]);
+    expect(yield* boot.ownedUdids).toEqual([selected.udid]);
+  })
+);
+it.effect(
+  "refuses to erase a booted simulator it did not boot, and changes nothing",
+  () =>
+    Effect.gen(function* refuseForeign() {
+      const { commands, host } = simulatorHost("Booted");
+      const error = yield* Effect.flip(
+        makeIosDeviceBoot(host).erase(selected.udid)
+      );
+      expect(error.code).toBe("erase_refused");
+      expect(error.message).toMatch(/Stop this device to erase it/u);
+      expect(commands).toEqual([]);
+    })
+);
+it.effect("shuts down an owned simulator before erasing it", () =>
+  Effect.gen(function* eraseOwned() {
+    const { commands, host, ready } = simulatorHost();
+    yield* Deferred.succeed(ready, true);
+    const boot = makeIosDeviceBoot(host);
+    yield* boot.boot(selected.udid);
+    yield* boot.erase(selected.udid);
+    expect(commands.map(([name]) => name)).toEqual([
+      "boot",
+      "bootstatus",
+      "shutdown",
+      "erase",
+      "boot",
+      "bootstatus",
+    ]);
+    expect(yield* boot.ownedUdids).toEqual([selected.udid]);
+  })
+);
+
+/** A simulator's per-app data container, laid out as CoreSimulator does. */
+const appContainer = (directory: string) =>
+  path.join(
+    directory,
+    "Devices",
+    selected.udid,
+    "data",
+    "Containers",
+    "Data",
+    "Application",
+    "0E1D2C3B-4A59-6877-8695-A4B3C2D1E0F9"
+  );
+
+for (const startingData of ["keep", "clear"] as const) {
+  it.effect(
+    `restarts the Target App and ${startingData === "clear" ? "empties" : "keeps"} its data container`,
+    () =>
+      withDirectory((directory) =>
+        Effect.gen(function* restartWithStartingData() {
+          const container = appContainer(directory);
+          yield* Effect.promise(async () => {
+            await mkdir(path.join(container, "Documents"), { recursive: true });
+            await mkdir(path.join(container, "Library/Preferences"), {
+              recursive: true,
+            });
+            await writeFile(path.join(container, "Documents/session"), "token");
+            await writeFile(
+              path.join(container, "Library/Preferences/dev.fixture.plist"),
+              "signed-in"
+            );
+          });
+          const { io, commands } = fakeHost();
+          const host = {
+            ...io,
+            device: (args: readonly string[]) =>
+              io
+                .device(args)
+                .pipe(
+                  Effect.map((result) =>
+                    args[0] === "get_app_container" ? container : result
+                  )
+                ),
+          };
+          yield* restartIosTargetApp(host, {
+            bundleId: app.bundleId,
+            environment: {
+              ...environment,
+              permissions: [{ decision: "grant", service: "photos" }],
+            },
+            setup: { startingData },
+            udid: selected.udid,
+          });
+          const names = commands.map(([name]) => name);
+          const files = yield* Effect.promise(async () => {
+            const top = await readdir(container);
+            return {
+              documents: await readdir(path.join(container, "Documents")),
+              preferences: await readdir(
+                path.join(container, "Library/Preferences")
+              ),
+              top: top.toSorted(),
+            };
+          });
+          if (startingData === "keep") {
+            expect(names).toEqual(["terminate", "privacy", "launch"]);
+            expect(files.documents).toEqual(["session"]);
+            return;
+          }
+          // Privacy decisions follow the clear, so they survive it.
+          expect(names).toEqual([
+            "terminate",
+            "get_app_container",
+            "spawn",
+            "privacy",
+            "launch",
+          ]);
+          expect(commands[2]).toEqual([
+            "spawn",
+            selected.udid,
+            "defaults",
+            "delete",
+            app.bundleId,
+          ]);
+          expect(files).toEqual({
+            documents: [],
+            preferences: [],
+            top: ["Documents", "Library", "tmp"],
+          });
+        })
+      )
+  );
+}
+
+it.effect(
+  "refuses to clear a data container outside the selected simulator",
+  () =>
+    withDirectory((directory) =>
+      Effect.gen(function* refuseForeignContainer() {
+        const foreign = path.join(directory, "elsewhere");
+        yield* Effect.promise(async () => {
+          await mkdir(foreign, { recursive: true });
+          await writeFile(path.join(foreign, "keep"), "unrelated");
+        });
+        const { io, commands } = fakeHost();
+        const host = {
+          ...io,
+          device: (args: readonly string[]) =>
+            io
+              .device(args)
+              .pipe(
+                Effect.map((result) =>
+                  args[0] === "get_app_container" ? foreign : result
+                )
+              ),
+        };
+        expect(
+          yield* failureCode(
+            restartIosTargetApp(host, {
+              bundleId: app.bundleId,
+              environment,
+              setup: { startingData: "clear" },
+              udid: selected.udid,
+            })
+          )
+        ).toBe("preparation_failed");
+        expect(yield* Effect.promise(() => readdir(foreign))).toEqual(["keep"]);
+        expect(commands.map(([name]) => name)).toEqual([
+          "terminate",
+          "get_app_container",
+        ]);
+      })
+    )
+);

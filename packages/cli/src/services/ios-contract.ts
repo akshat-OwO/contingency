@@ -1,6 +1,7 @@
 import type {
   IosRunEnvironment,
   PlatformCapability,
+  StartingData,
 } from "@contingency/protocol";
 import { Schema } from "effect";
 
@@ -56,6 +57,8 @@ export interface IosPreparationInput {
   /** An explicit path authorizes installation. Omit to use the installed app. */
   readonly appPath?: string;
   readonly requiredCapabilities: readonly PlatformCapability[];
+  /** Clear Starting Data empties the Target App's data container (ADR 0081). */
+  readonly setup?: { readonly startingData?: StartingData };
 }
 const messages = {
   capability_missing: "The selected iOS runtime lacks a required capability.",

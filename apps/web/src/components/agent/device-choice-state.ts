@@ -14,6 +14,11 @@ export interface DeviceChoice {
   readonly id: string;
   /** What starting it names: an AVD or a UDID. Absent when it cannot start. */
   readonly bootId?: string;
+  /**
+   * What a Device Erase names: an AVD or a UDID. Absent for a device that
+   * cannot be erased, such as a phone.
+   */
+  readonly eraseId?: string | undefined;
   readonly kind: "Emulator" | "Simulator" | "Phone";
   readonly name: string;
   /** The OS version and identity line shown under a ready device's name. */

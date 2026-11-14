@@ -21,3 +21,5 @@ Workspace can start a stopped emulator or simulator. #688 launched emulators det
 
 - No finalizer runs after SIGKILL or a host crash. A device started before that stays running, and Contingency does not recover it later.
 - Contingency still never creates, wipes, resets, or deletes a device, never stops devices by name, and never quits Simulator.app.
+
+> Amended by [ADR 0081](./0081-native-setup-may-clear-app-data-or-erase-a-stopped-device.md): a Device Erase the user allows in Workspace may wipe a stopped device or a running Owned Device.

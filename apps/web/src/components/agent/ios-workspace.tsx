@@ -88,6 +88,7 @@ import {
 import { appInstallationQuestion } from "./app-installation";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { DeviceElements } from "./device-elements";
+import { useDeviceErase } from "./device-erase";
 import {
   makeFirstResponseProbe,
   probeNativeInput,
@@ -99,9 +100,15 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
-import { chosenSimulator, iosDeviceChoice } from "./ios-setup-state";
+import {
+  chosenSimulator,
+  iosDeviceChoice,
+  simulatorInventoryKey,
+} from "./ios-setup-state";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { NativeOptionalSteps } from "./native-optional-steps";
+import { StartingDataField } from "./native-starting-data";
+import { clearDataQuestion } from "./native-starting-data-copy";
 import {
   BuildPicker,
   InstalledAppsFrame,
@@ -622,6 +629,80 @@ const IosOpeningStatus = () => (
   </p>
 );
 
+/** The optional starting and outcome conditions, read from the form. */
+const IosConditionSteps = ({
+  missing,
+}: {
+  readonly missing: readonly string[];
+}) => (
+  <NativeOptionalSteps>
+    <SetupGroup
+      description="An element on screen when the app opens."
+      done={!missing.includes("Starting screen element")}
+      index={4}
+      title="Starting screen"
+    >
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
+        <SetupField htmlFor="ios-start-role" label="Role">
+          <NativeSelect
+            className="w-full min-w-0"
+            defaultValue="text"
+            aria-label="Starting screen role"
+            id="ios-start-role"
+            name="startingRole"
+          >
+            {ROLE_OPTIONS.map((role) => (
+              <NativeSelectOption key={role} value={role}>
+                {role}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </SetupField>
+        <SetupField htmlFor="ios-start" label="Element">
+          <Input
+            aria-label="Starting screen element"
+            id="ios-start"
+            name="starting"
+            placeholder="Sign in"
+          />
+        </SetupField>
+      </div>
+    </SetupGroup>
+    <SetupGroup
+      description="An element that shows the journey worked."
+      done={!missing.includes("Done when element")}
+      index={5}
+      title="Done when"
+    >
+      <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
+        <SetupField htmlFor="ios-done-role" label="Role">
+          <NativeSelect
+            className="w-full min-w-0"
+            defaultValue="text"
+            aria-label="Done when role"
+            id="ios-done-role"
+            name="outcomeRole"
+          >
+            {ROLE_OPTIONS.map((role) => (
+              <NativeSelectOption key={role} value={role}>
+                {role}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </SetupField>
+        <SetupField htmlFor="ios-done" label="Element">
+          <Input
+            aria-label="Done when element"
+            id="ios-done"
+            name="outcome"
+            placeholder="Signed in"
+          />
+        </SetupField>
+      </div>
+    </SetupGroup>
+  </NativeOptionalSteps>
+);
+
 const IosSetupSheet = ({
   onClose,
   open,
@@ -641,6 +722,19 @@ const IosSetupSheet = ({
   const [picked, setPicked] = useAtom(pickedAtom);
   const chosen = chosenSimulator(listed, picked);
   const { startDevice, starts } = useDeviceStarts(bootIosSimulator, refresh);
+  const [appsRefreshAtom] = useState(() => Atom.make(0));
+  const [appsRefresh, setAppsRefresh] = useAtom(appsRefreshAtom);
+  // Keyed on the inventory, so a simulator this sheet just started is
+  // read as owned once it is running.
+  const erase = useDeviceErase(
+    "ios",
+    open,
+    simulatorInventoryKey(listed),
+    () => {
+      refresh();
+      setAppsRefresh((value) => value + 1);
+    }
+  );
   // The required fields still empty, named as the person sees them.
   const [missingAtom] = useState(() =>
     Atom.make<readonly string[]>(["Flow name"])
@@ -648,8 +742,6 @@ const IosSetupSheet = ({
   const [fieldsMissing, setMissing] = useAtom(missingAtom);
   const formRef = useRef<HTMLFormElement>(null);
   const simulator = running.find((entry) => entry.udid === chosen);
-  const [refreshAtom] = useState(() => Atom.make(0));
-  const [appsRefresh, setAppsRefresh] = useAtom(refreshAtom);
   const apps = useInstalledIosApps(simulator, appsRefresh);
   const [targetAtom] = useState(() => Atom.make<IosTarget | null>(null));
   const [target, setTarget] = useAtom(targetAtom);
@@ -703,7 +795,8 @@ const IosSetupSheet = ({
           <SheetTitle>New iOS session</SheetTitle>
           <SheetDescription>
             Pick a running iPhone simulator and the Target App. Each journey
-            restarts the app on that simulator with its existing data.
+            restarts the app on that simulator, keeping or clearing its data as
+            the Flow saves.
           </SheetDescription>
         </SheetHeader>
         <form
@@ -747,6 +840,8 @@ const IosSetupSheet = ({
                         },
                       ],
                 kind: "restart-app",
+                startingData:
+                  text(data, "startingData") === "clear" ? "clear" : "keep",
               },
             };
             const uploaded =
@@ -787,6 +882,7 @@ const IosSetupSheet = ({
                 <DeviceChoices
                   devices={listed.map(iosDeviceChoice)}
                   emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
+                  erase={erase.controls}
                   onSelect={(udid) => {
                     setPicked(udid);
                     // An installed app belongs to the simulator it is on.
@@ -821,72 +917,15 @@ const IosSetupSheet = ({
               target={target}
               upload={upload.state}
             />
-            <NativeOptionalSteps>
-              <SetupGroup
-                description="An element on screen when the app opens."
-                done={!missing.includes("Starting screen element")}
-                index={3}
-                title="Starting screen"
-              >
-                <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-                  <SetupField htmlFor="ios-start-role" label="Role">
-                    <NativeSelect
-                      className="w-full min-w-0"
-                      defaultValue="text"
-                      aria-label="Starting screen role"
-                      id="ios-start-role"
-                      name="startingRole"
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <NativeSelectOption key={role} value={role}>
-                          {role}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </SetupField>
-                  <SetupField htmlFor="ios-start" label="Element">
-                    <Input
-                      aria-label="Starting screen element"
-                      id="ios-start"
-                      name="starting"
-                      placeholder="Sign in"
-                    />
-                  </SetupField>
-                </div>
-              </SetupGroup>
-              <SetupGroup
-                description="An element that shows the journey worked."
-                done={!missing.includes("Done when element")}
-                index={4}
-                title="Done when"
-              >
-                <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-                  <SetupField htmlFor="ios-done-role" label="Role">
-                    <NativeSelect
-                      className="w-full min-w-0"
-                      defaultValue="text"
-                      aria-label="Done when role"
-                      id="ios-done-role"
-                      name="outcomeRole"
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <NativeSelectOption key={role} value={role}>
-                          {role}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </SetupField>
-                  <SetupField htmlFor="ios-done" label="Element">
-                    <Input
-                      aria-label="Done when element"
-                      id="ios-done"
-                      name="outcome"
-                      placeholder="Signed in"
-                    />
-                  </SetupField>
-                </div>
-              </SetupGroup>
-            </NativeOptionalSteps>
+            <SetupGroup
+              description="What the app has when Teaching and every later Run start."
+              done
+              index={3}
+              title="Starting data"
+            >
+              <StartingDataField legend={false} name="startingData" />
+            </SetupGroup>
+            <IosConditionSteps missing={missing} />
           </div>
           <SheetFooter className="flex-row items-center justify-end gap-2 border-t">
             {pending ? <IosOpeningStatus /> : null}
@@ -915,12 +954,14 @@ const IosSetupSheet = ({
           </SheetFooter>
         </form>
       </SheetContent>
+      {erase.dialog}
     </Sheet>
   );
 };
 
 const DECISION_TITLE = {
   "app-installation": "App installation",
+  "clear-app-data": "Clear app data",
   confirmation: "Confirmation",
   "run-environment-permission": "Run Environment Permission",
 } as const;
@@ -985,6 +1026,12 @@ const IosDecisions = ({
                     device: session.selection.device.name,
                     installedBuild: decision.installedBuild,
                   })
+                : null}
+              {decision.kind === "clear-app-data"
+                ? clearDataQuestion(
+                    environment.bundleId,
+                    session.selection.device.name
+                  )
                 : null}
               {decision.kind === "confirmation"
                 ? `${session.boundary?.description ?? "iOS action"}. Allow this exact attempt once; a retry needs a fresh Confirmation.`
