@@ -42,11 +42,16 @@ export const AndroidDeviceEnvironment = Schema.Struct({
   location: Schema.NullOr(
     Schema.Struct({ latitude: Schema.Finite, longitude: Schema.Finite })
   ),
-  /** The night-mode policy, scheduled ones included (Android 11+). */
+  /**
+   * The night-mode policy, scheduled ones included: Android 11 reports a
+   * custom schedule as `custom`; later versions split it into
+   * `custom_schedule` and `custom_bedtime`.
+   */
   nightMode: Schema.Literals([
     "yes",
     "no",
     "auto",
+    "custom",
     "custom_schedule",
     "custom_bedtime",
   ]),
@@ -62,7 +67,7 @@ export type AndroidDeviceEnvironmentValue =
 
 const rotationPattern = /mCurrentOrientation=(?<rotation>[0-3])/u;
 const nightPattern =
-  /night mode:\s*(?<mode>yes|no|auto|custom_schedule|custom_bedtime)\b/iu;
+  /night mode:\s*(?<mode>yes|no|auto|custom_schedule|custom_bedtime|custom)\b/iu;
 const computedNightPattern = /mComputedNightMode=(?<dark>true|false)\b/u;
 const gpsPattern =
   /last location=Location\[gps (?<latitude>-?\d+(?:\.\d+)?),(?<longitude>-?\d+(?:\.\d+)?)/u;
@@ -101,6 +106,7 @@ export const parseDisplayRotation = (dump: string) => {
 };
 const nightModes = new Map<string, AndroidDeviceEnvironmentValue["nightMode"]>([
   ["auto", "auto"],
+  ["custom", "custom"],
   ["custom_bedtime", "custom_bedtime"],
   ["custom_schedule", "custom_schedule"],
   ["no", "no"],

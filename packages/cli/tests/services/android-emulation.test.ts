@@ -40,6 +40,8 @@ it("parses the device's rotation, night mode, and last GPS fix", () => {
   expect(parseNightMode("unknown")).toBeUndefined();
   expect(parseNightMode("Night mode: custom_schedule")).toBe("custom_schedule");
   expect(parseNightMode("Night mode: custom_bedtime")).toBe("custom_bedtime");
+  // Android 11 names one custom schedule.
+  expect(parseNightMode("Night mode: custom")).toBe("custom");
   expect(
     parseComputedNight(
       " mWaitForDeviceInactive=false mComputedNightMode=true customStart=22:00"
@@ -261,29 +263,32 @@ it.effect(
   () =>
     withRoot((root) =>
       Effect.gen(function* scheduledNight() {
-        // A bedtime schedule that is dark right now.
-        const device = fakeAndroidDevice({
-          nightMode: "custom_bedtime",
-          scheduledDark: true,
-        });
-        const adb = fakeAndroidAdb(device);
-        expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
-          "dark"
-        );
-        const guard = makeAndroidEmulationGuard({
-          adb,
-          avd: "fixture",
-          owned: Effect.succeed(false),
-          root,
-          serial,
-        });
-        yield* guard.change({ _tag: "appearance", appearance: "light" });
-        expect(device.nightMode).toBe("no");
-        expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
-          "light"
-        );
-        yield* guard.restore;
-        expect(device.nightMode).toBe("custom_bedtime");
+        // Android 11's custom schedule and a later bedtime schedule, each
+        // dark right now.
+        for (const policy of ["custom", "custom_bedtime"] as const) {
+          const device = fakeAndroidDevice({
+            nightMode: policy,
+            scheduledDark: true,
+          });
+          const adb = fakeAndroidAdb(device);
+          expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
+            "dark"
+          );
+          const guard = makeAndroidEmulationGuard({
+            adb,
+            avd: "fixture",
+            owned: Effect.succeed(false),
+            root,
+            serial,
+          });
+          yield* guard.change({ _tag: "appearance", appearance: "light" });
+          expect(device.nightMode).toBe("no");
+          expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
+            "light"
+          );
+          yield* guard.restore;
+          expect(device.nightMode).toBe(policy);
+        }
         // Automatic mode is light while its schedule says so.
         const automatic = fakeAndroidDevice({ nightMode: "auto" });
         expect(

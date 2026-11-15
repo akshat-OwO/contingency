@@ -8,7 +8,13 @@ import type { PlatformRuntimeError } from "../../src/services/platform-runtime.t
 export interface FakeAndroidDevice {
   accelerometerRotation: string;
   userRotation: string;
-  nightMode: "yes" | "no" | "auto" | "custom_schedule" | "custom_bedtime";
+  nightMode:
+    | "yes"
+    | "no"
+    | "auto"
+    | "custom"
+    | "custom_schedule"
+    | "custom_bedtime";
   /** Whether a scheduled or automatic policy shows dark right now. */
   scheduledDark: boolean;
   /** The GPS provider's last known fix. */
@@ -38,6 +44,7 @@ const nightModes = [
   "yes",
   "no",
   "auto",
+  "custom",
   "custom_schedule",
   "custom_bedtime",
 ] as const;
