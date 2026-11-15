@@ -37,6 +37,12 @@ import type {
   AndroidRuntimeBackend,
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
+import {
+  ANDROID_RUNTIME_PREFIX,
+  defaultAgentDeviceClaimsDirectory,
+  reclaimOrphanedAndroidRuntimes,
+  writeAndroidRuntimeOwner,
+} from "./android-runtime-reclaim.ts";
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
 import { androidWindowVisibility } from "./android-stream-contract.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
@@ -76,6 +82,10 @@ const io = <A>(
   Effect.tryPromise({
     catch: (cause): PlatformRuntimeError => {
       const error = { ...platformRuntimeError(code), operation: step };
+      // agent-device reports a device another session holds by code, not reason.
+      if (isAgentDeviceError(cause) && cause.code === "DEVICE_IN_USE") {
+        return { ...platformRuntimeError("device_in_use"), operation: step };
+      }
       if (isAgentDeviceError(cause)) {
         const reason = cause.details?.reason;
         if (
@@ -104,6 +114,47 @@ const cleanEnvironment = () => {
   );
   return environment;
 };
+
+/** Runs the bundled agent-device CLI against one private state directory. */
+const agentDeviceCli = (
+  packageRoot: string,
+  stateDir: string,
+  args: readonly string[]
+) =>
+  io(async (signal) => {
+    const { stdout } = await execute(
+      process.execPath,
+      [
+        path.join(packageRoot, "bin/agent-device.mjs"),
+        ...args,
+        "--state-dir",
+        stateDir,
+        "--json",
+      ],
+      {
+        env: cleanEnvironment(),
+        maxBuffer: 8 * 1024 * 1024,
+        signal,
+        timeout: 60_000,
+      }
+    );
+    return stdout;
+  });
+
+/** A failed open leaves no session, so closing it has nothing to release. */
+const closeAgentDeviceSession = <A>(
+  close: (signal: AbortSignal) => Promise<A>
+) =>
+  io(async (signal) => {
+    try {
+      await close(signal);
+    } catch (error) {
+      if (isAgentDeviceError(error) && error.code === "SESSION_NOT_FOUND") {
+        return;
+      }
+      throw error;
+    }
+  });
 
 /** All ADB operations bind the exact selected serial. */
 const adb = (serial: string, args: readonly string[]) => {
@@ -374,6 +425,16 @@ export const acquireAndroidBackend = (
             ? Effect.void
             : finalize(lock.release)
       );
+      // The lock proves no live Contingency process uses this serial, so a
+      // runtime a killed process left behind can be stopped before the check.
+      yield* reclaimOrphanedAndroidRuntimes({
+        adb: (args) => adb(input.device.serial, args),
+        claimsDirectory: defaultAgentDeviceClaimsDirectory(),
+        root: tmpdir(),
+        serial: input.device.serial,
+        stopDaemon: (stateDir) =>
+          agentDeviceCli(packageRoot, stateDir, ["daemon", "stop"]),
+      });
       const running = yield* adb(input.device.serial, [
         "shell",
         `pidof ${androidHelperRelease.packageName} || true`,
@@ -388,7 +449,7 @@ export const acquireAndroidBackend = (
       yield* requireHelper(input.device.serial);
       // The explicitly authorized installation persists. Session cleanup never uninstalls it.
       const directory = yield* Effect.acquireRelease(
-        io(() => mkdtemp(path.join(tmpdir(), "contingency-android-runtime-"))),
+        io(() => mkdtemp(path.join(tmpdir(), ANDROID_RUNTIME_PREFIX))),
         (owned) =>
           cleanupRegistry.get(cleanupFailure)
             ? Effect.void
@@ -400,29 +461,15 @@ export const acquireAndroidBackend = (
               )
       );
       yield* io(() => chmod(directory, 0o700));
+      // Written before the daemon starts, so a killed process's runtime is reclaimable.
+      yield* writeAndroidRuntimeOwner(directory, input.device.serial).pipe(
+        Effect.mapError(() => platformRuntimeError("runtime_failed"))
+      );
       if (preparation !== undefined) {
         yield* prepareAndroidStartingState(preparation, directory);
       }
       const cli = (args: readonly string[]) =>
-        io(async (signal) => {
-          const { stdout } = await execute(
-            process.execPath,
-            [
-              path.join(packageRoot, "bin/agent-device.mjs"),
-              ...args,
-              "--state-dir",
-              directory,
-              "--json",
-            ],
-            {
-              env: cleanEnvironment(),
-              maxBuffer: 8 * 1024 * 1024,
-              signal,
-              timeout: 60_000,
-            }
-          );
-          return stdout;
-        });
+        agentDeviceCli(packageRoot, directory, args);
       // Register daemon cleanup before its first potentially spawning operation.
       yield* Scope.addFinalizer(resources, finalize(cli(["daemon", "stop"])));
       yield* cli([
@@ -469,7 +516,9 @@ export const acquireAndroidBackend = (
       // Unique session ID is never adopted; cleanup is admitted only within this private daemon.
       yield* Scope.addFinalizer(
         resources,
-        finalize(io((signal) => client.sessions.close({ signal })))
+        finalize(
+          closeAgentDeviceSession((signal) => client.sessions.close({ signal }))
+        )
       );
       const opened = yield* io((signal) =>
         client.apps.open({
@@ -669,3 +718,5 @@ export const acquireAndroidBackend = (
       Effect.onError(() => Scope.close(resources, Exit.void))
     );
   });
+
+export { closeAgentDeviceSession, io as androidRuntimeIo };

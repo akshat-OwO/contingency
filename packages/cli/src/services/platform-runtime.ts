@@ -122,6 +122,7 @@ export interface PlatformRuntimeError {
     | "helper_newer_installed"
     | "helper_owned"
     | "device_lock_held"
+    | "device_in_use"
     | "target_unsupported"
     | "target_changed"
     | "runtime_paused"

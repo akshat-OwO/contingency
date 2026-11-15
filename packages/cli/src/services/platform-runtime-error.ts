@@ -13,6 +13,8 @@ const messages = {
     "Android cleanup is incomplete. Retained owned state requires inspection before recovery.",
   device_disconnected:
     "The selected Android device is disconnected. Execution is paused.",
+  device_in_use:
+    "Another agent-device session holds this Android device, so another automation tool may be using it. Close that session, then retry preparation. No session was adopted.",
   device_lock_held:
     "Another Contingency process is using this Android device. Close its Android session or let that process exit, then start a new Android session. No session was adopted.",
   device_mismatch:
