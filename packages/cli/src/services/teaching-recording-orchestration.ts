@@ -257,13 +257,20 @@ export const startDryRun = (input: DryRunStartInput) =>
     const manifest = yield* store
       .read(input.recordingId)
       .pipe(Effect.mapError(fromCause));
-    if (
-      (manifest.runtime !== undefined && manifest.runtime.platform !== "web") ||
-      manifest.emulation === null
-    ) {
+    if (manifest.runtime !== undefined && manifest.runtime.platform !== "web") {
+      // A native Dry Run needs a device the user prepares in Workspace, so it
+      // starts through the device workspace tool rather than here.
+      return yield* Effect.fail(
+        orchestrationError(
+          "teaching_recording_native_entry_point",
+          `Teaching Recording ${manifest.recordingId} is a native ${manifest.runtime.platform} recording. Start its Dry Run with agent_device_workspace: { platform: "${manifest.runtime.platform}", command: { _tag: "start", kind: "dry-run", flowName: "${manifest.flowName}", recordingId: "${manifest.recordingId}", operationId, selection } }, where selection is the device the user prepares in Workspace.`
+        )
+      );
+    }
+    if (manifest.emulation === null) {
       return yield* Effect.fail(
         invalid(
-          "Native-app Dry Runs require their Workspace entry point and explicit device preparation."
+          `Teaching Recording ${manifest.recordingId} has no Teaching Emulation to run its Dry Run under.`
         )
       );
     }

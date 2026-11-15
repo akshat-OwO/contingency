@@ -208,6 +208,7 @@ it.live(
       expect(instructions).toContain(WRITING_RESOURCE_URI);
       expect(instructions).not.toContain("contingency://skill/");
       expect(instructions).toContain("agent_run_assess");
+      expect(instructions).toContain("agent_device_workspace");
       expect(instructions).toContain("outcomeComplete");
       expect(instructions).toContain("agent_run_complete");
       expect(instructions).toContain(
