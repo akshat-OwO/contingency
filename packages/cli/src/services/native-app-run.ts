@@ -318,6 +318,15 @@ export const createNativeAppRun = <
             })
           )
         ),
+      // A paused session still turns back at its end.
+      rotate: (orientation) =>
+        lock.withPermits(1)(
+          Effect.suspend(() =>
+            runtime === undefined || terminal !== undefined
+              ? Effect.fail(makeError("preparation_required"))
+              : runtime.rotate(orientation)
+          )
+        ),
       screenRecorder: () =>
         terminal === undefined ? runtime?.screenRecorder : undefined,
       state,

@@ -223,9 +223,9 @@ it.effect(
 );
 
 it.effect(
-  "pauses native input on a foreign-app refusal until explicit recovery",
+  "pauses native input while no app can be named in front until explicit recovery",
   () =>
-    Effect.gen(function* foreignAppRecovery() {
+    Effect.gen(function* unknownForegroundRecovery() {
       const { input, calls } = fixture(yield* Scope.Scope);
       let foreign = false;
       let recoveries = 0;
@@ -235,7 +235,7 @@ it.effect(
           ...input.backend,
           capture: () =>
             foreign
-              ? Effect.fail(iosRuntimeError("foreign_app_foreground"))
+              ? Effect.fail(iosRuntimeError("foreground_app_unknown"))
               : Effect.succeed(observation),
           recover: () =>
             Effect.sync(() => {
@@ -248,10 +248,10 @@ it.effect(
       yield* runtime.observe();
       foreign = true;
       expect((yield* Effect.flip(runtime.observe())).code).toBe(
-        "foreign_app_foreground"
+        "foreground_app_unknown"
       );
       expect(runtime.state()).toMatchObject({
-        failure: { code: "foreign_app_foreground" },
+        failure: { code: "foreground_app_unknown" },
         observationId: null,
         phase: "paused",
       });

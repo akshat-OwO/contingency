@@ -96,10 +96,12 @@ it("exposes a typed, recoverable refusal when the display becomes unavailable", 
     code: "capture_incomplete",
     recovery: "recover",
   });
-  expect(iosWorkspaceRefusal("foreign_app_foreground")).toEqual({
-    code: "foreign_app_foreground",
-    recovery: "return-to-target-app",
+  expect(iosWorkspaceRefusal("foreground_app_unknown")).toEqual({
+    code: "foreground_app_unknown",
+    recovery: "go-home",
   });
+  // The observer follows any app in front, so another app is no refusal.
+  expect(iosWorkspaceRefusal("foreign_app_foreground")).toBe(null);
   expect(iosWorkspaceRefusal("runtime_failed")).toBe(null);
 });
 
@@ -108,12 +110,11 @@ it("keeps each iOS refusal bound to its recovery command", () => {
   expect(decode(iosWorkspaceRefusal("capture_incomplete"))._tag).toBe(
     "Success"
   );
+  expect(decode({ code: "capture_incomplete", recovery: "go-home" })._tag).toBe(
+    "Failure"
+  );
   expect(
-    decode({ code: "capture_incomplete", recovery: "return-to-target-app" })
-      ._tag
-  ).toBe("Failure");
-  expect(
-    decode({ code: "foreign_app_foreground", recovery: "recover" })._tag
+    decode({ code: "foreground_app_unknown", recovery: "recover" })._tag
   ).toBe("Failure");
 });
 

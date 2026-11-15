@@ -91,6 +91,7 @@ export interface NativeAppRun<Observation extends PlatformObservation, State> {
   readonly systemKey: NativeAppRuntime<Observation>["systemKey"];
   readonly enterVariable: NativeAppRuntime<Observation>["enterVariable"];
   readonly recover: NativeAppRuntime<Observation>["recover"];
+  readonly rotate: NativeAppRuntime<Observation>["rotate"];
   readonly close: NativeAppRuntime<Observation>["close"];
   /** The prepared device's screen recorder; absent before preparation. */
   readonly screenRecorder: () => NativeScreenRecorder | undefined;

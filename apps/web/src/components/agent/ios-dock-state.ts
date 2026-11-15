@@ -45,10 +45,14 @@ export const isLiveIosSession = (
   session.phase === "running" ||
   session.phase === "paused";
 
+/** The rail acts, as on Android, only while the user holds a running session. */
+export const iosRailEnabled = (
+  session: Pick<IosWorkspaceSnapshot, "controller" | "phase">
+): boolean => session.controller === "user" && session.phase === "running";
+
 export type IosDockGesture =
   | "prepare"
   | "recover"
-  | "return-to-target-app"
   | "start-recording"
   | "stop-recording"
   | "take-control"
@@ -263,14 +267,16 @@ export const iosDockPresentation = (
       };
     }
     case "paused": {
-      if (session.refusal?.recovery === "return-to-target-app") {
+      if (session.refusal?.recovery === "go-home") {
+        // The observer follows any app in front; it pauses only when it
+        // cannot tell which one that is (ADR 0083).
         return {
           ...quiet(
             "Paused",
-            "Another app is in front of the Target App, so nothing was sent. Return to it to carry on.",
+            "Contingency cannot tell which app is in front, so nothing was sent. Go Home to carry on from the Home Screen; recording continues.",
             "attention"
           ),
-          action: action("return-to-target-app", "Return to Target App"),
+          action: action("recover", "Go Home", "Go Home and carry on"),
         };
       }
       return {

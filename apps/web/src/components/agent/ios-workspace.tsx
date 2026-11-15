@@ -8,6 +8,7 @@ import type {
   IosWorkspaceSnapshot,
   IosWorkspaceSelection,
   IosWorkspaceSummary,
+  NativeEmulationChange,
   NativeInput,
   UploadedIosApp,
 } from "@contingency/protocol";
@@ -78,7 +79,8 @@ import type { AppBundleFile } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
-import { DeviceFrame, DeviceUnavailable } from "./android-device";
+import { DeviceFrame, DeviceRail, DeviceUnavailable } from "./android-device";
+import type { DeviceKey } from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
@@ -97,6 +99,7 @@ import {
 import {
   iosDockPresentation,
   iosFlowsSessionView,
+  iosRailEnabled,
   iosSessionLabel,
   isLiveIosSession,
 } from "./ios-dock-state";
@@ -165,6 +168,8 @@ const errorMessage = (cause: unknown) =>
 
 const IosMirror = ({
   session,
+  onDeviceKey,
+  onEmulate,
   onInput,
   unavailable,
 }: {
@@ -172,6 +177,9 @@ const IosMirror = ({
   readonly unavailable: string;
   /** Forwards the user's input to the simulator. */
   readonly onInput: (input: NativeInput) => void;
+  /** Home and the App Switcher, sent through the session (ADR 0083). */
+  readonly onDeviceKey: (key: DeviceKey) => void;
+  readonly onEmulate: (change: NativeEmulationChange) => void;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [probe] = useState(() =>
@@ -306,7 +314,18 @@ const IosMirror = ({
     <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-5">
       <div aria-hidden="true" className="hidden w-56 shrink-0 lg:block" />
       <div className="h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,28rem)]">
-        <DeviceFrame frame={frame}>
+        <DeviceFrame
+          frame={frame}
+          rail={
+            <DeviceRail
+              canAct={iosRailEnabled(session)}
+              emulation={session.emulation}
+              onEmulate={onEmulate}
+              onKey={onDeviceKey}
+              platform="iOS"
+            />
+          }
+        >
           {live ? (
             <canvas
               aria-label={
@@ -1217,6 +1236,32 @@ export const IosFieldEntry = ({
   );
 };
 
+/** The rail's key as a Workspace input; iOS has no Back, so it sends none. */
+const railKeyCommand = (
+  key: DeviceKey,
+  session: IosWorkspaceSnapshot
+): IosWorkspaceCommand | null =>
+  key === "GoBack"
+    ? null
+    : {
+        _tag: "input",
+        action: { _tag: key === "GoHome" ? "home" : "app-switcher" },
+        // The keys do not depend on the screen they leave.
+        observationId: session.observation?.id ?? "rail",
+        operationId: operationId(),
+        sessionId: session.id,
+      };
+
+const emulateCommand = (
+  change: NativeEmulationChange,
+  session: IosWorkspaceSnapshot
+): IosWorkspaceCommand => ({
+  _tag: "emulate",
+  change,
+  operationId: operationId(),
+  sessionId: session.id,
+});
+
 const gestureCommand = (
   gesture: IosDockGesture,
   session: IosWorkspaceSnapshot
@@ -1228,9 +1273,6 @@ const gestureCommand = (
     }
     case "recover": {
       return { _tag: "recover", ...fields };
-    }
-    case "return-to-target-app": {
-      return { _tag: "return-to-target-app", ...fields };
     }
     case "start-recording": {
       return { _tag: "record", ...fields, start: true };
@@ -1324,15 +1366,10 @@ export const IosRecovery = ({
 }: {
   readonly refusal: IosObservationRefusal | null | undefined;
   readonly pending: boolean;
-  readonly onRecover: (command: "recover" | "return-to-target-app") => void;
+  readonly onRecover: (command: "recover") => void;
 }) => (
-  <Button
-    disabled={pending}
-    onClick={() => onRecover(refusal?.recovery ?? "recover")}
-  >
-    {refusal?.recovery === "return-to-target-app"
-      ? "Return to Target App"
-      : "Recover selected simulator"}
+  <Button disabled={pending} onClick={() => onRecover("recover")}>
+    {refusal?.recovery === "go-home" ? "Go Home" : "Recover selected simulator"}
   </Button>
 );
 
@@ -1933,6 +1970,13 @@ export const IosWorkspace = ({
       >
         <WorkspacePlatformBar />
         <IosMirror
+          onDeviceKey={(key) => {
+            const command = railKeyCommand(key, session);
+            if (command !== null) {
+              send(command);
+            }
+          }}
+          onEmulate={(change) => send(emulateCommand(change, session))}
           onInput={onInput}
           session={session}
           unavailable={glassText(session)}

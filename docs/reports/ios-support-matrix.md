@@ -4,14 +4,16 @@ Issue [#550](https://github.com/akshat-OwO/contingency/issues/550) proves iOS Si
 
 ## Cells
 
-Each cell uses the [iOS login fixture](../../.cursor/skills/verify-contingency/fixtures/ios-login/README.md) and the maintained [Workspace proof](../../.cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs). Workspace Teaching records **Login name** as `confirmed` and the secure `{{PASSWORD}}` fill as `unconfirmed`. It activates **Sign in privately**, **Open account**, and the app's **Return to account** navigation button. A Settings activation can also be recorded if input completes before the foreground refusal.
+Each cell uses the [iOS login fixture](../../.cursor/skills/verify-contingency/fixtures/ios-login/README.md) and the maintained [Workspace proof](../../.cursor/skills/verify-contingency/bin/ios-workspace-proof.mjs). Workspace Teaching records **Login name** as `confirmed` and the secure `{{PASSWORD}}` fill as `unconfirmed`. It activates **Sign in privately**, **Open account**, and the app's **Return to account** navigation button. Under [ADR 0083](../adr/0083-ios-observes-the-foreground-app.md) the observer follows the app in front, so a Settings visit and the way back are recorded as steps.
 
 Learning saves the Variable reference without its value. A fresh Dry Run repeats the journey and reports `working`. Workspace **Verify flow** reads back `verified` and `purged`. A later Run repeats the journey and reports `working`.
 
-| Simulator | iOS | Teaching | Dry Run | Verification and Cleanup | Later Run |
-| --- | --- | --- | --- | --- | --- |
-| iPhone 17 | 26.5 | Pass | `working` | Verified, `purged` | `working` |
-| iPhone Duo, outer panel | 27.1 | Pass | `working` | Verified, `purged` | `working` |
+| Simulator | iOS | Teaching | Dry Run | Verification and Cleanup | Later Run | Another app and back (ADR 0083) |
+| --- | --- | --- | --- | --- | --- | --- |
+| iPhone 17 | 26.5 | Pass | `working` | Verified, `purged` | `working` | Needs re-proof |
+| iPhone Duo, outer panel | 27.1 | Pass | `working` | Verified, `purged` | `working` | Needs re-proof |
+
+The first five columns passed on 2026-10-29, before ADR 0083. Those runs met `foreign_app_foreground` in Settings and continued through **Return to Target App**, which no longer exists. Each cell needs a fresh run of the maintained proof to show Home to Springboard, a visit to another app or Settings, the App Switcher, and the return, with Teaching recording throughout and the later Run unpaused.
 
 Selection accepts iOS 26 through 27. Only 26.5 and 27.1 have proven cells. The [sanitized receipt](ios-support-matrix-evidence.json) follows the Android matrix receipt structure. It records source revisions, fixture source hashes, action kinds, outcomes, limits, and cleanup. It excludes input values, user home paths, and unrelated simulator inventory. Raw local receipts, Timelines, journals, screenshots, and ARIA snapshots remain under `.cursor/skills/verify-contingency/artifacts/ios-support-matrix/`.
 
@@ -22,9 +24,9 @@ Each complete cell receipt includes these checks:
 - The public MCP session-list gate refuses iOS before listing.
 - The agent answers the notification system alert and remains `running`.
 - An irreversible **Open account** action pauses for Confirmation. Workspace Refuse dispatches nothing; Allow dispatches once. Replaying the operation cannot dispatch again, and a retry receives a fresh decision.
-- Settings causes `foreign_app_foreground`. **Return to Target App** preserves the signed-in state and selected simulator. Teaching remains recording across recovery, and both Teaching and the later Run continue the account journey.
+- Settings, Springboard, and other apps are observed as they come forward (ADR 0083). **Home** and **App Switcher** on the rail and as agent keys go through agent-device, and Teaching keeps recording with observations of Springboard. An app that comes forward on its own is followed when its scheduling priority clearly marks it; otherwise observation refuses with `foreground_app_unknown` and recovery goes Home. The 2026-10-29 receipts predate this and show the earlier `foreign_app_foreground` refusal; this check needs re-proof in both cells.
 - The later Run declares `photos` revoked. Workspace shows a permissions difference and Run Environment Permission. After approval and preparation, the first observation reads **Photos access: denied**, without visiting Settings.
-- Raw coordinates are rejected by the command schema. Back returns `capability_missing`. Duplicate binding, physical selection (`physical_device_unsupported`), and selections at iOS 25 and 28 (`os_unsupported`) are refused.
+- Raw coordinates are rejected by the command schema. Back is refused without pausing the session; the rail shows no Back. Duplicate binding, physical selection (`physical_device_unsupported`), and selections at iOS 25 and 28 (`os_unsupported`) are refused.
 - Clear Starting Data (ADR 0081) empties the Target App's data container and preferences, then recreates its standard directories. Keychain items and app-group containers survive, because the simulator offers no per-app reset for them. Device Erase resets the whole simulator.
 - Product activity creates or deletes no simulator. The complete before/after inventory matches, and the selected simulator remains running after sessions close.
 

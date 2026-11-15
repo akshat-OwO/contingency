@@ -98,6 +98,12 @@ export const DeviceFrame = ({
 /** A device navigation key, by the `KeyboardEvent.key` it is forwarded as. */
 export type DeviceKey = "AppSwitch" | "GoBack" | "GoHome";
 
+interface RailKey {
+  readonly icon: typeof ChevronLeftIcon;
+  readonly key: DeviceKey;
+  readonly label: string;
+}
+
 /**
  * Android's navigation keys, in the order the device draws them. Native
  * agents use the whole OS (ADR 0067), so each key works over any app.
@@ -106,11 +112,13 @@ const ANDROID_KEYS = [
   { icon: ChevronLeftIcon, key: "GoBack", label: "Back" },
   { icon: CircleIcon, key: "GoHome", label: "Home" },
   { icon: SquareIcon, key: "AppSwitch", label: "Recents" },
-] as const satisfies readonly {
-  readonly icon: typeof ChevronLeftIcon;
-  readonly key: DeviceKey;
-  readonly label: string;
-}[];
+] as const satisfies readonly RailKey[];
+
+/** iOS has no system Back (ADR 0083): Home and the App Switcher only. */
+const IOS_KEYS = [
+  { icon: CircleIcon, key: "GoHome", label: "Home" },
+  { icon: SquareIcon, key: "AppSwitch", label: "App Switcher" },
+] as const satisfies readonly RailKey[];
 
 /** A phone on its side: the orientation the rotate button turns the device to. */
 const LandscapePhoneIcon = () => <SmartphoneIcon className="rotate-90" />;
@@ -150,7 +158,8 @@ const RailButton = ({
 
 /**
  * Appearance and location for the device (ADR 0082). Location uses the
- * browser Emulation's fields; on a device it moves the emulator itself.
+ * browser Emulation's fields; on a device it moves the emulator or
+ * simulator itself.
  */
 const DeviceSettings = ({
   canAct,
@@ -225,17 +234,23 @@ const DeviceSettings = ({
   );
 };
 
-/** The rail beside the frame. Its controls act only while the user is in control. */
-const DeviceRail = ({
+/**
+ * The rail beside the frame: the platform's device keys, the rotate toggle,
+ * and Device settings. Its controls act only while the user is in control.
+ */
+export const DeviceRail = ({
   canAct,
   emulation,
   onEmulate,
   onKey,
+  platform,
 }: {
   readonly canAct: boolean;
   readonly emulation: NativeEmulation | undefined;
   readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onKey: (key: DeviceKey) => void;
+  /** Picks the platform's keys and names each for assistive technology. */
+  readonly platform: "Android" | "iOS";
 }) => {
   const landscape = emulation?.orientation === "landscape";
   return (
@@ -243,16 +258,18 @@ const DeviceRail = ({
       aria-label="Device controls"
       className="material-float flex shrink-0 flex-col items-center gap-1 rounded-2xl p-1.5 shadow-sm"
     >
-      {ANDROID_KEYS.map(({ icon, key, label }) => (
-        <RailButton
-          disabled={!canAct}
-          icon={icon}
-          key={key}
-          label={`Android ${label}`}
-          onClick={() => onKey(key)}
-          tooltip={label}
-        />
-      ))}
+      {(platform === "iOS" ? IOS_KEYS : ANDROID_KEYS).map(
+        ({ icon, key, label }) => (
+          <RailButton
+            disabled={!canAct}
+            icon={icon}
+            key={key}
+            label={`${platform} ${label}`}
+            onClick={() => onKey(key)}
+            tooltip={label}
+          />
+        )
+      )}
       <span aria-hidden="true" className="bg-border my-1 h-px w-6" />
       <RailButton
         disabled={!canAct}
@@ -371,6 +388,7 @@ export const AndroidDevice = ({
               emulation={emulation}
               onEmulate={onEmulate}
               onKey={onDeviceKey}
+              platform="Android"
             />
           }
         >
