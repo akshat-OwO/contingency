@@ -139,8 +139,8 @@ export const makeMcpInstructions = (
       ? ["Try tools.agent_browser_pursue for each Flow step first."]
       : []),
     channel
-      ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs. On devices, poll agent_device_workspace read for a new revision."
-      : "After asking the user to act in Workspace, wait with tools.agent_session_get afterCursor and waitMs; on devices, poll agent_device_workspace read for a new revision.",
+      ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs. On devices, poll agent_device_workspace read until revision or captureState changes."
+      : "To wait for the user, call tools.agent_session_get with afterCursor and waitMs; on devices, poll agent_device_workspace read until revision or captureState changes.",
     "After your final tools.agent_run_assess, call tools.agent_run_complete.",
   ].join(" ");
 

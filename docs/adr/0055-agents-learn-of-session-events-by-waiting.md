@@ -25,4 +25,4 @@ Browser Teaching measures the encoded WebM file on disk, excluding MJPEG input b
 
 ## Native session amendment
 
-This contract covers browser Agent Sessions only. Android and iOS Workspace sessions have no Session Event log, and `agent_session_get` refuses their ids with `agent_session_not_found`. Until they gain one, an agent waits for a user's Workspace change by rereading the session with `agent_device_workspace` `read` and comparing the snapshot `revision`, which increases on every change. The tool descriptions, server instructions, and device guide say so.
+This contract covers browser Agent Sessions only. Android and iOS Workspace sessions have no Session Event log, and `agent_session_get` refuses their ids with `agent_session_not_found`. Until they gain one, an agent waits for a user's Workspace change by rereading the session with `agent_device_workspace` `read` and comparing the snapshot `revision` and `captureState`. Session commands increase `revision`. A verify or reject decision changes only the recording, so it shows in `captureState`. The tool descriptions, server instructions, and device guide say so.

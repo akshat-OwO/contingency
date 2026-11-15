@@ -118,7 +118,7 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
 10. After a pass, share the viewUrl returned by agent_run_complete before asking the user to decide. If the session or MCP process has exited, call open_recording with recordingId and share its new viewUrl. The user may verify or reject on the shared review page or in the Teaching Workspace, or tell you.
 
-    Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Native sessions have no Session Events: reread with agent_device_workspace read every few seconds until its revision changes. Relay a conversation choice with agent_flow_decide.
+    Wait with agent_session_get, afterCursor:eventCursor, waitMs:45000 for the Workspace event. Native sessions have no Session Events: reread with agent_device_workspace read every few seconds until captureState._tag is no longer dry-run-passed. Relay a conversation choice with agent_flow_decide.
 
     A pass retains the Teaching Recording until explicit verification.
 

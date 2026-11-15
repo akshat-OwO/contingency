@@ -10,4 +10,4 @@ Android supports API levels 30 through 36. Its actions target semantic elements 
 
 ## Wait for the user
 
-Native sessions have no Session Events, so `agent_session_get` cannot find them. After you ask the user to act in the Workspace, reread the session with the `read` command of `agent_device_workspace` every few seconds. Every change to the session, including the user's Workspace actions, increases the snapshot's `revision`, so compare it with the last value you read.
+Native sessions have no Session Events, so `agent_session_get` cannot find them. After you ask the user to act in the Workspace, reread the session with the `read` command of `agent_device_workspace` every few seconds. Compare each read with the last one: Workspace actions on the session increase the snapshot's `revision`, and a verify or reject decision changes `captureState` without changing `revision`.

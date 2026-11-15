@@ -85,7 +85,9 @@ it("builds distinct channel instructions", () => {
   // Native sessions have no Session Events (#727), so both variants name the
   // device path instead of sending agents to agent_session_get.
   for (const instructions of [channel, MCP_INSTRUCTIONS]) {
-    expect(instructions).toContain("poll agent_device_workspace read");
+    expect(instructions).toContain(
+      "poll agent_device_workspace read until revision or captureState changes"
+    );
   }
   expect(channel.length).toBeLessThan(1250);
 });
