@@ -122,6 +122,21 @@ export const WorkspaceEmptyDock = ({
 );
 
 /**
+ * A Guided Run names itself in the badge. While it records, the badge is one
+ * phrase rather than two labels joined.
+ */
+const guidedBadge = (
+  origin: "teaching" | "guided-run" | undefined,
+  tag: TeachingCaptureState["_tag"],
+  badge: string
+) => {
+  if (origin !== "guided-run") {
+    return badge;
+  }
+  return tag === "recording" ? "Guided recording" : `Guided Run · ${badge}`;
+};
+
+/**
  * The red dot is the capture gesture's own mark; verifying, retrying, and
  * rejecting are decisions about a recording, so they get their own icons.
  */
@@ -313,9 +328,7 @@ export const TeachingRecordingDock = ({
           badges={
             <>
               <DockState tone={presentation.tone}>
-                {origin === "guided-run"
-                  ? `Guided Run · ${presentation.badge}`
-                  : presentation.badge}
+                {guidedBadge(origin, captureState._tag, presentation.badge)}
               </DockState>
               <BrowserModificationBadge
                 modifications={
@@ -391,10 +404,9 @@ export const TeachingRecordingDock = ({
       {control}
       {action === null ? null : (
         <Button
+          // When the actions wrap, the primary one keeps the end of its line.
+          className="ml-auto"
           aria-label={action.accessibleName}
-          // On a narrow dock the primary action takes its own full-width row
-          // under the others, rather than wrapping wherever it lands.
-          className="@max-md:w-full @max-md:basis-full"
           disabled={pending}
           onClick={() => onGesture(action.gesture)}
           type="button"

@@ -39,6 +39,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   RequestHeader,
   requestIconClassName,
+  requestTierClassName,
 } from "@/components/agent/dock-request-parts";
 import { WatcherLoader } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
@@ -977,7 +978,7 @@ const IosDecisions = ({
   readonly session: IosWorkspaceSnapshot;
 }) =>
   session.preparation.pending.length === 0 ? null : (
-    <div className="bg-muted-surface space-y-3 border-b px-3 py-2.5">
+    <div className={cn(requestTierClassName, "space-y-3 border-b px-3 py-2.5")}>
       {session.preparation.pending.map((decision) => {
         const decide = (allow: boolean) =>
           send({
@@ -1292,7 +1293,7 @@ const IosSessionSelect = ({
 }) => (
   <NativeSelect
     aria-label="iOS Agent Session"
-    className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial @4xl:max-w-96"
+    className="[&_select]:hover:bg-muted max-w-[min(18rem,55%)] min-w-28 shrink [&_select]:border-transparent [&_select]:font-medium dark:[&_select]:bg-transparent"
     onChange={(event) =>
       onSelect(event.currentTarget.value || NEW_NATIVE_SESSION)
     }
@@ -1432,6 +1433,7 @@ const IosDockControls = ({
       )}
       {primary === null ? null : (
         <Button
+          className="ml-auto"
           aria-label={primary.accessibleName}
           disabled={
             gesture.pending ||

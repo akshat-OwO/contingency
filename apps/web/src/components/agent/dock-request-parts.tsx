@@ -18,6 +18,13 @@ import { CopyFeedback, useCopy } from "./evidence-reference";
  * secrets read as one surface rather than four cards.
  */
 
+/**
+ * The request tier's wash: a quiet amber, so what the agent is waiting on
+ * reads as attention on every dock, browser or device.
+ */
+export const requestTierClassName =
+  "bg-amber-500/[0.06] dark:bg-amber-400/[0.05]";
+
 /** The attention icon's color, shared so every request reads the same. */
 export const requestIconClassName =
   "size-4 shrink-0 text-amber-600 dark:text-amber-400";

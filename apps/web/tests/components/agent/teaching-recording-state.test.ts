@@ -99,7 +99,7 @@ test("offers the settled Dry Run, verification, and cleanup actions", () => {
       _tag: "purged",
       completedAt: result.completedAt,
     }).badge
-  ).toBe("Recording deleted");
+  ).toBe("Flow verified");
 });
 
 test("names the lifecycle when a gesture lost the race to another process", () => {

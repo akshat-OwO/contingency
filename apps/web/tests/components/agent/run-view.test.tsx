@@ -720,14 +720,14 @@ test("offers user verification only for a completed working Dry Run with a compl
     });
     expect(presentation.action).toBeNull();
     // Missing only how it was attempted (outcome not complete, or a
-    // Takeover) did not pass, but is not shown as a broken journey.
+    // Takeover) did not pass, but is not shown as a broken journey: it asks for attention.
     const qualifierOnly =
       invalidSummary.purpose.takeoverOccurred ||
       invalidSummary.assessment?.outcomeComplete === false;
     expect(presentation.badge).toBe(
-      qualifierOnly ? "Dry run did not pass" : "Dry run failed"
+      qualifierOnly ? "Did not pass" : "Dry run failed"
     );
-    expect(presentation.tone).toBe(qualifierOnly ? "default" : "failed");
+    expect(presentation.tone).toBe(qualifierOnly ? "attention" : "failed");
   }
 });
 

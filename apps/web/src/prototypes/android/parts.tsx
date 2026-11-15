@@ -25,9 +25,13 @@ export const ExperimentalBadge = () => (
 );
 
 const BADGE_VARIANT = {
+  attention: "secondary",
+  busy: "secondary",
   default: "secondary",
   failed: "destructive",
+  live: "secondary",
   recording: "default",
+  success: "secondary",
 } as const;
 
 /** The state badge the shipped dock shows, plus the Experimental badge. */

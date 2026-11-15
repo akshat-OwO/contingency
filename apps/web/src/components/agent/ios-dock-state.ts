@@ -8,6 +8,8 @@ import type { IosWorkspaceSnapshot } from "@contingency/protocol";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
 
+import type { DockStateTone } from "./workspace-dock";
+
 const KIND_LABEL: Record<IosWorkspaceSnapshot["kind"], string> = {
   "dry-run": "Dry Run",
   run: "Run",
@@ -66,7 +68,7 @@ export interface IosDockPresentation {
   readonly nextStep: string;
   readonly rejectable: boolean;
   readonly showsComment: boolean;
-  readonly tone: "default" | "failed" | "recording";
+  readonly tone: DockStateTone;
 }
 
 const action = (
@@ -83,6 +85,21 @@ const OUTCOME_LABEL: Record<
   inconclusive: "Inconclusive",
   "not-working": "Not working",
   working: "Working",
+};
+
+/**
+ * The tone of an ended session's verdict. Blocked and inconclusive are not
+ * broken journeys; they ask the person to look, as the Run Summary does.
+ */
+const COMPLETED_TONE: Record<
+  NonNullable<IosWorkspaceSnapshot["assessment"]>["outcome"] | "none",
+  DockStateTone
+> = {
+  blocked: "attention",
+  inconclusive: "attention",
+  none: "default",
+  "not-working": "failed",
+  working: "success",
 };
 
 const DECIDED = new Set(["dry-run-passed", "dry-run-failed", "verified"]);
@@ -189,22 +206,23 @@ const teachingPresentation = (
 const controlPresentation = (
   session: IosWorkspaceSnapshot
 ): IosDockPresentation => {
-  const badge = KIND_LABEL[session.kind];
   if (session.controller === "user") {
     return {
       ...quiet(
-        `${badge} · You have control`,
+        "You have control",
         session.kind === "dry-run"
-          ? "This Dry Run cannot pass after Takeover. Return control when you are done."
-          : "Return control when you are done."
+          ? "You hold the simulator. This Dry Run cannot pass after Takeover; return control when you are done."
+          : "You hold the simulator. Return control when you are done.",
+        "live"
       ),
       action: action("return-control", "Return control"),
     };
   }
   return {
     ...quiet(
-      badge,
-      "The agent is driving the simulator. Take control to act yourself."
+      "Agent driving",
+      "The agent is driving the simulator. Take control to act yourself.",
+      "live"
     ),
     action: action("take-control", "Take control"),
   };
@@ -228,7 +246,8 @@ export const iosDockPresentation = (
       if (session.preparation.pending.length > 0) {
         return quiet(
           "Decision needed",
-          "Answer the request above before the simulator is prepared."
+          "Answer the request above before the simulator is prepared.",
+          "attention"
         );
       }
       return {
@@ -249,7 +268,7 @@ export const iosDockPresentation = (
           ...quiet(
             "Paused",
             "Another app is in front of the Target App, so nothing was sent. Return to it to carry on.",
-            "failed"
+            "attention"
           ),
           action: action("return-to-target-app", "Return to Target App"),
         };
@@ -259,7 +278,7 @@ export const iosDockPresentation = (
           "Paused",
           session.error ??
             "The simulator stopped mirroring. Recover the same simulator to carry on.",
-          "failed"
+          "attention"
         ),
         action: action("recover", "Recover selected simulator"),
       };
@@ -283,9 +302,7 @@ export const iosDockPresentation = (
       return quiet(
         assessment === null ? "Completed" : OUTCOME_LABEL[assessment.outcome],
         assessment?.explanation ?? "The Run Summary is beside the simulator.",
-        assessment === null || assessment.outcome === "working"
-          ? "default"
-          : "failed"
+        COMPLETED_TONE[assessment?.outcome ?? "none"]
       );
     }
     default: {

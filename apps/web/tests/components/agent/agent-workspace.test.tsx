@@ -758,7 +758,7 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
   expect(dock).toHaveTextContent("browse-catalogue");
   expect(dock).toHaveTextContent("Agent Step 2 of 2.");
   expect(dock).not.toHaveTextContent("Done when:");
-  expect(dock).toHaveTextContent("1 of 2 Agent Steps executed");
+  expect(dock).toHaveTextContent("1 of 2 steps");
   // One shell: no header band above it, and no session status sidebar beside it.
   expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
   expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();

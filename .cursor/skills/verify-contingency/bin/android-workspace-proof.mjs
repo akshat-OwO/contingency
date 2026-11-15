@@ -399,7 +399,7 @@ try {
   await wait("Verify flow");
   await snapshot("dry-run-passed");
   await click("Verify flow");
-  await control("browser", "wait", "--text", "Recording deleted");
+  await control("browser", "wait", "--text", "Flow verified");
   const verified = await read(dry.id);
   assert.equal(verified.cleanup._tag, "purged");
   assert.equal(verified.observation, null);

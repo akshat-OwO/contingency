@@ -539,6 +539,7 @@ const AndroidDockControls = ({
       )}
       {primary === null ? null : (
         <Button
+          className="ml-auto"
           aria-label={primary.accessibleName}
           disabled={pending}
           onClick={() => mutate(gestureCommand(primary.gesture, session))}

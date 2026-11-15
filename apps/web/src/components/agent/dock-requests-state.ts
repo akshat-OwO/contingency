@@ -27,7 +27,7 @@ export interface DockRequest {
 }
 
 /**
- * The state badge already reads `Waiting for confirmation`, so the request
+ * The state badge already reads `Waiting for you`, so the request
  * names what is being confirmed instead of repeating it.
  */
 export const boundaryTitle: Record<AgentExecutionBoundary["reason"], string> = {
