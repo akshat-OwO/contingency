@@ -26,6 +26,10 @@ import type { NativeAppRunDecision } from "../../src/services/native-app-run-con
 import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import {
+  TargetAppBuilds,
+  targetAppBuildError,
+} from "../../src/services/target-app-builds.ts";
+import {
   TeachingRecordingStore,
   makeTeachingRecordingStoreLayer,
 } from "../../src/services/teaching-recording-store.ts";
@@ -273,5 +277,107 @@ it.effect(
       );
       expect(listed).toEqual([]);
       expect(reopened.phase).toBe("closed");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "an iOS recording takes its uploaded .app and drops it when nothing was recorded",
+  () =>
+    Effect.gen(function* recordingTakesApp() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const uploads = yield* fs.makeTempDirectoryScoped();
+      const upload = path.join(uploads, "Login.app");
+      yield* fs.makeDirectory(upload);
+      yield* fs.writeFileString(path.join(upload, "Login"), "binary");
+      const installs: (string | undefined)[] = [];
+      // One uploaded .app, claimable once, as the build service hands it out.
+      let claimed = false;
+      const builds = Layer.succeed(TargetAppBuilds, {
+        claim: (_platform, buildPath) => {
+          if (claimed || buildPath !== upload) {
+            return Effect.fail(targetAppBuildError("build_unknown"));
+          }
+          claimed = true;
+          return Effect.succeed({ path: upload, sha256: null });
+        },
+        discard: () => Effect.void,
+        receiveAndroid: () => Effect.die("No Android uploads."),
+        receiveIos: () => Effect.die("Uploads arrive through the route."),
+      });
+      const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
+      const workspaceLayer = makeIosWorkspaceLayer({
+        createRun: (input) => {
+          installs.push(input.appPath);
+          return createNativeAppRun<
+            IosRunInput,
+            IosObservation,
+            NativeAppRunDecision
+          >(input, {
+            authorize: (request) => request,
+            decisions: () => [],
+            differences: () => [],
+            error: platformRuntimeError,
+            preflight: () => Effect.void,
+            start: () => Effect.die("Startup must not prepare the simulator"),
+            startingConditions: () => true,
+            validate: () => Effect.void,
+          });
+        },
+        root: () => root,
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(storeLayer, makeFlowCatalogLayer({ root }), builds)
+        )
+      );
+      yield* Effect.gen(function* teachWithApp() {
+        const workspace = yield* IosWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName: FlowName.make("login"),
+            kind: "teaching",
+            operationId: OperationId.make("app-start"),
+            recordingId: null,
+            selection: {
+              ...selection,
+              appPath: upload,
+              outcomes: [],
+              setup: { conditions: [], kind: "restart-app" },
+            },
+          },
+          "user"
+        );
+        if (started.recordingId === null) {
+          return yield* Effect.die("Teaching must own a recording");
+        }
+        const taught = path.join(
+          store.directory(started.recordingId),
+          "target-app",
+          "Login.app"
+        );
+        // The run installs the .app from the recording it now belongs to.
+        expect(installs).toEqual([taught]);
+        expect(yield* fs.exists(upload)).toBe(false);
+        expect(yield* fs.readFileString(path.join(taught, "Login"))).toBe(
+          "binary"
+        );
+        expect(
+          (yield* store.read(started.recordingId)).targetAppBuild
+        ).toMatchObject({ platform: "ios", sha256: null });
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: OperationId.make("app-close"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        expect(yield* fs.exists(taught)).toBe(false);
+        expect(
+          (yield* store.read(started.recordingId)).targetAppBuild
+        ).toBeUndefined();
+      }).pipe(Effect.provide(Layer.merge(storeLayer, workspaceLayer)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

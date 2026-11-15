@@ -14,6 +14,8 @@ Setup Variables extend Teaching setup under [ADR 0042](./docs/adr/0042-agent-con
 
 **Target App**: The native app a journey is taught and verified against, identified by its package or bundle identifier and build. It names what the journey tests, not where the agent may act: the agent may use the whole emulator OS, including system dialogs, Settings, and other apps. _Avoid_: execution boundary, app scope, cross-app authorization
 
+**Target App Build**: The `.apk` or simulator `.app` the user uploads for a native Teaching session to install as the Target App. Once Teaching ends, it belongs to that session's Teaching Recording, and every Dry Run of the recording installs the same build. _Avoid_: uploaded build, APK path, app path, upload
+
 **Starting Data**: The Target App data a Flow requires at the start of Teaching and every later Run: **Keep**, the app's existing data on the device, or **Clear**, the app's own data removed while the app stays installed. It covers only the Target App, never the device, its accounts, or other apps, and a Flow saves it as a runtime requirement. See [ADR 0081](./docs/adr/0081-native-setup-may-clear-app-data-or-erase-a-stopped-device.md). _Avoid_: reset, fresh install, clean start, wipe
 
 **Owned Device**: An emulator or simulator that a Contingency process started from Workspace. The process starts it headless and stops it when it closes, after its sessions close. A device that was already running, or that another process started, is never owned. See [ADR 0077](./docs/adr/0077-a-process-owns-the-devices-it-starts.md). _Avoid_: managed device, session device

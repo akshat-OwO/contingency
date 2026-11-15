@@ -13,6 +13,7 @@ import type {
   TeachingRecordingId,
   TeachingRecordingManifest,
   TeachingRecordingOperation,
+  TeachingRecordingTargetAppBuild,
 } from "@contingency/protocol";
 import {
   OperationId,
@@ -55,6 +56,8 @@ const LOCK_FILE = ".manifest.lock";
 /** Final manifests of purged Recordings, written before their directories are deleted. */
 const PURGED_DIRECTORY = ".purged";
 const VERIFICATION_FILE = "flow.md";
+/** Where a recording keeps its Target App Build; Cleanup removes it with the rest. */
+const BUILD_DIRECTORY = "target-app";
 
 interface TeachingRecordingStoreDomainError {
   readonly _tag: "TeachingRecordingStoreError";
@@ -94,6 +97,22 @@ export interface TeachingRecordingBegin {
 export interface TeachingRecordingMutation {
   readonly operationId: OperationId;
   readonly recordingId: TeachingRecordingId;
+}
+
+/** A claimed upload a native Teaching session hands to its recording. */
+export interface TeachingRecordingBuildAdoption {
+  readonly recordingId: TeachingRecordingId;
+  readonly platform: TeachingRecordingTargetAppBuild["platform"];
+  /** The claimed `.apk` file or `.app` folder; it is moved, not copied. */
+  readonly source: string;
+  readonly sha256: string | null;
+}
+
+/** A recording's Target App Build as a session installs it. */
+export interface RecordedTargetAppBuild {
+  readonly path: string;
+  readonly platform: TeachingRecordingTargetAppBuild["platform"];
+  readonly sha256: string | null;
 }
 
 /**
@@ -148,6 +167,28 @@ export interface TeachingRecordingStoreService {
   readonly begin: (
     input: TeachingRecordingBegin
   ) => Effect.Effect<TeachingRecordingManifest, TeachingRecordingStoreError>;
+  /**
+   * Moves a native Teaching session's claimed upload into its recording,
+   * still in setup, and marks this process as its holder (ADR 0085).
+   * Returns the build's new path.
+   */
+  readonly adoptTargetAppBuild: (
+    input: TeachingRecordingBuildAdoption
+  ) => Effect.Effect<string, TeachingRecordingStoreError>;
+  /**
+   * Ends this process's hold when its Teaching session closes. A recording
+   * with nothing recorded has no Dry Run to serve, so its build is deleted.
+   */
+  readonly releaseTargetAppBuild: (
+    recordingId: TeachingRecordingId
+  ) => Effect.Effect<void, TeachingRecordingStoreError>;
+  /** The recording's build on disk, if it owns one; refuses a missing file. */
+  readonly targetAppBuild: (
+    manifest: TeachingRecordingManifest
+  ) => Effect.Effect<
+    RecordedTargetAppBuild | undefined,
+    TeachingRecordingStoreError
+  >;
   /** Pin an attempt inside its Flow and retain its ID for recording-scoped Cleanup. */
   readonly prepareDryRun: (
     recordingId: TeachingRecordingId,
@@ -162,7 +203,8 @@ export interface TeachingRecordingStoreService {
   /**
    * Throw away a recording the user does not want to keep. The captured
    * artifacts are removed and the bundle returns to `setup`, so the same
-   * browser setup can record again without carrying the discarded evidence.
+   * setup can record again without carrying the discarded evidence. A
+   * Target App Build stays while a live process holds it.
    */
   readonly discard: (
     input: TeachingRecordingMutation
@@ -1568,6 +1610,150 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         })
       );
 
+    const buildFile = (
+      recordingId: TeachingRecordingId,
+      build: TeachingRecordingTargetAppBuild
+    ) => path.join(recordingDirectory(recordingId), build.path);
+    const removeBuild = (
+      manifest: PendingTeachingRecordingManifest
+    ): Effect.Effect<
+      PendingTeachingRecordingManifest,
+      TeachingRecordingStoreError
+    > =>
+      Effect.gen(function* removeTargetAppBuild() {
+        if (manifest.targetAppBuild === undefined) {
+          return manifest;
+        }
+        yield* fileSystem
+          .remove(
+            path.join(
+              recordingDirectory(manifest.recordingId),
+              BUILD_DIRECTORY
+            ),
+            { force: true, recursive: true }
+          )
+          .pipe(
+            Effect.mapError(ioError("Could not delete the Target App Build"))
+          );
+        const { targetAppBuild: _removed, ...rest } = manifest;
+        return { ...rest, updatedAt: now().toISOString() };
+      });
+
+    const adoptTargetAppBuild = (input: TeachingRecordingBuildAdoption) =>
+      withRecordingLock(
+        input.recordingId,
+        Effect.gen(function* adoptBuild() {
+          const current = yield* readAt(
+            input.recordingId,
+            rootFor(input.recordingId)
+          );
+          if (
+            !isPendingManifest(current) ||
+            current.lifecycle._tag !== "setup" ||
+            current.targetAppBuild !== undefined
+          ) {
+            return yield* Effect.fail(
+              storeError(
+                "teaching_recording_conflict",
+                `Teaching Recording ${input.recordingId} cannot take a Target App Build from ${current.lifecycle._tag}.`
+              )
+            );
+          }
+          const build: TeachingRecordingTargetAppBuild = {
+            holderPid: process.pid,
+            path: path.join(BUILD_DIRECTORY, path.basename(input.source)),
+            platform: input.platform,
+            sha256: input.sha256,
+          };
+          const destination = buildFile(input.recordingId, build);
+          const fail = ioError("Could not move the Target App Build");
+          yield* fileSystem
+            .makeDirectory(path.dirname(destination), { recursive: true })
+            .pipe(Effect.mapError(fail));
+          // A rename keeps the bytes in place; another volume needs a copy.
+          yield* fileSystem.rename(input.source, destination).pipe(
+            Effect.catch(() =>
+              fileSystem.copy(input.source, destination).pipe(
+                Effect.andThen(
+                  fileSystem.remove(input.source, {
+                    force: true,
+                    recursive: true,
+                  })
+                ),
+                Effect.onError(() =>
+                  fileSystem
+                    .remove(destination, { force: true, recursive: true })
+                    .pipe(Effect.ignore)
+                )
+              )
+            ),
+            Effect.mapError(fail)
+          );
+          yield* persist({
+            ...current,
+            targetAppBuild: build,
+            updatedAt: now().toISOString(),
+          });
+          return destination;
+        })
+      );
+
+    const releaseTargetAppBuild = (recordingId: TeachingRecordingId) =>
+      withRecordingLock(
+        recordingId,
+        Effect.gen(function* releaseBuild() {
+          const current = yield* readAt(recordingId, rootFor(recordingId));
+          if (
+            !isPendingManifest(current) ||
+            current.targetAppBuild === undefined
+          ) {
+            return;
+          }
+          if (current.lifecycle._tag === "setup") {
+            yield* persist(yield* removeBuild(current));
+            return;
+          }
+          if (current.targetAppBuild.holderPid !== null) {
+            yield* persist({
+              ...current,
+              targetAppBuild: { ...current.targetAppBuild, holderPid: null },
+            });
+          }
+        })
+      );
+
+    const targetAppBuild = (manifest: TeachingRecordingManifest) =>
+      Effect.gen(function* recordedBuild() {
+        const build = manifest.targetAppBuild;
+        if (build === undefined) {
+          return;
+        }
+        const directory = recordingDirectory(manifest.recordingId);
+        const file = buildFile(manifest.recordingId, build);
+        const relative = path.relative(directory, file);
+        const present =
+          !relative.startsWith("..") &&
+          !path.isAbsolute(relative) &&
+          (yield* fileSystem
+            .exists(file)
+            .pipe(
+              Effect.mapError(ioError("Could not inspect the Target App Build"))
+            ));
+        if (!present) {
+          return yield* Effect.fail(
+            storeError(
+              "teaching_recording_invalid",
+              `Teaching Recording ${manifest.recordingId} lost its Target App Build. Teach the Flow again with the .app or .apk.`
+            )
+          );
+        }
+        return {
+          path: file,
+          platform: build.platform,
+          sha256: build.sha256,
+        } satisfies RecordedTargetAppBuild;
+      });
+
     const cleanup = (input: TeachingRecordingMutation) => {
       const replay = purged.get(input.recordingId);
       if (
@@ -1775,11 +1961,17 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 )
               );
           }
-          return {
+          const discarded = {
             ...manifest,
             artifacts: [],
             lifecycle: { _tag: "setup" as const, requestedAt: at },
           };
+          // A live holder may record again with the build; with none, a
+          // recording in setup has no Dry Run for it to serve (ADR 0085).
+          const holder = manifest.targetAppBuild?.holderPid ?? null;
+          return holder !== null && !processIsStale(holder)
+            ? discarded
+            : yield* removeBuild(discarded);
         })
       );
 
@@ -1967,6 +2159,7 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
     );
 
     return TeachingRecordingStore.of({
+      adoptTargetAppBuild,
       attachDryRunSummary,
       begin,
       catalogRoot: rootFor,
@@ -1982,12 +2175,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
       readClaimed,
       reject,
       releaseLearning,
+      releaseTargetAppBuild,
       rename,
       saveFlow,
       start,
       startDryRun,
       startLearning,
       stop,
+      targetAppBuild,
       verify,
     });
   }

@@ -262,6 +262,22 @@ export const RecordingView = Schema.Struct({
   summary: Schema.NullOr(AgentRunSummary),
 });
 
+/**
+ * The Target App Build a native recording owns from its creation until
+ * Cleanup, so every Dry Run installs what was taught (ADR 0085).
+ */
+export const TeachingRecordingTargetAppBuild = Schema.Struct({
+  /** The process whose Teaching session may still record with the build. */
+  holderPid: Schema.NullOr(Schema.Int),
+  /** The `.apk` file or `.app` folder, relative to the recording directory. */
+  path: nonEmptyString,
+  platform: Schema.Literals(["android", "ios"]),
+  /** The APK's SHA-256; an `.app` folder has none. */
+  sha256: Schema.NullOr(nonEmptyString),
+});
+export type TeachingRecordingTargetAppBuild =
+  typeof TeachingRecordingTargetAppBuild.Type;
+
 const TeachingRecordingManifestBase = {
   /** Guided Run's starting host and exact approved hosts, independent of visits. */
   approvedHosts: Schema.optionalKey(Schema.Array(nonEmptyString)),
@@ -284,6 +300,7 @@ const TeachingRecordingManifestBase = {
   runtime: Schema.optionalKey(PlatformRequirements),
   schemaVersion: Schema.Literal(1),
   sessionId: AgentSessionId,
+  targetAppBuild: Schema.optionalKey(TeachingRecordingTargetAppBuild),
   updatedAt: nonEmptyString,
 };
 

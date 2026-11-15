@@ -145,6 +145,8 @@ const fixture = (
     readonly recorded: string[];
     /** The setup each created run applies, and each restart it performed. */
     readonly setups: AndroidRunInput["setup"][];
+    /** The APK each created run was asked to install, if any. */
+    readonly installs: (string | undefined)[];
     readonly restarts: string[];
     /** Holds the next stream acquisition; resolves once it has begun. */
     readonly holdNextStream: () => Effect.Effect<Deferred.Deferred<boolean>>;
@@ -180,6 +182,7 @@ const fixture = (
       const forwarded: NativeInput[][] = [];
       const recorded: string[] = [];
       const setups: AndroidRunInput["setup"][] = [];
+      const installs: (string | undefined)[] = [];
       const restarts: string[] = [];
       let recordingFile: string | undefined;
       // The display and input transport, without a device.
@@ -360,6 +363,7 @@ const fixture = (
             capabilities: ["semantic-actions", "screenshots", "private-input"],
             createRun: (input) => {
               setups.push(input.setup);
+              installs.push(input.appInstallation?.apk);
               return createAndroidRun(input, {
                 installedBuild: () => Effect.succeed("1"),
                 preflight: () => Effect.void,
@@ -485,6 +489,7 @@ const fixture = (
               })
             )
           ),
+        installs,
         reconnect: () => {
           connected = true;
         },
@@ -514,9 +519,16 @@ const fixture = (
     })
   ).pipe(Effect.provide(NodeServices.layer));
 
-const teach = (optional = false, closeTeaching = true) =>
+const teach = (optional = false, closeTeaching = true, apkPath?: string) =>
   Effect.gen(function* recordAndLearn() {
     const workspace = yield* AndroidWorkspace;
+    const taughtSelection = optional
+      ? {
+          ...selection,
+          outcomes: [],
+          setup: { ...selection.setup, conditions: [] },
+        }
+      : selection;
     const started = yield* workspace.execute(
       {
         _tag: "start",
@@ -524,17 +536,26 @@ const teach = (optional = false, closeTeaching = true) =>
         kind: "teaching",
         operationId: op("start-teaching"),
         recordingId: null,
-        selection: optional
-          ? {
-              ...selection,
-              outcomes: [],
-              setup: { ...selection.setup, conditions: [] },
-            }
-          : selection,
+        selection:
+          apkPath === undefined
+            ? taughtSelection
+            : { ...taughtSelection, apkPath },
       },
       "user"
     );
     expect(started.observation).toBeNull();
+    for (const decision of started.preparation.pending) {
+      yield* workspace.execute(
+        {
+          _tag: "decide",
+          allow: true,
+          decisionId: decision.id,
+          operationId: op(`allow-${decision.id}`),
+          sessionId: started.id,
+        },
+        "user"
+      );
+    }
     yield* workspace.execute(
       {
         _tag: "prepare",
@@ -1149,6 +1170,18 @@ it.effect(
         expect(refused.phase).toBe("refused");
         const fs = yield* FileSystem.FileSystem;
         expect(yield* fs.exists(uploaded.apkPath)).toBe(false);
+        // Its recording recorded nothing, so the build is gone (ADR 0085).
+        const store = yield* TeachingRecordingStore;
+        const { recordingId } = started;
+        if (recordingId === null) {
+          return yield* Effect.die("Teaching has a recording.");
+        }
+        expect((yield* store.read(recordingId)).targetAppBuild).toBeUndefined();
+        expect(
+          yield* fs.exists(
+            path.join(store.directory(recordingId), "target-app")
+          )
+        ).toBe(false);
         expect(yield* workspace.list()).toEqual([]);
         expect(yield* workspace.stream(started.id)).toBeNull();
         const closed = yield* workspace.execute(
@@ -1161,6 +1194,83 @@ it.effect(
         );
         expect(closed.phase).toBe("refused");
       })
+    )
+);
+
+it.effect(
+  "every Dry Run installs the build its recording was taught with",
+  () =>
+    fixture(({ builds, installs, restart }) =>
+      Effect.gen(function* recordingOwnsBuild() {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* TeachingRecordingStore;
+        const uploaded = yield* builds.receiveAndroid(
+          Readable.from([Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00])]),
+          "fixture.apk"
+        );
+        const recordingId = yield* teach(false, true, uploaded.apkPath);
+        // The recording took the build when it was created; the closed
+        // Teaching session deleted only the empty upload.
+        const taught = path.join(
+          store.directory(recordingId),
+          "target-app",
+          "target.apk"
+        );
+        expect(installs).toEqual([taught]);
+        expect(yield* fs.exists(uploaded.apkPath)).toBe(false);
+        expect(yield* fs.exists(taught)).toBe(true);
+        expect((yield* store.read(recordingId)).targetAppBuild).toMatchObject({
+          holderPid: null,
+          path: path.join("target-app", "target.apk"),
+          platform: "android",
+        });
+        // A process that never saw the upload starts the Dry Run.
+        const restarted = yield* restart();
+        const drySelection: AndroidWorkspaceSelection = {
+          ...selection,
+          setup: { ...selection.setup, conditions: [] },
+        };
+        const dry = (id: string, chosen = drySelection) =>
+          restarted.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op(id),
+              recordingId,
+              selection: chosen,
+            },
+            "agent"
+          );
+        // Naming a build is refused before anything is touched.
+        const named = yield* Effect.flip(
+          dry("dry-named", { ...drySelection, apkPath: taught })
+        );
+        expect(named.message).toContain(
+          "installs its Teaching Recording's build automatically"
+        );
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "flow-drafted"
+        );
+        const started = yield* dry("dry-implicit");
+        expect(installs).toEqual([taught, taught]);
+        yield* restarted.execute(
+          {
+            _tag: "close",
+            operationId: op("close-dry"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        // A failed Dry Run keeps the build for its retry.
+        expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
+          "dry-run-failed"
+        );
+        expect(yield* fs.exists(taught)).toBe(true);
+        yield* dry("dry-retry");
+        expect(installs).toEqual([taught, taught, taught]);
+        // The restarted process lives only as long as this scope.
+      }).pipe(Effect.scoped)
     )
 );
 

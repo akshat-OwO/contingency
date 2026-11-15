@@ -1286,6 +1286,115 @@ it.effect("renames before capture and discards a recording back to setup", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
+it.effect(
+  "a recording keeps its Target App Build until no session can record with it",
+  () =>
+    Effect.gen(function* keepTargetAppBuild() {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const root = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-build-",
+      });
+      const uploads = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "contingency-teaching-upload-",
+      });
+      yield* Effect.gen(function* exercise() {
+        const store = yield* TeachingRecordingStore;
+        const teach = (id: string) =>
+          Effect.gen(function* teachWithBuild() {
+            const buildId = TeachingRecordingId.make(`recording-build-${id}`);
+            const source = path.join(uploads, id, "target.apk");
+            yield* fileSystem.makeDirectory(path.dirname(source));
+            yield* fileSystem.writeFileString(source, "apk bytes");
+            yield* store.begin({
+              emulation: null,
+              flowName: FlowName.make(`build-${id}`),
+              operationId: OperationId.make(`begin-${id}`),
+              recordingId: buildId,
+              sessionId,
+            });
+            const moved = yield* store.adoptTargetAppBuild({
+              platform: "android",
+              recordingId: buildId,
+              sha256: "fixture-sha",
+              source,
+            });
+            expect(yield* fileSystem.exists(source)).toBe(false);
+            expect(yield* fileSystem.readFileString(moved)).toBe("apk bytes");
+            const recorded = yield* store.targetAppBuild(
+              yield* store.read(buildId)
+            );
+            expect(recorded).toEqual({
+              path: moved,
+              platform: "android",
+              sha256: "fixture-sha",
+            });
+            return { buildId, moved };
+          });
+        const record = (buildId: TeachingRecordingId, id: string) =>
+          Effect.gen(function* recordOnce() {
+            yield* store.start({
+              emulation: null,
+              operationId: OperationId.make(`start-${id}`),
+              recordingId: buildId,
+            });
+            yield* store.stop({
+              artifacts: [],
+              operationId: OperationId.make(`stop-${id}`),
+              recordingId: buildId,
+            });
+          });
+
+        // While this process holds it, a discard keeps the build for the
+        // next recording, and a second build is refused.
+        const held = yield* teach("held");
+        yield* record(held.buildId, "held-1");
+        const late = yield* Effect.flip(
+          store.adoptTargetAppBuild({
+            platform: "android",
+            recordingId: held.buildId,
+            sha256: null,
+            source: held.moved,
+          })
+        );
+        expect(late.code).toBe("teaching_recording_conflict");
+        yield* store.discard({
+          operationId: OperationId.make("discard-held"),
+          recordingId: held.buildId,
+        });
+        expect(yield* fileSystem.exists(held.moved)).toBe(true);
+        // Closing the session with nothing recorded deletes it.
+        yield* store.releaseTargetAppBuild(held.buildId);
+        expect(yield* fileSystem.exists(held.moved)).toBe(false);
+        expect(
+          (yield* store.read(held.buildId)).targetAppBuild
+        ).toBeUndefined();
+
+        // A kept recording outlives its session with the build, and a
+        // discard after that session ended deletes it.
+        const kept = yield* teach("kept");
+        yield* record(kept.buildId, "kept-1");
+        yield* store.releaseTargetAppBuild(kept.buildId);
+        expect(yield* fileSystem.exists(kept.moved)).toBe(true);
+        expect(
+          (yield* store.read(kept.buildId)).targetAppBuild?.holderPid
+        ).toBeNull();
+        yield* store.discard({
+          operationId: OperationId.make("discard-kept"),
+          recordingId: kept.buildId,
+        });
+        expect(yield* fileSystem.exists(kept.moved)).toBe(false);
+
+        // A build that went missing is named, not installed.
+        const lost = yield* teach("lost");
+        yield* fileSystem.remove(lost.moved);
+        const missing = yield* Effect.flip(
+          store.targetAppBuild(yield* store.read(lost.buildId))
+        );
+        expect(missing.message).toContain("lost its Target App Build");
+      }).pipe(Effect.provide(layerFor(root)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
 it.effect("a learning claim outlives a failed Dry Run and a rejection", () =>
   Effect.gen(function* keepClaimThroughFailure() {
     const fileSystem = yield* FileSystem.FileSystem;

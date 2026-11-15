@@ -329,8 +329,9 @@ export interface TargetAppBuildsService {
   readonly discard: (id: string) => Effect.Effect<void>;
   /**
    * Hands one upload to a session. Closing `scope` deletes it, whether the
-   * session ends, fails to start, or is cancelled. Only a current, unclaimed
-   * upload of the same platform is accepted.
+   * session ends, fails to start, or is cancelled, unless a Teaching
+   * Recording moved the build out first (ADR 0085). Only a current,
+   * unclaimed upload of the same platform is accepted.
    */
   readonly claim: (
     platform: Upload["platform"],
