@@ -73,34 +73,60 @@ const ReleaseManifest = Schema.Struct({
   versionCode: Schema.Literal(androidHelperRelease.versionCode),
 });
 
+/**
+ * Snapshot helper failures agent-device reports while the app window is
+ * briefly empty or covered, as during a screen transition. They are the same
+ * incomplete capture `requireCapture` refuses, raised instead of returned, so
+ * they settle and repair the same way (#720).
+ */
+const isTransientSnapshotFailure = Schema.is(
+  Schema.Struct({
+    androidSnapshotHelperFailureReason: Schema.Literals([
+      "content-poor-app-window",
+      "empty-helper-output",
+      "system-window-only",
+    ]),
+  })
+);
+
 /** Never export child output or SDK errors, which may contain user data. */
+export const androidBackendError = (
+  cause: unknown,
+  code: Parameters<typeof platformRuntimeError>[0],
+  step: NonNullable<PlatformRuntimeError["operation"]>
+): PlatformRuntimeError => {
+  const error = { ...platformRuntimeError(code), operation: step };
+  if (!isAgentDeviceError(cause)) {
+    return error;
+  }
+  // agent-device reports a device another session holds by code, not reason.
+  if (cause.code === "DEVICE_IN_USE") {
+    return { ...platformRuntimeError("device_in_use"), operation: step };
+  }
+  if (step === "capture" && isTransientSnapshotFailure(cause.details)) {
+    return { ...platformRuntimeError("capture_incomplete"), operation: step };
+  }
+  const reason = cause.details?.reason;
+  if (
+    reason === "ref_generation_mismatch" ||
+    reason === "stale_ref" ||
+    reason === "device_not_found" ||
+    reason === "request_canceled" ||
+    reason === "android_text_input_unverified" ||
+    reason === "input_unverified"
+  ) {
+    return { ...error, backendReason: reason };
+  }
+  return error;
+};
+
 const io = <A>(
   operation: (signal: AbortSignal) => Promise<A>,
   code: Parameters<typeof platformRuntimeError>[0] = "runtime_failed",
   step: NonNullable<PlatformRuntimeError["operation"]> = "host-io"
 ) =>
   Effect.tryPromise({
-    catch: (cause): PlatformRuntimeError => {
-      const error = { ...platformRuntimeError(code), operation: step };
-      // agent-device reports a device another session holds by code, not reason.
-      if (isAgentDeviceError(cause) && cause.code === "DEVICE_IN_USE") {
-        return { ...platformRuntimeError("device_in_use"), operation: step };
-      }
-      if (isAgentDeviceError(cause)) {
-        const reason = cause.details?.reason;
-        if (
-          reason === "ref_generation_mismatch" ||
-          reason === "stale_ref" ||
-          reason === "device_not_found" ||
-          reason === "request_canceled" ||
-          reason === "android_text_input_unverified" ||
-          reason === "input_unverified"
-        ) {
-          return { ...error, backendReason: reason };
-        }
-      }
-      return error;
-    },
+    catch: (cause) => androidBackendError(cause, code, step),
     try: operation,
   });
 

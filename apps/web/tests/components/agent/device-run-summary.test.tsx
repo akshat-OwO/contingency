@@ -331,3 +331,41 @@ test("names the Starting Data the session applied", () => {
   expect(screen.getByText("Starting data")).toBeTruthy();
   expect(screen.getByText("App data cleared")).toBeTruthy();
 });
+
+test("marks each Capture Gap a fresh observation repaired", () => {
+  render(
+    <RpcDependenciesProvider
+      overrides={{
+        deviceKeyframesAtom: () => Atom.make(Effect.succeed(null)),
+        deviceVideoStatusAtom: videoAtom(notRecorded),
+      }}
+    >
+      <DeviceRunSummary
+        device="iPhone 17 · iOS 26.5"
+        platform="ios"
+        session={{
+          ...session,
+          captureGaps: [
+            "capture_incomplete",
+            "capture_incomplete",
+            "secure_window",
+          ],
+          captureRepairs: [
+            {
+              at: "2026-11-15T00:00:00.000Z",
+              by: "automatic",
+              code: "capture_incomplete",
+            },
+          ],
+          kind: "dry-run",
+        }}
+        targetApp="dev.contingency.login · build 1"
+      />
+    </RpcDependenciesProvider>
+  );
+  expect(
+    screen.getByText(
+      "Capture incomplete (repaired automatically), Capture incomplete, Secure window"
+    )
+  ).toBeTruthy();
+});

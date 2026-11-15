@@ -3,6 +3,7 @@ import { AppError } from "agent-device";
 import { Effect, Scope } from "effect";
 
 import {
+  androidBackendError,
   performAndroidFill,
   helperReplacement,
   installAuthorizedAndroidHelper,
@@ -252,3 +253,33 @@ it.effect(
       }
     })
 );
+
+it("a snapshot taken mid-transition is an incomplete capture, not a backend failure", () => {
+  for (const reason of [
+    "content-poor-app-window",
+    "empty-helper-output",
+    "system-window-only",
+  ]) {
+    const cause = new AppError(
+      "COMMAND_FAILED",
+      "Android snapshot helper returned insufficient application window content",
+      { androidSnapshotHelperFailureReason: reason, retriable: true }
+    );
+    expect(androidBackendError(cause, "runtime_failed", "capture")).toEqual({
+      ...androidBackendError(new Error("x"), "capture_incomplete", "capture"),
+    });
+    // Only a capture is incomplete; the same report elsewhere stays a failure.
+    expect(
+      androidBackendError(cause, "runtime_failed", "screenshot").code
+    ).toBe("runtime_failed");
+  }
+  expect(
+    androidBackendError(
+      new AppError("COMMAND_FAILED", "Helper missing", {
+        androidSnapshotHelperFailureReason: "helper-missing",
+      }),
+      "runtime_failed",
+      "capture"
+    ).code
+  ).toBe("runtime_failed");
+});

@@ -69,6 +69,11 @@ import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import {
+  openCaptureGaps,
+  repairCaptureGaps,
+  repairsCaptureAutomatically,
+} from "./native-capture-gaps.ts";
 import { emulationChanges, emulationDescription } from "./native-emulation.ts";
 import {
   makeIosEmulationGuard,
@@ -677,6 +682,38 @@ export const makeIosWorkspaceLayer = (options: {
           }
           yield* persist(session);
         });
+      /**
+       * Observes for an agent-controlled Run or Dry Run, repairing a capture
+       * that stays incomplete past the settle window once, with the same
+       * same-device recovery Workspace Recover runs. The gap stays as
+       * evidence, marked repaired. Any other failure, or a recovery that
+       * fails too, pauses the session as before (#720).
+       */
+      const observeRepairing = (session: Session) =>
+        session.run.observe().pipe(
+          Effect.catchIf(
+            (cause) =>
+              cause.code === "capture_incomplete" &&
+              repairsCaptureAutomatically(state(session).summary),
+            (cause) =>
+              Effect.gen(function* repairCapture() {
+                const recovered = yield* session.run.recover();
+                update(session, (current) => ({
+                  ...current,
+                  summary: repairCaptureGaps(
+                    {
+                      ...current.summary,
+                      captureGaps: [...current.summary.captureGaps, cause.code],
+                    },
+                    "automatic",
+                    now()
+                  ),
+                }));
+                yield* persist(session);
+                return recovered;
+              })
+          )
+        );
       const acceptObservation = (
         session: Session,
         observation: IosObservation,
@@ -1666,7 +1703,7 @@ export const makeIosWorkspaceLayer = (options: {
           const before =
             action._tag === "variable" && current.observation !== null
               ? current.observation
-              : (fresh ?? (yield* session.run.observe()));
+              : (fresh ?? (yield* observeRepairing(session)));
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
@@ -1742,7 +1779,7 @@ export const makeIosWorkspaceLayer = (options: {
             fillResult = dispatched || undefined;
           }
           const after = yield* observeIosPostAction(
-            session.run.observe(),
+            observeRepairing(session),
             before
           );
           acceptObservation(session, after);
@@ -1897,7 +1934,7 @@ export const makeIosWorkspaceLayer = (options: {
             command.assessment.outcome === "working" &&
             supportedOutcome &&
             !summary.takeoverOccurred &&
-            summary.captureGaps.length === 0;
+            openCaptureGaps(summary).length === 0;
           const assessment = {
             ...command.assessment,
             outcome:
@@ -2183,6 +2220,12 @@ export const makeIosWorkspaceLayer = (options: {
                 ? session.run.observe()
                 : session.run.recover()
             );
+            if (!home) {
+              update(session, (value) => ({
+                ...value,
+                summary: repairCaptureGaps(value.summary, "user", now()),
+              }));
+            }
             // Going Home does not replace the framebuffer source. Keep the
             // active Teaching interval intact; only transport recovery restarts it.
             if (!home) {
@@ -2205,7 +2248,7 @@ export const makeIosWorkspaceLayer = (options: {
               return yield* snapshot(session, command.image);
             }
             if (source === "agent") {
-              acceptObservation(session, yield* session.run.observe());
+              acceptObservation(session, yield* observeRepairing(session));
             } else if (summary.controller === "user") {
               // Forwarded Input that overtakes this observation makes it stale.
               const started = session.lane.observing();

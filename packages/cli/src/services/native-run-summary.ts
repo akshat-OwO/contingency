@@ -62,6 +62,7 @@ export const nativeRunSummary = (input: {
     AndroidWorkspaceSummary,
     | "assessment"
     | "captureGaps"
+    | "captureRepairs"
     | "flowName"
     | "id"
     | "kind"
@@ -80,7 +81,7 @@ export const nativeRunSummary = (input: {
   ) {
     return null;
   }
-  return {
+  const runSummary: NativeAgentRunSummary = {
     assessment: summary.assessment,
     captureGaps: summary.captureGaps,
     endedAt: input.endedAt,
@@ -98,6 +99,10 @@ export const nativeRunSummary = (input: {
     title: `${PLATFORM_LABEL[input.platform]} ${KIND_LABEL[summary.kind]} · ${summary.flowName}`,
     videoTimeMap: input.videoTimeMap,
   };
+  // A summary from before any repair keeps the shape it always had.
+  return summary.captureRepairs === undefined
+    ? runSummary
+    : { ...runSummary, captureRepairs: summary.captureRepairs };
 };
 
 const encodeSummary = Schema.encodeEffect(CatalogRunSummary);

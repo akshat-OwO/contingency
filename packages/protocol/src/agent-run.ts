@@ -506,6 +506,16 @@ export const NativeAgentRunSummary = Schema.Struct({
   ),
   /** Capture the device withheld, such as a secure window. */
   captureGaps: Schema.Array(nonEmptyString),
+  /** The gaps in `captureGaps` that a fresh same-device observation repaired. */
+  captureRepairs: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        at: nonEmptyString,
+        by: Schema.Literals(["automatic", "user"]),
+        code: nonEmptyString,
+      })
+    )
+  ),
   endedAt: nonEmptyString,
   flowName: FlowName,
   kind: Schema.Literals(["run", "dry-run"]),

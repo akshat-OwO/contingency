@@ -133,6 +133,12 @@ const fixture = (
      * Releasing with `false` fails that capture as a lost device.
      */
     readonly holdNextCapture: () => Effect.Effect<CaptureGate>;
+    /** Fails the next `count` captures as incomplete, as during a screen transition. */
+    readonly failNextCaptures: (count: number) => void;
+    /** Fails every capture as incomplete until the session is recovered. */
+    readonly failCapturesUntilRecover: () => void;
+    /** How many times the backend recovered its session. */
+    readonly recoveries: () => number;
     /** Uploaded Target App builds the workspace can claim. */
     readonly builds: TargetAppBuildsService;
     /** The device recorder's starts and stops, in order. */
@@ -230,6 +236,9 @@ const fixture = (
       let connected = true;
       let generation = 0;
       let held: CaptureGate | undefined;
+      let incompleteCaptures = 0;
+      let incompleteUntilRecover = false;
+      let recoveries = 0;
       let customNodes: AndroidObservation["nodes"] | undefined;
       let boundNodes: AndroidObservation["nodes"] | undefined;
       const backend: AndroidRuntimeBackend = {
@@ -239,6 +248,10 @@ const fixture = (
           }),
         capture: () =>
           Effect.suspend(() => {
+            if (incompleteUntilRecover || incompleteCaptures > 0) {
+              incompleteCaptures = Math.max(0, incompleteCaptures - 1);
+              return Effect.fail(platformRuntimeError("capture_incomplete"));
+            }
             const gate = held;
             held = undefined;
             return gate === undefined
@@ -321,7 +334,11 @@ const fixture = (
               };
             });
           }),
-        recover: () => Effect.void,
+        recover: () =>
+          Effect.sync(() => {
+            recoveries += 1;
+            incompleteUntilRecover = false;
+          }),
         sessionId: "fixture-session",
         systemKey: (key) =>
           Effect.sync(() => {
@@ -444,6 +461,12 @@ const fixture = (
           connected = false;
         },
         erasedAvds,
+        failCapturesUntilRecover: () => {
+          incompleteUntilRecover = true;
+        },
+        failNextCaptures: (count) => {
+          incompleteCaptures = count;
+        },
         forwarded,
         holdNextCapture: () =>
           Effect.gen(function* holdCapture() {
@@ -466,6 +489,7 @@ const fixture = (
           connected = true;
         },
         recorded,
+        recoveries: () => recoveries,
         resolved,
         restart,
         restarts,
@@ -2017,6 +2041,230 @@ it.effect("Dry Run allows untaught activation", () =>
       );
       expect(Result.isSuccess(result)).toBe(true);
       expect(calls.filter((call) => call === "activate")).toHaveLength(3);
+    })
+  )
+);
+/**
+ * Runs a command whose captures retry on the settle schedule. `it.effect`
+ * provides TestClock, so advancing past the settle window wakes each retry.
+ */
+const settle = <A, E, R>(command: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* runSettled() {
+    const fiber = yield* Effect.forkChild(Effect.result(command));
+    yield* TestClock.adjust("30 seconds");
+    return yield* Fiber.join(fiber);
+  });
+const assess = (
+  sessionId: AgentSessionId,
+  observationId: string,
+  name: string
+) =>
+  Effect.gen(function* assessWorking() {
+    const workspace = yield* AndroidWorkspace;
+    return yield* workspace.execute(
+      {
+        _tag: "complete",
+        assessment: {
+          explanation: "Home is visible.",
+          observationId,
+          outcome: "working",
+        },
+        operationId: op(name),
+        sessionId,
+      },
+      "agent"
+    );
+  });
+it.effect(
+  "a transient incomplete capture after an agent action settles without a gap",
+  () =>
+    fixture(({ calls, failNextCaptures, recoveries }) =>
+      Effect.gen(function* settleTransientGap() {
+        const workspace = yield* AndroidWorkspace;
+        const recordingId = yield* teach();
+        const prepared = yield* dryRun(recordingId);
+        // The screen is mid-transition for the first captures after the tap.
+        failNextCaptures(3);
+        const activated = yield* settle(
+          workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: "activate", target: "@e2" },
+              observationId: prepared.observation?.id ?? "",
+              operationId: op("dry-transition"),
+              sessionId: prepared.id,
+            },
+            "agent"
+          )
+        );
+        expect(Result.isSuccess(activated)).toBe(true);
+        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
+        expect(recoveries()).toBe(0);
+        const read = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "agent"
+        );
+        expect(read.phase).toBe("running");
+        expect(read.captureGaps).toEqual([]);
+        expect(read.captureRepairs).toBeUndefined();
+        const completed = yield* assess(
+          prepared.id,
+          read.observation?.id ?? "",
+          "complete-settled"
+        );
+        expect(completed.assessment?.outcome).toBe("working");
+      })
+    )
+);
+it.effect(
+  "a lasting incomplete capture is repaired automatically and still passes",
+  () =>
+    fixture(({ calls, failCapturesUntilRecover, recoveries, root }) =>
+      Effect.gen(function* repairLastingGap() {
+        const workspace = yield* AndroidWorkspace;
+        const recordingId = yield* teach();
+        const prepared = yield* dryRun(recordingId);
+        failCapturesUntilRecover();
+        const activated = yield* settle(
+          workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: "activate", target: "@e2" },
+              observationId: prepared.observation?.id ?? "",
+              operationId: op("dry-lasting"),
+              sessionId: prepared.id,
+            },
+            "agent"
+          )
+        );
+        expect(Result.isSuccess(activated)).toBe(true);
+        // Recovery observes again; it never repeats the tap.
+        expect(calls.filter((call) => call === "activate")).toHaveLength(2);
+        expect(recoveries()).toBe(1);
+        const read = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "agent"
+        );
+        expect(read.phase).toBe("running");
+        expect(read.captureGaps).toEqual(["capture_incomplete"]);
+        expect(read.captureRepairs).toMatchObject([
+          { by: "automatic", code: "capture_incomplete" },
+        ]);
+        const completed = yield* assess(
+          prepared.id,
+          read.observation?.id ?? "",
+          "complete-repaired"
+        );
+        expect(completed.assessment?.outcome).toBe("working");
+        expect(yield* readRunSummary(root, prepared.id)).toMatchObject({
+          captureGaps: ["capture_incomplete"],
+          captureRepairs: [{ by: "automatic", code: "capture_incomplete" }],
+        });
+      })
+    )
+);
+it.effect(
+  "a gap automatic recovery cannot repair pauses until the user recovers it",
+  () =>
+    fixture(({ failNextCaptures, recoveries }) =>
+      Effect.gen(function* userRepairsGap() {
+        const workspace = yield* AndroidWorkspace;
+        const recordingId = yield* teach();
+        const prepared = yield* dryRun(recordingId);
+        // Incomplete for longer than any transition or recovery lasts.
+        failNextCaptures(1_000_000);
+        const failed = yield* settle(
+          workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: "activate", target: "@e2" },
+              observationId: prepared.observation?.id ?? "",
+              operationId: op("dry-lasting-gap"),
+              sessionId: prepared.id,
+            },
+            "agent"
+          )
+        );
+        expect(Result.isFailure(failed)).toBe(true);
+        expect(recoveries()).toBe(1);
+        const paused = yield* workspace.execute(
+          { _tag: "read", sessionId: prepared.id },
+          "agent"
+        );
+        expect(paused.phase).toBe("paused");
+        expect(paused.captureGaps).toEqual(["capture_incomplete"]);
+        expect(paused.captureRepairs).toBeUndefined();
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "recover",
+              operationId: op("agent-recover"),
+              sessionId: prepared.id,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).toContain("explicit same-device Workspace");
+        failNextCaptures(0);
+        const recovered = yield* workspace.execute(
+          {
+            _tag: "recover",
+            operationId: op("recover-gap"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        expect(recovered.phase).toBe("running");
+        expect(recovered.captureRepairs).toMatchObject([
+          { by: "user", code: "capture_incomplete" },
+        ]);
+        const completed = yield* assess(
+          prepared.id,
+          recovered.observation?.id ?? "",
+          "complete-recovered"
+        );
+        expect(completed.assessment?.outcome).toBe("working");
+      })
+    )
+);
+it.effect("Teaching never repairs a capture gap automatically", () =>
+  fixture(({ failCapturesUntilRecover, recoveries }) =>
+    Effect.gen(function* teachingKeepsGap() {
+      const workspace = yield* AndroidWorkspace;
+      const started = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("start-teaching-gap"),
+          recordingId: null,
+          selection,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("prepare-teaching-gap"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+      failCapturesUntilRecover();
+      const failed = yield* settle(
+        workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "agent"
+        )
+      );
+      expect(Result.isFailure(failed)).toBe(true);
+      expect(recoveries()).toBe(0);
+      const paused = yield* workspace.execute(
+        { _tag: "read", sessionId: started.id },
+        "user"
+      );
+      expect(paused.phase).toBe("paused");
+      expect(paused.captureGaps).toEqual(["capture_incomplete"]);
     })
   )
 );

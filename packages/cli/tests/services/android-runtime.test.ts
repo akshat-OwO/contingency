@@ -11,7 +11,10 @@ import {
   adaptAndroidRuntime,
   makeAndroidRuntimeFactory,
 } from "../../src/services/android-runtime.ts";
-import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
+import {
+  CAPTURE_SETTLE_WINDOW,
+  OBSERVATION_VALIDATION_MILLIS,
+} from "../../src/services/native-app-runtime.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { makePlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 
@@ -461,9 +464,11 @@ it.effect(
       });
       const first = yield* runtime.observe();
       complete = false;
-      expect((yield* Effect.flip(runtime.observe())).code).toBe(
-        "capture_incomplete"
-      );
+      // It is taken again for the settle window, on TestClock, before failing.
+      const observing = yield* Effect.forkChild(Effect.flip(runtime.observe()));
+      yield* TestClock.adjust(CAPTURE_SETTLE_WINDOW);
+      yield* TestClock.adjust("1 second");
+      expect((yield* Fiber.join(observing)).code).toBe("capture_incomplete");
       expect(runtime.state()).toMatchObject({
         observationId: null,
         phase: "paused",
@@ -473,6 +478,40 @@ it.effect(
       );
       complete = true;
       expect((yield* runtime.recover()).id).not.toBe(first.id);
+    })
+);
+
+it.effect(
+  "an incomplete capture during a transition is taken again until it is complete",
+  () =>
+    Effect.gen(function* settleTransition() {
+      const { backend, input } = yield* makeFixture();
+      let incomplete = 3;
+      let captures = 0;
+      const runtime = yield* adaptAndroidRuntime({
+        backend: {
+          ...backend,
+          capture: () =>
+            Effect.suspend(() => {
+              captures += 1;
+              if (incomplete > 0) {
+                incomplete -= 1;
+                return Effect.fail(platformRuntimeError("capture_incomplete"));
+              }
+              return backend.capture();
+            }),
+        },
+        startup: input,
+      });
+      const observing = yield* Effect.forkChild(runtime.observe());
+      // it.effect provides TestClock; each retry waits on its spacing.
+      yield* TestClock.adjust("1 second");
+      const observed = yield* Fiber.join(observing);
+      expect(captures).toBe(4);
+      expect(runtime.state()).toMatchObject({
+        observationId: observed.id,
+        phase: "ready",
+      });
     })
 );
 
