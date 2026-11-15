@@ -333,10 +333,13 @@ it.effect(
         validate: () => Effect.void,
       });
       // Without settling, the portrait screen fails the gate.
-      const prepared = yield* run.prepare((launched) => {
-        expect(launched.nodes[0]?.name).toBe("portrait");
-        // The settle step may rotate while preparation holds the run.
-        return run.rotate("landscape");
+      const prepared = yield* run.prepare({
+        apply: (launched) => {
+          expect(launched.nodes[0]?.name).toBe("portrait");
+          // The settle step may rotate while preparation holds the run.
+          return run.rotate("landscape");
+        },
+        undo: Effect.die("A prepared run keeps its orientation."),
       });
       expect(prepared.nodes[0]?.name).toBe("landscape only");
       expect(calls).toEqual([
@@ -345,5 +348,60 @@ it.effect(
         "observe landscape",
       ]);
       expect(run.state().phase).toBe("ready");
+    })
+);
+
+it.effect(
+  "a preparation that fails after settling turns the device back before its runtime closes",
+  () =>
+    Effect.gen(function* undoSettle() {
+      const scope = yield* Scope.Scope;
+      const { input } = fixture(scope);
+      let orientation: "portrait" | "landscape" = "portrait";
+      const calls: string[] = [];
+      const request = {
+        ...startup(scope),
+        environment: {},
+        setup: {},
+        taught: {},
+      } satisfies NativeAppRunInput;
+      const run = yield* createNativeAppRun<
+        typeof request,
+        PlatformObservation,
+        NativeAppRunDecision
+      >(request, {
+        authorize: (selected) => selected,
+        decisions: () => [],
+        differences: () => [],
+        preflight: () => Effect.void,
+        start: () =>
+          adaptNativeAppRuntime({
+            ...input,
+            backend: {
+              ...input.backend,
+              close: () =>
+                Effect.sync(() => {
+                  calls.push("close");
+                }),
+              rotate: (next) =>
+                Effect.sync(() => {
+                  calls.push(`rotate ${next}`);
+                  orientation = next;
+                }),
+            },
+          }),
+        // The screen never meets the Flow's starting conditions.
+        startingConditions: () => false,
+        validate: () => Effect.void,
+      });
+      const failure = yield* Effect.flip(
+        run.prepare({
+          apply: () => run.rotate("landscape"),
+          undo: run.rotate("portrait").pipe(Effect.ignore),
+        })
+      );
+      expect(failure.code).toBe("starting_condition_failed");
+      expect(orientation).toBe("portrait");
+      expect(calls).toEqual(["rotate landscape", "rotate portrait", "close"]);
     })
 );

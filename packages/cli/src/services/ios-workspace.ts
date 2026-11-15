@@ -1471,9 +1471,14 @@ export const makeIosWorkspaceLayer = (options: {
           const prepared = yield* session.run.prepare(
             rotation === undefined
               ? undefined
-              : (launched) => {
-                  acceptObservation(session, launched);
-                  return changeEmulation(session, rotation);
+              : {
+                  apply: (launched) => {
+                    acceptObservation(session, launched);
+                    return changeEmulation(session, rotation);
+                  },
+                  // A failed preparation closes its runtime, so the simulator
+                  // turns back before then rather than at the session's end.
+                  undo: session.emulation.restore,
                 }
           );
           acceptObservation(session, prepared);

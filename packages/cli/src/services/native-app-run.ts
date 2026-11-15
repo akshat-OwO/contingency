@@ -99,6 +99,8 @@ export const createNativeAppRun = <
     let runtime: NativeAppRuntime<Observation> | undefined;
     /** True while preparation settles the device under its own lock. */
     let settling = false;
+    /** Whether this preparation changed the device before its gate. */
+    let settled = false;
     const prepared = Atom.make(false).pipe(Atom.keepAlive);
     registry.get(prepared);
     let terminal: NativeAppRunState<Input, Decision> | undefined;
@@ -254,6 +256,7 @@ export const createNativeAppRun = <
         lock.withPermits(1)(
           guarded(
             Effect.gen(function* prepare() {
+              settled = false;
               if (
                 terminal !== undefined ||
                 !["pending", "paused"].includes(currentState().phase) ||
@@ -270,7 +273,8 @@ export const createNativeAppRun = <
               let observation = yield* runtime.observe();
               if (settle !== undefined) {
                 settling = true;
-                yield* settle(observation).pipe(
+                settled = true;
+                yield* settle.apply(observation).pipe(
                   Effect.ensuring(
                     Effect.sync(() => {
                       settling = false;
@@ -290,6 +294,17 @@ export const createNativeAppRun = <
               Effect.onExit(() =>
                 Effect.gen(function* releaseIncompletePreparation() {
                   if (!registry.get(prepared) && runtime !== undefined) {
+                    // Turn the device back while the runtime still can.
+                    if (settled && settle !== undefined) {
+                      settling = true;
+                      yield* settle.undo.pipe(
+                        Effect.ensuring(
+                          Effect.sync(() => {
+                            settling = false;
+                          })
+                        )
+                      );
+                    }
                     yield* runtime.close();
                     runtime = undefined;
                   }
@@ -340,7 +355,10 @@ export const createNativeAppRun = <
             ? Effect.fail(makeError("preparation_required"))
             : runtime.rotate(orientation)
         );
-        return settling ? turn : lock.withPermits(1)(turn);
+        // Decided when it runs: an undo is built before preparation starts.
+        return Effect.suspend(() =>
+          settling ? turn : lock.withPermits(1)(turn)
+        );
       },
       screenRecorder: () =>
         terminal === undefined ? runtime?.screenRecorder : undefined,

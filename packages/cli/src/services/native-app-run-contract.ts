@@ -82,15 +82,18 @@ export interface NativeAppRun<Observation extends PlatformObservation, State> {
   ) => Effect.Effect<void, PlatformRuntimeError>;
   /**
    * Prepares the Target App and checks the Flow's starting conditions.
-   * `settle` runs after launch and before that check, with the first
+   * `settle.apply` runs after launch and before that check, with the first
    * observation, so the device can be brought to the Flow's starting
-   * Emulation first; `rotate` works while it runs.
+   * Emulation first. If preparation then fails or is interrupted,
+   * `settle.undo` runs before the runtime closes, while it can still turn
+   * the device back. `rotate` works while either runs.
    */
-  readonly prepare: (
-    settle?: (
+  readonly prepare: (settle?: {
+    readonly apply: (
       observation: Observation
-    ) => Effect.Effect<void, PlatformRuntimeError>
-  ) => Effect.Effect<Observation, PlatformRuntimeError>;
+    ) => Effect.Effect<void, PlatformRuntimeError>;
+    readonly undo: Effect.Effect<void>;
+  }) => Effect.Effect<Observation, PlatformRuntimeError>;
   /**
    * Restarts the prepared Target App under its Starting Data, as preparation
    * did, without installing anything, and observes the restarted screen.
