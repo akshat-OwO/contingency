@@ -428,7 +428,7 @@ export const AndroidStreamPacket = Schema.Union([
     width: Schema.Int.check(Schema.isGreaterThan(0)),
   }),
   Schema.TaggedStruct("state", {
-    state: Schema.Literals(["connecting", "secure", "lost"]),
+    state: Schema.Literals(["connecting", "secure", "unclassified", "lost"]),
   }),
 ]);
 export type AndroidStreamPacket = typeof AndroidStreamPacket.Type;

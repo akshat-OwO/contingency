@@ -304,7 +304,7 @@ export const androidDockPresentation = (
         ...quiet(
           "Paused",
           session.error ??
-            `The emulator disconnected or capture became unavailable. Recover the same emulator to carry on.`,
+            "Execution is paused. Recover the same emulator to carry on.",
           "attention"
         ),
         action: pausedPreparationAction(session),

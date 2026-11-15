@@ -74,7 +74,6 @@ test("the device rail offers the device's keys and settings and draws nothing ov
       onInput={vi.fn()}
       paused={false}
       pending={false}
-      secure={false}
       sessionId={AgentSessionId.make("agent-android")}
       unavailable="Prepare the device."
     />
@@ -110,7 +109,6 @@ test("the rail rotates the device and changes its appearance and location", asyn
       onInput={vi.fn()}
       paused={false}
       pending={false}
-      secure={false}
       sessionId={AgentSessionId.make("agent-android")}
       unavailable="Prepare the device."
     />
@@ -223,7 +221,7 @@ test("a secure pause names the hidden window instead of a disconnected device", 
       paused
       pending={false}
       refusal={null}
-      secure
+      pauseCode="secure_window"
       sessionId={AgentSessionId.make("agent-android")}
       unavailable=""
     />
@@ -311,4 +309,36 @@ test("keeps the empty state and its disabled Open while a pick opens a session",
   expect(
     screen.getByRole("button", { name: "Open Android session" })
   ).toBeDisabled();
+});
+
+const pausedDevice = (pauseCode: string) =>
+  render(
+    <AndroidDevice
+      canAct={false}
+      live
+      onDeviceKey={vi.fn()}
+      onEmulate={vi.fn()}
+      onInput={vi.fn()}
+      paused
+      pauseCode={pauseCode}
+      pending={false}
+      sessionId={AgentSessionId.make("agent-android")}
+      unavailable=""
+    />
+  );
+
+test("an incomplete capture pause says the device is still connected", () => {
+  pausedDevice("capture_incomplete");
+  expect(screen.getByText("Screen capture incomplete")).toBeVisible();
+  expect(screen.getByText(/device is still connected/u)).toBeVisible();
+  expect(screen.queryByText("Device disconnected")).toBeNull();
+});
+
+test("only a lost device says the device disconnected", () => {
+  pausedDevice("device_disconnected");
+  expect(screen.getByText("Device disconnected")).toBeVisible();
+  cleanup();
+  pausedDevice("runtime_failed");
+  expect(screen.getByText("Execution paused")).toBeVisible();
+  expect(screen.queryByText("Device disconnected")).toBeNull();
 });

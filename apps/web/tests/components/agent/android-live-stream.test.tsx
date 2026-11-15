@@ -211,3 +211,23 @@ it("stops after repeated failed connections and offers a manual reconnect", asyn
   // waits on the backoff the test clock never releases.
   await waitFor(() => expect(fetchStream).toHaveBeenCalledTimes(7));
 });
+
+it("names a screen it cannot classify instead of reconnecting", async () => {
+  show();
+  await waitFor(() => expect(connections).toHaveLength(1));
+  await send(0, line(keyframe));
+  await waitFor(() => expect(status()).toBe("Live device display"));
+  await send(
+    0,
+    `${JSON.stringify({ _tag: "state", state: "unclassified" })}\n`
+  );
+  await waitFor(() =>
+    expect(status()).toBe(
+      "Screen hidden. Contingency cannot classify this window yet."
+    )
+  );
+  expect(screen.queryByText("Connecting to selected device…")).toBeNull();
+  await send(0, line(keyframe));
+  await waitFor(() => expect(status()).toBe("Live device display"));
+  expect(fetchStream).toHaveBeenCalledTimes(1);
+});
