@@ -82,6 +82,11 @@ it("builds distinct channel instructions", () => {
     "meta.sessionId and meta.eventCursor as afterCursor"
   );
   expect(channel).toContain("Otherwise wait with afterCursor and waitMs");
+  // Native sessions have no Session Events (#727), so both variants name the
+  // device path instead of sending agents to agent_session_get.
+  for (const instructions of [channel, MCP_INSTRUCTIONS]) {
+    expect(instructions).toContain("poll agent_device_workspace read");
+  }
   expect(channel.length).toBeLessThan(1250);
 });
 

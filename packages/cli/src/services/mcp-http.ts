@@ -127,7 +127,7 @@ export const makeMcpInstructions = (
   systemOne?: SystemOneConfig
 ) =>
   [
-    "Contingency drives a local browser and Android device for Teaching, Runs, and Dry Runs through one tool, agent_code_execute.",
+    "Contingency drives a local browser and devices for Teaching, Runs, and Dry Runs through one tool, agent_code_execute.",
     'Each program runs fresh; Agent Sessions and Runs persist. Search signatures first in their own program, e.g. return search({ query: "session" }), then call operations as await tools.<name>(input).',
     `Read ${GETTING_STARTED_URI} first, or tools.docs_get({ topic: "getting-started" }).`,
     "Share viewUrl as a clickable Workspace link before acting in a new session, and whenever you need user input.",
@@ -139,8 +139,8 @@ export const makeMcpInstructions = (
       ? ["Try tools.agent_browser_pursue for each Flow step first."]
       : []),
     channel
-      ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs."
-      : "After asking the user to act in the Workspace, call tools.agent_session_get with afterCursor and waitMs instead of asking them to report back.",
+      ? "On channel events, call tools.agent_session_get with meta.sessionId and meta.eventCursor as afterCursor. Otherwise wait with afterCursor and waitMs. On devices, poll agent_device_workspace read for a new revision."
+      : "After asking the user to act in Workspace, wait with tools.agent_session_get afterCursor and waitMs; on devices, poll agent_device_workspace read for a new revision.",
     "After your final tools.agent_run_assess, call tools.agent_run_complete.",
   ].join(" ");
 
