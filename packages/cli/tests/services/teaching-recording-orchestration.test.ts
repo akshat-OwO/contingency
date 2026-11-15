@@ -38,6 +38,7 @@ import {
   TEACHING_RECORDINGS_DIRECTORY,
   TeachingRecordingStore,
 } from "../../src/services/teaching-recording-store.ts";
+import type { TeachingRecordingBegin } from "../../src/services/teaching-recording-store.ts";
 import { taskRunSummary } from "../helpers/task-run.ts";
 
 const operation = OperationId.make;
@@ -104,20 +105,54 @@ const writeFlow = (
     }
   });
 
+/** What a recording was taught under; a native recording has no Emulation. */
+interface TaughtUnder {
+  readonly emulation: TeachingRecordingBegin["emulation"];
+  readonly runtime?: TeachingRecordingBegin["runtime"];
+}
+
+const androidRuntime = {
+  capabilities: [],
+  environment: {
+    androidVersion: "16",
+    appBuild: "42",
+    appId: "example.app",
+    startingState: "baseline",
+  },
+  platform: "android",
+} as const satisfies TeachingRecordingBegin["runtime"];
+
+const iosRuntime = {
+  capabilities: [],
+  environment: {
+    build: "42",
+    bundleId: "example.app",
+    deviceType: "iPhone 17",
+    runtimeVersion: "26.0",
+  },
+  platform: "ios",
+} as const satisfies TeachingRecordingBegin["runtime"];
+
+const taughtOnWeb: TaughtUnder = { emulation };
+
 /** A recording whose `cart` Flow is saved and ready for a Dry Run. */
-const draftedRecording = (root: string, recordingId: TeachingRecordingId) =>
+const draftedRecording = (
+  root: string,
+  recordingId: TeachingRecordingId,
+  taught = taughtOnWeb
+) =>
   Effect.gen(function* draftRecording() {
     const files = yield* FileSystem.FileSystem;
     const store = yield* TeachingRecordingStore;
     const step = (name: string) => operation(`${recordingId}-${name}`);
     yield* store.begin({
-      emulation,
+      ...taught,
       flowName,
       operationId: step("begin"),
       recordingId,
       sessionId,
     });
-    yield* store.start({ emulation, operationId: step("start"), recordingId });
+    yield* store.start({ ...taught, operationId: step("start"), recordingId });
     yield* files.writeFileString(
       path.join(store.directory(recordingId), "recording.webm"),
       "video"
@@ -432,6 +467,62 @@ it.effect(
         }
       }).pipe(Effect.provide(dryRunLayer(root, sessions)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect.each([
+  { platform: "android", taught: { emulation: null, runtime: androidRuntime } },
+  { platform: "ios", taught: { emulation: null, runtime: iosRuntime } },
+] as const)(
+  "points a native $platform Dry Run to agent_device_workspace",
+  ({ platform, taught }) =>
+    Effect.gen(function* refuseNativeDryRun() {
+      const files = yield* FileSystem.FileSystem;
+      const root = yield* files.makeTempDirectoryScoped({
+        prefix: "contingency-orchestration-native-",
+      });
+      const recordingId = TeachingRecordingId.make(`recording-${platform}`);
+      const sessions = recordingSessions();
+      yield* Effect.gen(function* exercise() {
+        yield* draftedRecording(root, recordingId, taught);
+        const refused = yield* Effect.flip(
+          startDryRun(startInput(recordingId, { prerequisites: [] }))
+        );
+        expect(refused.code).toBe("teaching_recording_native_entry_point");
+        for (const part of [
+          "agent_device_workspace",
+          `platform: "${platform}"`,
+          '_tag: "start"',
+          'kind: "dry-run"',
+          `flowName: "${flowName}"`,
+          `recordingId: "${recordingId}"`,
+          "operationId",
+          "selection",
+        ]) {
+          expect(refused.message).toContain(part);
+        }
+        expect(sessions.started.size).toBe(0);
+      }).pipe(Effect.provide(dryRunLayer(root, sessions)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect("refuses a web Dry Run without its Teaching Emulation", () =>
+  Effect.gen(function* refuseWebWithoutEmulation() {
+    const files = yield* FileSystem.FileSystem;
+    const root = yield* files.makeTempDirectoryScoped({
+      prefix: "contingency-orchestration-no-emulation-",
+    });
+    const recordingId = TeachingRecordingId.make("recording-no-emulation");
+    const sessions = recordingSessions();
+    yield* Effect.gen(function* exercise() {
+      yield* draftedRecording(root, recordingId, { emulation: null });
+      const refused = yield* Effect.flip(
+        startDryRun(startInput(recordingId, { prerequisites: [] }))
+      );
+      expect(refused.code).toBe("teaching_recording_invalid");
+      expect(refused.message).not.toContain("agent_device_workspace");
+      expect(sessions.started.size).toBe(0);
+    }).pipe(Effect.provide(dryRunLayer(root, sessions)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.effect("verification wins a race with Stop after a pass", () =>

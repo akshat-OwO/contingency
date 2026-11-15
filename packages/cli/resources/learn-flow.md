@@ -92,6 +92,8 @@ Dry Run evidence lives in `<flow>/runs/<runId>/`. A later Run started with one F
 
 7. Ask for ordinary inputs again and change at least one demonstrated input when the task permits it. Start a fresh-context Dry Run with agent_flow_dry_run_start.
 
+   For a native-app recording, start the Dry Run with agent_device_workspace instead: pass the recording's `platform` and `command: { _tag: "start", kind: "dry-run", flowName, recordingId, operationId, selection }`, where `selection` is the device the user prepares in Workspace. agent_flow_dry_run_start refuses native recordings.
+
    For an on-demand input omit its value; ask the user to supply it in the returned Workspace, then use its uppercase Variable name with agent_variable_enter. Follow the saved flow outcome under its Teaching hosts and Emulation; you may explore, recover, or choose another route.
 
    - Request a declared on-demand Variable of the tested flow when needed with agent_variable_request, using its uppercase Variable name.
