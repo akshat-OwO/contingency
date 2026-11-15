@@ -169,6 +169,20 @@ export const AndroidWorkspacePreparation = Schema.Struct({
 });
 
 // oxlint-disable-next-line eslint/no-redeclare
+/**
+ * A Capture Gap that a fresh same-device observation repaired: automatically
+ * after a transient capture failure, or by the user's Workspace Recover. It
+ * stays as evidence beside `captureGaps` but no longer blocks a pass.
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const NativeCaptureRepair = Schema.Struct({
+  at: text,
+  by: Schema.Literals(["automatic", "user"]),
+  code: text,
+});
+export type NativeCaptureRepair = typeof NativeCaptureRepair.Type;
+
+// oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSummary = Schema.Struct({
   assessment: Schema.NullOr(
     Schema.Struct({
@@ -182,7 +196,10 @@ export const AndroidWorkspaceSummary = Schema.Struct({
       ]),
     })
   ),
+  /** Every Capture Gap that occurred, in order, repaired or not. */
   captureGaps: Schema.Array(text),
+  /** The gaps in `captureGaps` that were repaired; absent before any repair. */
+  captureRepairs: Schema.optionalKey(Schema.Array(NativeCaptureRepair)),
   completedAt: Schema.NullOr(text),
   controller: Schema.Literals(["agent", "user"]),
   /** The prepared device's Emulation as last read or set (ADR 0082). */

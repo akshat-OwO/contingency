@@ -46,6 +46,23 @@ const gapLabel = (code: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
+/** Each Capture Gap, marked when a fresh same-device observation repaired it. */
+const gapLabels = (
+  session: Pick<AndroidWorkspaceSnapshot, "captureGaps" | "captureRepairs">
+) => {
+  const repairs = [...(session.captureRepairs ?? [])];
+  return session.captureGaps.map((code) => {
+    const index = repairs.findIndex((repair) => repair.code === code);
+    if (index === -1) {
+      return gapLabel(code);
+    }
+    const [repair] = repairs.splice(index, 1);
+    return `${gapLabel(code)} (repaired ${
+      repair?.by === "automatic" ? "automatically" : "by Recover"
+    })`;
+  });
+};
+
 const time = (iso: string) =>
   new Date(iso).toLocaleTimeString(undefined, {
     hour: "2-digit",
@@ -549,6 +566,7 @@ type SummarySession = Pick<
   AndroidWorkspaceSnapshot,
   | "assessment"
   | "captureGaps"
+  | "captureRepairs"
   | "cleanup"
   | "error"
   | "id"
@@ -666,7 +684,7 @@ export const DeviceRunSummary = ({
         {session.takeoverOccurred ? "Occurred; a Dry Run cannot pass" : "None"}
       </dd>
       <dt className="text-muted-foreground">Capture gaps</dt>
-      <dd>{session.captureGaps.map(gapLabel).join(", ") || "None"}</dd>
+      <dd>{gapLabels(session).join(", ") || "None"}</dd>
       <dt className="text-muted-foreground">Cleanup</dt>
       <dd className="text-pretty">
         {session.cleanup?._tag === "purged"

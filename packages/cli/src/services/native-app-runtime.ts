@@ -1,6 +1,6 @@
 import type { PlatformCapability } from "@contingency/protocol";
 import type { Effect as EffectType } from "effect";
-import { Clock, Effect, Redacted, Scope, Semaphore } from "effect";
+import { Clock, Effect, Redacted, Schedule, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { nativeAppRuntimeError } from "./native-app-error.ts";
@@ -38,6 +38,15 @@ export const requireNativeAppCapabilities = (
  * actions still validate around every dispatch.
  */
 export const OBSERVATION_VALIDATION_MILLIS = 10_000;
+
+/**
+ * How long an incomplete capture is taken again before it counts as a Capture
+ * Gap. A screen transition, such as a loading screen between two app screens,
+ * leaves the accessibility tree briefly without its app window; a capture a
+ * moment later is complete. A gap that lasts past this window is real.
+ */
+export const CAPTURE_SETTLE_WINDOW = "5 seconds";
+const CAPTURE_SETTLE_SPACING = "250 millis";
 
 export const adaptNativeAppRuntime = <
   Observation extends PlatformObservation,
@@ -122,7 +131,14 @@ export const adaptNativeAppRuntime = <
         yield* input.backend.validate();
         validatedAt = now;
       }
-      const captured = yield* input.backend.capture();
+      const captured = yield* input.backend.capture().pipe(
+        Effect.retry({
+          schedule: Schedule.spaced(CAPTURE_SETTLE_SPACING).pipe(
+            Schedule.upTo({ duration: CAPTURE_SETTLE_WINDOW })
+          ),
+          while: (cause) => cause.code === "capture_incomplete",
+        })
+      );
       const foreground = input.foreground?.(captured);
       if (!due && foreground !== validatedForeground) {
         // Another app came forward since the last check: check again now.
