@@ -36,11 +36,7 @@ import {
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
-import {
-  androidAdb,
-  emulationChanges,
-  readAndroidEmulation,
-} from "./android-emulation.ts";
+import { androidAdb, readAndroidEmulation } from "./android-emulation.ts";
 import type { AndroidAdb } from "./android-emulation.ts";
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import { androidHelperRelease } from "./android-runtime-contract.ts";
@@ -60,6 +56,7 @@ import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import { emulationChanges, emulationDescription } from "./native-emulation.ts";
 import {
   makeAndroidEmulationGuard,
   restoreLeftoverEnvironments,
@@ -298,22 +295,6 @@ const changeEmulation = (session: Session, change: NativeEmulationChange) =>
       })
     )
   );
-/** How a Teaching step names an Emulation change, with its exact value. */
-export const emulationDescription = (change: NativeEmulationChange) => {
-  // All change variants are handled.
-  // oxlint-disable-next-line eslint/default-case
-  switch (change._tag) {
-    case "orientation": {
-      return `Rotate to ${change.orientation}`;
-    }
-    case "appearance": {
-      return `Switch to ${change.appearance} appearance`;
-    }
-    case "location": {
-      return `Set location to ${change.latitude}, ${change.longitude}`;
-    }
-  }
-};
 const satisfiesOutcomes = (
   requirements: PlatformRequirements,
   before: AndroidObservation | null,

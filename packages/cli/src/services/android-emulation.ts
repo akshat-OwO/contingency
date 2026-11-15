@@ -302,17 +302,6 @@ export const applyAndroidEmulationChange = (
   }
 };
 
-/** The changes that bring a device to a whole starting Emulation. */
-export const emulationChanges = (
-  emulation: NativeEmulation
-): readonly NativeEmulationChange[] => [
-  { _tag: "orientation", orientation: emulation.orientation },
-  { _tag: "appearance", appearance: emulation.appearance },
-  ...(emulation.location === null
-    ? []
-    : [{ _tag: "location" as const, ...emulation.location }]),
-];
-
 /**
  * Puts back the settings a session found, rotation lock included. An
  * emulator's body turns back first, with the lock off so the display

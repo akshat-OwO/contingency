@@ -97,6 +97,10 @@ export const createNativeAppRun = <
     registry.get(latest);
     const lock = Semaphore.makeUnsafe(1);
     let runtime: NativeAppRuntime<Observation> | undefined;
+    /** True while preparation settles the device under its own lock. */
+    let settling = false;
+    /** Whether this preparation changed the device before its gate. */
+    let settled = false;
     const prepared = Atom.make(false).pipe(Atom.keepAlive);
     registry.get(prepared);
     let terminal: NativeAppRunState<Input, Decision> | undefined;
@@ -248,10 +252,11 @@ export const createNativeAppRun = <
             )
           )
         ),
-      prepare: () =>
+      prepare: (settle) =>
         lock.withPermits(1)(
           guarded(
             Effect.gen(function* prepare() {
+              settled = false;
               if (
                 terminal !== undefined ||
                 !["pending", "paused"].includes(currentState().phase) ||
@@ -265,7 +270,19 @@ export const createNativeAppRun = <
               yield* driver.preflight(startup);
               runtime = yield* driver.start(driver.authorize(startup));
               record({ type: "setup" });
-              const observation = yield* runtime.observe();
+              let observation = yield* runtime.observe();
+              if (settle !== undefined) {
+                settling = true;
+                settled = true;
+                yield* settle.apply(observation).pipe(
+                  Effect.ensuring(
+                    Effect.sync(() => {
+                      settling = false;
+                    })
+                  )
+                );
+                observation = yield* runtime.observe();
+              }
               if (!driver.startingConditions(startup, observation)) {
                 return yield* Effect.fail(
                   makeError("starting_condition_failed")
@@ -277,6 +294,17 @@ export const createNativeAppRun = <
               Effect.onExit(() =>
                 Effect.gen(function* releaseIncompletePreparation() {
                   if (!registry.get(prepared) && runtime !== undefined) {
+                    // Turn the device back while the runtime still can.
+                    if (settled && settle !== undefined) {
+                      settling = true;
+                      yield* settle.undo.pipe(
+                        Effect.ensuring(
+                          Effect.sync(() => {
+                            settling = false;
+                          })
+                        )
+                      );
+                    }
                     yield* runtime.close();
                     runtime = undefined;
                   }
@@ -318,6 +346,20 @@ export const createNativeAppRun = <
             })
           )
         ),
+      // A paused session still turns back at its end.
+      // Preparation holds the lock while it settles the device, so a rotation
+      // it asks for goes straight to the runtime.
+      rotate: (orientation) => {
+        const turn = Effect.suspend(() =>
+          runtime === undefined || terminal !== undefined
+            ? Effect.fail(makeError("preparation_required"))
+            : runtime.rotate(orientation)
+        );
+        // Decided when it runs: an undo is built before preparation starts.
+        return Effect.suspend(() =>
+          settling ? turn : lock.withPermits(1)(turn)
+        );
+      },
       screenRecorder: () =>
         terminal === undefined ? runtime?.screenRecorder : undefined,
       state,

@@ -4,6 +4,8 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { DeviceRail } from "@/components/agent/android-device";
+import { iosRailEnabled } from "@/components/agent/ios-dock-state";
 import { IosFieldEntry, IosRecovery } from "@/components/agent/ios-workspace";
 
 afterEach(cleanup);
@@ -23,22 +25,78 @@ test("offers transport recovery for a structured capture refusal", async () => {
   expect(onRecover).toHaveBeenCalledExactlyOnceWith("recover");
 });
 
-test("returns to the Target App only for a foreground refusal", async () => {
+test("goes Home when no app can be named in front", async () => {
   const onRecover = vi.fn();
   render(
     <IosRecovery
       pending={false}
-      refusal={{
-        code: "foreign_app_foreground",
-        recovery: "return-to-target-app",
-      }}
+      refusal={{ code: "foreground_app_unknown", recovery: "go-home" }}
       onRecover={onRecover}
     />
   );
   await userEvent
     .setup()
-    .click(screen.getByRole("button", { name: "Return to Target App" }));
-  expect(onRecover).toHaveBeenCalledExactlyOnceWith("return-to-target-app");
+    .click(screen.getByRole("button", { name: "Go Home" }));
+  expect(onRecover).toHaveBeenCalledExactlyOnceWith("recover");
+});
+
+test("the iOS rail offers Home and the App Switcher, never Back", async () => {
+  const user = userEvent.setup();
+  const onKey = vi.fn();
+  const onEmulate = vi.fn();
+  render(
+    <DeviceRail
+      canAct
+      emulation={{
+        appearance: "light",
+        location: null,
+        orientation: "portrait",
+      }}
+      onEmulate={onEmulate}
+      onKey={onKey}
+      platform="iOS"
+    />
+  );
+  expect(
+    screen.getAllByRole("button").map((button) => button.ariaLabel)
+  ).toEqual([
+    "iOS Home",
+    "iOS App Switcher",
+    "Rotate to landscape",
+    "Device settings",
+  ]);
+  await user.click(screen.getByRole("button", { name: "iOS Home" }));
+  await user.click(screen.getByRole("button", { name: "iOS App Switcher" }));
+  expect(onKey.mock.calls).toEqual([["GoHome"], ["AppSwitch"]]);
+  await user.click(screen.getByRole("button", { name: "Rotate to landscape" }));
+  expect(onEmulate).toHaveBeenLastCalledWith({
+    _tag: "orientation",
+    orientation: "landscape",
+  });
+});
+
+test("the iOS rail is enabled only while the user holds a running session", () => {
+  expect(iosRailEnabled({ controller: "user", phase: "running" })).toBe(true);
+  for (const session of [
+    { controller: "agent", phase: "running" },
+    { controller: "user", phase: "paused" },
+    { controller: "user", phase: "pending" },
+    { controller: "user", phase: "closed" },
+  ] as const) {
+    expect(iosRailEnabled(session)).toBe(false);
+  }
+  render(
+    <DeviceRail
+      canAct={false}
+      emulation={undefined}
+      onEmulate={vi.fn()}
+      onKey={vi.fn()}
+      platform="iOS"
+    />
+  );
+  for (const button of screen.getAllByRole("button")) {
+    expect(button).toHaveProperty("disabled", true);
+  }
 });
 
 const noVariables: IosWorkspaceSnapshot["variables"] = [];

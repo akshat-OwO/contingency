@@ -14,7 +14,6 @@ import { Deferred, Effect, Fiber } from "effect";
 
 import {
   applyAndroidEmulationChange,
-  emulationChanges,
   parseDisplayRotation,
   parseGpsLocation,
   parseComputedNight,
@@ -24,6 +23,7 @@ import {
   readAndroidEnvironment,
   restoreAndroidEnvironment,
 } from "../../src/services/android-emulation.ts";
+import { emulationChanges } from "../../src/services/native-emulation.ts";
 import {
   makeAndroidEmulationGuard,
   restoreLeftoverEnvironments,

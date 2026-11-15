@@ -248,6 +248,20 @@ export const adaptNativeAppRuntime = <
             })
           )
         ),
+      rotate: (orientation) =>
+        lock.withPermits(1)(
+          Effect.gen(function* rotateDevice() {
+            if (state().phase === "closed") {
+              return yield* Effect.fail(error("runtime_closed"));
+            }
+            if (input.backend.rotate === undefined) {
+              return yield* Effect.fail(error("capability_missing"));
+            }
+            // The screen turns; no earlier observation still describes it.
+            yield* invalidate;
+            yield* input.backend.rotate(orientation);
+          })
+        ),
       screenRecorder: input.backend.screenRecorder,
       state,
       systemKey: (id, key) => mutate(id, { type: key }),

@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Fiber, Logger } from "effect";
+import { Effect, Fiber, Logger, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -8,6 +8,7 @@ import {
   iosAgentDeviceFailure,
   iosAppStateProblem,
   iosCaptureFailure,
+  iosForegroundUnknown,
   traceIosCapture,
   iosRuntimeError,
   iosSnapshotFailure,
@@ -182,9 +183,9 @@ it.effect("observes again when one snapshot arrives without a viewport", () =>
 );
 
 it.effect(
-  "never activates the Target App while observing a foreign foreground",
+  "reads no tree, and never activates an app, while another app is in front",
   () =>
-    Effect.gen(function* foreignForeground() {
+    Effect.gen(function* backgroundedApp() {
       const calls: unknown[] = [];
       const access = makeIosSessionAccess({
         open: () => {
@@ -204,9 +205,8 @@ it.effect(
             )
           );
         },
-        targetApp: "dev.fixture",
       });
-      const failure = yield* Effect.flip(access.snapshot());
+      expect(Option.isNone(yield* access.snapshot())).toBe(true);
       expect(calls).toEqual([
         expect.objectContaining({
           noRecord: true,
@@ -214,18 +214,17 @@ it.effect(
           udid: "session-simulator",
         }),
       ]);
-      expect(failure.code).toBe("foreign_app_foreground");
     })
 );
 
-it("maps observe-only refusal to a distinct typed reason", () => {
+it("observes again when the bound app leaves the front mid-capture", () => {
   expect(
     iosSnapshotFailure(new AppError("OBSERVATION_UNAVAILABLE", "background"))
-  ).toMatchObject({ code: "foreign_app_foreground", operation: "capture" });
+  ).toMatchObject({ code: "observation_stale", operation: "capture" });
 });
 
-it.effect("returns to the session bundle without relaunching", () =>
-  Effect.gen(function* returnToTargetApp() {
+it.effect("binds the session to an app without relaunching it", () =>
+  Effect.gen(function* bindsApp() {
     const calls: unknown[] = [];
     const access = makeIosSessionAccess({
       open: (options) => {
@@ -234,95 +233,70 @@ it.effect("returns to the session bundle without relaunching", () =>
       },
       options: () => ({
         platform: "ios",
-        requestId: "recover",
+        requestId: "bind",
         udid: "session-simulator",
       }),
       snapshot: () => Promise.resolve("observed"),
-      targetApp: "dev.fixture",
     });
-    yield* access.recover();
+    yield* access.bind("com.apple.springboard");
     expect(calls).toEqual([
       expect.objectContaining({
-        app: "dev.fixture",
+        app: "com.apple.springboard",
         platform: "ios",
         relaunch: false,
         udid: "session-simulator",
       }),
     ]);
-    expect(yield* access.snapshot()).toBe("observed");
+    expect(yield* access.snapshot()).toEqual(Option.some("observed"));
   })
 );
 
-it.effect("does not retry or activate after an observe-only refusal", () =>
-  Effect.gen(function* refusesWithoutActivation() {
-    let snapshots = 0;
-    let opens = 0;
-    const access = makeIosSessionAccess({
-      open: () => {
-        opens += 1;
-        return Promise.resolve({});
-      },
-      options: () => ({
-        platform: "ios",
-        requestId: "capture",
-        udid: "same-simulator",
-      }),
-      snapshot: () => {
-        snapshots += 1;
-        return Promise.reject(
-          new AppError("OBSERVATION_UNAVAILABLE", "background")
-        );
-      },
-      targetApp: "dev.fixture",
-    });
-    expect((yield* Effect.flip(settleIosCapture(access.snapshot()))).code).toBe(
-      "foreign_app_foreground"
-    );
-    expect(snapshots).toBe(1);
-    expect(opens).toBe(0);
-  })
-);
-
-it("refuses a Target App that backgrounds between its tree and screenshot", () => {
+it("accepts any bound app and observes again once it leaves the front", () => {
   const foreground = {
-    appBundleId: "dev.fixture",
-    appName: "Fixture",
+    appBundleId: "com.apple.Preferences",
+    appName: "Settings",
     device_udid: "session-simulator",
     platform: "ios",
     source: "runner",
     state: "runningForeground",
     surface: "app",
   } as const;
+  expect(iosAppStateProblem(foreground, "session-simulator")).toBeNull();
   expect(
-    iosAppStateProblem(foreground, "session-simulator", "dev.fixture")
+    iosAppStateProblem(
+      { ...foreground, appBundleId: "com.apple.springboard" },
+      "session-simulator"
+    )
   ).toBeNull();
   expect(
     iosAppStateProblem(
       { ...foreground, state: "runningBackground" },
-      "session-simulator",
-      "dev.fixture"
+      "session-simulator"
     )
-  ).toBe("foreign_app_foreground");
+  ).toBe("observation_stale");
   expect(
     iosAppStateProblem(
       { ...foreground, state: "runningBackgroundSuspended" },
-      "session-simulator",
-      "dev.fixture"
+      "session-simulator"
     )
-  ).toBe("foreign_app_foreground");
+  ).toBe("observation_stale");
   expect(
     iosAppStateProblem(
       { ...foreground, source: "session" },
-      "session-simulator",
-      "dev.fixture"
+      "session-simulator"
     )
   ).toBe("observation_stale");
-  expect(iosAppStateProblem(foreground, "other-simulator", "dev.fixture")).toBe(
+  expect(iosAppStateProblem(foreground, "other-simulator")).toBe(
     "device_mismatch"
   );
-  expect(
-    iosAppStateProblem(foreground, "session-simulator", "other.bundle")
-  ).toBe("target_changed");
+});
+
+it("names the way back when no app can be named in front", () => {
+  expect(iosForegroundUnknown()).toMatchObject({
+    code: "foreground_app_unknown",
+    operation: "capture",
+  });
+  expect(iosForegroundUnknown().message).toContain("Press Home");
 });
 
 const screen = (
@@ -374,12 +348,12 @@ it.effect("withholds unchanged handoff trees until the refusal", () =>
       calls += 1;
       return calls < 3
         ? Effect.succeed(screen(calls))
-        : Effect.fail(iosRuntimeError("foreign_app_foreground"));
+        : Effect.fail(iosRuntimeError("foreground_app_unknown"));
     });
     const failure = yield* Effect.flip(
       observeIosPostAction(capture, screen(0))
     );
-    expect(failure.code).toBe("foreign_app_foreground");
+    expect(failure.code).toBe("foreground_app_unknown");
     expect(calls).toBe(3);
   })
 );
@@ -397,22 +371,22 @@ it.effect("withholds a stale handoff tree that loses a redundant label", () =>
       calls += 1;
       return calls < 3
         ? Effect.succeed(screen(calls))
-        : Effect.fail(iosRuntimeError("foreign_app_foreground"));
+        : Effect.fail(iosRuntimeError("foreground_app_unknown"));
     });
     const failure = yield* Effect.flip(observeIosPostAction(capture, before));
-    expect(failure.code).toBe("foreign_app_foreground");
+    expect(failure.code).toBe("foreground_app_unknown");
     expect(calls).toBe(3);
   })
 );
 
 it.effect("does not capture again after the first post-action refusal", () =>
   Effect.gen(function* preservesInitialRefusal() {
-    const source = sequence(["foreign_app_foreground", "observed"]);
+    const source = sequence(["foreground_app_unknown", "observed"]);
     const capture = source.capture.pipe(Effect.as(screen(1)));
     const failure = yield* Effect.flip(
       observeIosPostAction(capture, screen(0))
     );
-    expect(failure.code).toBe("foreign_app_foreground");
+    expect(failure.code).toBe("foreground_app_unknown");
     expect(source.calls()).toBe(1);
   })
 );
@@ -502,7 +476,7 @@ it.effect(
                 state: "runningForeground" as const,
               }),
         };
-        const problem = iosAppStateProblem(state, "selected", "dev.fixture");
+        const problem = iosAppStateProblem(state, "selected");
         return problem === null
           ? Effect.succeed("verified")
           : Effect.fail(iosRuntimeError(problem));
@@ -533,8 +507,7 @@ it.effect(
           source: "session",
           surface: "app",
         },
-        "selected",
-        "dev.fixture"
+        "selected"
       );
       expect(problem).toBe("observation_stale");
       const source = sequence([problem ?? "observed"]);
@@ -555,18 +528,13 @@ it("withholds runner results without state and session results claiming foregrou
     platform: "ios",
     surface: "app",
   } as const;
-  expect(
-    iosAppStateProblem(
-      { ...state, source: "runner" },
-      "selected",
-      "dev.fixture"
-    )
-  ).toBe("observation_stale");
+  expect(iosAppStateProblem({ ...state, source: "runner" }, "selected")).toBe(
+    "observation_stale"
+  );
   expect(
     iosAppStateProblem(
       { ...state, source: "session", state: "runningForeground" },
-      "selected",
-      "dev.fixture"
+      "selected"
     )
   ).toBe("observation_stale");
 });

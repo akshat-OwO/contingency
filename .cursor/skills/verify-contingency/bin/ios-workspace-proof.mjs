@@ -225,62 +225,102 @@ const publicJourney = async (sessionId) => {
   await agentAction(sessionId, "button", "Open account");
   return agentAction(sessionId, "button", "Return to account");
 };
-// Each completed product observation is the event; never wait on animation time.
-const settingsRefusal = async (sessionId, stage, tap) => {
+const appName = "Contingency Public Login";
+/**
+ * Which app an observation shows. Workspace observations carry no app
+ * identifier, so the tree names it: Settings' application node, the
+ * fixture's own label, or Springboard's icon or card for the fixture.
+ */
+const shows = (current) => {
+  const nodes = current.observation?.nodes ?? [];
+  if (
+    nodes.some(
+      (node) => node.role === "application" && node.name === "Settings"
+    )
+  ) {
+    return "settings";
+  }
+  if (
+    nodes.some(
+      (node) =>
+        node.name === "Login fixture" ||
+        node.name.startsWith("Signed in as ") ||
+        node.name === "Account details"
+    )
+  ) {
+    return "target";
+  }
+  return nodes.some(
+    (node) => node.name === appName && node.role !== "application"
+  )
+    ? "springboard"
+    : "other";
+};
+/** How Teaching names the rail's Home (`systemKeyDescription`). */
+const systemKeyHome = "Go home";
+/** The one uncovered node with this name on Springboard. */
+const named = (current, name) => {
+  const nodes =
+    current.observation?.nodes.filter(
+      (node) =>
+        node.name === name && node.role !== "application" && !node.covered
+    ) ?? [];
+  assert.equal(nodes.length, 1, `Expected one node named ${name}`);
+  return nodes[0];
+};
+// The observer follows the app in front (ADR 0083). Each completed product
+// observation is the event; never wait on animation time.
+const settingsDetour = async (sessionId, stage, tap, home, open) => {
   const started = performance.now();
   const record = async (kind, index, action) => {
     const at = new Date().toISOString();
     const began = performance.now();
-    try {
-      const result = await action();
-      receipt.settingsObservations.push({
-        at,
-        completedAt: new Date().toISOString(),
-        durationMs: performance.now() - began,
-        elapsedMs: performance.now() - started,
-        index,
-        kind,
-        observationId: result?.observation?.id ?? null,
-        outcome: kind === "tap" && !result?.observation ? "accepted" : "tree",
-        stage,
-      });
-      return false;
-    } catch (error) {
-      const refused = /foreign_app_foreground/u.test(
-        `${error.stderr ?? ""}${error.stdout ?? ""}${error}`
-      );
-      receipt.settingsObservations.push({
-        at,
-        completedAt: new Date().toISOString(),
-        durationMs: performance.now() - began,
-        elapsedMs: performance.now() - started,
-        index,
-        kind,
-        outcome: refused ? "foreign_app_foreground" : "error",
-        stage,
-      });
-      if (!refused) {
-        throw error;
-      }
-      return true;
-    }
+    const result = await action();
+    receipt.settingsObservations.push({
+      at,
+      completedAt: new Date().toISOString(),
+      durationMs: performance.now() - began,
+      elapsedMs: performance.now() - started,
+      index,
+      kind,
+      observationId: result?.observation?.id ?? null,
+      phase: result?.phase ?? null,
+      shows: result?.observation ? shows(result) : null,
+      stage,
+    });
+    return result;
   };
-  const tapRefused = await record("tap", 0, tap);
-  let refused = false;
-  for (let index = 1; index <= 40; index += 1) {
-    refused = await record("observe", index, () => observe(sessionId));
-    if (refused) {
-      break;
+  const until = async (kind, app) => {
+    for (let index = 1; index <= 40; index += 1) {
+      const current = await record(kind, index, () => observe(sessionId));
+      assert.equal(current.phase, "running", `${stage}: ${kind} paused`);
+      assert.equal(current.refusal ?? null, null);
+      if (shows(current) === app) {
+        return current;
+      }
     }
-  }
-  assert.ok(refused, `${stage}: no foreign_app_foreground in 40 observations`);
-  for (let index = 1; index <= 3; index += 1) {
-    assert.ok(
-      await record("persistence", index, () => observe(sessionId)),
-      `${stage}: foreign-app refusal must persist`
-    );
-  }
-  return { tapRefused };
+    return assert.fail(`${stage}: no ${app} observation in 40 attempts`);
+  };
+  await record("tap", 0, tap);
+  const settings = await until("settings", "settings");
+  await snapshot(`${stage}-settings-followed`);
+  await record("home", 0, home);
+  const springboard = await until("home", "springboard");
+  await snapshot(`${stage}-home-followed`);
+  await record("open", 0, () => open(named(springboard, appName)));
+  const back = await until("return", "target");
+  return { back, settings, springboard };
+};
+const railHome = () => click("iOS Home");
+const agentHome = async (sessionId) => {
+  const before = await observe(sessionId);
+  return call({
+    _tag: "input",
+    action: { _tag: "home" },
+    observationId: before.observation.id,
+    operationId: operation(),
+    sessionId,
+  });
 };
 const ownSessionResources = async () => [
   await selectedSimulatorResource(instance, selected),
@@ -439,20 +479,16 @@ try {
   await click("Enter PASSWORD");
   await pick(teaching.id, "button", "Sign in privately");
   const teachingResources = await ownSessionResources();
-  const { tapRefused: teachingTapRefused } = await settingsRefusal(
+  const teachingDetour = await settingsDetour(
     teaching.id,
     "teaching",
-    () => pick(teaching.id, "button", "Open device settings")
+    () => pick(teaching.id, "button", "Open device settings"),
+    railHome,
+    (icon) => pick(teaching.id, icon.role, icon.name)
   );
-  const teachingRefused = await read(teaching.id);
-  assert.equal(teachingRefused.phase, "paused");
-  assert.equal(teachingRefused.refusal.code, "foreign_app_foreground");
-  assert.equal(teachingRefused.captureState._tag, "recording");
-  await snapshot("teaching-settings-refused");
-  await click("Return to Target App");
-  const teachingRecovered = await observe(teaching.id);
-  assert.equal(teachingRecovered.phase, "running");
-  assert.equal(teachingRecovered.refusal, null);
+  assert.equal(teachingDetour.settings.captureState._tag, "recording");
+  assert.equal(teachingDetour.springboard.captureState._tag, "recording");
+  const teachingRecovered = teachingDetour.back;
   assert.equal(teachingRecovered.captureState._tag, "recording");
   find(teachingRecovered, "text", `Signed in as ${loginName}`);
   const teachingRecoveredResources = await ownSessionResources();
@@ -461,8 +497,8 @@ try {
     teachingResources.map((resource) => resource.udid).toSorted()
   );
   find(teachingRecovered, "button", "Open account");
-  receipt.coverage.teachingSettingsRecovery = true;
-  await snapshot("teaching-settings-recovered");
+  receipt.coverage.teachingSettingsDetour = true;
+  await snapshot("teaching-settings-returned");
   await pick(teaching.id, "button", "Open account");
   await pick(teaching.id, "button", "Return to account");
   await snapshot("teaching-outcome");
@@ -515,17 +551,23 @@ try {
     ),
     "The tap that focused Login name is missing."
   );
-  const actions = recorded.filter((entry) => !focusTap(entry));
+  // The Settings detour is taught too: it is kept apart from the journey.
+  const detour = new Set([
+    "Activate button Open device settings",
+    systemKeyHome,
+  ]);
+  const taught = recorded.filter((entry) => !focusTap(entry));
+  const detoured = taught.filter(
+    (entry) => detour.has(entry.description) || entry.target?.name === appName
+  );
+  assert.deepEqual(detoured.map((entry) => entry.description).slice(0, 2), [
+    "Activate button Open device settings",
+    systemKeyHome,
+  ]);
+  const actions = taught.filter((entry) => !detoured.includes(entry));
   assert.deepEqual(
     actions.map((entry) => entry.kind),
-    [
-      "fill",
-      "variable",
-      "activate",
-      ...(teachingTapRefused ? [] : ["activate"]),
-      "activate",
-      "activate",
-    ]
+    ["fill", "variable", "activate", "activate", "activate"]
   );
   assert.deepEqual(
     actions.map((entry) => entry.description),
@@ -533,7 +575,6 @@ try {
       "Enter text in text-field Login name",
       `Enter Variable PASSWORD: ${password} in secure-text-field Password`,
       "Activate button Sign in privately",
-      ...(teachingTapRefused ? [] : ["Activate button Open device settings"]),
       "Activate button Open account",
       "Activate button Return to account",
     ]
@@ -765,21 +806,17 @@ try {
       const resourcesBeforeSettings = await ownSessionResources();
       const beforeSettings = await observe(started.id);
       find(beforeSettings, "text", `Signed in as ${loginName}`);
-      await settingsRefusal(started.id, "run", () =>
-        agentAction(started.id, "button", "Open device settings")
+      // Settings comes forward and is observed; Home and the app's icon
+      // bring the Target App back with its state.
+      const runDetour = await settingsDetour(
+        started.id,
+        "run",
+        () => agentAction(started.id, "button", "Open device settings"),
+        () => agentHome(started.id),
+        (icon) => agentAction(started.id, icon.role, icon.name)
       );
-      const refused = await read(started.id);
-      assert.equal(refused.phase, "paused");
-      assert.equal(refused.observation, null);
-      assert.deepEqual(refused.refusal, {
-        code: "foreign_app_foreground",
-        recovery: "return-to-target-app",
-      });
-      await snapshot("settings-refused");
-      await click("Return to Target App");
-      current = await observe(started.id);
-      assert.equal(current.phase, "running");
-      assert.equal(current.refusal, null);
+      current = runDetour.back;
+      assert.equal(current.refusal ?? null, null);
       find(current, "text", `Signed in as ${loginName}`);
       find(current, "button", "Open account");
       const resourcesAfterSettings = await ownSessionResources();
@@ -787,14 +824,15 @@ try {
         resourcesAfterSettings.map((resource) => resource.udid).toSorted(),
         resourcesBeforeSettings.map((resource) => resource.udid).toSorted()
       );
-      await snapshot("settings-recovered");
+      await snapshot("settings-returned");
       current = await agentAction(started.id, "button", "Open account");
       find(current, "text", "Account details");
       current = await agentAction(started.id, "button", "Return to account");
       find(current, "text", `Signed in as ${loginName}`);
-      receipt.coverage.settingsRecovery = {
-        code: refused.refusal.code,
+      receipt.coverage.settingsDetour = {
+        followed: ["settings", "springboard", "target"],
         journeyContinued: true,
+        paused: false,
         sameSimulator: true,
         statePreserved: true,
       };

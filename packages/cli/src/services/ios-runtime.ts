@@ -12,7 +12,16 @@ import type {
   CaptureSnapshotOptions,
   AppOpenOptions,
 } from "agent-device";
-import { Clock, Effect, Exit, Predicate, Ref, Schedule, Scope } from "effect";
+import {
+  Clock,
+  Effect,
+  Exit,
+  Option,
+  Predicate,
+  Ref,
+  Schedule,
+  Scope,
+} from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import { supportsIosPermissions } from "./ios-contract.ts";
@@ -22,6 +31,15 @@ import {
   compareIosEnvironments,
   iosEnvironmentPermission,
 } from "./ios-environment.ts";
+import {
+  SPRINGBOARD,
+  fillsScreen,
+  followForeground,
+  iosHostProcesses,
+  makeIosForegroundGuess,
+  springboardForeground,
+} from "./ios-foreground.ts";
+import type { ForegroundStep } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import {
   iosActivationPoint,
@@ -42,7 +60,10 @@ import { clearAppDataDecision, createNativeAppRun } from "./native-app-run.ts";
 import type { NativeAppRuntime } from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
-import type { PlatformRuntimeError } from "./platform-runtime.ts";
+import type {
+  NativeSystemKey,
+  PlatformRuntimeError,
+} from "./platform-runtime.ts";
 
 export interface IosObservation extends Omit<
   AndroidObservation,
@@ -72,6 +93,19 @@ export const iosCapabilities = [
   "teaching-capture",
   "private-input",
 ] as const;
+/** iOS has no system Back (ADR 0066); Home and the App Switcher go through agent-device. */
+export const iosSystemKeys: readonly NativeSystemKey[] = [
+  "home",
+  "app-switcher",
+];
+const observedStep = <A>(value: A): ForegroundStep<A> => ({
+  _tag: "observed",
+  value,
+});
+const followStep = (app: string): ForegroundStep<never> => ({
+  _tag: "follow",
+  app,
+});
 export const iosRuntimeError = (
   code: PlatformRuntimeError["code"]
 ): PlatformRuntimeError => ({
@@ -181,21 +215,27 @@ export const iosAgentDeviceFailure = (
 /** agent-device refuses one presentation when the runner reports no usable viewport; observe again as for a cut-short tree. */
 export const iosSnapshotFailure = (cause: unknown): PlatformRuntimeError => {
   const reason = isAgentDeviceError(cause) ? cause.details?.reason : undefined;
-  if (isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE") {
-    return {
-      ...iosAgentDeviceFailure(cause, "foreign_app_foreground", "capture"),
-      message:
-        "iOS cannot observe the Target App while another app is in front. Choose Return to Target App to continue on this selected simulator.",
-    };
-  }
   return iosAgentDeviceFailure(
     cause,
-    reason === "invalid-viewport" || reason === "missing-viewport"
+    reason === "invalid-viewport" ||
+      reason === "missing-viewport" ||
+      // The bound app left the front between two reads; the observer follows.
+      (isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE")
       ? "observation_stale"
       : "runtime_failed",
     "capture"
   );
 };
+/**
+ * The observer cannot tell which app is in front, so it never guesses
+ * (ADR 0083). Home is always a known screen to carry on from.
+ */
+export const iosForegroundUnknown = (): PlatformRuntimeError => ({
+  ...iosRuntimeError("foreground_app_unknown"),
+  message:
+    "iOS cannot tell which app is in front of the simulator, so nothing was observed or sent. Press Home (Go Home in the Workspace, or the recover command) and carry on from the Home Screen.",
+  operation: "capture",
+});
 const io = <A>(
   run: (signal: AbortSignal) => Promise<A>,
   operation: NonNullable<PlatformRuntimeError["operation"]>,
@@ -274,17 +314,16 @@ type IosSessionAppState = Awaited<
   ReturnType<ReturnType<typeof createAgentDeviceClient>["command"]["appState"]>
 >;
 
-/** Check the session app after the screenshot, which can outlive a foreground transition. */
+/**
+ * Check the bound app after the screenshot, which can outlive a foreground
+ * transition. Any app may be bound: the observer follows the app in front.
+ */
 export const iosAppStateProblem = (
   state: IosSessionAppState,
-  udid: string,
-  bundle: string
+  udid: string
 ): PlatformRuntimeError["code"] | null => {
   if (state.platform !== "ios" || state.device_udid !== udid) {
     return "device_mismatch";
-  }
-  if (state.appBundleId !== bundle) {
-    return "target_changed";
   }
   // appState is passive: the SDK can return session metadata while its live
   // runner is unavailable. Withhold this capture and reacquire within the
@@ -296,7 +335,8 @@ export const iosAppStateProblem = (
     state.state === "runningBackground" ||
     state.state === "runningBackgroundSuspended"
   ) {
-    return "foreign_app_foreground";
+    // Another app came forward during the capture: observe it next.
+    return "observation_stale";
   }
   return state.state === "runningForeground" ? null : "runtime_failed";
 };
@@ -310,23 +350,27 @@ export const makeIosSessionAccess = <A, B>(input: {
     readonly udid: string;
     readonly requestId: string;
   };
-  readonly targetApp: string;
 }) => ({
-  recover: () =>
+  /**
+   * Binds the session to an app without relaunching it. Binding activates
+   * the app, so callers bind only to the app already in front.
+   */
+  bind: (app: string) =>
     io(
       (signal) =>
         input.open({
           ...input.options(),
-          app: input.targetApp,
+          app,
           noRecord: true,
           relaunch: false,
           signal,
         }),
       "open"
     ).pipe(Effect.asVoid),
+  /** The bound app's tree, or none when another app is in front. */
   snapshot: () =>
     Effect.tryPromise({
-      catch: iosSnapshotFailure,
+      catch: (cause) => cause,
       try: (signal) =>
         input.snapshot({
           ...input.options(),
@@ -335,7 +379,16 @@ export const makeIosSessionAccess = <A, B>(input: {
           observeOnly: true,
           signal,
         }),
-    }),
+    }).pipe(
+      Effect.map(Option.some),
+      // Another app in front is not a failure: the caller follows it.
+      Effect.catchIf(
+        (cause) =>
+          isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE",
+        () => Effect.succeed(Option.none<A>())
+      ),
+      Effect.mapError(iosSnapshotFailure)
+    ),
 });
 
 interface IosScreen {
@@ -411,19 +464,48 @@ const startIosRuntime = (
         open: client.apps.open.bind(client.apps),
         options,
         snapshot: client.capture.snapshot.bind(client.capture),
-        targetApp: input.targetApp,
       });
+      // Preparation opened the session on the Target App, now in front.
+      const bound = yield* Ref.make(input.targetApp);
+      const bind = (app: string) =>
+        access.bind(app).pipe(Effect.andThen(Ref.set(bound, app)));
+      const guess = makeIosForegroundGuess(iosHostProcesses, udid);
+      // Set while no app could be named in front; recovery then goes Home.
+      const lost = yield* Ref.make(false);
       const fillPublic = client.interactions.fill.bind(client.interactions);
       const window = yield* Ref.make<IosViewport | null>(null);
       // Tap points, by target, for controls UIKit draws away from their frame's center.
       const activationPoints = yield* Ref.make<
         ReadonlyMap<string, { readonly x: number; readonly y: number }>
       >(new Map());
-      const captureOnce = (step: IosCaptureStep) =>
+      /**
+       * One observation of the bound app, or the app to follow when another
+       * one is in front (ADR 0083).
+       */
+      const attemptOnce = (step: IosCaptureStep, app: string) =>
+        // oxlint-disable-next-line eslint/complexity
         Effect.gen(function* captureIos() {
           yield* step("session-before", validate());
-          const snapshot = yield* step("snapshot", access.snapshot());
+          const read = yield* step("snapshot", access.snapshot());
+          if (Option.isNone(read)) {
+            // The bound app went to the background on its own, such as a
+            // link that opened Safari. Follow only a clear guess among the
+            // other apps.
+            const front = app === SPRINGBOARD ? null : yield* guess(app);
+            if (front === null) {
+              yield* Ref.set(lost, true);
+              return yield* Effect.fail(iosForegroundUnknown());
+            }
+            return followStep(front);
+          }
+          const snapshot = read.value;
           yield* identities(snapshot.identifiers, udid, session);
+          if (app === SPRINGBOARD) {
+            const front = springboardForeground(snapshot);
+            if (front !== null) {
+              return followStep(front);
+            }
+          }
           const problem = iosSnapshotProblem(snapshot);
           if (
             problem !== null ||
@@ -460,30 +542,6 @@ const startIosRuntime = (
             )
           );
           yield* identities(screenshot.identifiers, udid, session);
-          const appState = yield* step(
-            "app-state",
-            io(
-              (signal) => client.command.appState({ ...options(), signal }),
-              "session-check"
-            )
-          );
-          const stateProblem = iosAppStateProblem(
-            appState,
-            udid,
-            input.targetApp
-          );
-          if (stateProblem !== null) {
-            return yield* Effect.fail(
-              stateProblem === "observation_stale"
-                ? iosCaptureFailure(
-                    stateProblem,
-                    "session-check",
-                    "app-state-unverified"
-                  )
-                : iosRuntimeError(stateProblem)
-            );
-          }
-          yield* step("session-after", validate());
           const bytes = yield* step(
             "read-png",
             io(() => readFile(filename), "host-io")
@@ -502,6 +560,37 @@ const startIosRuntime = (
               )
             );
           }
+          if (
+            app !== SPRINGBOARD &&
+            !fillsScreen(snapshot.nodes[0], {
+              height: bytes.readUInt32BE(20),
+              width: bytes.readUInt32BE(16),
+            })
+          ) {
+            // The bound app is shrinking toward Home or sits in the App
+            // Switcher: Springboard is in front, so binding to it is safe.
+            return followStep(SPRINGBOARD);
+          }
+          const appState = yield* step(
+            "app-state",
+            io(
+              (signal) => client.command.appState({ ...options(), signal }),
+              "session-check"
+            )
+          );
+          const stateProblem = iosAppStateProblem(appState, udid);
+          if (stateProblem !== null) {
+            return yield* Effect.fail(
+              stateProblem === "observation_stale"
+                ? iosCaptureFailure(
+                    stateProblem,
+                    "session-check",
+                    "app-state-unverified"
+                  )
+                : iosRuntimeError(stateProblem)
+            );
+          }
+          yield* step("session-after", validate());
           const width = bytes.readUInt32BE(16);
           const height = bytes.readUInt32BE(20);
           if (
@@ -525,7 +614,9 @@ const startIosRuntime = (
           const sx = width / viewport.width;
           const sy = height / viewport.height;
           const observation: IosObservation = {
-            appId: snapshot.appBundleId ?? null,
+            // An observe-only snapshot may not name its app; the bound app is
+            // the one this attempt proved in front.
+            appId: snapshot.appBundleId ?? app,
             backendSessionId: session,
             device: prepared.device,
             generation: snapshot.refsGeneration,
@@ -558,7 +649,19 @@ const startIosRuntime = (
               image: bytes.toString("base64"),
             },
           };
-          return observation;
+          yield* Ref.set(lost, false);
+          return observedStep(observation);
+        });
+      const captureOnce = (step: IosCaptureStep) =>
+        followForeground({
+          attempt: (app) => attemptOnce(step, app),
+          bind,
+          bound,
+          stale: iosCaptureFailure(
+            "observation_stale",
+            "capture",
+            "app-state-unverified"
+          ),
         });
       let captureAttempt = 0;
       const capture = () =>
@@ -568,6 +671,11 @@ const startIosRuntime = (
             return traceIosCapture(captureOnce, captureAttempt);
           })
         );
+      /** Commands that act through the bound app, which is the one in front. */
+      const command = <A>(
+        operation: NonNullable<PlatformRuntimeError["operation"]>,
+        run: (signal: AbortSignal) => Promise<A>
+      ) => io(run, operation).pipe(Effect.asVoid);
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
@@ -594,7 +702,31 @@ const startIosRuntime = (
                 fillPublic({ ...options(), ref: target, signal, text }),
               iosRuntimeError
             ),
-          recover: () => validate().pipe(Effect.andThen(access.recover())),
+          // Recovery never reopens the Target App. When no app could be
+          // named in front, it goes Home, which Springboard always observes.
+          recover: () =>
+            validate().pipe(
+              Effect.andThen(Ref.get(lost)),
+              Effect.flatMap((home) =>
+                home
+                  ? command("home", (signal) =>
+                      client.command.home({ ...options(), signal })
+                    ).pipe(
+                      Effect.andThen(bind(SPRINGBOARD)),
+                      Effect.andThen(Ref.set(lost, false))
+                    )
+                  : Effect.void
+              )
+            ),
+          rotate: (orientation) =>
+            command("rotate", (signal) =>
+              client.command.orientation({
+                ...options(),
+                orientation:
+                  orientation === "landscape" ? "landscape-left" : "portrait",
+                signal,
+              })
+            ),
           // Whole screen, touches hidden (ADR 0079).
           screenRecorder: makeAgentDeviceScreenRecorder({
             record: ({ action, path: file, signal }) =>
@@ -618,11 +750,22 @@ const startIosRuntime = (
               ),
           }),
           sessionId: session,
+          // Home and the App Switcher leave Springboard in front, so the
+          // session binds to it at once (ADR 0083). iOS has no Back.
+          systemKey: (key) =>
+            key === "back"
+              ? Effect.fail(iosRuntimeError("capability_missing"))
+              : command(key, async (signal) => {
+                  await (key === "home"
+                    ? client.command.home({ ...options(), signal })
+                    : client.command.appSwitcher({ ...options(), signal }));
+                }).pipe(Effect.andThen(bind(SPRINGBOARD))),
           validate,
         },
         capabilities: iosCapabilities,
         error: iosRuntimeError,
-        policy: nativeAppActionPolicy(iosRuntimeError, []),
+        foreground: (observation) => observation.appId ?? undefined,
+        policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
         startup: { ...input, device: prepared.device },
       });
     }).pipe(

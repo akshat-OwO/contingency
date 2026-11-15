@@ -85,6 +85,7 @@ export interface PlatformRuntimeError {
     | "activate"
     | "fill"
     | NativeSystemKey
+    | "rotate"
     | "session-check";
   readonly backendReason?:
     | "ref_generation_mismatch"
@@ -100,7 +101,7 @@ export interface PlatformRuntimeError {
     | "os_unsupported"
     | "device_unsupported"
     | "discovery_failed"
-    | "foreign_app_foreground"
+    | "foreground_app_unknown"
     | "observation_stale"
     | "runtime_failed"
     | "capability_missing"

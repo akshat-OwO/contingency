@@ -15,7 +15,10 @@ import type {
   IosObservationRefusal,
   IosWorkspaceSnapshot,
   FlowName,
+  NativeEmulationChange,
   NativeForward,
+  NativeLocation,
+  NativeOrientation,
   PlatformRequirements,
   RunVideoFastForward,
 } from "@contingency/protocol";
@@ -44,11 +47,19 @@ import { DeviceVideoRenderer } from "./device-video-renderer.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
+import { makeIosDiscovery } from "./ios-discovery.ts";
+import {
+  iosOrientationOf,
+  iosSimctl,
+  readIosEmulation,
+} from "./ios-emulation.ts";
+import type { IosSimctlCommand } from "./ios-emulation.ts";
 import { makeIosHid } from "./ios-hid.ts";
 import type { IosHid } from "./ios-hid.ts";
 import {
   createIosRun,
   iosCapabilities,
+  iosForegroundUnknown,
   observeIosPostAction,
   iosRuntimeError as platformRuntimeError,
 } from "./ios-runtime.ts";
@@ -58,6 +69,12 @@ import type { IosDeviceStream } from "./ios-stream.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import { emulationChanges, emulationDescription } from "./native-emulation.ts";
+import {
+  makeIosEmulationGuard,
+  restoreLeftoverIosEnvironments,
+} from "./native-environment-restore.ts";
+import type { EmulationGuard } from "./native-environment-restore.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
 import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
@@ -136,8 +153,8 @@ const hash = (bytes: string | Uint8Array) =>
 export const iosWorkspaceRefusal = (
   code: string
 ): IosObservationRefusal | null => {
-  if (code === "foreign_app_foreground") {
-    return { code: "foreign_app_foreground", recovery: "return-to-target-app" };
+  if (code === "foreground_app_unknown") {
+    return { code: "foreground_app_unknown", recovery: "go-home" };
   }
   if (code === "capture_incomplete") {
     return { code: "capture_incomplete", recovery: "recover" };
@@ -314,9 +331,15 @@ interface Session {
   readonly summaryFile: string;
   /** The device's own recording of Teaching, or of a Run's execution. */
   readonly video: DeviceVideoCaptureSession;
+  /** Changes the simulator's Emulation and restores it when the session ends. */
+  readonly emulation: EmulationGuard;
   /** Epoch milliseconds when a Takeover began. */
   readonly marks: {
     takeoverFrom?: number | undefined;
+    /** The last location this session set; simctl cannot read one back. */
+    location?: NativeLocation | undefined;
+    /** The last orientation this session set; Springboard stays upright. */
+    orientation?: NativeOrientation | undefined;
   };
 }
 export interface IosWorkspaceService {
@@ -375,6 +398,22 @@ const KeyframeIndex = Schema.fromJsonString(
 /** Where a session's keyframe index sits beside its persisted summary. */
 const keyframeIndexFile = (summaryFile: string) =>
   summaryFile.replace(/\.json$/u, ".keyframes.json");
+/** Applies one change and remembers what simctl cannot read back. */
+const changeEmulation = (session: Session, change: NativeEmulationChange) =>
+  session.emulation.change(change).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        if (change._tag === "location") {
+          session.marks.location = {
+            latitude: change.latitude,
+            longitude: change.longitude,
+          };
+        } else if (change._tag === "orientation") {
+          session.marks.orientation = change.orientation;
+        }
+      })
+    )
+  );
 /**
  * Ends the device's recording, closing a Takeover still under way, and
  * returns the video's time map. Idempotent; a second call answers the
@@ -395,6 +434,12 @@ export const makeIosWorkspaceLayer = (options: {
   readonly createRun?: typeof createIosRun;
   /** The simulator input helper; tests substitute their own. */
   readonly makeHid?: typeof makeIosHid;
+  /** The session's mirror; tests substitute their own. */
+  readonly acquireStream?: typeof acquireIosStream;
+  /** simctl for Emulation (ADR 0082); tests substitute their own. */
+  readonly simctl?: IosSimctlCommand;
+  /** Whether a simulator is booted, for startup recovery. */
+  readonly booted?: (udid: string) => Effect.Effect<boolean>;
   /** How a Run's video fast-forwards its Idle Gaps; one per process. */
   readonly videoFastForward?: RunVideoFastForward;
 }) =>
@@ -402,12 +447,37 @@ export const makeIosWorkspaceLayer = (options: {
     IosWorkspace,
     Effect.gen(function* makeWorkspace() {
       const makeHid = options.makeHid ?? makeIosHid;
+      const acquireStream = options.acquireStream ?? acquireIosStream;
       const fs = yield* FileSystem.FileSystem;
       const store = yield* TeachingRecordingStore;
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
       const ownedDevices = yield* Effect.serviceOption(OwnedDevices);
       const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
+      const simctl = options.simctl ?? iosSimctl;
+      // Simulators a dead process changed get their appearance and location
+      // back (ADR 0082). A session changes a simulator only after this
+      // finishes, so recovery never restores over it or removes its record.
+      const recovery = yield* Effect.forkScoped(
+        restoreLeftoverIosEnvironments({
+          booted:
+            options.booted ??
+            ((udid) =>
+              makeIosDiscovery()
+                .devices()
+                .pipe(
+                  Effect.map((devices) =>
+                    devices.some(
+                      (device) =>
+                        device.udid === udid && device.state === "Booted"
+                    )
+                  ),
+                  Effect.orElseSucceed(() => false)
+                )),
+          root: options.root(),
+          simctl,
+        })
+      );
 
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
@@ -587,8 +657,10 @@ export const makeIosWorkspaceLayer = (options: {
             observations: [],
             summary: {
               ...current.summary,
+              // Not knowing the app in front sent nothing and captured
+              // nothing, so Teaching keeps recording until the user goes Home.
               captureGaps:
-                cause.code === "foreign_app_foreground"
+                cause.code === "foreground_app_unknown"
                   ? current.summary.captureGaps
                   : [...current.summary.captureGaps, cause.code],
               error: cause.message,
@@ -596,7 +668,7 @@ export const makeIosWorkspaceLayer = (options: {
               refusal: iosWorkspaceRefusal(cause.code),
             },
           }));
-          if (cause.code !== "foreign_app_foreground") {
+          if (cause.code !== "foreground_app_unknown") {
             yield* finishRecording(
               session,
               OperationId.make(`ios-gap-${randomUUID()}`),
@@ -752,6 +824,8 @@ export const makeIosWorkspaceLayer = (options: {
           );
           // The recorder belongs to the device runtime; stop it first.
           yield* endVideo(session);
+          // Rotation goes through the runtime, so restore before closing it.
+          yield* session.emulation.restore;
           yield* session.stream.close();
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
@@ -997,6 +1071,29 @@ export const makeIosWorkspaceLayer = (options: {
                   sessionId: id,
                 }),
                 directory,
+                emulation: makeIosEmulationGuard({
+                  orientation: Effect.suspend(() => {
+                    const observed = state(session).observation;
+                    return observed === null
+                      ? Effect.fail(platformRuntimeError("observation_stale"))
+                      : Effect.succeed(
+                          iosOrientationOf(observationSize(observed))
+                        );
+                  }),
+                  owned: Option.isNone(ownedDevices)
+                    ? Effect.succeed(false)
+                    : ownedDevices.value.eraseState.pipe(
+                        Effect.map((erase) =>
+                          erase.owned.ios.includes(device.udid)
+                        )
+                      ),
+                  recovered: Fiber.join(recovery),
+                  // Startup recovery reads records from the process root.
+                  root: options.root(),
+                  rotate: (orientation) => session.run.rotate(orientation),
+                  simctl,
+                  udid: device.udid,
+                }),
                 hid: yield* makeHid(
                   () =>
                     "udid" in selection.device ? selection.device.udid : null,
@@ -1051,7 +1148,7 @@ export const makeIosWorkspaceLayer = (options: {
                   startingObservation: null,
                   summary,
                 }).pipe(Atom.keepAlive),
-                stream: yield* acquireIosStream(
+                stream: yield* acquireStream(
                   id,
                   () => state(session).observation?.device ?? null,
                   scope,
@@ -1087,6 +1184,10 @@ export const makeIosWorkspaceLayer = (options: {
                   session.boundary.dispose();
                 })
               );
+              // A backstop for every end, failure and cancellation included.
+              // Each end restores before it closes the runtime, which
+              // rotation needs; restoring twice does nothing.
+              yield* Scope.addFinalizer(scope, session.emulation.restore);
               sessions.set(id, session);
               // The published session owns the scope from here.
               unpublished = undefined;
@@ -1161,7 +1262,11 @@ export const makeIosWorkspaceLayer = (options: {
                   ? null
                   : {
                       checked: null,
-                      context: [current.summary.selection.environment.bundleId],
+                      // The app in front, which need not be the Target App.
+                      context: [
+                        (before ?? after).appId ??
+                          current.summary.selection.environment.bundleId,
+                      ],
                       disabled: null,
                       name: target.name,
                       role: target.role,
@@ -1307,6 +1412,79 @@ export const makeIosWorkspaceLayer = (options: {
             startingObservation: boundaryObservationSummary(restarted),
           }));
         });
+      /**
+       * Reads the simulator's Emulation for Workspace; a failed read keeps
+       * the last one. simctl reads the appearance; the orientation and
+       * location are the session's own, or what the latest screen shows.
+       */
+      const readEmulation = (session: Session) =>
+        Effect.suspend(() => {
+          const observed = state(session).observation;
+          const orientation =
+            session.marks.orientation ??
+            (observed === null
+              ? (state(session).summary.emulation?.orientation ?? "portrait")
+              : iosOrientationOf(observationSize(observed)));
+          return readIosEmulation({
+            location: session.marks.location ?? null,
+            orientation,
+            simctl,
+            udid: state(session).summary.selection.device.udid,
+          });
+        }).pipe(
+          Effect.map((emulation) => {
+            update(session, (value) => ({
+              ...value,
+              summary: { ...value.summary, emulation },
+            }));
+            return emulation;
+          }),
+          Effect.option
+        );
+      /**
+       * Before launch, a Run or Dry Run brings the simulator to the Flow's
+       * starting Emulation (ADR 0082). simctl sets the appearance and
+       * location first; rotation goes through the prepared runtime, with the
+       * Target App in front.
+       */
+      const prepareSession = (session: Session) =>
+        Effect.gen(function* prepareSimulator() {
+          const { requirements } = state(session).summary;
+          const emulation =
+            requirements.platform === "ios"
+              ? requirements.preparation?.emulation
+              : undefined;
+          const changes =
+            emulation === undefined ? [] : emulationChanges(emulation);
+          for (const change of changes) {
+            if (change._tag !== "orientation") {
+              yield* changeEmulation(session, change);
+            }
+          }
+          const rotation = changes.find(
+            (change) => change._tag === "orientation"
+          );
+          // Orientation needs the launched app, and the Flow's starting
+          // conditions may hold only in the taught orientation, so it turns
+          // between launch and that check. The first observation records the
+          // orientation the simulator had.
+          const prepared = yield* session.run.prepare(
+            rotation === undefined
+              ? undefined
+              : {
+                  apply: (launched) => {
+                    acceptObservation(session, launched);
+                    return changeEmulation(session, rotation);
+                  },
+                  // A failed preparation closes its runtime, so the simulator
+                  // turns back before then rather than at the session's end.
+                  undo: session.emulation.restore,
+                }
+          );
+          acceptObservation(session, prepared);
+          yield* readEmulation(session);
+          return prepared;
+        });
       const recordWorkspace = (
         session: Session,
         command: Extract<IosWorkspaceCommand, { readonly _tag: "record" }>,
@@ -1337,12 +1515,34 @@ export const makeIosWorkspaceLayer = (options: {
             if (!(yield* session.stream.begin())) {
               return yield* denied("The iOS mirror is not ready for capture.");
             }
+            // The simulator's Emulation at Start is the Flow's starting one.
+            const starting = Option.getOrUndefined(
+              yield* readEmulation(session)
+            );
+            const { requirements } = summary;
+            const runtime =
+              starting !== undefined &&
+              requirements.platform === "ios" &&
+              requirements.preparation !== undefined
+                ? {
+                    ...requirements,
+                    preparation: {
+                      ...requirements.preparation,
+                      emulation: starting,
+                    },
+                  }
+                : requirements;
             yield* store.start({
               emulation: null,
               operationId: command.operationId,
               recordingId: summary.recordingId,
+              runtime,
             });
-            update(session, (value) => ({ ...value, recording: true }));
+            update(session, (value) => ({
+              ...value,
+              recording: true,
+              summary: { ...value.summary, requirements: runtime },
+            }));
             // Start completes once the device's recorder runs; setup before
             // it is never recorded.
             yield* session.video.begin;
@@ -1392,15 +1592,27 @@ export const makeIosWorkspaceLayer = (options: {
               "Only the current controller can forward iOS input. Agent tools are disabled during Takeover."
             );
           }
-          const selectedObservation = current.observations.find(
-            (observation) => observation.id === command.observationId
-          );
+          const { action } = command;
+          if (action._tag === "back") {
+            return yield* denied(
+              "iOS has no system Back. Use the app's own navigation, Home, or the App Switcher; nothing was sent."
+            );
+          }
+          // The rail's Home and App Switcher do not depend on the screen they
+          // leave (ADR 0082), so the user's press needs no retained frame.
+          const railKey =
+            source === "user" &&
+            (action._tag === "home" || action._tag === "app-switcher");
+          const selectedObservation =
+            current.observations.find(
+              (observation) => observation.id === command.observationId
+            ) ??
+            (railKey ? { id: command.observationId, nodes: [] } : undefined);
           if (selectedObservation === undefined) {
             return yield* denied(
               "This mirrored observation is stale. Refresh and choose the target again; input was not forwarded."
             );
           }
-          const { action } = command;
           if (action._tag === "variable") {
             const bound =
               source === "agent"
@@ -1449,6 +1661,8 @@ export const makeIosWorkspaceLayer = (options: {
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
+          // The user's earlier input is recorded before a rail key.
+          const gestures = railKey ? session.lane.take() : [];
           const before =
             action._tag === "variable" && current.observation !== null
               ? current.observation
@@ -1456,6 +1670,7 @@ export const makeIosWorkspaceLayer = (options: {
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
+          yield* recordGestures(session, gestures, before);
           const matches =
             selectedTarget === undefined
               ? []
@@ -1480,15 +1695,6 @@ export const makeIosWorkspaceLayer = (options: {
             );
           }
           const [target] = matches;
-          if (
-            action._tag === "back" &&
-            semanticSignature(before.nodes) !==
-              semanticSignature(selectedObservation.nodes)
-          ) {
-            return yield* denied(
-              "The screen changed before Back. Inspect the fresh screen and choose Back again."
-            );
-          }
           const variable =
             action._tag === "variable"
               ? registry
@@ -1566,7 +1772,9 @@ export const makeIosWorkspaceLayer = (options: {
                   ? null
                   : {
                       checked: null,
-                      context: [summary.selection.environment.bundleId],
+                      context: [
+                        before.appId ?? summary.selection.environment.bundleId,
+                      ],
                       disabled: null,
                       name: target.name,
                       role: target.role,
@@ -1582,6 +1790,63 @@ export const makeIosWorkspaceLayer = (options: {
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
                 `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, inputConfirmation: fillResult?.confirmation, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
+                { flag: "a", mode: 0o600 }
+              )
+            );
+            yield* keyframe(session, after, actionId);
+          }
+        });
+      /**
+       * Changes the simulator's Emulation for the controller. While
+       * recording, the change is a step the Flow replays at that point
+       * (ADR 0082).
+       */
+      const emulateWorkspace = (
+        session: Session,
+        command: Extract<IosWorkspaceCommand, { readonly _tag: "emulate" }>,
+        source: "agent" | "user"
+      ) =>
+        Effect.gen(function* emulateWorkspaceCommand() {
+          const current = state(session);
+          const { summary } = current;
+          if (summary.controller !== source || summary.phase !== "running") {
+            return yield* denied(
+              "Only the current controller can change the simulator. Agent tools are disabled during Takeover."
+            );
+          }
+          const { change } = command;
+          // The user's earlier input is recorded before this change.
+          const gestures = source === "user" ? session.lane.take() : [];
+          const before = yield* session.run.observe();
+          acceptObservation(session, before);
+          yield* recordGestures(session, gestures, before);
+          yield* changeEmulation(session, change);
+          const after = yield* session.run.observe();
+          acceptObservation(session, after);
+          yield* readEmulation(session);
+          const actionId = `ios-action-${randomUUID()}`;
+          if (current.recording) {
+            yield* keyframe(session, before, actionId);
+            yield* emit(session, {
+              _tag: "action",
+              actor: "user",
+              after: observationSummary(after),
+              appeared: difference(after, before),
+              before: observationSummary(before),
+              description: emulationDescription(change),
+              detail: null,
+              disappeared: difference(before, after),
+              id: actionId,
+              kind: change._tag,
+              outcome: "succeeded",
+              target: null,
+            });
+            yield* keyframe(session, after, actionId);
+          } else if (summary.kind !== "teaching") {
+            yield* io(
+              fs.writeFileString(
+                path.join(session.directory, "actions.jsonl"),
+                `${JSON.stringify({ action: change._tag, actionId, after: after.id, at: now(), before: before.id, change, controller: source })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );
@@ -1651,6 +1916,7 @@ export const makeIosWorkspaceLayer = (options: {
           }));
           clearVariables(session);
           yield* endVideo(session);
+          yield* session.emulation.restore;
           yield* session.stream.close();
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
@@ -1893,8 +2159,7 @@ export const makeIosWorkspaceLayer = (options: {
                 "Preparation requires the user's Workspace action."
               );
             }
-            const prepared = yield* session.run.prepare();
-            acceptObservation(session, prepared);
+            const prepared = yield* prepareSession(session);
             update(session, (value) => ({
               ...value,
               startingObservation: boundaryObservationSummary(prepared),
@@ -1903,21 +2168,13 @@ export const makeIosWorkspaceLayer = (options: {
             if (summary.kind !== "teaching") {
               yield* session.video.begin;
             }
-          } else if (
-            command._tag === "recover" ||
-            command._tag === "return-to-target-app"
-          ) {
-            if (source !== "user") {
+          } else if (command._tag === "recover") {
+            // Going Home when no app could be named in front is safe for the
+            // agent too: it sends one known key and observes Springboard.
+            const home = summary.refusal?.code === "foreground_app_unknown";
+            if (source !== "user" && !home) {
               return yield* denied(
                 "Recovery requires an explicit same-device Workspace action."
-              );
-            }
-            if (
-              (command._tag === "return-to-target-app") !==
-              (summary.refusal?.code === "foreign_app_foreground")
-            ) {
-              return yield* denied(
-                "Use the recovery attached to this session's refusal."
               );
             }
             acceptObservation(
@@ -1926,19 +2183,17 @@ export const makeIosWorkspaceLayer = (options: {
                 ? session.run.observe()
                 : session.run.recover()
             );
-            // Returning an app does not replace the framebuffer source. Keep the
+            // Going Home does not replace the framebuffer source. Keep the
             // active Teaching interval intact; only transport recovery restarts it.
-            if (command._tag === "recover") {
+            if (!home) {
               yield* session.stream.recover();
             }
           } else if (command._tag === "observe") {
             if (
               summary.phase === "paused" &&
-              summary.refusal?.code === "foreign_app_foreground"
+              summary.refusal?.code === "foreground_app_unknown"
             ) {
-              return yield* Effect.fail(
-                platformRuntimeError("foreign_app_foreground")
-              );
+              return yield* Effect.fail(iosForegroundUnknown());
             }
             if (summary.phase !== "running") {
               return yield* denied(
@@ -1992,10 +2247,9 @@ export const makeIosWorkspaceLayer = (options: {
             acceptObservation(session, controlled);
             yield* recordGestures(session, gestures, controlled);
           } else if (command._tag === "emulate") {
-            // The iOS rail and its Emulation arrive with ADR 0083's observer.
-            return yield* Effect.fail(
-              platformRuntimeError("capability_missing")
-            );
+            yield* source === "agent"
+              ? session.video.action(emulateWorkspace(session, command, source))
+              : emulateWorkspace(session, command, source);
           } else if (command._tag === "record") {
             yield* recordWorkspace(session, command, source);
           } else if (command._tag === "instruction") {

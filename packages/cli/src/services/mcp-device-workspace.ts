@@ -1,7 +1,6 @@
 import {
   AndroidWorkspaceCommand,
   DeviceEraseRequestCommand,
-  IosReturnToTargetAppCommand,
   IosWorkspaceCommand,
   IosWorkspaceSelection,
 } from "@contingency/protocol";
@@ -54,16 +53,11 @@ export const DeviceWorkspaceTools = withStrictParameters(
     Tool.make("agent_device_workspace", {
       dependencies: [],
       description:
-        "Android API30-36; iOS26-27 simulators. Workspace: /?android=<id> or /?ios=<id>. User prepares/records/verifies. Input needs observationId; unreadable fills=unconfirmed; Android keys back/home/app-switcher; emulate changes Android orientation/appearance/location, restored at session end. Learn: claim/Timeline/save, dry-run, verify. Gaps/Takeover fail. iOS Settings needs Return to Target App. irreversible:true needs fresh Confirmation. device-erase-request (device=AVD or UDID) only asks; the user erases in Workspace; repeat its operationId for status.",
+        "Android API30-36; iOS26-27 simulators. Workspace: /?android=<id> or /?ios=<id>. User prepares/records/verifies. Input needs observationId; unreadable fills=unconfirmed; keys home/app-switcher, Android also back; emulate changes orientation/appearance/location, restored at session end. Learn: claim/Timeline/save, dry-run, verify. Gaps/Takeover fail. iOS follows the app in front; foreground_app_unknown: recover goes Home. irreversible:true needs fresh Confirmation. device-erase-request (device=AVD or UDID) only asks; the user erases in Workspace; repeat its operationId for status.",
       failure: DeviceWorkspaceFailure,
       parameters: Schema.Struct({
         command: Schema.Union(
-          [
-            start,
-            ...sharedCommands,
-            IosReturnToTargetAppCommand,
-            DeviceEraseRequestCommand,
-          ].filter(
+          [start, ...sharedCommands, DeviceEraseRequestCommand].filter(
             (member) =>
               ![
                 "field-dismiss",

@@ -24,9 +24,13 @@ export const IosWorkspaceSelection = Schema.Struct({
 export type IosWorkspaceSelection = typeof IosWorkspaceSelection.Type;
 // oxlint-disable-next-line eslint/no-redeclare
 export const IosObservationRefusal = Schema.Union([
+  /**
+   * The observer could not tell which app is in front, so it never guessed
+   * (ADR 0083). Recovery goes Home and carries on from Springboard.
+   */
   Schema.Struct({
-    code: Schema.Literal("foreign_app_foreground"),
-    recovery: Schema.Literal("return-to-target-app"),
+    code: Schema.Literal("foreground_app_unknown"),
+    recovery: Schema.Literal("go-home"),
   }),
   Schema.Struct({
     code: Schema.Literal("capture_incomplete"),
@@ -48,14 +52,6 @@ export const IosWorkspaceSnapshot = Schema.Struct({
   selection: IosWorkspaceSelection,
 });
 export type IosWorkspaceSnapshot = typeof IosWorkspaceSnapshot.Type;
-// oxlint-disable-next-line eslint/no-redeclare
-export const IosReturnToTargetAppCommand = Schema.TaggedStruct(
-  "return-to-target-app",
-  {
-    operationId: AndroidWorkspaceCommand.members[0].fields.operationId,
-    sessionId: AndroidWorkspaceCommand.members[1].fields.sessionId,
-  }
-);
 const [_androidStart, ...sharedCommands] = AndroidWorkspaceCommand.members;
 // oxlint-disable-next-line eslint/no-redeclare
 export const IosWorkspaceCommand = Schema.Union([
@@ -64,6 +60,5 @@ export const IosWorkspaceCommand = Schema.Union([
     selection: IosWorkspaceSelection,
   }),
   ...sharedCommands,
-  IosReturnToTargetAppCommand,
 ]);
 export type IosWorkspaceCommand = typeof IosWorkspaceCommand.Type;

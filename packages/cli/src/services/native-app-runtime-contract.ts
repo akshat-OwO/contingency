@@ -1,4 +1,7 @@
-import type { PlatformCapability } from "@contingency/protocol";
+import type {
+  NativeOrientation,
+  PlatformCapability,
+} from "@contingency/protocol";
 import type { Effect, Redacted, Scope } from "effect";
 
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
@@ -58,6 +61,14 @@ export interface NativeAppRuntime<
     key: NativeSystemKey
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly recover: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  /**
+   * Turns the device through the runtime, on a platform whose rotation needs
+   * its session (ADR 0082). It needs no observation and works while paused,
+   * so a session's end can turn the device back.
+   */
+  readonly rotate: (
+    orientation: NativeOrientation
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly enterVariable: (
     observationId: string,
     request: NativeAppVariableFillRequest
@@ -83,6 +94,9 @@ export interface NativeAppRuntimeBackend<
   ) => Effect.Effect<PlatformFillResult, PlatformRuntimeError>;
   readonly systemKey?: (
     key: NativeSystemKey
+  ) => Effect.Effect<void, PlatformRuntimeError>;
+  readonly rotate?: (
+    orientation: NativeOrientation
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
   /**

@@ -79,7 +79,7 @@ it.live("routes public iOS calls to iOS without accessing Android", () =>
   )
 );
 
-it("exposes Return to Target App in the device workspace command schema", () => {
+it("offers no Return to Target App: iOS follows the app in front", () => {
   const accepts = Schema.is(
     DeviceWorkspaceTools.tools.agent_device_workspace.parametersSchema
   );
@@ -88,6 +88,31 @@ it("exposes Return to Target App in the device workspace command schema", () => 
       command: {
         _tag: "return-to-target-app",
         operationId: "return-1",
+        sessionId: "agent-ios-session",
+      },
+      platform: "ios",
+    })
+  ).toBe(false);
+  for (const action of [{ _tag: "home" }, { _tag: "app-switcher" }]) {
+    expect(
+      accepts({
+        command: {
+          _tag: "input",
+          action,
+          observationId: "observation-1",
+          operationId: "key-1",
+          sessionId: "agent-ios-session",
+        },
+        platform: "ios",
+      })
+    ).toBe(true);
+  }
+  expect(
+    accepts({
+      command: {
+        _tag: "emulate",
+        change: { _tag: "orientation", orientation: "landscape" },
+        operationId: "rotate-1",
         sessionId: "agent-ios-session",
       },
       platform: "ios",
