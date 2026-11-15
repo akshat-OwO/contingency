@@ -156,3 +156,25 @@ test("an ended Run stays neutral unless it failed", () => {
     runDockPresentation(runSession({ phase: "interrupted" }), true).tone
   ).toBe("failed");
 });
+
+test("the badge says who drives and what waits on the person", () => {
+  const driving = runDockPresentation(runSession({}), true);
+  expect(driving.badge).toBe("Agent driving");
+  // The badge already names the holder, so the sentence does not repeat it.
+  expect(driving.nextStep).not.toContain("The agent has control");
+  expect(
+    runDockPresentation(
+      runSession({
+        boundary: {
+          action: { ref: "e1", type: "click" },
+          description: "Place the order",
+          id: "boundary-1",
+          operationId: "op-1",
+          reason: "confirmation",
+          requested: "Click Place order",
+        },
+      }),
+      true
+    ).badge
+  ).toBe("Waiting for you");
+});

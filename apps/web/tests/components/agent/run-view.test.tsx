@@ -725,7 +725,7 @@ test("offers user verification only for a completed working Dry Run with a compl
       invalidSummary.purpose.takeoverOccurred ||
       invalidSummary.assessment?.outcomeComplete === false;
     expect(presentation.badge).toBe(
-      qualifierOnly ? "Dry run did not pass" : "Dry run failed"
+      qualifierOnly ? "Did not pass" : "Dry run failed"
     );
     expect(presentation.tone).toBe(qualifierOnly ? "attention" : "failed");
   }

@@ -131,6 +131,10 @@ test("a recoverable pause asks for attention rather than failing", () => {
 test("a driven session is live", () => {
   const running = { ...pending, kind: "run", phase: "running" } as const;
   expect(androidDockPresentation(running).tone).toBe("live");
+  expect(androidDockPresentation(running).badge).toBe("You have control");
+  expect(
+    androidDockPresentation({ ...running, controller: "agent" }).badge
+  ).toBe("Agent driving");
   expect(
     androidDockPresentation({ ...running, controller: "agent" }).tone
   ).toBe("live");

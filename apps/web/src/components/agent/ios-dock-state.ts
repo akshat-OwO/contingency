@@ -206,11 +206,10 @@ const teachingPresentation = (
 const controlPresentation = (
   session: IosWorkspaceSnapshot
 ): IosDockPresentation => {
-  const badge = KIND_LABEL[session.kind];
   if (session.controller === "user") {
     return {
       ...quiet(
-        `${badge} · You have control`,
+        "You have control",
         session.kind === "dry-run"
           ? "You hold the simulator. This Dry Run cannot pass after Takeover; return control when you are done."
           : "You hold the simulator. Return control when you are done.",
@@ -221,7 +220,7 @@ const controlPresentation = (
   }
   return {
     ...quiet(
-      badge,
+      "Agent driving",
       "The agent is driving the simulator. Take control to act yourself.",
       "live"
     ),

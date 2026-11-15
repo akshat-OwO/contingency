@@ -695,7 +695,7 @@ try {
     await snapshot(`${kind}-passed`);
     if (kind === "dry-run") {
       await click("Verify flow");
-      await waitText("Recording deleted");
+      await waitText("Flow verified");
       const verified = await read(started.id);
       assert.equal(verified.cleanup._tag, "purged");
     }

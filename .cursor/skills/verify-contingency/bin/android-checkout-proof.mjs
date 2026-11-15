@@ -663,7 +663,7 @@ try {
     "browser",
     "wait",
     "--text",
-    "Recording deleted",
+    "Flow verified",
     "--timeout-ms",
     "90000"
   );

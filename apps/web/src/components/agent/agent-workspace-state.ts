@@ -271,7 +271,7 @@ export const agentStatusLabel = (
       : "You have control";
   }
   if (session.boundary !== undefined && session.boundary !== null) {
-    return "Waiting for confirmation";
+    return "Waiting for you";
   }
   if (session.phase === "starting") {
     return "Starting";
@@ -288,7 +288,15 @@ export const agentStatusLabel = (
   if (session.phase === "closed") {
     return "Closed";
   }
-  return streamConnected ? "Live" : "Connecting";
+  if (!streamConnected) {
+    return "Connecting";
+  }
+  // A Dry Run rehearses a Flow; any other live Run is the agent driving it.
+  return session.activity === "run" &&
+    session.dryRun !== null &&
+    session.dryRun !== undefined
+    ? "Rehearsing"
+    : "Agent driving";
 };
 
 /**

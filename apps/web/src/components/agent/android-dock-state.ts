@@ -230,11 +230,10 @@ const teachingPresentation = (
 const controlPresentation = (
   session: AndroidWorkspaceSnapshot
 ): AndroidDockPresentation => {
-  const badge = KIND_LABEL[session.kind];
   if (session.controller === "user") {
     return {
       ...quiet(
-        `${badge} · You have control`,
+        "You have control",
         session.kind === "dry-run"
           ? `You hold the emulator. This Dry Run cannot pass after Takeover; return control when you are done.`
           : `You hold the emulator. Return control when you are done.`,
@@ -245,7 +244,7 @@ const controlPresentation = (
   }
   return {
     ...quiet(
-      badge,
+      "Agent driving",
       `The agent is driving the emulator. Take control to act yourself.`,
       "live"
     ),

@@ -144,6 +144,9 @@ const endedRunSentences = (session: RunSessionSnapshot): readonly string[] =>
  * than in the sentence: they are the two longest strings the dock ever sees,
  * and the dock shows them behind the step counter instead (#238).
  */
+/** Badges that already say the agent holds the browser. */
+const AGENT_DRIVING_BADGES = new Set(["Agent driving", "Rehearsing"]);
+
 /**
  * Who holds the browser and why. The badge already names the holder, so the
  * sentence says it only when the badge says something else.
@@ -152,7 +155,9 @@ const controlSentences = (
   badge: string,
   control: { readonly holder: string; readonly reason: string | undefined }
 ): readonly string[] => [
-  ...(badge.toLowerCase().includes(control.holder.toLowerCase())
+  ...(badge.toLowerCase().includes(control.holder.toLowerCase()) ||
+  (AGENT_DRIVING_BADGES.has(badge) &&
+    control.holder === "The agent has control")
     ? []
     : [`${control.holder}.`]),
   ...(control.reason === undefined ? [] : [control.reason]),

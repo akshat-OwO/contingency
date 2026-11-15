@@ -39,6 +39,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 import { BrowserModificationBadge } from "./browser-modifications";
 
@@ -70,7 +71,7 @@ const AgentIdle = ({ session }: { readonly session: RunSessionSnapshot }) => {
   }
   return (
     <span
-      className="text-muted-foreground hidden shrink-0 items-center gap-1 text-xs tabular-nums @lg:inline-flex"
+      className="inline-flex shrink-0 items-center gap-1 text-xs leading-5 whitespace-nowrap text-amber-700 tabular-nums dark:text-amber-400"
       title={notice}
     >
       <TimerIcon aria-hidden="true" className="size-3.5" />
@@ -80,21 +81,11 @@ const AgentIdle = ({ session }: { readonly session: RunSessionSnapshot }) => {
 };
 
 /**
- * `3 of 6 Agent Steps executed` on a wide stage, `3 of 6` on a narrow one, so
- * the controls row keeps its one line beside the devtools.
+ * `3 of 6 steps` beside the state badge. The whole `3 of 6 Agent Steps
+ * executed` stays the counter's accessible name and its title.
  */
-const CoverageLabel = ({ coverage }: { readonly coverage: string }) => {
-  const short = coverage.replace(/ Agent Steps executed$/u, "");
-  if (short === coverage) {
-    return coverage;
-  }
-  return (
-    <>
-      {short}
-      <span className="hidden @2xl:inline"> Agent Steps executed</span>
-    </>
-  );
-};
+const CoverageLabel = ({ coverage }: { readonly coverage: string }) =>
+  coverage.replace(/ Agent Steps executed$/u, " steps");
 
 /**
  * How far the Run got, and behind it the Agent Step it is on. The counter is a
@@ -116,7 +107,11 @@ const RunCoverage = ({
   const label = <CoverageLabel coverage={coverage} />;
   if (step === undefined) {
     return (
-      <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+      <span
+        aria-label={coverage}
+        className={cn(dockFactClassName, "tabular-nums")}
+        title={coverage}
+      >
         {label}
       </span>
     );
@@ -128,15 +123,17 @@ const RunCoverage = ({
           <Button
             {...props}
             aria-label={`${coverage}. ${step.label}.`}
-            size="sm"
+            className="text-muted-foreground -my-0.5 h-6 px-1.5 font-normal tabular-nums"
+            size="xs"
+            title={coverage}
             variant="ghost"
           >
-            <ListChecksIcon aria-hidden="true" className="@2xl:hidden" />
-            <span className="tabular-nums">{label}</span>
+            <ListChecksIcon aria-hidden="true" />
+            {label}
           </Button>
         )}
       />
-      <PopoverContent align="end" side="top">
+      <PopoverContent align="start" side="top">
         <PopoverTitle>{step.label}</PopoverTitle>
         <p>{step.name}</p>
         <p className="text-muted-foreground max-h-64 overflow-y-auto text-xs">
@@ -227,12 +224,12 @@ const TaskDetails = ({
 };
 
 /**
- * The Workspace dock for a Dry Run and an Interactive Run, on the same
- * two-tier card Teaching gets. Above the card's status line sits whatever the
- * agent is waiting on (`requests`); the status line holds the state badge and
- * the next-step sentence; the controls row holds the session picker, how long
- * an idle agent has been quiet, coverage, the task, and the one control that
- * reads `Take control` or `Return control` (#209).
+ * The Workspace dock for a Dry Run and an Interactive Run, on the same card
+ * Teaching gets. Above the card's status line sits whatever the agent is
+ * waiting on (`requests`). The status line holds the state badge, the facts
+ * beside it (coverage, how long an idle agent has been quiet, provenance), and
+ * the next-step sentence. The controls row holds the session picker, the task,
+ * and the one control that reads `Take control` or `Return control` (#209).
  */
 export const RunDock = ({
   controlError,
@@ -291,6 +288,13 @@ export const RunDock = ({
               <DockState tone={presentation.tone}>
                 {presentation.badge}
               </DockState>
+              {presentation.coverage === undefined ? null : (
+                <RunCoverage
+                  coverage={presentation.coverage}
+                  step={presentation.step}
+                />
+              )}
+              <AgentIdle session={session} />
               <ProvenanceBadge provenance={provenance} />
               <BrowserModificationBadge
                 modifications={taskRun?.browserModifications ?? []}
@@ -311,13 +315,6 @@ export const RunDock = ({
       />
       {flows}
       <DockSpacer />
-      <AgentIdle session={session} />
-      {presentation.coverage === undefined ? null : (
-        <RunCoverage
-          coverage={presentation.coverage}
-          step={presentation.step}
-        />
-      )}
       {taskRun === undefined ? null : (
         <TaskDetails
           run={taskRun}

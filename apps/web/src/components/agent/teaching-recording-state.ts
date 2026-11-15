@@ -119,7 +119,7 @@ const dryRunMissBadge = (
   summary !== undefined &&
   isTaskDryRunSummary(summary) &&
   dryRunMissedOnlyQualifiers(summary)
-    ? { badge: "Dry run did not pass", tone: "attention" }
+    ? { badge: "Did not pass", tone: "attention" }
     : { badge: "Dry run failed", tone: "failed" };
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
@@ -329,9 +329,9 @@ export const teachingRecordingPresentation = (
       }
       return {
         action: null,
-        badge: "Recording deleted",
+        badge: "Flow verified",
         nextStep:
-          "The Flow and its references are all that is left. Run it any time.",
+          "The recording is deleted. The Flow and its references are all that is left.",
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
