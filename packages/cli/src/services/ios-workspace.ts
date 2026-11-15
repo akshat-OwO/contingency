@@ -69,6 +69,7 @@ import {
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import { OwnedDevices } from "./owned-devices.ts";
 import type { OwnedDevicesService } from "./owned-devices.ts";
+import { isSystemKeyInput, systemKeyDescription } from "./platform-runtime.ts";
 import type { PlatformFillResult } from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
@@ -207,8 +208,10 @@ const actionDescription = (
         detail: value,
       };
     }
-    case "back": {
-      return { description: "Go back", detail: null };
+    case "back":
+    case "home":
+    case "app-switcher": {
+      return { description: systemKeyDescription[action._tag], detail: null };
     }
     case "fill": {
       return {
@@ -1410,14 +1413,13 @@ export const makeIosWorkspaceLayer = (options: {
               );
             }
           }
-          const selectedTarget =
-            action._tag === "back"
-              ? undefined
-              : selectedObservation.nodes.find(
-                  (node) => node.target === action.target
-                );
+          const selectedTarget = isSystemKeyInput(action)
+            ? undefined
+            : selectedObservation.nodes.find(
+                (node) => node.target === action.target
+              );
           if (
-            action._tag !== "back" &&
+            !isSystemKeyInput(action) &&
             (!selectedTarget ||
               ((action._tag === "fill" || action._tag === "variable") &&
                 !selectedTarget.editable) ||
@@ -1472,7 +1474,7 @@ export const makeIosWorkspaceLayer = (options: {
                     !node.covered &&
                     node.packageName === selectedTarget.packageName
                 );
-          if (action._tag !== "back" && matches.length !== 1) {
+          if (!isSystemKeyInput(action) && matches.length !== 1) {
             return yield* denied(
               "The selected semantic control changed or is ambiguous. Refresh and choose it again; no input was forwarded."
             );
@@ -1518,8 +1520,8 @@ export const makeIosWorkspaceLayer = (options: {
               ),
               variable: `{{${action.name}}}`,
             });
-          } else if (action._tag === "back") {
-            yield* session.run.back(before.id);
+          } else if (isSystemKeyInput(action)) {
+            yield* session.run.systemKey(before.id, action._tag);
           } else {
             const dispatched = yield* session.run.dispatch(
               before.id,

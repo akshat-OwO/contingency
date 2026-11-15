@@ -143,7 +143,7 @@ test("preserves explicit permission grants and denials and rejects ambiguous dec
   expect(parseAndroidPermissionDecisions("grant camera")).toBeUndefined();
 });
 
-test("Confirmation keeps the device healthy and Take control enables Back", async () => {
+test("Confirmation keeps the device healthy and Take control enables the rail", async () => {
   const user = userEvent.setup();
   const session: AndroidWorkspaceSnapshot = {
     ...completed,
@@ -202,7 +202,9 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
     ),
   });
   expect(screen.queryByText("Device disconnected")).toBeNull();
-  expect(screen.getByRole("button", { name: "Android Back" })).toBeDisabled();
+  for (const name of ["Android Back", "Android Home", "Android Recents"]) {
+    expect(screen.getByRole("button", { name })).toBeDisabled();
+  }
   await user.click(screen.getByRole("button", { name: "Take control" }));
   expect(mutate).toHaveBeenCalledWith(
     expect.objectContaining({ _tag: "control", controller: "user" })
@@ -214,12 +216,16 @@ test("Confirmation keeps the device healthy and Take control enables Back", asyn
     />
   );
   await user.click(screen.getByRole("button", { name: "Android Back" }));
-  // Back is Forwarded Input: the GoBack key goes straight to the device.
+  await user.click(screen.getByRole("button", { name: "Android Home" }));
+  await user.click(screen.getByRole("button", { name: "Android Recents" }));
+  // The rail's keys are Forwarded Input: each goes straight to the device.
   await waitFor(() =>
-    expect(forwarded.flatMap((request) => request.inputs)).toEqual([
-      expect.objectContaining({ _tag: "key", action: "down", key: "GoBack" }),
-      expect.objectContaining({ _tag: "key", action: "up", key: "GoBack" }),
-    ])
+    expect(forwarded.flatMap((request) => request.inputs)).toEqual(
+      ["GoBack", "GoHome", "AppSwitch"].flatMap((key) => [
+        expect.objectContaining({ _tag: "key", action: "down", key }),
+        expect.objectContaining({ _tag: "key", action: "up", key }),
+      ])
+    )
   );
 });
 

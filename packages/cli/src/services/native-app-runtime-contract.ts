@@ -3,6 +3,7 @@ import type { Effect, Redacted, Scope } from "effect";
 
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import type {
+  NativeSystemKey,
   PlatformObservation,
   PlatformRuntimeError,
   PlatformRuntimeService,
@@ -51,8 +52,10 @@ export interface NativeAppRuntime<
   readonly backendSessionId: string;
   readonly observe: () => Effect.Effect<Observation, PlatformRuntimeError>;
   readonly state: () => NativeAppRuntimeState;
-  readonly back: (
-    observationId: string
+  /** Presses one of the device's own navigation keys. */
+  readonly systemKey: (
+    observationId: string,
+    key: NativeSystemKey
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly recover: () => Effect.Effect<Observation, PlatformRuntimeError>;
   readonly enterVariable: (
@@ -78,7 +81,9 @@ export interface NativeAppRuntimeBackend<
     target: string,
     text: string
   ) => Effect.Effect<PlatformFillResult, PlatformRuntimeError>;
-  readonly back?: () => Effect.Effect<void, PlatformRuntimeError>;
+  readonly systemKey?: (
+    key: NativeSystemKey
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly close: () => Effect.Effect<void, PlatformRuntimeError>;
   /**
    * Records the device's screen. It runs beside the runtime's input and
@@ -92,7 +97,7 @@ export interface NativeAppActionPolicy<
 > {
   readonly publicAction: (
     observation: Observation,
-    action: PlatformAction | { readonly type: "back" }
+    action: PlatformAction | { readonly type: NativeSystemKey }
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly unconfirmedFill?: (
     observation: Observation,

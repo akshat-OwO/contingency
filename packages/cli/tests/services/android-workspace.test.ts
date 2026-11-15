@@ -232,10 +232,6 @@ const fixture = (
           Effect.sync(() => {
             calls.push("activate");
           }),
-        back: () =>
-          Effect.sync(() => {
-            calls.push("back");
-          }),
         capture: () =>
           Effect.suspend(() => {
             const gate = held;
@@ -322,6 +318,10 @@ const fixture = (
           }),
         recover: () => Effect.void,
         sessionId: "fixture-session",
+        systemKey: (key) =>
+          Effect.sync(() => {
+            calls.push(key);
+          }),
         validate: () => {
           if (secure) {
             return Effect.fail(platformRuntimeError("secure_window"));
@@ -1311,6 +1311,25 @@ it.effect(
         );
         expect(refused.message).toContain("The screen changed before Back");
         expect(calls.filter((call) => call === "back").length).toBe(backs);
+        // Home and the App Switcher do not depend on the screen they leave.
+        for (const key of ["home", "app-switcher"] as const) {
+          const seenBefore = yield* workspace.execute(
+            { _tag: "observe", image: false, sessionId: started.id },
+            "user"
+          );
+          setNodes(statusBarScreen(key === "home" ? 130 : 140));
+          yield* workspace.execute(
+            {
+              _tag: "input",
+              action: { _tag: key },
+              observationId: seenBefore.observation?.id ?? "",
+              operationId: op(key),
+              sessionId: started.id,
+            },
+            "user"
+          );
+        }
+        expect(calls.slice(-2)).toEqual(["home", "app-switcher"]);
       })
     )
 );

@@ -548,12 +548,6 @@ export const acquireAndroidBackend = (
             "runtime_failed",
             "activate"
           ).pipe(Effect.asVoid),
-        back: () =>
-          io(
-            (signal) => client.command.back({ ...options(), signal }),
-            "runtime_failed",
-            "back"
-          ).pipe(Effect.asVoid),
         capture: () =>
           // The runtime validates the environment on its own cadence; the
           // device identity of each capture is still checked here.
@@ -652,6 +646,21 @@ export const acquireAndroidBackend = (
           ),
         recover: lifecycle.recover,
         sessionId,
+        systemKey: (key) =>
+          io(
+            async (signal) => {
+              const request = { ...options(), signal };
+              if (key === "home") {
+                await client.command.home(request);
+              } else if (key === "app-switcher") {
+                await client.command.appSwitcher(request);
+              } else {
+                await client.command.back(request);
+              }
+            },
+            "runtime_failed",
+            key
+          ).pipe(Effect.asVoid),
         validate,
       };
       return backend;

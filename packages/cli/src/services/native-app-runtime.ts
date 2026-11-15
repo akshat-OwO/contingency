@@ -12,7 +12,9 @@ import type {
   NativeAppVariableFillRequest,
   NativeAppActionPolicy,
 } from "./native-app-runtime-contract.ts";
+import { isSystemKey } from "./platform-runtime.ts";
 import type {
+  NativeSystemKey,
   PlatformAction,
   PlatformObservation,
   PlatformRuntimeError,
@@ -140,7 +142,7 @@ export const adaptNativeAppRuntime = <
     });
     const mutate = (
       id: string,
-      action: PlatformAction | { readonly type: "back" }
+      action: PlatformAction | { readonly type: NativeSystemKey }
     ) =>
       lock.withPermits(1)(
         guarded(
@@ -161,11 +163,11 @@ export const adaptNativeAppRuntime = <
               ...current,
               outcome: "uncertain" as const,
             }));
-            if (action.type === "back") {
-              if (input.backend.back === undefined) {
+            if (isSystemKey(action)) {
+              if (input.backend.systemKey === undefined) {
                 return yield* Effect.fail(error("capability_missing"));
               }
-              yield* input.backend.back();
+              yield* input.backend.systemKey(action.type);
             } else if (action.type === "activate") {
               yield* input.backend.activate(action.target);
             } else {
@@ -220,7 +222,6 @@ export const adaptNativeAppRuntime = <
     // Retain the terminal state for callers inspecting cleanup failures.
     yield* Scope.addFinalizer(input.startup.scope, close);
     return {
-      back: (id) => mutate(id, { type: "back" }),
       backendSessionId: input.backend.sessionId,
       capabilities: input.capabilities,
       close: () => close,
@@ -249,5 +250,6 @@ export const adaptNativeAppRuntime = <
         ),
       screenRecorder: input.backend.screenRecorder,
       state,
+      systemKey: (id, key) => mutate(id, { type: key }),
     };
   });

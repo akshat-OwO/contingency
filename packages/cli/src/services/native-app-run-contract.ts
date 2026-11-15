@@ -88,7 +88,7 @@ export interface NativeAppRun<Observation extends PlatformObservation, State> {
   readonly restart: () => Effect.Effect<Observation, PlatformRuntimeError>;
   readonly observe: NativeAppRuntime<Observation>["observe"];
   readonly dispatch: NativeAppRuntime<Observation>["dispatch"];
-  readonly back: NativeAppRuntime<Observation>["back"];
+  readonly systemKey: NativeAppRuntime<Observation>["systemKey"];
   readonly enterVariable: NativeAppRuntime<Observation>["enterVariable"];
   readonly recover: NativeAppRuntime<Observation>["recover"];
   readonly close: NativeAppRuntime<Observation>["close"];

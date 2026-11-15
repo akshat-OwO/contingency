@@ -171,12 +171,6 @@ export const createNativeAppRun = <
     );
     yield* Scope.addFinalizer(startup.scope, close);
     return {
-      back: (id) =>
-        lock.withPermits(1)(
-          guarded(
-            requireRuntime().pipe(Effect.flatMap((active) => active.back(id)))
-          )
-        ),
       close: () => close,
       decide: (id, allow) =>
         lock.withPermits(1)(
@@ -327,5 +321,13 @@ export const createNativeAppRun = <
       screenRecorder: () =>
         terminal === undefined ? runtime?.screenRecorder : undefined,
       state,
+      systemKey: (id, key) =>
+        lock.withPermits(1)(
+          guarded(
+            requireRuntime().pipe(
+              Effect.flatMap((active) => active.systemKey(id, key))
+            )
+          )
+        ),
     };
   });

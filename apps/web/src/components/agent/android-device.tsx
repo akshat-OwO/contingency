@@ -3,8 +3,10 @@ import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ChevronLeftIcon,
+  CircleIcon,
   ShieldAlertIcon,
   SmartphoneIcon,
+  SquareIcon,
   UnplugIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -28,13 +30,17 @@ const DEFAULT_FRAME: AndroidStreamFrame = { height: 2400, width: 1080 };
  * A device frame like the one T3 Code draws: a thin metal rim and the side
  * keys. The glass is exactly the frame's aspect, so a click's position on it
  * is its position on the device and the live display is never letterboxed.
+ * A rail, when given, sits beside the frame's right edge from its top, and
+ * the two are centered together.
  */
 export const DeviceFrame = ({
   children,
   frame,
+  rail,
 }: {
   readonly children: React.ReactNode;
   readonly frame: AndroidStreamFrame;
+  readonly rail?: React.ReactNode;
 }) => (
   // The frame fits whichever of the stage's width or height runs out first,
   // so a phone-width stage never pushes it past the edge. A size container
@@ -43,67 +49,87 @@ export const DeviceFrame = ({
     className="grid size-full min-h-0 min-w-0 place-items-center"
     style={{ containerType: "size" }}
   >
-    <div
-      className="relative"
-      style={{
-        width: `min(100cqw, calc((100cqh - 24px) * ${frame.width} / ${frame.height} + 24px))`,
-      }}
-    >
-      <span
-        aria-hidden="true"
-        className="absolute top-[22%] -right-[3px] h-[9%] w-[3px] rounded-r bg-neutral-500"
-      />
-      <span
-        aria-hidden="true"
-        className="absolute top-[35%] -right-[3px] h-[14%] w-[3px] rounded-r bg-neutral-500"
-      />
-      <div className="w-full rounded-[2.75rem] bg-gradient-to-b from-neutral-500 via-neutral-700 to-neutral-600 p-[3px] shadow-2xl">
-        <div className="w-full rounded-[2.6rem] bg-neutral-950 p-[9px]">
-          <div
-            className="relative w-full overflow-hidden rounded-[2.1rem] bg-neutral-950"
-            style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
-          >
-            {children}
+    <div className="flex items-start gap-3">
+      <div
+        className="relative"
+        style={{
+          // A rail takes 64px of the width: 52px wide, 12px from the frame.
+          width: `min(100cqw - ${rail === undefined ? 0 : 64}px, calc((100cqh - 24px) * ${frame.width} / ${frame.height} + 24px))`,
+        }}
+      >
+        <span
+          aria-hidden="true"
+          className="absolute top-[22%] -right-[3px] h-[9%] w-[3px] rounded-r bg-neutral-500"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute top-[35%] -right-[3px] h-[14%] w-[3px] rounded-r bg-neutral-500"
+        />
+        <div className="w-full rounded-[2.75rem] bg-gradient-to-b from-neutral-500 via-neutral-700 to-neutral-600 p-[3px] shadow-2xl">
+          <div className="w-full rounded-[2.6rem] bg-neutral-950 p-[9px]">
+            <div
+              className="relative w-full overflow-hidden rounded-[2.1rem] bg-neutral-950"
+              style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
+            >
+              {children}
+            </div>
           </div>
         </div>
       </div>
+      {rail}
     </div>
   </div>
 );
 
+/** A device navigation key, by the `KeyboardEvent.key` it is forwarded as. */
+export type DeviceKey = "AppSwitch" | "GoBack" | "GoHome";
+
 /**
- * Back is the one key the Android runtime sends. Home and Recents leave
- * the Target App, so the toolbar offers nothing it would refuse.
+ * Android's navigation keys, in the order the device draws them. Native
+ * agents use the whole OS (ADR 0067), so each key works over any app.
  */
-const DeviceToolbar = ({
+const ANDROID_KEYS = [
+  { icon: ChevronLeftIcon, key: "GoBack", label: "Back" },
+  { icon: CircleIcon, key: "GoHome", label: "Home" },
+  { icon: SquareIcon, key: "AppSwitch", label: "Recents" },
+] as const satisfies readonly {
+  readonly icon: typeof ChevronLeftIcon;
+  readonly key: DeviceKey;
+  readonly label: string;
+}[];
+
+/** The rail beside the frame. Its keys act only while the user is in control. */
+const DeviceRail = ({
   canAct,
-  onBack,
+  onKey,
 }: {
   readonly canAct: boolean;
-  readonly onBack: () => void;
+  readonly onKey: (key: DeviceKey) => void;
 }) => (
   <nav
     aria-label="Device controls"
     className="material-float flex shrink-0 flex-col items-center gap-1 rounded-2xl p-1.5 shadow-sm"
   >
-    <Tooltip>
-      <TooltipTrigger
-        render={(props) => (
-          <Button
-            {...props}
-            aria-label="Android Back"
-            className="size-10 rounded-xl"
-            disabled={!canAct}
-            onClick={onBack}
-            size="icon"
-            variant="ghost"
-          >
-            <ChevronLeftIcon />
-          </Button>
-        )}
-      />
-      <TooltipContent side="right">Back</TooltipContent>
-    </Tooltip>
+    {ANDROID_KEYS.map(({ icon: Icon, key, label }) => (
+      <Tooltip key={key}>
+        <TooltipTrigger
+          render={(props) => (
+            <Button
+              {...props}
+              aria-label={`Android ${label}`}
+              className="size-10 rounded-xl"
+              disabled={!canAct}
+              onClick={() => onKey(key)}
+              size="icon"
+              variant="ghost"
+            >
+              <Icon />
+            </Button>
+          )}
+        />
+        <TooltipContent side="left">{label}</TooltipContent>
+      </Tooltip>
+    ))}
   </nav>
 );
 
@@ -129,8 +155,8 @@ export const DeviceUnavailable = ({
 );
 
 /**
- * The live device: the frame with the stream filling its glass and its keys
- * on the left. While the user can act, what they do on the glass goes to
+ * The live device: the frame with the stream filling its glass and its rail
+ * on the right. While the user can act, what they do on the glass goes to
  * `onInput` as Forwarded Input.
  */
 export const AndroidDevice = ({
@@ -138,7 +164,7 @@ export const AndroidDevice = ({
   cleanup,
   ended = false,
   live,
-  onBack,
+  onDeviceKey,
   onInput,
   paused,
   pending,
@@ -153,7 +179,7 @@ export const AndroidDevice = ({
   readonly ended?: boolean;
   /** Whether the session holds a prepared device to stream. */
   readonly live: boolean;
-  readonly onBack: () => void;
+  readonly onDeviceKey: (key: DeviceKey) => void;
   readonly onInput: (input: NativeInput) => void;
   readonly paused: boolean;
   readonly pending: boolean;
@@ -178,22 +204,22 @@ export const AndroidDevice = ({
   return (
     <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-3 lg:gap-5">
       {/*
-        The side columns balance the frame on a wide stage; a narrow one
-        keeps only the keys beside it. Why a click sent nothing is said in the
-        dock, so nothing ever covers the glass.
+        The side columns balance the frame and its rail on a wide stage. Why
+        a click sent nothing is said in the dock, so nothing ever covers the
+        glass.
       */}
-      {/* Back sits low beside the frame, where a phone's own keys are. */}
-      <div className="flex shrink-0 justify-end self-end pb-16 lg:w-56">
-        <DeviceToolbar canAct={canAct} onBack={onBack} />
-      </div>
+      <div aria-hidden="true" className="hidden lg:block lg:w-56 lg:shrink-0" />
       <div
         aria-busy={pending}
         className={cn(
-          "h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,28rem)]",
+          "h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,32rem)]",
           pending && "cursor-progress"
         )}
       >
-        <DeviceFrame frame={frame}>
+        <DeviceFrame
+          frame={frame}
+          rail={<DeviceRail canAct={canAct} onKey={onDeviceKey} />}
+        >
           {live && !secure ? (
             <AndroidLiveStream
               dimmed={paused}

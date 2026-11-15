@@ -60,7 +60,6 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
         Effect.sync(() => {
           calls.push("activate");
         }),
-      back: () => Effect.void,
       capture: () =>
         Effect.sync((): AndroidObservation => {
           generation += 1;
@@ -128,6 +127,7 @@ const fixture = (confirmation: "confirmed" | "unconfirmed" = "confirmed") =>
       fill: () => Effect.succeed({ confirmation, outcome: "entered" }),
       recover: () => Effect.void,
       sessionId: "fixture-session",
+      systemKey: () => Effect.void,
       validate: () =>
         capturable
           ? Effect.void

@@ -110,10 +110,6 @@ const makeFixture = (
         Effect.sync(() => {
           commands.push("activate");
         }),
-      back: () =>
-        Effect.sync(() => {
-          commands.push("back");
-        }),
       capture: () =>
         Effect.sync(() => {
           generation += 1;
@@ -133,6 +129,10 @@ const makeFixture = (
         }),
       recover: () => Effect.void,
       sessionId: "owned-session",
+      systemKey: (key) =>
+        Effect.sync(() => {
+          commands.push(key);
+        }),
       validate: () => Effect.void,
     };
     const input = { ...startup(yield* Scope.Scope), requiredCapabilities };
@@ -224,19 +224,32 @@ it.effect(
     })
 );
 
-it.effect("permits public text and Back only through a fresh observation", () =>
-  Effect.gen(function* supportedActions() {
-    const { commands, runtime } = yield* makeFixture();
-    const first = yield* runtime.observe();
-    yield* runtime.dispatch(first.id, {
-      target: "@e2~s1",
-      text: "ordinary fixture value",
-      type: "fill",
-    });
-    const second = yield* runtime.observe();
-    yield* runtime.back(second.id);
-    expect(commands).toEqual(["public:ordinary fixture value", "back"]);
-  })
+it.effect(
+  "permits public text and system keys only through a fresh observation",
+  () =>
+    Effect.gen(function* supportedActions() {
+      const { commands, runtime } = yield* makeFixture();
+      const first = yield* runtime.observe();
+      yield* runtime.dispatch(first.id, {
+        target: "@e2~s1",
+        text: "ordinary fixture value",
+        type: "fill",
+      });
+      const second = yield* runtime.observe();
+      yield* runtime.systemKey(second.id, "back");
+      yield* runtime.systemKey((yield* runtime.observe()).id, "home");
+      yield* runtime.systemKey((yield* runtime.observe()).id, "app-switcher");
+      // Each key consumes its observation.
+      expect(
+        (yield* Effect.flip(runtime.systemKey(second.id, "home"))).code
+      ).toBe("observation_stale");
+      expect(commands).toEqual([
+        "public:ordinary fixture value",
+        "back",
+        "home",
+        "app-switcher",
+      ]);
+    })
 );
 
 it.effect(

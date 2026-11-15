@@ -2,7 +2,11 @@ import { Effect } from "effect";
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import type { NativeAppActionPolicy } from "./native-app-runtime-contract.ts";
-import type { PlatformRuntimeError } from "./platform-runtime.ts";
+import { isSystemKey } from "./platform-runtime.ts";
+import type {
+  NativeSystemKey,
+  PlatformRuntimeError,
+} from "./platform-runtime.ts";
 
 type NativeControls = Pick<AndroidObservation, "nodes">;
 
@@ -11,7 +15,7 @@ export const nativeAppActionPolicy = (
   error: (
     code: "target_unsupported" | "capability_missing"
   ) => PlatformRuntimeError,
-  back: boolean
+  systemKeys: readonly NativeSystemKey[]
 ): NativeAppActionPolicy<
   NativeControls & {
     readonly id: string;
@@ -21,8 +25,8 @@ export const nativeAppActionPolicy = (
 > => ({
   publicAction: (captured, action) =>
     Effect.gen(function* validateAction() {
-      if (action.type === "back") {
-        if (!back) {
+      if (isSystemKey(action)) {
+        if (!systemKeys.includes(action.type)) {
           return yield* Effect.fail(error("capability_missing"));
         }
         return;
