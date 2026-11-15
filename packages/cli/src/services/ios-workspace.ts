@@ -21,6 +21,7 @@ import type {
   NativeOrientation,
   PlatformRequirements,
   RunVideoFastForward,
+  TeachingRecordingManifest,
 } from "@contingency/protocol";
 import {
   Context,
@@ -101,6 +102,7 @@ import type {
 } from "./target-app-builds.ts";
 import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
+import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 
 export interface IosWorkspaceError {
   readonly code: string;
@@ -951,6 +953,71 @@ export const makeIosWorkspaceLayer = (options: {
         ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
       );
 
+      /** A Dry Run installs what was taught and never a named build (ADR 0085). */
+      const recordedBuild = (
+        named: string | undefined,
+        manifest: TeachingRecordingManifest
+      ) =>
+        named === undefined
+          ? store
+              .targetAppBuild(manifest)
+              .pipe(
+                Effect.mapError((cause) =>
+                  error("ios_workspace_refused", cause.message)
+                )
+              )
+          : denied(
+              "A Dry Run installs its Teaching Recording's build automatically. Start it again without appPath."
+            );
+      /**
+       * The build a startup installs. An upload belongs to the session until
+       * its recording, begun here, takes it, so the run installs it from
+       * there; a failed startup deletes it. A Dry Run installs its
+       * recording's build, and closing a Teaching session ends its hold
+       * (ADR 0085).
+       */
+      const startupBuild = (input: {
+        readonly command: Extract<
+          IosWorkspaceCommand,
+          { readonly _tag: "start" }
+        >;
+        readonly recorded: RecordedTargetAppBuild | undefined;
+        readonly recordingId: TeachingRecordingId | null;
+        readonly runtime: PlatformRequirements;
+        readonly scope: Scope.Closeable;
+        readonly sessionId: AgentSessionId;
+      }) =>
+        Effect.gen(function* startupTargetAppBuild() {
+          const { command, recordingId, scope } = input;
+          const named = command.selection.appPath;
+          if (named === undefined) {
+            return input.recorded;
+          }
+          const claimed = yield* claimBuild(builds, "ios", named, scope);
+          if (command.kind !== "teaching" || recordingId === null) {
+            return claimed;
+          }
+          yield* store.begin({
+            emulation: null,
+            flowName: command.flowName,
+            group: command.group,
+            operationId: command.operationId,
+            recordingId,
+            runtime: input.runtime,
+            sessionId: input.sessionId,
+          });
+          yield* Scope.addFinalizer(
+            scope,
+            store.releaseTargetAppBuild(recordingId).pipe(Effect.ignore)
+          );
+          const adopted = yield* store.adoptTargetAppBuild({
+            platform: "ios",
+            recordingId,
+            sha256: claimed.sha256,
+            source: claimed.path,
+          });
+          return { path: adopted, sha256: claimed.sha256 };
+        }).pipe(Effect.onError(() => Scope.close(input.scope, Exit.void)));
       const selectRequirements = (
         command: Extract<IosWorkspaceCommand, { readonly _tag: "start" }>
       ) =>
@@ -964,6 +1031,7 @@ export const makeIosWorkspaceLayer = (options: {
             preparation: selection.setup,
           };
           let inputs: readonly { readonly name: string }[] = [];
+          let build: RecordedTargetAppBuild | undefined;
           let { recordingId } = command;
           if (command.kind === "teaching") {
             recordingId = TeachingRecordingId.make(`recording-${randomUUID()}`);
@@ -1013,6 +1081,7 @@ export const makeIosWorkspaceLayer = (options: {
                   "The iOS recording is not ready for this Flow's Dry Run."
                 );
               }
+              build = yield* recordedBuild(selection.appPath, manifest);
             }
           }
           // A Dry Run or Run applies its saved Flow's setup, including its
@@ -1022,7 +1091,7 @@ export const makeIosWorkspaceLayer = (options: {
             command.kind !== "teaching" && taught.platform === "ios"
               ? (taught.preparation ?? fallback)
               : selection.setup;
-          return { inputs, recordingId, setup, taught };
+          return { build, inputs, recordingId, setup, taught };
         });
       const start = (
         command: Extract<IosWorkspaceCommand, { readonly _tag: "start" }>,
@@ -1058,7 +1127,7 @@ export const makeIosWorkspaceLayer = (options: {
                 );
               }
               const handOff = yield* requireAvailableSimulator(command);
-              const { taught, recordingId, inputs, setup } =
+              const { build, taught, recordingId, inputs, setup } =
                 yield* selectRequirements(command);
               const id = AgentSessionId.make(
                 `agent-ios-${hash(command.operationId).slice(0, 32)}`
@@ -1068,13 +1137,14 @@ export const makeIosWorkspaceLayer = (options: {
               unpublished = scope;
               // Held from here until the session's cleanup has finished.
               yield* reserveDevice(ownedDevices, device.udid, id, scope);
-              // An uploaded build belongs to this session: closing its scope
-              // deletes the upload, including when startup fails.
-              const appPath =
-                selection.appPath === undefined
-                  ? undefined
-                  : (yield* claimBuild(builds, "ios", selection.appPath, scope))
-                      .path;
+              const appPath = (yield* startupBuild({
+                command,
+                recorded: build,
+                recordingId,
+                runtime: taught,
+                scope,
+                sessionId: id,
+              }))?.path;
               const startup: IosRunInput = {
                 device,
                 environment: selection.environment,

@@ -263,7 +263,7 @@ export const startDryRun = (input: DryRunStartInput) =>
       return yield* Effect.fail(
         orchestrationError(
           "teaching_recording_native_entry_point",
-          `Teaching Recording ${manifest.recordingId} is a native ${manifest.runtime.platform} recording. Start its Dry Run with agent_device_workspace: { platform: "${manifest.runtime.platform}", command: { _tag: "start", kind: "dry-run", flowName: "${manifest.flowName}", recordingId: "${manifest.recordingId}", operationId, selection } }, where selection is the device the user prepares in Workspace.`
+          `Teaching Recording ${manifest.recordingId} is a native ${manifest.runtime.platform} recording. Start its Dry Run with agent_device_workspace: { platform: "${manifest.runtime.platform}", command: { _tag: "start", kind: "dry-run", flowName: "${manifest.flowName}", recordingId: "${manifest.recordingId}", operationId, selection } }, where selection is the device the user prepares in Workspace. Leave out apkPath and appPath: the Dry Run installs the build the recording was taught with.`
         )
       );
     }

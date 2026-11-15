@@ -19,6 +19,7 @@ import type {
   NativeLocation,
   PlatformRequirements,
   RunVideoFastForward,
+  TeachingRecordingManifest,
 } from "@contingency/protocol";
 import {
   Context,
@@ -93,6 +94,7 @@ import type {
 } from "./target-app-builds.ts";
 import { decideFlow } from "./teaching-recording-orchestration.ts";
 import { TeachingRecordingStore } from "./teaching-recording-store.ts";
+import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 
 export interface AndroidWorkspaceError {
   readonly code: string;
@@ -923,6 +925,71 @@ export const makeAndroidWorkspaceLayer = (options: {
         ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
       );
 
+      /** A Dry Run installs what was taught and never a named build (ADR 0085). */
+      const recordedBuild = (
+        named: string | undefined,
+        manifest: TeachingRecordingManifest
+      ) =>
+        named === undefined
+          ? store
+              .targetAppBuild(manifest)
+              .pipe(
+                Effect.mapError((cause) =>
+                  error("android_workspace_refused", cause.message)
+                )
+              )
+          : denied(
+              "A Dry Run installs its Teaching Recording's build automatically. Start it again without apkPath."
+            );
+      /**
+       * The build a startup installs. An upload belongs to the session until
+       * its recording, begun here, takes it, so the run installs it from
+       * there; a failed startup deletes it. A Dry Run installs its
+       * recording's build, and closing a Teaching session ends its hold
+       * (ADR 0085).
+       */
+      const startupBuild = (input: {
+        readonly command: Extract<
+          AndroidWorkspaceCommand,
+          { readonly _tag: "start" }
+        >;
+        readonly recorded: RecordedTargetAppBuild | undefined;
+        readonly recordingId: TeachingRecordingId | null;
+        readonly runtime: PlatformRequirements;
+        readonly scope: Scope.Closeable;
+        readonly sessionId: AgentSessionId;
+      }) =>
+        Effect.gen(function* startupTargetAppBuild() {
+          const { command, recordingId, scope } = input;
+          const named = command.selection.apkPath;
+          if (named === undefined) {
+            return input.recorded;
+          }
+          const claimed = yield* claimBuild(builds, "android", named, scope);
+          if (command.kind !== "teaching" || recordingId === null) {
+            return claimed;
+          }
+          yield* store.begin({
+            emulation: null,
+            flowName: command.flowName,
+            group: command.group,
+            operationId: command.operationId,
+            recordingId,
+            runtime: input.runtime,
+            sessionId: input.sessionId,
+          });
+          yield* Scope.addFinalizer(
+            scope,
+            store.releaseTargetAppBuild(recordingId).pipe(Effect.ignore)
+          );
+          const adopted = yield* store.adoptTargetAppBuild({
+            platform: "android",
+            recordingId,
+            sha256: claimed.sha256,
+            source: claimed.path,
+          });
+          return { path: adopted, sha256: claimed.sha256 };
+        }).pipe(Effect.onError(() => Scope.close(input.scope, Exit.void)));
       const selectRequirements = (
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>
       ) =>
@@ -938,6 +1005,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             preparation: selection.setup,
           };
           let inputs: readonly { readonly name: string }[] = [];
+          let build: RecordedTargetAppBuild | undefined;
           let { recordingId } = command;
           if (command.kind === "teaching") {
             recordingId = TeachingRecordingId.make(`recording-${randomUUID()}`);
@@ -987,10 +1055,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                   "The Android recording is not ready for this Flow's Dry Run."
                 );
               }
+              build = yield* recordedBuild(selection.apkPath, manifest);
             }
           }
           const setup = runSetup(taught, selection.setup);
-          return { inputs, recordingId, setup, taught };
+          return { build, inputs, recordingId, setup, taught };
         });
       /**
        * Reads the device's Emulation for Workspace; a failed read keeps the
@@ -1162,7 +1231,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 );
               }
               const { handOff } = yield* requireAvailableDevice(command);
-              const { taught, recordingId, inputs, setup } =
+              const { build, taught, recordingId, inputs, setup } =
                 yield* selectRequirements(command);
               const id = AgentSessionId.make(
                 `agent-android-${hash(command.operationId).slice(0, 32)}`
@@ -1172,17 +1241,14 @@ export const makeAndroidWorkspaceLayer = (options: {
               unpublished = scope;
               // Held from here until the session's cleanup has finished.
               yield* reserveDevice(ownedDevices, selection.device, id, scope);
-              // An uploaded build belongs to this session: closing its scope
-              // deletes the upload, including when startup fails.
-              const apk =
-                selection.apkPath === undefined
-                  ? undefined
-                  : yield* claimBuild(
-                      builds,
-                      "android",
-                      selection.apkPath,
-                      scope
-                    );
+              const apk = yield* startupBuild({
+                command,
+                recorded: build,
+                recordingId,
+                runtime: taught,
+                scope,
+                sessionId: id,
+              });
               const declared: AndroidRunInput = {
                 device: selection.device,
                 environment: selection.environment,
