@@ -7,6 +7,8 @@ import { FlowName } from "./flow-identifiers.ts";
 import {
   AndroidPreparation,
   AndroidStartingConditions,
+  NativeEmulation,
+  NativeEmulationChange,
   PlatformRequirements,
 } from "./platform.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
@@ -183,6 +185,8 @@ export const AndroidWorkspaceSummary = Schema.Struct({
   captureGaps: Schema.Array(text),
   completedAt: Schema.NullOr(text),
   controller: Schema.Literals(["agent", "user"]),
+  /** The prepared device's Emulation as last read or set (ADR 0082). */
+  emulation: Schema.optionalKey(NativeEmulation),
   error: Schema.NullOr(text),
   flowName: FlowName,
   id: AgentSessionId,
@@ -361,6 +365,14 @@ export const AndroidWorkspaceCommand = Schema.Union([
     ]),
     irreversible: Schema.optionalKey(Schema.Boolean),
     observationId: text,
+  }),
+  /**
+   * Changes the device's Emulation: from the rail by the user in control, or
+   * by an agent. While recording, each change is a step (ADR 0082).
+   */
+  Schema.TaggedStruct("emulate", {
+    ...mutation,
+    change: NativeEmulationChange,
   }),
   Schema.TaggedStruct("record", { ...mutation, start: Schema.Boolean }),
   Schema.TaggedStruct("instruction", { ...mutation, text }),

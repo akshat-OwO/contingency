@@ -9,6 +9,7 @@ import { XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
+import { LocationFields } from "@/components/browser/location-fields";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import type { SegmentedOption } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
@@ -44,8 +45,6 @@ const DECIDABLE_PERMISSIONS = [
   "clipboard-read",
 ] as const;
 
-const LATITUDE_BOUND = 90;
-const LONGITUDE_BOUND = 180;
 /** The permission the decision Select opens on. */
 const DEFAULT_PERMISSION_CHOICE = "geolocation";
 
@@ -311,18 +310,6 @@ interface EmulationPanelProps {
   readonly onPatch: (patch: EmulationPatch) => void;
 }
 
-/** One decimal coordinate, validated before it reaches the session. */
-const parseCoordinate = (value: string, bound: number): number | undefined => {
-  if (value.trim().length === 0) {
-    return undefined;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || Math.abs(parsed) > bound) {
-    return undefined;
-  }
-  return parsed;
-};
-
 /**
  * The session's website permission decisions, and the control that records
  * another. Decisions are their own concern: they are the one part of the
@@ -585,9 +572,7 @@ const EmulationPanelContent = ({
       ? (applied.emulation.colorScheme ?? "none")
       : "none"
   );
-  const [latitude, setLatitude] = useState("");
   const [locale, setLocale] = useState("");
-  const [longitude, setLongitude] = useState("");
   const [pendingLocation, setPendingLocation] = useAtom(
     PendingLocationAtom.use()
   );
@@ -598,15 +583,10 @@ const EmulationPanelContent = ({
     applied.status === "known" ? applied.emulation : undefined;
   const appliedLocation = appliedEmulation?.geolocation;
 
-  const applyLocation = () => {
-    const parsedLatitude = parseCoordinate(latitude, LATITUDE_BOUND);
-    const parsedLongitude = parseCoordinate(longitude, LONGITUDE_BOUND);
-    if (parsedLatitude === undefined || parsedLongitude === undefined) {
-      setValidationError(
-        `Latitude must be between -${LATITUDE_BOUND} and ${LATITUDE_BOUND}, longitude between -${LONGITUDE_BOUND} and ${LONGITUDE_BOUND}.`
-      );
-      return;
-    }
+  const applyLocation = (geolocation: {
+    readonly latitude: number;
+    readonly longitude: number;
+  }) => {
     if (appliedEmulation?.permissions === undefined) {
       setValidationError(
         "Permission decisions are still loading. Try applying the location again."
@@ -614,10 +594,6 @@ const EmulationPanelContent = ({
       return;
     }
     setValidationError(undefined);
-    const geolocation = {
-      latitude: parsedLatitude,
-      longitude: parsedLongitude,
-    };
     const hasMatchingDecision = appliedEmulation.permissions.some((decision) =>
       permissionDecisionMatches("geolocation", decision, currentOrigin)
     );
@@ -654,26 +630,7 @@ const EmulationPanelContent = ({
   };
 
   const clearLocation = () => {
-    setValidationError(undefined);
-    setLatitude("");
-    setLongitude("");
     onPatch({ geolocation: null });
-  };
-
-  const useCurrentLocation = () => {
-    setValidationError(undefined);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        // The host browser asked for consent; filling the fields changes
-        // nothing about the session until they are applied.
-        setLatitude(String(position.coords.latitude));
-        setLongitude(String(position.coords.longitude));
-      },
-      (error) => {
-        setValidationError(`Could not read your location: ${error.message}`);
-      },
-      { timeout: 10_000 }
-    );
   };
 
   const applyLocale = () => {
@@ -701,68 +658,13 @@ const EmulationPanelContent = ({
         />
         <section className="space-y-1.5">
           <SectionLabel>Location</SectionLabel>
-          {appliedLocation === undefined ? null : (
-            <p className="text-muted-foreground text-xs tabular-nums">
-              Applied: {appliedLocation.latitude}, {appliedLocation.longitude}
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block min-w-0 space-y-1 text-xs">
-              <span>Latitude</span>
-              <Input
-                aria-label="Latitude"
-                className="tabular-nums"
-                disabled={disabled}
-                inputMode="decimal"
-                onChange={(event) => setLatitude(event.target.value)}
-                placeholder="52.52"
-                value={latitude}
-              />
-            </label>
-            <label className="block min-w-0 space-y-1 text-xs">
-              <span>Longitude</span>
-              <Input
-                aria-label="Longitude"
-                className="tabular-nums"
-                disabled={disabled}
-                inputMode="decimal"
-                onChange={(event) => setLongitude(event.target.value)}
-                placeholder="13.405"
-                value={longitude}
-              />
-            </label>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Button
-              disabled={disabled}
-              onClick={applyLocation}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              Apply
-            </Button>
-            <Button
-              disabled={disabled}
-              onClick={useCurrentLocation}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              Use my location
-            </Button>
-            {appliedLocation === undefined ? null : (
-              <Button
-                disabled={disabled}
-                onClick={clearLocation}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Clear
-              </Button>
-            )}
-          </div>
+          <LocationFields
+            applied={appliedLocation}
+            disabled={disabled}
+            onApply={applyLocation}
+            onClear={clearLocation}
+            onError={setValidationError}
+          />
         </section>
 
         <PermissionControls

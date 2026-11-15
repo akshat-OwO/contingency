@@ -779,6 +779,15 @@ export const AndroidSessionView = ({
             hasPreparedAndroidSession(session) &&
             (session.phase === "running" || session.phase === "paused")
           }
+          emulation={session.emulation}
+          onEmulate={(change) =>
+            mutate({
+              _tag: "emulate",
+              change,
+              operationId: operationId(),
+              sessionId: session.id,
+            })
+          }
           onDeviceKey={(key) => {
             for (const action of ["down", "up"] as const) {
               onInput({

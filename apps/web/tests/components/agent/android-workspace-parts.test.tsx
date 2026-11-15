@@ -64,12 +64,13 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
   );
 });
 
-test("the device rail offers Back, Home, and Recents and draws nothing over the stream", () => {
+test("the device rail offers the device's keys and settings and draws nothing over the stream", () => {
   render(
     <AndroidDevice
       canAct
       live={false}
       onDeviceKey={vi.fn()}
+      onEmulate={vi.fn()}
       onInput={vi.fn()}
       paused={false}
       pending={false}
@@ -83,7 +84,57 @@ test("the device rail offers Back, Home, and Recents and draws nothing over the 
   // The device's own keys are the only controls; there are no per-element targets.
   expect(
     screen.getAllByRole("button").map((button) => button.ariaLabel)
-  ).toEqual(["Android Back", "Android Home", "Android Recents"]);
+  ).toEqual([
+    "Android Back",
+    "Android Home",
+    "Android Recents",
+    "Rotate to landscape",
+    "Device settings",
+  ]);
+});
+
+test("the rail rotates the device and changes its appearance and location", async () => {
+  const user = userEvent.setup();
+  const onEmulate = vi.fn();
+  render(
+    <AndroidDevice
+      canAct
+      emulation={{
+        appearance: "light",
+        location: null,
+        orientation: "landscape",
+      }}
+      live={false}
+      onDeviceKey={vi.fn()}
+      onEmulate={onEmulate}
+      onInput={vi.fn()}
+      paused={false}
+      pending={false}
+      secure={false}
+      sessionId={AgentSessionId.make("agent-android")}
+      unavailable="Prepare the device."
+    />
+  );
+  // The toggle names where it goes from the device's current orientation.
+  await user.click(screen.getByRole("button", { name: "Rotate to portrait" }));
+  expect(onEmulate).toHaveBeenLastCalledWith({
+    _tag: "orientation",
+    orientation: "portrait",
+  });
+  await user.click(screen.getByRole("button", { name: "Device settings" }));
+  await user.click(await screen.findByRole("radio", { name: "Dark" }));
+  expect(onEmulate).toHaveBeenLastCalledWith({
+    _tag: "appearance",
+    appearance: "dark",
+  });
+  await user.type(screen.getByRole("textbox", { name: "Latitude" }), "12.97");
+  await user.type(screen.getByRole("textbox", { name: "Longitude" }), "77.59");
+  await user.click(screen.getByRole("button", { name: "Apply" }));
+  expect(onEmulate).toHaveBeenLastCalledWith({
+    _tag: "location",
+    latitude: 12.97,
+    longitude: 77.59,
+  });
 });
 
 test("types public text into the picked field from the dock", async () => {
@@ -167,6 +218,7 @@ test("a secure pause names the hidden window instead of a disconnected device", 
       canAct={false}
       live
       onDeviceKey={vi.fn()}
+      onEmulate={vi.fn()}
       onInput={vi.fn()}
       paused
       pending={false}

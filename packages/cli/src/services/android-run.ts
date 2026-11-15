@@ -124,13 +124,29 @@ export const createAndroidRun = (
         return [];
       }
       const { environment } = input.taught;
-      return compareNativeAppEnvironments({
-        display: (field, value) =>
-          field === "permissions" ? JSON.stringify(value ?? []) : String(value),
-        fields,
-        selected: input.environment,
-        taught: environment,
-      });
+      const location = input.taught.preparation?.emulation?.location ?? null;
+      return [
+        ...compareNativeAppEnvironments({
+          display: (field, value) =>
+            field === "permissions"
+              ? JSON.stringify(value ?? [])
+              : String(value),
+          fields,
+          selected: input.environment,
+          taught: environment,
+        }),
+        // Only an emulator's console sets a location; a phone keeps its own
+        // (ADR 0082).
+        ...(location === null || "avd" in input.device
+          ? []
+          : [
+              {
+                field: "location" as const,
+                selected: "the phone's own location",
+                taught: `${location.latitude}, ${location.longitude}`,
+              },
+            ]),
+      ];
     },
     error: platformRuntimeError,
     preflight: (input, phase) =>

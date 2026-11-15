@@ -103,6 +103,8 @@ export interface TeachingRecordingMutation {
  */
 export interface TeachingRecordingStart extends TeachingRecordingMutation {
   readonly emulation: DraftEmulation | null;
+  /** A native session's requirements with the Emulation read at Start (ADR 0082). */
+  readonly runtime?: TeachingRecordingManifest["runtime"];
 }
 
 export interface TeachingRecordingDryRunStart extends TeachingRecordingMutation {
@@ -932,14 +934,20 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           }
           const at = now().toISOString();
           const origin = yield* SessionEventOrigin;
+          const recording: typeof current = {
+            ...current,
+            emulation: input.emulation,
+            eventOrigin: origin,
+            lifecycle: { _tag: "recording", startedAt: at },
+          };
+          // Teaching's starting Emulation is read once recording starts.
+          const started =
+            input.runtime === undefined
+              ? recording
+              : { ...recording, runtime: input.runtime };
           return yield* persist(
             withReceipt(
-              {
-                ...current,
-                emulation: input.emulation,
-                eventOrigin: origin,
-                lifecycle: { _tag: "recording", startedAt: at },
-              },
+              started,
               "start",
               input.operationId,
               at,

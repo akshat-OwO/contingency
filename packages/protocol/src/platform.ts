@@ -37,9 +37,44 @@ export type StartingData = typeof StartingData.Type;
 export const startingDataOf = (preparation: {
   readonly startingData?: StartingData;
 }): StartingData => preparation.startingData ?? "keep";
+/**
+ * The device environment a native session starts under (ADR 0082). Teaching
+ * reads it from the device; a Run applies it before launch. A change during
+ * the session is a recorded step, never a change to this starting value.
+ */
+export const NativeOrientation = Schema.Literals(["portrait", "landscape"]);
+export type NativeOrientation = typeof NativeOrientation.Type;
+export const NativeAppearance = Schema.Literals(["light", "dark"]);
+export type NativeAppearance = typeof NativeAppearance.Type;
+export const NativeLocation = Schema.Struct({
+  latitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 90, minimum: -90 })
+  ),
+  longitude: Schema.Finite.check(
+    Schema.isBetween({ maximum: 180, minimum: -180 })
+  ),
+});
+export type NativeLocation = typeof NativeLocation.Type;
+export const NativeEmulation = Schema.Struct({
+  appearance: NativeAppearance,
+  /** Null when the device has no location fix to record. */
+  location: Schema.NullOr(NativeLocation),
+  orientation: NativeOrientation,
+});
+export type NativeEmulation = typeof NativeEmulation.Type;
+/** One change to a native device's Emulation, from the rail or an agent. */
+export const NativeEmulationChange = Schema.Union([
+  Schema.TaggedStruct("orientation", { orientation: NativeOrientation }),
+  Schema.TaggedStruct("appearance", { appearance: NativeAppearance }),
+  Schema.TaggedStruct("location", NativeLocation.fields),
+]);
+export type NativeEmulationChange = typeof NativeEmulationChange.Type;
+
 export const AndroidPreparation = Schema.Struct({
   activity: Schema.String.check(Schema.isMinLength(1)),
   conditions: AndroidStartingConditions,
+  /** Absent on Flows taught before ADR 0082: the device's own state stands. */
+  emulation: Schema.optionalKey(NativeEmulation),
   kind: Schema.Literal("restart-activity"),
   startingData: Schema.optionalKey(StartingData),
 });
@@ -79,6 +114,7 @@ export const IosRunEnvironment = Schema.Struct({
 });
 export const IosPreparation = Schema.Struct({
   conditions: AndroidStartingConditions,
+  emulation: Schema.optionalKey(NativeEmulation),
   kind: Schema.Literal("restart-app"),
   startingData: Schema.optionalKey(StartingData),
 });
