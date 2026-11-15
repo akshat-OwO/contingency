@@ -270,14 +270,8 @@ try {
   current = await read(taughtSession.id);
   assert.equal(current.captureState._tag, "ready");
   await snapshot("teaching-stopped");
-  await click("Close session");
-  // Close must release this exact device before a fresh Dry Run acquires it.
-  await control(
-    "browser",
-    "wait",
-    "--text",
-    "This session released its emulator. Start a new Android session to record or run again."
-  );
+  // The stopped Teaching session stays open; its Dry Run takes the device
+  // from it below, so the user never closes it by hand (#725).
   await tool("agent_teaching_recording_claim", {
     action: "take",
     claimOperationId: null,
@@ -340,6 +334,10 @@ try {
     recordingId,
     selection,
   });
+  const handedOff = await read(taughtSession.id);
+  assert.equal(handedOff.phase, "closed");
+  assert.equal(handedOff.handedOffTo, taken.id);
+  receipt.coverage.handOff = { dryRun: taken.id, teaching: taughtSession.id };
   await openView(taken.id);
   await click("Take control");
   await wait("Return control");

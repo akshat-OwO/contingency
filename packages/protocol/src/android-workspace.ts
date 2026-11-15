@@ -206,6 +206,11 @@ export const AndroidWorkspaceSummary = Schema.Struct({
   emulation: Schema.optionalKey(NativeEmulation),
   error: Schema.NullOr(text),
   flowName: FlowName,
+  /**
+   * The Dry Run this stopped Teaching session closed for, releasing its
+   * device to that recording's Dry Run (#725); absent otherwise.
+   */
+  handedOffTo: Schema.optionalKey(AgentSessionId),
   id: AgentSessionId,
   kind: Schema.Literals(["teaching", "dry-run", "run"]),
   phase: Schema.Literals([
