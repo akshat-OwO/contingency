@@ -14,7 +14,9 @@ import type {
   AndroidWorkspaceCommand,
   AndroidWorkspaceSnapshot,
   FlowName,
+  NativeEmulationChange,
   NativeForward,
+  NativeLocation,
   PlatformRequirements,
   RunVideoFastForward,
 } from "@contingency/protocol";
@@ -34,6 +36,12 @@ import {
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import {
+  androidAdb,
+  emulationChanges,
+  readAndroidEmulation,
+} from "./android-emulation.ts";
+import type { AndroidAdb } from "./android-emulation.ts";
 import type { AndroidRun, AndroidRunInput } from "./android-run-contract.ts";
 import { androidHelperRelease } from "./android-runtime-contract.ts";
 import type { AndroidObservation } from "./android-runtime-contract.ts";
@@ -52,6 +60,11 @@ import { FlowCatalog } from "./flow-catalog.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
+import {
+  makeAndroidEmulationGuard,
+  restoreLeftoverEnvironments,
+} from "./native-environment-restore.ts";
+import type { EmulationGuard } from "./native-environment-restore.ts";
 import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
 import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
@@ -107,6 +120,30 @@ const claimBuild = (
           )
         )
   ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+/** A session's Emulation guard; a device this process booted is never restored. */
+const emulationGuard = (input: {
+  readonly adb: AndroidAdb;
+  readonly device: AndroidWorkspaceSummary["selection"]["device"];
+  readonly ownedDevices: Option.Option<OwnedDevicesService>;
+  readonly root: string;
+  readonly recovered: Effect.Effect<void>;
+}) => {
+  const { device, ownedDevices } = input;
+  const avd = "avd" in device ? device.avd : null;
+  return makeAndroidEmulationGuard({
+    adb: input.adb,
+    avd,
+    owned:
+      avd === null || Option.isNone(ownedDevices)
+        ? Effect.succeed(false)
+        : ownedDevices.value.eraseState.pipe(
+            Effect.map((erase) => erase.owned.android.includes(avd))
+          ),
+    recovered: input.recovered,
+    root: input.root,
+    serial: device.serial,
+  });
+};
 /**
  * Reserves the session's device until its scope closes, after every other
  * resource has released it, so Device Erase cannot take it meanwhile
@@ -247,6 +284,36 @@ const actionDescription = (
     }
   }
 };
+/** Applies one change and remembers a location it set. */
+const changeEmulation = (session: Session, change: NativeEmulationChange) =>
+  session.emulation.change(change).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        if (change._tag === "location") {
+          session.marks.location = {
+            latitude: change.latitude,
+            longitude: change.longitude,
+          };
+        }
+      })
+    )
+  );
+/** How a Teaching step names an Emulation change, with its exact value. */
+export const emulationDescription = (change: NativeEmulationChange) => {
+  // All change variants are handled.
+  // oxlint-disable-next-line eslint/default-case
+  switch (change._tag) {
+    case "orientation": {
+      return `Rotate to ${change.orientation}`;
+    }
+    case "appearance": {
+      return `Switch to ${change.appearance} appearance`;
+    }
+    case "location": {
+      return `Set location to ${change.latitude}, ${change.longitude}`;
+    }
+  }
+};
 const satisfiesOutcomes = (
   requirements: PlatformRequirements,
   before: AndroidObservation | null,
@@ -343,9 +410,13 @@ interface Session {
   readonly summaryFile: string;
   /** The device's own recording of Teaching, or of a Run's execution. */
   readonly video: DeviceVideoCaptureSession;
+  /** Changes the device's Emulation and restores it when the session ends. */
+  readonly emulation: EmulationGuard;
   /** Epoch milliseconds when a Takeover began. */
   readonly marks: {
     takeoverFrom?: number | undefined;
+    /** The last location this session set on the device. */
+    location?: NativeLocation | undefined;
   };
 }
 export interface AndroidWorkspaceService {
@@ -432,6 +503,8 @@ const confirmedStartAllowed = (
 
 export const makeAndroidWorkspaceLayer = (options: {
   readonly root: () => string;
+  /** Device settings commands for Emulation (ADR 0082); tests substitute their own. */
+  readonly adb?: AndroidAdb;
   /** The session's display and input transport; tests substitute their own. */
   readonly acquireStream?: typeof acquireAndroidStream;
   /**
@@ -456,6 +529,21 @@ export const makeAndroidWorkspaceLayer = (options: {
       const factory = yield* PlatformRuntimeFactory;
       const registry = AtomRegistry.make();
       const acquireStream = options.acquireStream ?? acquireAndroidStream;
+      const adb = options.adb ?? androidAdb;
+      // Devices a dead process changed get their environment back (ADR 0082).
+      // A session changes a device only after this finishes, so recovery
+      // never restores over it or removes its record.
+      const recovery = yield* Effect.forkScoped(
+        restoreLeftoverEnvironments({
+          adb,
+          avdOf: (serial) =>
+            adb(serial, ["emu", "avd", "name"]).pipe(
+              Effect.map((name) => name.split(/\r?\n/u)[0]?.trim() ?? null),
+              Effect.orElseSucceed(() => null)
+            ),
+          root: options.root(),
+        })
+      );
       const screenRecorder =
         options.screenRecorder ??
         ((stream: AndroidDeviceStream) =>
@@ -886,12 +974,60 @@ export const makeAndroidWorkspaceLayer = (options: {
           const setup = runSetup(taught, selection.setup);
           return { inputs, recordingId, setup, taught };
         });
+      /**
+       * Reads the device's Emulation for Workspace; a failed read keeps the
+       * last one. A location this session set stands over the device's last
+       * known fix, which moves only while an app listens.
+       */
+      const readEmulation = (session: Session) =>
+        readAndroidEmulation(
+          adb,
+          state(session).summary.selection.device.serial
+        ).pipe(
+          Effect.map((read) => {
+            update(session, (value) => ({
+              ...value,
+              summary: {
+                ...value.summary,
+                emulation: {
+                  ...read,
+                  location: session.marks.location ?? read.location,
+                },
+              },
+            }));
+            return state(session).summary.emulation;
+          }),
+          Effect.option
+        );
+      /**
+       * Before launch, a Run or Dry Run brings the device to the Flow's
+       * starting Emulation. A phone keeps its own location: preflight asked
+       * for that difference (ADR 0082).
+       */
+      const prepareSession = (session: Session) =>
+        Effect.gen(function* prepareDevice() {
+          const { requirements, selection } = state(session).summary;
+          const emulation =
+            requirements.platform === "android"
+              ? requirements.preparation?.emulation
+              : undefined;
+          if (emulation !== undefined) {
+            for (const change of emulationChanges(emulation)) {
+              if (change._tag !== "location" || "avd" in selection.device) {
+                yield* changeEmulation(session, change);
+              }
+            }
+          }
+          const prepared = yield* session.run.prepare();
+          yield* readEmulation(session);
+          return prepared;
+        });
       const prepareConfirmedSession = (session: Session) =>
         Effect.gen(function* confirmedPreparation() {
           for (const decision of session.run.state().pending) {
             yield* session.run.decide(decision.id, true);
           }
-          const prepared = yield* session.run.prepare();
+          const prepared = yield* prepareSession(session);
           acceptObservation(session, prepared);
           update(session, (value) => ({
             ...value,
@@ -1082,6 +1218,14 @@ export const makeAndroidWorkspaceLayer = (options: {
                   sessionId: id,
                 }),
                 directory,
+                emulation: emulationGuard({
+                  adb,
+                  device: selection.device,
+                  ownedDevices,
+                  recovered: Fiber.join(recovery),
+                  // Startup recovery reads records from the process root.
+                  root: options.root(),
+                }),
                 lane: makeForwardedLane({
                   focus: (target, observation) => {
                     update(session, (value) => ({
@@ -1161,6 +1305,9 @@ export const makeAndroidWorkspaceLayer = (options: {
                   session.boundary.dispose();
                 })
               );
+              // Every end, failure and cancellation included, restores what
+              // the session changed, before the device is released.
+              yield* Scope.addFinalizer(scope, session.emulation.restore);
               sessions.set(id, session);
               // The published session owns the scope from here.
               unpublished = undefined;
@@ -1414,11 +1561,32 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             yield* restartForRecording(session);
+            // The device's Emulation at Start is the Flow's starting one.
+            const read = yield* readEmulation(session);
+            const starting = Option.getOrUndefined(read);
+            const { requirements } = summary;
+            const runtime =
+              starting !== undefined &&
+              requirements.platform === "android" &&
+              requirements.preparation !== undefined
+                ? {
+                    ...requirements,
+                    preparation: {
+                      ...requirements.preparation,
+                      emulation: starting,
+                    },
+                  }
+                : requirements;
             yield* store.start({
               emulation: null,
               operationId: command.operationId,
               recordingId: summary.recordingId,
+              runtime,
             });
+            update(session, (value) => ({
+              ...value,
+              summary: { ...value.summary, requirements: runtime },
+            }));
             update(session, (value) => ({ ...value, recording: true }));
             // Start completes once the device's recorder runs; setup before
             // it is never recorded.
@@ -1655,6 +1823,70 @@ export const makeAndroidWorkspaceLayer = (options: {
               fs.writeFileString(
                 path.join(session.directory, "actions.jsonl"),
                 `${JSON.stringify({ action: action._tag, actionId, after: after.id, at: now(), before: before.id, controller: source, inputConfirmation: fillResult?.confirmation, value: variable?.value === undefined ? undefined : Redacted.value(variable.value), variable: action._tag === "variable" ? action.name : undefined })}\n`,
+                { flag: "a", mode: 0o600 }
+              )
+            );
+            yield* keyframe(session, after, actionId);
+          }
+        });
+      /**
+       * Changes the device's Emulation for the controller. While recording,
+       * the change is a step the Flow replays at that point (ADR 0082).
+       */
+      const emulateWorkspace = (
+        session: Session,
+        command: Extract<AndroidWorkspaceCommand, { readonly _tag: "emulate" }>,
+        source: "agent" | "user"
+      ) =>
+        Effect.gen(function* emulateWorkspaceCommand() {
+          const current = state(session);
+          const { summary } = current;
+          if (summary.controller !== source || summary.phase !== "running") {
+            return yield* denied(
+              "Only the current controller can change the device. Agent tools are disabled during Takeover."
+            );
+          }
+          const { change } = command;
+          if (
+            change._tag === "location" &&
+            !("avd" in summary.selection.device)
+          ) {
+            return yield* Effect.fail(
+              platformRuntimeError("capability_missing")
+            );
+          }
+          // The user's earlier input is recorded before this change.
+          const gestures = source === "user" ? session.lane.take() : [];
+          const before = yield* session.run.observe();
+          acceptObservation(session, before);
+          yield* recordGestures(session, gestures, before);
+          yield* changeEmulation(session, change);
+          const after = yield* session.run.observe();
+          acceptObservation(session, after);
+          yield* readEmulation(session);
+          const actionId = `android-action-${randomUUID()}`;
+          if (current.recording) {
+            yield* keyframe(session, before, actionId);
+            yield* emit(session, {
+              _tag: "action",
+              actor: "user",
+              after: observationSummary(after),
+              appeared: difference(after, before),
+              before: observationSummary(before),
+              description: emulationDescription(change),
+              detail: null,
+              disappeared: difference(before, after),
+              id: actionId,
+              kind: change._tag,
+              outcome: "succeeded",
+              target: null,
+            });
+            yield* keyframe(session, after, actionId);
+          } else if (summary.kind !== "teaching") {
+            yield* io(
+              fs.writeFileString(
+                path.join(session.directory, "actions.jsonl"),
+                `${JSON.stringify({ action: change._tag, actionId, after: after.id, at: now(), before: before.id, change, controller: source })}\n`,
                 { flag: "a", mode: 0o600 }
               )
             );
@@ -1969,13 +2201,17 @@ export const makeAndroidWorkspaceLayer = (options: {
                 "Preparation requires the user's Workspace action."
               );
             }
-            const prepared = yield* session.run.prepare();
+            const prepared = yield* prepareSession(session);
             acceptObservation(session, prepared);
             update(session, (value) => ({
               ...value,
               startingObservation: boundaryObservationSummary(prepared),
             }));
             yield* beginRunVideo(session);
+          } else if (command._tag === "emulate") {
+            yield* source === "agent"
+              ? session.video.action(emulateWorkspace(session, command, source))
+              : emulateWorkspace(session, command, source);
           } else if (command._tag === "recover") {
             if (source !== "user") {
               return yield* denied(

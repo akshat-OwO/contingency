@@ -38,8 +38,9 @@ export interface AndroidRunInput extends AndroidRuntimeStartInput {
   readonly appInstallation?: { readonly apk: string; readonly sha256: string };
 }
 
+/** `location` differs when the Flow's starting location cannot be set here. */
 export type AndroidEnvironmentDifference = NativeAppEnvironmentDifference<
-  keyof AndroidEnvironment
+  keyof AndroidEnvironment | "location"
 >;
 export interface AndroidRunDecision extends NativeAppRunDecision<AndroidEnvironmentDifference> {
   readonly sha256?: string;

@@ -565,6 +565,24 @@ const startingDataLabel = (requirements: SummarySession["requirements"]) =>
     ? "App data cleared"
     : "Existing app data kept";
 
+/** The device Emulation the session started under (ADR 0082), if recorded. */
+const startingEmulationLabel = (
+  requirements: SummarySession["requirements"]
+) => {
+  const emulation =
+    requirements.platform === "web"
+      ? undefined
+      : requirements.preparation?.emulation;
+  if (emulation === undefined) {
+    return "Not recorded";
+  }
+  const where =
+    emulation.location === null
+      ? "no location"
+      : `location ${emulation.location.latitude}, ${emulation.location.longitude}`;
+  return `${emulation.orientation === "portrait" ? "Portrait" : "Landscape"}, ${emulation.appearance} appearance, ${where}`;
+};
+
 /**
  * An ended device session's Run Summary, in the browser summary's place.
  * What went wrong leads when the agent never assessed the Run; the device and
@@ -639,6 +657,10 @@ export const DeviceRunSummary = ({
       <dd className="wrap-anywhere">{targetApp}</dd>
       <dt className="text-muted-foreground">Starting data</dt>
       <dd>{startingDataLabel(session.requirements)}</dd>
+      <dt className="text-muted-foreground">Starting Emulation</dt>
+      <dd className="text-pretty">
+        {startingEmulationLabel(session.requirements)}
+      </dd>
       <dt className="text-muted-foreground">Takeover</dt>
       <dd>
         {session.takeoverOccurred ? "Occurred; a Dry Run cannot pass" : "None"}

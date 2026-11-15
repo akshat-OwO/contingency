@@ -82,6 +82,8 @@ import {
   makeTeachingRecordingStoreLayer,
 } from "../../src/services/teaching-recording-store.ts";
 import type { TeachingRecordingStoreService } from "../../src/services/teaching-recording-store.ts";
+import { fakeAndroidAdb, fakeAndroidDevice } from "./fake-android-adb.ts";
+import type { FakeAndroidDevice } from "./fake-android-adb.ts";
 
 const selection: AndroidWorkspaceSelection = {
   device: {
@@ -142,6 +144,9 @@ const fixture = (
     readonly holdNextStream: () => Effect.Effect<Deferred.Deferred<boolean>>;
     /** AVDs the process's Device Erase wiped, in order. */
     readonly erasedAvds: string[];
+    /** The selected emulator's Emulation settings, and every adb call made. */
+    readonly device: FakeAndroidDevice;
+    readonly adbCalls: string[];
     /** A fresh workspace over the same root, as after a process restart. */
     readonly restart: () => Effect.Effect<
       AndroidWorkspaceService,
@@ -394,8 +399,12 @@ const fixture = (
         Layer.succeed(TargetAppBuilds, builds),
         Layer.succeed(OwnedDevices, owned)
       );
+      const device = fakeAndroidDevice();
+      const adbCalls: string[] = [];
+      const adb = fakeAndroidAdb(device, adbCalls);
       const workspace = makeAndroidWorkspaceLayer({
         acquireStream,
+        adb,
         root: () => root,
         screenRecorder: () => screenRecorder,
       }).pipe(Layer.provide(dependencies));
@@ -409,6 +418,7 @@ const fixture = (
         Layer.build(
           makeAndroidWorkspaceLayer({
             acquireStream,
+            adb,
             root: () => root,
             screenRecorder: () => screenRecorder,
           }).pipe(
@@ -426,8 +436,10 @@ const fixture = (
           Effect.orDie
         );
       yield* test({
+        adbCalls,
         builds,
         calls,
+        device,
         disconnect: () => {
           connected = false;
         },
@@ -3380,6 +3392,184 @@ it.effect(
         expect(erasedAvds).toEqual(["fixture"]);
         const started = yield* startCommand("start-after-interrupt");
         expect(started.phase).toBe("pending");
+      })
+    )
+);
+
+it.effect(
+  "Teaching records the device's starting Emulation and each rail change as a step, then restores the device",
+  () =>
+    fixture(({ device }) =>
+      Effect.gen(function* teachEmulation() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-emulation"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        // Only the controller changes the device; the user holds Teaching.
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "emulate",
+              change: { _tag: "appearance", appearance: "dark" },
+              operationId: op("agent-emulate"),
+              sessionId: started.id,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).toContain("Only the current controller");
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-emulation"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        const recording = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("record-emulation"),
+            sessionId: started.id,
+            start: true,
+          },
+          "user"
+        );
+        expect(recording.emulation).toEqual({
+          appearance: "light",
+          location: { latitude: 39.2, longitude: -123.1 },
+          orientation: "portrait",
+        });
+        for (const change of [
+          { _tag: "orientation", orientation: "landscape" },
+          { _tag: "appearance", appearance: "dark" },
+          { _tag: "location", latitude: 12.97, longitude: 77.59 },
+        ] as const) {
+          yield* workspace.execute(
+            {
+              _tag: "emulate",
+              change,
+              operationId: op(`emulate-${change._tag}`),
+              sessionId: started.id,
+            },
+            "user"
+          );
+        }
+        const changed = yield* workspace.execute(
+          { _tag: "read", sessionId: started.id },
+          "user"
+        );
+        // The location set stands over the device's stale last fix.
+        expect(changed.emulation).toEqual({
+          appearance: "dark",
+          location: { latitude: 12.97, longitude: 77.59 },
+          orientation: "landscape",
+        });
+        // The emulator turned its body, so its stream turned too.
+        expect(device).toMatchObject({
+          accelerometerRotation: "1",
+          nightMode: "yes",
+          skinTurns: 1,
+        });
+        const stopped = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("stop-emulation"),
+            sessionId: started.id,
+            start: false,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("close-emulation"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        // The user's emulator is as the session found it.
+        expect(device).toMatchObject({
+          accelerometerRotation: "1",
+          consoleLocation: { latitude: 39.2, longitude: -123.1 },
+          nightMode: "no",
+          skinTurns: 0,
+          userRotation: "0",
+        });
+        const { recordingId } = stopped;
+        if (recordingId === null) {
+          return yield* Effect.die("Recording missing.");
+        }
+        const store = yield* TeachingRecordingStore;
+        // The starting Emulation is the device's at Start, not after a change.
+        expect((yield* store.read(recordingId)).runtime).toMatchObject({
+          preparation: {
+            emulation: {
+              appearance: "light",
+              location: { latitude: 39.2, longitude: -123.1 },
+              orientation: "portrait",
+            },
+          },
+        });
+        yield* store.startLearning({
+          operationId: op("claim-emulation"),
+          recordingId,
+        });
+        const timeline = JSON.stringify(
+          yield* (yield* TeachingRecordingLearning).timeline({
+            claimOperationId: op("claim-emulation"),
+            cursor: 0,
+            recordingId,
+          })
+        );
+        for (const step of [
+          "Rotate to landscape",
+          "Switch to dark appearance",
+          "Set location to 12.97, 77.59",
+        ]) {
+          expect(timeline).toContain(step);
+        }
+      })
+    )
+);
+
+it.effect(
+  "a Dry Run brings the device to the taught starting Emulation before launch and restores it at the end",
+  () =>
+    fixture(({ device }) =>
+      Effect.gen(function* dryRunEmulation() {
+        const recordingId = yield* teach();
+        // Someone left the emulator turned, locked, and dark after Teaching.
+        device.accelerometerRotation = "0";
+        device.skinTurns = 3;
+        device.nightMode = "yes";
+        const prepared = yield* dryRun(recordingId);
+        expect(prepared.emulation).toMatchObject({
+          appearance: "light",
+          orientation: "portrait",
+        });
+        expect(device).toMatchObject({ nightMode: "no", skinTurns: 0 });
+        yield* (yield* AndroidWorkspace).execute(
+          {
+            _tag: "close",
+            operationId: op("close-dry-emulation"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        expect(device).toMatchObject({
+          accelerometerRotation: "0",
+          nightMode: "yes",
+          skinTurns: 3,
+        });
       })
     )
 );

@@ -1,17 +1,31 @@
-import type { AgentSessionId, NativeInput } from "@contingency/protocol";
+import type {
+  AgentSessionId,
+  NativeEmulation,
+  NativeEmulationChange,
+  NativeInput,
+} from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ChevronLeftIcon,
   CircleIcon,
   ShieldAlertIcon,
+  SlidersHorizontalIcon,
   SmartphoneIcon,
   SquareIcon,
   UnplugIcon,
 } from "lucide-react";
 import { useState } from "react";
+import type { ComponentType } from "react";
 
+import { LocationFields } from "@/components/browser/location-fields";
+import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -98,40 +112,168 @@ const ANDROID_KEYS = [
   readonly label: string;
 }[];
 
-/** The rail beside the frame. Its keys act only while the user is in control. */
+/** A phone on its side: the orientation the rotate button turns the device to. */
+const LandscapePhoneIcon = () => <SmartphoneIcon className="rotate-90" />;
+
+const RailButton = ({
+  disabled,
+  icon: Icon,
+  label,
+  onClick,
+  tooltip,
+}: {
+  readonly disabled: boolean;
+  readonly icon: ComponentType;
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly tooltip: string;
+}) => (
+  <Tooltip>
+    <TooltipTrigger
+      render={(props) => (
+        <Button
+          {...props}
+          aria-label={label}
+          className="size-10 rounded-xl"
+          disabled={disabled}
+          onClick={onClick}
+          size="icon"
+          variant="ghost"
+        >
+          <Icon />
+        </Button>
+      )}
+    />
+    <TooltipContent side="left">{tooltip}</TooltipContent>
+  </Tooltip>
+);
+
+/**
+ * Appearance and location for the device (ADR 0082). Location uses the
+ * browser Emulation's fields; on a device it moves the emulator itself.
+ */
+const DeviceSettings = ({
+  canAct,
+  emulation,
+  onEmulate,
+}: {
+  readonly canAct: boolean;
+  readonly emulation: NativeEmulation | undefined;
+  readonly onEmulate: (change: NativeEmulationChange) => void;
+}) => {
+  const [error, setError] = useState<string | undefined>();
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger
+          render={(tooltip) => (
+            <PopoverTrigger
+              {...tooltip}
+              render={(props) => (
+                <Button
+                  {...props}
+                  aria-label="Device settings"
+                  className="size-10 rounded-xl"
+                  disabled={!canAct}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <SlidersHorizontalIcon />
+                </Button>
+              )}
+            />
+          )}
+        />
+        <TooltipContent side="left">Device settings</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" className="w-72 gap-4 p-3" side="left">
+        <section className="space-y-1.5">
+          <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Appearance
+          </h2>
+          <SegmentedControl
+            disabled={!canAct}
+            label="Appearance"
+            onChange={(appearance) =>
+              onEmulate({ _tag: "appearance", appearance })
+            }
+            options={[
+              { label: "Light", value: "light" },
+              { label: "Dark", value: "dark" },
+            ]}
+            value={emulation?.appearance}
+          />
+        </section>
+        <section className="space-y-1.5">
+          <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+            Location
+          </h2>
+          <LocationFields
+            applied={emulation?.location}
+            disabled={!canAct}
+            onApply={(location) => onEmulate({ _tag: "location", ...location })}
+            onError={setError}
+          />
+          {error === undefined ? null : (
+            <p className="text-destructive text-xs" role="alert">
+              {error}
+            </p>
+          )}
+        </section>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/** The rail beside the frame. Its controls act only while the user is in control. */
 const DeviceRail = ({
   canAct,
+  emulation,
+  onEmulate,
   onKey,
 }: {
   readonly canAct: boolean;
+  readonly emulation: NativeEmulation | undefined;
+  readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onKey: (key: DeviceKey) => void;
-}) => (
-  <nav
-    aria-label="Device controls"
-    className="material-float flex shrink-0 flex-col items-center gap-1 rounded-2xl p-1.5 shadow-sm"
-  >
-    {ANDROID_KEYS.map(({ icon: Icon, key, label }) => (
-      <Tooltip key={key}>
-        <TooltipTrigger
-          render={(props) => (
-            <Button
-              {...props}
-              aria-label={`Android ${label}`}
-              className="size-10 rounded-xl"
-              disabled={!canAct}
-              onClick={() => onKey(key)}
-              size="icon"
-              variant="ghost"
-            >
-              <Icon />
-            </Button>
-          )}
+}) => {
+  const landscape = emulation?.orientation === "landscape";
+  return (
+    <nav
+      aria-label="Device controls"
+      className="material-float flex shrink-0 flex-col items-center gap-1 rounded-2xl p-1.5 shadow-sm"
+    >
+      {ANDROID_KEYS.map(({ icon, key, label }) => (
+        <RailButton
+          disabled={!canAct}
+          icon={icon}
+          key={key}
+          label={`Android ${label}`}
+          onClick={() => onKey(key)}
+          tooltip={label}
         />
-        <TooltipContent side="left">{label}</TooltipContent>
-      </Tooltip>
-    ))}
-  </nav>
-);
+      ))}
+      <span aria-hidden="true" className="bg-border my-1 h-px w-6" />
+      <RailButton
+        disabled={!canAct}
+        icon={landscape ? SmartphoneIcon : LandscapePhoneIcon}
+        label={landscape ? "Rotate to portrait" : "Rotate to landscape"}
+        onClick={() =>
+          onEmulate({
+            _tag: "orientation",
+            orientation: landscape ? "portrait" : "landscape",
+          })
+        }
+        tooltip={landscape ? "Rotate to portrait" : "Rotate to landscape"}
+      />
+      <DeviceSettings
+        canAct={canAct}
+        emulation={emulation}
+        onEmulate={onEmulate}
+      />
+    </nav>
+  );
+};
 
 /**
  * A session with no device to show: before preparation, or after it released
@@ -162,9 +304,11 @@ export const DeviceUnavailable = ({
 export const AndroidDevice = ({
   canAct,
   cleanup,
+  emulation,
   ended = false,
   live,
   onDeviceKey,
+  onEmulate,
   onInput,
   paused,
   pending,
@@ -180,6 +324,9 @@ export const AndroidDevice = ({
   /** Whether the session holds a prepared device to stream. */
   readonly live: boolean;
   readonly onDeviceKey: (key: DeviceKey) => void;
+  /** The device's Emulation as last read or set. */
+  readonly emulation?: NativeEmulation | undefined;
+  readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onInput: (input: NativeInput) => void;
   readonly paused: boolean;
   readonly pending: boolean;
@@ -218,7 +365,14 @@ export const AndroidDevice = ({
       >
         <DeviceFrame
           frame={frame}
-          rail={<DeviceRail canAct={canAct} onKey={onDeviceKey} />}
+          rail={
+            <DeviceRail
+              canAct={canAct}
+              emulation={emulation}
+              onEmulate={onEmulate}
+              onKey={onDeviceKey}
+            />
+          }
         >
           {live && !secure ? (
             <AndroidLiveStream

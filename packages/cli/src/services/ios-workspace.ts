@@ -1991,6 +1991,11 @@ export const makeIosWorkspaceLayer = (options: {
             const controlled = yield* session.run.observe();
             acceptObservation(session, controlled);
             yield* recordGestures(session, gestures, controlled);
+          } else if (command._tag === "emulate") {
+            // The iOS rail and its Emulation arrive with ADR 0083's observer.
+            return yield* Effect.fail(
+              platformRuntimeError("capability_missing")
+            );
           } else if (command._tag === "record") {
             yield* recordWorkspace(session, command, source);
           } else if (command._tag === "instruction") {
