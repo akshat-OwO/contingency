@@ -25,11 +25,25 @@ const RuntimeOwner = Schema.Struct({
 });
 export type AndroidRuntimeOwner = typeof RuntimeOwner.Type;
 
-/** The fields of an agent-device device claim that name its device and state. */
+/** The fields of an agent-device device claim that name its device, state, and owner. */
 const DeviceClaim = Schema.Struct({
   deviceKey: Schema.String,
+  ownerPid: Schema.Int.check(Schema.isGreaterThan(0)),
+  ownerStartTime: Schema.NullOr(Schema.String),
   stateDir: Schema.String,
 });
+
+/** The daemon identity agent-device advertises in its state directory. */
+const DaemonInfo = Schema.Struct({
+  pid: Schema.Int.check(Schema.isGreaterThan(0)),
+  processStartTime: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+/** A process identity: a pid and, when known, its start time. */
+interface ProcessIdentity {
+  readonly pid: number;
+  readonly startTime: string | null;
+}
 
 const decodeJson = <A>(schema: Schema.Codec<A>, text: string) =>
   Effect.succeed(
@@ -86,10 +100,7 @@ export const writeAndroidRuntimeOwner = (
   });
 
 /** A live process whose start time differs reused a dead owner's pid. */
-const ownerAlive = (
-  owner: AndroidRuntimeOwner,
-  probe: AndroidRuntimeOwnerProbe
-) =>
+const ownerAlive = (owner: ProcessIdentity, probe: AndroidRuntimeOwnerProbe) =>
   Effect.gen(function* isOwnerAlive() {
     if (!probe.isAlive(owner.pid)) {
       return false;
@@ -122,46 +133,40 @@ export interface ReclaimAndroidRuntimesInput {
   readonly probe?: AndroidRuntimeOwnerProbe;
 }
 
-const symmetricForward =
-  /^(?<serial>\S+)\s+tcp:(?<port>\d+)\s+tcp:(?<remote>\d+)$/u;
-
 const listDirectory = (directory: string) =>
   Effect.tryPromise(() => readdir(directory)).pipe(
     Effect.orElseSucceed((): string[] => [])
   );
 
-const readOwner = (directory: string) =>
-  readText(path.join(directory, ANDROID_RUNTIME_OWNER_FILE)).pipe(
+const readJson = <A>(schema: Schema.Codec<A>, file: string) =>
+  readText(file).pipe(
     Effect.flatMap((text) =>
       Option.isSome(text)
-        ? decodeJson(RuntimeOwner, text.value)
-        : Effect.succeed(Option.none<AndroidRuntimeOwner>())
+        ? decodeJson(schema, text.value)
+        : Effect.succeed(Option.none<A>())
     )
   );
 
-/** Runtime directories under `root` that an agent-device claim for `serial` names. */
-const claimedRuntimes = (input: ReclaimAndroidRuntimesInput, root: string) =>
+/** Every agent-device claim for `serial`, wherever its state lives. */
+const serialClaims = (input: ReclaimAndroidRuntimesInput) =>
   Effect.gen(function* readClaims() {
     const deviceKey = `local:android:none:${input.serial}`;
-    const claimed = new Set<string>();
+    const claims: (typeof DeviceClaim.Type)[] = [];
     for (const claimFile of yield* listDirectory(input.claimsDirectory)) {
-      const text = claimFile.endsWith(".json")
-        ? yield* readText(path.join(input.claimsDirectory, claimFile))
-        : Option.none<string>();
-      const claim = Option.isSome(text)
-        ? yield* decodeJson(DeviceClaim, text.value)
+      const claim = claimFile.endsWith(".json")
+        ? yield* readJson(
+            DeviceClaim,
+            path.join(input.claimsDirectory, claimFile)
+          )
         : Option.none();
       if (Option.isSome(claim) && claim.value.deviceKey === deviceKey) {
-        const directory = path.resolve(claim.value.stateDir);
-        if (
-          path.dirname(directory) === root &&
-          path.basename(directory).startsWith(ANDROID_RUNTIME_PREFIX)
-        ) {
-          claimed.add(directory);
-        }
+        claims.push({
+          ...claim.value,
+          stateDir: path.resolve(claim.value.stateDir),
+        });
       }
     }
-    return claimed;
+    return claims;
   });
 
 /**
@@ -169,11 +174,21 @@ const claimedRuntimes = (input: ReclaimAndroidRuntimesInput, root: string) =>
  * serial. A directory from before owner files existed counts only when a
  * claim for this serial names it.
  */
-const orphanedRuntimes = (input: ReclaimAndroidRuntimesInput) =>
+const orphanedRuntimes = (
+  input: ReclaimAndroidRuntimesInput,
+  probe: AndroidRuntimeOwnerProbe
+) =>
   Effect.gen(function* findOrphans() {
-    const probe = input.probe ?? hostOwnerProbe;
     const root = path.resolve(input.root);
-    const claimed = yield* claimedRuntimes(input, root);
+    const claimed = new Set<string>();
+    for (const { stateDir } of yield* serialClaims(input)) {
+      if (
+        path.dirname(stateDir) === root &&
+        path.basename(stateDir).startsWith(ANDROID_RUNTIME_PREFIX)
+      ) {
+        claimed.add(stateDir);
+      }
+    }
     const candidates = new Set(claimed);
     for (const entry of yield* listDirectory(root)) {
       if (entry.startsWith(ANDROID_RUNTIME_PREFIX)) {
@@ -182,7 +197,10 @@ const orphanedRuntimes = (input: ReclaimAndroidRuntimesInput) =>
     }
     const orphans: string[] = [];
     for (const directory of candidates) {
-      const owner = yield* readOwner(directory);
+      const owner = yield* readJson(
+        RuntimeOwner,
+        path.join(directory, ANDROID_RUNTIME_OWNER_FILE)
+      );
       const orphan = Option.isNone(owner)
         ? claimed.has(directory)
         : owner.value.serial === input.serial &&
@@ -194,49 +212,84 @@ const orphanedRuntimes = (input: ReclaimAndroidRuntimesInput) =>
     return orphans;
   });
 
-const releaseOrphans = (
-  input: ReclaimAndroidRuntimesInput,
-  orphans: readonly string[]
-) =>
-  Effect.gen(function* release() {
-    // Stopping each daemon frees its claim and helper session; a daemon that
-    // already died leaves a dead claim, which agent-device clears itself.
-    for (const directory of orphans) {
-      yield* input.stopDaemon(directory).pipe(Effect.ignore);
-    }
-    yield* input.adb([
-      "shell",
-      `am force-stop ${androidHelperRelease.packageName}`,
-    ]);
-    // The helper session forwards one host port to the same device port.
-    const forwards = yield* input.adb(["forward", "--list"]);
-    for (const line of forwards.split("\n")) {
-      const match = symmetricForward.exec(line.trim())?.groups;
-      if (match?.serial === input.serial && match.port === match.remote) {
-        yield* input.adb(["forward", "--remove", `tcp:${match.port}`]);
-      }
-    }
-    for (const directory of orphans) {
-      yield* Effect.tryPromise(() =>
-        rm(directory, { force: true, recursive: true })
-      ).pipe(Effect.ignore);
-    }
+/** Whether the daemon a state directory advertises is still running. */
+const daemonAlive = (directory: string, probe: AndroidRuntimeOwnerProbe) =>
+  Effect.gen(function* isDaemonAlive() {
+    const info = yield* readJson(
+      DaemonInfo,
+      path.join(directory, "daemon.json")
+    );
+    return Option.isSome(info)
+      ? yield* ownerAlive(
+          {
+            pid: info.value.pid,
+            startTime: info.value.processStartTime ?? null,
+          },
+          probe
+        )
+      : false;
   });
+
+const daemonStillRunning = (): PlatformRuntimeError => ({
+  _tag: "PlatformRuntimeError",
+  code: "cleanup_failed",
+  message:
+    "A Contingency process that exited left an agent-device daemon holding this Android device, and the daemon did not stop. Stop that agent-device daemon, then retry preparation.",
+});
 
 /**
  * Reclaims the device from runtimes a killed Contingency process left behind.
  * Call it only under the device lock: the lock proves no live Contingency
  * process uses this serial, so another runtime directory for it is an orphan.
  * A directory whose owner is alive, or that names another serial, is never
- * touched. Returns the reclaimed directories.
+ * touched. A daemon that does not stop keeps its directory, so a later start
+ * can try again, and fails the start. The helper is force-stopped only when no
+ * live agent-device claim holds the serial; a live external session is left
+ * for agent-device to refuse. Returns the reclaimed directories.
  */
 export const reclaimOrphanedAndroidRuntimes = (
   input: ReclaimAndroidRuntimesInput
 ): Effect.Effect<readonly string[], PlatformRuntimeError> =>
   Effect.gen(function* reclaim() {
-    const orphans = yield* orphanedRuntimes(input);
-    if (orphans.length > 0) {
-      yield* releaseOrphans(input, orphans);
+    const probe = input.probe ?? hostOwnerProbe;
+    const orphans = yield* orphanedRuntimes(input, probe);
+    if (orphans.length === 0) {
+      return [];
     }
-    return orphans;
+    // Stopping each daemon frees its claim and helper session; a daemon that
+    // already died leaves a dead claim, which agent-device clears itself.
+    const stopped: string[] = [];
+    for (const directory of orphans) {
+      yield* input.stopDaemon(directory).pipe(Effect.ignore);
+      if (!(yield* daemonAlive(directory, probe))) {
+        stopped.push(directory);
+      }
+    }
+    for (const directory of stopped) {
+      yield* Effect.tryPromise(() =>
+        rm(directory, { force: true, recursive: true })
+      ).pipe(Effect.ignore);
+    }
+    if (stopped.length < orphans.length) {
+      return yield* Effect.fail(daemonStillRunning());
+    }
+    let held = false;
+    for (const claim of yield* serialClaims(input)) {
+      if (
+        yield* ownerAlive(
+          { pid: claim.ownerPid, startTime: claim.ownerStartTime },
+          probe
+        )
+      ) {
+        held = true;
+      }
+    }
+    if (!held) {
+      // No live session owns the helper, so a running one is the orphan's.
+      yield* input.adb([
+        "shell",
+        `am force-stop ${androidHelperRelease.packageName}`,
+      ]);
+    }
+    return stopped;
   });

@@ -20,6 +20,8 @@ await writeFile(
   path.join(claims, `${path.basename(directory)}.json`),
   JSON.stringify({
     deviceKey: `local:android:none:${serial}`,
+    ownerPid: process.pid,
+    ownerStartTime: null,
     stateDir: directory,
   })
 );
