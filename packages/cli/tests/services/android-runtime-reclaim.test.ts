@@ -326,7 +326,8 @@ it.effect("keeps a runtime whose daemon did not stop and fails the start", () =>
       expect(yield* exists(path.join(running, "contingency-owner.json"))).toBe(
         true
       );
-      expect(yield* exists(dead)).toBe(false);
+      // Retry reclaims every orphan together once the daemon stops.
+      expect(yield* exists(dead)).toBe(true);
     })
   )
 );
