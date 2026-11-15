@@ -26,6 +26,7 @@ type StreamState =
   | "live"
   | "reconnecting"
   | "secure"
+  | "unclassified"
   | "lost"
   | "unsupported";
 const labels: Record<StreamState, string> = {
@@ -34,6 +35,7 @@ const labels: Record<StreamState, string> = {
   lost: "Device stream lost.",
   reconnecting: "Device stream interrupted. Reconnecting…",
   secure: "Secure window, not visible",
+  unclassified: "Screen hidden. Contingency cannot classify this window yet.",
   unsupported: "This browser cannot decode the live device stream.",
 };
 
@@ -210,7 +212,7 @@ export const AndroidLiveStream = ({
                       visible = false;
                       context.clearRect(0, 0, surface.width, surface.height);
                       setState(
-                        event.state === "connecting" ? waiting : "secure"
+                        event.state === "connecting" ? waiting : event.state
                       );
                       if (decoder.state === "configured") {
                         decoder.reset();

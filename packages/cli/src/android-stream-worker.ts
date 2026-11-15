@@ -22,8 +22,13 @@ import {
   androidStreamRelease,
   androidVisibilityState,
   androidWindowVisibility,
+  initialAndroidVisibilityReport,
+  reportAndroidVisibility,
 } from "./services/android-stream-contract.ts";
-import type { AndroidStreamPacket } from "./services/android-stream-contract.ts";
+import type {
+  AndroidStreamPacket,
+  AndroidWindowVisibility,
+} from "./services/android-stream-contract.ts";
 import {
   makeWheelFinger,
   WHEEL_RELEASE_MILLIS,
@@ -200,7 +205,8 @@ Effect.scoped(
     );
     // Forwarded Input is the only input the stream sends. No SessionRecorder,
     // installation API, or replay is reachable.
-    let visibility: "visible" | "secure" | "unknown" | undefined;
+    let visibility: AndroidWindowVisibility | undefined;
+    let reported = initialAndroidVisibilityReport;
     let keyRequired = true;
     let configuration = Buffer.alloc(0);
     let { width } = stream.meta;
@@ -235,10 +241,18 @@ Effect.scoped(
       Effect.orElseSucceed(() => "unknown" as const),
       Effect.flatMap((next) =>
         Effect.gen(function* updateVisibility() {
+          // Frames follow every read at once; viewers hear only a settled one.
           if (next !== visibility) {
             keyRequired = true;
             visibility = next;
-            yield* send({ _tag: "state", state: androidVisibilityState(next) });
+          }
+          const { changed, report } = reportAndroidVisibility(reported, next);
+          reported = report;
+          if (changed !== undefined) {
+            yield* send({
+              _tag: "state",
+              state: androidVisibilityState(changed),
+            });
           }
         })
       )

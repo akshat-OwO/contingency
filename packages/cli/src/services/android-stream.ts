@@ -329,8 +329,11 @@ export const acquireAndroidStream = (
             Effect.sync(() => {
               clients.add(receive);
               const current = registry.get(status);
+              // A viewer that joins a hidden screen is told why it is hidden.
               receive(
-                current._tag === "state" && current.state === "secure"
+                current._tag === "state" &&
+                  (current.state === "secure" ||
+                    current.state === "unclassified")
                   ? current
                   : connecting
               );

@@ -41,11 +41,61 @@ export const androidWindowVisibility = (
   return "visible";
 };
 
+export type AndroidWindowVisibility = ReturnType<
+  typeof androidWindowVisibility
+>;
+
 /**
- * What viewers see for the focused window's visibility. Unknown visibility
- * hides frames until the next read; only a stopped stream is `lost`.
+ * What viewers see for the focused window's visibility once it is reported.
+ * Unknown visibility hides frames; only a stopped stream is `lost`.
  */
 export const androidVisibilityState = (
-  visibility: "visible" | "secure" | "unknown"
-): "connecting" | "secure" =>
-  visibility === "secure" ? "secure" : "connecting";
+  visibility: AndroidWindowVisibility
+): "connecting" | "secure" | "unclassified" => {
+  if (visibility === "secure") {
+    return "secure";
+  }
+  return visibility === "unknown" ? "unclassified" : "connecting";
+};
+
+/**
+ * Consecutive unknown reads before unknown visibility is reported. Android
+ * reports no focused window for a moment between windows, which a single read
+ * catches; two reads a second apart do not both land in one such moment.
+ */
+export const UNKNOWN_READS_REPORTED = 2;
+
+/** The visibility viewers were last told, and the unknown reads since. */
+export interface AndroidVisibilityReport {
+  readonly reported: AndroidWindowVisibility | undefined;
+  readonly unknownReads: number;
+}
+
+/** One read folded into the report, and what viewers are told for it. */
+export interface AndroidVisibilityRead {
+  readonly report: AndroidVisibilityReport;
+  readonly changed: AndroidWindowVisibility | undefined;
+}
+
+export const initialAndroidVisibilityReport: AndroidVisibilityReport = {
+  reported: undefined,
+  unknownReads: 0,
+};
+
+/**
+ * Folds one visibility read into the report. `changed` is the visibility to
+ * tell viewers, or undefined when they keep what they have. A short unknown
+ * between windows is never reported, so the viewer keeps its last frame;
+ * frames are withheld for it all the same.
+ */
+export const reportAndroidVisibility = (
+  report: AndroidVisibilityReport,
+  read: AndroidWindowVisibility
+): AndroidVisibilityRead => {
+  const unknownReads = read === "unknown" ? report.unknownReads + 1 : 0;
+  const settled = read !== "unknown" || unknownReads >= UNKNOWN_READS_REPORTED;
+  if (!settled || read === report.reported) {
+    return { changed: undefined, report: { ...report, unknownReads } };
+  }
+  return { changed: read, report: { reported: read, unknownReads } };
+};

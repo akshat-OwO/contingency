@@ -9,6 +9,8 @@ import { Atom } from "effect/reactivity";
 import {
   ChevronLeftIcon,
   CircleIcon,
+  CirclePauseIcon,
+  ScanEyeIcon,
   ShieldAlertIcon,
   SlidersHorizontalIcon,
   SmartphoneIcon,
@@ -313,6 +315,59 @@ export const DeviceUnavailable = ({
   </div>
 );
 
+/** What the glass says for one reason a prepared session paused. */
+interface PauseCopy {
+  readonly detail: string;
+  readonly icon: typeof UnplugIcon;
+  readonly title: string;
+}
+
+/** The copy for each pause code that has its own; others read as paused. */
+const pauseCopies = new Map<string, PauseCopy>([
+  [
+    "capture_incomplete",
+    {
+      detail:
+        "The device is still connected. Recover from the dock to capture this screen again on the same device.",
+      icon: ScanEyeIcon,
+      title: "Screen capture incomplete",
+    },
+  ],
+  [
+    "device_disconnected",
+    {
+      detail: "Recover the same device from the dock.",
+      icon: UnplugIcon,
+      title: "Device disconnected",
+    },
+  ],
+  [
+    "device_mismatch",
+    {
+      detail:
+        "The selected device's identity changed. Recover the same device from the dock.",
+      icon: UnplugIcon,
+      title: "Device changed",
+    },
+  ],
+  [
+    "secure_window",
+    {
+      detail:
+        "This window cannot provide outcome evidence. The outcome is inconclusive.",
+      icon: ShieldAlertIcon,
+      title: "Secure window, not visible",
+    },
+  ],
+]);
+const otherPause: PauseCopy = {
+  detail: "Recover the same device from the dock.",
+  icon: CirclePauseIcon,
+  title: "Execution paused",
+};
+const pauseCopy = (code: string | undefined) =>
+  (code === undefined ? undefined : pauseCopies.get(code)) ?? otherPause;
+
 /**
  * The live device: the frame with the stream filling its glass and its rail
  * on the right. While the user can act, what they do on the glass goes to
@@ -329,8 +384,8 @@ export const AndroidDevice = ({
   onInput,
   paused,
   pending,
+  pauseCode,
   sessionId,
-  secure,
   unavailable,
 }: {
   readonly canAct: boolean;
@@ -346,14 +401,18 @@ export const AndroidDevice = ({
   readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onInput: (input: NativeInput) => void;
   readonly paused: boolean;
+  /** Why the session paused: the code of its last Capture Gap. */
+  readonly pauseCode?: string | undefined;
   readonly pending: boolean;
   readonly sessionId: AgentSessionId;
-  readonly secure: boolean;
   /** What the glass says while there is no stream. */
   readonly unavailable: string;
 }) => {
   const [frameAtom] = useState(() => Atom.make(DEFAULT_FRAME));
   const [frame, setFrame] = useAtom(frameAtom);
+  const secure = paused && pauseCode === "secure_window";
+  const pause = pauseCopy(pauseCode);
+  const PauseIcon = pause.icon;
   const displayUnavailable = secure ? "" : unavailable;
   if (ended) {
     return (
@@ -407,21 +466,9 @@ export const AndroidDevice = ({
           {paused ? (
             <div className="absolute inset-0 grid place-items-center p-6 text-center">
               <div className="bg-background space-y-1 rounded-2xl border p-4 shadow-lg">
-                {secure ? (
-                  <ShieldAlertIcon className="mx-auto size-6 text-amber-600" />
-                ) : (
-                  <UnplugIcon className="mx-auto size-6 text-amber-600" />
-                )}
-                <p className="text-sm font-medium">
-                  {secure
-                    ? "Secure window, not visible"
-                    : "Device disconnected"}
-                </p>
-                <p className="text-muted-foreground text-xs">
-                  {secure
-                    ? "This window cannot provide outcome evidence. The outcome is inconclusive."
-                    : "Recover the same device from the dock."}
-                </p>
+                <PauseIcon className="mx-auto size-6 text-amber-600" />
+                <p className="text-sm font-medium">{pause.title}</p>
+                <p className="text-muted-foreground text-xs">{pause.detail}</p>
               </div>
             </div>
           ) : null}

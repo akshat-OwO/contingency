@@ -804,11 +804,7 @@ export const AndroidSessionView = ({
           paused={
             session.phase === "paused" && hasPreparedAndroidSession(session)
           }
-          secure={
-            session.phase === "paused" &&
-            hasPreparedAndroidSession(session) &&
-            session.captureGaps.at(-1) === "secure_window"
-          }
+          pauseCode={session.captureGaps.at(-1)}
           pending={pending}
           sessionId={session.id}
           unavailable={glassText(session)}

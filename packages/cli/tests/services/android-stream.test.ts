@@ -8,7 +8,10 @@ import {
   AndroidStreamPacket,
   androidVisibilityState,
   androidWindowVisibility,
+  initialAndroidVisibilityReport,
+  reportAndroidVisibility,
 } from "../../src/services/android-stream-contract.ts";
+import type { AndroidWindowVisibility } from "../../src/services/android-stream-contract.ts";
 import type { AndroidRecorderPacket } from "../../src/services/android-stream.ts";
 import { acquireAndroidStream } from "../../src/services/android-stream.ts";
 
@@ -140,9 +143,49 @@ it("recognizes secure flags after other flags and ignores unfocused windows", ()
 });
 
 it("hides frames for unknown visibility without reporting the stream lost", () => {
-  expect(androidVisibilityState("unknown")).toBe("connecting");
+  expect(androidVisibilityState("unknown")).toBe("unclassified");
   expect(androidVisibilityState("visible")).toBe("connecting");
   expect(androidVisibilityState("secure")).toBe("secure");
+});
+
+/** The visibility each read tells viewers, or undefined when it tells nothing. */
+const reported = (reads: readonly AndroidWindowVisibility[]) => {
+  let report = initialAndroidVisibilityReport;
+  return reads.map((read) => {
+    const { changed, report: next } = reportAndroidVisibility(report, read);
+    report = next;
+    return changed;
+  });
+};
+
+it("reports no change for a single unknown read between windows", () => {
+  // Android reports no focused window for a moment while a screen changes.
+  expect(reported(["visible", "unknown", "visible"])).toEqual([
+    "visible",
+    undefined,
+    undefined,
+  ]);
+});
+
+it("reports unknown visibility once it lasts two reads", () => {
+  expect(
+    reported(["visible", "unknown", "unknown", "unknown", "visible"])
+  ).toEqual(["visible", undefined, "unknown", undefined, "visible"]);
+});
+
+it("reports the return to a visible window after a secure one", () => {
+  expect(reported(["secure", "unknown", "visible"])).toEqual([
+    "secure",
+    undefined,
+    "visible",
+  ]);
+  // An unknown read never starts a lasting count across a known one.
+  expect(reported(["visible", "unknown", "visible", "unknown"])).toEqual([
+    "visible",
+    undefined,
+    undefined,
+    undefined,
+  ]);
 });
 
 it.effect(
@@ -429,6 +472,62 @@ it.effect(
         expect(
           received.slice(marker + 1).find((packet) => packet._tag === "frame")
         ).toEqual(resumed);
+        yield* Scope.close(scope, Exit.void);
+      })
+    )
+);
+
+it.effect(
+  "tells a viewer that joins a screen it cannot classify why it is hidden",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* lateUnclassified() {
+        const scope = yield* Scope.make();
+        const started = yield* Deferred.make<true>();
+        const hidden = yield* Deferred.make<true>();
+        const child = new ChildProcess();
+        const output = new PassThrough();
+        child.stdout = output;
+        child.kill = () => {
+          Object.defineProperty(child, "exitCode", { value: 0 });
+          child.emit("close", 0, null);
+          return true;
+        };
+        const stream = yield* acquireAndroidStream(
+          "agent-unclassified",
+          device,
+          scope,
+          () => {
+            Deferred.doneUnsafe(started, Effect.succeed(true));
+            return child;
+          },
+          () => Effect.void
+        );
+        const unclassified = { _tag: "state", state: "unclassified" } as const;
+        const first = yield* Stream.runForEach(stream.frames, (bytes) =>
+          Effect.gen(function* receive() {
+            const packet = parse(Buffer.from(bytes).toString("utf-8").trim());
+            if (packet._tag === "state" && packet.state === "unclassified") {
+              yield* Deferred.succeed(hidden, true);
+            }
+          })
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(started).pipe(Effect.timeout("30 seconds"));
+        yield* Effect.sync(() => {
+          output.write(lines([frame(true), unclassified]));
+        });
+        yield* Deferred.await(hidden).pipe(Effect.timeout("30 seconds"));
+        const joined = yield* stream.frames.pipe(
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.timeout("30 seconds")
+        );
+        expect(
+          Array.from(joined, (bytes) =>
+            parse(Buffer.from(bytes).toString("utf-8").trim())
+          )
+        ).toEqual([unclassified]);
+        yield* Fiber.interrupt(first);
         yield* Scope.close(scope, Exit.void);
       })
     )
