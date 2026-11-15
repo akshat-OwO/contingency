@@ -85,7 +85,7 @@ test("waits on a Run Environment Permission instead of preparing", () => {
       ],
     },
   });
-  expect(presentation.badge).toBe("Permission needed");
+  expect(presentation.badge).toBe("Decision needed");
   expect(presentation.action).toBeNull();
 });
 

@@ -18,6 +18,7 @@ import {
   VariableField,
   RequestHeader,
   requestIconClassName,
+  requestTierClassName,
 } from "@/components/agent/dock-request-parts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 import {
   androidDockPresentation,
@@ -72,7 +74,7 @@ export const AndroidRequests = ({
   readonly session: AndroidWorkspaceSnapshot;
 }) =>
   session.preparation.pending.length === 0 ? null : (
-    <div className="bg-muted-surface space-y-2 border-b px-3 py-2.5">
+    <div className={cn(requestTierClassName, "space-y-2 border-b px-3 py-2.5")}>
       {session.preparation.pending.map((decision) => {
         const title = {
           "app-installation": "App installation",
@@ -356,7 +358,7 @@ export const AndroidVariables = ({
   return (
     <section
       aria-label={title}
-      className="bg-muted-surface space-y-2 border-b px-3 py-2.5"
+      className={cn(requestTierClassName, "space-y-2 border-b px-3 py-2.5")}
     >
       <RequestHeader
         title={title}
@@ -451,7 +453,7 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
-        className="max-w-56 min-w-28 flex-1 @max-md:max-w-none @max-md:basis-full @md:max-w-72 @md:flex-initial @4xl:max-w-96"
+        className="hover:bg-muted dark:hover:bg-muted max-w-[min(18rem,55%)] min-w-28 shrink border-transparent font-medium dark:bg-transparent"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {

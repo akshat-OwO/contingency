@@ -9,7 +9,10 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   CircleAlertIcon,
+  CircleCheckIcon,
   CircleIcon,
+  GlobeIcon,
+  LoaderCircleIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -60,6 +63,13 @@ export interface SessionDeletion {
   readonly error: string | undefined;
 }
 
+/**
+ * Every dock's session picker trigger: quiet, and the first thing to shrink
+ * when the actions need the room.
+ */
+export const dockSessionTriggerClassName =
+  "min-w-0 max-w-[min(18rem,55%)] shrink justify-start gap-2 px-2";
+
 /** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
   className,
@@ -80,8 +90,7 @@ export const DockSessionSelect = ({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
-        // The trigger shows the name's start; hovering shows all of it. On a
-        // narrow dock it has a row of its own.
+        // The trigger shows the name's start; hovering shows all of it.
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
@@ -94,20 +103,19 @@ export const DockSessionSelect = ({
         }}
         render={
           <Button
-            variant="outline"
-            className={cn(
-              "max-w-56 min-w-0 flex-1 @max-md:max-w-none @max-md:basis-full @max-md:justify-between @md:max-w-72 @md:flex-initial @4xl:max-w-[32rem]",
-              className
-            )}
+            variant="ghost"
+            size="sm"
+            className={cn(dockSessionTriggerClassName, className)}
           />
         }
       >
-        <span className="truncate">
+        <GlobeIcon aria-hidden="true" className="text-muted-foreground" />
+        <span className="truncate font-medium">
           {selected === undefined
             ? "Agent Session"
             : agentSessionLabel(selected).split(" · ").at(0)}
         </span>
-        <ChevronDownIcon aria-hidden="true" />
+        <ChevronDownIcon aria-hidden="true" className="text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent
         aria-label="Agent Sessions"
@@ -193,14 +201,11 @@ const useDockHeight = () => {
 };
 
 /**
- * The dock shell: one floating bar over a full-bleed browser. What the agent
- * is waiting on comes first, as a strip above. On a stage of 64rem or more the
- * status sits inside the controls row, between the session picker and the
- * actions, so the whole dock is one row. On a narrower stage, or while the
- * status is expanded or carries a note, it takes its own tier above the
- * controls. The
- * controls are one row that never wraps. A hairline along the top edge
- * carries the state's tone (`styles.css`).
+ * The dock shell: one compact floating card over a full-bleed browser. What
+ * the agent is waiting on comes first, as a tier above. Then the status line,
+ * then the session picker and the actions. The card stops at 42rem however
+ * wide the stage is, so a wide stage gets a centered card rather than a long
+ * bar. The state's tone lives in its label and mark, never in an edge.
  *
  * The dock sits inside the browser stage, which the devtools inspector and the
  * Dry Run Summary narrow independently of the window. So it sizes itself with
@@ -242,7 +247,7 @@ export const DockShell = ({
       className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3"
       data-slot="workspace-dock-container"
     >
-      <div className="relative w-full max-w-3xl @5xl:max-w-5xl">
+      <div className="relative w-full max-w-2xl">
         {/*
           Pointer events pass through the notices to the device or page
           behind, so a refusal never blocks the next attempt.
@@ -255,23 +260,22 @@ export const DockShell = ({
         </div>
         <section
           aria-label="Workspace dock"
-          className="material-float pointer-events-auto relative w-full overflow-hidden rounded-xl shadow-lg"
+          className="material-float pointer-events-auto relative w-full overflow-hidden rounded-2xl shadow-lg"
           data-slot="workspace-dock"
           ref={ref}
         >
           {requests}
-          <div data-slot="dock-row">
-            <div data-slot="dock-status-slot">{status}</div>
-            {/*
-            Below a medium dock the session picker takes its own full row, so
-            the session's name stays readable and the actions keep theirs.
+          {status}
+          {/*
+            The session picker shrinks before an action does. When the actions
+            still do not fit, as on a narrow device dock, they wrap onto a
+            second line rather than clipping.
           */}
-            <div
-              className="flex min-w-0 flex-wrap items-center gap-1.5 border-t px-2 py-1.5 @md:flex-nowrap"
-              data-slot="dock-controls"
-            >
-              {children}
-            </div>
+          <div
+            className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 pt-1 pb-2"
+            data-slot="dock-controls"
+          >
+            {children}
           </div>
           {footer}
         </section>
@@ -365,40 +369,87 @@ const useClamped = <Element extends HTMLElement>() => {
   return [ref, clamped] as const;
 };
 
-/** How a dock state reads: recording, failed, needing attention, or neither. */
-export type DockStateTone = "attention" | "default" | "failed" | "recording";
+/**
+ * How a dock state reads. Work in progress is `busy`, anything waiting on the
+ * person is `attention`, a session someone is driving is `live`, and a good
+ * outcome is `success`, so a resting dock and a dock that needs you never
+ * look alike.
+ */
+export type DockStateTone =
+  | "attention"
+  | "busy"
+  | "default"
+  | "failed"
+  | "live"
+  | "recording"
+  | "success";
 
 const dockStateToneClass: Record<DockStateTone, string> = {
-  attention: "text-amber-600 dark:text-amber-400",
+  attention: "text-amber-700 dark:text-amber-400",
+  busy: "text-foreground/85",
   default: "text-foreground/85",
   failed: "text-destructive",
-  recording: "text-foreground",
-};
-
-const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
-  if (tone === "recording") {
-    return (
-      <CircleIcon
-        aria-hidden="true"
-        className="size-2.5 shrink-0 fill-current text-red-500"
-      />
-    );
-  }
-  if (tone === "failed" || tone === "attention") {
-    return <CircleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />;
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className="bg-muted-foreground/60 size-1.5 shrink-0 rounded-full"
-    />
-  );
+  live: "text-blue-600 dark:text-blue-400",
+  recording: "text-red-600 dark:text-red-400",
+  success: "text-emerald-700 dark:text-emerald-400",
 };
 
 /**
- * A dock state as plain text behind a small mark: a red dot while recording,
- * the alert icon when failed or waiting on attention, a muted dot otherwise.
- * No fill or border, so the status tier reads as a line rather than pills.
+ * The tone's mark. Work in progress spins and a live recording pulses, so
+ * motion means "it is moving"; the alert icon means "it is waiting on you"
+ * or "it failed".
+ */
+const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
+  switch (tone) {
+    case "recording": {
+      return (
+        <span aria-hidden="true" className="relative flex size-2.5 shrink-0">
+          <span className="absolute inset-0 animate-ping rounded-full bg-red-500/60 motion-reduce:hidden" />
+          <CircleIcon className="relative size-2.5 fill-current text-red-500" />
+        </span>
+      );
+    }
+    case "busy": {
+      return (
+        <LoaderCircleIcon
+          aria-hidden="true"
+          className="text-muted-foreground size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+        />
+      );
+    }
+    case "attention":
+    case "failed": {
+      return (
+        <CircleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
+      );
+    }
+    case "success": {
+      return (
+        <CircleCheckIcon aria-hidden="true" className="size-3.5 shrink-0" />
+      );
+    }
+    case "live": {
+      return (
+        <span
+          aria-hidden="true"
+          className="size-2 shrink-0 rounded-full bg-blue-500"
+        />
+      );
+    }
+    default: {
+      return (
+        <span
+          aria-hidden="true"
+          className="bg-muted-foreground/60 size-1.5 shrink-0 rounded-full"
+        />
+      );
+    }
+  }
+};
+
+/**
+ * A dock state as colored text behind a small mark. No fill, border, or edge,
+ * so the status reads as a line rather than a pill.
  */
 export const DockState = ({
   children,
@@ -409,7 +460,7 @@ export const DockState = ({
 }) => (
   <span
     className={cn(
-      "inline-flex shrink-0 items-center gap-1.5 text-[13px] leading-5 font-medium whitespace-nowrap",
+      "inline-flex shrink-0 items-center gap-1.5 text-[13px] leading-5 font-semibold whitespace-nowrap",
       dockStateToneClass[tone]
     )}
     data-slot="dock-state"
@@ -425,13 +476,11 @@ export const dockFactClassName =
   "text-muted-foreground text-xs leading-5 whitespace-nowrap";
 
 /**
- * The dock's status tier: the state label and one line saying where the
- * session is and what happens next. The line is clamped to one row and
- * expands in place, with `details` (the Agent Step, the task) under it.
- *
- * The state labels keep a floor under the sentence: when they leave it less than
- * about 12rem, the sentence drops onto its own line rather than ellipsizing
- * after two words (#238). Below a medium dock it always has its own line.
+ * The dock's status line: the state label, then one sentence saying where the
+ * session is and what happens next. On a narrow stage the sentence takes its
+ * own line under the label and wraps to two; from a 32rem stage it sits
+ * beside the label on one line. A clamped sentence expands in place, with
+ * `details` (the Agent Step, the task) under it.
  *
  * One polite region, changed only when the state changes.
  */
@@ -453,56 +502,52 @@ export const DockStatus = ({
   const [sentenceRef, clamped] = useClamped<HTMLOutputElement>();
   const expandable = clamped || expanded || details !== undefined;
   return (
-    <div
-      className="flex items-start gap-2 px-3 pt-2.5 pb-2"
-      // Details and a wrapping note need the dock's width, so they keep the
-      // status on its own tier instead of inside the controls row.
-      data-own-tier={expanded || note !== undefined ? "" : undefined}
-      data-slot="dock-status"
-    >
-      <div
-        className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-1"
-        data-slot="dock-status-line"
-      >
-        <div className="flex shrink-0 items-center gap-x-2.5 gap-y-1">
+    <div className="px-3.5 pt-2 pb-0.5" data-slot="dock-status">
+      <div className="flex min-w-0 items-start gap-2">
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5",
+            expanded ? null : "@lg:flex-nowrap"
+          )}
+          data-slot="dock-status-line"
+        >
           {badges}
-        </div>
-        {/* On a narrow dock the sentence takes its own full row. */}
-        <div className="min-w-48 flex-1 @max-md:basis-full">
           <output
             aria-live="polite"
             className={cn(
-              "text-foreground/75 block text-[13px] leading-5 text-pretty wrap-anywhere",
-              expanded ? "max-h-40 overflow-y-auto" : "line-clamp-1"
+              "text-muted-foreground block min-w-0 basis-full text-[13px] leading-5 text-pretty wrap-anywhere empty:hidden",
+              expanded
+                ? "max-h-40 overflow-y-auto"
+                : "line-clamp-2 @lg:line-clamp-1 @lg:flex-1 @lg:basis-0"
             )}
             ref={sentenceRef}
           >
             {children}
           </output>
-          {note === undefined ? null : (
-            <p className="text-muted-foreground mt-0.5 font-mono text-xs wrap-anywhere">
-              {note}
-            </p>
-          )}
-          {expanded && details !== undefined ? (
-            <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
-              {details}
-            </div>
-          ) : null}
         </div>
+        {expandable ? (
+          <Button
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide details" : "Show details"}
+            className="-mr-1.5"
+            onClick={() => setExpanded((current) => !current)}
+            size="icon-xs"
+            type="button"
+            variant="ghost"
+          >
+            {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
+          </Button>
+        ) : null}
       </div>
-      {expandable ? (
-        <Button
-          aria-expanded={expanded}
-          aria-label={expanded ? "Hide details" : "Show details"}
-          className="-mt-0.5 -mr-1"
-          onClick={() => setExpanded((current) => !current)}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
-        </Button>
+      {note === undefined ? null : (
+        <p className="text-muted-foreground mt-0.5 font-mono text-xs wrap-anywhere">
+          {note}
+        </p>
+      )}
+      {expanded && details !== undefined ? (
+        <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
+          {details}
+        </div>
       ) : null}
     </div>
   );

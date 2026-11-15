@@ -15,6 +15,8 @@ import {
 } from "@/components/agent/dry-run-summary-state";
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
 
+import type { DockStateTone } from "./workspace-dock";
+
 /**
  * The user gestures that move a Teaching Recording. Start and Stop are the
  * whole privacy boundary (ADR 0039): nothing is captured before Start, and
@@ -77,7 +79,7 @@ export interface TeachingRecordingPresentation {
    * Correcting a drafted Flow belongs to the learning work.
    */
   readonly showsInspect: boolean;
-  readonly tone: "default" | "failed" | "recording";
+  readonly tone: DockStateTone;
 }
 
 const START: TeachingRecordingAction = {
@@ -108,16 +110,16 @@ const dryRunMissSentence = (
 
 /**
  * The dock's badge for a Dry Run that cannot verify. One that only missed how
- * it was attempted did not pass, but is not a broken journey, so it is not
- * shown in the failure tone; the Summary says the same.
+ * it was attempted did not pass, but is not a broken journey, so it asks for
+ * attention rather than showing the failure tone; the Summary says the same.
  */
 const dryRunMissBadge = (
   summary: AgentRunSummary | undefined
-): { readonly badge: string; readonly tone: "default" | "failed" } =>
+): { readonly badge: string; readonly tone: "attention" | "failed" } =>
   summary !== undefined &&
   isTaskDryRunSummary(summary) &&
   dryRunMissedOnlyQualifiers(summary)
-    ? { badge: "Dry run did not pass", tone: "default" }
+    ? { badge: "Dry run did not pass", tone: "attention" }
     : { badge: "Dry run failed", tone: "failed" };
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
@@ -157,7 +159,7 @@ const setupPresentation = (
       secondaries: ["rename-flow"],
       showsElapsed: false,
       showsInspect: false,
-      tone: "default",
+      tone: "busy",
     };
   }
   return {
@@ -212,7 +214,7 @@ export const teachingRecordingPresentation = (
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
-        tone: "default",
+        tone: "busy",
       };
     }
     case "ready": {
@@ -236,7 +238,7 @@ export const teachingRecordingPresentation = (
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
-        tone: "default",
+        tone: "busy",
       };
     }
     case "flow-drafted": {
@@ -258,7 +260,7 @@ export const teachingRecordingPresentation = (
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
-        tone: "default",
+        tone: "busy",
       };
     }
     case "dry-run-failed": {
@@ -296,7 +298,7 @@ export const teachingRecordingPresentation = (
         secondaries: ["reject-flow"],
         showsElapsed: false,
         showsInspect: true,
-        tone: "default",
+        tone: "success",
       };
     }
     case "verified": {
@@ -322,7 +324,7 @@ export const teachingRecordingPresentation = (
           secondaries: [],
           showsElapsed: false,
           showsInspect: false,
-          tone: "default",
+          tone: "busy",
         };
       }
       return {
@@ -333,7 +335,7 @@ export const teachingRecordingPresentation = (
         secondaries: [],
         showsElapsed: false,
         showsInspect: false,
-        tone: "default",
+        tone: "success",
       };
     }
     default: {

@@ -338,6 +338,7 @@ export const RunDock = ({
       )}
       {control.action === null ? null : (
         <Button
+          className="ml-auto"
           disabled={controlPending}
           onClick={onControl}
           type="button"

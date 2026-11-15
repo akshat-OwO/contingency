@@ -11,6 +11,7 @@ import {
   agentStatusLabel,
   isInteractiveRunSession,
 } from "@/components/agent/agent-workspace-state";
+import type { DockStateTone } from "@/components/agent/workspace-dock";
 
 /** One Agent Session that is running or rehearsing rather than teaching. */
 export type RunSessionSnapshot = Extract<
@@ -85,7 +86,7 @@ export interface RunDockPresentation {
   readonly nextStep: string;
   /** The active Agent Step's detail, or `undefined` when none is running. */
   readonly step: RunDockStep | undefined;
-  readonly tone: "default" | "failed";
+  readonly tone: DockStateTone;
 }
 
 const RUN_OUTCOME: Record<
@@ -175,6 +176,40 @@ const statusSentence = (
     ? sentences.join(" ")
     : "";
 
+/**
+ * The tone of a Run that has not failed. Waiting on the person, a Takeover
+ * request or an open Execution Boundary, asks for attention. Starting or
+ * reconnecting is work in progress, and a session someone is driving is live.
+ */
+const runTone = (
+  session: RunSessionSnapshot,
+  streamConnected: boolean
+): DockStateTone => {
+  if (session.phase === "takeover") {
+    return session.controller === "agent" ? "attention" : "live";
+  }
+  if (session.boundary !== undefined && session.boundary !== null) {
+    return "attention";
+  }
+  if (session.phase === "starting") {
+    return "busy";
+  }
+  if (session.phase === "completed") {
+    // Only a Run whose every Agent Step was assessed has a verdict to show;
+    // a task Run's verdict is its Summary's, so its dock stays neutral.
+    const { run } = session;
+    return run !== null &&
+      !("schemaVersion" in run) &&
+      run.outcome === "completed"
+      ? "success"
+      : "default";
+  }
+  if (!isLiveAgentSessionPhase(session.phase)) {
+    return "default";
+  }
+  return streamConnected ? "live" : "busy";
+};
+
 export const runDockPresentation = (
   session: RunSessionSnapshot,
   streamConnected: boolean
@@ -240,6 +275,6 @@ export const runDockPresentation = (
         : `${run.coverage.executed} of ${run.coverage.total} Agent Steps executed`,
     nextStep: statusSentence(session, sentences),
     step,
-    tone: failed ? "failed" : "default",
+    tone: failed ? "failed" : runTone(session, streamConnected),
   };
 };

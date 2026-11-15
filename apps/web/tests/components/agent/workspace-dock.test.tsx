@@ -15,7 +15,7 @@ test("a failed dock state is destructive text behind the alert icon", () => {
 test("an attention dock state is amber text behind the alert icon", () => {
   render(<DockState tone="attention">Needs you</DockState>);
   const state = screen.getByText("Needs you");
-  expect(state).toHaveClass("text-amber-600");
+  expect(state).toHaveClass("text-amber-700");
   expect(state.querySelector("svg")).not.toBeNull();
 });
 

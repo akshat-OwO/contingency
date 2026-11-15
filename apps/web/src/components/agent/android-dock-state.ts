@@ -11,6 +11,8 @@ import { androidDeviceLabel } from "@/components/agent/android-workspace-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
 
+import type { DockStateTone } from "./workspace-dock";
+
 const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
   "dry-run": "Dry Run",
   run: "Run",
@@ -77,7 +79,7 @@ export interface AndroidDockPresentation {
   readonly rejectable: boolean;
   /** Whether a live recording can take an instruction. */
   readonly showsComment: boolean;
-  readonly tone: "default" | "failed" | "recording";
+  readonly tone: DockStateTone;
 }
 
 const action = (
@@ -97,6 +99,21 @@ const OUTCOME_LABEL: Record<
 };
 
 /** Capture states whose decision outlives the session that reached them. */
+/**
+ * The tone of an ended session's verdict. Blocked and inconclusive are not
+ * broken journeys; they ask the person to look, as the Run Summary does.
+ */
+const COMPLETED_TONE: Record<
+  NonNullable<AndroidWorkspaceSummary["assessment"]>["outcome"] | "none",
+  DockStateTone
+> = {
+  blocked: "attention",
+  inconclusive: "attention",
+  none: "default",
+  "not-working": "failed",
+  working: "success",
+};
+
 const DECIDED = new Set(["dry-run-passed", "dry-run-failed", "verified"]);
 
 const quiet = (
@@ -164,7 +181,8 @@ const teachingPresentation = (
       return {
         ...base,
         action: action("stop-recording", "Stop", "Stop recording"),
-        nextStep: `Click through the journey once. Stop on the screen that proves it worked.`,
+        nextStep:
+          "Tap through the journey once. Stop on the screen that proves it worked.",
         showsComment: true,
       };
     }
@@ -219,7 +237,8 @@ const controlPresentation = (
         `${badge} · You have control`,
         session.kind === "dry-run"
           ? `You hold the emulator. This Dry Run cannot pass after Takeover; return control when you are done.`
-          : `You hold the emulator. Return control when you are done.`
+          : `You hold the emulator. Return control when you are done.`,
+        "live"
       ),
       action: action("return-control", "Return control"),
     };
@@ -227,7 +246,8 @@ const controlPresentation = (
   return {
     ...quiet(
       badge,
-      `The agent is driving the emulator. Take control to act yourself.`
+      `The agent is driving the emulator. Take control to act yourself.`,
+      "live"
     ),
     action: action("take-control", "Take control"),
   };
@@ -250,8 +270,9 @@ export const androidDockPresentation = (
     case "pending": {
       if (session.preparation.pending.length > 0) {
         return quiet(
-          "Permission needed",
-          `Answer the request above before the emulator is prepared.`
+          "Decision needed",
+          "Answer the request above before the emulator is prepared.",
+          "attention"
         );
       }
       return {
@@ -271,7 +292,8 @@ export const androidDockPresentation = (
         return {
           ...quiet(
             "Confirmation needed",
-            "Allow or refuse the exact action attempt above."
+            "Allow or refuse the exact action attempt above.",
+            "attention"
           ),
           action:
             session.controller === "user"
@@ -284,7 +306,7 @@ export const androidDockPresentation = (
           "Paused",
           session.error ??
             `The emulator disconnected or capture became unavailable. Recover the same emulator to carry on.`,
-          "failed"
+          "attention"
         ),
         action: pausedPreparationAction(session),
       };
@@ -308,9 +330,7 @@ export const androidDockPresentation = (
       return quiet(
         assessment === null ? "Completed" : OUTCOME_LABEL[assessment.outcome],
         assessment?.explanation ?? "The Run Summary is beside the device.",
-        assessment === null || assessment.outcome === "working"
-          ? "default"
-          : "failed"
+        COMPLETED_TONE[assessment?.outcome ?? "none"]
       );
     }
     default: {
