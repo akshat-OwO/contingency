@@ -473,13 +473,15 @@ export const DockState = ({
 
 /** A quiet fact beside the dock state, such as demo provenance. */
 export const dockFactClassName =
-  "text-muted-foreground text-xs leading-5 whitespace-nowrap";
+  "text-muted-foreground block max-w-full truncate text-xs leading-5";
 
 /**
  * The dock's status line: the state label, then one sentence saying where the
  * session is and what happens next. On a narrow stage the sentence takes its
  * own line under the label and wraps to two; from a 32rem stage it sits
- * beside the label on one line. A clamped sentence expands in place, with
+ * beside the label on one line. The sentence keeps a 12rem floor: when the
+ * badges and facts leave it less, it moves under them rather than vanishing,
+ * and a fact too long for the card truncates instead of overflowing it. A clamped sentence expands in place, with
  * `details` (the Agent Step, the task) under it.
  *
  * One polite region, changed only when the state changes.
@@ -505,10 +507,7 @@ export const DockStatus = ({
     <div className="px-3.5 pt-2 pb-0.5" data-slot="dock-status">
       <div className="flex min-w-0 items-start gap-2">
         <div
-          className={cn(
-            "flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5",
-            expanded ? null : "@lg:flex-nowrap"
-          )}
+          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5"
           data-slot="dock-status-line"
         >
           {badges}
@@ -518,7 +517,7 @@ export const DockStatus = ({
               "text-muted-foreground block min-w-0 basis-full text-[13px] leading-5 text-pretty wrap-anywhere empty:hidden",
               expanded
                 ? "max-h-40 overflow-y-auto"
-                : "line-clamp-2 @lg:line-clamp-1 @lg:flex-1 @lg:basis-0"
+                : "line-clamp-2 @lg:line-clamp-1 @lg:min-w-48 @lg:flex-1 @lg:basis-0"
             )}
             ref={sentenceRef}
           >

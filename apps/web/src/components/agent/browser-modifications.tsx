@@ -44,11 +44,13 @@ export const BrowserModificationBadge = ({
 }) => {
   const summary = browserModificationSummary(modifications);
   return summary ? (
-    <details className="relative">
+    // A long summary truncates within the card; the list behind it has all of it.
+    <details className="relative max-w-full min-w-0">
       <summary className="cursor-pointer list-none">
         <span
           aria-label="Active Browser Modifications"
           className={dockFactClassName}
+          title={summary}
         >
           {summary}
         </span>
