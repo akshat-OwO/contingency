@@ -331,6 +331,41 @@ it.effect("keeps a runtime whose daemon did not stop and fails the start", () =>
   )
 );
 
+it.effect("keeps orphan runtimes when the helper force-stop fails", () =>
+  Effect.scoped(
+    Effect.gen(function* forceStopFailed() {
+      const paths = yield* layout;
+      const orphan = yield* deadRuntime(paths.root, "dead", 999_999);
+      const fake = fakes();
+      const failure = yield* Effect.flip(
+        reclaimOrphanedAndroidRuntimes({
+          adb: () => Effect.fail(platformRuntimeError("device_disconnected")),
+          claimsDirectory: paths.claims,
+          probe: onlyThisProcess,
+          root: paths.root,
+          serial,
+          stopDaemon: fake.stopDaemon,
+        })
+      );
+      expect(failure.code).toBe("device_disconnected");
+      expect(yield* exists(path.join(orphan, "contingency-owner.json"))).toBe(
+        true
+      );
+      const retry = yield* reclaimOrphanedAndroidRuntimes({
+        adb: fake.adb,
+        claimsDirectory: paths.claims,
+        probe: onlyThisProcess,
+        root: paths.root,
+        serial,
+        stopDaemon: fake.stopDaemon,
+      });
+      expect(retry).toEqual([orphan]);
+      expect(fake.adbCalls).toEqual([forceStop]);
+      expect(yield* exists(orphan)).toBe(false);
+    })
+  )
+);
+
 it.effect("names a device another agent-device session holds", () =>
   Effect.gen(function* deviceInUse() {
     const failure = yield* Effect.flip(

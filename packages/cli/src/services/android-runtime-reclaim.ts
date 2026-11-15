@@ -242,8 +242,8 @@ const daemonStillRunning = (): PlatformRuntimeError => ({
  * Call it only under the device lock: the lock proves no live Contingency
  * process uses this serial, so another runtime directory for it is an orphan.
  * A directory whose owner is alive, or that names another serial, is never
- * touched. A daemon that does not stop keeps its directory, so a later start
- * can try again, and fails the start. The helper is force-stopped only when no
+ * touched. A daemon that does not stop, or a helper force-stop that fails,
+ * keeps every orphan directory, so Retry can try again, and fails the start. The helper is force-stopped only when no
  * live agent-device claim holds the serial; a live external session is left
  * for agent-device to refuse. Returns the reclaimed directories.
  */
@@ -265,11 +265,6 @@ export const reclaimOrphanedAndroidRuntimes = (
         stopped.push(directory);
       }
     }
-    for (const directory of stopped) {
-      yield* Effect.tryPromise(() =>
-        rm(directory, { force: true, recursive: true })
-      ).pipe(Effect.ignore);
-    }
     if (stopped.length < orphans.length) {
       return yield* Effect.fail(daemonStillRunning());
     }
@@ -290,6 +285,12 @@ export const reclaimOrphanedAndroidRuntimes = (
         "shell",
         `am force-stop ${androidHelperRelease.packageName}`,
       ]);
+    }
+    // Directories go last, so a failure above leaves them for Retry to reclaim.
+    for (const directory of stopped) {
+      yield* Effect.tryPromise(() =>
+        rm(directory, { force: true, recursive: true })
+      ).pipe(Effect.ignore);
     }
     return stopped;
   });
