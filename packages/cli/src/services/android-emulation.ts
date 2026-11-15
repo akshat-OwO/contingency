@@ -42,7 +42,14 @@ export const AndroidDeviceEnvironment = Schema.Struct({
   location: Schema.NullOr(
     Schema.Struct({ latitude: Schema.Finite, longitude: Schema.Finite })
   ),
-  nightMode: Schema.Literals(["yes", "no", "auto"]),
+  /** The night-mode policy, scheduled ones included (Android 11+). */
+  nightMode: Schema.Literals([
+    "yes",
+    "no",
+    "auto",
+    "custom_schedule",
+    "custom_bedtime",
+  ]),
   /**
    * Quarter turns of an emulator's virtual body, which sets the size of the
    * frames it streams. Null on a phone, whose stream follows its display.
@@ -54,7 +61,9 @@ export type AndroidDeviceEnvironmentValue =
   typeof AndroidDeviceEnvironment.Type;
 
 const rotationPattern = /mCurrentOrientation=(?<rotation>[0-3])/u;
-const nightPattern = /night mode:\s*(?<mode>yes|no|auto)\b/iu;
+const nightPattern =
+  /night mode:\s*(?<mode>yes|no|auto|custom_schedule|custom_bedtime)\b/iu;
+const computedNightPattern = /mComputedNightMode=(?<dark>true|false)\b/u;
 const gpsPattern =
   /last location=Location\[gps (?<latitude>-?\d+(?:\.\d+)?),(?<longitude>-?\d+(?:\.\d+)?)/u;
 
@@ -92,11 +101,21 @@ export const parseDisplayRotation = (dump: string) => {
 };
 const nightModes = new Map<string, AndroidDeviceEnvironmentValue["nightMode"]>([
   ["auto", "auto"],
+  ["custom_bedtime", "custom_bedtime"],
+  ["custom_schedule", "custom_schedule"],
   ["no", "no"],
   ["yes", "yes"],
 ]);
 export const parseNightMode = (output: string) =>
   nightModes.get(nightPattern.exec(output)?.groups?.mode?.toLowerCase() ?? "");
+/**
+ * Whether the device shows dark now. A policy such as `auto` or a schedule
+ * says when it would be dark, not whether it is.
+ */
+export const parseComputedNight = (dump: string) => {
+  const dark = computedNightPattern.exec(dump)?.groups?.dark;
+  return dark === undefined ? undefined : dark === "true";
+};
 /**
  * The GPS provider's last known fix. It moves only while an app listens, so
  * after setting a location a session keeps the value it set instead.
@@ -156,9 +175,14 @@ export const readAndroidEmulation = (adb: AndroidAdb, serial: string) =>
   Effect.gen(function* readEmulation() {
     const environment = yield* readAndroidEnvironment(adb, serial);
     const rotation = yield* displayRotation(adb, serial);
+    const dark = parseComputedNight(
+      yield* adb(serial, ["shell", "dumpsys", "uimode"])
+    );
+    if (dark === undefined) {
+      return yield* unreadable();
+    }
     const emulation: NativeEmulation = {
-      // Automatic night mode reads as light: it is light until a schedule says otherwise.
-      appearance: environment.nightMode === "yes" ? "dark" : "light",
+      appearance: dark ? "dark" : "light",
       location: environment.location,
       orientation: rotation % 2 === 0 ? "portrait" : "landscape",
     };

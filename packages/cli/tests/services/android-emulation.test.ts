@@ -1,15 +1,23 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 
 import {
   applyAndroidEmulationChange,
   emulationChanges,
   parseDisplayRotation,
   parseGpsLocation,
+  parseComputedNight,
   parseNightMode,
   parseSkinTurns,
   readAndroidEmulation,
@@ -30,6 +38,15 @@ it("parses the device's rotation, night mode, and last GPS fix", () => {
   expect(parseNightMode("Night mode: yes")).toBe("yes");
   expect(parseNightMode("Night mode: auto")).toBe("auto");
   expect(parseNightMode("unknown")).toBeUndefined();
+  expect(parseNightMode("Night mode: custom_schedule")).toBe("custom_schedule");
+  expect(parseNightMode("Night mode: custom_bedtime")).toBe("custom_bedtime");
+  expect(
+    parseComputedNight(
+      " mWaitForDeviceInactive=false mComputedNightMode=true customStart=22:00"
+    )
+  ).toBe(true);
+  expect(parseComputedNight("mComputedNightMode=false")).toBe(false);
+  expect(parseComputedNight("no uimode")).toBeUndefined();
   expect(parseSkinTurns("acceleration = 0:9.81:0")).toBe(0);
   expect(parseSkinTurns("acceleration = -9.81:-1.90735e-06:0")).toBe(1);
   expect(parseSkinTurns("acceleration = -8.57617e-07:-9.81:0")).toBe(2);
@@ -235,6 +252,130 @@ it.effect(
           "android-elsewhere.json",
           "android-live.json",
         ]);
+      })
+    )
+);
+
+it.effect(
+  "a scheduled night mode reads as what the device shows and is restored as a schedule",
+  () =>
+    withRoot((root) =>
+      Effect.gen(function* scheduledNight() {
+        // A bedtime schedule that is dark right now.
+        const device = fakeAndroidDevice({
+          nightMode: "custom_bedtime",
+          scheduledDark: true,
+        });
+        const adb = fakeAndroidAdb(device);
+        expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
+          "dark"
+        );
+        const guard = makeAndroidEmulationGuard({
+          adb,
+          avd: "fixture",
+          owned: Effect.succeed(false),
+          root,
+          serial,
+        });
+        yield* guard.change({ _tag: "appearance", appearance: "light" });
+        expect(device.nightMode).toBe("no");
+        expect((yield* readAndroidEmulation(adb, serial)).appearance).toBe(
+          "light"
+        );
+        yield* guard.restore;
+        expect(device.nightMode).toBe("custom_bedtime");
+        // Automatic mode is light while its schedule says so.
+        const automatic = fakeAndroidDevice({ nightMode: "auto" });
+        expect(
+          (yield* readAndroidEmulation(fakeAndroidAdb(automatic), serial))
+            .appearance
+        ).toBe("light");
+      })
+    )
+);
+
+it.effect(
+  "a session changes a device only after startup recovery is done with it",
+  () =>
+    withRoot((root) =>
+      Effect.gen(function* recoveryFirst() {
+        const device = fakeAndroidDevice({ nightMode: "yes" });
+        const adb = fakeAndroidAdb(device);
+        const directory = path.join(root, ".device-environment");
+        yield* Effect.promise(() => mkdir(directory, { recursive: true }));
+        // A dead process left the device dark; it was light before.
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(directory, "android-fixture.json"),
+            JSON.stringify({
+              avd: "fixture",
+              environment: {
+                accelerometerRotation: "1",
+                location: null,
+                nightMode: "no",
+                skinTurns: 0,
+                userRotation: "0",
+              },
+              pid: 2_147_483_647,
+              platform: "android",
+              serial,
+            })
+          )
+        );
+        const lookup = yield* Deferred.make<boolean>();
+        const reading = yield* Deferred.make<boolean>();
+        const waiting = yield* Deferred.make<boolean>();
+        const recovery = yield* Effect.forkChild(
+          restoreLeftoverEnvironments({
+            adb,
+            // Recovery has read the dead process's record by the time it asks.
+            avdOf: () =>
+              Deferred.succeed(reading, true).pipe(
+                Effect.andThen(Deferred.await(lookup)),
+                Effect.as("fixture")
+              ),
+            root,
+          })
+        );
+        yield* Deferred.await(reading);
+        const guard = makeAndroidEmulationGuard({
+          adb,
+          avd: "fixture",
+          owned: Effect.succeed(false),
+          recovered: Deferred.succeed(waiting, true).pipe(
+            Effect.andThen(Fiber.join(recovery))
+          ),
+          root,
+          serial,
+        });
+        const change = yield* Effect.forkChild(
+          guard.change({ _tag: "appearance", appearance: "dark" })
+        );
+        // The session waits for recovery before it reads or writes anything.
+        yield* Deferred.await(waiting);
+        expect(device.nightMode).toBe("yes");
+        expect(
+          JSON.parse(
+            yield* Effect.promise(() =>
+              readFile(path.join(directory, "android-fixture.json"), "utf-8")
+            )
+          )
+        ).toMatchObject({ pid: 2_147_483_647 });
+        yield* Deferred.succeed(lookup, true);
+        yield* Fiber.join(change);
+        expect(device.nightMode).toBe("yes");
+        // The session's own record holds the original recovery put back.
+        const record = JSON.parse(
+          yield* Effect.promise(() =>
+            readFile(path.join(directory, "android-fixture.json"), "utf-8")
+          )
+        );
+        expect(record).toMatchObject({
+          environment: { nightMode: "no" },
+          pid: process.pid,
+        });
+        yield* guard.restore;
+        expect(device.nightMode).toBe("no");
       })
     )
 );

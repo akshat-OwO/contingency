@@ -120,17 +120,13 @@ const claimBuild = (
           )
         )
   ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
-/**
- * Reserves the session's device until its scope closes, after every other
- * resource has released it, so Device Erase cannot take it meanwhile
- * (ADR 0081). A device being erased refuses the session.
- */
 /** A session's Emulation guard; a device this process booted is never restored. */
 const emulationGuard = (input: {
   readonly adb: AndroidAdb;
   readonly device: AndroidWorkspaceSummary["selection"]["device"];
   readonly ownedDevices: Option.Option<OwnedDevicesService>;
   readonly root: string;
+  readonly recovered: Effect.Effect<void>;
 }) => {
   const { device, ownedDevices } = input;
   const avd = "avd" in device ? device.avd : null;
@@ -143,10 +139,16 @@ const emulationGuard = (input: {
         : ownedDevices.value.eraseState.pipe(
             Effect.map((erase) => erase.owned.android.includes(avd))
           ),
+    recovered: input.recovered,
     root: input.root,
     serial: device.serial,
   });
 };
+/**
+ * Reserves the session's device until its scope closes, after every other
+ * resource has released it, so Device Erase cannot take it meanwhile
+ * (ADR 0081). A device being erased refuses the session.
+ */
 const reserveDevice = (
   owned: Option.Option<OwnedDevicesService>,
   selected: AndroidWorkspaceSummary["selection"]["device"],
@@ -529,7 +531,9 @@ export const makeAndroidWorkspaceLayer = (options: {
       const acquireStream = options.acquireStream ?? acquireAndroidStream;
       const adb = options.adb ?? androidAdb;
       // Devices a dead process changed get their environment back (ADR 0082).
-      yield* Effect.forkScoped(
+      // A session changes a device only after this finishes, so recovery
+      // never restores over it or removes its record.
+      const recovery = yield* Effect.forkScoped(
         restoreLeftoverEnvironments({
           adb,
           avdOf: (serial) =>
@@ -1218,7 +1222,9 @@ export const makeAndroidWorkspaceLayer = (options: {
                   adb,
                   device: selection.device,
                   ownedDevices,
-                  root,
+                  recovered: Fiber.join(recovery),
+                  // Startup recovery reads records from the process root.
+                  root: options.root(),
                 }),
                 lane: makeForwardedLane({
                   focus: (target, observation) => {

@@ -98,6 +98,8 @@ export const makeAndroidEmulationGuard = (input: {
   /** Null for a phone, which has no AVD to key a record by. */
   readonly avd: string | null;
   readonly owned: Effect.Effect<boolean>;
+  /** Settles once startup recovery is done with every device. */
+  readonly recovered?: Effect.Effect<void>;
 }): EmulationGuard => {
   const lock = Semaphore.makeUnsafe(1);
   let saved:
@@ -142,7 +144,8 @@ export const makeAndroidEmulationGuard = (input: {
   return {
     change: (change) =>
       lock.withPermits(1)(
-        save.pipe(
+        (input.recovered ?? Effect.void).pipe(
+          Effect.andThen(save),
           Effect.andThen(
             applyAndroidEmulationChange(input.adb, input.serial, change)
           )

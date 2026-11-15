@@ -8,7 +8,9 @@ import type { PlatformRuntimeError } from "../../src/services/platform-runtime.t
 export interface FakeAndroidDevice {
   accelerometerRotation: string;
   userRotation: string;
-  nightMode: "yes" | "no" | "auto";
+  nightMode: "yes" | "no" | "auto" | "custom_schedule" | "custom_bedtime";
+  /** Whether a scheduled or automatic policy shows dark right now. */
+  scheduledDark: boolean;
   /** The GPS provider's last known fix. */
   gps: { latitude: number; longitude: number } | null;
   /** The location the emulator console last set. */
@@ -26,10 +28,19 @@ export const fakeAndroidDevice = (
   consoleLocation: null,
   gps: { latitude: 39.2, longitude: -123.1 },
   nightMode: "no",
+  scheduledDark: false,
   skinTurns: 0,
   userRotation: "0",
   ...overrides,
 });
+
+const nightModes = [
+  "yes",
+  "no",
+  "auto",
+  "custom_schedule",
+  "custom_bedtime",
+] as const;
 
 type Answer = Effect.Effect<string, PlatformRuntimeError> | undefined;
 
@@ -106,11 +117,19 @@ const shellCommand = (
   if (line === "cmd uimode night") {
     return Effect.succeed(`Night mode: ${device.nightMode}`);
   }
-  const night = /^cmd uimode night (?<mode>yes|no|auto)$/u.exec(line)?.groups
-    ?.mode;
-  if (night === "yes" || night === "no" || night === "auto") {
-    device.nightMode = night;
-    return Effect.succeed(`Night mode: ${night}`);
+  const night = /^cmd uimode night (?<mode>\S+)$/u.exec(line)?.groups?.mode;
+  const mode = nightModes.find((candidate) => candidate === night);
+  if (mode !== undefined) {
+    device.nightMode = mode;
+    return Effect.succeed(`Night mode: ${mode}`);
+  }
+  if (line === "dumpsys uimode") {
+    const dark =
+      device.nightMode === "yes" ||
+      (device.nightMode !== "no" && device.scheduledDark);
+    return Effect.succeed(
+      ` mWaitForDeviceInactive=false mComputedNightMode=${dark} customStart=22:00`
+    );
   }
   if (line === "dumpsys display") {
     return Effect.succeed(`  mCurrentOrientation=${display()}`);
