@@ -1068,10 +1068,17 @@ export const makeAndroidWorkspaceLayer = (options: {
             )
           )
         );
+      /**
+       * The live session bound to a device, if any, or `undefined`. A
+       * Teaching session whose recording has stopped is returned only as
+       * `handOff` to a Dry Run of that same recording on the same device,
+       * which closes it once the Dry Run's own checks pass (#725).
+       */
       const requireAvailableDevice = (
-        selection: AndroidWorkspaceSummary["selection"]
+        command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>
       ) =>
         Effect.gen(function* availableDevice() {
+          const { selection } = command;
           // The Support Matrix binds one device at a time; another live session keeps its binding.
           const bound = [...sessions.values()].find((session) =>
             ["pending", "running", "paused"].includes(
@@ -1079,6 +1086,18 @@ export const makeAndroidWorkspaceLayer = (options: {
             )
           );
           if (bound !== undefined) {
+            const current = state(bound);
+            if (
+              command.kind === "dry-run" &&
+              command.recordingId !== null &&
+              current.summary.kind === "teaching" &&
+              current.summary.recordingId === command.recordingId &&
+              current.summary.selection.device.serial ===
+                selection.device.serial &&
+              !current.recording
+            ) {
+              return { handOff: bound };
+            }
             const { id: boundId, selection: boundSelection } =
               state(bound).summary;
             const { serial } = boundSelection.device;
@@ -1088,7 +1107,31 @@ export const makeAndroidWorkspaceLayer = (options: {
                 : `Android binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
             );
           }
+          return { handOff: undefined };
         });
+      /**
+       * Closes a stopped Teaching session, if any, for the Dry Run `to` of
+       * its recording, releasing its device. Its Teaching Recording is untouched,
+       * and a Teaching session leaves no Run Summary.
+       */
+      const handOffTeaching = (
+        session: Session | undefined,
+        to: AgentSessionId
+      ) =>
+        session === undefined
+          ? Effect.void
+          : session.lock.withPermits(1)(
+              Effect.gen(function* handOff() {
+                if (terminalPhase(session)) {
+                  return;
+                }
+                update(session, (value) => ({
+                  ...value,
+                  summary: { ...value.summary, handedOffTo: to },
+                }));
+                yield* close(session, "interrupted");
+              })
+            );
       const start = (
         command: Extract<AndroidWorkspaceCommand, { readonly _tag: "start" }>,
         source: "agent" | "user"
@@ -1118,12 +1161,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                   "Prepare and open requires the user's Teaching setup confirmation."
                 );
               }
-              yield* requireAvailableDevice(selection);
+              const { handOff } = yield* requireAvailableDevice(command);
               const { taught, recordingId, inputs, setup } =
                 yield* selectRequirements(command);
               const id = AgentSessionId.make(
                 `agent-android-${hash(command.operationId).slice(0, 32)}`
               );
+              yield* handOffTeaching(handOff, id);
               const scope = yield* Scope.make();
               unpublished = scope;
               // Held from here until the session's cleanup has finished.

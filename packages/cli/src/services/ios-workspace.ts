@@ -879,6 +879,67 @@ export const makeIosWorkspaceLayer = (options: {
           yield* persist(session);
           yield* writeRunSummary(session, outcome);
         });
+      /**
+       * The live session bound to a simulator, if any, refuses a start. A
+       * Teaching session whose recording has stopped is returned instead,
+       * to hand its simulator to a Dry Run of that recording once the Dry
+       * Run's own checks pass (#725).
+       */
+      const requireAvailableSimulator = (
+        command: Extract<IosWorkspaceCommand, { readonly _tag: "start" }>
+      ) =>
+        Effect.gen(function* availableSimulator() {
+          const { udid } = command.selection.device;
+          // The Support Matrix binds one device at a time; another live session keeps its binding.
+          const bound = [...sessions.values()].find((session) =>
+            ["pending", "running", "paused"].includes(
+              state(session).summary.phase
+            )
+          );
+          if (bound === undefined) {
+            return;
+          }
+          const { recording, summary } = state(bound);
+          if (
+            command.kind === "dry-run" &&
+            command.recordingId !== null &&
+            summary.kind === "teaching" &&
+            summary.recordingId === command.recordingId &&
+            summary.selection.device.udid === udid &&
+            !recording
+          ) {
+            return bound;
+          }
+          const serial = summary.selection.device.udid;
+          return yield* denied(
+            serial === udid
+              ? `iOS session ${summary.id} is already bound to ${serial}. Close it before starting another session.`
+              : `iOS binds one device at a time, and session ${summary.id} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
+          );
+        });
+      /**
+       * Closes a stopped Teaching session, if any, for the Dry Run `to` of
+       * its recording, releasing its device. Its Teaching Recording is untouched,
+       * and a Teaching session leaves no Run Summary.
+       */
+      const handOffTeaching = (
+        session: Session | undefined,
+        to: AgentSessionId
+      ) =>
+        session === undefined
+          ? Effect.void
+          : session.lock.withPermits(1)(
+              Effect.gen(function* handOff() {
+                if (terminalPhase(session)) {
+                  return;
+                }
+                update(session, (value) => ({
+                  ...value,
+                  summary: { ...value.summary, handedOffTo: to },
+                }));
+                yield* close(session, "interrupted");
+              })
+            );
       yield* Effect.addFinalizer(() =>
         Effect.forEach(
           [...sessions.values()],
@@ -996,27 +1057,13 @@ export const makeIosWorkspaceLayer = (options: {
                   )
                 );
               }
-              // The Support Matrix binds one device at a time; another live session keeps its binding.
-              const bound = [...sessions.values()].find((session) =>
-                ["pending", "running", "paused"].includes(
-                  state(session).summary.phase
-                )
-              );
-              if (bound !== undefined) {
-                const { id: boundId, selection: boundSelection } =
-                  state(bound).summary;
-                const { udid: serial } = boundSelection.device;
-                return yield* denied(
-                  serial === device.udid
-                    ? `iOS session ${boundId} is already bound to ${serial}. Close it before starting another session.`
-                    : `iOS binds one device at a time, and session ${boundId} is bound to ${serial}. Multiple bound devices are unsupported; close that session first.`
-                );
-              }
+              const handOff = yield* requireAvailableSimulator(command);
               const { taught, recordingId, inputs, setup } =
                 yield* selectRequirements(command);
               const id = AgentSessionId.make(
                 `agent-ios-${hash(command.operationId).slice(0, 32)}`
               );
+              yield* handOffTeaching(handOff, id);
               const scope = yield* Scope.make();
               unpublished = scope;
               // Held from here until the session's cleanup has finished.

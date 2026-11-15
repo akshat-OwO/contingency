@@ -221,88 +221,99 @@ const fixture = <A, E>(
     }).pipe(Effect.provide(Layer.mergeAll(store, workspace, learning)));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
 
-/** Teaches and saves a one-tap Flow, returning its recording. */
-const teach = Effect.gen(function* teachFlow() {
-  const workspace = yield* IosWorkspace;
-  const started = yield* workspace.execute(
-    {
-      _tag: "start",
-      flowName,
-      kind: "teaching",
-      operationId: op("teach-start"),
-      recordingId: null,
-      selection,
-    },
-    "user"
-  );
-  yield* workspace.execute(
-    {
-      _tag: "prepare",
-      operationId: op("teach-prepare"),
-      sessionId: started.id,
-    },
-    "user"
-  );
-  yield* workspace.execute(
-    {
-      _tag: "record",
-      operationId: op("teach-record"),
-      sessionId: started.id,
-      start: true,
-    },
-    "user"
-  );
-  const observed = yield* workspace.execute(
-    { _tag: "observe", image: false, sessionId: started.id },
-    "agent"
-  );
-  yield* workspace.execute(
-    {
-      _tag: "input",
-      action: {
-        _tag: "activate",
-        target: observed.observation?.nodes[0]?.target ?? "",
+/**
+ * Teaches and saves a one-tap Flow, returning its recording. The user closes
+ * the stopped Teaching session first unless `closeTeaching` is false.
+ */
+const teachFlow = (closeTeaching: boolean) =>
+  Effect.gen(function* teachOneTap() {
+    const workspace = yield* IosWorkspace;
+    const started = yield* workspace.execute(
+      {
+        _tag: "start",
+        flowName,
+        kind: "teaching",
+        operationId: op("teach-start"),
+        recordingId: null,
+        selection,
       },
-      observationId: observed.observation?.id ?? "",
-      operationId: op("teach-tap"),
-      sessionId: started.id,
-    },
-    "user"
-  );
-  const stopped = yield* workspace.execute(
-    {
-      _tag: "record",
-      operationId: op("teach-stop"),
-      sessionId: started.id,
-      start: false,
-    },
-    "user"
-  );
-  yield* workspace.execute(
-    { _tag: "close", operationId: op("teach-close"), sessionId: started.id },
-    "user"
-  );
-  if (stopped.recordingId === null) {
-    return yield* Effect.die("Teaching must own a recording");
-  }
-  const store = yield* TeachingRecordingStore;
-  yield* store.startLearning({
-    operationId: op("claim"),
-    recordingId: stopped.recordingId,
+      "user"
+    );
+    yield* workspace.execute(
+      {
+        _tag: "prepare",
+        operationId: op("teach-prepare"),
+        sessionId: started.id,
+      },
+      "user"
+    );
+    yield* workspace.execute(
+      {
+        _tag: "record",
+        operationId: op("teach-record"),
+        sessionId: started.id,
+        start: true,
+      },
+      "user"
+    );
+    const observed = yield* workspace.execute(
+      { _tag: "observe", image: false, sessionId: started.id },
+      "agent"
+    );
+    yield* workspace.execute(
+      {
+        _tag: "input",
+        action: {
+          _tag: "activate",
+          target: observed.observation?.nodes[0]?.target ?? "",
+        },
+        observationId: observed.observation?.id ?? "",
+        operationId: op("teach-tap"),
+        sessionId: started.id,
+      },
+      "user"
+    );
+    const stopped = yield* workspace.execute(
+      {
+        _tag: "record",
+        operationId: op("teach-stop"),
+        sessionId: started.id,
+        start: false,
+      },
+      "user"
+    );
+    if (closeTeaching) {
+      yield* workspace.execute(
+        {
+          _tag: "close",
+          operationId: op("teach-close"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+    }
+    if (stopped.recordingId === null) {
+      return yield* Effect.die("Teaching must own a recording");
+    }
+    const store = yield* TeachingRecordingStore;
+    yield* store.startLearning({
+      operationId: op("claim"),
+      recordingId: stopped.recordingId,
+    });
+    const learning = yield* TeachingRecordingLearning;
+    yield* learning.save({
+      claimOperationId: op("claim"),
+      files: [{ content: flow, path: "flow.md" }],
+      nativeConditions: {
+        outcomes: [{ name: "Continue", role: "button" }],
+        starting: [{ name: "Continue", role: "button" }],
+      },
+      operationId: op("save"),
+      recordingId: stopped.recordingId,
+    });
+    return stopped.recordingId;
   });
-  const learning = yield* TeachingRecordingLearning;
-  yield* learning.save({
-    claimOperationId: op("claim"),
-    files: [{ content: flow, path: "flow.md" }],
-    nativeConditions: {
-      outcomes: [{ name: "Continue", role: "button" }],
-      starting: [{ name: "Continue", role: "button" }],
-    },
-    operationId: op("save"),
-    recordingId: stopped.recordingId,
-  });
-  return stopped.recordingId;
-});
+const teach = teachFlow(true);
 
 const dryRun = (recordingId: TeachingRecordingId) =>
   Effect.gen(function* startDryRun() {
@@ -469,6 +480,57 @@ it.effect(
           recovered.observation?.id ?? ""
         );
         expect(completed.assessment?.outcome).toBe("working");
+      })
+    )
+);
+
+it.effect(
+  "an iOS Dry Run start takes the device from its recording's stopped Teaching session (#725)",
+  () =>
+    fixture(() =>
+      Effect.gen(function* handOffIos() {
+        const workspace = yield* IosWorkspace;
+        const recordingId = yield* teachFlow(false);
+        const [teaching] = yield* workspace.list();
+        if (teaching === undefined) {
+          return yield* Effect.die(
+            "The stopped Teaching session must stay listed."
+          );
+        }
+        expect(teaching).toMatchObject({
+          controller: "user",
+          kind: "teaching",
+          phase: "running",
+        });
+        // A Dry Run start its own checks refuse leaves Teaching bound.
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName: FlowName.make("ios-missing"),
+              kind: "dry-run",
+              operationId: op("dry-missing"),
+              recordingId,
+              selection,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).not.toContain("already bound");
+        expect((yield* workspace.list()).map(({ id }) => id)).toEqual([
+          teaching.id,
+        ]);
+        const prepared = yield* dryRun(recordingId);
+        expect(prepared).toMatchObject({ kind: "dry-run", phase: "running" });
+        const closed = yield* workspace.execute(
+          { _tag: "read", sessionId: teaching.id },
+          "user"
+        );
+        expect(closed.phase).toBe("closed");
+        expect(closed.handedOffTo).toBe(prepared.id);
+        expect((yield* workspace.list()).map(({ id }) => id)).toEqual([
+          prepared.id,
+        ]);
       })
     )
 );

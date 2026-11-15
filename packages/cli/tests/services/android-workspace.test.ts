@@ -10,11 +10,11 @@ import {
   NativeForward,
   OperationId,
   TeachingEvent,
+  TeachingRecordingId,
 } from "@contingency/protocol";
 import type {
   AndroidWorkspaceSelection,
   NativeInput,
-  TeachingRecordingId,
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
@@ -514,7 +514,7 @@ const fixture = (
     })
   ).pipe(Effect.provide(NodeServices.layer));
 
-const teach = (optional = false) =>
+const teach = (optional = false, closeTeaching = true) =>
   Effect.gen(function* recordAndLearn() {
     const workspace = yield* AndroidWorkspace;
     const started = yield* workspace.execute(
@@ -591,14 +591,16 @@ const teach = (optional = false) =>
     if (stopped.recordingId === null) {
       return yield* Effect.die("Recording missing.");
     }
-    yield* workspace.execute(
-      {
-        _tag: "close",
-        operationId: op("close-teaching"),
-        sessionId: started.id,
-      },
-      "user"
-    );
+    if (closeTeaching) {
+      yield* workspace.execute(
+        {
+          _tag: "close",
+          operationId: op("close-teaching"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+    }
     const store = yield* TeachingRecordingStore;
     yield* store.startLearning({
       operationId: op("claim"),
@@ -1248,6 +1250,172 @@ it.effect(
         );
         const next = yield* start("start-next", "emulator-5554");
         expect(next.phase).toBe("pending");
+      })
+    )
+);
+
+it.effect(
+  "a Dry Run start takes the device from its recording's stopped Teaching session (#725)",
+  () =>
+    fixture(({ calls }) =>
+      Effect.gen(function* handOffStoppedTeaching() {
+        const workspace = yield* AndroidWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const recordingId = yield* teach(false, false);
+        const [teaching] = yield* workspace.list();
+        if (teaching === undefined) {
+          return yield* Effect.die(
+            "The stopped Teaching session must stay listed."
+          );
+        }
+        expect(teaching.kind).toBe("teaching");
+        expect(teaching.controller).toBe("user");
+        const before = yield* store.read(recordingId);
+        const dryStart = (id: string, recording = recordingId) =>
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op(id),
+              recordingId: recording,
+              selection: {
+                ...selection,
+                setup: { ...selection.setup, conditions: [] },
+              },
+            },
+            "agent"
+          );
+        // Another recording's Dry Run, or one on another device, never takes it.
+        const other = yield* Effect.flip(
+          dryStart(
+            "start-other-recording",
+            TeachingRecordingId.make("recording-other")
+          )
+        );
+        expect(other.message).toContain(`${teaching.id} is already bound`);
+        const callsBefore = calls.length;
+        const elsewhere = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op("start-elsewhere"),
+              recordingId,
+              selection: {
+                ...selection,
+                device: { ...selection.device, serial: "emulator-5556" },
+                setup: { ...selection.setup, conditions: [] },
+              },
+            },
+            "agent"
+          )
+        );
+        expect(elsewhere.message).toContain(
+          "Multiple bound devices are unsupported"
+        );
+        expect(calls.length).toBe(callsBefore);
+        expect((yield* workspace.list()).map(({ id }) => id)).toEqual([
+          teaching.id,
+        ]);
+        // A Dry Run start its own checks refuse leaves Teaching bound.
+        yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName: FlowName.make("android-missing"),
+              kind: "dry-run",
+              operationId: op("start-missing-flow"),
+              recordingId,
+              selection,
+            },
+            "agent"
+          )
+        );
+        expect(
+          (yield* workspace.execute(
+            { _tag: "read", sessionId: teaching.id },
+            "user"
+          )).phase
+        ).toBe("running");
+        const dry = yield* dryStart("start-handoff");
+        expect(dry.kind).toBe("dry-run");
+        expect(dry.phase).toBe("pending");
+        const closed = yield* workspace.execute(
+          { _tag: "read", sessionId: teaching.id },
+          "user"
+        );
+        expect(closed.phase).toBe("closed");
+        expect(closed.handedOffTo).toBe(dry.id);
+        expect((yield* workspace.list()).map(({ id }) => id)).toEqual([dry.id]);
+        // Closing the Teaching session left the recording as it was; only
+        // the Dry Run's own start moved it.
+        const after = yield* store.read(recordingId);
+        expect(before.lifecycle._tag).toBe("flow-drafted");
+        expect(after.lifecycle._tag).toBe("dry-running");
+        expect(after.runtime).toEqual(before.runtime);
+      })
+    )
+);
+
+it.effect(
+  "a still-recording Teaching session keeps its device from its Dry Run",
+  () =>
+    fixture(() =>
+      Effect.gen(function* recordingKeepsDevice() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("start-recording"),
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("prepare-recording"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("record-start-recording"),
+            sessionId: started.id,
+            start: true,
+          },
+          "user"
+        );
+        if (started.recordingId === null) {
+          return yield* Effect.die("Recording missing.");
+        }
+        const refused = yield* Effect.flip(
+          workspace.execute(
+            {
+              _tag: "start",
+              flowName,
+              kind: "dry-run",
+              operationId: op("start-dry-while-recording"),
+              recordingId: started.recordingId,
+              selection,
+            },
+            "agent"
+          )
+        );
+        expect(refused.message).toContain(`${started.id} is already bound`);
+        const still = yield* workspace.execute(
+          { _tag: "read", sessionId: started.id },
+          "user"
+        );
+        expect(still.phase).toBe("running");
+        expect(still.handedOffTo).toBeUndefined();
       })
     )
 );
