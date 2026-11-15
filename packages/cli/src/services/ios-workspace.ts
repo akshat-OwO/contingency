@@ -1461,15 +1461,21 @@ export const makeIosWorkspaceLayer = (options: {
               yield* changeEmulation(session, change);
             }
           }
-          let prepared = yield* session.run.prepare();
           const rotation = changes.find(
             (change) => change._tag === "orientation"
           );
-          if (rotation !== undefined) {
-            acceptObservation(session, prepared);
-            yield* changeEmulation(session, rotation);
-            prepared = yield* session.run.observe();
-          }
+          // Orientation needs the launched app, and the Flow's starting
+          // conditions may hold only in the taught orientation, so it turns
+          // between launch and that check. The first observation records the
+          // orientation the simulator had.
+          const prepared = yield* session.run.prepare(
+            rotation === undefined
+              ? undefined
+              : (launched) => {
+                  acceptObservation(session, launched);
+                  return changeEmulation(session, rotation);
+                }
+          );
           acceptObservation(session, prepared);
           yield* readEmulation(session);
           return prepared;

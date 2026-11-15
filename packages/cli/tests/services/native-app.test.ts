@@ -274,3 +274,76 @@ it.effect(
       expect(calls).toEqual(["activate"]);
     })
 );
+
+it.effect(
+  "preparation settles the device before it checks the Flow's starting conditions",
+  () =>
+    Effect.gen(function* settleBeforeConditions() {
+      const scope = yield* Scope.Scope;
+      const { input } = fixture(scope);
+      // A screen that names its node only in landscape; the device starts portrait.
+      let orientation: "portrait" | "landscape" = "portrait";
+      const calls: string[] = [];
+      const request = {
+        ...startup(scope),
+        environment: {},
+        setup: {},
+        taught: {},
+      } satisfies NativeAppRunInput;
+      const run = yield* createNativeAppRun<
+        typeof request,
+        PlatformObservation,
+        NativeAppRunDecision
+      >(request, {
+        authorize: (selected) => selected,
+        decisions: () => [],
+        differences: () => [],
+        preflight: () => Effect.void,
+        start: () =>
+          adaptNativeAppRuntime({
+            ...input,
+            backend: {
+              ...input.backend,
+              capture: () =>
+                Effect.sync(() => {
+                  calls.push(`observe ${orientation}`);
+                  return {
+                    ...observation,
+                    nodes: [
+                      {
+                        name:
+                          orientation === "landscape"
+                            ? "landscape only"
+                            : "portrait",
+                        role: "text",
+                        target: "text",
+                      },
+                    ],
+                  };
+                }),
+              rotate: (next) =>
+                Effect.sync(() => {
+                  calls.push(`rotate ${next}`);
+                  orientation = next;
+                }),
+            },
+          }),
+        startingConditions: (_, observed) =>
+          observed.nodes.some((node) => node.name === "landscape only"),
+        validate: () => Effect.void,
+      });
+      // Without settling, the portrait screen fails the gate.
+      const prepared = yield* run.prepare((launched) => {
+        expect(launched.nodes[0]?.name).toBe("portrait");
+        // The settle step may rotate while preparation holds the run.
+        return run.rotate("landscape");
+      });
+      expect(prepared.nodes[0]?.name).toBe("landscape only");
+      expect(calls).toEqual([
+        "observe portrait",
+        "rotate landscape",
+        "observe landscape",
+      ]);
+      expect(run.state().phase).toBe("ready");
+    })
+);

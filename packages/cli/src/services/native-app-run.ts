@@ -97,6 +97,8 @@ export const createNativeAppRun = <
     registry.get(latest);
     const lock = Semaphore.makeUnsafe(1);
     let runtime: NativeAppRuntime<Observation> | undefined;
+    /** True while preparation settles the device under its own lock. */
+    let settling = false;
     const prepared = Atom.make(false).pipe(Atom.keepAlive);
     registry.get(prepared);
     let terminal: NativeAppRunState<Input, Decision> | undefined;
@@ -248,7 +250,7 @@ export const createNativeAppRun = <
             )
           )
         ),
-      prepare: () =>
+      prepare: (settle) =>
         lock.withPermits(1)(
           guarded(
             Effect.gen(function* prepare() {
@@ -265,7 +267,18 @@ export const createNativeAppRun = <
               yield* driver.preflight(startup);
               runtime = yield* driver.start(driver.authorize(startup));
               record({ type: "setup" });
-              const observation = yield* runtime.observe();
+              let observation = yield* runtime.observe();
+              if (settle !== undefined) {
+                settling = true;
+                yield* settle(observation).pipe(
+                  Effect.ensuring(
+                    Effect.sync(() => {
+                      settling = false;
+                    })
+                  )
+                );
+                observation = yield* runtime.observe();
+              }
               if (!driver.startingConditions(startup, observation)) {
                 return yield* Effect.fail(
                   makeError("starting_condition_failed")
@@ -319,14 +332,16 @@ export const createNativeAppRun = <
           )
         ),
       // A paused session still turns back at its end.
-      rotate: (orientation) =>
-        lock.withPermits(1)(
-          Effect.suspend(() =>
-            runtime === undefined || terminal !== undefined
-              ? Effect.fail(makeError("preparation_required"))
-              : runtime.rotate(orientation)
-          )
-        ),
+      // Preparation holds the lock while it settles the device, so a rotation
+      // it asks for goes straight to the runtime.
+      rotate: (orientation) => {
+        const turn = Effect.suspend(() =>
+          runtime === undefined || terminal !== undefined
+            ? Effect.fail(makeError("preparation_required"))
+            : runtime.rotate(orientation)
+        );
+        return settling ? turn : lock.withPermits(1)(turn);
+      },
       screenRecorder: () =>
         terminal === undefined ? runtime?.screenRecorder : undefined,
       state,
