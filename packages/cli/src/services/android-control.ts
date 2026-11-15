@@ -41,8 +41,11 @@ const namedKeycodes: ReadonlyMap<string, number> = new Map([
   ["End", 123],
   ["Enter", 66],
   ["Escape", 111],
-  // The Workspace's Back key.
+  // The Workspace's device keys. Home here is the device's Home button;
+  // the keyboard's Home key moves the text cursor.
+  ["AppSwitch", 187],
   ["GoBack", 4],
+  ["GoHome", 3],
   ["Home", 122],
   ["PageDown", 93],
   ["PageUp", 92],

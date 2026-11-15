@@ -19,6 +19,7 @@ import { validateAndroidStartup } from "./android-startup.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
+import { nativeSystemKeys } from "./platform-runtime.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 export const adaptAndroidRuntime = (input: {
@@ -30,7 +31,7 @@ export const adaptAndroidRuntime = (input: {
     capabilities: androidCapabilities,
     error: platformRuntimeError,
     foreground: (observation) => observation.ownership.focusedPackage,
-    policy: nativeAppActionPolicy(platformRuntimeError, true),
+    policy: nativeAppActionPolicy(platformRuntimeError, nativeSystemKeys),
   }).pipe(
     Effect.map((runtime) => ({ ...runtime, platform: "android" as const }))
   );

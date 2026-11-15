@@ -1,6 +1,7 @@
 import type { AndroidWorkspaceCommand } from "@contingency/protocol";
 
 import type { ExecutionBoundary } from "./execution-boundary.ts";
+import { isSystemKeyInput, systemKeyDescription } from "./platform-runtime.ts";
 
 /** Both native runtimes use one exact-action grant per agent attempt. */
 export const checkNativeAppConfirmation = (
@@ -21,10 +22,9 @@ export const checkNativeAppConfirmation = (
   return boundary.checkAttempt({
     action: capturedAction,
     capturedAction,
-    description:
-      action._tag === "back"
-        ? "Go back"
-        : `${action._tag === "activate" ? "Activate" : "Fill"} ${selectedTarget?.role} ${JSON.stringify(selectedTarget?.name)}${selectedTarget?.packageName ? ` in ${selectedTarget.packageName}` : ""}`,
+    description: isSystemKeyInput(action)
+      ? systemKeyDescription[action._tag]
+      : `${action._tag === "activate" ? "Activate" : "Fill"} ${selectedTarget?.role} ${JSON.stringify(selectedTarget?.name)}${selectedTarget?.packageName ? ` in ${selectedTarget.packageName}` : ""}`,
     intent: { irreversible: command.irreversible === true },
     objective,
     operationId: command.operationId,

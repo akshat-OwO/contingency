@@ -111,7 +111,7 @@ export interface AndroidRuntimeFactoryService {
 
 /** Only evaluated operations are available to the adapter. */
 export interface AndroidRuntimeBackend extends NativeAppRuntimeBackend<AndroidObservation> {
-  readonly back: NonNullable<
-    NativeAppRuntimeBackend<AndroidObservation>["back"]
+  readonly systemKey: NonNullable<
+    NativeAppRuntimeBackend<AndroidObservation>["systemKey"]
   >;
 }

@@ -622,7 +622,7 @@ const startIosRuntime = (
         },
         capabilities: iosCapabilities,
         error: iosRuntimeError,
-        policy: nativeAppActionPolicy(iosRuntimeError, false),
+        policy: nativeAppActionPolicy(iosRuntimeError, []),
         startup: { ...input, device: prepared.device },
       });
     }).pipe(

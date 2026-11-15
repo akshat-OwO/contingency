@@ -31,3 +31,5 @@ Android and iOS Workspace input must feel as responsive as the browser's. The br
 - ADR 0066's "raw coordinates are refused" and "all input passes through session authority" now mean that input is sent only from the Workspace canvas by the user in control, not that each input is resolved to a semantic target first.
 - The iOS HID helper uses private simulator APIs. An Xcode release outside the Support Matrix can break it, so the matrix gates it as it gates the runtime.
 - A Teaching step may carry an inferred target. The learning agent treats it as weaker evidence than one resolved from a fresh observation.
+
+> Amended by [ADR 0082](./0082-native-sessions-carry-an-emulation.md): the device rail's keys and environment changes are Forwarded Input that Teaching records as their own steps.

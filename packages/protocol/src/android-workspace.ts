@@ -354,7 +354,10 @@ export const AndroidWorkspaceCommand = Schema.Union([
         ),
         target: text,
       }),
+      // The device's own navigation keys, which work over any app.
       Schema.TaggedStruct("back", {}),
+      Schema.TaggedStruct("home", {}),
+      Schema.TaggedStruct("app-switcher", {}),
     ]),
     irreversible: Schema.optionalKey(Schema.Boolean),
     observationId: text,

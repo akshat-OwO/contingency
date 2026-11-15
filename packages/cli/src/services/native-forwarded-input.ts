@@ -1,6 +1,8 @@
 import type { NativeInput } from "@contingency/protocol";
 
 import { nativeHitTest } from "./native-app-hit-test.ts";
+import { systemKeyDescription } from "./platform-runtime.ts";
+import type { NativeSystemKey } from "./platform-runtime.ts";
 
 /**
  * Forwarded Input reaches the device as it happens. Teaching records it
@@ -258,6 +260,12 @@ export const gestureTarget = <Node extends AttributableNode>(
   return hit?.covered === true ? undefined : hit;
 };
 
+/** The Workspace's device keys, by `KeyboardEvent.key`, as system keys. */
+const deviceKeys: ReadonlyMap<string, NativeSystemKey> = new Map([
+  ["AppSwitch", "app-switcher"],
+  ["GoBack", "back"],
+  ["GoHome", "home"],
+]);
 const percent = (value: number) => `${Math.round(value * 100)}%`;
 const at = (point: { readonly x: number; readonly y: number }) =>
   `at ${percent(point.x)} across, ${percent(point.y)} down`;
@@ -353,12 +361,18 @@ export const describeGesture = (
       };
     }
     case "key": {
-      return gesture.key === "GoBack" && gesture.modifiers === 0
-        ? { description: "Go back", detail: null, kind: "back" }
-        : {
+      const systemKey =
+        gesture.modifiers === 0 ? deviceKeys.get(gesture.key) : undefined;
+      return systemKey === undefined
+        ? {
             description: `Press ${chordName(gesture)}`,
             detail: null,
             kind: "key",
+          }
+        : {
+            description: systemKeyDescription[systemKey],
+            detail: null,
+            kind: systemKey,
           };
     }
   }

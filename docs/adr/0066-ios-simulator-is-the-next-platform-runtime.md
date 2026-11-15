@@ -37,3 +37,7 @@ Extract a shared native-app layer from the Android services for session lifecycl
 The selected simulator's data changes across sessions, as an Android emulator's does. A journey that needs a particular starting state declares it through setup rather than relying on a fresh install.
 
 > Amended by [ADR 0081](./0081-native-setup-may-clear-app-data-or-erase-a-stopped-device.md): a Flow may save Clear Starting Data, which removes the Target App's data before Teaching and every Run.
+
+> Amended by [ADR 0082](./0082-native-sessions-carry-an-emulation.md): the taught environment includes a starting Emulation.
+
+> Amended by [ADR 0083](./0083-ios-observes-the-foreground-app.md): observation follows the foreground app, and `foreign_app_foreground` and Return to Target App are removed.

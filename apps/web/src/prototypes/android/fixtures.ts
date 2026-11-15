@@ -443,6 +443,10 @@ const inputResult = (
   if (action._tag === "fill") {
     return observe("signin-filled");
   }
+  // The fixture has no launcher or App Switcher to show.
+  if (action._tag === "home" || action._tag === "app-switcher") {
+    return observe(screenOf(current));
+  }
   const target = current.observation?.nodes.find(
     (entry) => entry.target === action.target
   );

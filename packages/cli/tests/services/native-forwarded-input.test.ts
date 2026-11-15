@@ -235,6 +235,20 @@ it("attributes gestures to the smallest named control and describes them", () =>
   expect(describeGesture({ _tag: "key", key: "GoBack", modifiers: 0 })).toEqual(
     { description: "Go back", detail: null, kind: "back" }
   );
+  expect(describeGesture({ _tag: "key", key: "GoHome", modifiers: 0 })).toEqual(
+    { description: "Go home", detail: null, kind: "home" }
+  );
+  expect(
+    describeGesture({ _tag: "key", key: "AppSwitch", modifiers: 0 })
+  ).toEqual({
+    description: "Open the App Switcher",
+    detail: null,
+    kind: "app-switcher",
+  });
+  // The keyboard's Home key moves the text cursor; it is not the device's.
+  expect(
+    describeGesture({ _tag: "key", key: "Home", modifiers: 0 }).description
+  ).toBe("Press Home");
   expect(
     describeGesture({ _tag: "key", key: "a", modifiers: 2 }).description
   ).toBe("Press Control+a");
@@ -278,6 +292,13 @@ it("encodes Android text, keys, and chords", () => {
   expect(enter?.readInt32BE(2)).toBe(66);
   const [back] = androidControlPackets(keyDown("GoBack"), screen);
   expect(back?.readInt32BE(2)).toBe(4);
+  // The device's Home button and App Switcher, apart from the cursor's Home.
+  const [home] = androidControlPackets(keyDown("GoHome"), screen);
+  expect(home?.readInt32BE(2)).toBe(3);
+  const [appSwitch] = androidControlPackets(keyDown("AppSwitch"), screen);
+  expect(appSwitch?.readInt32BE(2)).toBe(187);
+  const [cursorHome] = androidControlPackets(keyDown("Home"), screen);
+  expect(cursorHome?.readInt32BE(2)).toBe(122);
   const [selectAll] = androidControlPackets(
     keyDown("a", { code: "KeyA", modifiers: 2 }),
     screen
@@ -651,7 +672,7 @@ it.effect(
           capabilities: iosCapabilities,
           error: iosRuntimeError,
           foreground: (observation) => observation.app,
-          policy: nativeAppActionPolicy(iosRuntimeError, false),
+          policy: nativeAppActionPolicy(iosRuntimeError, []),
           startup: {
             device: { kind: "simulator" },
             platform: "ios",

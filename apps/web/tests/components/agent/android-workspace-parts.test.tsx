@@ -64,12 +64,12 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
   );
 });
 
-test("the device offers only Back and draws nothing over the stream", () => {
+test("the device rail offers Back, Home, and Recents and draws nothing over the stream", () => {
   render(
     <AndroidDevice
       canAct
       live={false}
-      onBack={vi.fn()}
+      onDeviceKey={vi.fn()}
       onInput={vi.fn()}
       paused={false}
       pending={false}
@@ -80,10 +80,10 @@ test("the device offers only Back and draws nothing over the stream", () => {
   );
   // A refused click is said in the dock, never on or beside the glass.
   expect(screen.queryByRole("status")).toBeNull();
-  // Back is the only control; there are no per-element targets.
+  // The device's own keys are the only controls; there are no per-element targets.
   expect(
     screen.getAllByRole("button").map((button) => button.ariaLabel)
-  ).toEqual(["Android Back"]);
+  ).toEqual(["Android Back", "Android Home", "Android Recents"]);
 });
 
 test("types public text into the picked field from the dock", async () => {
@@ -166,7 +166,7 @@ test("a secure pause names the hidden window instead of a disconnected device", 
     <AndroidDevice
       canAct={false}
       live
-      onBack={vi.fn()}
+      onDeviceKey={vi.fn()}
       onInput={vi.fn()}
       paused
       pending={false}

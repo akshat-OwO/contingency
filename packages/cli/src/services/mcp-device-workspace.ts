@@ -54,7 +54,7 @@ export const DeviceWorkspaceTools = withStrictParameters(
     Tool.make("agent_device_workspace", {
       dependencies: [],
       description:
-        "Android API30-36; iOS26-27 simulators. Workspace: /?android=<id> or /?ios=<id>. User prepares/records/verifies. Input needs observationId; unreadable fills=unconfirmed. Learn: claim/Timeline/save, dry-run, verify. Gaps/Takeover fail. iOS Settings needs Return to Target App. irreversible:true needs fresh Confirmation. device-erase-request (device=AVD or UDID) only asks; the user erases in Workspace; repeat its operationId for status.",
+        "Android API30-36; iOS26-27 simulators. Workspace: /?android=<id> or /?ios=<id>. User prepares/records/verifies. Input needs observationId; unreadable fills=unconfirmed; Android keys back/home/app-switcher. Learn: claim/Timeline/save, dry-run, verify. Gaps/Takeover fail. iOS Settings needs Return to Target App. irreversible:true needs fresh Confirmation. device-erase-request (device=AVD or UDID) only asks; the user erases in Workspace; repeat its operationId for status.",
       failure: DeviceWorkspaceFailure,
       parameters: Schema.Struct({
         command: Schema.Union(

@@ -62,7 +62,7 @@ for (const password of [true, false]) {
             },
             capabilities: iosCapabilities,
             error: iosRuntimeError,
-            policy: nativeAppActionPolicy(iosRuntimeError, false),
+            policy: nativeAppActionPolicy(iosRuntimeError, []),
             startup: {
               device: { kind: "simulator" },
               platform: "ios",

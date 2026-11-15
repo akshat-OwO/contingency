@@ -44,6 +44,26 @@ export interface PlatformObservation {
   readonly screenshot: Omit<AgentScreenshot, "url">;
 }
 
+/** A device's own navigation keys, which work over any app. */
+export const nativeSystemKeys = ["back", "home", "app-switcher"] as const;
+export type NativeSystemKey = (typeof nativeSystemKeys)[number];
+const systemKeySet: ReadonlySet<string> = new Set(nativeSystemKeys);
+export const isSystemKey = <Action extends { readonly type: string }>(
+  action: Action
+): action is Extract<Action, { readonly type: NativeSystemKey }> =>
+  systemKeySet.has(action.type);
+/** A Workspace input action that presses a system key, by its tag. */
+export const isSystemKeyInput = <Action extends { readonly _tag: string }>(
+  action: Action
+): action is Extract<Action, { readonly _tag: NativeSystemKey }> =>
+  systemKeySet.has(action._tag);
+/** How a Teaching step, Timeline, and Confirmation name each system key. */
+export const systemKeyDescription: Readonly<Record<NativeSystemKey, string>> = {
+  "app-switcher": "Open the App Switcher",
+  back: "Go back",
+  home: "Go home",
+};
+
 export type PlatformAction =
   | { readonly type: "activate"; readonly target: string }
   | { readonly type: "fill"; readonly target: string; readonly text: string }
@@ -64,7 +84,7 @@ export interface PlatformRuntimeError {
     | "screenshot"
     | "activate"
     | "fill"
-    | "back"
+    | NativeSystemKey
     | "session-check";
   readonly backendReason?:
     | "ref_generation_mismatch"

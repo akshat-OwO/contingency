@@ -145,15 +145,15 @@ it.effect("consumes action observations and closes a scoped runtime once", () =>
 );
 
 it.effect(
-  "refuses an absent Back capability and invalidates its observation",
+  "refuses an absent system key capability and invalidates its observation",
   () =>
     Effect.gen(function* refuseBack() {
       const { input } = fixture(yield* Scope.Scope);
       const runtime = yield* adaptNativeAppRuntime(input);
       yield* runtime.observe();
-      expect((yield* Effect.flip(runtime.back(observation.id))).code).toBe(
-        "capability_missing"
-      );
+      expect(
+        (yield* Effect.flip(runtime.systemKey(observation.id, "back"))).code
+      ).toBe("capability_missing");
       expect(runtime.state()).toMatchObject({
         observationId: null,
         phase: "paused",

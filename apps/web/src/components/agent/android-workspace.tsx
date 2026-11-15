@@ -778,14 +778,14 @@ export const AndroidSessionView = ({
             hasPreparedAndroidSession(session) &&
             (session.phase === "running" || session.phase === "paused")
           }
-          onBack={() => {
+          onDeviceKey={(key) => {
             for (const action of ["down", "up"] as const) {
               onInput({
                 _tag: "key",
                 action,
                 at: performance.now(),
                 code: "",
-                key: "GoBack",
+                key,
                 modifiers: 0,
               });
             }
