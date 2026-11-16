@@ -812,7 +812,8 @@ export const AndroidSessionView = ({
  * Prepares and opens an Android Teaching session, as the start card asks once
  * the person confirms preparation. The started session becomes the one the
  * Android Workspace shows, so it opens on the session rather than a read.
- * The gesture is its own: a refusal shows on the card, never on Web's.
+ * The gesture is its own: a refusal shows on the card, never on Web's. A
+ * start that finishes after the person moved on only refreshes the shelf.
  */
 export const useAndroidSessionStart = () => {
   const { androidSessionsAtom, runAndroidWorkspaceCommand } =
@@ -823,7 +824,11 @@ export const useAndroidSessionStart = () => {
   const start = (
     flowName: FlowName,
     selection: AndroidWorkspaceSelection,
-    onStarted: (sessionId: AgentSessionId) => void
+    opening: {
+      readonly onStarted: (sessionId: AgentSessionId) => void;
+      /** Whether the person is still waiting on this start to open. */
+      readonly owns: () => boolean;
+    }
   ): boolean =>
     gesture.dispatch(
       runAndroidWorkspaceCommand({
@@ -837,9 +842,11 @@ export const useAndroidSessionStart = () => {
       }).pipe(
         Effect.tap((session) =>
           Effect.sync(() => {
-            setState((current) => applySnapshot(current, session));
             refresh();
-            onStarted(session.id);
+            if (opening.owns()) {
+              setState((current) => applySnapshot(current, session));
+              opening.onStarted(session.id);
+            }
           })
         ),
         Effect.mapError(message),

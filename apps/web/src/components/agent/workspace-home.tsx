@@ -3,7 +3,7 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Clock, Effect, Fiber, Schedule } from "effect";
 import { CheckIcon, CircleAlertIcon, HandIcon } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { WatcherMark } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
@@ -444,6 +444,15 @@ export const WorkspaceHome = ({
   const [returning, setReturning] = useState<HomeCard | null>(null);
   const sessions = useHomeSessions(webSessions);
   const android = useAndroidSessionStart();
+  // A start owns the move into its session only while its card stays open; a
+  // newer card or leaving the home takes that over (#751).
+  const cardTurn = useRef(0);
+  useEffect(() => {
+    cardTurn.current += 1;
+    return () => {
+      cardTurn.current += 1;
+    };
+  }, [card]);
   const changeCard = (next: HomeCard | null) => {
     setCard(next);
     onCardChange?.(next);
@@ -552,11 +561,14 @@ export const WorkspaceHome = ({
               onClose={closeCard}
               onFlowNameChange={setFlowName}
               onOtherPlatform={switchPlatform}
-              onStart={(name, selection, form) =>
-                android.start(name, selection, (sessionId) =>
-                  onOpenNative("android", sessionId, form)
-                )
-              }
+              onStart={(name, selection, form) => {
+                const turn = cardTurn.current;
+                return android.start(name, selection, {
+                  onStarted: (sessionId) =>
+                    onOpenNative("android", sessionId, form),
+                  owns: () => cardTurn.current === turn,
+                });
+              }}
               pending={android.pending}
               platforms={platforms.filter((platform) => platform !== "android")}
             />

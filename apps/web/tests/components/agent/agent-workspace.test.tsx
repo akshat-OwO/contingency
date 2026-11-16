@@ -38,8 +38,13 @@ const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
   /* Commands the Android start card sent, in order. */
   androidCommands: [] satisfies unknown[],
+  /* How often the Android list was read. */
+  androidListCalls: 0,
   /* What the Android list answers, for the home's shelf. */
   androidSessionsResult: [] satisfies unknown[],
+  /* When set, an Android start answers only once this settles. */
+  // SAFETY: the gate starts empty; a test sets a promise before it starts.
+  androidStartGate: undefined as Promise<boolean> | undefined,
   closeCalls: [] satisfies unknown[],
   closeFailure: undefined satisfies unknown,
   closeGate: Promise.resolve(true),
@@ -254,11 +259,14 @@ const rpcOverrides = {
       return {};
     })
   ),
-  androidSessionsAtom: Atom.make(() => ({
-    _tag: "Success",
-    value: rpc.androidSessionsResult,
-    waiting: false,
-  })),
+  androidSessionsAtom: Atom.make(() => {
+    rpc.androidListCalls += 1;
+    return {
+      _tag: "Success",
+      value: rpc.androidSessionsResult,
+      waiting: false,
+    };
+  }),
   endedRunSummaryAtom: (runId: string) =>
     Atom.make(() => {
       rpc.endedRunSummaryCalls.push(runId);
@@ -327,12 +335,15 @@ const rpcOverrides = {
   }) => {
     rpc.androidCommands.push(command);
     // Only a start has an answer here; a read finds no session.
+    const gate = rpc.androidStartGate;
     return command._tag === "start"
-      ? Effect.succeed({
-          ...startedAndroidSession,
-          flowName: command.flowName,
-          selection: command.selection,
-        })
+      ? (gate === undefined ? Effect.void : Effect.promise(() => gate)).pipe(
+          Effect.map(() => ({
+            ...startedAndroidSession,
+            flowName: command.flowName,
+            selection: command.selection,
+          }))
+        )
       : Effect.fail({ message: "This server has no such Android session." });
   },
   runVideoStatusAtom: () =>
@@ -592,6 +603,7 @@ afterEach(async () => {
   rpc.agentStreamFailureMessage = undefined;
   rpc.androidCommands = [];
   rpc.androidSessionsResult = [];
+  rpc.androidStartGate = undefined;
   rpc.iosSessionsResult = [];
   rpc.closeCalls = [];
   rpc.closeFailure = undefined;
@@ -1035,6 +1047,42 @@ test("swaps the start card's platform in place and keeps the Flow name", async (
   await waitFor(() =>
     expect(testRouter.state.location.search).toEqual({ ios: "new" })
   );
+});
+
+test("a slow Android start leaves a newer platform choice alone", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const gate = Promise.withResolvers<boolean>();
+  rpc.androidStartGate = gate.promise;
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/");
+  await user.click(
+    await screen.findByRole("button", { name: "Start an Android session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on Android" });
+  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await user.click(
+    within(card).getByRole("button", { name: "Start teaching" })
+  );
+  await user.click(
+    within(
+      screen.getByRole("dialog", { name: "Prepare and open app?" })
+    ).getByRole("button", { name: "Confirm preparation" })
+  );
+  await waitFor(() => expect(rpc.androidCommands).toHaveLength(1));
+  await user.click(
+    within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
+      "button",
+      { name: "Web" }
+    )
+  );
+  const androidLists = rpc.androidListCalls;
+  gate.resolve(true);
+  // The started session still reaches the shelf, but the Web card stays.
+  await waitFor(() =>
+    expect(rpc.androidListCalls).toBeGreaterThan(androidLists)
+  );
+  expect(screen.getByRole("form", { name: "Teach on Web" })).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({});
 });
 
 test("confirms preparation, then opens the started Android session", async () => {
