@@ -10,6 +10,7 @@ import {
   FileInput,
   FileInputDropzone,
   FileInputTrigger,
+  relativePath,
 } from "@/components/ui/file-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
@@ -87,114 +88,62 @@ const BuildUploadStatus = ({
   </p>
 );
 
+/** A chosen file and its path, as an iOS `.app` upload sends it. */
+export interface ChosenFile extends AppBundleFile {
+  readonly file: File;
+}
+
 /**
- * A button that opens the file picker. For an iOS `.app`, the picker
- * chooses a folder; for Android, one `.apk`.
+ * A drop zone for a build, with the button that opens the file picker inside
+ * it: one file, such as an Android `.apk`, or with `directory` a whole folder,
+ * such as an iOS simulator `.app`. Each choice uploads at once; the zone keeps
+ * no file of its own, so choosing the same build again uploads it again.
  */
-export const BuildPicker = ({
+export const BuildDropzone = ({
   accept,
   describedBy,
-  directory,
-  disabled = false,
+  directory = false,
+  kind,
   label,
   onFiles,
   state,
 }: {
   readonly accept?: string;
   readonly describedBy: string;
-  readonly directory: boolean;
-  readonly disabled?: boolean;
-  readonly label: string;
-  readonly onFiles: (files: readonly AppBundleFile[], name: string) => void;
-  readonly state: BuildUploadState;
-}) => {
-  const input = useRef<HTMLInputElement>(null);
-  const uploading = state._tag === "uploading";
-  return (
-    <div className="flex min-w-0 flex-col items-start gap-2">
-      <input
-        accept={accept}
-        aria-hidden="true"
-        // Names the hidden picker for automation; the button is what people use.
-        aria-label={label}
-        className="hidden"
-        multiple={directory}
-        onChange={(event) => {
-          const files = [...(event.currentTarget.files ?? [])];
-          // The same choice again must still upload, so forget this one.
-          event.currentTarget.value = "";
-          const [first] = files;
-          if (first === undefined) {
-            return;
-          }
-          if (directory) {
-            // Each path starts with the chosen folder: `Shop.app/Info.plist`.
-            const [folder = first.name] = first.webkitRelativePath.split("/");
-            onFiles(
-              files.map((file) => ({ file, path: file.webkitRelativePath })),
-              folder
-            );
-          } else {
-            onFiles([{ file: first, path: first.name }], first.name);
-          }
-        }}
-        ref={input}
-        tabIndex={-1}
-        type="file"
-        {...(directory ? { webkitdirectory: "" } : {})}
-      />
-      <Button
-        aria-describedby={describedBy}
-        disabled={disabled || uploading}
-        onClick={() => input.current?.click()}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        {uploading ? (
-          <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
-        ) : (
-          <UploadIcon aria-hidden="true" />
-        )}
-        {label}
-      </Button>
-      <BuildUploadStatus id={describedBy} state={state} />
-    </div>
-  );
-};
-
-/**
- * A drop zone for one build file, such as an Android `.apk`, with the button
- * that opens the file picker inside it. Each choice uploads at once; the
- * zone keeps no file of its own, so choosing the same file again uploads it
- * again.
- */
-export const BuildDropzone = ({
-  accept,
-  describedBy,
-  kind,
-  label,
-  onFile,
-  state,
-}: {
-  readonly accept: string;
-  readonly describedBy: string;
-  /** The build's file kind, as the zone names it: `.apk`. */
+  /** Picks and accepts a folder, every file inside it, rather than one file. */
+  readonly directory?: boolean;
+  /** The build's kind, as the zone names it: `.apk` or `.app`. */
   readonly kind: string;
   readonly label: string;
-  readonly onFile: (file: File) => void;
+  /**
+   * The chosen build: one file, or a folder's files with paths that start at
+   * the folder, `Shop.app/Info.plist`, and the folder's name.
+   */
+  readonly onFiles: (files: readonly ChosenFile[], name: string) => void;
   readonly state: BuildUploadState;
 }) => {
   const uploading = state._tag === "uploading";
   return (
     <div className="grid gap-1.5">
       <FileInput
-        accept={accept}
+        {...(accept === undefined ? {} : { accept })}
+        directory={directory}
         disabled={uploading}
-        onValueChange={([first]) => {
-          if (first !== undefined) {
-            onFile(first);
+        onValueChange={(files) => {
+          const [first] = files;
+          if (first === undefined) {
+            return;
           }
+          if (!directory) {
+            onFiles([{ file: first, path: first.name }], first.name);
+            return;
+          }
+          const entries = files.map((file) => ({
+            file,
+            path: relativePath(file),
+          }));
+          const [folder = first.name] = (entries[0]?.path ?? "").split("/");
+          onFiles(entries, folder);
         }}
         value={[]}
       >
@@ -211,7 +160,9 @@ export const BuildDropzone = ({
             />
           )}
           <span className="text-muted-foreground">
-            Drop an <span className="font-mono">{kind}</span> here, or
+            Drop {directory ? "a" : "an"}{" "}
+            <span className="font-mono">{kind}</span>
+            {directory ? " folder" : ""} here, or
           </span>
           <FileInputTrigger
             aria-describedby={describedBy}

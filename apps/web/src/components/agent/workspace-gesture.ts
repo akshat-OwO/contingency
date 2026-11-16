@@ -52,6 +52,8 @@ export const sessionDeleteGestureAtom = gestureAtom();
 export const sessionStartGestureAtom = gestureAtom();
 /** Preparing and opening an Android Teaching session from its start card. */
 export const androidStartGestureAtom = gestureAtom();
+/** Opening an iOS Teaching session from its start card. */
+export const iosStartGestureAtom = gestureAtom();
 
 /** What stands in for a session's gesture while no session is selected. */
 const unselectedGestureAtom = gestureAtom();

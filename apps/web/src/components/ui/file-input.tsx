@@ -2,6 +2,7 @@ import {
   FileInput as FileInputPrimitive,
   FileInputDropzone as FileInputDropzonePrimitive,
   FileInputTrigger as FileInputTriggerPrimitive,
+  relativePath,
 } from "@ui-sdk/react/file-input";
 import type * as React from "react";
 
@@ -37,5 +38,11 @@ function FileInputTrigger(
 ) {
   return <FileInputTriggerPrimitive {...props} />;
 }
+
+/**
+ * A chosen file's path inside its folder, starting at the folder: from the
+ * picker's `webkitRelativePath`, or from where a dropped folder held it.
+ */
+export { relativePath };
 
 export { FileInput, FileInputDropzone, FileInputTrigger };

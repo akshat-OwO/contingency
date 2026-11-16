@@ -31,13 +31,6 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { TargetAppBuildUploadError } from "@/lib/rpc";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -56,6 +49,7 @@ import type { DeviceStart } from "./device-choice-state";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { useDeviceErase } from "./device-erase";
 import type { DeviceEraseControls } from "./device-erase-state";
+import { ConditionInput, Part } from "./native-setup-fields";
 import { StartingDataField } from "./native-starting-data";
 import {
   FlowNameField,
@@ -74,9 +68,6 @@ import type {
   InstalledAppsNotice,
 } from "./target-app-upload";
 import type { HomePlatform } from "./workspace-home-state";
-
-/** Roles agent-device reports that a person can name on a screen. */
-const ROLES = ["text", "group", "heading", "button", "image"] as const;
 
 type Loaded<Value> =
   | { readonly _tag: "loading" }
@@ -119,108 +110,6 @@ const failure = (cause: unknown) =>
     Option.map((value) => value.message),
     Option.getOrElse(() => "The host did not answer.")
   );
-
-const Choice = ({
-  label,
-  value,
-  items,
-  onChange,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly items: readonly { readonly value: string; readonly label: string }[];
-  readonly onChange: (value: string) => void;
-}) => (
-  <Select
-    items={[...items]}
-    value={value}
-    onValueChange={(next) => {
-      if (next !== null) {
-        onChange(next);
-      }
-    }}
-  >
-    <SelectTrigger aria-label={label} className="w-full" variant="island">
-      <SelectValue />
-    </SelectTrigger>
-    <SelectContent variant="island">
-      {items.map((item) => (
-        <SelectItem key={item.value} value={item.value}>
-          {item.label}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-);
-
-/** A titled part of the card, named as a group for automation and readers. */
-const Part = ({
-  children,
-  description,
-  disabled = false,
-  title,
-}: {
-  readonly children: React.ReactNode;
-  readonly description?: string;
-  readonly disabled?: boolean;
-  readonly title: string;
-}) => (
-  <fieldset className="grid min-w-0 gap-1.5" disabled={disabled}>
-    <legend className="mb-1.5 text-[13px] font-medium">{title}</legend>
-    {description === undefined ? null : (
-      <p className="text-muted-foreground -mt-1 text-xs">{description}</p>
-    )}
-    {children}
-  </fieldset>
-);
-
-const ConditionInput = ({
-  label,
-  onChange,
-  placeholder,
-  value,
-}: {
-  readonly label: string;
-  readonly onChange: (value: AndroidCondition) => void;
-  readonly placeholder: string;
-  readonly value: AndroidCondition;
-}) => (
-  // Visible Role and Element captions, as on iOS; each control keeps its
-  // full accessible name, which contains the caption.
-  <div className="flex gap-1.5">
-    <div className="w-32 shrink-0 space-y-1">
-      <span
-        aria-hidden="true"
-        className="text-muted-foreground block text-xs font-medium"
-      >
-        Role
-      </span>
-      <Choice
-        label={`${label} role`}
-        value={value.role}
-        items={ROLES.map((role) => ({ label: role, value: role }))}
-        onChange={(role) => onChange({ ...value, role })}
-      />
-    </div>
-    <div className="min-w-0 flex-1 space-y-1">
-      <span
-        aria-hidden="true"
-        className="text-muted-foreground block text-xs font-medium"
-      >
-        Element
-      </span>
-      <Input
-        aria-label={label}
-        onChange={(event) =>
-          onChange({ ...value, name: event.currentTarget.value })
-        }
-        placeholder={placeholder}
-        value={value.name}
-        variant="island"
-      />
-    </div>
-  </div>
-);
 
 /** Runs a read once per key and keeps its latest answer. */
 const useRead = <Value,>(
@@ -474,7 +363,11 @@ const AppStep = ({
           describedBy={`${ids}-apk-status`}
           kind=".apk"
           label="Upload an .apk"
-          onFile={onUpload}
+          onFiles={([first]) => {
+            if (first !== undefined) {
+              onUpload(first.file);
+            }
+          }}
           state={uploadState}
         />
       ) : (
