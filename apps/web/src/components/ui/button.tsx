@@ -1,6 +1,7 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
+import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -41,16 +42,35 @@ const buttonVariants = cva(
   }
 );
 
+type ButtonProps = Omit<
+  React.ComponentProps<typeof ButtonPrimitive>,
+  "className" | "onClick"
+> &
+  VariantProps<typeof buttonVariants> & {
+    readonly className?: string;
+    readonly onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  };
+
+// UI SDK makes a button pending while a returned Promise settles, which adds
+// aria-busy and aria-disabled. The facade drops the result to keep the ARIA.
 function Button({
   className,
   variant = "default",
   size = "default",
+  onClick,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonProps) {
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ className, size, variant }))}
+      {...(onClick === undefined
+        ? {}
+        : {
+            onClick: (event: React.MouseEvent<HTMLElement>) => {
+              onClick(event as React.MouseEvent<HTMLButtonElement>);
+            },
+          })}
       {...props}
     />
   );

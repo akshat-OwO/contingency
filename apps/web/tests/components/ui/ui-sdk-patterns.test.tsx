@@ -13,6 +13,12 @@ import {
   AlertDialogDescription,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +26,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
@@ -253,4 +260,85 @@ test("the Agent Session combobox keeps its roles, names and keys", async () => {
   await userEvent.keyboard("{Escape}");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
   expect(trigger).toHaveFocus();
+});
+
+test("Button is a native button that a promise does not make busy", async () => {
+  const user = userEvent.setup();
+  const presses: string[] = [];
+  render(
+    <Button onClick={() => Promise.resolve(presses.push("pressed"))}>
+      Save
+    </Button>
+  );
+  const button = screen.getByRole("button", { name: "Save" });
+  expect(button.tagName).toBe("BUTTON");
+  expect(button).toHaveAttribute("type", "button");
+  expect(button).toHaveAttribute("data-slot", "button");
+
+  await user.click(button);
+  button.focus();
+  await user.keyboard("{Enter}");
+  await user.keyboard(" ");
+
+  expect(presses).toEqual(["pressed", "pressed", "pressed"]);
+  expect(button).not.toHaveAttribute("aria-busy");
+  expect(button).not.toHaveAttribute("aria-disabled");
+});
+
+test("a disabled Button ignores presses and leaves the tab order", async () => {
+  const user = userEvent.setup();
+  const presses: string[] = [];
+  render(
+    <Button disabled onClick={() => presses.push("pressed")}>
+      Save
+    </Button>
+  );
+  const button = screen.getByRole("button", { name: "Save" });
+  expect(button).toBeDisabled();
+  await user.click(button);
+  await user.tab();
+  expect(button).not.toHaveFocus();
+  expect(presses).toEqual([]);
+});
+
+test("Input is a native textbox with its slot", async () => {
+  const user = userEvent.setup();
+  render(<Input aria-label="Flow name" defaultValue="new-flow" />);
+  const input = screen.getByRole("textbox", { name: "Flow name" });
+  expect(input).toHaveAttribute("data-slot", "input");
+  await user.clear(input);
+  await user.type(input, "checkout");
+  expect(input).toHaveValue("checkout");
+});
+
+test("Collapsible discloses its content and keeps it mounted on request", async () => {
+  const user = userEvent.setup();
+  render(
+    <Collapsible>
+      <CollapsibleTrigger>Optional steps</CollapsibleTrigger>
+      <CollapsibleContent keepMounted>
+        <label>
+          Done when element
+          <input />
+        </label>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+  const trigger = screen.getByRole("button", { name: "Optional steps" });
+  expect(trigger).toHaveAttribute("data-slot", "collapsible-trigger");
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
+  expect(
+    screen.getByLabelText("Done when element", { selector: "input" })
+  ).not.toBeVisible();
+
+  trigger.focus();
+  await user.keyboard("{Enter}");
+
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
+  expect(trigger).toHaveAttribute("data-open");
+  const panel = document.querySelector('[data-slot="collapsible-content"]');
+  expect(trigger.getAttribute("aria-controls")).toBe(panel?.id);
+  expect(
+    screen.getByRole("textbox", { name: "Done when element" })
+  ).toBeVisible();
 });
