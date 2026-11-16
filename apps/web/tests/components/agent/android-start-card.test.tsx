@@ -1,3 +1,4 @@
+import type { AndroidWorkspaceSelection } from "@contingency/protocol";
 import {
   cleanup,
   fireEvent,
@@ -56,7 +57,7 @@ const Card = ({
   readonly onClose?: () => void;
   readonly onStart?: (
     flowName: string,
-    selection: unknown
+    selection: AndroidWorkspaceSelection
   ) => boolean | undefined;
   readonly pending?: boolean;
 }) => {
@@ -83,9 +84,7 @@ const openSetup = (user: ReturnType<typeof userEvent.setup>) =>
 test("unlocks setup sequentially and submits selectable permission decisions with automatic helper setup", async () => {
   const user = userEvent.setup();
   const onOpen = vi.fn();
-  render(
-    <Card onStart={onOpen} />
-  );
+  render(<Card onStart={onOpen} />);
   await openSetup(user);
   // Setup waits for the Target App and says so; its controls stay disabled.
   expect(screen.getByText("Choose the Target App first.")).toBeVisible();
@@ -121,9 +120,7 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
     screen.queryByRole("textbox", { name: "Additional permission decisions" })
   ).not.toBeInTheDocument();
   expect(document.querySelector("select")).toBeNull();
-  await user.click(
-    screen.getByRole("button", { name: "Start teaching" })
-  );
+  await user.click(screen.getByRole("button", { name: "Start teaching" }));
   expect(onOpen).not.toHaveBeenCalled();
   const confirmation = screen.getByRole("dialog", {
     name: "Prepare and open app?",
@@ -156,13 +153,15 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
 test("waits for a choice when more than one device is ready", async () => {
   const [emulator] = await Effect.runPromise(discovery.devices);
   render(
-    <Card discovery={{
+    <Card
+      discovery={{
         ...discovery,
         devices: Effect.succeed([
           emulator,
           { ...emulator, avd: "Pixel_8", serial: "emulator-5556" },
         ]),
-      }} />
+      }}
+    />
   );
   expect(
     await screen.findByRole("button", { name: /Pixel_8/u })
@@ -189,7 +188,8 @@ test("keeps the installed-app frame in place while the apps load", async () => {
 test("disables physical devices with their refusal reason before app discovery", async () => {
   const apps = vi.fn(discovery.apps);
   render(
-    <Card discovery={{
+    <Card
+      discovery={{
         ...discovery,
         apps,
         devices: Effect.succeed([
@@ -204,7 +204,8 @@ test("disables physical devices with their refusal reason before app discovery",
             state: "device",
           },
         ]),
-      }} />
+      }}
+    />
   );
   const phone = await screen.findByRole("button", {
     name: /physical_device_unsupported/u,
@@ -224,7 +225,8 @@ test("starts a stopped emulator from its card and selects it once it boots", asy
     })
   );
   render(
-    <Card discovery={{
+    <Card
+      discovery={{
         ...discovery,
         boot,
         devices: Effect.sync(() => [
@@ -241,7 +243,8 @@ test("starts a stopped emulator from its card and selects it once it boots", asy
                 state: "stopped" as const,
               },
         ]),
-      }} />
+      }}
+    />
   );
   expect(screen.queryByText(/Android Studio, then refresh/u)).toBeNull();
   await user.click(
@@ -258,7 +261,8 @@ test("starts a stopped emulator from its card and selects it once it boots", asy
 test("keeps the card usable and shows why a start failed", async () => {
   const user = userEvent.setup();
   render(
-    <Card discovery={{
+    <Card
+      discovery={{
         ...discovery,
         boot: () =>
           Effect.fail({ message: "Missing system image for Pixel_9" }),
@@ -274,7 +278,8 @@ test("keeps the card usable and shows why a start failed", async () => {
             state: "stopped",
           },
         ]),
-      }} />
+      }}
+    />
   );
   await user.click(
     await screen.findByRole("button", { name: "Start Pixel_9" })
@@ -325,9 +330,7 @@ test("uploads an .apk as the Target App and opens Teaching with its temporary co
       "dev.shop · build 2 · replaces build 1 with your consent"
     )
   ).toBeVisible();
-  await user.click(
-    screen.getByRole("button", { name: "Start teaching" })
-  );
+  await user.click(screen.getByRole("button", { name: "Start teaching" }));
   expect(onOpen).not.toHaveBeenCalled();
   const confirmation = screen.getByRole("dialog", {
     name: "Prepare and open app?",
@@ -359,17 +362,13 @@ test("uploads an .apk as the Target App and opens Teaching with its temporary co
 test("opens Teaching with Setup collapsed and empty optional conditions", async () => {
   const user = userEvent.setup();
   const onOpen = vi.fn();
-  render(
-    <Card onStart={onOpen} />
-  );
+  render(<Card onStart={onOpen} />);
   expect(screen.getByRole("button", { name: /^Setup/u })).toHaveAttribute(
     "aria-expanded",
     "false"
   );
   await user.click(await screen.findByRole("button", { name: /Shop/u }));
-  await user.click(
-    screen.getByRole("button", { name: "Start teaching" })
-  );
+  await user.click(screen.getByRole("button", { name: "Start teaching" }));
   expect(onOpen).not.toHaveBeenCalled();
   const confirmation = screen.getByRole("dialog", {
     name: "Prepare and open app?",
@@ -396,9 +395,7 @@ test("opens Teaching with Setup collapsed and empty optional conditions", async 
 test("cancel and Escape leave setup unsubmitted, then confirmation submits only once", async () => {
   const user = userEvent.setup();
   const onOpen = vi.fn(() => true);
-  render(
-    <Card onStart={onOpen} />
-  );
+  render(<Card onStart={onOpen} />);
   await user.click(await screen.findByRole("button", { name: /Shop/u }));
   const prepare = screen.getByRole("button", { name: "Start teaching" });
   await user.click(prepare);
@@ -430,9 +427,7 @@ test("cancel and Escape leave setup unsubmitted, then confirmation submits only 
 test("saves Clear Starting Data and names the data loss before preparing", async () => {
   const user = userEvent.setup();
   const onOpen = vi.fn();
-  render(
-    <Card onStart={onOpen} />
-  );
+  render(<Card onStart={onOpen} />);
   await user.click(await screen.findByRole("button", { name: /Shop/u }));
   await openSetup(user);
   const startingData = screen.getByRole("radiogroup", {
@@ -444,9 +439,7 @@ test("saves Clear Starting Data and names the data loss before preparing", async
   await user.click(
     within(startingData).getByRole("radio", { name: /Clear app data/u })
   );
-  await user.click(
-    screen.getByRole("button", { name: "Start teaching" })
-  );
+  await user.click(screen.getByRole("button", { name: "Start teaching" }));
   const confirmation = screen.getByRole("dialog", {
     name: "Prepare and open app?",
   });
@@ -471,10 +464,11 @@ test("Start teaching waits for a device, a Target App and a valid Flow name", as
   const card = screen.getByRole("form", { name: "Teach on Android" });
   const start = within(card).getByRole("button", { name: "Start teaching" });
   expect(start).toBeDisabled();
+  const shop = await screen.findByRole("button", { name: /Shop/u });
   expect(start).toHaveAccessibleDescription(
-    /Choose (a running device|the Target App) to continue/u
+    "Choose the Target App to continue."
   );
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await user.click(shop);
   expect(start).toBeEnabled();
   const name = within(card).getByRole("textbox", { name: "Flow name" });
   await user.clear(name);

@@ -96,6 +96,30 @@ const rpc = vi.hoisted(() => ({
 
 /** The draft review is not what this test reads, so its revision never lands. */
 
+/** What the Android start card's start answers: a session preparing. */
+const startedAndroidSession = {
+  assessment: null,
+  captureGaps: [],
+  captureState: null,
+  cleanup: null,
+  completedAt: null,
+  controller: "user",
+  error: null,
+  field: null,
+  flowName: "checkout",
+  id: "agent-started-android",
+  kind: "teaching",
+  observation: null,
+  phase: "pending",
+  preparation: { differences: [], evidence: [], pending: [], phase: "pending" },
+  recordingId: null,
+  requirements: { capabilities: [], platform: "android" },
+  revision: 0,
+  selection: null,
+  startedAt: "2026-10-15T00:00:00.000Z",
+  takeoverOccurred: false,
+} satisfies unknown;
+
 const rpcOverrides = {
   agentBrowserElementInspectMutation: Atom.fn(() =>
     Effect.sync(() => ({ element: rpc.inspectedElement }))
@@ -230,6 +254,27 @@ const rpcOverrides = {
       return {};
     })
   ),
+  androidSessionsAtom: Atom.make(() => ({
+    _tag: "Success",
+    value: rpc.androidSessionsResult,
+    waiting: false,
+  })),
+  endedRunSummaryAtom: (runId: string) =>
+    Atom.make(() => {
+      rpc.endedRunSummaryCalls.push(runId);
+      return (
+        rpc.endedRunSummaryResult ?? {
+          _tag: "Success",
+          value: { summary: rpc.endedRunSummary, viewUrl: "" },
+          waiting: false,
+        }
+      );
+    }),
+  iosSessionsAtom: Atom.make(() => ({
+    _tag: "Success",
+    value: rpc.iosSessionsResult,
+    waiting: false,
+  })),
   listAndroidApps: () =>
     Effect.succeed([
       {
@@ -252,42 +297,6 @@ const rpcOverrides = {
       state: "device",
     },
   ]),
-  runAndroidWorkspaceCommand: (command: {
-    readonly _tag: string;
-    readonly flowName?: unknown;
-    readonly selection?: unknown;
-  }) => {
-    rpc.androidCommands.push(command);
-    // Only a start has an answer here; a read finds no session.
-    return command._tag === "start"
-      ? Effect.succeed({
-          ...startedAndroidSession,
-          flowName: command.flowName,
-          selection: command.selection,
-        })
-      : Effect.fail({ message: "This server has no such Android session." });
-  },
-  androidSessionsAtom: Atom.make(() => ({
-    _tag: "Success",
-    value: rpc.androidSessionsResult,
-    waiting: false,
-  })),
-  endedRunSummaryAtom: (runId: string) =>
-    Atom.make(() => {
-      rpc.endedRunSummaryCalls.push(runId);
-      return (
-        rpc.endedRunSummaryResult ?? {
-          _tag: "Success",
-          value: { summary: rpc.endedRunSummary, viewUrl: "" },
-          waiting: false,
-        }
-      );
-    }),
-  iosSessionsAtom: Atom.make(() => ({
-    _tag: "Success",
-    value: rpc.iosSessionsResult,
-    waiting: false,
-  })),
   recordingViewAtom: Atom.family((recordingId: string) =>
     Atom.family((_sessionId: string | null) =>
       Atom.make(() => {
@@ -311,6 +320,21 @@ const rpcOverrides = {
     rpc.agentStreamFailureMessage === undefined
       ? Effect.never
       : Effect.fail(new Error(rpc.agentStreamFailureMessage)),
+  runAndroidWorkspaceCommand: (command: {
+    readonly _tag: string;
+    readonly flowName?: unknown;
+    readonly selection?: unknown;
+  }) => {
+    rpc.androidCommands.push(command);
+    // Only a start has an answer here; a read finds no session.
+    return command._tag === "start"
+      ? Effect.succeed({
+          ...startedAndroidSession,
+          flowName: command.flowName,
+          selection: command.selection,
+        })
+      : Effect.fail({ message: "This server has no such Android session." });
+  },
   runVideoStatusAtom: () =>
     Atom.make(() => ({
       _tag: "Success",
@@ -773,30 +797,6 @@ test("closes the start card with Escape and keeps the Flow name", async () => {
   expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
 });
 
-/** What the Android start card's start answers: a session preparing. */
-const startedAndroidSession = {
-  assessment: null,
-  captureGaps: [],
-  captureState: null,
-  cleanup: null,
-  completedAt: null,
-  controller: "user",
-  error: null,
-  field: null,
-  flowName: "checkout",
-  id: "agent-started-android",
-  kind: "teaching",
-  observation: null,
-  phase: "pending",
-  preparation: { differences: [], evidence: [], pending: [], phase: "pending" },
-  recordingId: null,
-  requirements: { capabilities: [], platform: "android" },
-  revision: 0,
-  selection: null,
-  startedAt: "2026-10-15T00:00:00.000Z",
-  takeoverOccurred: false,
-} satisfies unknown;
-
 /** Native list entries carry only what the shelf reads from them. */
 const androidSummary = {
   flowName: "login",
@@ -1008,9 +1008,9 @@ test("swaps the start card's platform in place and keeps the Flow name", async (
     "checkout"
   );
   expect(
-    within(
-      screen.getByRole("group", { name: "Other platforms" })
-    ).getAllByRole("button").map((button) => button.textContent)
+    within(screen.getByRole("group", { name: "Other platforms" }))
+      .getAllByRole("button")
+      .map((button) => button.textContent)
   ).toEqual(["Web", "iOS"]);
   await user.click(
     within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
@@ -1053,7 +1053,9 @@ test("confirms preparation, then opens the started Android session", async () =>
   await user.click(
     within(card).getByRole("radio", { name: "Camera: Grant before start" })
   );
-  await user.click(within(card).getByRole("button", { name: "Start teaching" }));
+  await user.click(
+    within(card).getByRole("button", { name: "Start teaching" })
+  );
   const confirmation = screen.getByRole("dialog", {
     name: "Prepare and open app?",
   });

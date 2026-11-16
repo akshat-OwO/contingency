@@ -233,9 +233,7 @@ const WebStartCard = ({
           </Label>
           <Select
             onValueChange={(value) => {
-              const preset = webViewportPresets.find(
-                ({ id }) => id === value
-              );
+              const preset = webViewportPresets.find(({ id }) => id === value);
               if (preset !== undefined) {
                 setViewport(preset.id);
               }
@@ -478,12 +476,12 @@ export const WorkspaceHome = ({
       changeCard(null);
     });
   };
-  const openSession = (session: HomeSession, card: HTMLElement) => {
+  const openSession = (session: HomeSession, shelfCard: HTMLElement) => {
     if (session.platform === "web") {
-      onOpenWebSession(session.id, card);
+      onOpenWebSession(session.id, shelfCard);
       return;
     }
-    onOpenNative(session.platform, session.id, card);
+    onOpenNative(session.platform, session.id, shelfCard);
   };
   return (
     <div className="workspace-canvas relative h-full min-h-0 overflow-hidden">

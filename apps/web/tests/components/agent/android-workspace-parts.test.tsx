@@ -12,9 +12,7 @@ import {
   selectable,
   unavailableReason,
 } from "@/components/agent/android-setup-state";
-import {
-  AndroidEmptyState,
-} from "@/components/agent/android-workspace";
+import { AndroidEmptyState } from "@/components/agent/android-workspace";
 
 afterEach(cleanup);
 

@@ -15,7 +15,10 @@ function RadioGroup<T extends string = string>({
   ...props
 }: React.ComponentProps<typeof RadioGroupPrimitive<T>>) {
   return (
-    <RadioGroupPrimitive<T> className={cn("grid gap-2", className)} {...props} />
+    <RadioGroupPrimitive<T>
+      className={cn("grid gap-2", className)}
+      {...props}
+    />
   );
 }
 

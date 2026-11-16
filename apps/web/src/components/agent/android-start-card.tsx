@@ -57,7 +57,12 @@ import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { useDeviceErase } from "./device-erase";
 import type { DeviceEraseControls } from "./device-erase-state";
 import { StartingDataField } from "./native-starting-data";
-import { FlowNameField, StartCard, StartSection, StartSetup } from "./start-card";
+import {
+  FlowNameField,
+  StartCard,
+  StartSection,
+  StartSetup,
+} from "./start-card";
 import {
   BuildDropzone,
   InstalledAppsFrame,

@@ -81,7 +81,9 @@ const BuildUploadStatus = ({
   >
     {state._tag === "uploading" ? `Reading ${state.name}…` : null}
     {state._tag === "failed" ? state.message : null}
-    {state._tag === "idle" ? "Installing it asks for your consent first." : null}
+    {state._tag === "idle"
+      ? "Installing it asks for your consent first."
+      : null}
   </p>
 );
 

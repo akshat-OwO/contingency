@@ -480,9 +480,11 @@ test("RadioGroup follows the radio group pattern and keeps its slots", async () 
   await user.keyboard("{ArrowUp}");
   expect(keep).toHaveFocus();
   expect(keep).toBeChecked();
-  const submitted = keep.closest("div")?.querySelector<HTMLInputElement>(
-    'input[type="radio"][name="startingData"]:checked'
-  );
+  const submitted = keep
+    .closest("div")
+    ?.querySelector<HTMLInputElement>(
+      'input[type="radio"][name="startingData"]:checked'
+    );
   expect(submitted?.value).toBe("keep");
 });
 
