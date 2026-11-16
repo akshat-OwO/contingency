@@ -126,7 +126,9 @@ function SelectLabel({
 }: React.ComponentProps<typeof SelectPrimitiveGroupLabel> & ClassName) {
   return (
     <SelectPrimitiveGroupLabel
-      render={<div data-slot="select-label" />}
+      // The label names its group through aria-labelledby. Hidden itself, as
+      // Base UI's was, so the tree reads `group "Phones"` with no extra text.
+      render={<div data-slot="select-label" aria-hidden="true" />}
       className={cn("text-muted-foreground px-1.5 py-1 text-xs", className)}
       {...props}
     />

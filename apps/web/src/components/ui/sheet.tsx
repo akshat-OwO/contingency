@@ -27,7 +27,10 @@ function SheetTrigger({
   ...props
 }: React.ComponentProps<typeof SheetPrimitiveTrigger>) {
   return (
-    <SheetPrimitiveTrigger render={<button data-slot="sheet-trigger" />} {...props} />
+    <SheetPrimitiveTrigger
+      render={<button data-slot="sheet-trigger" />}
+      {...props}
+    />
   );
 }
 
@@ -35,7 +38,10 @@ function SheetClose({
   ...props
 }: React.ComponentProps<typeof SheetPrimitiveClose>) {
   return (
-    <SheetPrimitiveClose render={<button data-slot="sheet-close" />} {...props} />
+    <SheetPrimitiveClose
+      render={<button data-slot="sheet-close" />}
+      {...props}
+    />
   );
 }
 

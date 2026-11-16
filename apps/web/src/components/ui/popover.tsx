@@ -92,7 +92,10 @@ function PopoverTitle({
   readonly className?: string;
 }) {
   return (
-    <PopoverPrimitiveTitle className={cn("font-medium", className)} {...props} />
+    <PopoverPrimitiveTitle
+      className={cn("font-medium", className)}
+      {...props}
+    />
   );
 }
 

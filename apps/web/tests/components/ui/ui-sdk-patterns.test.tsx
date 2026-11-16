@@ -74,6 +74,12 @@ test("Select follows the select-only combobox pattern", async () => {
     "aria-selected",
     "true"
   );
+  // The group keeps its name while its label stays out of the tree.
+  const group = screen.getByRole("group", { name: "Policies" });
+  expect(group.querySelector('[data-slot="select-label"]')).toHaveAttribute(
+    "aria-hidden",
+    "true"
+  );
 });
 
 test("Dialog follows the modal dialog pattern", async () => {
@@ -133,7 +139,7 @@ test("Popover opens a named dialog from its trigger", async () => {
   await checkPattern(popover, "dialog");
 });
 
-test("Tooltip names an icon trigger and describes a named one", async () => {
+test("Tooltip names an icon trigger and describes a named one", () => {
   render(
     <TooltipProvider>
       <Tooltip>
@@ -146,20 +152,41 @@ test("Tooltip names an icon trigger and describes a named one", async () => {
   expect(trigger).toHaveAccessibleDescription("Rotate the device");
 });
 
-const session = (id: string, flowName: string) =>
-  ({
-    activity: "run",
-    id,
-    run: { kind: "task", purpose: { kind: "task", requestedTask: flowName } },
-  }) as unknown as AgentSessionSnapshot;
+type TeachingSnapshot = Extract<
+  AgentSessionSnapshot,
+  { readonly activity: "teaching" }
+>;
+
+/** A Teaching session the picker labels by its Flow name. */
+const teaching: AgentSessionSnapshot = {
+  activity: "teaching",
+  captureState: { _tag: "setup" },
+  clientName: "Test agent",
+  clientVersion: "1.0",
+  controller: "user",
+  createdAt: "2026-09-18T00:00:00.000Z",
+  currentUrl: "https://example.com/",
+  flowName: "add-anvil",
+  id: "agent-one",
+  interruptedAction: null,
+  ownerProcessId: "mcp-test",
+  phase: "running",
+  recordingId: "recording-39cd",
+  run: null,
+  takeover: null,
+  teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
+  timeline: [],
+  updatedAt: "2026-09-18T00:00:00.000Z",
+  verification: null,
+  viewUrl: "http://127.0.0.1:7777/?session=agent-one",
+} satisfies TeachingSnapshot;
 
 test("the Agent Session combobox keeps its roles, names and keys", async () => {
-  const sessions = [session("agent-a", "Add one anvil")];
   render(
     <DockSessionSelect
       onSelect={() => null}
       selectedSessionId={undefined}
-      sessions={sessions}
+      sessions={[teaching]}
     />
   );
   const trigger = screen.getByRole("combobox", { name: "Agent Session" });
