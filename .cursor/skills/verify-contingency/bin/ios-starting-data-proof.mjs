@@ -126,7 +126,7 @@ const capture = async (name) => {
 };
 const openSheet = async () => {
   await page.goto(instance.mcpUrl);
-  await click("iOS");
+  await click("Start an iOS session");
 };
 let flowName;
 const session = async () => {

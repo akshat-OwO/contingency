@@ -60,11 +60,20 @@ const splitLabel = (label: string) => {
       };
 };
 
+// Agent-held setup asks for Variables without adding a pending decision, as
+// the dock's Setup Variables tier shows.
+const waitsOnSetupVariable = (session: AgentSessionSnapshot) =>
+  session.activity === "teaching" &&
+  session.controller === "agent" &&
+  session.captureState._tag === "setup" &&
+  (session.setupVariables ?? []).some(({ status }) => status === "requested");
+
 const webStatus = (session: AgentSessionSnapshot): HomeSessionStatus => {
   if (
     session.pendingDecisions.length > 0 ||
     session.takeover !== null ||
-    (session.boundary !== undefined && session.boundary !== null)
+    (session.boundary !== undefined && session.boundary !== null) ||
+    waitsOnSetupVariable(session)
   ) {
     return { _tag: "needs-you" };
   }

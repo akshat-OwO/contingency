@@ -772,6 +772,35 @@ test("shows the home, not a session, while sessions run", async () => {
   expect(cards[3]).toHaveTextContent("Needs you");
 });
 
+test("a session waiting on a setup Variable needs the person, until it is answered", async () => {
+  const requested = {
+    name: "STORE_PASSWORD",
+    purpose: "Signs in to the demo store.",
+    requestId: "setup-request-1",
+    status: "requested",
+  };
+  const waiting = { ...teachingSetup, controller: "agent" };
+  const { unmount } = renderWorkspace(
+    resultFor([{ ...waiting, setupVariables: [requested] } satisfies unknown])
+  );
+  const shelf = await screen.findByRole("region", { name: "In progress" });
+  expect(within(shelf).getByRole("button")).toHaveTextContent("Needs you");
+  unmount();
+  renderWorkspace(
+    resultFor([
+      {
+        ...waiting,
+        setupVariables: [{ ...requested, status: "supplied" }],
+      } satisfies unknown,
+    ])
+  );
+  expect(
+    within(
+      await screen.findByRole("region", { name: "In progress" })
+    ).getByRole("button")
+  ).toHaveTextContent("Ready");
+});
+
 test("opens a session from its card on the shelf", async () => {
   const user = userEvent.setup();
   const onSelectSession = vi.fn();

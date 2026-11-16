@@ -175,7 +175,7 @@ export const openAndroidSheet = async (
     await control("browser", "click", "--role", "combobox", "--name", name);
     await control("browser", "click", "--role", "option", "--name", value);
   };
-  await click("Android");
+  await click("Start an Android session");
   await click("Open Android session");
   await fill("Flow name", flowName);
   await click(selection.device.serial, true);

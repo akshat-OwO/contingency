@@ -406,7 +406,14 @@ try {
   );
   // Teaching starts through the actual Workspace setup controls.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await control("browser", "click", "--role", "button", "--name", "iOS");
+  await control(
+    "browser",
+    "click",
+    "--role",
+    "button",
+    "--name",
+    "Start an iOS session"
+  );
   await fill("Flow name", flowName);
   // Device choice is a card named for the simulator; the name is unique to
   // this proof-owned UDID.
