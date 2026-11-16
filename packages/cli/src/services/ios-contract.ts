@@ -66,7 +66,7 @@ const messages = {
     "Could not stop the session runner. Its private state directory is retained.",
   device_mismatch: "The selected simulator identity changed. Select it again.",
   device_stopped:
-    "The selected simulator is stopped. Start it from the session setup sheet.",
+    "The selected simulator is stopped. Start it from the Teach on iOS start card.",
   device_unsupported:
     "Explicitly select an iPhone simulator. Physical iPhones and iPads are unsupported.",
   discovery_failed: "Could not read the iOS Simulator inventory.",

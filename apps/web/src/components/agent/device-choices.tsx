@@ -28,7 +28,7 @@ const startFailure = (cause: unknown) =>
 
 /**
  * Starts devices on request and keeps each start's progress until discovery
- * is refreshed. A start that is still running when the sheet unmounts is
+ * is refreshed. A start that is still running when the card unmounts is
  * abandoned here; the host keeps booting the device.
  */
 export const useDeviceStarts = (

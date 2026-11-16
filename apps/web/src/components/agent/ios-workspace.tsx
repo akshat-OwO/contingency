@@ -1088,26 +1088,28 @@ export const useIosSessionStart = () => {
     }
   ): boolean =>
     gesture.dispatch(
-      rpc.runIosWorkspaceCommand({
-        _tag: "start",
-        flowName,
-        kind: "teaching",
-        operationId: operationId(),
-        recordingId: null,
-        selection,
-      }).pipe(
-        Effect.tap((session) =>
-          Effect.sync(() => {
-            refresh();
-            if (opening.owns()) {
-              setSession(session);
-              opening.onStarted(session.id);
-            }
-          })
-        ),
-        Effect.mapError(errorMessage),
-        Effect.asVoid
-      )
+      rpc
+        .runIosWorkspaceCommand({
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: operationId(),
+          recordingId: null,
+          selection,
+        })
+        .pipe(
+          Effect.tap((session) =>
+            Effect.sync(() => {
+              refresh();
+              if (opening.owns()) {
+                setSession(session);
+                opening.onStarted(session.id);
+              }
+            })
+          ),
+          Effect.mapError(errorMessage),
+          Effect.asVoid
+        )
     );
   return { error: gesture.error, pending: gesture.pending, start };
 };

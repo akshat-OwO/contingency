@@ -169,7 +169,9 @@ test("starts an installed app with the declared Setup", async () => {
   const setup = within(card).getByRole("button", { name: /^Setup/u });
   expect(setup).toHaveAttribute("aria-expanded", "false");
   await user.click(setup);
-  await user.click(within(card).getByRole("radio", { name: /^Clear app data/u }));
+  await user.click(
+    within(card).getByRole("radio", { name: /^Clear app data/u })
+  );
   const starting = within(card).getByRole("textbox", {
     name: "Starting screen element",
   });
@@ -231,9 +233,7 @@ test("Start teaching waits for a valid Flow name, a running simulator and a Targ
   expect(start).toHaveAccessibleDescription(
     "Choose a running simulator to continue."
   );
-  await user.click(
-    within(card).getByRole("button", { name: /iPhone 16e/u })
-  );
+  await user.click(within(card).getByRole("button", { name: /iPhone 16e/u }));
   expect(start).toHaveAccessibleDescription(
     "Choose the Target App to continue."
   );

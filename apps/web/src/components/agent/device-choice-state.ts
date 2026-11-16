@@ -26,7 +26,7 @@ export interface DeviceChoice {
   readonly status: DeviceChoiceStatus;
 }
 
-/** A start the sheet asked for, keyed by boot id, until discovery shows it. */
+/** A start the card asked for, keyed by boot id, until discovery shows it. */
 export type DeviceStart =
   | { readonly _tag: "starting" }
   | { readonly _tag: "failed"; readonly reason: string };

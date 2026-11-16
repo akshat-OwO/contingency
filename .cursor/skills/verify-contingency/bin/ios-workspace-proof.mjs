@@ -414,6 +414,8 @@ try {
     "--name",
     "Start an iOS session"
   );
+  // The tile opens the Teach on iOS start card on the home.
+  await control("browser", "wait", "--role", "form", "--name", "Teach on iOS");
   await fill("Flow name", flowName);
   // Device choice is a card named for the simulator; the name is unique to
   // this proof-owned UDID.
@@ -430,12 +432,15 @@ try {
     "--partial",
     "true"
   );
-  // The Target App is the fixture `.app` folder, uploaded through the
-  // sheet's folder picker; its bundle identifier and build are read from it.
+  // The Target App is the fixture `.app` folder, uploaded through the card's
+  // folder picker; its bundle identifier and build are read from it. The
+  // button answers the file chooser it opens.
   await control(
     "browser",
     "set-input-files",
-    "--label",
+    "--role",
+    "button",
+    "--name",
     "Upload a simulator .app",
     "--path",
     appPath
@@ -454,7 +459,9 @@ try {
     "--role",
     "button",
     "--name",
-    "Optional steps"
+    "Setup",
+    "--partial",
+    "true"
   );
   for (const [name, value] of [
     ["Starting screen element", "Login fixture"],
@@ -462,7 +469,8 @@ try {
   ]) {
     await fill(name, value);
   }
-  await click("Open session");
+  // The click waits for the start's reply; the card then opens `?ios=<id>`.
+  await click("Start teaching");
   const list = await iosRpc(instance.mcpUrl, "ios.workspace.list", {});
   const teaching = list.find((entry) => entry.flowName === flowName);
   assert.ok(teaching);
