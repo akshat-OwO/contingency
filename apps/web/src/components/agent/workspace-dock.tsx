@@ -7,16 +7,16 @@ import { Atom } from "effect/reactivity";
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChevronsUpDownIcon,
   ChevronUpIcon,
   CircleAlertIcon,
   CircleCheckIcon,
-  CircleIcon,
   GlobeIcon,
   LoaderCircleIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import { DocsLink } from "@/components/docs-link";
@@ -49,21 +49,6 @@ import {
  * activity is a quiet second column that still tells two sessions of one
  * Flow apart. The option's accessible name is the whole label.
  */
-const SessionOption = ({ label }: { readonly label: string }) => {
-  const separator = label.lastIndexOf(" · ");
-  if (separator === -1) {
-    return <span className="truncate">{label}</span>;
-  }
-  return (
-    <span className="flex w-full min-w-0 items-center justify-between gap-3">
-      <span className="truncate">{label.slice(0, separator)}</span>
-      <span className="text-muted-foreground shrink-0 text-xs">
-        {label.slice(separator + 3)}
-      </span>
-    </span>
-  );
-};
-
 /** Deletion stays in the session picker and never selects the deleted row. */
 export interface SessionDeletion {
   readonly onDelete: (sessionId: AgentSessionId) => void;
@@ -76,7 +61,7 @@ export interface SessionDeletion {
  * and the first thing to shrink when the stage is narrow.
  */
 export const dockSessionTriggerClassName =
-  "hover:bg-island-hover h-8 min-w-0 max-w-[18rem] shrink justify-start gap-2 rounded-xl px-2";
+  "hover:bg-island-hover data-[popup-open]:bg-island-hover h-[34px] min-w-0 max-w-80 shrink justify-start gap-2 rounded-xl pr-2 pl-3 text-sm font-medium";
 
 /** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
@@ -125,35 +110,56 @@ export const DockSessionSelect = ({
             ? "Agent Session"
             : agentSessionLabel(selected).split(" · ").at(0)}
         </span>
-        <ChevronDownIcon aria-hidden="true" className="text-muted-foreground" />
+        <ChevronsUpDownIcon
+          aria-hidden="true"
+          className="text-muted-foreground/70 size-3.5"
+        />
       </PopoverTrigger>
       <PopoverContent
         aria-label="Agent Sessions"
         align="start"
         side="bottom"
-        className="w-96 max-w-[calc(100vw-2rem)] gap-1 p-1"
+        sideOffset={14}
+        // The prototype's popover: an opaque island, not a plain menu.
+        className="bg-island-solid border-island-border shadow-island w-[380px] max-w-[calc(100vw-2rem)] gap-0 rounded-[22px] border p-1.5 ring-0"
       >
-        <PopoverTitle className="text-muted-foreground px-1.5 py-1 text-xs">
+        <PopoverTitle className="text-muted-foreground/70 mx-2.5 my-1.5 text-[11px] font-semibold tracking-[0.04em] uppercase">
           Agent Sessions
         </PopoverTitle>
-        <div className="max-h-72 overflow-y-auto">
+        <div className="grid max-h-72 gap-0.5 overflow-y-auto">
           {sessions.map((session) => {
             const label = agentSessionLabel(session);
+            const separator = label.lastIndexOf(" · ");
+            const name = separator === -1 ? label : label.slice(0, separator);
+            const kind =
+              separator === -1 ? "Teaching" : label.slice(separator + 3);
+            const current = session.id === selectedSessionId;
             return (
               <div key={session.id} className="flex items-center gap-1">
                 <Button
                   aria-label={label}
-                  aria-pressed={session.id === selectedSessionId}
-                  className="min-w-0 flex-1 justify-start px-1.5 font-normal"
+                  aria-pressed={current}
+                  className="hover:bg-island-hover aria-pressed:bg-island-hover grid h-auto min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal"
                   onClick={() => {
                     onSelect(session.id);
                     setOpen(false);
                   }}
                   variant="ghost"
                 >
-                  <SessionOption label={label} />
-                  {session.id === selectedSessionId ? (
-                    <CheckIcon aria-hidden="true" />
+                  <span className="bg-island-hover ring-island-border grid size-8 place-items-center rounded-[10px] ring-1 ring-inset">
+                    <GlobeIcon aria-hidden="true" className="size-[17px]" />
+                  </span>
+                  <span className="grid min-w-0">
+                    <span className="truncate font-medium">{name}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {kind} · Web
+                    </span>
+                  </span>
+                  {current ? (
+                    <CheckIcon
+                      aria-hidden="true"
+                      className="text-muted-foreground"
+                    />
                   ) : null}
                 </Button>
                 {deletion === undefined ? null : (
@@ -173,16 +179,16 @@ export const DockSessionSelect = ({
           })}
         </div>
         {deletion?.error === undefined ? null : (
-          <p role="alert" className="text-destructive px-1.5 py-1 text-xs">
+          <p role="alert" className="text-destructive px-2.5 py-1 text-xs">
             {deletion.error}
           </p>
         )}
         {home === null ? null : (
           <>
-            <hr className="mx-1 my-1 border-t" />
+            <hr className="border-island-border mx-1 my-1.5 border-t" />
             {/* A new session of any platform starts on the Workspace home. */}
             <Button
-              className="w-full justify-start px-1.5"
+              className="hover:bg-island-hover h-[34px] w-full justify-start gap-[7px] rounded-xl px-3 text-sm font-medium"
               onClick={() => {
                 setOpen(false);
                 home.goHome();
@@ -244,12 +250,12 @@ const useDockHeight = () => {
  * device or page keeps its size and the next attempt is never blocked.
  */
 /**
- * The one shell both bottom islands share, so Requests and Session status read
- * as a pair. Each island is its own size container: what is inside sizes
- * itself to the island, not to the stage beside it.
+ * The Requests island, as the prototype's request card: a brand wash that
+ * fades under the header and a lifted shadow. It is its own size container,
+ * so what is inside sizes itself to the card, not to the stage.
  */
-const bottomIslandClassName =
-  "island shadow-island-lift @container pointer-events-auto w-full overflow-hidden rounded-3xl";
+const requestsIslandClassName =
+  "island @container pointer-events-auto w-full overflow-hidden rounded-[26px] shadow-[var(--island-shadow-lift),inset_0_1px_0_color-mix(in_oklch,var(--island-brand)_22%,transparent)] bg-[linear-gradient(to_bottom,color-mix(in_oklch,var(--island-brand)_9%,transparent),transparent_72px),var(--island)]";
 
 export const DockShell = ({
   children,
@@ -288,8 +294,9 @@ export const DockShell = ({
           <section
             aria-label="Requests"
             className={cn(
-              bottomIslandClassName,
-              "empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0"
+              requestsIslandClassName,
+              // Each request's body lines up under its title, past the icon tile.
+              "empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0 [&>*>section>*:not(:first-child)]:ml-11"
             )}
             data-slot="dock-requests"
           >
@@ -297,10 +304,9 @@ export const DockShell = ({
           </section>
           <section
             aria-label="Session status"
-            className={cn(
-              bottomIslandClassName,
-              "flex flex-wrap items-center gap-x-2 gap-y-1 p-2 pl-3.5 @3xl:ml-auto @3xl:max-w-xl"
-            )}
+            // Sized to its content, as in the prototype: chip, sentence,
+            // tools and the one action, with no empty run between them.
+            className="island pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5 self-end overflow-hidden rounded-3xl py-2 pr-2 pl-3 whitespace-nowrap @3xl:ml-auto"
             data-slot="workspace-dock"
             ref={ref}
           >
@@ -311,12 +317,12 @@ export const DockShell = ({
               rather than clipping.
             */}
             <div
-              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden"
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-10 *:data-[slot=button]:rounded-[13px] *:data-[slot=button]:px-4 *:data-[slot=button]:text-sm"
               data-slot="dock-controls"
             >
               {children}
             </div>
-            <div className="-mr-2 -mb-2 -ml-3.5 basis-full empty:hidden">
+            <div className="-mr-2 -mb-2 -ml-3 basis-full whitespace-normal empty:hidden">
               {footer}
             </div>
           </section>
@@ -408,32 +414,6 @@ export const DockNotices = ({
 );
 
 /**
- * Whether a clamped line hides text. The expand control only shows when
- * there is something to expand, and the observer follows the stage as the
- * devtools or the summary change its width.
- */
-const useClamped = <Element extends HTMLElement>() => {
-  const ref = useRef<Element>(null);
-  const [clamped, setClamped] = useState(false);
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null) {
-      return;
-    }
-    const measure = () => {
-      setClamped(element.scrollHeight > element.clientHeight + 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-  return [ref, clamped] as const;
-};
-
-/**
  * How a dock state reads. Work in progress is `busy`, anything waiting on the
  * person is `attention`, a session someone is driving is `live`, and a good
  * outcome is `success`, so a resting dock and a dock that needs you never
@@ -448,36 +428,42 @@ export type DockStateTone =
   | "recording"
   | "success";
 
-const dockStateToneClass: Record<DockStateTone, string> = {
-  attention: "text-amber-700 dark:text-amber-400",
-  busy: "text-foreground/85",
-  default: "text-foreground/85",
-  failed: "text-destructive",
-  live: "text-blue-600 dark:text-blue-400",
-  recording: "text-red-600 dark:text-red-400",
-  success: "text-emerald-700 dark:text-emerald-400",
+/**
+ * Each tone as the prototype's status chip (`status-chip` in styles.css): the
+ * session list on the home and the dock read a state the same way.
+ */
+const dockStateChip: Record<
+  DockStateTone,
+  { readonly className?: string; readonly status?: string }
+> = {
+  attention: { status: "needs-you" },
+  busy: { status: "running" },
+  default: { className: "[--status-tone:var(--muted-foreground)]" },
+  failed: { className: "[--status-tone:var(--destructive)]" },
+  live: { className: "[--status-tone:var(--foreground)]" },
+  recording: { status: "recording" },
+  success: { status: "ready" },
 };
 
 /**
- * The tone's mark. Work in progress spins and a live recording pulses, so
- * motion means "it is moving"; the alert icon means "it is waiting on you"
- * or "it failed".
+ * The tone's mark. Work in progress spins; the alert icon means "it is
+ * waiting on you" or "it failed". Recording is a ringed dot that holds still.
  */
 const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
   switch (tone) {
     case "recording": {
       return (
-        <span aria-hidden="true" className="relative flex size-2.5 shrink-0">
-          <span className="absolute inset-0 animate-ping rounded-full bg-red-500/60 motion-reduce:hidden" />
-          <CircleIcon className="relative size-2.5 fill-current text-red-500" />
-        </span>
+        <span
+          aria-hidden="true"
+          className="size-2.5 shrink-0 scale-75 rounded-full bg-current shadow-[0_0_0_2px_var(--island-solid),0_0_0_3.5px_currentColor]"
+        />
       );
     }
     case "busy": {
       return (
         <LoaderCircleIcon
           aria-hidden="true"
-          className="text-muted-foreground size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
+          className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
         />
       );
     }
@@ -492,29 +478,18 @@ const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
         <CircleCheckIcon aria-hidden="true" className="size-3.5 shrink-0" />
       );
     }
-    case "live": {
-      return (
-        <span
-          aria-hidden="true"
-          className="size-2 shrink-0 rounded-full bg-blue-500"
-        />
-      );
-    }
     default: {
       return (
         <span
           aria-hidden="true"
-          className="bg-muted-foreground/60 size-1.5 shrink-0 rounded-full"
+          className="size-1.5 shrink-0 rounded-full bg-current"
         />
       );
     }
   }
 };
 
-/**
- * A dock state as colored text behind a small mark. No fill, border, or edge,
- * so the status reads as a line rather than a pill.
- */
+/** A dock state as a tinted chip behind a small mark, as in the prototype. */
 export const DockState = ({
   children,
   tone = "default",
@@ -523,11 +498,9 @@ export const DockState = ({
   readonly tone?: DockStateTone;
 }) => (
   <span
-    className={cn(
-      "inline-flex shrink-0 items-center gap-1.5 text-[13px] leading-5 font-semibold whitespace-nowrap",
-      dockStateToneClass[tone]
-    )}
+    className={cn("status-chip shrink-0", dockStateChip[tone].className)}
     data-slot="dock-state"
+    data-status={dockStateChip[tone].status}
     data-tone={tone}
   >
     <DockStateMark tone={tone} />
@@ -540,13 +513,11 @@ export const dockFactClassName =
   "text-muted-foreground block max-w-full truncate text-xs leading-5";
 
 /**
- * The dock's status line: the state label, then one sentence saying where the
- * session is and what happens next. On a narrow stage the sentence takes its
- * own line under the label and wraps to two; from a 32rem stage it sits
- * beside the label on one line. The sentence keeps a 12rem floor: when the
- * badges and facts leave it less, it moves under them rather than vanishing,
- * and a fact too long for the card truncates instead of overflowing it. A clamped sentence expands in place, with
- * `details` (the Agent Step, the task) under it.
+ * The status island's line: the state chip, any quiet facts beside it, and
+ * one short sentence saying what happens next. The sentence truncates to one
+ * line and shows whole on hover, and drops on a narrow stage so the chip and
+ * the action keep their room. `details` (the Agent Step, the task) open under
+ * the line from a toggle.
  *
  * One polite region, changed only when the state changes.
  */
@@ -565,50 +536,44 @@ export const DockStatus = ({
 }) => {
   const [expandedAtom] = useState(() => Atom.make(false));
   const [expanded, setExpanded] = useAtom(expandedAtom);
-  const [sentenceRef, clamped] = useClamped<HTMLOutputElement>();
-  const expandable = clamped || expanded || details !== undefined;
   return (
-    <div className="min-w-48 flex-1 py-0.5" data-slot="dock-status">
-      <div className="flex min-w-0 items-start gap-2">
-        <div
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5"
-          data-slot="dock-status-line"
+    <div className="flex min-w-0 flex-col" data-slot="dock-status">
+      <div
+        className="flex min-w-0 items-center gap-1.5"
+        data-slot="dock-status-line"
+      >
+        {badges}
+        <output
+          aria-live="polite"
+          className={cn(
+            "text-muted-foreground hidden min-w-0 px-1 text-[12.5px] leading-5 empty:hidden @4xl:block",
+            expanded
+              ? "max-w-80 text-pretty whitespace-normal"
+              : "max-w-60 truncate"
+          )}
         >
-          {badges}
-          <output
-            aria-live="polite"
-            className={cn(
-              "text-muted-foreground block min-w-0 basis-full text-[13px] leading-5 text-pretty wrap-anywhere empty:hidden",
-              expanded
-                ? "max-h-40 overflow-y-auto"
-                : "line-clamp-2 @lg:line-clamp-1 @lg:min-w-48 @lg:flex-1 @lg:basis-0"
-            )}
-            ref={sentenceRef}
-          >
-            {children}
-          </output>
-        </div>
-        {expandable ? (
+          {children}
+        </output>
+        {details === undefined ? null : (
           <Button
             aria-expanded={expanded}
             aria-label={expanded ? "Hide details" : "Show details"}
-            className="-mr-1.5"
             onClick={() => setExpanded((current) => !current)}
-            size="icon-xs"
+            size="icon-sm"
             type="button"
             variant="ghost"
           >
             {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
           </Button>
-        ) : null}
+        )}
       </div>
       {note === undefined ? null : (
-        <p className="text-muted-foreground mt-0.5 font-mono text-xs wrap-anywhere">
+        <p className="text-muted-foreground mt-1 max-w-96 px-1 font-mono text-xs wrap-anywhere whitespace-normal">
           {note}
         </p>
       )}
       {expanded && details !== undefined ? (
-        <div className="mt-2 max-h-56 space-y-3 overflow-y-auto border-t pt-2">
+        <div className="mt-2 max-h-56 max-w-96 space-y-3 overflow-y-auto border-t px-1 pt-2 whitespace-normal">
           {details}
         </div>
       ) : null}

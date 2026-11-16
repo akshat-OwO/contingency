@@ -2189,8 +2189,8 @@ test("preserves unsent Guided Run answers across request collapse", async () => 
   // row of its own above it.
   const header = within(dock).getByRole("heading", {
     name: "Guided Run questions",
-  }).parentElement;
-  if (header === null) {
+  }).parentElement?.parentElement;
+  if (header === null || header === undefined) {
     throw new Error("No Guided Run questions header");
   }
   await user.click(

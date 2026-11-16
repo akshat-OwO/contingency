@@ -2,9 +2,9 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
-  ChevronDownIcon,
   ChevronUpIcon,
   KeyRoundIcon,
+  MinusIcon,
   ShieldAlertIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -12,10 +12,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import {
-  requestIconClassName,
-  requestTierClassName,
-} from "./dock-request-parts";
+import { requestIconClassName } from "./dock-request-parts";
 import { dockRequests, staysCollapsed } from "./dock-requests-state";
 import type { DockRequest } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
@@ -96,7 +93,7 @@ export const DockRequests = ({
   }
   if (staysCollapsed(requests, collapsedKeys)) {
     return (
-      <div className={cn(requestTierClassName, "border-b")}>
+      <div className="border-b">
         <CollapsedRequests
           onExpand={() => setCollapsedKeys(new Set<string>())}
           requests={requests}
@@ -114,7 +111,7 @@ export const DockRequests = ({
       type="button"
       variant="ghost"
     >
-      <ChevronDownIcon />
+      <MinusIcon />
     </Button>
   );
   const [first] = requests;
@@ -125,7 +122,6 @@ export const DockRequests = ({
   return (
     <div
       className={cn(
-        requestTierClassName,
         "max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b p-3.5"
       )}
     >

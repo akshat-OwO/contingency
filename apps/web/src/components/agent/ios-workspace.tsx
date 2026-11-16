@@ -37,7 +37,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   RequestHeader,
   requestIconClassName,
-  requestTierClassName,
 } from "@/components/agent/dock-request-parts";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
@@ -356,7 +355,7 @@ const IosDecisions = ({
   readonly session: IosWorkspaceSnapshot;
 }) =>
   session.preparation.pending.length === 0 ? null : (
-    <div className={cn(requestTierClassName, "space-y-3 border-b px-3 py-2.5")}>
+    <div className="space-y-3 border-b p-3.5">
       {session.preparation.pending.map((decision) => {
         const decide = (allow: boolean) =>
           send({
@@ -694,7 +693,7 @@ const IosSessionSelect = ({
 }) => (
   <NativeSelect
     aria-label="iOS Agent Session"
-    className="[&_select]:hover:bg-muted max-w-[min(18rem,55%)] min-w-28 shrink [&_select]:border-transparent [&_select]:font-medium dark:[&_select]:bg-transparent"
+    className="[&_select]:hover:bg-island-hover max-w-80 min-w-28 shrink [&_select]:h-[34px] [&_select]:rounded-xl [&_select]:border-transparent [&_select]:bg-transparent [&_select]:pl-3 [&_select]:text-sm [&_select]:font-medium dark:[&_select]:bg-transparent"
     onChange={(event) =>
       onSelect(event.currentTarget.value || NEW_NATIVE_SESSION)
     }
