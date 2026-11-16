@@ -20,3 +20,7 @@ allowBuilds:
   esbuild: true
   # Preserve the existing refusal to build this optional native dependency.
   node-datachannel: false
+
+minimumReleaseAgeExclude:
+  - "@ui-sdk/core@0.1.0-beta.5"
+  - "@ui-sdk/react@0.1.0-beta.5"
