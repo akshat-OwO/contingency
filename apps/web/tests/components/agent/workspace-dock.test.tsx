@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 
@@ -41,20 +41,20 @@ test("a default dock state is a muted chip with no icon", () => {
   );
 });
 
-test("a status sentence that hides text can be expanded without details", async () => {
+test("the status sentence opens whole in a card above the island", async () => {
   const user = userEvent.setup();
+  const sentence =
+    "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.";
   render(
-    <DockStatus badges={<DockState>Agent preparing</DockState>}>
-      The agent is preparing the browser. Start recording appears when it hands
-      you control; nothing is captured before then.
+    <DockStatus
+      badges={<DockState>Agent preparing</DockState>}
+      details={<p>Step 2 of 6</p>}
+    >
+      {sentence}
     </DockStatus>
   );
-  // jsdom lays nothing out, so the sentence reads as dropped, as on a
-  // narrow stage.
-  await user.click(screen.getByRole("button", { name: "Show details" }));
-  expect(screen.getByRole("status")).toHaveClass("block", "whitespace-normal");
-  expect(screen.getByRole("button", { name: "Hide details" })).toHaveAttribute(
-    "aria-expanded",
-    "true"
-  );
+  await user.click(within(screen.getByRole("status")).getByRole("button"));
+  const card = await screen.findByRole("dialog");
+  expect(within(card).getByText(sentence)).toBeInTheDocument();
+  expect(within(card).getByText("Step 2 of 6")).toBeInTheDocument();
 });

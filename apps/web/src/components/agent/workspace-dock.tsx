@@ -2,21 +2,18 @@ import type {
   AgentSessionId,
   AgentSessionSnapshot,
 } from "@contingency/protocol";
-import { useAtom } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
 import {
   CheckIcon,
-  ChevronDownIcon,
   ChevronsUpDownIcon,
-  ChevronUpIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   GlobeIcon,
   LoaderCircleIcon,
+  MessageSquareTextIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import { DocsLink } from "@/components/docs-link";
@@ -320,7 +317,7 @@ export const DockShell = ({
               rather than clipping.
             */}
             <div
-              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-10 *:data-[slot=button]:rounded-[13px] *:data-[slot=button]:px-4 *:data-[slot=button]:text-sm"
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-8 *:data-[slot=button]:rounded-[10px] *:data-[slot=button]:px-3 *:data-[slot=button]:text-[13px] *:data-[slot=button]:not-[.bg-primary]:bg-transparent dark:*:data-[slot=button]:not-[.bg-primary]:bg-transparent"
               data-slot="dock-controls"
             >
               {children}
@@ -516,39 +513,12 @@ export const dockFactClassName =
   "text-muted-foreground block max-w-full truncate text-xs leading-5";
 
 /**
- * Whether the sentence hides any of its text: clipped by its one-line cap, or
- * dropped altogether on a narrow stage. The observer follows the stage as the
- * devtools or a Run Summary change its width.
- */
-const useHidesText = <Element extends HTMLElement>() => {
-  const ref = useRef<Element>(null);
-  const [hides, setHides] = useState(false);
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null) {
-      return;
-    }
-    const measure = () => {
-      const dropped =
-        element.offsetWidth === 0 && (element.textContent ?? "") !== "";
-      setHides(dropped || element.scrollWidth > element.clientWidth + 1);
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-  return [ref, hides] as const;
-};
-
-/**
  * The status island's line: the state chip, any quiet facts beside it, and
  * one short sentence saying what happens next. The sentence truncates to one
- * line, and drops on a narrow stage so the chip and the action keep their
- * room. Whenever it hides any text, a toggle shows all of it, wrapped, along
- * with `details` (the Agent Step, the task) when there are any.
+ * line, and drops to an icon on a narrow stage so the chip and the action keep
+ * their room. Either way it is a button: it opens the whole sentence, with
+ * `details` (the Agent Step, the task) under it, in a card above the island,
+ * so reading it never resizes the status island (#753).
  *
  * One polite region, changed only when the state changes.
  */
@@ -564,53 +534,51 @@ export const DockStatus = ({
   readonly details?: React.ReactNode;
   /** A line under the sentence that wraps rather than clamps, such as paths. */
   readonly note?: React.ReactNode;
-}) => {
-  const [expandedAtom] = useState(() => Atom.make(false));
-  const [expanded, setExpanded] = useAtom(expandedAtom);
-  const [sentenceRef, hidesText] = useHidesText<HTMLOutputElement>();
-  const expandable = expanded || hidesText || details !== undefined;
-  return (
-    <div className="flex min-w-0 flex-col" data-slot="dock-status">
-      <div
-        className="flex min-w-0 items-center gap-1.5"
-        data-slot="dock-status-line"
-      >
-        {badges}
-        <output
-          aria-live="polite"
-          className={cn(
-            "text-muted-foreground min-w-0 px-1 text-[12.5px] leading-5 empty:hidden",
-            expanded
-              ? "block max-w-80 text-pretty whitespace-normal"
-              : "hidden max-w-60 truncate @4xl:block"
-          )}
-          ref={sentenceRef}
-        >
-          {children}
-        </output>
-        {expandable ? (
-          <Button
-            aria-expanded={expanded}
-            aria-label={expanded ? "Hide details" : "Show details"}
-            onClick={() => setExpanded((current) => !current)}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
+}) => (
+  <div className="flex min-w-0 flex-col" data-slot="dock-status">
+    <div
+      className="flex min-w-0 items-center gap-1.5"
+      data-slot="dock-status-line"
+    >
+      {badges}
+      <output aria-live="polite" className="flex min-w-0 empty:hidden">
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                className="text-muted-foreground hover:bg-island-hover hover:text-foreground aria-expanded:bg-island-hover aria-expanded:text-foreground h-7 max-w-60 min-w-0 justify-start rounded-lg px-1.5 text-[12.5px] font-normal @4xl:px-1"
+                size="sm"
+                type="button"
+                variant="ghost"
+              />
+            }
           >
-            {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
-          </Button>
-        ) : null}
-      </div>
-      {note === undefined ? null : (
-        <p className="text-muted-foreground mt-1 max-w-96 px-1 font-mono text-xs wrap-anywhere whitespace-normal">
-          {note}
-        </p>
-      )}
-      {expanded && details !== undefined ? (
-        <div className="mt-2 max-h-56 max-w-96 space-y-3 overflow-y-auto border-t px-1 pt-2 whitespace-normal">
-          {details}
-        </div>
-      ) : null}
+            <MessageSquareTextIcon aria-hidden="true" className="@4xl:hidden" />
+            <span className="min-w-0 truncate @max-4xl:sr-only">
+              {children}
+            </span>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="bg-island-solid border-island-border shadow-island w-80 max-w-[calc(100vw-2rem)] gap-2.5 rounded-[22px] border px-3.5 pt-3 pb-3.5 ring-0"
+            side="top"
+            sideOffset={14}
+          >
+            <PopoverTitle className="sr-only">Status</PopoverTitle>
+            <p className="text-[13px] leading-normal text-pretty">{children}</p>
+            {details === undefined ? null : (
+              <div className="max-h-56 space-y-3 overflow-y-auto border-t pt-2.5">
+                {details}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      </output>
     </div>
-  );
-};
+    {note === undefined ? null : (
+      <p className="text-muted-foreground mt-1 max-w-96 px-1 font-mono text-xs wrap-anywhere whitespace-normal">
+        {note}
+      </p>
+    )}
+  </div>
+);
