@@ -4,11 +4,11 @@ import assert from "node:assert/strict";
 /** Wait on the UI command completion, including forwarded stream input. */
 export const waitAndroidIdle = async (page) => {
   await page
-    .getByRole("region", { exact: true, name: "Workspace dock" })
+    .getByRole("region", { exact: true, name: "Session status" })
     .waitFor();
   await page.waitForFunction(
     () => {
-      const dock = document.querySelector('[aria-label="Workspace dock"]');
+      const dock = document.querySelector('[aria-label="Session status"]');
       // Match the accessible name: the visible label is "Close" on a narrow
       // dock and "Close session" on a wider one.
       const close = dock?.querySelector('button[aria-label="Close session"]');
@@ -258,7 +258,7 @@ export const openAndroidStartCard = async (
     "--role",
     "region",
     "--name",
-    "Workspace dock",
+    "Session status",
     "--timeout-ms",
     "90000"
   );

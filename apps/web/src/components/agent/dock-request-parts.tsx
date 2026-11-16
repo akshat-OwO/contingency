@@ -13,22 +13,19 @@ import { Input } from "@/components/ui/input";
 import { CopyFeedback, useCopy } from "./evidence-reference";
 
 /**
- * The pieces every request in the dock's first tier is built from, so an
+ * The pieces every request in the Requests island is built from, so an
  * Execution Boundary, setup Variables, prerequisite Variables, and Dry Run
  * secrets read as one surface rather than four cards.
  */
 
-/**
- * The request tier's wash: a quiet amber, so what the agent is waiting on
- * reads as attention on every dock, browser or device.
- */
-export const requestTierClassName =
-  "bg-amber-500/[0.06] dark:bg-amber-400/[0.05]";
-
 /** The attention icon's color, shared so every request reads the same. */
 export const requestIconClassName =
-  "size-4 shrink-0 text-amber-600 dark:text-amber-400";
+  "size-[17px] shrink-0 text-(--status-needs-you)";
 
+/**
+ * A request's header, as the prototype's request card: the icon on a brand
+ * tile, the count as an eyebrow over the title, and the collapse control.
+ */
 export const RequestHeader = ({
   action,
   badge,
@@ -40,12 +37,21 @@ export const RequestHeader = ({
   readonly icon: React.ReactNode;
   readonly title: string;
 }) => (
-  <div className="flex min-h-6 items-center gap-2">
-    {icon}
-    <h2 className="text-sm font-medium">{title}</h2>
-    {badge}
-    <div className="flex-1" />
-    {action}
+  <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+    <span className="grid size-8 place-items-center rounded-[10px] bg-[color-mix(in_oklch,var(--island-brand)_16%,transparent)]">
+      {icon}
+    </span>
+    <div className="grid min-w-0 gap-px">
+      {badge === undefined ? null : (
+        <span className="text-xs font-semibold tracking-[0.02em] text-(--status-needs-you) [&_*]:text-inherit">
+          {badge}
+        </span>
+      )}
+      <h2 className="text-[15px] font-semibold tracking-[-0.015em] text-balance">
+        {title}
+      </h2>
+    </div>
+    <div className="flex items-center gap-2">{action}</div>
   </div>
 );
 

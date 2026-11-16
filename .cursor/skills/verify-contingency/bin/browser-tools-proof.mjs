@@ -139,7 +139,7 @@ await Effect.runPromise(
       "--role",
       "region",
       "--name",
-      "Workspace dock"
+      "Session status"
     );
 
     // A popup the page opens appears in the agent's tab list and the Workspace.

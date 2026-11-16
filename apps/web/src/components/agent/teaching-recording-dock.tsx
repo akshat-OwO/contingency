@@ -30,14 +30,10 @@ import {
   elapsedSpokenLabel,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
-import type { SessionDeletion } from "@/components/agent/workspace-dock";
 import {
-  DockSessionSelect,
   DockShell,
-  DockSpacer,
   DockState,
   DockStatus,
-  DockWordmark,
 } from "@/components/agent/workspace-dock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -204,15 +200,12 @@ export const TeachingRecordingDock = ({
   onComment,
   onGesture,
   onSecondary,
-  onSelectSession,
-  deletion,
   pending,
   phase,
   platform,
   requests,
   selectedSessionId,
   sessions,
-  flows = null,
 }: {
   readonly control?: React.ReactNode;
   readonly controlStatus?: string;
@@ -233,18 +226,14 @@ export const TeachingRecordingDock = ({
     action: TeachingSecondaryAction,
     detail?: string
   ) => void;
-  readonly deletion?: SessionDeletion;
-  readonly onSelectSession: (sessionId: string) => void;
   readonly pending: boolean;
   /** Whether the session is still live. An ended one offers no setup actions. */
   readonly phase: AgentSessionPhase;
   readonly platform: ShortcutPlatform;
-  /** Setup Variables and other requests, as the dock's first tier. */
+  /** Setup Variables and other requests, in the Requests island. */
   readonly requests?: React.ReactNode;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly sessions: readonly AgentSessionSnapshot[];
-  /** The Flows drawer entry, beside the session picker, or nothing. */
-  readonly flows?: React.ReactNode;
 }) => {
   const presentation = teachingRecordingPresentation(
     captureState,
@@ -336,15 +325,6 @@ export const TeachingRecordingDock = ({
         </DockStatus>
       }
     >
-      <DockWordmark />
-      <DockSessionSelect
-        deletion={deletion}
-        onSelect={onSelectSession}
-        selectedSessionId={selectedSessionId}
-        sessions={sessions}
-      />
-      {flows}
-      <DockSpacer />
       {presentation.showsInspect ? (
         <CommentTrigger
           count={instructions.length}

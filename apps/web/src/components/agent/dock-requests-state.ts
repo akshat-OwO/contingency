@@ -179,7 +179,7 @@ const questionsRequest = (
   };
 };
 
-/** The requests the dock's first tier shows, in the order it shows them. */
+/** The requests the Requests island shows, in the order it shows them. */
 export const dockRequests = (
   session: AgentSessionSnapshot
 ): readonly DockRequest[] =>

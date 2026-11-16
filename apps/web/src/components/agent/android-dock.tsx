@@ -18,7 +18,6 @@ import {
   VariableField,
   RequestHeader,
   requestIconClassName,
-  requestTierClassName,
 } from "@/components/agent/dock-request-parts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 
 import {
   androidDockPresentation,
@@ -74,7 +72,7 @@ export const AndroidRequests = ({
   readonly session: AndroidWorkspaceSnapshot;
 }) =>
   session.preparation.pending.length === 0 ? null : (
-    <div className={cn(requestTierClassName, "space-y-2 border-b px-3 py-2.5")}>
+    <div className="space-y-2 border-b p-3.5">
       {session.preparation.pending.map((decision) => {
         const title = {
           "app-installation": "App installation",
@@ -356,10 +354,7 @@ export const AndroidVariables = ({
     title = "Setup Variables";
   }
   return (
-    <section
-      aria-label={title}
-      className={cn(requestTierClassName, "space-y-2 border-b px-3 py-2.5")}
-    >
+    <section aria-label={title} className="space-y-2 border-b p-3.5">
       <RequestHeader
         title={title}
         icon={
@@ -455,7 +450,7 @@ export const AndroidSessionSelect = ({
         aria-label="Android Agent Session"
         // The home's "In progress" heading morphs into this trigger.
         data-vt="switcher"
-        className="hover:bg-muted dark:hover:bg-muted max-w-[min(18rem,55%)] min-w-28 shrink border-transparent font-medium dark:bg-transparent"
+        className="hover:bg-island-hover dark:hover:bg-island-hover h-[34px] max-w-80 min-w-28 shrink rounded-xl border-transparent bg-transparent pr-2 pl-3 text-sm font-medium dark:bg-transparent"
       >
         <SelectValue placeholder="Android session">
           {(value: string | null) => {
@@ -478,7 +473,7 @@ export const AndroidSessionSelect = ({
         align="start"
         alignItemWithTrigger={false}
         className="w-96 max-w-[calc(100vw-2rem)]"
-        side="top"
+        side="bottom"
       >
         <SelectGroup>
           <SelectLabel>Android sessions</SelectLabel>

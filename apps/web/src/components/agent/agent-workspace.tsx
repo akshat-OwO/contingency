@@ -95,7 +95,11 @@ import type {
 import { gestureFailureMessage } from "@/components/agent/teaching-recording-state";
 import { useCanvasBox } from "@/components/agent/use-canvas-box";
 import { WorkspaceBrowserStage } from "@/components/agent/workspace-browser-stage";
-import { DockNotices } from "@/components/agent/workspace-dock";
+import {
+  DockNotices,
+  DockSessionSelect,
+  SessionTopBar,
+} from "@/components/agent/workspace-dock";
 import {
   commentGestureAtom,
   controlGestureAtom,
@@ -610,12 +614,6 @@ const AgentBrowserToolbar = ({
             />
           </InputGroup>
         </form>
-        {/*
-        The theme control lives on the browser chrome rather than in a second
-        header band: a live Workspace has no app header to hold it (#209).
-      */}
-        <DocsLink />
-        <ModeToggle />
       </div>
       {navigationError === undefined ? null : (
         <p
@@ -652,10 +650,13 @@ const AgentLiveView = ({
   recording,
   session,
   state,
+  topBar,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** The floating dock, overlaid on the canvas rather than stacked above it. */
   readonly dock: React.ReactNode;
+  /** The brand, the session switcher and Flows, above the browser chrome. */
+  readonly topBar: React.ReactNode;
   /** What the dock itself has to say above the browser, stacked with ours. */
   readonly notices: React.ReactNode;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
@@ -697,6 +698,7 @@ const AgentLiveView = ({
       // The shelf card the person picked grows into this stage.
       data-vt="stage"
     >
+      {topBar}
       <AgentBrowserToolbar
         address={state.address}
         navigationError={navigation.error}
@@ -2602,8 +2604,6 @@ const BrowserWorkspace = ({
                   onComment={view.openCommentComposer}
                   onGesture={view.changeRecording}
                   onSecondary={view.runSecondary}
-                  deletion={view.deletion}
-                  onSelectSession={view.selectSession}
                   pending={view.gestures.recording.pending}
                   phase={session.phase}
                   platform={platform}
@@ -2618,7 +2618,6 @@ const BrowserWorkspace = ({
                   }
                   selectedSessionId={state.selectedSessionId}
                   sessions={view.sessions}
-                  flows={flowsEntry}
                 />
               ) : (
                 <RunDock
@@ -2628,18 +2627,28 @@ const BrowserWorkspace = ({
                   onDismiss={
                     isEndedRun(session) ? view.dismissEndedRun : undefined
                   }
-                  deletion={view.deletion}
-                  onSelectSession={view.selectSession}
                   requests={<DockRequests session={session} />}
-                  selectedSessionId={state.selectedSessionId}
                   session={session}
                   sessions={view.sessions}
-                  flows={flowsEntry}
                   streamConnected={state.streamConnected}
                 />
               )
             }
             input={view.input}
+            topBar={
+              <SessionTopBar
+                className="workspace-canvas shrink-0"
+                flows={flowsEntry}
+                picker={
+                  <DockSessionSelect
+                    deletion={view.deletion}
+                    onSelect={view.selectSession}
+                    selectedSessionId={state.selectedSessionId}
+                    sessions={view.sessions}
+                  />
+                }
+              />
+            }
             navigation={view.gestures.navigation}
             inspect={
               recording

@@ -208,7 +208,7 @@ const view = async (sessionId) => {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  await wait("Workspace dock", "region");
+  await wait("Session status", "region");
   await androidIdle(control);
 };
 const prepare = async (sessionId) => {

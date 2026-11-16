@@ -120,7 +120,7 @@ await Effect.runPromise(
       "--role",
       "region",
       "--name",
-      "Workspace dock"
+      "Session status"
     );
     const style = yield* program(
       "computed-style",

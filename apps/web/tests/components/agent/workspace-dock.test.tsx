@@ -1,34 +1,60 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 
-import { DockState } from "@/components/agent/workspace-dock";
+import { DockState, DockStatus } from "@/components/agent/workspace-dock";
 
 afterEach(cleanup);
 
-test("a failed dock state is destructive text behind the alert icon", () => {
+test("a failed dock state is a destructive chip behind the alert icon", () => {
   render(<DockState tone="failed">Recording failed</DockState>);
   const state = screen.getByText("Recording failed");
-  expect(state).toHaveClass("text-destructive");
+  expect(state).toHaveClass(
+    "status-chip",
+    "[--status-tone:var(--destructive)]"
+  );
   expect(state.querySelector("svg")).not.toBeNull();
 });
 
-test("an attention dock state is amber text behind the alert icon", () => {
+test("an attention dock state is the needs-you chip behind the alert icon", () => {
   render(<DockState tone="attention">Needs you</DockState>);
   const state = screen.getByText("Needs you");
-  expect(state).toHaveClass("text-amber-700");
+  expect(state).toHaveClass("status-chip");
+  expect(state).toHaveAttribute("data-status", "needs-you");
   expect(state.querySelector("svg")).not.toBeNull();
 });
 
-test("a recording dock state keeps the red recording dot", () => {
+test("a recording dock state is the recording chip with a still dot", () => {
   render(<DockState tone="recording">Recording</DockState>);
-  expect(screen.getByText("Recording").querySelector("svg")).toHaveClass(
-    "text-red-500"
-  );
+  const state = screen.getByText("Recording");
+  expect(state).toHaveAttribute("data-status", "recording");
+  expect(state.querySelector(".animate-ping")).toBeNull();
 });
 
-test("a default dock state is plain text with no icon and no pill", () => {
+test("a default dock state is a muted chip with no icon", () => {
   render(<DockState>No session</DockState>);
   const state = screen.getByText("No session");
   expect(state.querySelector("svg")).toBeNull();
-  expect(state.className).not.toMatch(/rounded-full|border|bg-/u);
+  expect(state).toHaveClass(
+    "status-chip",
+    "[--status-tone:var(--muted-foreground)]"
+  );
+});
+
+test("the status sentence opens whole in a card above the island", async () => {
+  const user = userEvent.setup();
+  const sentence =
+    "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.";
+  render(
+    <DockStatus
+      badges={<DockState>Agent preparing</DockState>}
+      details={<p>Step 2 of 6</p>}
+    >
+      {sentence}
+    </DockStatus>
+  );
+  await user.click(within(screen.getByRole("status")).getByRole("button"));
+  const card = await screen.findByRole("dialog");
+  expect(within(card).getByText(sentence)).toBeInTheDocument();
+  expect(within(card).getByText("Step 2 of 6")).toBeInTheDocument();
 });

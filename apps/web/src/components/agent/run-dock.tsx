@@ -1,5 +1,4 @@
 import type {
-  AgentSessionId,
   AgentSessionSnapshot,
   TaskAgentRunState,
 } from "@contingency/protocol";
@@ -21,15 +20,11 @@ import {
 } from "@/components/agent/run-provenance";
 import type { RunProvenance } from "@/components/agent/run-provenance";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
-import type { SessionDeletion } from "@/components/agent/workspace-dock";
 import {
-  DockSessionSelect,
   DockNotice,
   DockShell,
-  DockSpacer,
   DockState,
   DockStatus,
-  DockWordmark,
   dockFactClassName,
 } from "@/components/agent/workspace-dock";
 import { Button } from "@/components/ui/button";
@@ -224,11 +219,11 @@ const TaskDetails = ({
 };
 
 /**
- * The Workspace dock for a Dry Run and an Interactive Run, on the same card
- * Teaching gets. Above the card's status line sits whatever the agent is
- * waiting on (`requests`). The status line holds the state badge, the facts
+ * The session status for a Dry Run and an Interactive Run, on the same
+ * island Teaching gets. What the agent is waiting on (`requests`) sits in its
+ * own Requests island. The status line holds the state badge, the facts
  * beside it (coverage, how long an idle agent has been quiet, provenance), and
- * the next-step sentence. The controls row holds the session picker, the task,
+ * the next-step sentence. The controls row holds the task details
  * and the one control that reads `Take control` or `Return control` (#209).
  */
 export const RunDock = ({
@@ -236,13 +231,9 @@ export const RunDock = ({
   controlPending,
   onControl,
   onDismiss,
-  onSelectSession,
-  deletion,
   requests,
-  selectedSessionId,
   session,
   sessions,
-  flows = null,
   streamConnected,
 }: {
   /** What went wrong the last time this dock tried to change control. */
@@ -254,15 +245,10 @@ export const RunDock = ({
    * there is nothing to leave.
    */
   readonly onDismiss?: (() => void) | undefined;
-  readonly deletion?: SessionDeletion;
-  readonly onSelectSession: (sessionId: string) => void;
-  /** The Execution Boundary and input requests, as the dock's first tier. */
+  /** The Execution Boundary and input requests, in the Requests island. */
   readonly requests?: React.ReactNode;
-  readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: RunSessionSnapshot;
   readonly sessions: readonly AgentSessionSnapshot[];
-  /** The Flows drawer entry, beside the session picker, or nothing. */
-  readonly flows?: React.ReactNode;
   readonly streamConnected: boolean;
 }) => {
   const presentation = runDockPresentation(session, streamConnected);
@@ -306,15 +292,6 @@ export const RunDock = ({
         </DockStatus>
       }
     >
-      <DockWordmark />
-      <DockSessionSelect
-        deletion={deletion}
-        onSelect={onSelectSession}
-        selectedSessionId={selectedSessionId}
-        sessions={sessions}
-      />
-      {flows}
-      <DockSpacer />
       {taskRun === undefined ? null : (
         <TaskDetails
           run={taskRun}

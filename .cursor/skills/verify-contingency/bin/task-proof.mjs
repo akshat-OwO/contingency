@@ -139,7 +139,7 @@ const capture = (name, url) =>
       "--role",
       "region",
       "--name",
-      url?.includes("?run=") ? "Run Summary" : "Workspace dock"
+      url?.includes("?run=") ? "Run Summary" : "Session status"
     );
     yield* command(
       "browser",

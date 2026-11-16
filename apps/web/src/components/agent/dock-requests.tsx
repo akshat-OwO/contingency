@@ -2,9 +2,9 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
-  ChevronDownIcon,
   ChevronUpIcon,
   KeyRoundIcon,
+  MinusIcon,
   ShieldAlertIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -12,10 +12,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import {
-  requestIconClassName,
-  requestTierClassName,
-} from "./dock-request-parts";
+import { requestIconClassName } from "./dock-request-parts";
 import { dockRequests, staysCollapsed } from "./dock-requests-state";
 import type { DockRequest } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
@@ -44,7 +41,7 @@ const CollapsedRequests = ({
     <button
       aria-expanded={false}
       aria-label={`Show request: ${first.title}. ${first.summary}`}
-      className="hover:bg-muted/70 focus-visible:ring-ring flex h-9 w-full min-w-0 items-center gap-2 px-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
+      className="hover:bg-muted/70 focus-visible:ring-ring flex h-10 w-full min-w-0 items-center gap-2 px-3.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
       onClick={onExpand}
       type="button"
     >
@@ -71,10 +68,10 @@ const CollapsedRequests = ({
 };
 
 /**
- * The dock's first tier: what the agent is waiting on the user for. A paused
- * Execution Boundary and requests for private inputs used to float as cards
- * at the top of the stage, away from the dock's state and its one control.
- * Here they sit directly above the status line they explain.
+ * What the agent is waiting on the user for, in the **Requests** island at
+ * the bottom left of the stage (#753): a paused Execution Boundary and
+ * requests for private inputs. The island floats over the page or device, so
+ * a request coming or going never resizes the stage.
  *
  * The tier collapses to one line so a long request never has to cover the
  * page the person is reading to answer it. Collapsing hides the requests on
@@ -96,7 +93,7 @@ export const DockRequests = ({
   }
   if (staysCollapsed(requests, collapsedKeys)) {
     return (
-      <div className={cn(requestTierClassName, "border-b")}>
+      <div className="border-b">
         <CollapsedRequests
           onExpand={() => setCollapsedKeys(new Set<string>())}
           requests={requests}
@@ -114,7 +111,7 @@ export const DockRequests = ({
       type="button"
       variant="ghost"
     >
-      <ChevronDownIcon />
+      <MinusIcon />
     </Button>
   );
   const [first] = requests;
@@ -125,8 +122,7 @@ export const DockRequests = ({
   return (
     <div
       className={cn(
-        requestTierClassName,
-        "max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b px-3 pt-2.5 pb-2"
+        "max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b p-3.5"
       )}
     >
       <GuidedRunQuestions

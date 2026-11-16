@@ -132,3 +132,59 @@ export const WatcherMark = ({ className }: { readonly className?: string }) => (
     <path d="M106 44L66 58V74H84Z" />
   </svg>
 );
+
+export const TaskIcon = () => (
+  <Icon>
+    <path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M10 11h6" />
+    <path d="M10 15h4" />
+  </Icon>
+);
+
+export const CommentIcon = () => (
+  <Icon>
+    <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+  </Icon>
+);
+
+export const PointerIcon = () => (
+  <Icon>
+    <path d="m5 4 13 6-5.5 1.8L10.5 18z" />
+  </Icon>
+);
+
+export const ShieldIcon = () => (
+  <Icon>
+    <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z" />
+  </Icon>
+);
+
+export const KeyIcon = () => (
+  <Icon>
+    <circle cx="8" cy="15" r="4" />
+    <path d="m11 12 8-8" />
+    <path d="m16 7 2 2" />
+  </Icon>
+);
+
+export const QuestionIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6" />
+    <circle cx="12" cy="17" fill="currentColor" r=".6" stroke="none" />
+  </Icon>
+);
+
+export const MinimizeIcon = () => (
+  <Icon>
+    <path d="M6 12h12" />
+  </Icon>
+);
+
+export const InfoIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 11v5" />
+    <circle cx="12" cy="8" fill="currentColor" r=".6" stroke="none" />
+  </Icon>
+);

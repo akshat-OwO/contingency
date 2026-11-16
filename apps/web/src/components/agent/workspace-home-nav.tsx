@@ -11,8 +11,11 @@ import { useWorkspaceHome } from "./workspace-home-context";
  */
 export const WorkspaceHomeLink = ({
   className,
+  wordmark = false,
 }: {
   readonly className?: string;
+  /** Spells out the name beside the mark, as the session top bar does. */
+  readonly wordmark?: boolean;
 }) => {
   const home = useWorkspaceHome();
   return (
@@ -21,6 +24,7 @@ export const WorkspaceHomeLink = ({
       aria-label="Contingency home"
       className={cn(
         "hover:bg-muted focus-visible:ring-ring inline-flex h-7 shrink-0 items-center rounded-md px-1.5 outline-none focus-visible:ring-2",
+        wordmark && "hover:bg-island-hover h-8 gap-2 rounded-xl px-2.5",
         className
       )}
       href="/"
@@ -39,7 +43,16 @@ export const WorkspaceHomeLink = ({
       }}
       title="Contingency home"
     >
-      <WatcherMark data-vt="brand-mark" />
+      {wordmark ? (
+        <WatcherMark className="text-island-brand" data-vt="brand-mark" />
+      ) : (
+        <WatcherMark data-vt="brand-mark" />
+      )}
+      {wordmark ? (
+        <span className="text-[15px] font-semibold tracking-[-0.04em] lowercase">
+          Contingency
+        </span>
+      ) : null}
     </a>
   );
 };
@@ -53,3 +66,7 @@ export const WorkspaceHomeBar = () => (
     <WorkspaceHomeLink className="material-float pointer-events-auto h-9 rounded-xl px-2.5 shadow-sm" />
   </div>
 );
+
+/** The quiet look the shared header controls take on an island. */
+export const islandControlClassName =
+  "text-muted-foreground hover:bg-island-hover hover:text-foreground size-[34px] rounded-xl border-transparent bg-transparent shadow-none dark:border-transparent dark:bg-transparent";

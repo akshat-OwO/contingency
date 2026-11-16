@@ -133,7 +133,7 @@ await Effect.runPromise(
         "--role",
         "region",
         "--name",
-        "Workspace dock"
+        "Session status"
       );
       yield* program(
         "capture-start",

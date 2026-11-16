@@ -28,7 +28,7 @@ const boundaryScope = (session: AgentSessionSnapshot, reason: string) => {
     : "Allow permits this exact attempt once; a retry asks again.";
 };
 
-/** The user resolves the exact pending boundary in the Workspace dock. */
+/** The user resolves the exact pending boundary in the Requests island. */
 export const ExecutionBoundary = ({
   collapse,
   session,

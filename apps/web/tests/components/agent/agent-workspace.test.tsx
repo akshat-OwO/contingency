@@ -753,7 +753,7 @@ test("offers one tile per platform and no shelf without sessions", async () => {
   ]);
   expect(screen.queryByRole("region", { name: "In progress" })).toBeNull();
   // The empty dock and its invitation are gone; the home owns the start.
-  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
   expect(screen.queryByText("No session")).toBeNull();
 });
 
@@ -883,7 +883,7 @@ test("shows the home, not a session, while sessions run", async () => {
   expect(
     await screen.findByRole("heading", { level: 1, name: "Teach a new Flow" })
   ).toBeVisible();
-  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
   const shelf = screen.getByRole("region", { name: "In progress" });
   const cards = within(shelf).getAllByRole("button");
   // Each card is named like the dock switcher's option for it.
@@ -944,7 +944,7 @@ test("opens a session from its card on the shelf", async () => {
   );
   expect(onSelectSession).toHaveBeenCalledWith(teachingSetup.id);
   expect(
-    await screen.findByRole("region", { name: "Workspace dock" })
+    await screen.findByRole("region", { name: "Session status" })
   ).toBeVisible();
   expect(
     screen.queryByRole("heading", { name: "Teach a new Flow" })
@@ -955,14 +955,17 @@ test("goes home from the dock's logo mark and its New session action", async () 
   const user = userEvent.setup();
   rpc.sessionsResult = resultFor([teachingSetup]);
   const { testRouter } = await renderRoute(`/?session=${teachingSetup.id}`);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   // `?session=` opens the session directly, without the home.
   expect(
     screen.queryByRole("heading", { name: "Teach a new Flow" })
   ).toBeNull();
 
   await user.click(
-    within(dock).getByRole("link", { name: "Contingency home" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "link",
+      { name: "Contingency home" }
+    )
   );
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
   expect(
@@ -987,7 +990,7 @@ test("goes home from the dock's logo mark and its New session action", async () 
   ).toBeVisible();
   // The home stays put on the next poll rather than adopting the session.
   await refreshWorkspace();
-  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
 });
 
 test("opens the Android start card from its tile without leaving the home", async () => {
@@ -1424,7 +1427,7 @@ test("replaces the Workspace with a desktop notice below 1024px", async () => {
     expect(
       screen.getByRole("alert", { name: "Open Contingency on a desktop" })
     ).toBeVisible();
-    expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
     expect(screen.queryByRole("banner")).toBeNull();
     expect(
       screen.queryByRole("heading", { name: "Teach a new Flow" })
@@ -1467,9 +1470,12 @@ test("explains when Agent Sessions cannot be loaded", async () => {
 
 test("opens an owned session and shows the live browser view", async () => {
   renderWorkspace(resultFor([session]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(
-    within(dock).getByRole("combobox", { name: "Agent Session" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "combobox",
+      { name: "Agent Session" }
+    )
   ).toHaveTextContent("Test agent");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(
@@ -1479,10 +1485,13 @@ test("opens an owned session and shows the live browser view", async () => {
 
 test("gives a Run the same dock-only shell as Teaching", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   // The logo mark is the dock's way to the Workspace home.
   expect(
-    within(dock).getByRole("link", { name: "Contingency home" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "link",
+      { name: "Contingency home" }
+    )
   ).toBeVisible();
   // The Flow, which Agent Step it is on, and coverage. The step's name
   // and its "Done when:" line are behind the counter, not in the row (#238).
@@ -1506,7 +1515,7 @@ test("gives a Run the same dock-only shell as Teaching", async () => {
 test("holds the Agent Step's detail behind the step counter", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([runningSession]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   await user.click(
     within(dock).getByRole("button", {
       name: "1 of 2 Agent Steps executed. Agent Step 2 of 2.",
@@ -1522,7 +1531,7 @@ test("holds the Agent Step's detail behind the step counter", async () => {
 test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([dryRunSession]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("Rehearsing the Flow add-anvil.");
   expect(dock).toHaveTextContent("Changed inputs: product");
   // The picker shows the Flow; its option names the activity too.
@@ -1537,7 +1546,7 @@ test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", 
 test("labels an Interactive Run without exposing a raw session id", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([runningSession]), session.id);
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   await openSessionPicker(user);
   const option = await screen.findByRole("button", {
     name: "browse-catalogue · Interactive Run",
@@ -1590,7 +1599,7 @@ test("keeps a prerequisite refusal visible after its request closes", async () =
 
 test("a live Run offers no ceiling to extend", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("Agent Step 2 of 2.");
   expect(screen.queryByRole("button", { name: /ceiling/iu })).toBeNull();
   expect(dock).not.toHaveTextContent("Agent idle");
@@ -1609,7 +1618,7 @@ test("says how long an idle agent has been quiet without ending the Run", async 
     ]),
     session.id
   );
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("Agent idle for 12 min");
   // The notice is read-only: the one control is still the one on offer.
   expect(screen.getByRole("button", { name: "Take control" })).toBeVisible();
@@ -1617,9 +1626,12 @@ test("says how long an idle agent has been quiet without ending the Run", async 
 
 test("does not use a foreign URL session id, and still offers the dock", async () => {
   renderWorkspace(resultFor([session]), "agent-foreign");
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   expect(
-    within(dock).getByRole("combobox", { name: "Agent Session" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "combobox",
+      { name: "Agent Session" }
+    )
   ).toHaveTextContent("Test agent");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
@@ -1716,7 +1728,7 @@ test("replaces a missing session id with the session shown in Workspace", async 
 
 test("names who holds the browser in the dock", async () => {
   renderWorkspace(resultFor([session]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("The agent has control.");
 });
 
@@ -1740,10 +1752,13 @@ test("names the drafted Flow in the Teaching dock", async () => {
     ]),
     session.id
   );
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("Flow drafted");
   expect(
-    within(dock).getByRole("combobox", { name: "Agent Session" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "combobox",
+      { name: "Agent Session" }
+    )
   ).toHaveTextContent("browse-catalogue");
 });
 
@@ -1781,7 +1796,7 @@ test("takes control from Workspace and returns it explicitly", async () => {
     ]),
     session.id
   );
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("You have control");
   expect(screen.getByText(/may already have performed it/u)).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Return control" }));
@@ -1808,7 +1823,7 @@ test("offers no control exchange during a user-led Demonstration", async () => {
     ]),
     session.id
   );
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
 });
@@ -1818,7 +1833,7 @@ test("names who held the browser when a Run ended, without a control", async () 
     resultFor([{ ...session, controller: "user", phase: "closed" }]),
     session.id
   );
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(dock).toHaveTextContent("You had control.");
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
@@ -1933,7 +1948,7 @@ test("keeps Teaching private Variable entry out of Workspace", async () => {
     ]),
     session.id
   );
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   expect(
     screen.queryByRole("button", { name: "Enter private value" })
   ).toBeNull();
@@ -2071,15 +2086,21 @@ test("scrolls the browser with the wheel only during Takeover", async () => {
 
 test("composes the Teaching dock with distinct accessible names", async () => {
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   // The logo mark is the dock's way to the Workspace home.
   expect(
-    within(dock).getByRole("link", { name: "Contingency home" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "link",
+      { name: "Contingency home" }
+    )
   ).toBeVisible();
   expect(dock).toHaveTextContent("Recording");
   // A Teaching session is the Flow name; the state lives in the badge.
   expect(
-    within(dock).getByRole("combobox", { name: "Agent Session" })
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "combobox",
+      { name: "Agent Session" }
+    )
   ).toHaveTextContent("browse-catalogue");
   expect(
     within(dock).getByRole("button", { name: "Stop recording" })
@@ -2158,7 +2179,7 @@ test("preserves unsent Guided Run answers across request collapse", async () => 
     teaching: { actionCount: 0, instructionCount: 1, instructions: [question] },
   };
   renderWorkspace(resultFor([guided]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Requests" });
   const answerName = "Answer: Which item should I add?";
   await user.type(
     within(dock).getByRole("textbox", { name: answerName }),
@@ -2168,8 +2189,8 @@ test("preserves unsent Guided Run answers across request collapse", async () => 
   // row of its own above it.
   const header = within(dock).getByRole("heading", {
     name: "Guided Run questions",
-  }).parentElement;
-  if (header === null) {
+  }).parentElement?.parentElement;
+  if (header === null || header === undefined) {
     throw new Error("No Guided Run questions header");
   }
   await user.click(
@@ -2304,9 +2325,12 @@ test("clears a Guided Run draft when an agent relays the answer", async () => {
 test("keeps every dock control reachable from the keyboard", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   const controls = [
-    within(dock).getByRole("combobox", { name: "Agent Session" }),
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "combobox",
+      { name: "Agent Session" }
+    ),
     within(dock).getByRole("button", { name: "Comment" }),
     within(dock).getByRole("button", { name: "Stop recording" }),
   ];
@@ -2457,7 +2481,7 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
       }).pipe(Effect.andThen(Effect.never))
   );
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   const trigger = within(dock).getByRole("button", { name: "Comment" });
   // The chord hint stays the same as focus moves into and out of the Page.
   expect(trigger).toHaveTextContent("CtrlShiftK");
@@ -2493,7 +2517,7 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
 test("opens the composer with a single key outside the Page", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   await user.keyboard("/");
   const composer = await screen.findByRole("dialog", { name: "Comment" });
   await user.keyboard("{Escape}");
@@ -2557,7 +2581,7 @@ test("reads earlier comments back in the composer", async () => {
 
 test("names no count on the comment trigger when nothing is attached", async () => {
   renderWorkspace(resultFor([teachingRecording]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(within(dock).getByRole("button", { name: "Comment" })).toBeVisible();
 });
 
@@ -2717,7 +2741,7 @@ test("reads a failed Dry Run's explanation in the dock's status line", async () 
 
   // The status line is clamped to one row and expands in place, so the
   // explanation sits beside the state instead of behind a button (#297).
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(await within(dock).findByText("Dry run failed")).toBeVisible();
   expect(within(dock).getByRole("status")).toHaveTextContent(explanation);
 });
@@ -2994,8 +3018,8 @@ test("asks for setup Variables in the dock and folds them out of the browser's w
     ]),
     session.id
   );
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  // The request is the dock's first tier, not a card floating over the page.
+  const dock = await screen.findByRole("region", { name: "Requests" });
+  // The request sits in the Requests island, not a card floating over the page.
   const request = within(dock).getByRole("region", { name: "Setup Variables" });
   expect(request).toHaveTextContent("1 of 2 needed");
   expect(request).toHaveTextContent("STORE_EMAIL supplied");
@@ -3033,7 +3057,7 @@ test("asks for setup Variables in the dock and folds them out of the browser's w
 test("keeps an Interactive Run on screen with its Run Summary once it ends", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([taskRunSession]), session.id);
-  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  const dock = await screen.findByRole("region", { name: "Session status" });
   expect(
     screen.queryByRole("complementary", { name: "Run Summary" })
   ).toBeNull();
@@ -3078,7 +3102,7 @@ test("leaves an ended Run for the next live session", async () => {
     viewUrl: "http://127.0.0.1:7777/?session=agent-two",
   };
   renderWorkspace(resultFor([taskRunSession, otherSession]), session.id);
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
 
   rpc.sessionsResult = resultFor([otherSession]);
   await refreshWorkspace();
@@ -3188,7 +3212,7 @@ test("says an ended Run's Summary was not written rather than missing from the c
     waiting: false,
   };
   renderWorkspace(resultFor([taskRunSession]), session.id);
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
 
   rpc.sessionsResult = resultFor([]);
   await refreshWorkspace();
@@ -3241,7 +3265,7 @@ test("follows a Teaching Dry Run and returns to its owner instead of the first s
   await waitFor(() => {
     expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
     expect(
-      screen.getByRole("region", { name: "Workspace dock" })
+      screen.getByRole("region", { name: "Session status" })
     ).toHaveTextContent("Rehearsing the Flow add-anvil.");
   });
   await refreshWorkspace();
@@ -3517,7 +3541,7 @@ test("takes over a Guided Run and enters a private Variable before returning", a
 test("keeps a Dry Run Summary by recording ID after Teaching has closed", async () => {
   const rehearsal = { ...dryRunSession, run: taskRunSession.run };
   renderWorkspace(resultFor([rehearsal]), session.id);
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   rpc.sessionsResult = resultFor([]);
   await refreshWorkspace();
   const summary = await screen.findByRole("complementary", {
@@ -3547,7 +3571,7 @@ test("explains that a failed recording review needs another passing Dry Run", as
   try {
     const rehearsal = { ...dryRunSession, run: taskRunSession.run };
     renderWorkspace(resultFor([rehearsal]), session.id);
-    await screen.findByRole("region", { name: "Workspace dock" });
+    await screen.findByRole("region", { name: "Session status" });
     rpc.sessionsResult = resultFor([]);
     await refreshWorkspace();
     expect(

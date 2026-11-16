@@ -20,7 +20,7 @@ A Dry Run starts in a fresh context under its saved Emulation, so a pass still m
 
 ## Rules
 
-- **Browser Modifications are evidence.** Every agent change that a user could not make through ordinary interaction is recorded in the Run Summary and shown in the Workspace dock. It persists until the agent removes it or the Run ends, including across Flow Skills that share the Run's context. An Agent Assessment is read in light of these changes rather than capped by them. A change the user makes during Takeover is a user action.
+- **Browser Modifications are evidence.** Every agent change that a user could not make through ordinary interaction is recorded in the Run Summary and shown in the session status island. It persists until the agent removes it or the Run ends, including across Flow Skills that share the Run's context. An Agent Assessment is read in light of these changes rather than capped by them. A change the user makes during Takeover is a user action.
 - **The agent sees a redacted projection.** Credential headers, cookie values, and secret Variable values are masked. Response bodies are returned on request, bounded in size, and scrubbed of secret Variable values. The Trace still never reaches an agent.
 - **Network metadata is always on.** Each tab keeps a bounded buffer of request metadata from Run start. HAR capture with bodies is explicit.
 - **Domain Scope bounds writes, not routes.** Cookie and storage writes target Domain Scope hosts. Routes may mock or block any URL, because a mocked request does not leave the browser. Requests the agent sends itself, such as an eval `fetch`, stay within the Domain Scope.
