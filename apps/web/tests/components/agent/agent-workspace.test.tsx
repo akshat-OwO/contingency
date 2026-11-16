@@ -27,6 +27,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { GuidedRunQuestions } from "@/components/agent/guided-run-questions";
 import * as browserInput from "@/components/browser/browser-input";
+import { DesktopGate } from "@/components/desktop-gate";
 import type { runAgentBrowserStream } from "@/lib/rpc";
 import { iosEnabledAtom } from "@/lib/rpc";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
@@ -35,6 +36,8 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
+  /* What the Android list answers, for the home's shelf. */
+  androidSessionsResult: [] satisfies unknown[],
   closeCalls: [] satisfies unknown[],
   closeFailure: undefined satisfies unknown,
   closeGate: Promise.resolve(true),
@@ -57,6 +60,8 @@ const rpc = vi.hoisted(() => ({
   instructionFailure: undefined satisfies unknown,
   /* A failing save settles only once the test opens this gate. */
   instructionGate: Promise.resolve(true),
+  /* What the iOS list answers, for the home's shelf. */
+  iosSessionsResult: [] satisfies unknown[],
   navigateCalls: [] satisfies unknown[],
   navigateFailure: undefined satisfies unknown,
   /* A navigation settles only once the test opens this gate. */
@@ -223,6 +228,11 @@ const rpcOverrides = {
       return {};
     })
   ),
+  androidSessionsAtom: Atom.make(() => ({
+    _tag: "Success",
+    value: rpc.androidSessionsResult,
+    waiting: false,
+  })),
   endedRunSummaryAtom: (runId: string) =>
     Atom.make(() => {
       rpc.endedRunSummaryCalls.push(runId);
@@ -234,6 +244,11 @@ const rpcOverrides = {
         }
       );
     }),
+  iosSessionsAtom: Atom.make(() => ({
+    _tag: "Success",
+    value: rpc.iosSessionsResult,
+    waiting: false,
+  })),
   recordingViewAtom: Atom.family((recordingId: string) =>
     Atom.family((_sessionId: string | null) =>
       Atom.make(() => {
@@ -512,6 +527,8 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.androidSessionsResult = [];
+  rpc.iosSessionsResult = [];
   rpc.closeCalls = [];
   rpc.closeFailure = undefined;
   rpc.closeGate = Promise.resolve(true);
@@ -543,32 +560,20 @@ afterEach(async () => {
   rpc.instructionGate = Promise.resolve(true);
 });
 
-test("announces that Agent Sessions are loading", () => {
-  renderWorkspace({ _tag: "Initial", waiting: true });
-  expect(screen.getByText("Loading Agent Sessions…")).toBeVisible();
-});
+const teachingSetup = {
+  ...session,
+  activity: "teaching",
+  captureState: { _tag: "setup", requestedAt: "2026-08-31T00:00:00.000Z" },
+  controller: "user",
+  flowName: "browse-catalogue",
+  recordingId: "recording-browse-catalogue",
+  teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
+} satisfies unknown;
 
-test("invites the user to open a session from the empty canvas", async () => {
-  const user = userEvent.setup();
-  renderWorkspace(resultFor([]));
-  expect(await screen.findByText("No browser session")).toBeVisible();
-  // The canvas owns the invitation, so the dock shows the state without
-  // repeating the action under the same name.
-  expect(
-    screen.getAllByRole("button", { name: "Open browser session" })
-  ).toHaveLength(1);
-  expect(screen.getByText("No session")).toBeVisible();
-
-  await user.click(
-    screen.getByRole("button", { name: "Open browser session" })
-  );
-  await waitFor(() => {
-    expect(rpc.startSessionCalls).toHaveLength(1);
-  });
-  expect(rpc.startSessionCalls[0]).toMatchObject({
-    payload: { activity: "teaching" },
-  });
-});
+const teachingRecording = {
+  ...teachingSetup,
+  captureState: { _tag: "recording", startedAt: "2026-08-31T00:00:01.000Z" },
+} satisfies unknown;
 
 /** The whole app at `url`, with iOS sessions offered when `ios` is set. */
 const renderRoute = async (url: string, { ios = false } = {}) => {
@@ -591,49 +596,308 @@ const renderRoute = async (url: string, { ios = false } = {}) => {
   return { history, testRouter };
 };
 
-const platformSwitcher = (container: HTMLElement = document.body) =>
-  within(container).getByRole("group", { name: "Workspace platform" });
+test("announces that a requested Agent Session is loading", () => {
+  renderWorkspace({ _tag: "Initial", waiting: true }, session.id);
+  expect(screen.getByText("Loading Agent Sessions…")).toBeVisible();
+});
 
-const platformOption = (name: string, container?: HTMLElement) =>
-  within(platformSwitcher(container)).getByRole("button", {
-    exact: true,
-    name,
+test("shows the Workspace home without waiting for the session list", () => {
+  renderWorkspace({ _tag: "Initial", waiting: true });
+  expect(
+    screen.getByRole("heading", { level: 1, name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(screen.queryByText("Loading Agent Sessions…")).toBeNull();
+});
+
+/** The home's platform tiles, in the order they are offered. */
+const startTiles = () =>
+  within(screen.getByRole("list", { name: "Start a session" })).getAllByRole(
+    "button"
+  );
+
+test("offers one tile per platform and no shelf without sessions", async () => {
+  renderWorkspace(resultFor([]));
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(startTiles().map((tile) => tile.getAttribute("aria-label"))).toEqual([
+    "Start a Web session",
+    "Start an Android session",
+  ]);
+  expect(screen.queryByRole("region", { name: "In progress" })).toBeNull();
+  // The empty dock and its invitation are gone; the home owns the start.
+  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+  expect(screen.queryByText("No session")).toBeNull();
+});
+
+test("starts a desktop Web session from the start card", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([]));
+  await user.click(
+    await screen.findByRole("button", { name: "Start a Web session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on Web" });
+  expect(within(card).getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "new-flow"
+  );
+  expect(
+    within(card).getByRole("combobox", { name: "Viewport" })
+  ).toHaveTextContent("Desktop");
+  // Setup starts collapsed and says every session starts clean.
+  const setup = within(card).getByRole("button", { name: /Setup/u });
+  expect(setup).toHaveAttribute("aria-expanded", "false");
+  expect(setup).toHaveAttribute("type", "button");
+  await user.click(setup);
+  expect(within(card).getByText(/clean browser profile/u)).toBeVisible();
+  expect(rpc.startSessionCalls).toHaveLength(0);
+
+  await user.click(
+    within(card).getByRole("button", { name: "Start teaching" })
+  );
+  await waitFor(() => expect(rpc.startSessionCalls).toHaveLength(1));
+  // SAFETY: the waitFor above proved exactly one start call was recorded.
+  const [call] = rpc.startSessionCalls as [
+    { payload: { emulation?: unknown; url?: unknown } },
+  ];
+  expect(call.payload).toMatchObject({
+    activity: "teaching",
+    clientName: "Workspace",
+    name: "new-flow",
+    viewport: { deviceScaleFactor: 1, height: 800, width: 1280 },
   });
+  expect(call.payload.url).toBeUndefined();
+  expect(call.payload.emulation).toBeUndefined();
+});
 
-test("switches platforms through the route and its history", async () => {
-  rpc.sessionsResult = { _tag: "Initial", waiting: true };
+test("sends the starting page and a phone's Emulation from the start card", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([]));
+  await user.click(
+    await screen.findByRole("button", { name: "Start a Web session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on Web" });
+  const name = within(card).getByRole("textbox", { name: "Flow name" });
+  const start = within(card).getByRole("button", { name: "Start teaching" });
+  // Start waits for a valid Flow name, and says why it is waiting.
+  await user.clear(name);
+  expect(start).toBeDisabled();
+  expect(within(card).getByText(/A Flow name cannot be empty/u)).toBeVisible();
+  await user.type(name, "check/out");
+  expect(start).toBeDisabled();
+  await user.clear(name);
+  await user.type(name, "checkout");
+  expect(start).toBeEnabled();
+
+  await user.type(
+    within(card).getByRole("textbox", { name: "Starting page" }),
+    "shop.localhost/cart"
+  );
+  await user.click(within(card).getByRole("combobox", { name: "Viewport" }));
+  await user.click(
+    await screen.findByRole("option", { name: /Android phone/u })
+  );
+  await user.click(start);
+
+  await waitFor(() => expect(rpc.startSessionCalls).toHaveLength(1));
+  const viewport = { deviceScaleFactor: 3, height: 892, width: 412 };
+  expect(rpc.startSessionCalls[0]).toMatchObject({
+    payload: {
+      activity: "teaching",
+      emulation: {
+        permissions: [],
+        userAgentProfile: "chrome-android-mobile",
+        viewport,
+      },
+      name: "checkout",
+      url: "https://shop.localhost/cart",
+      viewport,
+    },
+  });
+});
+
+test("closes the start card with Escape and keeps the Flow name", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([]));
+  await user.click(
+    await screen.findByRole("button", { name: "Start a Web session" })
+  );
+  const name = screen.getByRole("textbox", { name: "Flow name" });
+  await user.clear(name);
+  await user.type(name, "checkout{Escape}");
+  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Start a Web session" }));
+  expect(screen.getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "checkout"
+  );
+  await user.click(screen.getByRole("button", { name: "Back to platforms" }));
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
+});
+
+/** Native list entries carry only what the shelf reads from them. */
+const androidSummary = {
+  flowName: "login",
+  id: "agent-android",
+  kind: "dry-run",
+  phase: "running",
+};
+const iosSummary = {
+  flowName: "onboarding",
+  id: "agent-ios",
+  kind: "run",
+  phase: "paused",
+};
+
+test("shows the home, not a session, while sessions run", async () => {
+  rpc.androidSessionsResult = [androidSummary];
+  rpc.iosSessionsResult = [iosSummary];
+  renderWorkspace(
+    resultFor([teachingRecording, { ...runningSession, id: "agent-run" }])
+  );
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+  const shelf = screen.getByRole("region", { name: "In progress" });
+  const cards = within(shelf).getAllByRole("button");
+  // Each card is named like the dock switcher's option for it.
+  expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual([
+    "browse-catalogue",
+    "browse-catalogue · Interactive Run",
+    "login · Android Dry Run",
+    "onboarding · iOS Run",
+  ]);
+  expect(cards[0]).toHaveTextContent(/Recording\s*\d+:\d\d/u);
+  expect(cards[1]).toHaveTextContent("Running2/2");
+  expect(cards[2]).toHaveTextContent("Running");
+  expect(cards[3]).toHaveTextContent("Needs you");
+});
+
+test("a session waiting on a setup Variable needs the person, until it is answered", async () => {
+  const requested = {
+    name: "STORE_PASSWORD",
+    purpose: "Signs in to the demo store.",
+    requestId: "setup-request-1",
+    status: "requested",
+  };
+  const waiting = { ...teachingSetup, controller: "agent" };
+  const { unmount } = renderWorkspace(
+    resultFor([{ ...waiting, setupVariables: [requested] } satisfies unknown])
+  );
+  const shelf = await screen.findByRole("region", { name: "In progress" });
+  expect(within(shelf).getByRole("button")).toHaveTextContent("Needs you");
+  unmount();
+  renderWorkspace(
+    resultFor([
+      {
+        ...waiting,
+        setupVariables: [{ ...requested, status: "supplied" }],
+      } satisfies unknown,
+    ])
+  );
+  expect(
+    within(
+      await screen.findByRole("region", { name: "In progress" })
+    ).getByRole("button")
+  ).toHaveTextContent("Ready");
+});
+
+test("opens a session from its card on the shelf", async () => {
+  const user = userEvent.setup();
+  const onSelectSession = vi.fn();
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  render(
+    <TestRegistry>
+      <AgentWorkspace onSelectSession={onSelectSession} />
+    </TestRegistry>
+  );
+  const shelf = await screen.findByRole("region", { name: "In progress" });
+  expect(within(shelf).getByRole("button")).toHaveTextContent("Ready");
+  await user.click(
+    within(shelf).getByRole("button", { name: "browse-catalogue" })
+  );
+  expect(onSelectSession).toHaveBeenCalledWith(teachingSetup.id);
+  expect(
+    await screen.findByRole("region", { name: "Workspace dock" })
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("heading", { name: "Teach a new Flow" })
+  ).toBeNull();
+});
+
+test("goes home from the dock's logo mark and its New session action", async () => {
+  const user = userEvent.setup();
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  const { testRouter } = await renderRoute(`/?session=${teachingSetup.id}`);
+  const dock = await screen.findByRole("region", { name: "Workspace dock" });
+  // `?session=` opens the session directly, without the home.
+  expect(
+    screen.queryByRole("heading", { name: "Teach a new Flow" })
+  ).toBeNull();
+
+  await user.click(
+    within(dock).getByRole("link", { name: "Contingency home" })
+  );
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
+
+  const shelf = screen.getByRole("region", { name: "In progress" });
+  await user.click(
+    within(shelf).getByRole("button", { name: "browse-catalogue" })
+  );
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({
+      session: teachingSetup.id,
+    })
+  );
+  await openSessionPicker(user);
+  const picker = screen.getByRole("dialog", { name: "Agent Sessions" });
+  await user.click(within(picker).getByRole("button", { name: "New session" }));
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
+  // The home stays put on the next poll rather than adopting the session.
+  await refreshWorkspace();
+  expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+});
+
+test("opens native setup from the home tiles and comes back home", async () => {
+  rpc.sessionsResult = resultFor([]);
   const user = userEvent.setup();
   const { history, testRouter } = await renderRoute("/");
+  // The app header steps aside; the home's island keeps the one theme control.
   expect(
-    await screen.findByRole("group", { name: "Workspace platform" })
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
   ).toBeVisible();
-  expect(platformOption("Web")).toHaveAttribute("aria-pressed", "true");
-  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "false");
-  // The app header keeps the one theme control.
   expect(
     screen.getAllByRole("button", { name: "Change color theme" })
   ).toHaveLength(1);
+  expect(
+    screen.queryByRole("group", { name: "Workspace platform" })
+  ).toBeNull();
 
-  await user.click(platformOption("Android"));
+  await user.click(
+    screen.getByRole("button", { name: "Start an Android session" })
+  );
   await waitFor(() =>
     expect(testRouter.state.location.search).toEqual({ android: "new" })
   );
   expect(
     await screen.findByRole("heading", { name: "No Android session" })
   ).toBeVisible();
-  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "true");
 
   act(() => history.back());
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
-  await waitFor(() =>
-    expect(platformOption("Web")).toHaveAttribute("aria-pressed", "true")
-  );
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
 
   act(() => history.forward());
-  await waitFor(() =>
-    expect(testRouter.state.location.search).toEqual({ android: "new" })
+  await user.click(
+    await screen.findByRole("link", { name: "Contingency home" })
   );
-  await user.click(platformOption("Web"));
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
   expect(
     screen.queryByRole("heading", { name: "No Android session" })
@@ -646,22 +910,30 @@ test("reopens a native session URL on the same platform", async () => {
   expect(
     await screen.findByRole("heading", { name: "No Android session" })
   ).toBeVisible();
-  expect(platformOption("Android")).toHaveAttribute("aria-pressed", "true");
   expect(testRouter.state.location.search).toEqual({
     android: "agent-native",
   });
 });
 
 test("offers iOS only where this process enables it", async () => {
-  rpc.sessionsResult = { _tag: "Initial", waiting: true };
+  rpc.sessionsResult = resultFor([]);
   await renderRoute("/");
-  await screen.findByRole("group", { name: "Workspace platform" });
+  await screen.findByRole("heading", { name: "Teach a new Flow" });
   expect(
-    within(platformSwitcher()).queryByRole("button", { name: "iOS" })
+    screen.queryByRole("button", { name: "Start an iOS session" })
   ).toBeNull();
+  cleanup();
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/", { ios: true });
+  await user.click(
+    await screen.findByRole("button", { name: "Start an iOS session" })
+  );
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({ ios: "new" })
+  );
 });
 
-test("leaves the Android setup sheet through the switcher", async () => {
+test("leaves the Android setup sheet through the way home", async () => {
   rpc.sessionsResult = resultFor([session]);
   const user = userEvent.setup();
   const { testRouter } = await renderRoute("/?android=new");
@@ -671,7 +943,9 @@ test("leaves the Android setup sheet through the switcher", async () => {
   const sheet = await screen.findByRole("dialog", {
     name: "New Android session",
   });
-  await user.click(platformOption("Web", sheet));
+  await user.click(
+    within(sheet).getByRole("link", { name: "Contingency home" })
+  );
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
   await waitFor(() =>
     expect(
@@ -680,14 +954,13 @@ test("leaves the Android setup sheet through the switcher", async () => {
   );
 });
 
-test("leaves the iOS setup sheet through the switcher", async () => {
+test("leaves the iOS setup sheet through the way home", async () => {
   rpc.sessionsResult = resultFor([session]);
   const user = userEvent.setup();
   const { testRouter } = await renderRoute("/?ios=new", { ios: true });
   const sheet = await screen.findByRole("dialog", {
     name: "New iOS session",
   });
-  expect(platformOption("iOS", sheet)).toHaveAttribute("aria-pressed", "true");
   expect(
     within(sheet).getByRole("button", { name: "Optional steps" })
   ).toHaveAttribute("aria-expanded", "false");
@@ -717,8 +990,67 @@ test("leaves the iOS setup sheet through the switcher", async () => {
     expect(submitted.get("outcome")).toBe("Finished");
   }
 
-  await user.click(platformOption("Web", sheet));
+  await user.click(
+    within(sheet).getByRole("link", { name: "Contingency home" })
+  );
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+});
+
+/** Answers the desktop gate's media query as a window `width` px wide. */
+const withWindowWidth = (width: number | undefined) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "matchMedia");
+  Object.defineProperty(globalThis, "matchMedia", {
+    configurable: true,
+    value:
+      width === undefined
+        ? undefined
+        : (query: string) => ({
+            addEventListener: () => null,
+            addListener: () => null,
+            matches: query === "(max-width: 1023.98px)" ? width < 1024 : false,
+            media: query,
+            removeEventListener: () => null,
+            removeListener: () => null,
+          }),
+  });
+  return () => {
+    if (original !== undefined) {
+      Object.defineProperty(globalThis, "matchMedia", original);
+    }
+  };
+};
+
+test("replaces the Workspace with a desktop notice below 1024px", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const restore = withWindowWidth(390);
+  try {
+    await renderRoute(`/?session=${session.id}`);
+    expect(
+      screen.getByRole("alert", { name: "Open Contingency on a desktop" })
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
+    expect(screen.queryByRole("banner")).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Teach a new Flow" })
+    ).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+test("treats a browser without matchMedia as a desktop", () => {
+  const restore = withWindowWidth();
+  try {
+    render(
+      <DesktopGate>
+        <p>Workspace</p>
+      </DesktopGate>
+    );
+    expect(screen.getByText("Workspace")).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally {
+    restore();
+  }
 });
 
 test("explains when Agent Sessions cannot be loaded", async () => {
@@ -752,7 +1084,10 @@ test("opens an owned session and shows the live browser view", async () => {
 test("gives a Run the same dock-only shell as Teaching", async () => {
   renderWorkspace(resultFor([runningSession]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Contingency");
+  // The logo mark is the dock's way to the Workspace home.
+  expect(
+    within(dock).getByRole("link", { name: "Contingency home" })
+  ).toBeVisible();
   // The Flow, which Agent Step it is on, and coverage. The step's name
   // and its "Done when:" line are behind the counter, not in the row (#238).
   expect(dock).toHaveTextContent("browse-catalogue");
@@ -894,14 +1229,16 @@ test("does not use a foreign URL session id, and still offers the dock", async (
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });
 
-test("keeps the empty dock when a foreign id is the only thing asked for", async () => {
+test("keeps the home when a foreign id is the only thing asked for", async () => {
   renderWorkspace(resultFor([]), "agent-foreign");
   expect(
     await screen.findByText(/not owned by this server process/u)
   ).toBeVisible();
-  expect(screen.getByText("No browser session")).toBeVisible();
   expect(
-    screen.getByRole("button", { name: "Open browser session" })
+    screen.getByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Start a Web session" })
   ).toBeVisible();
 });
 
@@ -1336,25 +1673,13 @@ test("scrolls the browser with the wheel only during Takeover", async () => {
   });
 });
 
-const teachingSetup = {
-  ...session,
-  activity: "teaching",
-  captureState: { _tag: "setup", requestedAt: "2026-08-31T00:00:00.000Z" },
-  controller: "user",
-  flowName: "browse-catalogue",
-  recordingId: "recording-browse-catalogue",
-  teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
-} satisfies unknown;
-
-const teachingRecording = {
-  ...teachingSetup,
-  captureState: { _tag: "recording", startedAt: "2026-08-31T00:00:01.000Z" },
-} satisfies unknown;
-
 test("composes the Teaching dock with distinct accessible names", async () => {
   renderWorkspace(resultFor([teachingRecording]), session.id);
   const dock = await screen.findByRole("region", { name: "Workspace dock" });
-  expect(dock).toHaveTextContent("Contingency");
+  // The logo mark is the dock's way to the Workspace home.
+  expect(
+    within(dock).getByRole("link", { name: "Contingency home" })
+  ).toBeVisible();
   expect(dock).toHaveTextContent("Recording");
   // A Teaching session is the Flow name; the state lives in the badge.
   expect(
@@ -2335,12 +2660,16 @@ test("keeps an Interactive Run on screen with its Run Summary once it ends", asy
     "The Run has ended. Its Run Summary is beside the browser."
   );
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
-  expect(screen.queryByText("No browser session")).toBeNull();
+  expect(
+    screen.queryByRole("heading", { name: "Teach a new Flow" })
+  ).toBeNull();
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
 
   await user.click(within(dock).getByRole("button", { name: "Done" }));
 
-  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });
 
@@ -2582,7 +2911,9 @@ test("clears the route after deleting the last session", async () => {
   );
   rpc.sessionsResult = resultFor([]);
   await refreshWorkspace();
-  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
   expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
 });
@@ -2698,7 +3029,9 @@ test("clears a deleted route when polling removes the last session before close 
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
   rpc.sessionsResult = resultFor([]);
   await refreshWorkspace();
-  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
   expect(testRouter.state.location.search).toEqual({
     session: teachingSetup.id,
   });
@@ -2733,7 +3066,9 @@ test("preserves a newer route choice when an old close response settles after po
   await waitFor(() => expect(rpc.closeCalls).toHaveLength(1));
   rpc.sessionsResult = resultFor([]);
   await refreshWorkspace();
-  expect(await screen.findByText("No browser session")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
   await act(() =>
     testRouter.navigate({ search: { session: "agent-new-choice" }, to: "/" })
   );
@@ -2797,7 +3132,9 @@ test("keeps a Dry Run Summary by recording ID after Teaching has closed", async 
   ).toBeVisible();
   expect(rpc.endedRunSummaryCalls).toContain("recording-add-anvil");
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
-  expect(screen.queryByText("No browser session")).toBeNull();
+  expect(
+    screen.queryByRole("heading", { name: "Teach a new Flow" })
+  ).toBeNull();
 });
 
 test("explains that a failed recording review needs another passing Dry Run", async () => {

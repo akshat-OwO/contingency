@@ -11,11 +11,19 @@ const Eyes = () => (
  * The watcher: two narrowed eyes. It is decorative wherever it appears, since
  * the text beside it carries the name.
  */
-export const WatcherMark = ({ className }: { readonly className?: string }) => (
+export const WatcherMark = ({
+  className,
+  "data-vt": viewTransition,
+}: {
+  readonly className?: string;
+  /** The view transition name it carries between home and a session. */
+  readonly "data-vt"?: string;
+}) => (
   <svg
     aria-hidden="true"
     className={cn("text-brand aspect-[100/38] h-3.5 shrink-0", className)}
     data-slot="watcher-mark"
+    data-vt={viewTransition}
     fill="currentColor"
     viewBox="10 40 100 38"
   >

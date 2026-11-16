@@ -75,7 +75,7 @@ import type {
   BuildUploadState,
   InstalledAppsNotice,
 } from "./target-app-upload";
-import { WorkspacePlatformSwitcher } from "./workspace-platform";
+import { WorkspaceHomeLink } from "./workspace-home-nav";
 
 /** Roles agent-device reports that a person can name on a screen. */
 const ROLES = ["text", "group", "heading", "button", "image"] as const;
@@ -917,8 +917,8 @@ export const AndroidSetupSheet = ({
     >
       <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         <SheetHeader>
-          {/* The sheet covers the Workspace, so it carries the way out. */}
-          <WorkspacePlatformSwitcher className="mb-3 self-start" />
+          {/* The sheet covers the Workspace, so it carries the way home. */}
+          <WorkspaceHomeLink className="mb-3 self-start" />
           <SheetTitle>New Android session</SheetTitle>
           <SheetDescription>
             Choose a device and app to teach a journey.

@@ -225,7 +225,7 @@ try {
       assert.equal(paused.phase, "paused");
       assert.ok(paused.captureGaps.includes("secure_window"));
       await control("browser", "goto", "--url", instance.mcpUrl);
-      await click("Android");
+      await click("Start an Android session");
       await wait("combobox", "Android Agent Session");
       await snapshot("empty-existing-sessions");
       await control(
@@ -257,7 +257,7 @@ try {
     // An ended session is no longer a choice: the empty Workspace offers no
     // picker once nothing is live, and the session's link reopens its Summary.
     await control("browser", "goto", "--url", instance.mcpUrl);
-    await click("Android");
+    await click("Start an Android session");
     await wait("heading", "No Android session");
     await control(
       "browser",

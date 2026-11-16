@@ -14,7 +14,12 @@ import { cn } from "@/lib/utils";
  * because it is navigation, and leaves the right of the row to the state's
  * own actions. It keeps its word and its count at every width.
  */
-export const FlowsDockButton = () => {
+export const FlowsDockButton = ({
+  className,
+}: {
+  /** The Workspace home sets it on its top-right island. */
+  readonly className?: string;
+} = {}) => {
   const { catalogBrowseAtom } = useRpcDependencies();
   const [open, setOpen] = useAtom(flowsDrawerOpenAtom);
   const result = useAtomValue(catalogBrowseAtom);
@@ -24,7 +29,7 @@ export const FlowsDockButton = () => {
     <Button
       aria-expanded={open}
       aria-label={count === undefined ? "Flows" : `Flows, ${count}`}
-      className={cn(open && "bg-muted")}
+      className={cn(className, open && "bg-muted")}
       title={
         count === undefined
           ? undefined

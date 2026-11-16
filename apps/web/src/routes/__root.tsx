@@ -1,6 +1,7 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
 
 import { AppNavbar } from "@/components/app-navbar";
+import { DesktopGate } from "@/components/desktop-gate";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -20,8 +21,11 @@ const RootLayout = () => (
           navigation move into the dock there and the header band steps aside
           (#191). A Run Summary and an Interactive Run keep it.
         */}
-        <AppNavbar />
-        <Outlet />
+        {/* Below 1024px the Workspace is one notice instead (#744). */}
+        <DesktopGate>
+          <AppNavbar />
+          <Outlet />
+        </DesktopGate>
       </div>
     </TooltipProvider>
   </ThemeProvider>

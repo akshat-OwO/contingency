@@ -1,5 +1,3 @@
-import { createContext } from "react";
-
 /**
  * Which Platform Runtime the Workspace shows, as the route names it. A native
  * platform carries its session id, or `new` before one is chosen.
@@ -16,8 +14,7 @@ export const NEW_NATIVE_SESSION = "new";
 export const webPlatform: WorkspacePlatform = { _tag: "web" };
 
 /**
- * The platform the route selects. iOS wins over Android when both are named,
- * as it did before the switcher existed.
+ * The platform the route selects. iOS wins over Android when both are named.
  */
 export const workspacePlatformFromSearch = (search: {
   readonly android?: string | undefined;
@@ -32,20 +29,14 @@ export const workspacePlatformFromSearch = (search: {
   return webPlatform;
 };
 
-/** Moves the Workspace to a platform; `replace` keeps the history entry. */
+/**
+ * Moves the Workspace to a platform; `replace` keeps the history entry and
+ * `viewTransition` morphs the old view into the new one.
+ */
 export type SelectWorkspacePlatform = (
   platform: WorkspacePlatform,
-  options?: { readonly replace?: boolean }
+  options?: { readonly replace?: boolean; readonly viewTransition?: boolean }
 ) => void;
-
-export interface WorkspacePlatformContextValue {
-  readonly platform: WorkspacePlatform;
-  /** Opens a platform from the switcher, at the session it last showed. */
-  readonly onSwitch: (tag: WorkspacePlatformTag) => void;
-}
-
-export const WorkspacePlatformContext =
-  createContext<WorkspacePlatformContextValue | null>(null);
 
 /** The route search that names a platform, and nothing else. */
 export interface WorkspacePlatformSearch {

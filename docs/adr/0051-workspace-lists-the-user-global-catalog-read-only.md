@@ -1,6 +1,8 @@
 # Workspace lists the user-global catalog read-only
 
 > Storage layout and naming superseded by [ADR 0071](./0071-flows-are-catalog-documents-not-harness-skills.md).
+>
+> The Flows Drawer also opens from the Workspace home's top-right island, beside Docs and the theme toggle.
 
 The Workspace's Skills Drawer lists the current Catalog Root and, folded beneath it, the user's `~/.contingency`. Only the Workspace reads the global root: no MCP tool lists, reads, runs, or selects a skill from it, so an agent still never searches a user-global catalog. The drawer is read-only for both roots. It shows Flow Skills, persisted Runs, and Teaching Recording manifests, never videos, Traces, or keyframes, and it starts nothing.
 

@@ -132,10 +132,7 @@ import {
   DockWordmark,
 } from "./workspace-dock";
 import { useWorkspaceGesture } from "./workspace-gesture";
-import {
-  WorkspacePlatformBar,
-  WorkspacePlatformSwitcher,
-} from "./workspace-platform";
+import { WorkspaceHomeBar, WorkspaceHomeLink } from "./workspace-home-nav";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 // oxlint-disable-next-line eslint/no-redeclare
@@ -810,8 +807,8 @@ const IosSetupSheet = ({
         className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
       >
         <SheetHeader className="border-b">
-          {/* The sheet covers the Workspace, so it carries the way out. */}
-          <WorkspacePlatformSwitcher className="mb-3 self-start" />
+          {/* The sheet covers the Workspace, so it carries the way home. */}
+          <WorkspaceHomeLink className="mb-3 self-start" />
           <SheetTitle>New iOS session</SheetTitle>
           <SheetDescription>
             Pick a running iPhone simulator and the Target App. Each journey
@@ -1883,7 +1880,7 @@ export const IosWorkspace = ({
   if (!AsyncResult.isSuccess(enabled) || !enabled.value) {
     return (
       <main className="text-muted-foreground relative grid h-full place-items-center p-6 text-sm">
-        <WorkspacePlatformBar />
+        <WorkspaceHomeBar />
         <p>iOS Workspace is unlisted.</p>
       </main>
     );
@@ -1933,7 +1930,7 @@ export const IosWorkspace = ({
             </Button>
           </div>
         </section>
-        <WorkspacePlatformBar />
+        <WorkspaceHomeBar />
         {setup}
       </main>
     );
@@ -1962,13 +1959,13 @@ export const IosWorkspace = ({
       <main
         aria-busy={gesture.pending}
         aria-label="iOS Workspace"
+        data-vt="stage"
         className={cn(
-          // The platform switcher floats above the device, the dock below it.
+          // The device leaves room above for notices and below for the dock.
           "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
-        <WorkspacePlatformBar />
         <IosMirror
           onDeviceKey={(key) => {
             const command = railKeyCommand(key, session);

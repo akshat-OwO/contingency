@@ -3,9 +3,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { checkPattern } from "@ui-sdk/core/testing";
 import { useState } from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
-import { DockSessionSelect } from "@/components/agent/workspace-dock";
+import {
+  DockSessionSelect,
+  DockWordmark,
+} from "@/components/agent/workspace-dock";
+import { WorkspaceHomeContext } from "@/components/agent/workspace-home-context";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -262,6 +266,54 @@ test("the Agent Session combobox keeps its roles, names and keys", async () => {
   await userEvent.keyboard("{Escape}");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
   expect(trigger).toHaveFocus();
+});
+
+test("the Agent Session picker starts a new session on the Workspace home", async () => {
+  const user = userEvent.setup();
+  const goHome = vi.fn();
+  render(
+    <WorkspaceHomeContext value={{ goHome }}>
+      <DockWordmark />
+      <DockSessionSelect
+        onSelect={() => null}
+        selectedSessionId={teaching.id}
+        sessions={[teaching]}
+      />
+    </WorkspaceHomeContext>
+  );
+  // The logo mark is the dock's link home.
+  const home = screen.getByRole("link", { name: "Contingency home" });
+  expect(home).toHaveAttribute("href", "/");
+  await user.click(home);
+  expect(goHome).toHaveBeenCalledTimes(1);
+
+  const trigger = screen.getByRole("combobox", { name: "Agent Session" });
+  await user.click(trigger);
+  await user.click(
+    screen.getByRole("button", { exact: true, name: "New session" })
+  );
+  expect(goHome).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("dialog", { name: "Agent Sessions" })).toBeNull();
+
+  // The extra action keeps the picker a well-formed dialog.
+  await user.click(trigger);
+  await checkPattern(
+    screen.getByRole("dialog", { name: "Agent Sessions" }),
+    "dialog"
+  );
+});
+
+test("without a way home the picker offers no New session", async () => {
+  const user = userEvent.setup();
+  render(
+    <DockSessionSelect
+      onSelect={() => null}
+      selectedSessionId={undefined}
+      sessions={[teaching]}
+    />
+  );
+  await user.click(screen.getByRole("combobox", { name: "Agent Session" }));
+  expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
 });
 
 test("Button is a native button that a promise does not make busy", async () => {
