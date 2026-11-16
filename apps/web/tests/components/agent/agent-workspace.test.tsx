@@ -1597,6 +1597,35 @@ test("keeps every dock control reachable from the keyboard", async () => {
   expect(dock).not.toHaveFocus();
 });
 
+test("Escape still closes the composer after its chip is removed", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
+  await user.click(
+    within(composer).getByRole("button", { name: /Attach element/u })
+  );
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  const canvas = screen.getByLabelText("Live browser viewport");
+  // SAFETY: while recording, the comment layer is the canvas's next sibling.
+  await user.click(canvas.nextElementSibling as Element);
+  const reopened = await screen.findByRole("dialog", { name: "Comment" });
+  await user.click(
+    within(reopened).getByRole("button", { name: "Remove attached element" })
+  );
+  // The removed chip held focus. A non-modal dialog takes Escape only while
+  // focus is inside it, so focus returns to the field (#742).
+  expect(
+    within(reopened).getByRole("textbox", { name: "Comment" })
+  ).toHaveFocus();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
 test("attaches an inspected element to a comment", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);

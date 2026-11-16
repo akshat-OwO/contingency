@@ -1,4 +1,3 @@
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { openTeachingTimespan } from "@contingency/protocol";
 import type {
   TeachingScan,
@@ -30,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogDescription,
-  DialogPortal,
+  DialogPopup,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -386,6 +385,12 @@ export const CommentComposer = ({
     field.current?.focus();
   };
   const popup = useRef<HTMLDivElement>(null);
+  // Removing a chip unmounts the button that held focus. A non-modal dialog
+  // takes Escape only while focus is inside it, so focus goes to the field.
+  const removeThen = (remove: () => void) => () => {
+    remove();
+    field.current?.focus();
+  };
   const submit = () => {
     const inputs = popup.current?.querySelectorAll<HTMLInputElement>(
       "input, textarea, select"
@@ -401,218 +406,213 @@ export const CommentComposer = ({
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
     <Dialog
-      disablePointerDismissal
+      closeOnOutsidePress={false}
       modal={false}
       onOpenChange={onOpenChange}
       open={state.composing}
     >
-      <DialogPortal>
-        {/*
+      {/*
           No backdrop blur: the outline of a comment's element has to stay
           legible behind the composer while its list item is pointed at.
         */}
-        <DialogPrimitive.Popup
-          onDragOver={(event) => {
-            if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
-              event.preventDefault();
-            }
-          }}
-          onDrop={(event) => {
-            if (pending) {
-              return;
-            }
-            const attachment = readAttachment(event);
-            if (attachment !== undefined) {
-              event.preventDefault();
-              onAttach(attachment);
-            }
-          }}
-          className="bg-popover text-popover-foreground ring-foreground/10 fixed bottom-28 left-4 z-50 flex max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl text-sm shadow-2xl ring-1 outline-none"
-          initialFocus={field}
-          ref={popup}
-        >
-          <DialogTitle className="sr-only">Comment</DialogTitle>
-          <DialogDescription className="sr-only">
-            Tell the agent something about this moment of the recording.
-          </DialogDescription>
-          <div className="flex flex-col gap-2 px-4 pt-4 pb-2">
-            <CommentAttachments
-              state={state}
-              pending={pending}
-              origin={origin}
-              onAttach={onAttach}
-              onAttachmentsChange={onAttachmentsChange}
-            />
-            {state.scan === undefined ? null : (
-              <span className="bg-muted inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-0.5 pl-2 text-xs">
-                {state.scan.phase === "stop"
-                  ? "End interaction timespan"
-                  : scanLabels[state.scan.mode]}
-                <Button
-                  aria-label="Remove scan"
-                  disabled={pending}
-                  onClick={() => onScanChange()}
-                  size="icon-xs"
-                  variant="ghost"
-                >
-                  <XIcon />
-                </Button>
-              </span>
-            )}
-            {openTimespan === undefined ? null : (
-              <p className="text-muted-foreground text-xs">
-                Open timespan · collection happens in later Runs
-              </p>
-            )}
-            {attached === undefined ? null : (
-              <span className="inline-flex max-w-full items-center gap-1 self-start rounded-md bg-blue-500/10 py-0.5 pr-0.5 pl-1.5 text-sm font-medium text-blue-600 dark:text-blue-400">
-                <CrosshairIcon
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0"
-                />
-                <span className="truncate">{attached.description}</span>
-                <Button
-                  aria-label="Remove attached element"
-                  className="hover:bg-blue-500/15"
-                  disabled={pending}
-                  onClick={onDetach}
-                  size="icon-xs"
-                  type="button"
-                  variant="ghost"
-                >
-                  <XIcon />
-                </Button>
-              </span>
-            )}
-            <textarea
-              aria-label="Comment"
-              className="placeholder:text-muted-foreground field-sizing-content max-h-48 min-h-14 w-full resize-none bg-transparent text-base leading-7 outline-none"
-              onChange={(event) => onDraftChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) {
-                  return;
-                }
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  if (canSubmit) {
-                    submit();
-                  }
-                } else if (
-                  event.key === "Backspace" &&
-                  state.draft === "" &&
-                  attached !== undefined
-                ) {
-                  event.preventDefault();
-                  onDetach();
-                }
-              }}
-              placeholder={
-                attached === undefined
-                  ? "What should the agent know about this moment?"
-                  : "What should change here?"
-              }
-              readOnly={pending}
-              ref={field}
-              rows={1}
-              value={state.draft}
-            />
-          </div>
-          <div className="flex items-center gap-2 px-3 pb-3">
-            <Button
-              disabled={pending}
-              onClick={onPick}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <MousePointerClickIcon aria-hidden="true" />
-              {attached === undefined ? "Attach element" : "Change element"}
-              <ShortcutKbd
-                className="hidden sm:inline-flex"
-                platform={platform}
-                scope="chord"
-                shortcut="inspect"
-              />
-            </Button>
-            <ScanButtons
-              open={state.scanMenu ?? false}
-              onOpenChange={onScanMenuChange}
-              openTimespan={openTimespan}
-              pending={pending}
-              selectScan={selectScan}
-            />
-            <span className="flex-1" />
-            {state.error === undefined ? null : (
-              <p
-                className="text-destructive min-w-0 truncate text-xs"
-                role="alert"
+      <DialogPopup
+        onDragOver={(event) => {
+          if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
+            event.preventDefault();
+          }
+        }}
+        onDrop={(event) => {
+          if (pending) {
+            return;
+          }
+          const attachment = readAttachment(event);
+          if (attachment !== undefined) {
+            event.preventDefault();
+            onAttach(attachment);
+          }
+        }}
+        className="bg-popover text-popover-foreground ring-foreground/10 fixed top-auto right-auto bottom-28 left-4 z-50 m-0 flex max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl border-0 p-0 text-sm shadow-2xl ring-1 outline-none"
+        initialFocus={() => field.current}
+        ref={popup}
+      >
+        <DialogTitle className="sr-only">Comment</DialogTitle>
+        <DialogDescription className="sr-only">
+          Tell the agent something about this moment of the recording.
+        </DialogDescription>
+        <div className="flex flex-col gap-2 px-4 pt-4 pb-2">
+          <CommentAttachments
+            state={state}
+            pending={pending}
+            origin={origin}
+            onAttach={onAttach}
+            onAttachmentsChange={onAttachmentsChange}
+          />
+          {state.scan === undefined ? null : (
+            <span className="bg-muted inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-0.5 pl-2 text-xs">
+              {state.scan.phase === "stop"
+                ? "End interaction timespan"
+                : scanLabels[state.scan.mode]}
+              <Button
+                aria-label="Remove scan"
+                disabled={pending}
+                onClick={removeThen(() => onScanChange())}
+                size="icon-xs"
+                variant="ghost"
               >
-                {state.error}
-              </p>
-            )}
-            <Button
-              disabled={!canSubmit}
-              onClick={submit}
-              size="sm"
-              type="button"
-            >
-              {state.editingInstructionId === undefined
-                ? "Add comment"
-                : "Save comment"}
-              <Kbd className="bg-primary-foreground/15 text-primary-foreground">
-                <CornerDownLeftIcon aria-hidden="true" />
-              </Kbd>
-            </Button>
-          </div>
-          <section
-            aria-label="Earlier in this recording"
-            className="flex min-h-0 flex-col border-t"
+                <XIcon />
+              </Button>
+            </span>
+          )}
+          {openTimespan === undefined ? null : (
+            <p className="text-muted-foreground text-xs">
+              Open timespan · collection happens in later Runs
+            </p>
+          )}
+          {attached === undefined ? null : (
+            <span className="inline-flex max-w-full items-center gap-1 self-start rounded-md bg-blue-500/10 py-0.5 pr-0.5 pl-1.5 text-sm font-medium text-blue-600 dark:text-blue-400">
+              <CrosshairIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <span className="truncate">{attached.description}</span>
+              <Button
+                aria-label="Remove attached element"
+                className="hover:bg-blue-500/15"
+                disabled={pending}
+                onClick={removeThen(onDetach)}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <XIcon />
+              </Button>
+            </span>
+          )}
+          <textarea
+            aria-label="Comment"
+            className="placeholder:text-muted-foreground field-sizing-content max-h-48 min-h-14 w-full resize-none bg-transparent text-base leading-7 outline-none"
+            onChange={(event) => onDraftChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) {
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (canSubmit) {
+                  submit();
+                }
+              } else if (
+                event.key === "Backspace" &&
+                state.draft === "" &&
+                attached !== undefined
+              ) {
+                event.preventDefault();
+                onDetach();
+              }
+            }}
+            placeholder={
+              attached === undefined
+                ? "What should the agent know about this moment?"
+                : "What should change here?"
+            }
+            readOnly={pending}
+            ref={field}
+            rows={1}
+            value={state.draft}
+          />
+        </div>
+        <div className="flex items-center gap-2 px-3 pb-3">
+          <Button
+            disabled={pending}
+            onClick={onPick}
+            size="sm"
+            type="button"
+            variant="ghost"
           >
-            <h2 className="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">
-              Earlier in this recording
-            </h2>
-            <div className="min-h-0 px-1.5 pb-1.5">
-              <CommentHistory
-                onEdit={onEdit}
-                instructions={instructions}
-                onHighlight={onHighlight}
-                pinned={pinned}
-                startedAt={startedAt}
-              />
-            </div>
-          </section>
-          <footer className="text-muted-foreground bg-muted/40 flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2 text-xs">
-            <span className="inline-flex items-center gap-1.5">
+            <MousePointerClickIcon aria-hidden="true" />
+            {attached === undefined ? "Attach element" : "Change element"}
+            <ShortcutKbd
+              className="hidden sm:inline-flex"
+              platform={platform}
+              scope="chord"
+              shortcut="inspect"
+            />
+          </Button>
+          <ScanButtons
+            open={state.scanMenu ?? false}
+            onOpenChange={onScanMenuChange}
+            openTimespan={openTimespan}
+            pending={pending}
+            selectScan={selectScan}
+          />
+          <span className="flex-1" />
+          {state.error === undefined ? null : (
+            <p
+              className="text-destructive min-w-0 truncate text-xs"
+              role="alert"
+            >
+              {state.error}
+            </p>
+          )}
+          <Button
+            disabled={!canSubmit}
+            onClick={submit}
+            size="sm"
+            type="button"
+          >
+            {state.editingInstructionId === undefined
+              ? "Add comment"
+              : "Save comment"}
+            <Kbd className="bg-primary-foreground/15 text-primary-foreground">
+              <CornerDownLeftIcon aria-hidden="true" />
+            </Kbd>
+          </Button>
+        </div>
+        <section
+          aria-label="Earlier in this recording"
+          className="flex min-h-0 flex-col border-t"
+        >
+          <h2 className="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">
+            Earlier in this recording
+          </h2>
+          <div className="min-h-0 px-1.5 pb-1.5">
+            <CommentHistory
+              onEdit={onEdit}
+              instructions={instructions}
+              onHighlight={onHighlight}
+              pinned={pinned}
+              startedAt={startedAt}
+            />
+          </div>
+        </section>
+        <footer className="text-muted-foreground bg-muted/40 flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2 text-xs">
+          <span className="inline-flex items-center gap-1.5">
+            <Kbd>
+              <CornerDownLeftIcon aria-hidden="true" />
+            </Kbd>
+            add
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <KbdGroup>
+              <Kbd>{platform === "mac" ? "⇧" : "Shift"}</Kbd>
               <Kbd>
                 <CornerDownLeftIcon aria-hidden="true" />
               </Kbd>
-              add
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <KbdGroup>
-                <Kbd>{platform === "mac" ? "⇧" : "Shift"}</Kbd>
-                <Kbd>
-                  <CornerDownLeftIcon aria-hidden="true" />
-                </Kbd>
-              </KbdGroup>
-              new line
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <ShortcutKbd
-                className="hidden sm:inline-flex"
-                platform={platform}
-                scope="chord"
-                shortcut="inspect"
-              />
-              attach element
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <Kbd>Esc</Kbd>
-              close
-            </span>
-          </footer>
-        </DialogPrimitive.Popup>
-      </DialogPortal>
+            </KbdGroup>
+            new line
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <ShortcutKbd
+              className="hidden sm:inline-flex"
+              platform={platform}
+              scope="chord"
+              shortcut="inspect"
+            />
+            attach element
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Kbd>Esc</Kbd>
+            close
+          </span>
+        </footer>
+      </DialogPopup>
     </Dialog>
   );
 };

@@ -31,3 +31,18 @@ Object.defineProperty(globalThis, "matchMedia", {
     removeListener: () => null,
   }),
 });
+
+// jsdom has no Popover API. UI SDK popups render on the top layer through
+// it, so tests that only need a popup rendered get the stubs UI SDK's
+// testing guide gives. They do not exercise native popup behaviour.
+HTMLElement.prototype.showPopover ??= function showPopover(): void {
+  void this;
+};
+HTMLElement.prototype.hidePopover ??= function hidePopover(): void {
+  void this;
+};
+document.head.append(
+  Object.assign(document.createElement("style"), {
+    textContent: "[popover] { display: block !important }",
+  })
+);

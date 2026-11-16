@@ -94,7 +94,6 @@ export const DockSessionSelect = ({
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
         aria-haspopup="dialog"
-        aria-expanded={open}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();

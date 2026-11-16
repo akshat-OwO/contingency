@@ -19,6 +19,8 @@
     "@tanstack/highlight": "0.0.10",
     "@tanstack/react-router": "^1.170.23",
     "@tanstack/react-virtual": "3.14.9",
+    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/react": "0.1.0-beta.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
