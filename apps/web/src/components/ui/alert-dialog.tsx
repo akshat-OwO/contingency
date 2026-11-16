@@ -15,9 +15,9 @@ import { cn } from "@/lib/utils";
 type ClassName = { readonly className?: string };
 
 /**
- * On UI SDK, like Dialog and Sheet, so a confirmation opened from inside a
- * Sheet joins the same top layer and stacks above it. A body-portalled
- * confirmation would sit below the Sheet and inside its inert page.
+ * On UI SDK, like Dialog, so a confirmation opened from inside a Dialog joins
+ * the same top layer and stacks above it. A body-portalled confirmation would
+ * sit below the Dialog and inside its inert page.
  */
 function AlertDialog(props: React.ComponentProps<typeof AlertDialogPrimitive>) {
   return <AlertDialogPrimitive {...props} />;

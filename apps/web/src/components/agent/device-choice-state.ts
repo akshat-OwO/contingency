@@ -1,6 +1,6 @@
 /**
  * A device as Android or iOS setup shows it. `stopped` is an existing emulator
- * or simulator the sheet can start; `unavailable` says why it cannot be used.
+ * or simulator the start card can start; `unavailable` says why it cannot be used.
  */
 export type DeviceChoiceStatus =
   | { readonly _tag: "ready" }
@@ -10,7 +10,7 @@ export type DeviceChoiceStatus =
   | { readonly _tag: "unavailable"; readonly reason: string };
 
 export interface DeviceChoice {
-  /** What the sheet selects by: a serial or a UDID. */
+  /** What the start card selects by: a serial or a UDID. */
   readonly id: string;
   /** What starting it names: an AVD or a UDID. Absent when it cannot start. */
   readonly bootId?: string;

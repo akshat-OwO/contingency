@@ -2,7 +2,6 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { checkPattern } from "@ui-sdk/core/testing";
-import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import {
@@ -15,7 +14,6 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -58,13 +56,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import {
   Tooltip,
   TooltipContent,
@@ -131,71 +122,6 @@ test("Dialog follows the modal dialog pattern", async () => {
   expect(dialog).toHaveAttribute("data-slot", "dialog-content");
   expect(dialog).toHaveAttribute("aria-modal", "true");
   expect(dialog).toHaveAccessibleDescription("Choose a decision.");
-});
-
-test("Sheet follows the modal dialog pattern and keeps its slots", async () => {
-  render(
-    <Sheet>
-      <SheetTrigger>New iOS session</SheetTrigger>
-      <SheetContent>
-        <SheetTitle>New iOS session</SheetTitle>
-        <SheetDescription>Pick a device.</SheetDescription>
-        <button type="button">Start</button>
-      </SheetContent>
-    </Sheet>
-  );
-  await userEvent.click(
-    screen.getByRole("button", { name: "New iOS session" })
-  );
-  const sheet = screen.getByRole("dialog", { name: "New iOS session" });
-  expect(sheet).toHaveAttribute("data-slot", "sheet-content");
-  expect(sheet).toHaveAttribute("data-side", "right");
-  expect(document.querySelector('[data-slot="sheet-overlay"]')).not.toBeNull();
-  expect(sheet).toHaveAttribute("aria-modal", "true");
-});
-
-const EraseOverSheet = () => {
-  const [open, setOpen] = useState(false);
-  return (
-    <Sheet defaultOpen>
-      <SheetContent>
-        <SheetTitle>New iOS session</SheetTitle>
-        <button onClick={() => setOpen(true)} type="button">
-          Erase Pixel_9
-        </button>
-      </SheetContent>
-      <AlertDialog onOpenChange={setOpen} open={open}>
-        <AlertDialogContent>
-          <AlertDialogTitle>Erase Pixel_9?</AlertDialogTitle>
-          <AlertDialogDescription>It cannot be undone.</AlertDialogDescription>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Sheet>
-  );
-};
-
-test("an alert dialog opened over a Sheet joins the Sheet's top layer", async () => {
-  // A body-portalled confirmation sits under a top-layer Sheet and its
-  // backdrop, so Device Erase could not be answered. jsdom has no stacking;
-  // a real-browser check covered the pointer path, and this keeps the
-  // confirmation on the same top layer as the Sheet.
-  render(<EraseOverSheet />);
-  const sheet = screen.getByRole("dialog", { name: "New iOS session" });
-  await userEvent.click(screen.getByRole("button", { name: "Erase Pixel_9" }));
-  const confirmation = screen.getByRole("alertdialog", {
-    name: "Erase Pixel_9?",
-  });
-  expect(confirmation).toHaveAttribute("data-slot", "alert-dialog-content");
-  expect(confirmation).toHaveAttribute("aria-modal", "true");
-  expect(confirmation).toHaveAccessibleDescription("It cannot be undone.");
-  expect(sheet).toHaveAttribute("popover");
-  expect(confirmation).toHaveAttribute("popover");
-  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(
-    screen.queryByRole("alertdialog", { name: "Erase Pixel_9?" })
-  ).toBeNull();
-  expect(sheet).toBeInTheDocument();
 });
 
 test("Popover opens a named dialog from its trigger", async () => {
@@ -375,7 +301,7 @@ test("Input is a native textbox with its slot", async () => {
   expect(input).toHaveValue("checkout");
 });
 
-test("facades composed from Button and Input keep their own slots", async () => {
+test("facades composed from Button and Input keep their own slots", () => {
   render(
     <>
       <InputGroup>
@@ -388,11 +314,6 @@ test("facades composed from Button and Input keep their own slots", async () => 
           <AlertDialogCancel>Cancel</AlertDialogCancel>
         </AlertDialogContent>
       </AlertDialog>
-      <Sheet defaultOpen>
-        <SheetContent>
-          <SheetTitle>New iOS session</SheetTitle>
-        </SheetContent>
-      </Sheet>
     </>
   );
   expect(
@@ -406,16 +327,13 @@ test("facades composed from Button and Input keep their own slots", async () => 
     "data-slot",
     "alert-dialog-cancel"
   );
-  expect(
-    await screen.findByRole("button", { hidden: true, name: "Close" })
-  ).toHaveAttribute("data-slot", "sheet-close");
 });
 
 test("Collapsible discloses its content and keeps it mounted on request", async () => {
   const user = userEvent.setup();
   render(
     <Collapsible>
-      <CollapsibleTrigger>Optional steps</CollapsibleTrigger>
+      <CollapsibleTrigger>Setup</CollapsibleTrigger>
       <CollapsibleContent keepMounted>
         <label>
           Done when element
@@ -424,7 +342,7 @@ test("Collapsible discloses its content and keeps it mounted on request", async 
       </CollapsibleContent>
     </Collapsible>
   );
-  const trigger = screen.getByRole("button", { name: "Optional steps" });
+  const trigger = screen.getByRole("button", { name: "Setup" });
   expect(trigger).toHaveAttribute("data-slot", "collapsible-trigger");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
   expect(
