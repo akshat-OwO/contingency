@@ -233,6 +233,14 @@ const useDockHeight = () => {
 };
 
 /**
+ * The Requests island, as the prototype's request card: a brand wash that
+ * fades under the header and a lifted shadow. It is its own size container,
+ * so what is inside sizes itself to the card, not to the stage.
+ */
+const requestsIslandClassName =
+  "island @container pointer-events-auto max-w-full flex-[0_1_28rem] overflow-hidden rounded-[26px] shadow-[var(--island-shadow-lift),inset_0_1px_0_color-mix(in_oklch,var(--island-brand)_22%,transparent)] bg-[linear-gradient(to_bottom,color-mix(in_oklch,var(--island-brand)_9%,transparent),transparent_72px),var(--island)]";
+
+/**
  * The session's chrome along the bottom of the stage, split into islands
  * (#753). What the agent is waiting on sits in the **Requests** island at the
  * bottom left, only while there is something to answer. The **Session
@@ -242,21 +250,16 @@ const useDockHeight = () => {
  *
  * The dock sits inside the browser or device stage, which the devtools
  * inspector and a Run Summary narrow independently of the window. So it
- * sizes itself with container queries on the stage rather than viewport
- * breakpoints: on a narrow stage the requests stack above the status island.
+ * sizes itself to the stage rather than the viewport. Session status never
+ * shrinks for a request: when the two do not fit side by side, the requests
+ * wrap onto their own line above it, so a request coming, going or collapsing
+ * never moves the status island's controls or changes the height the stage
+ * reserves for it.
  *
  * A transient notice, such as a refused gesture, floats at the top centre of
  * the stage. It takes no layout space and lets pointer input through, so the
  * device or page keeps its size and the next attempt is never blocked.
  */
-/**
- * The Requests island, as the prototype's request card: a brand wash that
- * fades under the header and a lifted shadow. It is its own size container,
- * so what is inside sizes itself to the card, not to the stage.
- */
-const requestsIslandClassName =
-  "island @container pointer-events-auto w-full overflow-hidden rounded-[26px] shadow-[var(--island-shadow-lift),inset_0_1px_0_color-mix(in_oklch,var(--island-brand)_22%,transparent)] bg-[linear-gradient(to_bottom,color-mix(in_oklch,var(--island-brand)_9%,transparent),transparent_72px),var(--island)]";
-
 export const DockShell = ({
   children,
   footer,
@@ -290,13 +293,13 @@ export const DockShell = ({
         className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3"
         data-slot="workspace-dock-container"
       >
-        <div className="flex flex-col items-stretch gap-2 @3xl:flex-row @3xl:items-end @3xl:justify-between">
+        <div className="flex flex-wrap items-end justify-end gap-2">
           <section
             aria-label="Requests"
             className={cn(
               requestsIslandClassName,
               // Each request's body lines up under its title, past the icon tile.
-              "empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0 [&>*>section>*:not(:first-child)]:ml-11"
+              "mr-auto empty:hidden [&>*:last-child]:border-b-0 [&>*>section>*:not(:first-child)]:ml-11"
             )}
             data-slot="dock-requests"
           >
@@ -306,7 +309,7 @@ export const DockShell = ({
             aria-label="Session status"
             // Sized to its content, as in the prototype: chip, sentence,
             // tools and the one action, with no empty run between them.
-            className="island pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5 self-end overflow-hidden rounded-3xl py-2 pr-2 pl-3 whitespace-nowrap @3xl:ml-auto"
+            className="island pointer-events-auto ml-auto flex max-w-full shrink-0 flex-wrap items-center gap-1.5 overflow-hidden rounded-3xl py-2 pr-2 pl-3 whitespace-nowrap"
             data-slot="workspace-dock"
             ref={ref}
           >
