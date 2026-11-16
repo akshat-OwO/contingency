@@ -12,7 +12,7 @@ import { promisify } from "node:util";
  *
  * Phases run separately so the operator can seed the fixture marker through
  * the Device panel between them:
- *   boot   Start the proof AVD from the setup sheet; require that the
+ *   boot   Start the proof AVD from the Android start card; require that the
  *          pre-existing emulator offers no Erase.
  *   keep   Teach with Keep and require the stored marker.
  *   clear  Teach with Clear: confirm (the dialog is the consent), require fresh data,
@@ -106,9 +106,19 @@ const capture = async (name) => {
     await page.locator("body").ariaSnapshot()
   );
 };
-const openSheet = async () => {
+// `?android=new` opens the home with the Teach on Android start card open.
+const openCard = async () => {
   await page.goto(`${instance.mcpUrl}?android=new`);
-  await click("Open Android session");
+  await page
+    .getByRole("form", { exact: true, name: "Teach on Android" })
+    .waitFor();
+};
+// The card's Setup section starts collapsed; open it once.
+const openSetup = async () => {
+  const setup = page.getByRole("button", { name: /^Setup/u });
+  if ((await setup.getAttribute("aria-expanded")) !== "true") {
+    await setup.click();
+  }
 };
 const nodes = (session) =>
   session.observation?.nodes.map((node) => node.name) ?? [];
@@ -117,7 +127,7 @@ const teach = async (startingData) => {
   const serial = await serialOf(avd);
   assert.ok(serial, `${avd} is not running.`);
   flowName = `starting-data-${startingData}-${process.pid}`;
-  await openSheet();
+  await openCard();
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
@@ -162,11 +172,12 @@ const teach = async (startingData) => {
     .click({ timeout: 90_000 });
   // Clear resets runtime grants, so the fixture's launch-time notification
   // request needs a declared grant applied after the clear.
+  await openSetup();
   await page
-    .getByRole("combobox", { exact: true, name: "Notifications permission" })
-    .click();
-  await page
-    .getByRole("option", { exact: true, name: "Grant before start" })
+    .getByRole("radio", {
+      exact: true,
+      name: "Notifications: Grant before start",
+    })
     .click();
   await page
     .getByRole("radio", {
@@ -174,7 +185,7 @@ const teach = async (startingData) => {
         startingData === "clear" ? /^Clear app data/u : /^Keep current data/u,
     })
     .check();
-  await click("Prepare and open app");
+  await click("Start teaching");
   const dialog = page.getByRole("dialog", {
     exact: true,
     name: "Prepare and open app?",
@@ -203,7 +214,7 @@ const close = async () => {
 };
 try {
   if (phase === "boot") {
-    await openSheet();
+    await openCard();
     const foreignCard = page.getByRole("button", {
       name: new RegExp(`^Emulator ${foreign} `, "u"),
     });
@@ -220,7 +231,7 @@ try {
       0
     );
     receipt.foreignRefusesErase = true;
-    await capture("boot-sheet");
+    await capture("boot-card");
     await page.getByText(/stopped or unavailable/u).click();
     await click(`Start ${avd}`);
     await page
@@ -332,7 +343,7 @@ try {
       ]),
       new RegExp(`package:${appId}`, "u")
     );
-    await openSheet();
+    await openCard();
     const banner = page.getByRole("region", {
       exact: true,
       name: "Device Erase request",

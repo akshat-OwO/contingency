@@ -12,7 +12,7 @@ import {
   androidIdle,
   androidPick,
   deviceType,
-  openAndroidSheet,
+  openAndroidStartCard,
 } from "./android-ui.mjs";
 
 // One Support Matrix cell: Teaching, a Dry Run, and verification of activate,
@@ -496,7 +496,7 @@ try {
   // Teaching through Workspace: public fill, ordinary Variable fill, four activations, and Back.
   // The login name and password field taps are activations of their own.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowName, snapshot);
+  await openAndroidStartCard(control, selection, flowName, snapshot);
   const listed = await tool("agent_device_sessions_list", {
     platform: "android",
   });

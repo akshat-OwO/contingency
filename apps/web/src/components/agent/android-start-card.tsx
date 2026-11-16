@@ -1,4 +1,8 @@
-import { FlowName, startingDataOf } from "@contingency/protocol";
+import {
+  describeFlowName,
+  FlowName,
+  startingDataOf,
+} from "@contingency/protocol";
 import type {
   AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
@@ -9,13 +13,8 @@ import type {
 import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber, Option, Schema } from "effect";
 import { Atom } from "effect/reactivity";
-import {
-  CheckIcon,
-  LoaderCircleIcon,
-  RefreshCwIcon,
-  SearchIcon,
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { LoaderCircleIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,44 +28,43 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  bootAndroidEmulator,
-  discardTargetAppBuild,
-  listAndroidApps,
-  listAndroidDevices,
-  uploadAndroidApk,
-} from "@/lib/rpc";
+import type { TargetAppBuildUploadError } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import {
   androidDeviceChoice,
+  chosenSerial,
   deviceRelease,
+  preparationDescription,
   selectable,
-  unavailableReason,
+  setupMissing,
+  setupSelection,
 } from "./android-setup-state";
+import type { AndroidCondition } from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { useDeviceErase } from "./device-erase";
 import type { DeviceEraseControls } from "./device-erase-state";
-import { NativeOptionalSteps } from "./native-optional-steps";
 import { StartingDataField } from "./native-starting-data";
-import { clearDataWarning } from "./native-starting-data-copy";
 import {
-  BuildPicker,
+  FlowNameField,
+  StartCard,
+  StartSection,
+  StartSetup,
+} from "./start-card";
+import {
+  BuildDropzone,
   InstalledAppsFrame,
   UploadedBuild,
   useBuildUpload,
@@ -75,7 +73,7 @@ import type {
   BuildUploadState,
   InstalledAppsNotice,
 } from "./target-app-upload";
-import { WorkspaceHomeLink } from "./workspace-home-nav";
+import type { HomePlatform } from "./workspace-home-state";
 
 /** Roles agent-device reports that a person can name on a screen. */
 const ROLES = ["text", "group", "heading", "button", "image"] as const;
@@ -85,42 +83,20 @@ type Loaded<Value> =
   | { readonly _tag: "failed"; readonly message: string }
   | { readonly _tag: "loaded"; readonly value: readonly Value[] };
 
-interface Condition {
-  readonly name: string;
-  readonly role: string;
-}
-
 interface SetupForm {
   readonly app: string | null;
   readonly device: string | null;
-  readonly flowName: string;
   readonly privateInput: boolean;
   readonly permissions: Readonly<Record<string, "grant" | "revoke">>;
-  readonly outcome: Condition;
+  readonly outcome: AndroidCondition;
   readonly query: string;
-  readonly start: Condition;
+  readonly start: AndroidCondition;
   readonly startingData: StartingData;
 }
-
-/**
- * The device the sheet sets up: the one the person picked, or, with exactly
- * one ready device, that one, since there is nothing to choose.
- */
-const chosenSerial = (
-  listed: readonly AndroidDiscoveredDevice[],
-  picked: string | null
-): string | null => {
-  if (picked !== null) {
-    return picked;
-  }
-  const ready = listed.filter((entry) => unavailableReason(entry) === null);
-  return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
-};
 
 const INITIAL_FORM: SetupForm = {
   app: null,
   device: null,
-  flowName: "new-flow",
   outcome: { name: "", role: "text" },
   permissions: {},
   privateInput: false,
@@ -164,10 +140,10 @@ const Choice = ({
       }
     }}
   >
-    <SelectTrigger aria-label={label} className="w-full">
+    <SelectTrigger aria-label={label} className="w-full" variant="island">
       <SelectValue />
     </SelectTrigger>
-    <SelectContent>
+    <SelectContent variant="island">
       {items.map((item) => (
         <SelectItem key={item.value} value={item.value}>
           {item.label}
@@ -177,56 +153,24 @@ const Choice = ({
   </Select>
 );
 
-const Step = ({
+/** A titled part of the card, named as a group for automation and readers. */
+const Part = ({
   children,
-  done,
+  description,
   disabled = false,
-  index,
   title,
-  waitingFor,
 }: {
   readonly children: React.ReactNode;
-  readonly done: boolean;
+  readonly description?: string;
   readonly disabled?: boolean;
-  readonly index: number;
   readonly title: string;
-  /** What unlocks this step, said while it is disabled. */
-  readonly waitingFor?: string;
 }) => (
-  <fieldset
-    aria-label={title}
-    disabled={disabled}
-    className="min-w-0 space-y-2"
-  >
-    <h3
-      className={cn(
-        "flex items-center gap-2 text-sm font-medium",
-        disabled && "text-muted-foreground"
-      )}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "grid size-5 place-items-center rounded-full border text-xs tabular-nums",
-          done && "bg-primary text-primary-foreground border-primary"
-        )}
-      >
-        {done ? <CheckIcon className="size-3" /> : index}
-      </span>
-      {title}
-    </h3>
-    {/*
-      An unavailable step keeps its heading and words readable and says what
-      unlocks it; only its controls dim, through their own disabled styles.
-    */}
-    <div className="space-y-2 pl-7">
-      {/* A locked step says what unlocks it instead of showing dead inputs. */}
-      {disabled && waitingFor !== undefined ? (
-        <p className="text-muted-foreground text-xs">{waitingFor}</p>
-      ) : (
-        children
-      )}
-    </div>
+  <fieldset className="grid min-w-0 gap-1.5" disabled={disabled}>
+    <legend className="mb-1.5 text-[13px] font-medium">{title}</legend>
+    {description === undefined ? null : (
+      <p className="text-muted-foreground -mt-1 text-xs">{description}</p>
+    )}
+    {children}
   </fieldset>
 );
 
@@ -237,15 +181,18 @@ const ConditionInput = ({
   value,
 }: {
   readonly label: string;
-  readonly onChange: (value: Condition) => void;
+  readonly onChange: (value: AndroidCondition) => void;
   readonly placeholder: string;
-  readonly value: Condition;
+  readonly value: AndroidCondition;
 }) => (
   // Visible Role and Element captions, as on iOS; each control keeps its
   // full accessible name, which contains the caption.
   <div className="flex gap-1.5">
-    <div className="w-28 shrink-0 space-y-1">
-      <span aria-hidden="true" className="block text-xs font-medium">
+    <div className="w-32 shrink-0 space-y-1">
+      <span
+        aria-hidden="true"
+        className="text-muted-foreground block text-xs font-medium"
+      >
         Role
       </span>
       <Choice
@@ -256,7 +203,10 @@ const ConditionInput = ({
       />
     </div>
     <div className="min-w-0 flex-1 space-y-1">
-      <span aria-hidden="true" className="block text-xs font-medium">
+      <span
+        aria-hidden="true"
+        className="text-muted-foreground block text-xs font-medium"
+      >
         Element
       </span>
       <Input
@@ -266,6 +216,7 @@ const ConditionInput = ({
         }
         placeholder={placeholder}
         value={value.name}
+        variant="island"
       />
     </div>
   </div>
@@ -426,14 +377,15 @@ const InstalledApps = ({
     <div className="relative">
       <SearchIcon
         aria-hidden="true"
-        className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2"
+        className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2"
       />
       <Input
         aria-label="Search installed apps"
-        className="pl-8"
+        className="pl-9"
         onChange={(event) => onQuery(event.currentTarget.value)}
-        placeholder="Apps installed on this device"
+        placeholder="Search installed apps"
         value={query}
+        variant="island"
       />
     </div>
     <InstalledAppsFrame notice={installedAppsNotice(apps, matches)}>
@@ -442,8 +394,8 @@ const InstalledApps = ({
           <button
             aria-pressed={selected === app.package}
             className={cn(
-              "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-              selected === app.package && "bg-muted"
+              "hover:bg-island-hover flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+              selected === app.package && "bg-island-hover"
             )}
             onClick={() => onSelect(app.package)}
             type="button"
@@ -451,7 +403,7 @@ const InstalledApps = ({
             <span className="min-w-0 flex-1 truncate">
               {app.label || app.package}
               {app.label ? (
-                <span className="text-muted-foreground ml-2 text-xs">
+                <span className="text-muted-foreground ml-2 font-mono text-xs">
                   {app.package}
                 </span>
               ) : null}
@@ -485,10 +437,11 @@ const AppStep = ({
   readonly upload: UploadedAndroidApp | null;
   readonly uploadState: BuildUploadState;
 }) => {
+  const ids = useId();
   if (apps === null) {
     return (
       <p className="text-muted-foreground text-xs">
-        Pick a device to list its apps.
+        Choose a device to list its apps.
       </p>
     );
   }
@@ -500,24 +453,7 @@ const AppStep = ({
         )
       : [];
   return (
-    <div className="space-y-3">
-      {upload === null ? (
-        <BuildPicker
-          accept=".apk,application/vnd.android.package-archive"
-          describedBy="android-apk-upload-status"
-          directory={false}
-          label="Upload an .apk"
-          onFiles={(files) => {
-            const [first] = files;
-            if (first !== undefined && first.file instanceof File) {
-              onUpload(first.file);
-            }
-          }}
-          state={uploadState}
-        />
-      ) : (
-        <UploadedApk apps={apps} onRemove={onRemoveUpload} upload={upload} />
-      )}
+    <div className="grid gap-3">
       <InstalledApps
         apps={apps}
         matches={matches}
@@ -526,6 +462,24 @@ const AppStep = ({
         query={query}
         selected={upload === null ? selected : null}
       />
+      <div
+        aria-hidden="true"
+        className="text-muted-foreground before:bg-island-border after:bg-island-border flex items-center gap-3 text-xs before:h-px before:flex-1 after:h-px after:flex-1"
+      >
+        or
+      </div>
+      {upload === null ? (
+        <BuildDropzone
+          accept=".apk,application/vnd.android.package-archive"
+          describedBy={`${ids}-apk-status`}
+          kind=".apk"
+          label="Upload an .apk"
+          onFile={onUpload}
+          state={uploadState}
+        />
+      ) : (
+        <UploadedApk apps={apps} onRemove={onRemoveUpload} upload={upload} />
+      )}
     </div>
   );
 };
@@ -542,11 +496,15 @@ const PERMISSIONS = [
   ["READ_MEDIA_VIDEO", "Videos"],
   ["BLUETOOTH_CONNECT", "Nearby devices"],
 ] as const;
+/**
+ * Each decision's segment, short on screen. Its accessible name keeps the
+ * whole decision and the permission, so every segment is unique on the card.
+ */
 const DECISIONS = [
-  { label: "Ask in app", value: "unchanged" },
-  { label: "Grant before start", value: "grant" },
-  { label: "Deny before start", value: "revoke" },
-];
+  { label: "Ask", long: "Ask in app", value: "unchanged" },
+  { label: "Grant", long: "Grant before start", value: "grant" },
+  { label: "Deny", long: "Deny before start", value: "revoke" },
+] as const;
 const AndroidPermissionFields = ({
   value,
   onChange,
@@ -554,50 +512,51 @@ const AndroidPermissionFields = ({
   readonly value: SetupForm["permissions"];
   readonly onChange: (value: SetupForm["permissions"]) => void;
 }) => (
-  <section aria-label="App permissions" className="space-y-3">
-    <p className="text-muted-foreground text-xs">
-      Choose only permissions the app requests. Leave the others at Ask in app.
-    </p>
-    {PERMISSIONS.map(([name, label]) => {
-      const permission = `android.permission.${name}`;
-      return (
-        <div
-          key={permission}
-          className="grid grid-cols-[1fr_11rem] items-center gap-2 text-xs"
-        >
-          <span>{label}</span>
-          <Choice
-            label={`${label} permission`}
-            value={value[permission] ?? "unchanged"}
-            items={DECISIONS}
-            onChange={(decision) => {
-              const next = { ...value };
-              if (decision === "grant" || decision === "revoke") {
-                next[permission] = decision;
-              } else {
+  <Part
+    description="Choose only permissions the app requests. Leave the others at Ask."
+    title="App permissions"
+  >
+    <div className="grid gap-1.5">
+      {PERMISSIONS.map(([name, label]) => {
+        const permission = `android.permission.${name}`;
+        return (
+          <div
+            className="flex items-center justify-between gap-3 text-[13px]"
+            key={permission}
+          >
+            <span aria-hidden="true">{label}</span>
+            <SegmentedControl
+              aria-label={`${label} permission`}
+              onValueChange={(decision) => {
+                if (decision === "grant" || decision === "revoke") {
+                  onChange({ ...value, [permission]: decision });
+                  return;
+                }
                 onChange(
                   Object.fromEntries(
                     Object.entries(value).filter(([key]) => key !== permission)
                   )
                 );
-                return;
-              }
-              onChange(next);
-            }}
-          />
-        </div>
-      );
-    })}
-  </section>
+              }}
+              value={value[permission] ?? "unchanged"}
+            >
+              {DECISIONS.map((decision) => (
+                <SegmentedControlItem
+                  aria-label={`${label}: ${decision.long}`}
+                  key={decision.value}
+                  value={decision.value}
+                >
+                  {decision.label}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
+          </div>
+        );
+      })}
+    </div>
+  </Part>
 );
 
-/**
- * Where a Teaching session on Android begins: a device the host reports, an
- * app installed on it, and what proves the app is on its starting screen.
- * Nothing touches the device until the session is opened and prepared. The
- * journey may press whatever the person presses while recording, so there is
- * no list of allowed taps to declare.
- */
 const selectedApp = (
   apps: Loaded<AndroidDiscoveredApp> | null,
   id: string | null
@@ -614,93 +573,36 @@ const targetApp = (
 ) => (uploaded === null ? selectedApp(apps, id) : uploaded.app);
 
 /**
- * What the sheet reads from the host, how it starts a stopped AVD, and how
+ * What the card reads from the host, how it starts a stopped AVD, and how
  * it uploads or discards an `.apk`.
  */
-interface AndroidSetupDiscovery {
-  readonly apps: typeof listAndroidApps;
+export interface AndroidSetupDiscovery {
+  readonly apps: (
+    device: AndroidWorkspaceSelection["device"]
+  ) => Effect.Effect<readonly AndroidDiscoveredApp[], unknown>;
   readonly boot: (avd: string) => Effect.Effect<unknown, unknown>;
   readonly devices: Effect.Effect<readonly AndroidDiscoveredDevice[], unknown>;
-  readonly discard: typeof discardTargetAppBuild;
-  readonly upload: typeof uploadAndroidApk;
+  readonly discard: (id: string) => Effect.Effect<unknown>;
+  readonly upload: (
+    file: File
+  ) => Effect.Effect<UploadedAndroidApp, TargetAppBuildUploadError>;
 }
-const androidSetupDiscovery: AndroidSetupDiscovery = {
-  apps: listAndroidApps,
-  boot: bootAndroidEmulator,
-  devices: listAndroidDevices,
-  discard: discardTargetAppBuild,
-  upload: uploadAndroidApk,
-};
 
-/** The Android selection the sheet's choices declare. */
-const setupSelection = ({
-  app,
-  device,
-  outcome,
-  permissions,
-  privateInput,
-  release,
-  start,
-  startingData,
-}: {
-  readonly app: AndroidDiscoveredApp;
-  readonly device: AndroidWorkspaceSelection["device"];
-  readonly outcome: Condition;
-  readonly permissions: NonNullable<
-    AndroidWorkspaceSelection["environment"]["permissions"]
-  >;
-  readonly privateInput: boolean;
-  readonly release: string;
-  readonly start: Condition;
-  readonly startingData: StartingData;
-}): AndroidWorkspaceSelection => ({
-  device,
-  environment: {
-    androidVersion: release,
-    appBuild: app.versionCode,
-    appId: app.package,
-    permissions,
-    startingState:
-      start.name === ""
-        ? "Restart the Target App"
-        : `${start.role} ${start.name} is visible`,
-  },
-  helperConsent: "auto",
-  outcomes: outcome.name === "" ? [] : [outcome],
-  privateInput,
-  setup: {
-    activity: app.launchActivity,
-    conditions: start.name === "" ? [] : [start],
-    kind: "restart-activity",
-    startingData,
-  },
-});
-
-/** What the sheet still needs, said once beside the disabled submit. */
-const setupMissing = ({
-  app,
-  device,
-  validName,
-}: {
-  readonly app: unknown;
-  readonly device: unknown;
-  readonly validName: boolean;
-}): string => {
-  if (!validName) {
-    return "Name the Flow to continue.";
-  }
-  if (device === null) {
-    return "Choose a running device to continue.";
-  }
-  if (app === undefined) {
-    return "Choose the Target App to continue.";
-  }
-  return "Finish the setup above to continue.";
+const useAndroidSetupDiscovery = (): AndroidSetupDiscovery => {
+  const rpc = useRpcDependencies();
+  return {
+    apps: rpc.listAndroidApps,
+    boot: rpc.bootAndroidEmulator,
+    devices: rpc.listAndroidDevices,
+    discard: rpc.discardTargetAppBuild,
+    upload: rpc.uploadAndroidApk,
+  };
 };
 
 /**
  * The uploaded `.apk`, if any. An upload no session claimed is deleted as
- * soon as it is let go of; one a session claimed is the session's to delete.
+ * soon as it is let go of, including when the card closes; one a session
+ * claimed is the session's to delete.
  */
 const useApkUpload = (
   discovery: AndroidSetupDiscovery,
@@ -710,6 +612,20 @@ const useApkUpload = (
     Atom.make<UploadedAndroidApp | null>(null)
   );
   const [uploaded, setUploaded] = useAtom(uploadAtom);
+  // What closing the card lets go of, read when it unmounts.
+  const latest = useRef({ discard: discovery.discard, uploaded });
+  useEffect(() => {
+    latest.current = { discard: discovery.discard, uploaded };
+  });
+  useEffect(
+    () => () => {
+      const held = latest.current;
+      if (held.uploaded !== null) {
+        Effect.runFork(held.discard(held.uploaded.id));
+      }
+    },
+    []
+  );
   const letGo = () => {
     if (uploaded !== null) {
       Effect.runFork(discovery.discard(uploaded.id));
@@ -721,23 +637,15 @@ const useApkUpload = (
     setUploaded(next);
     onUploaded();
   });
-  return { claimed: () => setUploaded(null), letGo, upload, uploaded };
+  const claimed = () => {
+    latest.current = { ...latest.current, uploaded: null };
+    setUploaded(null);
+  };
+  return { claimed, letGo, upload, uploaded };
 };
 
 const appName = (app: AndroidDiscoveredApp | undefined) =>
   app === undefined ? "the app" : app.label || app.package;
-const preparationDescription = (
-  apk: string | undefined,
-  startingData: StartingData,
-  app: string
-) => {
-  if (startingData === "clear") {
-    return `${apk === undefined ? "Use the installed Target App without reinstalling it." : "Reinstall the selected APK."} ${clearDataWarning(app)}`;
-  }
-  return apk === undefined
-    ? "Use the installed Target App without reinstalling it."
-    : "Reinstall the selected APK while preserving existing app data and login state.";
-};
 
 interface SetupConfirmation {
   readonly flowName: FlowName;
@@ -748,21 +656,19 @@ interface SetupConfirmation {
 }
 const PreparationConfirmation = ({
   confirmation,
-  open,
   pending,
   fingerprint,
   onCancel,
   onConfirm,
 }: {
   readonly confirmation: SetupConfirmation | null;
-  readonly open: boolean;
   readonly pending: boolean;
   readonly fingerprint: string;
   readonly onCancel: () => void;
   readonly onConfirm: () => void;
 }) => (
   <Dialog
-    open={confirmation !== null && open}
+    open={confirmation !== null}
     onOpenChange={(next) => {
       if (!next) {
         onCancel();
@@ -799,80 +705,129 @@ const PreparationConfirmation = ({
   </Dialog>
 );
 
-/** Step 3: what preparation applies before Teaching and every Run. */
-const PreparationChoices = ({
+/** Section 3: what preparation applies before Teaching and every Run. */
+const AndroidSetupChoices = ({
+  app,
   form,
   setForm,
 }: {
+  readonly app: AndroidDiscoveredApp | undefined;
   readonly form: SetupForm;
   readonly setForm: (update: (current: SetupForm) => SetupForm) => void;
 }) => (
-  <>
+  <fieldset className="grid min-w-0 gap-5" disabled={app === undefined}>
+    {app === undefined ? (
+      <p className="text-muted-foreground text-xs">
+        Choose the Target App first.
+      </p>
+    ) : null}
+    <StartingDataField
+      name="android-starting-data"
+      onChange={(startingData) =>
+        setForm((current) => ({ ...current, startingData }))
+      }
+      value={form.startingData}
+    />
     <AndroidPermissionFields
       value={form.permissions}
       onChange={(decisions) =>
         setForm((current) => ({ ...current, permissions: decisions }))
       }
     />
-    <div className="mt-4">
-      <StartingDataField
-        name="android-starting-data"
-        onChange={(startingData) =>
-          setForm((current) => ({ ...current, startingData }))
-        }
-        value={form.startingData}
-      />
-    </div>
-    <label className="mt-4 flex items-center gap-2 text-xs">
+    <label className="flex items-center gap-2 text-[13px] font-medium">
       <input
-        type="checkbox"
         checked={form.privateInput}
+        className="accent-foreground size-4"
         onChange={(event) => {
           const { checked } = event.currentTarget;
-          setForm((current) => ({
-            ...current,
-            privateInput: checked,
-          }));
+          setForm((current) => ({ ...current, privateInput: checked }));
         }}
+        type="checkbox"
       />
       Enable Variables
     </label>
-    <p className="text-muted-foreground mt-3 text-xs">
+    <Part
+      description={`An element that is on screen when ${appName(app)} opens. Preparing checks it before you record. Leave it empty for the agent to choose from the Teaching Recording.`}
+      title="Starting screen"
+    >
+      <ConditionInput
+        label="Starting screen element"
+        onChange={(value) =>
+          setForm((current) => ({ ...current, start: value }))
+        }
+        placeholder="Sign in"
+        value={form.start}
+      />
+    </Part>
+    <Part
+      description="An element that shows the journey worked. Leave it empty for the agent to choose."
+      title="Done when"
+    >
+      <ConditionInput
+        label="Done when element"
+        onChange={(value) =>
+          setForm((current) => ({ ...current, outcome: value }))
+        }
+        placeholder="Order confirmed"
+        value={form.outcome}
+      />
+    </Part>
+    <p className="text-muted-foreground text-xs">
       Preparation installs the supported capture helper on the selected
       emulator, replacing an incompatible helper when needed.
     </p>
-  </>
+  </fieldset>
 );
 
-export const AndroidSetupSheet = ({
-  discovery = androidSetupDiscovery,
-  onOpen,
-  onOpenChange,
-  open,
+/**
+ * The Android start card on the Workspace home: 1 the Flow name and a device
+ * the host reports, 2 the Target App, installed or uploaded as an `.apk`, and
+ * 3 Setup, with app permissions, Starting Data, Variables and the optional
+ * Starting screen and Done when. Start teaching first asks to prepare and open
+ * the app; nothing touches the device until that is confirmed. The journey
+ * may press whatever the person presses while recording, so there is no list
+ * of allowed taps to declare.
+ */
+export const AndroidStartCard = ({
+  discovery: given,
+  error,
+  flowName,
+  onClose,
+  onFlowNameChange,
+  onOtherPlatform,
+  onStart,
   pending,
+  platforms,
 }: {
+  /** Replaces the host reads, for tests. */
   readonly discovery?: AndroidSetupDiscovery;
+  readonly error: string | undefined;
+  readonly flowName: string;
+  readonly onClose: () => void;
+  readonly onFlowNameChange: (name: string) => void;
+  readonly onOtherPlatform: (platform: HomePlatform) => void;
   /** True when the session start was sent; it then owns any upload. */
-  readonly onOpen: (
+  readonly onStart: (
     flowName: FlowName,
-    selection: AndroidWorkspaceSelection
+    selection: AndroidWorkspaceSelection,
+    form: HTMLFormElement | null
   ) => boolean;
-  readonly onOpenChange: (open: boolean) => void;
-  readonly open: boolean;
   readonly pending: boolean;
+  readonly platforms: readonly HomePlatform[];
 }) => {
+  const ids = useId();
+  const host = useAndroidSetupDiscovery();
+  const discovery = given ?? host;
+  const formRef = useRef<HTMLFormElement>(null);
   const [formAtom] = useState(() => Atom.make<SetupForm>(INITIAL_FORM));
   const [form, setForm] = useAtom(formAtom);
   const [refreshAtom] = useState(() => Atom.make(0));
   const [refresh, setRefresh] = useAtom(refreshAtom);
-  const devices = useRead(
-    open ? discovery.devices : null,
-    `${open}-${refresh}`
-  );
+  const devices = useRead(discovery.devices, String(refresh));
   const { startDevice, starts } = useDeviceStarts(discovery.boot, () =>
     setRefresh((value) => value + 1)
   );
-  const erase = useDeviceErase("android", open, String(refresh), () =>
+  const erase = useDeviceErase("android", true, String(refresh), () =>
     setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
@@ -889,7 +844,7 @@ export const AndroidSetupSheet = ({
     setForm((current) => ({ ...current, app: null, ...CLEARED_CONDITIONS }))
   );
   const app = targetApp(uploaded, apps, form.app);
-  const name = form.flowName.trim();
+  const name = flowName.trim();
   const validName = Schema.is(FlowName)(name);
   const start = { name: form.start.name.trim(), role: form.start.role };
   const outcome = { name: form.outcome.name.trim(), role: form.outcome.role };
@@ -902,221 +857,157 @@ export const AndroidSetupSheet = ({
   );
   const [confirmation, setConfirmation] = useAtom(confirmationAtom);
   const submitted = useRef(false);
-  const fingerprint = JSON.stringify([form, uploaded, discovered]);
+  const fingerprint = JSON.stringify([name, form, uploaded, discovered]);
+  const missingId = `${ids}-missing`;
   return (
-    <Sheet
-      onOpenChange={(next) => {
-        if (!next) {
-          setConfirmation(null);
-          upload.reset();
-          letGo();
-        }
-        onOpenChange(next);
-      }}
-      open={open}
-    >
-      <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
-        <SheetHeader>
-          {/* The sheet covers the Workspace, so it carries the way home. */}
-          <WorkspaceHomeLink className="mb-3 self-start" />
-          <SheetTitle>New Android session</SheetTitle>
-          <SheetDescription>
-            Choose a device and app to teach a journey.
-          </SheetDescription>
-        </SheetHeader>
-        <form
-          className="flex min-h-0 flex-1 flex-col"
-          id="android-setup"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!ready) {
-              return;
-            }
-            const selection = setupSelection({
-              app,
-              device,
-              outcome,
-              permissions,
-              privateInput: form.privateInput,
-              release,
-              start,
-              startingData: form.startingData,
-            });
-            submitted.current = false;
-            setConfirmation({
-              appLabel: appName(app),
-              deviceLabel: discovered?.avd ?? device.serial,
-              fingerprint,
-              flowName: name,
-              selection:
-                uploaded === null
-                  ? selection
-                  : { ...selection, apkPath: uploaded.apkPath },
-            });
-          }}
-        >
-          <div className="min-h-0 flex-1 scroll-pb-8 space-y-6 overflow-y-auto px-4 pb-8">
-            <label className="grid gap-1.5 text-sm font-medium">
-              Flow name
-              <Input
-                aria-invalid={!validName}
-                onChange={(event) => {
-                  const { value } = event.currentTarget;
-                  setForm((current) => ({ ...current, flowName: value }));
-                }}
-                value={form.flowName}
-              />
-            </label>
-            <Step done={device !== null} index={1} title="Device">
-              <DeviceStep
-                devices={devices}
-                erase={erase.controls}
-                onRefresh={() => setRefresh((value) => value + 1)}
-                onStart={startDevice}
-                starts={starts}
-                onSelect={(serial) =>
-                  setForm((current) => ({
-                    ...current,
-                    app: null,
-                    device: serial,
-                    outcome: INITIAL_FORM.outcome,
-                    permissions: {},
-                    start: INITIAL_FORM.start,
-                  }))
-                }
-                selected={chosen}
-              />
-            </Step>
-            <Step
-              disabled={device === null}
-              done={app !== undefined}
-              index={2}
-              title="Target App"
-              waitingFor="Choose a device to list its apps."
-            >
-              <AppStep
-                apps={apps}
-                onQuery={(query) =>
-                  setForm((current) => ({ ...current, query }))
-                }
-                onRemoveUpload={() => {
-                  letGo();
-                  setForm((current) => ({ ...current, ...CLEARED_CONDITIONS }));
-                }}
-                onSelect={(appId) => {
-                  letGo();
-                  setForm((current) => ({
-                    ...current,
-                    app: appId,
-                    ...CLEARED_CONDITIONS,
-                  }));
-                }}
-                onUpload={(file) => upload.start(file, file.name)}
-                query={form.query}
-                selected={form.app}
-                upload={uploaded}
-                uploadState={upload.state}
-              />
-            </Step>
-            <Step
-              disabled={app === undefined}
-              // Every choice here has a default, so it is done once open.
-              done={app !== undefined}
-              index={3}
-              title="Permissions and setup"
-              waitingFor="Choose the Target App first."
-            >
-              <PreparationChoices form={form} setForm={setForm} />
-            </Step>
-            <NativeOptionalSteps>
-              <Step
-                done={form.start.name.trim() !== ""}
-                disabled={app === undefined}
-                index={4}
-                title="Starting screen"
-                waitingFor="Choose the Target App first."
-              >
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    An element that is on screen when {appName(app)} opens.
-                    Preparing checks it before you record.
-                  </p>
-                  <ConditionInput
-                    label="Starting screen element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, start: value }))
-                    }
-                    placeholder="Sign in"
-                    value={form.start}
-                  />
-                </div>
-              </Step>
-              <Step
-                done={form.outcome.name.trim() !== ""}
-                disabled={app === undefined}
-                index={5}
-                title="Done when"
-                waitingFor="Choose the Target App first."
-              >
-                <div className="space-y-1.5">
-                  <p className="text-muted-foreground text-xs">
-                    An element that shows the journey worked.
-                  </p>
-                  <ConditionInput
-                    label="Done when element"
-                    onChange={(value) =>
-                      setForm((current) => ({ ...current, outcome: value }))
-                    }
-                    placeholder="Order confirmed"
-                    value={form.outcome}
-                  />
-                </div>
-              </Step>
-            </NativeOptionalSteps>
-          </div>
-        </form>
-        <SheetFooter className="flex-row items-center justify-end gap-3 border-t">
+    <StartCard
+      error={error}
+      footer={
+        <>
           {ready ? null : (
             <p
-              className="text-muted-foreground mr-auto text-xs"
-              id="android-setup-missing"
+              className="text-muted-foreground mt-1.5 text-center text-xs"
+              id={missingId}
             >
               {setupMissing({ app, device, validName })}
             </p>
           )}
-          <Button
-            aria-describedby={ready ? undefined : "android-setup-missing"}
-            disabled={!ready || pending}
-            form="android-setup"
-            type="submit"
-          >
-            Prepare and open app
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-      {erase.dialog}
-      <PreparationConfirmation
-        confirmation={confirmation}
-        open={open}
-        pending={pending}
-        fingerprint={fingerprint}
-        onCancel={() => setConfirmation(null)}
-        onConfirm={() => {
-          if (
-            confirmation === null ||
-            submitted.current ||
-            pending ||
-            confirmation.fingerprint !== fingerprint
-          ) {
-            return;
-          }
-          submitted.current = true;
-          if (onOpen(confirmation.flowName, confirmation.selection)) {
-            claimed();
-          }
-          setConfirmation(null);
-        }}
-      />
-    </Sheet>
+          {pending ? (
+            <p
+              className="text-muted-foreground mt-1.5 flex items-center justify-center gap-2 text-center text-xs"
+              role="status"
+            >
+              <LoaderCircleIcon
+                aria-hidden="true"
+                className="size-3.5 animate-spin motion-reduce:animate-none"
+              />
+              Preparing your app: installing and launching it on the device.
+              This can take up to a minute.
+            </p>
+          ) : null}
+        </>
+      }
+      formRef={formRef}
+      onClose={onClose}
+      onOtherPlatform={onOtherPlatform}
+      onSubmit={() => {
+        if (!ready) {
+          return;
+        }
+        const selection = setupSelection({
+          app,
+          device,
+          outcome,
+          permissions,
+          privateInput: form.privateInput,
+          release,
+          start,
+          startingData: form.startingData,
+        });
+        submitted.current = false;
+        setConfirmation({
+          appLabel: appName(app),
+          deviceLabel: discovered?.avd ?? device.serial,
+          fingerprint,
+          flowName: name,
+          selection:
+            uploaded === null
+              ? selection
+              : { ...selection, apkPath: uploaded.apkPath },
+        });
+      }}
+      outside={
+        <>
+          {erase.dialog}
+          <PreparationConfirmation
+            confirmation={confirmation}
+            pending={pending}
+            fingerprint={fingerprint}
+            onCancel={() => setConfirmation(null)}
+            onConfirm={() => {
+              if (
+                confirmation === null ||
+                submitted.current ||
+                pending ||
+                confirmation.fingerprint !== fingerprint
+              ) {
+                return;
+              }
+              submitted.current = true;
+              if (
+                onStart(
+                  confirmation.flowName,
+                  confirmation.selection,
+                  formRef.current
+                )
+              ) {
+                claimed();
+              }
+              setConfirmation(null);
+            }}
+          />
+        </>
+      }
+      platform="android"
+      platforms={platforms}
+      submitDescribedBy={ready ? undefined : missingId}
+      submitDisabled={!ready || pending}
+    >
+      <StartSection label="Flow" number={1}>
+        <FlowNameField
+          name={flowName}
+          onChange={onFlowNameChange}
+          problem={describeFlowName(name)}
+        />
+        <Part title="Device">
+          <DeviceStep
+            devices={devices}
+            erase={erase.controls}
+            onRefresh={() => setRefresh((value) => value + 1)}
+            onStart={startDevice}
+            starts={starts}
+            onSelect={(serial) =>
+              setForm((current) => ({
+                ...current,
+                app: null,
+                device: serial,
+                ...CLEARED_CONDITIONS,
+              }))
+            }
+            selected={chosen}
+          />
+        </Part>
+      </StartSection>
+
+      <StartSection label="Target App" number={2}>
+        <Part disabled={device === null} title="Target App">
+          <AppStep
+            apps={apps}
+            onQuery={(query) => setForm((current) => ({ ...current, query }))}
+            onRemoveUpload={() => {
+              letGo();
+              setForm((current) => ({ ...current, ...CLEARED_CONDITIONS }));
+            }}
+            onSelect={(appId) => {
+              letGo();
+              setForm((current) => ({
+                ...current,
+                app: appId,
+                ...CLEARED_CONDITIONS,
+              }));
+            }}
+            onUpload={(file) => upload.start(file, file.name)}
+            query={form.query}
+            selected={form.app}
+            upload={uploaded}
+            uploadState={upload.state}
+          />
+        </Part>
+      </StartSection>
+
+      <StartSetup summary="Starting data, permissions, start and finish">
+        <AndroidSetupChoices app={app} form={form} setForm={setForm} />
+      </StartSetup>
+    </StartCard>
   );
 };

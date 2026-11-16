@@ -143,8 +143,11 @@ export const typeOnDevice = async (page, text) => {
   return { typed: text.length };
 };
 
-/** Shared accessible setup recipe; all choices are discovered UI entries. */
-export const openAndroidSheet = async (
+/**
+ * Shared accessible setup recipe on the home's Teach on Android start card;
+ * all choices are discovered UI entries.
+ */
+export const openAndroidStartCard = async (
   control,
   selection,
   flowName,
@@ -176,7 +179,14 @@ export const openAndroidSheet = async (
     await control("browser", "click", "--role", "option", "--name", value);
   };
   await click("Start an Android session");
-  await click("Open Android session");
+  await control(
+    "browser",
+    "wait",
+    "--role",
+    "form",
+    "--name",
+    "Teach on Android"
+  );
   await fill("Flow name", flowName);
   await click(selection.device.serial, true);
   await fill("Search installed apps", selection.environment.appId);
@@ -193,7 +203,8 @@ export const openAndroidSheet = async (
     "180000"
   );
   await click(selection.environment.appId, true);
-  await click("Optional steps");
+  // Starting data, permissions, Variables and conditions sit in Setup.
+  await click("Setup", true);
   await select(
     "Starting screen element role",
     selection.setup.conditions[0].role
@@ -228,13 +239,17 @@ export const openAndroidSheet = async (
     if (!label) {
       throw new Error(`No setup control for ${entry.permission}`);
     }
-    await select(
-      `${label} permission`,
-      entry.decision === "grant" ? "Grant before start" : "Deny before start"
+    await control(
+      "browser",
+      "click",
+      "--role",
+      "radio",
+      "--name",
+      `${label}: ${entry.decision === "grant" ? "Grant before start" : "Deny before start"}`
     );
   }
-  await snapshot("setup-sheet");
-  await click("Prepare and open app");
+  await snapshot("start-card");
+  await click("Start teaching");
   await snapshot("setup-confirmation");
   await click("Confirm preparation");
   await control(

@@ -5,7 +5,12 @@ import { LoaderCircleIcon, PackageIcon, UploadIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  FileInput,
+  FileInputDropzone,
+  FileInputTrigger,
+} from "@/components/ui/file-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
@@ -57,6 +62,30 @@ export const useBuildUpload = <Input, Uploaded>(
   };
   return { reset, start, state };
 };
+
+/** What the upload is doing, said under its picker and read with it. */
+const BuildUploadStatus = ({
+  id,
+  state,
+}: {
+  readonly id: string;
+  readonly state: BuildUploadState;
+}) => (
+  <p
+    aria-live="polite"
+    className={cn(
+      "text-xs text-pretty",
+      state._tag === "failed" ? "text-destructive" : "text-muted-foreground"
+    )}
+    id={id}
+  >
+    {state._tag === "uploading" ? `Reading ${state.name}…` : null}
+    {state._tag === "failed" ? state.message : null}
+    {state._tag === "idle"
+      ? "Installing it asks for your consent first."
+      : null}
+  </p>
+);
 
 /**
  * A button that opens the file picker. For an iOS `.app`, the picker
@@ -129,20 +158,70 @@ export const BuildPicker = ({
         )}
         {label}
       </Button>
-      <p
-        aria-live="polite"
-        className={cn(
-          "text-xs text-pretty",
-          state._tag === "failed" ? "text-destructive" : "text-muted-foreground"
-        )}
-        id={describedBy}
+      <BuildUploadStatus id={describedBy} state={state} />
+    </div>
+  );
+};
+
+/**
+ * A drop zone for one build file, such as an Android `.apk`, with the button
+ * that opens the file picker inside it. Each choice uploads at once; the
+ * zone keeps no file of its own, so choosing the same file again uploads it
+ * again.
+ */
+export const BuildDropzone = ({
+  accept,
+  describedBy,
+  kind,
+  label,
+  onFile,
+  state,
+}: {
+  readonly accept: string;
+  readonly describedBy: string;
+  /** The build's file kind, as the zone names it: `.apk`. */
+  readonly kind: string;
+  readonly label: string;
+  readonly onFile: (file: File) => void;
+  readonly state: BuildUploadState;
+}) => {
+  const uploading = state._tag === "uploading";
+  return (
+    <div className="grid gap-1.5">
+      <FileInput
+        accept={accept}
+        disabled={uploading}
+        onValueChange={([first]) => {
+          if (first !== undefined) {
+            onFile(first);
+          }
+        }}
+        value={[]}
       >
-        {state._tag === "uploading" ? `Reading ${state.name}…` : null}
-        {state._tag === "failed" ? state.message : null}
-        {state._tag === "idle"
-          ? "Installing it asks for your consent first."
-          : null}
-      </p>
+        <FileInputDropzone>
+          {uploading ? (
+            <LoaderCircleIcon
+              aria-hidden="true"
+              className="text-muted-foreground size-4 animate-spin"
+            />
+          ) : (
+            <UploadIcon
+              aria-hidden="true"
+              className="text-muted-foreground size-4"
+            />
+          )}
+          <span className="text-muted-foreground">
+            Drop an <span className="font-mono">{kind}</span> here, or
+          </span>
+          <FileInputTrigger
+            aria-describedby={describedBy}
+            className={buttonVariants({ size: "xs", variant: "outline" })}
+          >
+            {label}
+          </FileInputTrigger>
+        </FileInputDropzone>
+      </FileInput>
+      <BuildUploadStatus id={describedBy} state={state} />
     </div>
   );
 };

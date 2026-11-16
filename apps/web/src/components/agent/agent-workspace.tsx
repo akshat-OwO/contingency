@@ -158,10 +158,11 @@ import {
 import { IosWorkspace } from "./ios-workspace";
 import { RecordingViewer } from "./recording-view";
 import { WorkspaceHome } from "./workspace-home";
+import type { HomeCard } from "./workspace-home";
 import { WorkspaceHomeContext } from "./workspace-home-context";
 import type { WorkspaceHome as WorkspaceHomeNavigation } from "./workspace-home-context";
 import type { WebSessionStart } from "./workspace-home-state";
-import { webPlatform } from "./workspace-platform-state";
+import { NEW_NATIVE_SESSION, webPlatform } from "./workspace-platform-state";
 import type {
   SelectWorkspacePlatform,
   WorkspacePlatform,
@@ -2437,11 +2438,15 @@ const WorkspaceLayout = ({
  */
 interface WorkspaceRouteNavigation {
   readonly goHome: () => void;
+  /** Hears which home start card is open, so the route can follow it. */
+  readonly onCardChange: (card: HomeCard | null) => void;
   readonly openNative: (
     platform: "android" | "ios",
     session: string,
     card: HTMLElement | null
   ) => void;
+  /** The start card the route opens on the home: `?android=new`. */
+  readonly requestedCard: HomeCard | undefined;
   readonly returnTo: string | undefined;
   readonly setReturnTo: (sessionId: string | undefined) => void;
 }
@@ -2488,6 +2493,7 @@ const BrowserWorkspaceHome = ({
     <WorkspaceLayout session={undefined} summary={undefined}>
       <WorkspaceHome
         error={view.gestures.start.error}
+        onCardChange={navigation?.onCardChange}
         onOpenNative={(tag, session, card) =>
           navigation?.openNative(tag, session, card)
         }
@@ -2499,6 +2505,7 @@ const BrowserWorkspaceHome = ({
         }}
         onStartWeb={view.openSession}
         pending={view.gestures.start.pending}
+        requestedCard={navigation?.requestedCard}
         returnTo={navigation?.returnTo}
         unresolvedSessionId={view.state.unresolvedSessionId}
         webSessions={view.sessions}
@@ -2713,6 +2720,11 @@ export const AgentWorkspace = ({
   // The session the person last left, whose shelf card it shrinks back into.
   const [returnTo, setReturnTo] = useState<string | undefined>();
   const nativeSession = platform._tag === "web" ? undefined : platform.session;
+  // `?android=new` is the home with the Android start card open.
+  const requestedCard: HomeCard | undefined =
+    platform._tag === "android" && platform.session === NEW_NATIVE_SESSION
+      ? "android"
+      : undefined;
   const onSessionChange = (session: string) => {
     if (
       platform._tag !== "web" &&
@@ -2724,6 +2736,12 @@ export const AgentWorkspace = ({
   };
   const navigation: WorkspaceRouteNavigation = {
     goHome: () => onSelectPlatform?.(webPlatform),
+    // Leaving the card a route opened leaves its URL too, in place.
+    onCardChange: (card) => {
+      if (requestedCard !== undefined && card !== requestedCard) {
+        onSelectPlatform?.(webPlatform, { replace: true });
+      }
+    },
     openNative: (tag, session, card) => {
       if (canViewTransition()) {
         // The card grows into the native stage the route opens.
@@ -2734,6 +2752,7 @@ export const AgentWorkspace = ({
         { viewTransition: canViewTransition() }
       );
     },
+    requestedCard,
     returnTo,
     setReturnTo,
   };
@@ -2744,7 +2763,7 @@ export const AgentWorkspace = ({
       onSelectPlatform?.(webPlatform, { viewTransition: canViewTransition() });
     },
   };
-  if (platform._tag === "web") {
+  if (platform._tag === "web" || requestedCard !== undefined) {
     return (
       <WorkspaceHomeContext
         value={onSelectPlatform === undefined ? null : nativeHome}

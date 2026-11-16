@@ -31,6 +31,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  FileInput,
+  FileInputDropzone,
+  FileInputTrigger,
+} from "@/components/ui/file-input";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import {
@@ -39,6 +44,11 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Radio, RadioGroup } from "@/components/ui/radio";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -126,18 +136,18 @@ test("Dialog follows the modal dialog pattern", async () => {
 test("Sheet follows the modal dialog pattern and keeps its slots", async () => {
   render(
     <Sheet>
-      <SheetTrigger>New Android session</SheetTrigger>
+      <SheetTrigger>New iOS session</SheetTrigger>
       <SheetContent>
-        <SheetTitle>New Android session</SheetTitle>
+        <SheetTitle>New iOS session</SheetTitle>
         <SheetDescription>Pick a device.</SheetDescription>
         <button type="button">Start</button>
       </SheetContent>
     </Sheet>
   );
   await userEvent.click(
-    screen.getByRole("button", { name: "New Android session" })
+    screen.getByRole("button", { name: "New iOS session" })
   );
-  const sheet = screen.getByRole("dialog", { name: "New Android session" });
+  const sheet = screen.getByRole("dialog", { name: "New iOS session" });
   expect(sheet).toHaveAttribute("data-slot", "sheet-content");
   expect(sheet).toHaveAttribute("data-side", "right");
   expect(document.querySelector('[data-slot="sheet-overlay"]')).not.toBeNull();
@@ -149,7 +159,7 @@ const EraseOverSheet = () => {
   return (
     <Sheet defaultOpen>
       <SheetContent>
-        <SheetTitle>New Android session</SheetTitle>
+        <SheetTitle>New iOS session</SheetTitle>
         <button onClick={() => setOpen(true)} type="button">
           Erase Pixel_9
         </button>
@@ -171,7 +181,7 @@ test("an alert dialog opened over a Sheet joins the Sheet's top layer", async ()
   // a real-browser check covered the pointer path, and this keeps the
   // confirmation on the same top layer as the Sheet.
   render(<EraseOverSheet />);
-  const sheet = screen.getByRole("dialog", { name: "New Android session" });
+  const sheet = screen.getByRole("dialog", { name: "New iOS session" });
   await userEvent.click(screen.getByRole("button", { name: "Erase Pixel_9" }));
   const confirmation = screen.getByRole("alertdialog", {
     name: "Erase Pixel_9?",
@@ -380,7 +390,7 @@ test("facades composed from Button and Input keep their own slots", async () => 
       </AlertDialog>
       <Sheet defaultOpen>
         <SheetContent>
-          <SheetTitle>New Android session</SheetTitle>
+          <SheetTitle>New iOS session</SheetTitle>
         </SheetContent>
       </Sheet>
     </>
@@ -431,4 +441,102 @@ test("Collapsible discloses its content and keeps it mounted on request", async 
   expect(
     screen.getByRole("textbox", { name: "Done when element" })
   ).toBeVisible();
+});
+
+test("RadioGroup follows the radio group pattern and keeps its slots", async () => {
+  const user = userEvent.setup();
+  const onValueChange = vi.fn();
+  render(
+    <RadioGroup
+      aria-label="Starting data"
+      defaultValue="keep"
+      name="startingData"
+      onValueChange={onValueChange}
+    >
+      <label>
+        <Radio value="keep" />
+        Keep current data
+      </label>
+      <label>
+        <Radio value="clear" />
+        Clear app data
+      </label>
+    </RadioGroup>
+  );
+  const group = screen.getByRole("radiogroup", { name: "Starting data" });
+  expect(group).toHaveAttribute("data-slot", "radio-group");
+  const keep = screen.getByRole("radio", { name: "Keep current data" });
+  expect(keep).toHaveAttribute("data-slot", "radio");
+  expect(keep).toBeChecked();
+  expect(
+    keep.querySelector('[data-slot="radio-indicator"]')
+  ).toBeInTheDocument();
+  await user.click(screen.getByText("Clear app data"));
+  expect(onValueChange).toHaveBeenLastCalledWith("clear", expect.anything());
+  const clear = screen.getByRole("radio", { name: "Clear app data" });
+  expect(clear).toBeChecked();
+  // checkPattern's arrow checks count the hidden native radios as stops in
+  // jsdom, which has no layout, so the keys are driven here instead.
+  await user.keyboard("{ArrowUp}");
+  expect(keep).toHaveFocus();
+  expect(keep).toBeChecked();
+  const submitted = keep
+    .closest("div")
+    ?.querySelector<HTMLInputElement>(
+      'input[type="radio"][name="startingData"]:checked'
+    );
+  expect(submitted?.value).toBe("keep");
+});
+
+test("SegmentedControl is a named radio group with a sliding thumb", async () => {
+  const user = userEvent.setup();
+  const onValueChange = vi.fn();
+  render(
+    <SegmentedControl
+      aria-label="Camera permission"
+      defaultValue="unchanged"
+      onValueChange={onValueChange}
+    >
+      <SegmentedControlItem value="unchanged">Ask</SegmentedControlItem>
+      <SegmentedControlItem value="grant">Grant</SegmentedControlItem>
+      <SegmentedControlItem value="revoke">Deny</SegmentedControlItem>
+    </SegmentedControl>
+  );
+  const control = screen.getByRole("radiogroup", { name: "Camera permission" });
+  expect(control).toHaveAttribute("data-slot", "segmented-control");
+  expect(
+    control.querySelector('[data-slot="segmented-control-indicator"]')
+  ).toBeInTheDocument();
+  const ask = screen.getByRole("radio", { name: "Ask" });
+  expect(ask).toHaveAttribute("data-slot", "segmented-control-item");
+  expect(ask).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: "Deny" }));
+  expect(onValueChange).toHaveBeenLastCalledWith("revoke", expect.anything());
+  await user.keyboard("{ArrowLeft}");
+  expect(screen.getByRole("radio", { name: "Grant" })).toHaveFocus();
+  expect(screen.getByRole("radio", { name: "Grant" })).toBeChecked();
+});
+
+test("FileInput opens the picker from a named trigger inside its drop zone", async () => {
+  // The native input is hidden from pointers; the trigger is what people use.
+  const user = userEvent.setup({ pointerEventsCheck: 0 });
+  const onValueChange = vi.fn();
+  render(
+    <FileInput accept=".apk" onValueChange={onValueChange}>
+      <FileInputDropzone>
+        Drop an .apk here, or
+        <FileInputTrigger>Upload an .apk</FileInputTrigger>
+      </FileInputDropzone>
+    </FileInput>
+  );
+  const trigger = screen.getByRole("button", { name: "Upload an .apk" });
+  expect(trigger).toHaveAttribute("data-slot", "file-input-trigger");
+  expect(trigger.closest('[data-slot="file-input-dropzone"]')).not.toBeNull();
+  expect(trigger.closest('[data-slot="file-input"]')).not.toBeNull();
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(picker).toHaveAttribute("accept", ".apk");
+  expect(picker).toHaveAttribute("tabindex", "-1");
+  const apk = new File(["PK"], "shop.apk");
+  await user.upload(picker ?? document.createElement("input"), apk);
+  expect(onValueChange).toHaveBeenCalledWith([apk], expect.anything());
 });

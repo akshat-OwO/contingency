@@ -1,5 +1,5 @@
 /**
- * A device as either setup sheet shows it. `stopped` is an existing emulator
+ * A device as Android or iOS setup shows it. `stopped` is an existing emulator
  * or simulator the sheet can start; `unavailable` says why it cannot be used.
  */
 export type DeviceChoiceStatus =

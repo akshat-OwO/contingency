@@ -220,7 +220,7 @@ const DeviceCard = ({
 };
 
 /**
- * Device choice for both setup sheets. Ready devices come first. The rest
+ * Device choice for Android and iOS setup. Ready devices come first. The rest
  * fold under a count, so a list of stopped devices never pushes the Target
  * App off the first screen; the fold opens while nothing is ready, so the
  * devices that can be started are in view.

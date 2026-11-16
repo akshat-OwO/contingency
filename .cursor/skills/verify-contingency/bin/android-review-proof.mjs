@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { androidPick, openAndroidSheet } from "./android-ui.mjs";
+import { androidPick, openAndroidStartCard } from "./android-ui.mjs";
 
 const execute = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -141,7 +141,7 @@ try {
       },
     };
     await control("browser", "goto", "--url", instance.mcpUrl);
-    await openAndroidSheet(control, selection, flowName, (name) =>
+    await openAndroidStartCard(control, selection, flowName, (name) =>
       snapshot(`${decision}-${name}`)
     );
     const sessions = await tool("agent_device_sessions_list", {
@@ -224,26 +224,11 @@ try {
       const paused = await command({ _tag: "read", sessionId: session.id });
       assert.equal(paused.phase, "paused");
       assert.ok(paused.captureGaps.includes("secure_window"));
+      // The home's In progress shelf lists the paused session by its label.
       await control("browser", "goto", "--url", instance.mcpUrl);
-      await click("Start an Android session");
-      await wait("combobox", "Android Agent Session");
-      await snapshot("empty-existing-sessions");
-      await control(
-        "browser",
-        "click",
-        "--role",
-        "combobox",
-        "--name",
-        "Android Agent Session"
-      );
-      await control(
-        "browser",
-        "click",
-        "--role",
-        "option",
-        "--name",
-        `${flowName} · Android Teaching`
-      );
+      await wait("button", `${flowName} · Android Teaching`);
+      await snapshot("home-existing-sessions");
+      await click(`${flowName} · Android Teaching`);
       await wait("button", "Recover same emulator");
       await snapshot("reopened-paused");
       await adb("shell", "am", "force-stop", appId);
@@ -254,22 +239,21 @@ try {
     }
     await click("Close session");
     await wait("button", "New session");
-    // An ended session is no longer a choice: the empty Workspace offers no
-    // picker once nothing is live, and the session's link reopens its Summary.
+    // An ended session is no longer in progress: the home's shelf drops it,
+    // and the session's link reopens its Summary.
     await control("browser", "goto", "--url", instance.mcpUrl);
-    await click("Start an Android session");
-    await wait("heading", "No Android session");
+    await wait("heading", "Teach a new Flow");
     await control(
       "browser",
       "wait",
       "--role",
-      "combobox",
+      "button",
       "--name",
-      "Android Agent Session",
+      `${flowName} · Android Teaching`,
       "--state",
       "hidden"
     );
-    await snapshot(`${decision}-empty-after-close`);
+    await snapshot(`${decision}-home-after-close`);
     await control(
       "browser",
       "goto",
