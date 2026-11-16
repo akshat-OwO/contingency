@@ -88,15 +88,21 @@ const BuildUploadStatus = ({
   </p>
 );
 
+const FolderPickerRow = ({ children }: { readonly children: ReactNode }) => (
+  <div className="border-island-border flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-3 py-3 text-[13px]">
+    {children}
+  </div>
+);
+
 /** A chosen file and its path, as an iOS `.app` upload sends it. */
 export interface ChosenFile extends AppBundleFile {
   readonly file: File;
 }
 
 /**
- * A drop zone for a build, with the button that opens the file picker inside
- * it: one file, such as an Android `.apk`, or with `directory` a whole folder,
- * such as an iOS simulator `.app`. Each choice uploads at once; the zone keeps
+ * A drop zone for one build file, such as an Android `.apk`, with the button
+ * that opens the file picker inside it. With `directory` it picks a whole
+ * folder, such as an iOS simulator `.app`, through the picker only. Each choice uploads at once; the zone keeps
  * no file of its own, so choosing the same build again uploads it again.
  */
 export const BuildDropzone = ({
@@ -123,6 +129,9 @@ export const BuildDropzone = ({
   readonly state: BuildUploadState;
 }) => {
   const uploading = state._tag === "uploading";
+  // UI SDK reads a dropped folder only up to 1,000 files, which would upload
+  // part of a bundle, so a folder comes through the picker alone (#752).
+  const Zone = directory ? FolderPickerRow : FileInputDropzone;
   return (
     <div className="grid gap-1.5">
       <FileInput
@@ -147,7 +156,7 @@ export const BuildDropzone = ({
         }}
         value={[]}
       >
-        <FileInputDropzone>
+        <Zone>
           {uploading ? (
             <LoaderCircleIcon
               aria-hidden="true"
@@ -160,9 +169,9 @@ export const BuildDropzone = ({
             />
           )}
           <span className="text-muted-foreground">
-            Drop {directory ? "a" : "an"}{" "}
+            {directory ? "Choose the " : "Drop an "}
             <span className="font-mono">{kind}</span>
-            {directory ? " folder" : ""} here, or
+            {directory ? " folder:" : " here, or"}
           </span>
           <FileInputTrigger
             aria-describedby={describedBy}
@@ -170,7 +179,7 @@ export const BuildDropzone = ({
           >
             {label}
           </FileInputTrigger>
-        </FileInputDropzone>
+        </Zone>
       </FileInput>
       <BuildUploadStatus id={describedBy} state={state} />
     </div>

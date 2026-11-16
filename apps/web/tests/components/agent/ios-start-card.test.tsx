@@ -125,6 +125,9 @@ test("uploads a simulator .app folder and starts with its temporary copy", async
   ).toBeVisible();
   const picker = card.querySelector<HTMLInputElement>('input[type="file"]');
   expect(picker).toHaveAttribute("webkitdirectory");
+  // A dropped folder is read only up to 1,000 files, which would upload part
+  // of a bundle, so a `.app` comes only through the folder picker.
+  expect(card.querySelector('[data-slot="file-input-dropzone"]')).toBeNull();
   await user.upload(picker ?? document.createElement("input"), [
     folderFile("Login.app/Info.plist"),
     folderFile("Login.app/Login"),
