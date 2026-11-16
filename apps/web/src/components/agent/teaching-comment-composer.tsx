@@ -385,6 +385,12 @@ export const CommentComposer = ({
     field.current?.focus();
   };
   const popup = useRef<HTMLDivElement>(null);
+  // Removing a chip unmounts the button that held focus. A non-modal dialog
+  // takes Escape only while focus is inside it, so focus goes to the field.
+  const removeThen = (remove: () => void) => () => {
+    remove();
+    field.current?.focus();
+  };
   const submit = () => {
     const inputs = popup.current?.querySelectorAll<HTMLInputElement>(
       "input, textarea, select"
@@ -449,7 +455,7 @@ export const CommentComposer = ({
                 <Button
                   aria-label="Remove scan"
                   disabled={pending}
-                  onClick={() => onScanChange()}
+                  onClick={removeThen(() => onScanChange())}
                   size="icon-xs"
                   variant="ghost"
                 >
@@ -473,7 +479,7 @@ export const CommentComposer = ({
                   aria-label="Remove attached element"
                   className="hover:bg-blue-500/15"
                   disabled={pending}
-                  onClick={onDetach}
+                  onClick={removeThen(onDetach)}
                   size="icon-xs"
                   type="button"
                   variant="ghost"
