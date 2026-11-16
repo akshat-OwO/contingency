@@ -1,4 +1,3 @@
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { openTeachingTimespan } from "@contingency/protocol";
 import type {
   TeachingScan,
@@ -30,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogDescription,
-  DialogPortal,
+  DialogPopup,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -401,17 +400,16 @@ export const CommentComposer = ({
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
     <Dialog
-      disablePointerDismissal
+      closeOnOutsidePress={false}
       modal={false}
       onOpenChange={onOpenChange}
       open={state.composing}
     >
-      <DialogPortal>
         {/*
           No backdrop blur: the outline of a comment's element has to stay
           legible behind the composer while its list item is pointed at.
         */}
-        <DialogPrimitive.Popup
+        <DialogPopup
           onDragOver={(event) => {
             if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
               event.preventDefault();
@@ -427,8 +425,8 @@ export const CommentComposer = ({
               onAttach(attachment);
             }
           }}
-          className="bg-popover text-popover-foreground ring-foreground/10 fixed bottom-28 left-4 z-50 flex max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl text-sm shadow-2xl ring-1 outline-none"
-          initialFocus={field}
+          className="bg-popover text-popover-foreground ring-foreground/10 fixed top-auto right-auto bottom-28 left-4 z-50 m-0 flex border-0 p-0 max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl text-sm shadow-2xl ring-1 outline-none"
+          initialFocus={() => field.current}
           ref={popup}
         >
           <DialogTitle className="sr-only">Comment</DialogTitle>
@@ -611,8 +609,7 @@ export const CommentComposer = ({
               close
             </span>
           </footer>
-        </DialogPrimitive.Popup>
-      </DialogPortal>
+        </DialogPopup>
     </Dialog>
   );
 };

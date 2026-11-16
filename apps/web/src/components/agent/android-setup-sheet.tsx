@@ -156,7 +156,7 @@ const Choice = ({
   readonly onChange: (value: string) => void;
 }) => (
   <Select
-    items={items}
+    items={[...items]}
     value={value}
     onValueChange={(next) => {
       if (next !== null) {

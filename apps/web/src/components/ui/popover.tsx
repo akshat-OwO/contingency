@@ -1,51 +1,77 @@
-import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
+import {
+  Popover as PopoverPrimitive,
+  PopoverContent as PopoverPrimitiveContent,
+  PopoverDescription as PopoverPrimitiveDescription,
+  PopoverTitle as PopoverPrimitiveTitle,
+  PopoverTrigger as PopoverPrimitiveTrigger,
+} from "@ui-sdk/react/popover";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-function Popover({ ...props }: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+/**
+ * UI SDK popovers render in place on the browser's top layer, so there is no
+ * Portal or Positioner part. `Popover` adds no element of its own.
+ */
+function Popover(props: React.ComponentProps<typeof PopoverPrimitive>) {
+  return <PopoverPrimitive {...props} />;
 }
 
-function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
+function PopoverTrigger(
+  props: React.ComponentProps<typeof PopoverPrimitiveTrigger>
+) {
+  return <PopoverPrimitiveTrigger {...props} />;
 }
+
+type PrimitiveAnchor = NonNullable<
+  React.ComponentProps<typeof PopoverPrimitiveContent>["anchor"]
+>;
+
+/**
+ * Base UI took a function that returns the anchor element. UI SDK reads any
+ * object with `getBoundingClientRect()` on every position check, so the
+ * function becomes one that asks for the element each time.
+ */
+const anchorOf = (
+  anchor: PrimitiveAnchor | (() => Element | null) | undefined
+): PrimitiveAnchor | null =>
+  typeof anchor === "function"
+    ? {
+        getBoundingClientRect: () =>
+          anchor()?.getBoundingClientRect() ?? new DOMRect(),
+      }
+    : (anchor ?? null);
 
 function PopoverContent({
+  anchor,
   className,
   positionerClassName,
   align = "center",
-  alignOffset = 0,
-  anchor,
   side = "bottom",
   sideOffset = 4,
   ...props
-}: PopoverPrimitive.Popup.Props & {
+}: Omit<React.ComponentProps<typeof PopoverPrimitiveContent>, "anchor"> & {
+  readonly anchor?: PrimitiveAnchor | (() => Element | null);
+  /**
+   * Kept for the Base UI facade. The top layer stacks popups by open order,
+   * so a z-index no longer lifts one above another; it lands on the content.
+   */
   readonly positionerClassName?: string;
-} & Pick<
-    PopoverPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "anchor" | "side" | "sideOffset"
-  >) {
+  readonly className?: string;
+}) {
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Positioner
-        align={align}
-        alignOffset={alignOffset}
-        anchor={anchor}
-        side={side}
-        sideOffset={sideOffset}
-        className={cn("isolate z-50", positionerClassName)}
-      >
-        <PopoverPrimitive.Popup
-          data-slot="popover-content"
-          className={cn(
-            "bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-lg p-2.5 text-sm shadow-md ring-1 outline-hidden duration-100",
-            className
-          )}
-          {...props}
-        />
-      </PopoverPrimitive.Positioner>
-    </PopoverPrimitive.Portal>
+    <PopoverPrimitiveContent
+      align={align}
+      anchor={anchorOf(anchor)}
+      side={side}
+      sideOffset={sideOffset}
+      className={cn(
+        "bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 m-0 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-lg border-0 p-2.5 text-sm shadow-md ring-1 outline-hidden duration-100",
+        positionerClassName,
+        className
+      )}
+      {...props}
+    />
   );
 }
 
@@ -59,23 +85,25 @@ function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
+function PopoverTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitiveTitle> & {
+  readonly className?: string;
+}) {
   return (
-    <PopoverPrimitive.Title
-      data-slot="popover-title"
-      className={cn("font-medium", className)}
-      {...props}
-    />
+    <PopoverPrimitiveTitle className={cn("font-medium", className)} {...props} />
   );
 }
 
 function PopoverDescription({
   className,
   ...props
-}: PopoverPrimitive.Description.Props) {
+}: React.ComponentProps<typeof PopoverPrimitiveDescription> & {
+  readonly className?: string;
+}) {
   return (
-    <PopoverPrimitive.Description
-      data-slot="popover-description"
+    <PopoverPrimitiveDescription
       className={cn("text-muted-foreground", className)}
       {...props}
     />

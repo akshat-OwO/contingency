@@ -183,7 +183,9 @@ test("refuses browser setup while the agent holds the browser", async () => {
   await user.click(screen.getByRole("button", { name: "Emulation" }));
   expect(
     screen.getByText(
-      "The agent holds the browser. Take control to change its Emulation or storage."
+      "The agent holds the browser. Take control to change its Emulation or storage.",
+      // The device bar's lock tooltip carries the same words, kept mounted.
+      { selector: "p" }
     )
   ).toBeVisible();
   expect(screen.getByLabelText("Latitude")).toBeDisabled();
@@ -197,7 +199,9 @@ test("fixes the Emulation once recording starts", async () => {
   await user.click(screen.getByRole("button", { name: "Emulation" }));
   expect(
     screen.getByText(
-      "Emulation is fixed once recording starts: the recording declares the Emulation it was demonstrated under."
+      "Emulation is fixed once recording starts: the recording declares the Emulation it was demonstrated under.",
+      // The device bar's lock tooltip carries the same words, kept mounted.
+      { selector: "p" }
     )
   ).toBeVisible();
   expect(screen.getByLabelText("Latitude")).toBeDisabled();

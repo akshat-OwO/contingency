@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -249,7 +249,9 @@ test("uses the only context-wide scope when no website is open", async () => {
 
   await enterLocation("0", "0");
 
-  const scopes = screen.getAllByRole("radio");
+  // A modal dialog makes the page inert. jsdom does not drop inert content
+  // from the accessibility tree, so the query stays inside the dialog.
+  const scopes = within(screen.getByRole("dialog")).getAllByRole("radio");
   expect(scopes).toHaveLength(1);
   expect(scopes[0]).toBeChecked();
   expect(

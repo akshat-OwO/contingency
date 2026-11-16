@@ -1,37 +1,53 @@
 "use client";
 
-import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import {
+  Dialog as DialogPrimitive,
+  DialogBackdrop as DialogPrimitiveBackdrop,
+  DialogClose as DialogPrimitiveClose,
+  DialogContent as DialogPrimitiveContent,
+  DialogDescription as DialogPrimitiveDescription,
+  DialogTitle as DialogPrimitiveTitle,
+  DialogTrigger as DialogPrimitiveTrigger,
+} from "@ui-sdk/react/dialog";
 import { XIcon } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
+type ClassName = { readonly className?: string };
+
+function Dialog(props: React.ComponentProps<typeof DialogPrimitive>) {
+  return <DialogPrimitive {...props} />;
 }
 
-function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
-  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
+function DialogTrigger(
+  props: React.ComponentProps<typeof DialogPrimitiveTrigger>
+) {
+  return <DialogPrimitiveTrigger {...props} />;
 }
 
-function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
+/**
+ * UI SDK dialogs render in place on the top layer, so a portal has nothing
+ * to do. Kept so the facade's export names stay stable.
+ */
+function DialogPortal({ children }: { readonly children?: React.ReactNode }) {
+  return children;
 }
 
-function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
+function DialogClose(props: React.ComponentProps<typeof DialogPrimitiveClose>) {
+  return <DialogPrimitiveClose {...props} />;
 }
 
 function DialogOverlay({
   className,
   ...props
-}: DialogPrimitive.Backdrop.Props) {
+}: React.ComponentProps<typeof DialogPrimitiveBackdrop> & ClassName) {
   return (
-    <DialogPrimitive.Backdrop
-      data-slot="dialog-overlay"
+    <DialogPrimitiveBackdrop
+      render={<div data-slot="dialog-overlay" />}
       className={cn(
-        "data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs",
+        "data-open:animate-in data-open:fade-in-0 data-ending-style:animate-out data-ending-style:fade-out-0 fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs",
         className
       )}
       {...props}
@@ -39,29 +55,39 @@ function DialogOverlay({
   );
 }
 
+/** The dialog's own surface, unstyled, for a layout the card does not fit. */
+function DialogPopup(
+  props: React.ComponentProps<typeof DialogPrimitiveContent>
+) {
+  return <DialogPrimitiveContent {...props} />;
+}
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  showOverlay = true,
   ...props
-}: DialogPrimitive.Popup.Props & {
-  showCloseButton?: boolean;
-}) {
+}: React.ComponentProps<typeof DialogPrimitiveContent> &
+  ClassName & {
+    readonly children?: React.ReactNode;
+    showCloseButton?: boolean;
+    /** A non-modal dialog leaves the page usable, so it has no backdrop. */
+    showOverlay?: boolean;
+  }) {
   return (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
+    <>
+      {showOverlay ? <DialogOverlay /> : null}
+      <DialogPrimitiveContent
         className={cn(
-          "bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl p-4 text-sm ring-1 duration-100 outline-none sm:max-w-sm",
+          "bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 fixed top-1/2 left-1/2 z-50 m-0 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border-0 p-4 text-sm ring-1 duration-100 outline-none sm:max-w-sm",
           className
         )}
         {...props}
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
+          <DialogPrimitiveClose
             render={
               <Button
                 variant="ghost"
@@ -72,10 +98,10 @@ function DialogContent({
           >
             <XIcon />
             <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
+          </DialogPrimitiveClose>
         )}
-      </DialogPrimitive.Popup>
-    </DialogPortal>
+      </DialogPrimitiveContent>
+    </>
   );
 }
 
@@ -108,18 +134,20 @@ function DialogFooter({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="outline" />}>
+        <DialogPrimitiveClose render={<Button variant="outline" />}>
           Close
-        </DialogPrimitive.Close>
+        </DialogPrimitiveClose>
       )}
     </div>
   );
 }
 
-function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
+function DialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitiveTitle> & ClassName) {
   return (
-    <DialogPrimitive.Title
-      data-slot="dialog-title"
+    <DialogPrimitiveTitle
       className={cn(
         "font-heading text-base leading-none font-medium",
         className
@@ -132,10 +160,9 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
 function DialogDescription({
   className,
   ...props
-}: DialogPrimitive.Description.Props) {
+}: React.ComponentProps<typeof DialogPrimitiveDescription> & ClassName) {
   return (
-    <DialogPrimitive.Description
-      data-slot="dialog-description"
+    <DialogPrimitiveDescription
       className={cn(
         "text-muted-foreground *:[a]:hover:text-foreground text-sm *:[a]:underline *:[a]:underline-offset-3",
         className
@@ -153,6 +180,7 @@ export {
   DialogFooter,
   DialogHeader,
   DialogOverlay,
+  DialogPopup,
   DialogPortal,
   DialogTitle,
   DialogTrigger,
