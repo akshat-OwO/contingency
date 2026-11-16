@@ -1742,10 +1742,6 @@ body[data-view="flows"] #canvas {
   background: var(--island-hover);
   color: var(--fg);
 }
-.disabled-wrap {
-  display: inline-flex;
-  border-radius: 12px;
-}
 .flows-sidebar,
 .pane {
   position: fixed;
@@ -1865,20 +1861,6 @@ body[data-view="flows"] #canvas {
   font-family: "Geist", sans-serif;
   font-size: 11.5px;
   color: var(--faint);
-}
-.root-toggle {
-  width: 100%;
-  border: 0;
-  border-radius: 10px;
-  background: none;
-  text-align: left;
-}
-.root-toggle:hover {
-  background: var(--island-hover);
-}
-.root-toggle[data-panel-open] .tree-chev svg,
-.root-toggle[aria-expanded="true"] .tree-chev svg {
-  rotate: 90deg;
 }
 .root-empty {
   margin: 4px 10px;
@@ -2750,4 +2732,33 @@ body[data-view="flows"] .scaffold {
 }
 ::view-transition-new(flows-sidebar) {
   animation: fade-in 0.3s 0.1s var(--ease-out) both;
+}
+
+/* Global filter: shows the user-global root in the catalog. */
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  font-size: 12px;
+  font-weight: 500;
+}
+.filter-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.filter-btn:hover {
+  color: var(--fg);
+}
+.filter-btn[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--canvas);
+  box-shadow: none;
 }

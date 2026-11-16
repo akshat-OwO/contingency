@@ -47,7 +47,7 @@ import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-import { FlowsPage } from "./flows";
+import { FlowsPage, flowOfRun } from "./flows";
 import {
   AndroidIcon,
   AppleIcon,
@@ -388,14 +388,13 @@ const FlowsNav = createContext<{
   readonly morphBack: boolean;
 }>({ here: false, morphBack: false, open: () => {} });
 
-const Actions = ({ recording = false }: { readonly recording?: boolean }) => {
+const Actions = () => {
   const nav = useContext(FlowsNav);
   const flows = (
     <Button
       aria-current={nav.here ? "page" : undefined}
       className="pill-btn"
       data-here={nav.here || undefined}
-      disabled={recording}
       onClick={(e) => {
         if (!nav.here) nav.open(e.currentTarget);
       }}
@@ -409,17 +408,7 @@ const Actions = ({ recording = false }: { readonly recording?: boolean }) => {
   );
   return (
     <div className="chrome right island">
-      {recording ? (
-        <Hint label="Stop recording to open Flows">
-          <TooltipTrigger
-            render={<span className="disabled-wrap" tabIndex={0} />}
-          >
-            {flows}
-          </TooltipTrigger>
-        </Hint>
-      ) : (
-        flows
-      )}
+      {flows}
       <IconButton label="Docs">
         <DocsIcon />
       </IconButton>
@@ -1715,7 +1704,7 @@ const SessionView = ({
           />
         </div>
       </nav>
-      <Actions recording={session.status === "recording"} />
+      <Actions />
       <Stage session={session} />
       <div aria-live="polite" className="notices">
         {notice ? (
@@ -1943,7 +1932,9 @@ const App = () => {
                   ) : null}
                 </nav>
               }
+              onRun={(run) => setView({ flow: view.flow, name: "flows", run })}
               onSelect={(flow) => setView({ flow, name: "flows" })}
+              run={view.run}
               selected={view.flow}
               sessionFlow={fromSession}
             />
@@ -2037,23 +2028,37 @@ const App = () => {
 type View =
   | { readonly name: "home" }
   | { readonly name: "session"; readonly id: string }
-  | { readonly name: "flows"; readonly flow?: string };
+  | {
+      readonly name: "flows";
+      readonly flow?: string;
+      readonly run?: string;
+    };
 
-const toUrl = (view: View) =>
-  view.name === "flows"
-    ? `/flow${view.flow ? `?flow=${encodeURIComponent(view.flow.replace(/^local:/, ""))}` : ""}`
-    : view.name === "session"
-      ? `/?session=${view.id}`
-      : "/";
+const toUrl = (view: View) => {
+  if (view.name === "session") return `/?session=${view.id}`;
+  if (view.name === "home") return "/";
+  const params = new URLSearchParams();
+  // Local Flows go by name alone; `global:<name>` names the user-global root.
+  if (view.flow) params.set("flow", view.flow.replace(/^local:/, ""));
+  if (view.run) params.set("run", view.run);
+  const query = params.toString();
+  return `/flow${query ? `?${query}` : ""}`;
+};
 
 const fromUrl = (): View => {
   const params = new URLSearchParams(location.search);
+  const run = params.get("run") ?? undefined;
   if (location.pathname.replace(/\/$/, "") === "/flow") {
     const flow = params.get("flow");
-    if (!flow) return { name: "flows" };
-    // Local Flows go by name alone; `global:<name>` names the user-global root.
-    return { flow: flow.includes(":") ? flow : `local:${flow}`, name: "flows" };
+    return {
+      flow: flow ? (flow.includes(":") ? flow : `local:${flow}`) : undefined,
+      name: "flows",
+      run,
+    };
   }
+  // The old Run Summary view, `/?run=<id>`, lands on that Run in its Flow, so
+  // every MCP `viewUrl` already handed out keeps working.
+  if (run) return { flow: flowOfRun(run), name: "flows", run };
   const session = params.get("session");
   return session && SEED.some((s) => s.id === session)
     ? { id: session, name: "session" }

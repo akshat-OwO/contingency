@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`. Run Summary comes next.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -33,28 +33,30 @@ The dark strip is prototype scaffolding, not proposed UI. It turns the running s
 
 ## Flows page (#755)
 
-**Flows** no longer opens a drawer. It goes to `/flow`, a page of its own, from the home page or any session. Back returns to where you were, and `/flow?flow=<name>` opens a Flow directly (`global:<name>` for the user-global root).
+Approved on #755. **Flows** no longer opens a drawer. It goes to `/flow`, a page of its own, from the home page or any session, including one that is recording. Back returns to where you were. `/flow?flow=<name>&run=<id>` opens a Flow and one of its Runs directly (`global:<name>` for the user-global root), and the old Run Summary link, `/?run=<id>`, lands there too.
 
 The page is three floating islands under the usual top chrome:
 
 | Island | Holds |
 | --- | --- |
-| Catalog (left sidebar) | Search, then `contingency/` (Local) as a Group tree with each Flow's platform and Verified or Drafted mark, then **Runs without one Flow** (zero-Flow and multi-Flow Runs at the Catalog Root). `~/.contingency` (Global, read-only) is folded beneath it. Coming from a session marks that session's Flow **This session** and selects it. |
+| Catalog (left sidebar) | Search, then `contingency/` (Local) as a Group tree with each Flow's platform and Verified or Drafted mark, then **Runs without one Flow** (zero-Flow and multi-Flow Runs at the Catalog Root). The **Global** filter beside the heading shows `~/.contingency` (read-only) beneath it, with its Flows' Runs. Coming from a session marks that session's Flow **This session** and selects it. |
 | Flow (middle) | The Flow's group path, its Verified or Drafted and platform chips, the values Contingency stamps (hosts or Target App, Emulation, Starting Data), then its markdown rendered, one tab per file. Procedure steps show their **Done when** outcome under each step, and a link to a supporting file opens its tab. |
-| Runs (right) | The Flow's Runs and Teaching Recordings, newest first, each with its Agent Assessment. The selected one shows its Run Summary: the video, the assessment and explanation, findings, Browser Modifications, the Flows a multi-Flow Run used, and the Run ID. |
+| Runs (right) | The Flow's Runs and Teaching Recordings, newest first, each with its Agent Assessment. The selected one shows its Run Summary, the only one the Workspace has: the video, the assessment and explanation, findings, Browser Checks, Scan Reports, Browser Modifications, the Flows a multi-Flow Run used, and the Run ID. A Dry Run whose evidence Cleanup removed shows its summary without the video. |
 
 The video follows ADR 0046: Action Windows play at real speed with the agent's cursor drawn in, Idle Gaps play condensed with a **Fast-forwarded** badge, a Takeover is marked **You had control**, and a native Hidden Interval shows **Hidden: secure screen**. The seek bar shows each span, hatched for Idle Gaps, and the clock counts real Run time. Hovering the seek bar shows a preview card: a frame of the video at that point, what happened there, the real Run time, and the kind of span.
 
 Opening the page, the **Flows** button grows into the catalog sidebar, and the Flow and Runs panes follow it in. Leaving `/flow` by any route shrinks the sidebar back into the button.
 
-Walk through it: from the home page, open **Flows**, then pick **checkout** (two files, three Runs including a Takeover), **login** (Android, Hidden Interval), **onboarding** (drafted from a Guided Run, a failing Dry Run), **settings** (drafted, no Runs), **Runs without one Flow**, and `~/.contingency` → **sign-in-sso**. Open a session first to see **This session**. The scaffold's **Catalog** switch shows the empty catalog.
+Walk through it: from the home page, open **Flows**, then pick **checkout** (two files; a Run with Browser Checks and a Scan Report, a cleaned-up Dry Run with no video, and a Takeover), **login** (Android, Hidden Interval), **onboarding** (drafted from a Guided Run, a failing Dry Run), **settings** (drafted, no Runs), **Runs without one Flow**, and **Global** → **sign-in-sso**. Open a session first to see **This session**. The scaffold's **Catalog** switch shows the empty catalog.
 
-### Open questions
+### Decisions
 
-- **While recording:** the prototype keeps **Flows** disabled during a Teaching recording, as the drawer was ("Stop recording to open Flows"). A page leaves the session view, so the session would keep recording off screen if it were allowed.
-- **Global Runs:** a global Flow's Runs aren't listed, because this process's Run store doesn't hold them. The drawer listed them and offered no Run Summary.
-- **Dry Run evidence:** a Dry Run's video lives with its Teaching Recording and is purged by Cleanup. The prototype plays it until then; after Cleanup the Run row would stay with no video.
-- **Full Run Summary:** an Interactive Run offers **Open full Run Summary** (today's `?run=` view). Whether the inline summary replaces it is undecided.
+Settled on #755:
+
+- **While recording:** **Flows** stays available. The Workspace never blocks navigation, and someone blocked would type `/flow` anyway. The session keeps recording, and the switcher shows it as Recording.
+- **Global Runs:** a global Flow's Runs are listed. The user-global root sits behind the **Global** filter.
+- **Dry Run evidence:** once Cleanup removes a Dry Run's video, its summary drops the video block.
+- **Run Summary:** the inline summary is the only one. The separate `?run=` view goes, and `/?run=<id>` lands on `/flow` with that Run selected.
 
 ## Session view (#753)
 
@@ -98,18 +100,20 @@ Walk through it: open **Find a red jacket under $80** (boundary request, Task de
 
 ## Proposed contract changes
 
-### Flows page (#755, proposed)
+### Flows page (#755, approved)
 
 | Kind | Today | Proposed |
 | --- | --- | --- |
-| Route | No route. The Flows Drawer opens over the current view | New route `/flow`, with an optional `?flow=<name>` or `?flow=global:<name>`. The MCP `viewUrl` params on `/` don't change. |
-| Role/name | **Flows** button opens a dialog (the drawer) | **Flows** navigates to `/flow`, and carries `aria-current="page"` there. Disabled while recording, as today. |
-| Role/name | Drawer with a `tree` per Catalog Root (`local Flow Groups`, `global Flow Groups`) and a details panel beside the browser | `complementary "Catalog"` with `tree "Local Flows"` and `tree "Global Flows"`, a `textbox "Search Flows"` and a **Runs without one Flow** button. Beside it, `region` named after the Flow (its markdown, `tablist "Flow files"`) and `region "Runs"` (`list "Runs and recordings"`, `article "Run Summary"` with `slider "Seek"`). |
+| Route | No route. The Flows Drawer opens over the current view | New route `/flow`, with optional `?flow=<name>` (or `global:<name>`) and `?run=<id>`. |
+| Route | `/?run=<id>` opens the Run Summary view, and the MCP `open_run` tool returns it as its `viewUrl` | The view is removed. `/?run=<id>` redirects to `/flow?flow=<its Flow>&run=<id>`, so existing links keep working; `open_run` may return the new URL. The other `viewUrl` params don't change. |
+| Role/name | **Flows** button opens a dialog (the drawer) | **Flows** navigates to `/flow`, and carries `aria-current="page"` there. It is no longer disabled while recording. |
+| Role/name | Drawer with a `tree` per Catalog Root (`local Flow Groups`, `global Flow Groups`) and a details panel beside the browser | `complementary "Catalog"` with `tree "Local Flows"`, a toggle button **Global** that adds `tree "Global Flows"`, a `textbox "Search Flows"` and a **Runs without one Flow** button. Beside it, `region` named after the Flow (its markdown, `tablist "Flow files"`) and `region "Runs"` (`list "Runs and recordings"`, `article "Run Summary"` with `slider "Seek"`). |
 | Behaviour | Flow details show the procedure as a list and files as highlighted source | Every file renders as markdown. **Done when** shows beneath its step. |
-| Behaviour | A Run's details link out to **Open Run Summary** in a new tab | The Run Summary, with its video, shows inline in the Runs pane. Interactive Runs keep a link to the full view. |
-| Glossary | **Flows Drawer**: "the Workspace's read-only browser over Catalog Roots… opened from the Flows button…" | Renamed **Flows page**: the Workspace page at `/flow`, opened from the Flows button. The rest of the definition stands: read-only, local root first and global folded beneath, Runs grouped under their Flow, zero-Flow and multi-Flow Runs at the root, the session's own Flow marked, never visible to an agent. |
+| Behaviour | A Run's details link out to **Open Run Summary** in a new tab | The Run Summary, with its video, Browser Checks, Scan Reports and Browser Modifications, shows inline in the Runs pane. There is no separate view. A cleaned-up Dry Run shows no video. |
+| Glossary | **Flows Drawer**: "the Workspace's read-only browser over Catalog Roots… opened from the Flows button…" | Renamed **Flows page**: the Workspace page at `/flow`, opened from the Flows button. The rest of the definition stands: read-only, local root first and global beneath it behind a **Global** filter, Runs grouped under their Flow, zero-Flow and multi-Flow Runs at the root, the session's own Flow marked, never visible to an agent. |
 | Glossary | **Workspace**: "…Flows at the top right…" | "…Flows at the top right, which opens the Flows page…" |
-| ADR 0051 | The user-global catalog is listed in the Flows Drawer | Listed on the Flows page. The ADR's read-only and user-only rules stand. |
+| ADR 0051 | The user-global catalog is listed in the Flows Drawer | Listed on the Flows page behind the **Global** filter, with its Runs. The ADR's read-only and user-only rules stand. |
+| Glossary | **Run Summary**: "The local Workspace report of a Run…" | "…shown in the Runs pane of the Flows page." |
 
 ### Session view (#753, approved)
 

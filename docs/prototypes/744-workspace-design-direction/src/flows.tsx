@@ -2,11 +2,6 @@
 // on the left, and the selected Flow split in two beside it: its rendered
 // markdown, then its Runs with a Run Summary and video.
 import { Button } from "@ui-sdk/react/button";
-import {
-  Collapsible,
-  CollapsiblePanel,
-  CollapsibleTrigger,
-} from "@ui-sdk/react/collapsible";
 import { Input } from "@ui-sdk/react/input";
 import {
   Slider,
@@ -32,7 +27,6 @@ import {
   ChevronIcon,
   DraftIcon,
   EyeOffIcon,
-  ExternalIcon,
   FileIcon,
   FolderIcon,
   ForwardIcon,
@@ -70,8 +64,19 @@ interface Run {
     readonly text: string;
   }[];
   readonly modifications?: readonly string[];
+  readonly checks?: readonly {
+    readonly name: string;
+    readonly outcome: Assessment;
+  }[];
+  readonly scans?: readonly {
+    readonly name: string;
+    readonly outcome: Assessment;
+    readonly text: string;
+  }[];
   readonly flows: readonly string[];
   readonly video: readonly Segment[];
+  /** Cleanup deleted this Dry Run's evidence when its Flow was verified. */
+  readonly purged?: boolean;
 }
 
 interface Recording {
@@ -256,8 +261,22 @@ const FLOWS: readonly Flow[] = [
             text: "The View order link in the confirmation email returns 404.",
           },
         ],
+        checks: [
+          { name: "POST /api/orders responds 201", outcome: "working" },
+          {
+            name: "localStorage cart is empty after order",
+            outcome: "working",
+          },
+        ],
         flows: ["checkout"],
         id: "run_Q81x",
+        scans: [
+          {
+            name: "Accessibility · order confirmation",
+            outcome: "not-working",
+            text: "2 findings: the order number has no label, and one image has no alt text.",
+          },
+        ],
         kind: "Interactive Run",
         platform: "web",
         title: "Buy wool socks and check the confirmation email",
@@ -286,6 +305,7 @@ const FLOWS: readonly Flow[] = [
         flows: ["checkout"],
         id: "run_M2ra",
         kind: "Dry Run",
+        purged: true,
         platform: "web",
         title: "Dry Run of checkout",
         video: [
@@ -301,18 +321,18 @@ const FLOWS: readonly Flow[] = [
       {
         assessment: "inconclusive",
         explanation:
-          "The 3-D Secure prompt did not load, so the user took control and approved it. A Dry Run with a Takeover cannot pass.",
+          "The 3-D Secure prompt never loaded for the agent, so you took control and approved it. The agent confirmed the order after you returned control.",
         findings: [
           {
             outcome: "inconclusive",
-            text: "Step 4 was finished by the user, not the agent.",
+            text: "3-D Secure was approved by you, not the agent.",
           },
         ],
         flows: ["checkout"],
         id: "run_K0pd",
-        kind: "Dry Run",
+        kind: "Interactive Run",
         platform: "web",
-        title: "Dry Run of checkout",
+        title: "Check out with a 3-D Secure card",
         video: [
           a(6, "Open shop.localhost"),
           a(10, "Sign in"),
@@ -356,6 +376,7 @@ const FLOWS: readonly Flow[] = [
         flows: ["search"],
         id: "run_W5te",
         kind: "Dry Run",
+        purged: true,
         platform: "web",
         title: "Dry Run of search",
         video: [
@@ -399,9 +420,9 @@ const FLOWS: readonly Flow[] = [
         ],
         flows: ["login"],
         id: "run_A7nn",
-        kind: "Dry Run",
+        kind: "Interactive Run",
         platform: "android",
-        title: "Dry Run of login",
+        title: "Sign in and open the profile tab",
         video: [
           a(7, "Open Contingency Public Login"),
           a(6, "Enter qa@example.com"),
@@ -497,7 +518,29 @@ const FLOWS: readonly Flow[] = [
     name: "sign-in-sso",
     platform: "web",
     recordings: [],
-    runs: [],
+    runs: [
+      {
+        assessment: "working",
+        explanation:
+          "Signed in through the identity provider and reached the home page.",
+        findings: [
+          { outcome: "working", text: "The signed-in home page showed." },
+        ],
+        flows: ["sign-in-sso"],
+        id: "run_G1so",
+        kind: "Interactive Run",
+        platform: "web",
+        title: "Sign in with SSO and open settings",
+        video: [
+          a(5, "Open app.example.com"),
+          a(4, "Continue with SSO"),
+          idle(14, "Waiting on Domain Scope"),
+          a(8, "Sign in at login.example.com"),
+          a(5, "Open settings"),
+        ],
+        when: "3 days ago",
+      },
+    ],
     scope: "global",
     stamped: [
       ["Hosts", "app.example.com · login.example.com"],
@@ -761,6 +804,10 @@ const Sidebar = ({
   readonly onSelect: (value: string) => void;
 }) => {
   const [query, setQuery] = useState("");
+  // The user-global root is hidden until the Global filter turns it on.
+  const [showGlobal, setShowGlobal] = useState(() =>
+    selected.startsWith("global:")
+  );
   const match = (f: Flow) => f.name.includes(query.trim().toLowerCase());
   const local = flows.filter((f) => f.scope === "local" && match(f));
   const global = flows.filter((f) => f.scope === "global" && match(f));
@@ -786,7 +833,17 @@ const Sidebar = ({
     <aside aria-label="Catalog" className="flows-sidebar island">
       <div className="sidebar-head">
         <h1>Flows</h1>
-        <span className="count quiet">{flows.length}</span>
+        <span className="count quiet">
+          {flows.filter((f) => showGlobal || f.scope === "local").length}
+        </span>
+        <Button
+          aria-pressed={showGlobal}
+          className="filter-btn"
+          onClick={() => setShowGlobal(!showGlobal)}
+        >
+          <WebIcon />
+          Global
+        </Button>
       </div>
       <label className="search">
         <SearchIcon />
@@ -823,21 +880,18 @@ const Sidebar = ({
             </button>
           ) : null}
         </section>
-        <Collapsible className="root" defaultOpen={false}>
-          <CollapsibleTrigger className="root-head root-toggle">
-            <span className="tree-chev">
-              <ChevronIcon />
-            </span>
-            ~/.contingency <span className="hint">Global · read-only</span>
-          </CollapsibleTrigger>
-          <CollapsiblePanel>
+        {showGlobal ? (
+          <section aria-labelledby="root-global" className="root">
+            <h2 className="root-head" id="root-global">
+              ~/.contingency <span className="hint">Global · read-only</span>
+            </h2>
             {global.length > 0 ? (
               tree("global", global)
             ) : (
               <p className="hint root-empty">No Flow matches.</p>
             )}
-          </CollapsiblePanel>
-        </Collapsible>
+          </section>
+        ) : null}
       </div>
     </aside>
   );
@@ -1217,7 +1271,7 @@ const RunSummary = ({
   readonly onFlow: (name: string) => void;
 }) => (
   <article aria-label="Run Summary" className="summary">
-    <Video key={run.id} run={run} />
+    {run.purged ? null : <Video key={run.id} run={run} />}
     <div className="summary-head">
       <AssessmentChip value={run.assessment} />
       <span className="hint">
@@ -1242,6 +1296,34 @@ const RunSummary = ({
         ))}
       </ul>
     </section>
+    {run.checks ? (
+      <section aria-label="Browser Checks" className="findings">
+        <h4 className="eyebrow">Browser Checks</h4>
+        <ul>
+          {run.checks.map((c) => (
+            <li key={c.name}>
+              <AssessmentChip value={c.outcome} />
+              <span className="mono mod">{c.name}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null}
+    {run.scans ? (
+      <section aria-label="Scan Reports" className="findings">
+        <h4 className="eyebrow">Scan Reports</h4>
+        <ul>
+          {run.scans.map((s) => (
+            <li key={s.name}>
+              <AssessmentChip value={s.outcome} />
+              <span>
+                <strong>{s.name}</strong> {s.text}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null}
     {run.modifications ? (
       <section aria-label="Browser Modifications" className="findings">
         <h4 className="eyebrow">Browser Modifications</h4>
@@ -1268,16 +1350,11 @@ const RunSummary = ({
     ) : null}
     <footer className="summary-foot">
       <code className="run-id">{run.id}</code>
-      {run.kind === "Dry Run" ? (
+      {run.purged ? (
         <span className="hint">
-          A Dry Run's evidence stays with its Teaching Recording.
+          Cleanup removed this Dry Run's video when the Flow was verified.
         </span>
-      ) : (
-        <Button className="pill-btn">
-          <ExternalIcon />
-          Open full Run Summary
-        </Button>
-      )}
+      ) : null}
     </footer>
   </article>
 );
@@ -1307,15 +1384,17 @@ const RunsPane = ({
   onFlow,
   emptyNote,
   onShow,
+  initial,
 }: {
   readonly entries: readonly Entry[];
   readonly onFlow: (name: string) => void;
   readonly emptyNote: string;
   readonly onShow?: (id: string) => void;
+  readonly initial?: string;
 }) => {
   const id = (e: Entry) => (e.kind === "run" ? e.run.id : e.recording.id);
-  const [selected, setSelected] = useState(() =>
-    entries[0] ? id(entries[0]) : ""
+  const [selected, setSelected] = useState(
+    () => initial ?? (entries[0] ? id(entries[0]) : "")
   );
   const current = entries.find((e) => id(e) === selected) ?? entries[0];
   const runs = entries.filter((e) => e.kind === "run").length;
@@ -1399,7 +1478,12 @@ export const FlowsPage = ({
   onSelect,
   sessionFlow,
   empty,
+  run,
+  onRun,
 }: {
+  /** The Run in the URL (`?run=`), shown in the Runs pane. */
+  readonly run: string | undefined;
+  readonly onRun: (id: string) => void;
   readonly nav: ReactNode;
   readonly actions: ReactNode;
   /** `<scope>:<name>`, or `local:@root` for the Catalog Root's own Runs. */
@@ -1447,16 +1531,14 @@ export const FlowsPage = ({
           />
           <main className="flows-main" key={value}>
             {name === "@root" ? (
-              <RootPanes onFlow={openFlow} />
+              <RootPanes initial={run} onFlow={openFlow} onRun={onRun} />
             ) : flow ? (
               <>
                 <DocPane flow={flow} scope={scope} />
                 <RunsPane
-                  emptyNote={
-                    flow.scope === "global"
-                      ? "This Flow's Runs stay in ~/.contingency. Open them from a Workspace that uses that root."
-                      : "No Runs yet. Ask your agent to Dry Run this Flow."
-                  }
+                  emptyNote="No Runs yet. Ask your agent to Dry Run this Flow."
+                  initial={run}
+                  onShow={onRun}
                   entries={[
                     ...flow.runs.map((run) => ({ kind: "run" as const, run })),
                     ...flow.recordings.map((recording) => ({
@@ -1475,18 +1557,37 @@ export const FlowsPage = ({
   );
 };
 
-const RootPanes = ({ onFlow }: { readonly onFlow: (name: string) => void }) => {
+const RootPanes = ({
+  onFlow,
+  onRun,
+  initial,
+}: {
+  readonly onFlow: (name: string) => void;
+  readonly onRun: (id: string) => void;
+  readonly initial: string | undefined;
+}) => {
   // The task pane follows whichever root Run the runs pane shows.
-  const [shown, setShown] = useState(ROOT_RUNS[0]?.id);
+  const [shown, setShown] = useState(initial ?? ROOT_RUNS[0]?.id);
   return (
     <>
       <RootDocPane run={ROOT_RUNS.find((r) => r.id === shown)} />
       <RunsPane
         emptyNote=""
         entries={ROOT_RUNS.map((run) => ({ kind: "run" as const, run }))}
+        initial={initial}
         onFlow={onFlow}
-        onShow={setShown}
+        onShow={(id) => {
+          setShown(id);
+          onRun(id);
+        }}
       />
     </>
   );
+};
+
+/** The Flow a Run belongs to, as a page selection, for `/?run=<id>` links. */
+export const flowOfRun = (id: string): string | undefined => {
+  if (ROOT_RUNS.some((r) => r.id === id)) return "local:@root";
+  const flow = FLOWS.find((f) => f.runs.some((r) => r.id === id));
+  return flow ? `${flow.scope}:${flow.name}` : undefined;
 };
