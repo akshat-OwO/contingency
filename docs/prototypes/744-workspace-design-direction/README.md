@@ -70,9 +70,9 @@ Walk through it: open **Find a red jacket under $80** (boundary request, Task de
 
 ## Proposed contract changes
 
-### Session view (#753)
+### Session view (#753, approved)
 
-These need sign-off on #753 before the prod work plans for them.
+Approved on #753. The open questions above were accepted as prototyped.
 
 | Kind | Today | Proposed |
 | --- | --- | --- |
