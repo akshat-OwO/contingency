@@ -243,6 +243,14 @@ const useDockHeight = () => {
  * the stage. It takes no layout space and lets pointer input through, so the
  * device or page keeps its size and the next attempt is never blocked.
  */
+/**
+ * The one shell both bottom islands share, so Requests and Session status read
+ * as a pair. Each island is its own size container: what is inside sizes
+ * itself to the island, not to the stage beside it.
+ */
+const bottomIslandClassName =
+  "island shadow-island-lift @container pointer-events-auto w-full overflow-hidden rounded-3xl";
+
 export const DockShell = ({
   children,
   footer,
@@ -279,14 +287,20 @@ export const DockShell = ({
         <div className="flex flex-col items-stretch gap-2 @3xl:flex-row @3xl:items-end @3xl:justify-between">
           <section
             aria-label="Requests"
-            className="island shadow-island-lift pointer-events-auto w-full overflow-hidden rounded-2xl empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0"
+            className={cn(
+              bottomIslandClassName,
+              "empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0"
+            )}
             data-slot="dock-requests"
           >
             {requests}
           </section>
           <section
             aria-label="Session status"
-            className="island pointer-events-auto w-full overflow-hidden rounded-2xl @3xl:ml-auto @3xl:max-w-xl"
+            className={cn(
+              bottomIslandClassName,
+              "flex flex-wrap items-center gap-x-2 gap-y-1 p-2 pl-3.5 @3xl:ml-auto @3xl:max-w-xl"
+            )}
             data-slot="workspace-dock"
             ref={ref}
           >
@@ -297,12 +311,14 @@ export const DockShell = ({
               rather than clipping.
             */}
             <div
-              className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 px-2 pt-1 pb-2"
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden"
               data-slot="dock-controls"
             >
               {children}
             </div>
-            {footer}
+            <div className="-mr-2 -mb-2 -ml-3.5 basis-full empty:hidden">
+              {footer}
+            </div>
           </section>
         </div>
       </div>
@@ -552,7 +568,7 @@ export const DockStatus = ({
   const [sentenceRef, clamped] = useClamped<HTMLOutputElement>();
   const expandable = clamped || expanded || details !== undefined;
   return (
-    <div className="px-3.5 pt-2 pb-0.5" data-slot="dock-status">
+    <div className="min-w-48 flex-1 py-0.5" data-slot="dock-status">
       <div className="flex min-w-0 items-start gap-2">
         <div
           className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-0.5"

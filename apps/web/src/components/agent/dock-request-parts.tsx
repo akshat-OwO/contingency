@@ -19,11 +19,12 @@ import { CopyFeedback, useCopy } from "./evidence-reference";
  */
 
 /**
- * The request tier's wash: a quiet amber, so what the agent is waiting on
- * reads as attention on every dock, browser or device.
+ * The request tier's wash: a quiet amber that fades out under the header, so
+ * what the agent is waiting on reads as attention while the island keeps the
+ * same surface as Session status beside it.
  */
 export const requestTierClassName =
-  "bg-amber-500/[0.06] dark:bg-amber-400/[0.05]";
+  "bg-[linear-gradient(to_bottom,color-mix(in_oklab,var(--color-amber-500)_10%,transparent),transparent_4.5rem)]";
 
 /** The attention icon's color, shared so every request reads the same. */
 export const requestIconClassName =
