@@ -10,7 +10,7 @@ export type DeviceErasing =
   | { readonly _tag: "erasing" }
   | { readonly _tag: "failed"; readonly reason: string };
 
-/** What a setup sheet's device step needs to offer Device Erase. */
+/** What a native setup's device step needs to offer Device Erase. */
 export interface DeviceEraseControls {
   readonly platform: DeviceErasePlatform;
   /** Devices this process started, which it may stop to erase. */

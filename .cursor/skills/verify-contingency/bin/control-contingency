@@ -78,7 +78,7 @@ Commands:
   browser flows-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
   browser video-layout-check --path <directory> [--allow-overflow]
   browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
-  browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>
+  browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>  (a button target answers the file chooser it opens)
   browser download --role <role> --name <name> --path <file> [--partial]
   cli -- <contingency args...>
   ecommerce start
@@ -1052,7 +1052,19 @@ const runPageAction = async (page, appUrl, action, flags) => {
         typeof flags.label === "string"
           ? page.getByLabel(flags.label, { exact: !partialMatch(flags) })
           : locator(page, flags);
-      await target.setInputFiles(filePath);
+      // A File Input's native input is hidden; its trigger button opens the
+      // file chooser, which is answered with the file.
+      const isInput = await target.evaluate(
+        (element) => element instanceof HTMLInputElement
+      );
+      if (isInput) {
+        await target.setInputFiles(filePath);
+      } else {
+        const chooser = page.waitForEvent("filechooser");
+        await target.click();
+        const fileChooser = await chooser;
+        await fileChooser.setFiles(filePath);
+      }
       return filePath;
     }
     case "download": {

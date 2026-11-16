@@ -15,7 +15,7 @@ import {
   androidIdle,
   androidPick,
   deviceType,
-  openAndroidSheet,
+  openAndroidStartCard,
 } from "./android-ui.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -220,7 +220,7 @@ const journey = async (sessionId) => {
 
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowName, snapshot);
+  await openAndroidStartCard(control, selection, flowName, snapshot);
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");

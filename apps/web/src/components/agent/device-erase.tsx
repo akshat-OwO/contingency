@@ -34,7 +34,7 @@ const failure = (cause: unknown) =>
   );
 
 /**
- * Device Erase for one platform's setup sheet (ADR 0081). It reads the
+ * Device Erase for one platform's native setup (ADR 0081). It reads the
  * process's erase state with the device list, and refreshes the list once
  * an erase has booted the device again.
  */

@@ -16,7 +16,7 @@ import {
   androidIdle,
   androidPick,
   deviceType,
-  openAndroidSheet,
+  openAndroidStartCard,
 } from "./android-ui.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -190,7 +190,7 @@ const selection = (variant) => ({
     androidVersion: "16",
     appBuild: build(variant).appBuild,
     appId,
-    // The setup sheet derives this from the starting element.
+    // The start card derives this from the starting element.
     startingState: `${startingCondition.role} ${startingCondition.name} is visible`,
   },
   helperConsent: "none",
@@ -405,7 +405,7 @@ try {
 
   // Teaching through mirrored Workspace.
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection("working"), flowName, snapshot);
+  await openAndroidStartCard(control, selection("working"), flowName, snapshot);
   const listed = await tool("agent_device_sessions_list", {
     platform: "android",
   });

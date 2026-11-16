@@ -134,14 +134,21 @@ let flowName;
 const open = async (name, upload, starting) => {
   flowName = `${name}-${process.pid}`;
   console.log(`Opening ${flowName}`);
+  // `?android=new` opens the home with the Teach on Android start card open.
   await page.goto(`${instance.mcpUrl}?android=new`);
-  await click("Open Android session");
+  await page
+    .getByRole("form", { exact: true, name: "Teach on Android" })
+    .waitFor();
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
   await page.getByRole("button", { name: new RegExp(serial, "u") }).click();
   if (upload) {
-    await page.getByLabel("Upload an .apk", { exact: true }).setInputFiles(apk);
+    // The drop zone's button opens the file chooser; answer it with the APK.
+    const chooser = page.waitForEvent("filechooser");
+    await click("Upload an .apk");
+    const fileChooser = await chooser;
+    await fileChooser.setFiles(apk);
     await page
       .getByText(/replaces build 1 with your consent/u)
       .waitFor({ timeout: 90_000 });
@@ -154,12 +161,12 @@ const open = async (name, upload, starting) => {
       .click({ timeout: 90_000 });
   }
   if (starting) {
-    await click("Optional steps");
+    await page.getByRole("button", { name: /^Setup/u }).click();
     await page
       .getByRole("textbox", { exact: true, name: "Starting screen element" })
       .fill(starting);
   }
-  await click("Prepare and open app");
+  await click("Start teaching");
   const dialog = page.getByRole("dialog", {
     exact: true,
     name: "Prepare and open app?",
@@ -226,12 +233,12 @@ try {
   assert.equal(await liveCount(), 0);
   assert.equal(await helperVersion(), before.helper);
   assert.equal(await foreground(), before.foreground);
-  await click("Prepare and open app");
+  await click("Start teaching");
   await page.keyboard.press("Escape");
   assert.equal(await liveCount(), 0);
   assert.equal(await helperVersion(), before.helper);
   receipt.coverage.cancelAndEscape = true;
-  await click("Prepare and open app");
+  await click("Start teaching");
   console.log("Confirming APK setup with newer helper");
   await click("Confirm preparation");
   await wait("Retry preparation");

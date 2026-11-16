@@ -14,7 +14,7 @@ import {
   androidComment,
   androidIdle,
   androidPick,
-  openAndroidSheet,
+  openAndroidStartCard,
 } from "./android-ui.mjs";
 
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -229,7 +229,7 @@ await execute("adb", [
 ]);
 try {
   await control("browser", "goto", "--url", instance.mcpUrl);
-  await openAndroidSheet(control, selection, flowName, snapshot);
+  await openAndroidStartCard(control, selection, flowName, snapshot);
   const sessions = await tool("agent_device_sessions_list", {
     platform: "android",
   });
