@@ -1,8 +1,7 @@
 /* oxlint-disable eslint/no-await-in-loop -- Decode each transport packet in order and release its reader on cancellation. */
-import { AgentSessionId, FlowName, OperationId } from "@contingency/protocol";
+import { AgentSessionId, OperationId } from "@contingency/protocol";
 import type {
-  IosDeviceSelection,
-  IosInstalledApp,
+  FlowName,
   IosWorkspaceCommand,
   IosObservationRefusal,
   IosWorkspaceSnapshot,
@@ -10,7 +9,6 @@ import type {
   IosWorkspaceSummary,
   NativeEmulationChange,
   NativeInput,
-  UploadedIosApp,
 } from "@contingency/protocol";
 import {
   useAtom,
@@ -26,7 +24,6 @@ import {
   CornerDownLeftIcon,
   KeyRoundIcon,
   MessageSquareTextIcon,
-  RefreshCwIcon,
   RotateCwIcon,
   ShieldAlertIcon,
   SmartphoneIcon,
@@ -42,40 +39,24 @@ import {
   requestIconClassName,
   requestTierClassName,
 } from "@/components/agent/dock-request-parts";
-import { WatcherLoader } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   NativeSelect,
   NativeSelectOption,
 } from "@/components/ui/native-select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { decodeBase64 } from "@/lib/base64";
 import { isSessionNotFound } from "@/lib/failure-message";
 import {
-  bootIosSimulator,
-  discardTargetAppBuild,
-  iosDevicesAtom,
   iosSessionsAtom,
   iosEnabledAtom,
   iosStreamAccess,
-  listIosApps,
   iosWorkspaceForwardMutation,
   runIosWorkspaceCommand,
-  uploadIosApp,
 } from "@/lib/rpc";
-import type { AppBundleFile } from "@/lib/rpc";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
@@ -89,9 +70,7 @@ import {
   deviceSummaryLabel,
 } from "./android-workspace-state";
 import { appInstallationQuestion } from "./app-installation";
-import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { DeviceElements } from "./device-elements";
-import { useDeviceErase } from "./device-erase";
 import {
   makeFirstResponseProbe,
   probeNativeInput,
@@ -104,25 +83,8 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
-import {
-  chosenSimulator,
-  iosDeviceChoice,
-  simulatorInventoryKey,
-} from "./ios-setup-state";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
-import { NativeOptionalSteps } from "./native-optional-steps";
-import { StartingDataField } from "./native-starting-data";
 import { clearDataQuestion } from "./native-starting-data-copy";
-import {
-  BuildPicker,
-  InstalledAppsFrame,
-  UploadedBuild,
-  useBuildUpload,
-} from "./target-app-upload";
-import type {
-  BuildUploadState,
-  InstalledAppsNotice,
-} from "./target-app-upload";
 import {
   DockNotice,
   DockShell,
@@ -131,8 +93,8 @@ import {
   DockStatus,
   DockWordmark,
 } from "./workspace-dock";
-import { useWorkspaceGesture } from "./workspace-gesture";
-import { WorkspaceHomeBar, WorkspaceHomeLink } from "./workspace-home-nav";
+import { iosStartGestureAtom, useWorkspaceGesture } from "./workspace-gesture";
+import { WorkspaceHomeBar } from "./workspace-home-nav";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 // oxlint-disable-next-line eslint/no-redeclare
@@ -374,605 +336,6 @@ const IosMirror = ({
         </p>
       </div>
     </div>
-  );
-};
-
-/**
- * One numbered step of the setup sheet, read the same way as Android's: its
- * number turns into a check once its required fields are filled.
- */
-const SetupGroup = ({
-  children,
-  description,
-  done,
-  index,
-  title,
-}: {
-  readonly children: React.ReactNode;
-  readonly description?: string | undefined;
-  readonly done: boolean;
-  readonly index: number;
-  readonly title: string;
-}) => (
-  <fieldset className="min-w-0 space-y-3">
-    <div className="space-y-0.5">
-      <legend className="flex items-center gap-2 text-sm font-medium">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "grid size-5 place-items-center rounded-full border text-xs tabular-nums",
-            done && "bg-primary text-primary-foreground border-primary"
-          )}
-        >
-          {done ? <CheckIcon className="size-3" /> : index}
-        </span>
-        {title}
-      </legend>
-      {description === undefined ? null : (
-        <p className="text-muted-foreground pl-7 text-xs text-pretty">
-          {description}
-        </p>
-      )}
-    </div>
-    <div className="space-y-3 pl-7">{children}</div>
-  </fieldset>
-);
-
-const SetupField = ({
-  children,
-  help,
-  htmlFor,
-  label,
-}: {
-  readonly children: React.ReactNode;
-  readonly help?: { readonly id: string; readonly text: string } | undefined;
-  readonly htmlFor: string;
-  readonly label: string;
-}) => (
-  <div className="min-w-0 space-y-1.5">
-    <Label htmlFor={htmlFor}>{label}</Label>
-    {children}
-    {help === undefined ? null : (
-      <p className="text-muted-foreground text-xs" id={help.id}>
-        {help.text}
-      </p>
-    )}
-  </div>
-);
-
-const ROLE_OPTIONS = ["text", "group", "heading", "button", "image"] as const;
-
-const MISSING_WORDS = new Map([
-  ["Device", "a simulator"],
-  ["Done when element", "the done-when element"],
-  ["Flow name", "a Flow name"],
-  ["Starting screen element", "the starting-screen element"],
-  ["Target App", "the Target App"],
-]);
-
-/** The missing fields as one plain phrase: "a Flow name and a simulator". */
-const missingPhrase = (missing: readonly string[]) => {
-  const words = missing.map((label) => MISSING_WORDS.get(label) ?? label);
-  return words.length < 2
-    ? words.join("")
-    : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
-};
-
-/** The labels of the form's required fields that are still invalid. */
-const missingFields = (form: HTMLFormElement | null): readonly string[] =>
-  form === null
-    ? []
-    : [...form.elements].flatMap((element) =>
-        (element instanceof HTMLInputElement ||
-          element instanceof HTMLSelectElement) &&
-        !element.validity.valid
-          ? [
-              element.getAttribute("aria-label") ??
-                (element.labels?.[0]?.textContent?.trim() || element.name),
-            ]
-          : []
-      );
-
-/** The Target App: an uploaded simulator build, or an installed app. */
-type IosTarget =
-  | { readonly _tag: "installed"; readonly app: IosInstalledApp }
-  | { readonly _tag: "uploaded"; readonly upload: UploadedIosApp };
-
-/** The bundle identifier and build the Target App carries. */
-const targetIdentity = (target: IosTarget) =>
-  target._tag === "installed" ? target.app : target.upload;
-
-// An upload no session claimed is deleted as soon as it is let go of.
-const releaseUpload = (target: IosTarget | null) => {
-  if (target?._tag === "uploaded") {
-    Effect.runFork(discardTargetAppBuild(target.upload.id));
-  }
-};
-
-type InstalledApps =
-  | { readonly _tag: "idle" }
-  | { readonly _tag: "loading" }
-  | { readonly _tag: "failed"; readonly message: string }
-  | { readonly _tag: "loaded"; readonly apps: readonly IosInstalledApp[] };
-
-/** The apps on the chosen simulator, read again when it or refresh changes. */
-const useInstalledIosApps = (
-  device: IosDeviceSelection | undefined,
-  refresh: number
-) => {
-  const [stateAtom] = useState(() =>
-    Atom.make<InstalledApps>({ _tag: "idle" })
-  );
-  const [state, setState] = useAtom(stateAtom);
-  const key = device === undefined ? null : `${device.udid}-${refresh}`;
-  useEffect(() => {
-    if (device === undefined) {
-      setState({ _tag: "idle" });
-      return;
-    }
-    setState({ _tag: "loading" });
-    const fiber = Effect.runFork(
-      listIosApps(device).pipe(
-        Effect.match({
-          onFailure: (cause) =>
-            setState({ _tag: "failed", message: errorMessage(cause) }),
-          onSuccess: (apps) => setState({ _tag: "loaded", apps }),
-        })
-      )
-    );
-    return () => {
-      Effect.runFork(Fiber.interrupt(fiber));
-    };
-    // The key names the read; the device object is rebuilt every render.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, setState]);
-  return state;
-};
-
-const installedAppsNotice = (
-  apps: InstalledApps
-): InstalledAppsNotice | null => {
-  if (apps._tag === "idle") {
-    return {
-      _tag: "message",
-      text: "Pick a running simulator to list its apps.",
-      tone: "muted",
-    };
-  }
-  if (apps._tag === "loading") {
-    return { _tag: "loading" };
-  }
-  if (apps._tag === "failed") {
-    return { _tag: "message", text: apps.message, tone: "destructive" };
-  }
-  if (apps.apps.length === 0) {
-    return {
-      _tag: "message",
-      text: "No apps are installed on this simulator yet.",
-      tone: "muted",
-    };
-  }
-  return null;
-};
-
-/**
- * The Target App group: upload a simulator `.app` folder, or pick an app
- * already on the simulator. The sheet reads the bundle identifier and build
- * from the app itself, so neither is typed.
- */
-const IosTargetApp = ({
-  apps,
-  done,
-  onRemoveUpload,
-  onSelect,
-  onUpload,
-  target,
-  upload,
-}: {
-  readonly apps: InstalledApps;
-  readonly done: boolean;
-  readonly onRemoveUpload: () => void;
-  readonly onSelect: (app: IosInstalledApp) => void;
-  readonly onUpload: (files: readonly AppBundleFile[], name: string) => void;
-  readonly target: IosTarget | null;
-  readonly upload: BuildUploadState;
-}) => (
-  <SetupGroup done={done} index={2} title="Target App">
-    {target?._tag === "uploaded" ? (
-      <UploadedBuild
-        detail={`${target.upload.bundleId} · build ${target.upload.build} · installs with your consent`}
-        name={target.upload.name}
-        onRemove={onRemoveUpload}
-        title={target.upload.label || target.upload.name}
-      />
-    ) : (
-      <BuildPicker
-        describedBy="ios-app-upload-status"
-        directory
-        label="Upload a simulator .app"
-        onFiles={onUpload}
-        state={upload}
-      />
-    )}
-    <div className="space-y-1.5">
-      <p className="text-muted-foreground text-xs">
-        Or pick an app already on this simulator.
-      </p>
-      <InstalledAppsFrame notice={installedAppsNotice(apps)}>
-        {apps._tag === "loaded"
-          ? apps.apps.map((app) => {
-              const selected =
-                target?._tag === "installed" &&
-                target.app.bundleId === app.bundleId;
-              return (
-                <li key={app.bundleId}>
-                  <button
-                    aria-pressed={selected}
-                    className={cn(
-                      "hover:bg-muted flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-                      selected && "bg-muted"
-                    )}
-                    onClick={() => onSelect(app)}
-                    type="button"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {app.label || app.bundleId}
-                      {app.label === app.bundleId ? null : (
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          {app.bundleId}
-                        </span>
-                      )}
-                    </span>
-                    <Badge variant="outline">build {app.build}</Badge>
-                  </button>
-                </li>
-              );
-            })
-          : null}
-      </InstalledAppsFrame>
-    </div>
-  </SetupGroup>
-);
-
-/** The setup footer while a confirmed start installs and launches the app. */
-const IosOpeningStatus = () => (
-  <p
-    aria-live="polite"
-    className="text-muted-foreground mr-auto flex items-center gap-2 text-xs"
-    role="status"
-  >
-    <WatcherLoader className="h-2.5" />
-    Installing and launching the app…
-  </p>
-);
-
-/** The optional starting and outcome conditions, read from the form. */
-const IosConditionSteps = ({
-  missing,
-}: {
-  readonly missing: readonly string[];
-}) => (
-  <NativeOptionalSteps>
-    <SetupGroup
-      description="An element on screen when the app opens."
-      done={!missing.includes("Starting screen element")}
-      index={4}
-      title="Starting screen"
-    >
-      <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-        <SetupField htmlFor="ios-start-role" label="Role">
-          <NativeSelect
-            className="w-full min-w-0"
-            defaultValue="text"
-            aria-label="Starting screen role"
-            id="ios-start-role"
-            name="startingRole"
-          >
-            {ROLE_OPTIONS.map((role) => (
-              <NativeSelectOption key={role} value={role}>
-                {role}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </SetupField>
-        <SetupField htmlFor="ios-start" label="Element">
-          <Input
-            aria-label="Starting screen element"
-            id="ios-start"
-            name="starting"
-            placeholder="Sign in"
-          />
-        </SetupField>
-      </div>
-    </SetupGroup>
-    <SetupGroup
-      description="An element that shows the journey worked."
-      done={!missing.includes("Done when element")}
-      index={5}
-      title="Done when"
-    >
-      <div className="grid min-w-0 gap-2 sm:grid-cols-[8rem_1fr]">
-        <SetupField htmlFor="ios-done-role" label="Role">
-          <NativeSelect
-            className="w-full min-w-0"
-            defaultValue="text"
-            aria-label="Done when role"
-            id="ios-done-role"
-            name="outcomeRole"
-          >
-            {ROLE_OPTIONS.map((role) => (
-              <NativeSelectOption key={role} value={role}>
-                {role}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-        </SetupField>
-        <SetupField htmlFor="ios-done" label="Element">
-          <Input
-            aria-label="Done when element"
-            id="ios-done"
-            name="outcome"
-            placeholder="Signed in"
-          />
-        </SetupField>
-      </div>
-    </SetupGroup>
-  </NativeOptionalSteps>
-);
-
-const IosSetupSheet = ({
-  onClose,
-  open,
-  pending,
-  send,
-}: {
-  readonly onClose: () => void;
-  readonly open: boolean;
-  readonly pending: boolean;
-  readonly send: (command: IosWorkspaceCommand) => boolean;
-}) => {
-  const devices = useAtomValue(iosDevicesAtom);
-  const refresh = useAtomRefresh(iosDevicesAtom);
-  const listed = AsyncResult.isSuccess(devices) ? devices.value : [];
-  const running = listed.filter((device) => device.state === "Booted");
-  const [pickedAtom] = useState(() => Atom.make<string | null>(null));
-  const [picked, setPicked] = useAtom(pickedAtom);
-  const chosen = chosenSimulator(listed, picked);
-  const { startDevice, starts } = useDeviceStarts(bootIosSimulator, refresh);
-  const [appsRefreshAtom] = useState(() => Atom.make(0));
-  const [appsRefresh, setAppsRefresh] = useAtom(appsRefreshAtom);
-  // Keyed on the inventory, so a simulator this sheet just started is
-  // read as owned once it is running.
-  const erase = useDeviceErase(
-    "ios",
-    open,
-    simulatorInventoryKey(listed),
-    () => {
-      refresh();
-      setAppsRefresh((value) => value + 1);
-    }
-  );
-  // The required fields still empty, named as the person sees them.
-  const [missingAtom] = useState(() =>
-    Atom.make<readonly string[]>(["Flow name"])
-  );
-  const [fieldsMissing, setMissing] = useAtom(missingAtom);
-  const formRef = useRef<HTMLFormElement>(null);
-  const simulator = running.find((entry) => entry.udid === chosen);
-  const apps = useInstalledIosApps(simulator, appsRefresh);
-  const [targetAtom] = useState(() => Atom.make<IosTarget | null>(null));
-  const [target, setTarget] = useAtom(targetAtom);
-  // The device and Target App are chosen, not typed, so the form cannot
-  // see them missing.
-  const missing = [
-    ...(chosen === null ? ["Device"] : []),
-    ...fieldsMissing,
-    ...(target === null ? ["Target App"] : []),
-  ];
-  const complete = missing.length === 0;
-  const choose = (next: IosTarget | null) => {
-    releaseUpload(target);
-    setTarget(next);
-  };
-  const upload = useBuildUpload(uploadIosApp, (uploaded) =>
-    choose({ _tag: "uploaded", upload: uploaded })
-  );
-  const close = () => {
-    upload.reset();
-    releaseUpload(target);
-    setTarget(null);
-    onClose();
-  };
-  // The sheet's form mounts once it opens; read what it still needs then.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const frame = requestAnimationFrame(() =>
-      setMissing(missingFields(formRef.current))
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [open, setMissing]);
-  return (
-    <Sheet
-      onOpenChange={(next) => {
-        if (!next) {
-          close();
-        }
-      }}
-      open={open}
-    >
-      <SheetContent
-        aria-label="New iOS session"
-        className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
-      >
-        <SheetHeader className="border-b">
-          {/* The sheet covers the Workspace, so it carries the way home. */}
-          <WorkspaceHomeLink className="mb-3 self-start" />
-          <SheetTitle>New iOS session</SheetTitle>
-          <SheetDescription>
-            Pick a running iPhone simulator and the Target App. Each journey
-            restarts the app on that simulator, keeping or clearing its data as
-            the Flow saves.
-          </SheetDescription>
-        </SheetHeader>
-        <form
-          className="flex min-h-0 flex-1 flex-col"
-          onInput={(event) => setMissing(missingFields(event.currentTarget))}
-          ref={formRef}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            const found = listed.find((entry) => entry.udid === chosen);
-            if (!found || found.state !== "Booted" || target === null) {
-              return;
-            }
-            const { state: _state, ...device } = found;
-            const { build, bundleId } = targetIdentity(target);
-            const selection: IosWorkspaceSelection = {
-              device,
-              environment: {
-                build,
-                bundleId,
-                deviceType: device.deviceType,
-                runtimeVersion: device.runtimeVersion,
-              },
-              outcomes:
-                text(data, "outcome") === ""
-                  ? []
-                  : [
-                      {
-                        name: text(data, "outcome"),
-                        role: text(data, "outcomeRole"),
-                      },
-                    ],
-              setup: {
-                conditions:
-                  text(data, "starting") === ""
-                    ? []
-                    : [
-                        {
-                          name: text(data, "starting"),
-                          role: text(data, "startingRole"),
-                        },
-                      ],
-                kind: "restart-app",
-                startingData:
-                  text(data, "startingData") === "clear" ? "clear" : "keep",
-              },
-            };
-            const uploaded =
-              target?._tag === "uploaded" ? target.upload : undefined;
-            const sent = send({
-              _tag: "start",
-              flowName: FlowName.make(text(data, "flow")),
-              kind: "teaching",
-              operationId: operationId(),
-              recordingId: null,
-              selection:
-                uploaded === undefined
-                  ? selection
-                  : { ...selection, appPath: uploaded.appPath },
-            });
-            if (sent) {
-              // The session now owns the upload and deletes it when it ends.
-              setTarget(null);
-            }
-          }}
-        >
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
-            <SetupField htmlFor="ios-flow" label="Flow name">
-              <Input
-                className="font-mono"
-                id="ios-flow"
-                name="flow"
-                required
-                spellCheck={false}
-              />
-            </SetupField>
-            <SetupGroup
-              done={!missing.includes("Device")}
-              index={1}
-              title="Simulator"
-            >
-              <div className="space-y-2">
-                <DeviceChoices
-                  devices={listed.map(iosDeviceChoice)}
-                  emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
-                  erase={erase.controls}
-                  onSelect={(udid) => {
-                    setPicked(udid);
-                    // An installed app belongs to the simulator it is on.
-                    if (target?._tag === "installed") {
-                      setTarget(null);
-                    }
-                  }}
-                  onStart={startDevice}
-                  selected={chosen}
-                  starts={starts}
-                />
-                <Button
-                  onClick={() => {
-                    refresh();
-                    setAppsRefresh((value) => value + 1);
-                  }}
-                  size="xs"
-                  type="button"
-                  variant="ghost"
-                >
-                  <RefreshCwIcon />
-                  Refresh devices
-                </Button>
-              </div>
-            </SetupGroup>
-            <IosTargetApp
-              apps={apps}
-              done={target !== null}
-              onRemoveUpload={() => choose(null)}
-              onSelect={(app) => choose({ _tag: "installed", app })}
-              onUpload={(files, name) => upload.start(files, name)}
-              target={target}
-              upload={upload.state}
-            />
-            <SetupGroup
-              description="What the app has when Teaching and every later Run start."
-              done
-              index={3}
-              title="Starting data"
-            >
-              <StartingDataField legend={false} name="startingData" />
-            </SetupGroup>
-            <IosConditionSteps missing={missing} />
-          </div>
-          <SheetFooter className="flex-row items-center justify-end gap-2 border-t">
-            {pending ? <IosOpeningStatus /> : null}
-            {complete || pending ? null : (
-              <p
-                className="text-muted-foreground mr-auto text-xs"
-                id="ios-setup-missing"
-              >
-                {running.length === 0
-                  ? "Start a simulator to continue."
-                  : `Add ${missingPhrase(missing)} to continue.`}
-              </p>
-            )}
-            <Button onClick={close} type="button" variant="outline">
-              Cancel
-            </Button>
-            <Button
-              aria-describedby={complete ? undefined : "ios-setup-missing"}
-              // As on Android: the footer names what is missing, and the
-              // button waits for it.
-              disabled={pending || !complete}
-              type="submit"
-            >
-              Open session
-            </Button>
-          </SheetFooter>
-        </form>
-      </SheetContent>
-      {erase.dialog}
-    </Sheet>
   );
 };
 
@@ -1703,6 +1066,54 @@ const glassText = (session: IosWorkspaceSnapshot) => {
   return "This session released the simulator.";
 };
 
+/**
+ * Opens an iOS Teaching session, as the home's start card asks. The started
+ * session becomes the one the iOS Workspace shows, so it opens on the session
+ * rather than a read. The gesture is its own: a refusal shows on the card,
+ * never on Web's or Android's. A start that finishes after the person moved
+ * on only refreshes the shelf.
+ */
+export const useIosSessionStart = () => {
+  const rpc = useRpcDependencies();
+  const refresh = useAtomRefresh(rpc.iosSessionsAtom);
+  const setSession = useAtomSet(snapshotAtom);
+  const gesture = useWorkspaceGesture(iosStartGestureAtom);
+  const start = (
+    flowName: FlowName,
+    selection: IosWorkspaceSelection,
+    opening: {
+      readonly onStarted: (sessionId: AgentSessionId) => void;
+      /** Whether the person is still waiting on this start to open. */
+      readonly owns: () => boolean;
+    }
+  ): boolean =>
+    gesture.dispatch(
+      rpc
+        .runIosWorkspaceCommand({
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: operationId(),
+          recordingId: null,
+          selection,
+        })
+        .pipe(
+          Effect.tap((session) =>
+            Effect.sync(() => {
+              refresh();
+              if (opening.owns()) {
+                setSession(session);
+                opening.onStarted(session.id);
+              }
+            })
+          ),
+          Effect.mapError(errorMessage),
+          Effect.asVoid
+        )
+    );
+  return { error: gesture.error, pending: gesture.pending, start };
+};
+
 export const IosWorkspace = ({
   onSessionChange,
   requestedSessionId,
@@ -1719,7 +1130,6 @@ export const IosWorkspace = ({
   }, [setChrome]);
   const enabled = useAtomValue(iosEnabledAtom);
   const gesture = useWorkspaceGesture(commandAtom);
-  const [sheet, setSheet] = useState(requestedSessionId === "new");
   /** The route named a session this server has no record of. */
   const [unavailable, setUnavailable] = useState(false);
   const apply = (next: IosWorkspaceSnapshot) =>
@@ -1746,9 +1156,6 @@ export const IosWorkspace = ({
               return;
             }
             apply(next);
-            if (command._tag === "start") {
-              setSheet(false);
-            }
           })
         ),
         Effect.asVoid,
@@ -1792,15 +1199,8 @@ export const IosWorkspace = ({
     }
     forward(input);
   };
-  // `new` asks for an empty Workspace and the setup sheet, whatever was
-  // shown before; an id reads that session.
+  // An id reads that session; `new` is the home's iOS start card.
   useEffect(() => {
-    if (requestedSessionId === NEW_NATIVE_SESSION) {
-      setSession(null);
-      setUnavailable(false);
-      setSheet(true);
-      return;
-    }
     if (!Schema.is(AgentSessionId)(requestedSessionId)) {
       return;
     }
@@ -1885,14 +1285,8 @@ export const IosWorkspace = ({
       </main>
     );
   }
-  const setup = (
-    <IosSetupSheet
-      onClose={() => setSheet(false)}
-      open={sheet}
-      pending={gesture.pending}
-      send={send}
-    />
-  );
+  // A new session starts from the home's iOS start card.
+  const startNew = () => onSessionChange(NEW_NATIVE_SESSION);
   if (session === null) {
     return (
       <main
@@ -1912,8 +1306,8 @@ export const IosWorkspace = ({
               No iOS session
             </h1>
             <p className="text-muted-foreground text-sm text-pretty">
-              Mirror a running iPhone simulator, then record a journey through
-              its Target App.
+              Start a session to mirror a running iPhone simulator, then record
+              a journey through its Target App.
             </p>
             {unavailable ? (
               <p
@@ -1925,13 +1319,13 @@ export const IosWorkspace = ({
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setSheet(true)} size="lg">
-              Open iOS session
+            <Button onClick={startNew} size="lg">
+              <SmartphoneIcon />
+              Start an iOS session
             </Button>
           </div>
         </section>
         <WorkspaceHomeBar />
-        {setup}
       </main>
     );
   }
@@ -1982,12 +1376,11 @@ export const IosWorkspace = ({
           gesture={gesture}
           inputRefusal={inputRefusal}
           onInput={onInput}
-          onNewSession={() => setSheet(true)}
+          onNewSession={startNew}
           onSelectSession={onSessionChange}
           send={send}
           session={session}
         />
-        {setup}
       </main>
     </WorkspaceLayout>
   );

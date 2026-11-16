@@ -28,7 +28,7 @@ const startFailure = (cause: unknown) =>
 
 /**
  * Starts devices on request and keeps each start's progress until discovery
- * is refreshed. A start that is still running when the sheet unmounts is
+ * is refreshed. A start that is still running when the card unmounts is
  * abandoned here; the host keeps booting the device.
  */
 export const useDeviceStarts = (
@@ -237,7 +237,7 @@ export const DeviceChoices = ({
   readonly devices: readonly DeviceChoice[];
   /** Said when no device is ready, after any that can be started. */
   readonly emptyMessage: string;
-  /** Device Erase (ADR 0081); absent where the sheet does not offer it. */
+  /** Device Erase (ADR 0081); absent where the card does not offer it. */
   readonly erase?: DeviceEraseControls;
   readonly onSelect: (id: string) => void;
   readonly onStart: (bootId: string) => void;

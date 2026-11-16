@@ -67,8 +67,15 @@ const rpc = vi.hoisted(() => ({
   instructionFailure: undefined satisfies unknown,
   /* A failing save settles only once the test opens this gate. */
   instructionGate: Promise.resolve(true),
+  /* Commands the iOS start card sent, in order. */
+  iosCommands: [] satisfies unknown[],
+  /* How often the iOS list was read. */
+  iosListCalls: 0,
   /* What the iOS list answers, for the home's shelf. */
   iosSessionsResult: [] satisfies unknown[],
+  /* When set, an iOS start answers only once this settles. */
+  // SAFETY: the gate starts empty; a test sets a promise before it starts.
+  iosStartGate: undefined as Promise<boolean> | undefined,
   navigateCalls: [] satisfies unknown[],
   navigateFailure: undefined satisfies unknown,
   /* A navigation settles only once the test opens this gate. */
@@ -123,6 +130,24 @@ const startedAndroidSession = {
   selection: null,
   startedAt: "2026-10-15T00:00:00.000Z",
   takeoverOccurred: false,
+} satisfies unknown;
+
+/** The one booted simulator the iOS start card lists. */
+const iphone = {
+  deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+  kind: "simulator",
+  name: "iPhone 17",
+  runtime: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+  runtimeVersion: "26.5",
+  state: "Booted",
+  udid: "11111111-2222-3333-4444-555555555555",
+} as const;
+
+/** What the iOS start card's start answers: a session waiting to prepare. */
+const startedIosSession = {
+  ...startedAndroidSession,
+  id: "agent-started-ios",
+  requirements: { capabilities: [], platform: "ios" },
 } satisfies unknown;
 
 const rpcOverrides = {
@@ -278,11 +303,15 @@ const rpcOverrides = {
         }
       );
     }),
-  iosSessionsAtom: Atom.make(() => ({
+  iosDevicesAtom: Atom.make(() => ({
     _tag: "Success",
-    value: rpc.iosSessionsResult,
+    value: [iphone],
     waiting: false,
   })),
+  iosSessionsAtom: Atom.make(() => {
+    rpc.iosListCalls += 1;
+    return { _tag: "Success", value: rpc.iosSessionsResult, waiting: false };
+  }),
   listAndroidApps: () =>
     Effect.succeed([
       {
@@ -305,6 +334,8 @@ const rpcOverrides = {
       state: "device",
     },
   ]),
+  listIosApps: () =>
+    Effect.succeed([{ build: "3", bundleId: "dev.shop", label: "Shop" }]),
   recordingViewAtom: Atom.family((recordingId: string) =>
     Atom.family((_sessionId: string | null) =>
       Atom.make(() => {
@@ -345,6 +376,24 @@ const rpcOverrides = {
           }))
         )
       : Effect.fail({ message: "This server has no such Android session." });
+  },
+  runIosWorkspaceCommand: (command: {
+    readonly _tag: string;
+    readonly flowName?: unknown;
+    readonly selection?: unknown;
+  }) => {
+    rpc.iosCommands.push(command);
+    // Only a start has an answer here; a read finds no session.
+    const gate = rpc.iosStartGate;
+    return command._tag === "start"
+      ? (gate === undefined ? Effect.void : Effect.promise(() => gate)).pipe(
+          Effect.map(() => ({
+            ...startedIosSession,
+            flowName: command.flowName,
+            selection: command.selection,
+          }))
+        )
+      : Effect.fail({ message: "This server has no such iOS session." });
   },
   runVideoStatusAtom: () =>
     Atom.make(() => ({
@@ -604,7 +653,9 @@ afterEach(async () => {
   rpc.androidCommands = [];
   rpc.androidSessionsResult = [];
   rpc.androidStartGate = undefined;
+  rpc.iosCommands = [];
   rpc.iosSessionsResult = [];
+  rpc.iosStartGate = undefined;
   rpc.closeCalls = [];
   rpc.closeFailure = undefined;
   rpc.closeGate = Promise.resolve(true);
@@ -1036,17 +1087,35 @@ test("swaps the start card's platform in place and keeps the Flow name", async (
       { name: "Flow name" }
     )
   ).toHaveValue("checkout");
-  expect(testRouter.state.location.search).toEqual({});
-  // iOS keeps its own screen for now.
   await user.click(
     within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
       "button",
       { name: "iOS" }
     )
   );
-  await waitFor(() =>
-    expect(testRouter.state.location.search).toEqual({ ios: "new" })
+  const ios = screen.getByRole("form", { name: "Teach on iOS" });
+  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
+  expect(within(ios).getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "checkout"
   );
+  expect(
+    within(screen.getByRole("group", { name: "Other platforms" }))
+      .getAllByRole("button")
+      .map((button) => button.textContent)
+  ).toEqual(["Web", "Android"]);
+  await user.click(
+    within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
+      "button",
+      { name: "Android" }
+    )
+  );
+  expect(
+    within(screen.getByRole("form", { name: "Teach on Android" })).getByRole(
+      "textbox",
+      { name: "Flow name" }
+    )
+  ).toHaveValue("checkout");
+  expect(testRouter.state.location.search).toEqual({});
 });
 
 test("a slow Android start leaves a newer platform choice alone", async () => {
@@ -1173,51 +1242,154 @@ test("offers iOS only where this process enables it", async () => {
   await user.click(
     await screen.findByRole("button", { name: "Start an iOS session" })
   );
-  await waitFor(() =>
-    expect(testRouter.state.location.search).toEqual({ ios: "new" })
+  // The tile opens the card in place, without leaving the home.
+  const card = screen.getByRole("form", { name: "Teach on iOS" });
+  expect(testRouter.state.location.search).toEqual({});
+  expect(within(card).getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "new-flow"
   );
+  expect(within(card).getByRole("group", { name: "Simulator" })).toBeVisible();
+  expect(
+    await within(card).findByRole("button", {
+      name: /iPhone 17/u,
+      pressed: true,
+    })
+  ).toBeEnabled();
+  expect(
+    within(card).getByRole("button", { name: "Upload a simulator .app" })
+  ).toBeVisible();
+  // The setup Sheet and the empty iOS Workspace are gone.
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "No iOS session" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Back to platforms" }));
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
 });
 
-test("leaves the iOS setup sheet through the way home", async () => {
+test("opens the home with the iOS card at ?ios=new, and leaves that URL with it", async () => {
   rpc.sessionsResult = resultFor([session]);
   const user = userEvent.setup();
   const { testRouter } = await renderRoute("/?ios=new", { ios: true });
-  const sheet = await screen.findByRole("dialog", {
-    name: "New iOS session",
-  });
+  const card = await screen.findByRole("form", { name: "Teach on iOS" });
   expect(
-    within(sheet).getByRole("button", { name: "Optional steps" })
-  ).toHaveAttribute("aria-expanded", "false");
-  await user.click(within(sheet).getByText("Optional steps"));
+    screen.getByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({ ios: "new" });
+  // Starting screen and Done when are optional, in the collapsed Setup.
+  const setup = within(card).getByRole("button", { name: /^Setup/u });
+  expect(setup).toHaveAttribute("aria-expanded", "false");
+  await user.click(setup);
   expect(
-    within(sheet).getByRole("textbox", { name: "Starting screen element" })
+    within(card).getByRole("textbox", { name: "Starting screen element" })
   ).not.toBeRequired();
   expect(
-    within(sheet).getByRole("textbox", { name: "Done when element" })
+    within(card).getByRole("textbox", { name: "Done when element" })
   ).not.toBeRequired();
-  const starting = within(sheet).getByRole("textbox", {
-    name: "Starting screen element",
-  });
-  await user.type(starting, "Welcome");
-  await user.type(
-    within(sheet).getByRole("textbox", { name: "Done when element" }),
-    "Finished"
-  );
   await user.click(
-    within(sheet).getByRole("button", { name: "Optional steps" })
-  );
-  const form = starting.closest("form");
-  expect(form).not.toBeNull();
-  if (form !== null) {
-    const submitted = new FormData(form);
-    expect(submitted.get("starting")).toBe("Welcome");
-    expect(submitted.get("outcome")).toBe("Finished");
-  }
-
-  await user.click(
-    within(sheet).getByRole("link", { name: "Contingency home" })
+    within(card).getByRole("button", { name: "Back to platforms" })
   );
   await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
+});
+
+test("leaves ?ios=new on the tiles where this process offers no iOS", async () => {
+  rpc.sessionsResult = resultFor([]);
+  await renderRoute("/?ios=new");
+  expect(
+    await screen.findByRole("list", { name: "Start a session" })
+  ).toBeVisible();
+  expect(screen.queryByRole("form", { name: "Teach on iOS" })).toBeNull();
+});
+
+test("starts an iOS session from its card, then opens it", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/", { ios: true });
+  await user.click(
+    await screen.findByRole("button", { name: "Start an iOS session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on iOS" });
+  const name = within(card).getByRole("textbox", { name: "Flow name" });
+  const start = within(card).getByRole("button", { name: "Start teaching" });
+  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  // An invalid Flow name keeps Start disabled rather than reaching the start.
+  await user.clear(name);
+  await user.type(name, "check/out");
+  expect(start).toBeDisabled();
+  await user.click(start);
+  expect(rpc.iosCommands).toHaveLength(0);
+  await user.clear(name);
+  await user.type(name, "checkout");
+  await user.click(start);
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({
+      ios: startedIosSession.id,
+    })
+  );
+  const { state: _state, ...device } = iphone;
+  expect(rpc.iosCommands).toEqual([
+    expect.objectContaining({
+      _tag: "start",
+      flowName: "checkout",
+      kind: "teaching",
+      recordingId: null,
+      selection: {
+        device,
+        environment: {
+          build: "3",
+          bundleId: "dev.shop",
+          deviceType: iphone.deviceType,
+          runtimeVersion: "26.5",
+        },
+        outcomes: [],
+        setup: { conditions: [], kind: "restart-app", startingData: "keep" },
+      },
+    }),
+  ]);
+});
+
+test("the empty iOS screen starts a session from the home's iOS card", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/?ios=agent-native", {
+    ios: true,
+  });
+  await screen.findByRole("heading", { name: "No iOS session" });
+  await user.click(
+    screen.getByRole("button", { name: "Start an iOS session" })
+  );
+  expect(
+    await screen.findByRole("form", { name: "Teach on iOS" })
+  ).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({ ios: "new" });
+});
+
+test("a slow iOS start leaves a newer platform choice alone", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const gate = Promise.withResolvers<boolean>();
+  rpc.iosStartGate = gate.promise;
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/", { ios: true });
+  await user.click(
+    await screen.findByRole("button", { name: "Start an iOS session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on iOS" });
+  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await user.click(
+    within(card).getByRole("button", { name: "Start teaching" })
+  );
+  await waitFor(() => expect(rpc.iosCommands).toHaveLength(1));
+  await user.click(
+    within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
+      "button",
+      { name: "Web" }
+    )
+  );
+  const iosLists = rpc.iosListCalls;
+  gate.resolve(true);
+  // The started session still reaches the shelf, but the Web card stays.
+  await waitFor(() => expect(rpc.iosListCalls).toBeGreaterThan(iosLists));
+  expect(screen.getByRole("form", { name: "Teach on Web" })).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({});
 });
 
 /** Answers the desktop gate's media query as a window `width` px wide. */

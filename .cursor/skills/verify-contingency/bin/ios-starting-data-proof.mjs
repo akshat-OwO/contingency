@@ -124,9 +124,17 @@ const capture = async (name) => {
     await page.locator("body").ariaSnapshot()
   );
 };
-const openSheet = async () => {
-  await page.goto(instance.mcpUrl);
-  await click("Start an iOS session");
+// `?ios=new` opens the home with the Teach on iOS start card open.
+const openCard = async () => {
+  await page.goto(`${instance.mcpUrl}?ios=new`);
+  await page.getByRole("form", { exact: true, name: "Teach on iOS" }).waitFor();
+};
+// The card's Setup section starts collapsed; open it once.
+const openSetup = async () => {
+  const setup = page.getByRole("button", { name: /^Setup/u });
+  if ((await setup.getAttribute("aria-expanded")) !== "true") {
+    await setup.click();
+  }
 };
 let flowName;
 const session = async () => {
@@ -156,7 +164,7 @@ const close = async () => {
 const teach = async (startingData) => {
   const { name } = await deviceName();
   flowName = `ios-starting-data-${startingData}-${process.pid}`;
-  await openSheet();
+  await openCard();
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
@@ -174,6 +182,7 @@ const teach = async (startingData) => {
   await page
     .getByRole("button", { name: new RegExp(`${bundleId} build`, "u") })
     .click({ timeout: 90_000 });
+  await openSetup();
   await page
     .getByRole("radio", {
       name:
@@ -181,7 +190,7 @@ const teach = async (startingData) => {
     })
     .check();
   await capture(`${startingData}-setup`);
-  await click("Open session");
+  await click("Start teaching");
 };
 try {
   if (phase === "keep") {
@@ -259,7 +268,7 @@ try {
         }),
       ])
     );
-    await openSheet();
+    await openCard();
     const banner = page.getByRole("region", {
       exact: true,
       name: "Device Erase request",

@@ -30,6 +30,8 @@ import {
 
 import { AndroidStartCard } from "./android-start-card";
 import { useAndroidSessionStart } from "./android-workspace";
+import { IosStartCard } from "./ios-start-card";
+import { useIosSessionStart } from "./ios-workspace";
 import { useIosEntryEnabled } from "./ios-workspace-entry";
 import { PlatformIcon } from "./platform-icons";
 import {
@@ -56,8 +58,8 @@ import type {
   WebSessionStart,
 } from "./workspace-home-state";
 
-/** The platforms whose start card opens on the home; iOS has its own screen. */
-export type HomeCard = "web" | "android";
+/** The platforms whose start card opens on the home: every one of them. */
+export type HomeCard = HomePlatform;
 
 /** What a Workspace-opened Teaching session is called before it is renamed. */
 const DEFAULT_FLOW_NAME = "new-flow";
@@ -407,7 +409,7 @@ export const WorkspaceHome = ({
   readonly error: string | undefined;
   /** Says which start card is open now, or null once the tiles are back. */
   readonly onCardChange?: ((card: HomeCard | null) => void) | undefined;
-  /** Opens a native platform at a session, or at its setup for `new`. */
+  /** Opens a native platform at a session. */
   readonly onOpenNative: (
     platform: "android" | "ios",
     session: string,
@@ -416,7 +418,7 @@ export const WorkspaceHome = ({
   readonly onOpenWebSession: (sessionId: string, card: HTMLElement) => void;
   readonly onStartWeb: (start: WebSessionStart, form: HTMLFormElement) => void;
   readonly pending: boolean;
-  /** The start card the route opens, as `?android=new` does. */
+  /** The start card the route opens, as `?android=new` and `?ios=new` do. */
   readonly requestedCard?: HomeCard | undefined;
   /** The session the person just left, which its card grows back from. */
   readonly returnTo: string | undefined;
@@ -431,8 +433,11 @@ export const WorkspaceHome = ({
   // label is something the person recognizes from the first frame. It
   // outlives the card, so closing, reopening and swapping platform keep it.
   const [flowName, setFlowName] = useState(DEFAULT_FLOW_NAME);
-  const [card, setCard] = useState<HomeCard | null>(requestedCard ?? null);
-  // The card a route change asks for opens, as a link to `?android=new` does.
+  const [opened, setCard] = useState<HomeCard | null>(requestedCard ?? null);
+  // iOS opens only where this process offers it, so `?ios=new` elsewhere
+  // shows the tiles.
+  const card = opened === "ios" && !ios ? null : opened;
+  // The card a route change asks for opens, as a link to `?ios=new` does.
   const [requested, setRequested] = useState(requestedCard);
   if (requested !== requestedCard) {
     setRequested(requestedCard);
@@ -444,6 +449,7 @@ export const WorkspaceHome = ({
   const [returning, setReturning] = useState<HomeCard | null>(null);
   const sessions = useHomeSessions(webSessions);
   const android = useAndroidSessionStart();
+  const iosStart = useIosSessionStart();
   // A start owns the move into its session only while its card stays open; a
   // newer card or leaving the home takes that over (#751).
   const cardTurn = useRef(0);
@@ -458,10 +464,6 @@ export const WorkspaceHome = ({
     onCardChange?.(next);
   };
   const openPlatform = (platform: HomePlatform, tile: HTMLElement | null) => {
-    if (platform === "ios") {
-      onOpenNative(platform, "new", null);
-      return;
-    }
     startWorkspaceTransition(
       () => {
         changeCard(platform);
@@ -472,13 +474,7 @@ export const WorkspaceHome = ({
   };
   // Another platform's pill swaps the card's contents in place: nothing
   // flies, and the Flow name stays.
-  const switchPlatform = (platform: HomePlatform) => {
-    if (platform === "ios") {
-      onOpenNative(platform, "new", null);
-      return;
-    }
-    changeCard(platform);
-  };
+  const switchPlatform = (platform: HomePlatform) => changeCard(platform);
   const closeCard = () => {
     startWorkspaceTransition(() => {
       setReturning(card);
@@ -571,6 +567,25 @@ export const WorkspaceHome = ({
               }}
               pending={android.pending}
               platforms={platforms.filter((platform) => platform !== "android")}
+            />
+          ) : null}
+          {card === "ios" ? (
+            <IosStartCard
+              error={iosStart.error}
+              flowName={flowName}
+              onClose={closeCard}
+              onFlowNameChange={setFlowName}
+              onOtherPlatform={switchPlatform}
+              onStart={(name, selection, form) => {
+                const turn = cardTurn.current;
+                return iosStart.start(name, selection, {
+                  onStarted: (sessionId) =>
+                    onOpenNative("ios", sessionId, form),
+                  owns: () => cardTurn.current === turn,
+                });
+              }}
+              pending={iosStart.pending}
+              platforms={platforms.filter((platform) => platform !== "ios")}
             />
           ) : null}
           {card === null ? (

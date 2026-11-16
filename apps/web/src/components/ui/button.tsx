@@ -85,7 +85,7 @@ function Button({
   return (
     <ButtonPrimitive
       // UI SDK writes its own data-slot over a passed one, so the slot is set
-      // on the rendered element to keep facades like `sheet-close` intact.
+      // on the rendered element to keep facades like `alert-dialog-cancel` intact.
       render={(buttonProps) => <button {...buttonProps} data-slot={slot} />}
       className={cn(buttonVariants({ className, size, variant }))}
       {...(onClick === undefined

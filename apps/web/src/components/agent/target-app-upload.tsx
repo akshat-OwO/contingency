@@ -10,6 +10,7 @@ import {
   FileInput,
   FileInputDropzone,
   FileInputTrigger,
+  relativePath,
 } from "@/components/ui/file-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
@@ -87,118 +88,75 @@ const BuildUploadStatus = ({
   </p>
 );
 
+const FolderPickerRow = ({ children }: { readonly children: ReactNode }) => (
+  <div className="border-island-border flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-3 py-3 text-[13px]">
+    {children}
+  </div>
+);
+
+/** A chosen file and its path, as an iOS `.app` upload sends it. */
+export interface ChosenFile extends AppBundleFile {
+  readonly file: File;
+}
+
 /**
- * A button that opens the file picker. For an iOS `.app`, the picker
- * chooses a folder; for Android, one `.apk`.
+ * A drop zone for one build file, such as an Android `.apk`, with the button
+ * that opens the file picker inside it. With `directory` it picks a whole
+ * folder, such as an iOS simulator `.app`, through the picker only. Each choice uploads at once; the zone keeps
+ * no file of its own, so choosing the same build again uploads it again.
  */
-export const BuildPicker = ({
+export const BuildDropzone = ({
   accept,
   describedBy,
-  directory,
-  disabled = false,
+  directory = false,
+  kind,
   label,
   onFiles,
   state,
 }: {
   readonly accept?: string;
   readonly describedBy: string;
-  readonly directory: boolean;
-  readonly disabled?: boolean;
+  /** Picks and accepts a folder, every file inside it, rather than one file. */
+  readonly directory?: boolean;
+  /** The build's kind, as the zone names it: `.apk` or `.app`. */
+  readonly kind: string;
   readonly label: string;
-  readonly onFiles: (files: readonly AppBundleFile[], name: string) => void;
+  /**
+   * The chosen build: one file, or a folder's files with paths that start at
+   * the folder, `Shop.app/Info.plist`, and the folder's name.
+   */
+  readonly onFiles: (files: readonly ChosenFile[], name: string) => void;
   readonly state: BuildUploadState;
 }) => {
-  const input = useRef<HTMLInputElement>(null);
   const uploading = state._tag === "uploading";
+  // UI SDK reads a dropped folder only up to 1,000 files, which would upload
+  // part of a bundle, so a folder comes through the picker alone (#752).
+  const Zone = directory ? FolderPickerRow : FileInputDropzone;
   return (
-    <div className="flex min-w-0 flex-col items-start gap-2">
-      <input
-        accept={accept}
-        aria-hidden="true"
-        // Names the hidden picker for automation; the button is what people use.
-        aria-label={label}
-        className="hidden"
-        multiple={directory}
-        onChange={(event) => {
-          const files = [...(event.currentTarget.files ?? [])];
-          // The same choice again must still upload, so forget this one.
-          event.currentTarget.value = "";
+    <div className="grid gap-1.5">
+      <FileInput
+        {...(accept === undefined ? {} : { accept })}
+        directory={directory}
+        disabled={uploading}
+        onValueChange={(files) => {
           const [first] = files;
           if (first === undefined) {
             return;
           }
-          if (directory) {
-            // Each path starts with the chosen folder: `Shop.app/Info.plist`.
-            const [folder = first.name] = first.webkitRelativePath.split("/");
-            onFiles(
-              files.map((file) => ({ file, path: file.webkitRelativePath })),
-              folder
-            );
-          } else {
+          if (!directory) {
             onFiles([{ file: first, path: first.name }], first.name);
+            return;
           }
-        }}
-        ref={input}
-        tabIndex={-1}
-        type="file"
-        {...(directory ? { webkitdirectory: "" } : {})}
-      />
-      <Button
-        aria-describedby={describedBy}
-        disabled={disabled || uploading}
-        onClick={() => input.current?.click()}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        {uploading ? (
-          <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
-        ) : (
-          <UploadIcon aria-hidden="true" />
-        )}
-        {label}
-      </Button>
-      <BuildUploadStatus id={describedBy} state={state} />
-    </div>
-  );
-};
-
-/**
- * A drop zone for one build file, such as an Android `.apk`, with the button
- * that opens the file picker inside it. Each choice uploads at once; the
- * zone keeps no file of its own, so choosing the same file again uploads it
- * again.
- */
-export const BuildDropzone = ({
-  accept,
-  describedBy,
-  kind,
-  label,
-  onFile,
-  state,
-}: {
-  readonly accept: string;
-  readonly describedBy: string;
-  /** The build's file kind, as the zone names it: `.apk`. */
-  readonly kind: string;
-  readonly label: string;
-  readonly onFile: (file: File) => void;
-  readonly state: BuildUploadState;
-}) => {
-  const uploading = state._tag === "uploading";
-  return (
-    <div className="grid gap-1.5">
-      <FileInput
-        accept={accept}
-        disabled={uploading}
-        onValueChange={([first]) => {
-          if (first !== undefined) {
-            onFile(first);
-          }
+          const entries = files.map((file) => ({
+            file,
+            path: relativePath(file),
+          }));
+          const [folder = first.name] = (entries[0]?.path ?? "").split("/");
+          onFiles(entries, folder);
         }}
         value={[]}
       >
-        <FileInputDropzone>
+        <Zone>
           {uploading ? (
             <LoaderCircleIcon
               aria-hidden="true"
@@ -211,7 +169,9 @@ export const BuildDropzone = ({
             />
           )}
           <span className="text-muted-foreground">
-            Drop an <span className="font-mono">{kind}</span> here, or
+            {directory ? "Choose the " : "Drop an "}
+            <span className="font-mono">{kind}</span>
+            {directory ? " folder:" : " here, or"}
           </span>
           <FileInputTrigger
             aria-describedby={describedBy}
@@ -219,7 +179,7 @@ export const BuildDropzone = ({
           >
             {label}
           </FileInputTrigger>
-        </FileInputDropzone>
+        </Zone>
       </FileInput>
       <BuildUploadStatus id={describedBy} state={state} />
     </div>

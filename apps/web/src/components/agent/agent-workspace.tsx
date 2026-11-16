@@ -2445,7 +2445,7 @@ interface WorkspaceRouteNavigation {
     session: string,
     card: HTMLElement | null
   ) => void;
-  /** The start card the route opens on the home: `?android=new`. */
+  /** The start card the route opens on the home: `?android=new` or `?ios=new`. */
   readonly requestedCard: HomeCard | undefined;
   readonly returnTo: string | undefined;
   readonly setReturnTo: (sessionId: string | undefined) => void;
@@ -2720,10 +2720,10 @@ export const AgentWorkspace = ({
   // The session the person last left, whose shelf card it shrinks back into.
   const [returnTo, setReturnTo] = useState<string | undefined>();
   const nativeSession = platform._tag === "web" ? undefined : platform.session;
-  // `?android=new` is the home with the Android start card open.
+  // `?android=new` and `?ios=new` are the home with that start card open.
   const requestedCard: HomeCard | undefined =
-    platform._tag === "android" && platform.session === NEW_NATIVE_SESSION
-      ? "android"
+    platform._tag !== "web" && platform.session === NEW_NATIVE_SESSION
+      ? platform._tag
       : undefined;
   const onSessionChange = (session: string) => {
     if (
