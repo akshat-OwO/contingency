@@ -1731,3 +1731,1023 @@ body[data-view="session"] .scaffold {
 .status-island .btn.ghosty {
   background: transparent;
 }
+
+/* ------------------------------------------------------------ flows (#755) */
+/* `/flow`: the catalog in a sidebar island on the left; the selected Flow's
+   markdown and its Runs as two islands beside it. */
+body[data-view="flows"] #canvas {
+  opacity: 0.6;
+}
+.pill-btn[data-here] {
+  background: var(--island-hover);
+  color: var(--fg);
+}
+.disabled-wrap {
+  display: inline-flex;
+  border-radius: 12px;
+}
+.flows-sidebar,
+.pane {
+  position: fixed;
+  top: 72px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* The sidebar arrives by growing out of the Flows button; the two panes
+   follow it in once it has mostly landed. */
+.pane {
+  animation: pane-in 0.42s 0.2s var(--ease-out) both;
+}
+@keyframes pane-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+.flows-sidebar {
+  left: 16px;
+  width: 280px;
+  padding: 14px 8px 8px;
+  view-transition-name: flows-sidebar;
+}
+.flows-main {
+  --side: 308px;
+  position: fixed;
+  inset: 72px 16px 16px var(--side);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.flows-main .pane {
+  position: relative;
+  top: auto;
+  bottom: auto;
+}
+.flows-main .pane:nth-child(2) {
+  animation-delay: 0.26s;
+}
+@media (max-width: 1279px) {
+  .flows-sidebar {
+    width: 232px;
+  }
+  .flows-main {
+    --side: 260px;
+  }
+}
+
+/* sidebar */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+.sidebar-head h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  margin: 0 2px 8px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: var(--island-hover);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  color: var(--faint);
+}
+.search:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--brand);
+}
+.search svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--fg);
+}
+.search-input::placeholder {
+  color: var(--faint);
+}
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+.root-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 2px;
+  padding: 4px 8px;
+  font:
+    500 12px/1.2 "Geist Mono",
+    monospace;
+  color: var(--muted);
+}
+.root-head .hint {
+  font-family: "Geist", sans-serif;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.root-toggle {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  text-align: left;
+}
+.root-toggle:hover {
+  background: var(--island-hover);
+}
+.root-toggle[data-panel-open] .tree-chev svg,
+.root-toggle[aria-expanded="true"] .tree-chev svg {
+  rotate: 90deg;
+}
+.root-empty {
+  margin: 4px 10px;
+}
+.tree {
+  display: grid;
+  gap: 1px;
+}
+.tree [data-slot="tree-group"] {
+  display: grid;
+  gap: 1px;
+}
+.tree [data-slot="tree-item"] {
+  outline: none;
+}
+.tree-row {
+  --indent: calc((var(--tree-level, 1) - 1) * 18px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px 0 calc(8px + var(--indent));
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--fg);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-row:hover {
+  background: var(--island-hover);
+}
+.tree-row[data-selected],
+.root-runs[aria-pressed="true"] {
+  background: color-mix(in oklch, var(--brand) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 30%, transparent);
+}
+[data-slot="tree-item"]:focus-visible > .tree-row {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+.tree-chev {
+  display: inline-grid;
+  width: 14px;
+  color: var(--faint);
+}
+.tree-chev svg {
+  width: 13px;
+  height: 13px;
+  transition: rotate 0.2s var(--ease-out);
+}
+.tree-chev[data-expanded] svg {
+  rotate: 90deg;
+}
+.tree-row:not([data-branch]) .tree-glyph {
+  margin-left: 22px;
+}
+.root-runs .tree-glyph {
+  margin-left: 0 !important;
+}
+.tree-glyph {
+  display: inline-grid;
+  flex: none;
+  color: var(--muted);
+}
+.tree-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-count {
+  color: var(--faint);
+  font:
+    500 11px/1 "Geist Mono",
+    monospace;
+}
+.tree-tag {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--run) 14%, transparent);
+  color: var(--run);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-mark {
+  display: inline-grid;
+  color: var(--faint);
+}
+.flow-mark.verified {
+  color: var(--ok);
+}
+.flow-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.root-runs {
+  margin-top: 4px;
+}
+
+/* panes */
+.pane-head {
+  display: grid;
+  gap: 8px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--island-border);
+}
+.pane-head.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-block: 14px;
+}
+.pane-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.pane-head.row h2 {
+  font-size: 15px;
+}
+.pane-head .lede {
+  margin: 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip[data-status="draft"],
+.chip[data-status="neutral"] {
+  --tone: var(--muted);
+}
+.chip[data-assessment="working"] {
+  --tone: var(--ok);
+}
+.chip[data-assessment="not-working"] {
+  --tone: var(--rec);
+}
+.chip[data-assessment="inconclusive"] {
+  --tone: var(--muted);
+}
+.chip[data-assessment="blocked"] {
+  --tone: var(--brand-ink);
+}
+.chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.stamped {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--island-hover);
+  font-size: 12.5px;
+}
+.stamped div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 8px;
+}
+.stamped dt {
+  color: var(--faint);
+}
+.stamped dd {
+  margin: 0;
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.doc-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.file-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--island-border);
+}
+.file-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font:
+    500 12.5px/1 "Geist Mono",
+    monospace;
+}
+.file-tab svg {
+  width: 14px;
+  height: 14px;
+}
+.file-tab[data-selected],
+.file-tab[aria-selected="true"] {
+  border-bottom-color: var(--fg);
+  color: var(--fg);
+}
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+}
+.pane-body[hidden] {
+  display: none;
+}
+
+/* rendered markdown */
+.md {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md p {
+  margin: 0 0 10px;
+  text-wrap: pretty;
+}
+.md h3 {
+  margin: 20px 0 8px;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.md code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--island-hover);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  font:
+    12.5px "Geist Mono",
+    monospace;
+}
+.md-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--brand);
+  text-underline-offset: 3px;
+}
+.md-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+.md-list li {
+  margin: 3px 0;
+}
+.md-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.md-steps li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+}
+.md-step-num {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--island-hover);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  color: var(--muted);
+  font:
+    600 11.5px/1 "Geist Mono",
+    monospace;
+}
+.md-steps p {
+  margin: 0;
+}
+.md-steps .md-done {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: color-mix(in oklch, var(--ok) 9%, transparent);
+  font-size: 13px;
+}
+.md-done > span:first-child {
+  margin-right: 4px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* runs */
+.run-list {
+  display: grid;
+  gap: 2px;
+  max-height: 34%;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--island-border);
+  list-style: none;
+}
+.run-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px 7px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  text-align: left;
+}
+.run-row .chip {
+  justify-self: start;
+}
+.run-row:hover,
+.run-row[aria-pressed="true"] {
+  background: var(--island-hover);
+}
+.run-row[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.pane-empty {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: balance;
+}
+.pane-empty p {
+  max-width: 280px;
+  margin: 0;
+}
+.summary {
+  display: grid;
+  gap: 12px;
+}
+.summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.summary-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.summary-text {
+  margin: -4px 0 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.findings {
+  display: grid;
+  gap: 6px;
+}
+.findings .eyebrow {
+  margin: 0;
+  color: var(--faint);
+}
+.findings ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.findings li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: 13px;
+}
+.findings li > span:last-child {
+  padding-top: 2px;
+  text-wrap: pretty;
+}
+.mod {
+  font-size: 12px;
+}
+.flow-pill {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--island-hover);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  font:
+    500 12px "Geist Mono",
+    monospace;
+}
+.flow-pill:hover {
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+.summary-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--island-border);
+}
+.run-id {
+  color: var(--faint);
+  font:
+    12px "Geist Mono",
+    monospace;
+}
+.callout {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--brand) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--brand) 30%, transparent);
+  font-size: 13px;
+  text-wrap: pretty;
+}
+
+/* video */
+.video {
+  display: grid;
+  gap: 8px;
+}
+.video-frame {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  border-radius: 16px;
+  background: oklch(0.16 0 0);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.video-frame:not([data-native]) {
+  background: var(--page);
+}
+.video-screen {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--page);
+}
+.video-frame[data-native] .video-screen {
+  display: grid;
+  place-items: center;
+  background: oklch(0.2 0 0);
+}
+.mini-page {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+}
+.mini-page .bar,
+.phone .bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--skeleton);
+}
+.mini-page .hero-block {
+  height: 70px;
+  border-radius: 10px;
+  background: linear-gradient(
+    120deg,
+    var(--skeleton),
+    color-mix(in oklch, var(--skeleton), var(--brand) 18%)
+  );
+}
+.mini-page .grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.mini-page .grid div {
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  background: var(--skeleton);
+}
+.phone {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  height: 92%;
+  aspect-ratio: 390 / 844;
+  padding: 24px 10px 10px;
+  border-radius: 20px;
+  background: var(--page);
+  box-shadow: 0 0 0 4px oklch(0.12 0 0);
+}
+.phone .card {
+  height: 56px;
+  border-radius: 10px;
+  background: var(--skeleton);
+}
+.agent-cursor {
+  position: absolute;
+  color: var(--run);
+  filter: drop-shadow(0 2px 3px oklch(0 0 0 / 0.3));
+  transition:
+    left 0.6s var(--ease-out),
+    top 0.6s var(--ease-out);
+}
+.agent-cursor svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: white;
+}
+.video-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  background: repeating-linear-gradient(
+    -45deg,
+    oklch(0.22 0 0),
+    oklch(0.22 0 0) 8px,
+    oklch(0.25 0 0) 8px,
+    oklch(0.25 0 0) 16px
+  );
+  color: oklch(0.85 0 0);
+  font-size: 13px;
+  font-weight: 500;
+}
+.video-veil svg {
+  width: 22px;
+  height: 22px;
+}
+.video-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: oklch(0.18 0 0 / 0.8);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+}
+.video-badge svg {
+  width: 13px;
+  height: 13px;
+}
+.video-badge[data-tone="takeover"] {
+  background: color-mix(in oklch, var(--brand) 85%, black);
+  color: oklch(0.2 0 0);
+}
+.video-big-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: oklch(0.18 0 0 / 0.72);
+  color: white;
+  backdrop-filter: blur(8px);
+  transition: transform 0.3s var(--ease-spring);
+}
+.video-big-play:hover {
+  transform: scale(1.06);
+}
+.video-big-play svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 3px;
+}
+.video-caption {
+  margin: 0;
+  padding: 7px 12px;
+  background: oklch(0.16 0 0);
+  color: oklch(0.85 0 0);
+  font:
+    500 12px "Geist Mono",
+    monospace;
+}
+.video-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.video-time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.scrub-control {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  cursor: pointer;
+}
+.scrub-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+}
+.scrub-segments {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 2px;
+}
+.scrub-segments span {
+  min-width: 4px;
+  border-radius: 3px;
+  background: color-mix(in oklch, var(--fg) 22%, transparent);
+}
+.scrub-segments [data-kind="idle"] {
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--fg) 22%, transparent) 0 2px,
+    transparent 2px 4px
+  );
+}
+.scrub-segments [data-kind="hidden"] {
+  background: color-mix(in oklch, var(--fg) 55%, transparent);
+}
+.scrub-segments [data-kind="takeover"] {
+  background: var(--brand);
+}
+.scrub-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: color-mix(in oklch, var(--run) 45%, transparent);
+  mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .scrub-fill {
+  mix-blend-mode: screen;
+}
+.scrub-thumb {
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--island-solid);
+  box-shadow:
+    0 0 0 2px var(--run),
+    var(--shadow);
+}
+.scrub-thumb:has(:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* empty catalog */
+.flows-empty {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 96px 16px;
+}
+.empty-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 32px;
+  text-align: center;
+}
+.empty-card h1 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.empty-card p {
+  margin: 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+body[data-view="flows"] .scaffold {
+  top: 22px;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  translate: -50% 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .flows-sidebar,
+  .pane {
+    animation: none;
+  }
+}
+
+/* Seek preview: a frame of the video at the pointer, with what happens there. */
+.scrub-peek {
+  --peek-w: 184px;
+  --peek-half: calc(var(--peek-w) / 2);
+  position: absolute;
+  bottom: calc(100% + 14px);
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  width: var(--peek-w);
+  padding: 6px 6px 8px;
+  border-radius: 14px;
+  background: var(--island-solid);
+  translate: -50% 0;
+  pointer-events: none;
+  animation: peek-in 0.16s var(--ease-out);
+}
+@keyframes peek-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+.peek-frame {
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.scrub-peek[data-native] .peek-frame {
+  display: grid;
+  place-items: center;
+  background: oklch(0.2 0 0);
+}
+.peek-frame .mini-page {
+  gap: 5px;
+  padding: 9px;
+}
+.peek-frame .mini-page .bar,
+.peek-frame .phone .bar {
+  height: 4px;
+}
+.peek-frame .mini-page .hero-block {
+  height: 30px;
+  border-radius: 5px;
+}
+.peek-frame .mini-page .grid {
+  gap: 4px;
+}
+.peek-frame .mini-page .grid div {
+  border-radius: 4px;
+}
+.peek-frame .phone {
+  gap: 4px;
+  padding: 10px 5px 5px;
+  border-radius: 9px;
+  box-shadow: 0 0 0 2px oklch(0.12 0 0);
+}
+.peek-frame .phone .card {
+  height: 22px;
+  border-radius: 5px;
+}
+.peek-frame .agent-cursor svg {
+  width: 12px;
+  height: 12px;
+}
+.peek-frame .video-veil svg {
+  width: 16px;
+  height: 16px;
+}
+.peek-frame .veil-text,
+.peek-frame .video-badge {
+  display: none;
+}
+.peek-text {
+  display: grid;
+  gap: 3px;
+  padding: 0 4px;
+}
+.peek-label {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peek-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.peek-kind {
+  --tone: var(--muted);
+  color: var(--tone);
+  font-weight: 500;
+}
+.peek-kind[data-kind="action"] {
+  --tone: var(--run);
+}
+.peek-kind[data-kind="takeover"] {
+  --tone: var(--brand-ink);
+}
+.scrub-hover-line {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--fg);
+  opacity: 0.5;
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+/* Flows button -> catalog sidebar (and back). Same reveal as the stage: the
+   box grows with a spring while the button's face leaves and the sidebar's
+   settles in, pinned to the top left so its text never stretches. */
+::view-transition-group(flows-sidebar) {
+  z-index: 4;
+  animation-duration: 0.58s;
+  animation-timing-function: cubic-bezier(0.3, 1.08, 0.5, 1);
+}
+::view-transition-image-pair(flows-sidebar) {
+  overflow: clip;
+  border-radius: var(--radius);
+  background: var(--island-solid);
+  box-shadow: var(--shadow-lift);
+}
+::view-transition-old(flows-sidebar),
+::view-transition-new(flows-sidebar) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: top left;
+}
+::view-transition-old(flows-sidebar) {
+  animation: fade-out 0.18s var(--ease-out) both;
+}
+::view-transition-new(flows-sidebar) {
+  animation: fade-in 0.3s 0.1s var(--ease-out) both;
+}
