@@ -48,6 +48,7 @@ type ButtonProps = Omit<
 > &
   VariantProps<typeof buttonVariants> & {
     readonly className?: string;
+    readonly "data-slot"?: string;
     readonly onClick?: React.MouseEventHandler<HTMLButtonElement>;
   };
 
@@ -58,11 +59,14 @@ function Button({
   variant = "default",
   size = "default",
   onClick,
+  "data-slot": slot = "button",
   ...props
 }: ButtonProps) {
   return (
     <ButtonPrimitive
-      data-slot="button"
+      // UI SDK writes its own data-slot over a passed one, so the slot is set
+      // on the rendered element to keep facades like `sheet-close` intact.
+      render={(buttonProps) => <button {...buttonProps} data-slot={slot} />}
       className={cn(buttonVariants({ className, size, variant }))}
       {...(onClick === undefined
         ? {}

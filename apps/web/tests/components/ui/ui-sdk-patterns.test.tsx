@@ -8,6 +8,7 @@ import { afterEach, expect, test } from "vitest";
 import { DockSessionSelect } from "@/components/agent/workspace-dock";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -27,6 +28,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 import {
   Popover,
   PopoverContent,
@@ -309,6 +311,42 @@ test("Input is a native textbox with its slot", async () => {
   await user.clear(input);
   await user.type(input, "checkout");
   expect(input).toHaveValue("checkout");
+});
+
+test("facades composed from Button and Input keep their own slots", async () => {
+  render(
+    <>
+      <InputGroup>
+        <InputGroupInput aria-label="Browser address" />
+      </InputGroup>
+      <AlertDialog defaultOpen>
+        <AlertDialogContent>
+          <AlertDialogTitle>Erase Pixel_9?</AlertDialogTitle>
+          <AlertDialogAction>Erase</AlertDialogAction>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+      <Sheet defaultOpen>
+        <SheetContent>
+          <SheetTitle>New Android session</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+  expect(
+    screen.getByRole("textbox", { name: "Browser address" })
+  ).toHaveAttribute("data-slot", "input-group-control");
+  expect(screen.getByRole("button", { name: "Erase" })).toHaveAttribute(
+    "data-slot",
+    "alert-dialog-action"
+  );
+  expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute(
+    "data-slot",
+    "alert-dialog-cancel"
+  );
+  expect(
+    await screen.findByRole("button", { hidden: true, name: "Close" })
+  ).toHaveAttribute("data-slot", "sheet-close");
 });
 
 test("Collapsible discloses its content and keeps it mounted on request", async () => {
