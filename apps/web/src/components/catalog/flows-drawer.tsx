@@ -487,7 +487,7 @@ const CatalogColumn = ({
             >
               <ChevronRightIcon
                 aria-hidden="true"
-                className="text-muted-foreground size-3.5 transition-transform duration-150 group-data-panel-open/global:rotate-90"
+                className="text-muted-foreground size-3.5 transition-transform duration-150 group-data-open/global:rotate-90"
               />
               <GlobeIcon aria-hidden="true" className="size-3.5 shrink-0" />
               Global

@@ -1,18 +1,34 @@
-import { Collapsible as CollapsiblePrimitive } from "@base-ui/react/collapsible";
+import {
+  Collapsible as CollapsiblePrimitive,
+  CollapsiblePanel,
+  CollapsibleTrigger as CollapsibleTriggerPrimitive,
+} from "@ui-sdk/react/collapsible";
+import type * as React from "react";
 
-function Collapsible({ ...props }: CollapsiblePrimitive.Root.Props) {
-  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />;
+function Collapsible(props: React.ComponentProps<typeof CollapsiblePrimitive>) {
+  return <CollapsiblePrimitive data-slot="collapsible" {...props} />;
 }
 
-function CollapsibleTrigger({ ...props }: CollapsiblePrimitive.Trigger.Props) {
+function CollapsibleTrigger(
+  props: React.ComponentProps<typeof CollapsibleTriggerPrimitive>
+) {
   return (
-    <CollapsiblePrimitive.Trigger data-slot="collapsible-trigger" {...props} />
+    <CollapsibleTriggerPrimitive data-slot="collapsible-trigger" {...props} />
   );
 }
 
-function CollapsibleContent({ ...props }: CollapsiblePrimitive.Panel.Props) {
+function CollapsibleContent(
+  props: React.ComponentProps<typeof CollapsiblePanel>
+) {
+  // The panel writes its own data-slot over a passed one, so the facade sets
+  // it on the rendered element to keep the Base UI name.
   return (
-    <CollapsiblePrimitive.Panel data-slot="collapsible-content" {...props} />
+    <CollapsiblePanel
+      render={(panelProps) => (
+        <div {...panelProps} data-slot="collapsible-content" />
+      )}
+      {...props}
+    />
   );
 }
 
