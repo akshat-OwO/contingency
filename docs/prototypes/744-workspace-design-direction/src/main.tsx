@@ -42,7 +42,7 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/react/tooltip";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -1105,6 +1105,42 @@ const LINE: Record<Status, string> = {
   takeover: "Capture continues. Return control when you're done.",
 };
 
+/**
+ * What the product says today: long enough to clip at 240px. The scaffold's
+ * **Sentence** switch shows these, so each disclosure can be judged on real
+ * copy.
+ */
+const LONG_LINE: Record<Status, string> = {
+  "needs-you":
+    "The agent is waiting on you. Answer the request to let it continue; nothing runs until you do.",
+  ready:
+    "The agent is preparing the browser. Start recording appears when it hands you control; nothing is captured before then.",
+  recording:
+    "Every click and keystroke becomes an instruction. Add a comment to explain why, and Stop when the journey ends.",
+  running:
+    "The agent is following the Flow on its own. Take control at any time; the agent waits until you return it.",
+  takeover:
+    "Capture continues while you drive. Return control when you're done and the agent picks up from this page.",
+};
+
+/**
+ * How a clipped sentence is read in full (#753 review). The status island
+ * itself never changes size in any of them.
+ * - `popover`: the sentence is a button; it opens an island above the status.
+ * - `tooltip`: hovering or focusing the sentence shows it whole.
+ * - `none`: no disclosure, today's prototype, as the baseline.
+ */
+type Disclosure = "popover" | "tooltip" | "none";
+const DISCLOSURES: readonly Disclosure[] = ["popover", "tooltip", "none"];
+interface Options {
+  readonly disclosure: Disclosure;
+  readonly long: boolean;
+}
+const OptionsContext = createContext<Options>({
+  disclosure: "popover",
+  long: true,
+});
+
 type Patch = (s: Session) => Session;
 
 interface Notice {
@@ -1338,6 +1374,56 @@ const useStatusWidth = () => {
   return setEl;
 };
 
+const Sentence = ({
+  disclosure,
+  line,
+  session,
+}: {
+  readonly disclosure: Disclosure;
+  readonly line: string;
+  readonly session: Session;
+}) => {
+  if (disclosure === "popover") {
+    return (
+      <Popover>
+        <PopoverTrigger
+          aria-label={`Status: ${line}`}
+          className="sentence sentence-btn"
+        >
+          {line}
+        </PopoverTrigger>
+        <PopoverContent
+          aria-label="Status"
+          align="end"
+          className="popover island narrow sentence-pop"
+          side="top"
+          sideOffset={14}
+        >
+          <div className="sentence-pop-head">
+            <StatusChip session={session} />
+          </div>
+          <p>{line}</p>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+  if (disclosure === "tooltip") {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="sentence sentence-tip" tabIndex={0} />}
+        >
+          {line}
+        </TooltipTrigger>
+        <TooltipContent className="tooltip sentence-tooltip" side="top">
+          {line}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  return <span className="sentence">{line}</span>;
+};
+
 const StatusIsland = ({
   session,
   onPatch,
@@ -1348,7 +1434,8 @@ const StatusIsland = ({
   readonly onNotice: NotifyFn;
 }) => {
   const action = primaryAction(session);
-  const line = LINE[statusOf(session)];
+  const { disclosure, long } = useContext(OptionsContext);
+  const line = (long ? LONG_LINE : LINE)[statusOf(session)];
   const ref = useStatusWidth();
   return (
     <section
@@ -1357,9 +1444,7 @@ const StatusIsland = ({
       ref={ref}
     >
       <StatusChip session={session} />
-      <span className="sentence" title={line}>
-        {line}
-      </span>
+      <Sentence disclosure={disclosure} line={line} session={session} />
       <div className="tools">
         <TaskDetails session={session} />
         {session.activity === "Teaching" ? (
@@ -1659,6 +1744,10 @@ const App = () => {
   const setNotice: NotifyFn = (text, tone = "info") =>
     setNoticeState({ id: Date.now(), text, tone });
   const [side, setSide] = useState<"left" | "right">("right");
+  const [options, setOptions] = useState<Options>({
+    disclosure: "popover",
+    long: true,
+  });
   const [sample, setSample] = useState(0);
 
   useEffect(() => {
@@ -1740,96 +1829,100 @@ const App = () => {
       : undefined;
 
   return (
-    <>
-      <div className="desktop-gate" role="alert">
-        <div className="island gate-card">
-          <WatcherMark className="brand-mark big" />
-          <h1>Open Contingency on a desktop</h1>
-          <p>
-            The Workspace drives browsers, emulators and simulators side by
-            side. It needs a screen at least 1024 pixels wide.
-          </p>
+    <OptionsContext.Provider value={options}>
+      <>
+        <div className="desktop-gate" role="alert">
+          <div className="island gate-card">
+            <WatcherMark className="brand-mark big" />
+            <h1>Open Contingency on a desktop</h1>
+            <p>
+              The Workspace drives browsers, emulators and simulators side by
+              side. It needs a screen at least 1024 pixels wide.
+            </p>
+          </div>
         </div>
-      </div>
-      <div className="app">
-        {current ? (
-          <SessionView
-            notice={notice}
-            onNotice={setNotice}
-            onPatch={(fn) => patch(current.id, fn)}
-            onHome={home}
-            onOpen={(id) => open(id)}
-            session={current}
-            sessions={sessions}
-          />
-        ) : (
-          <Home
-            expanded={expanded}
-            flow={flow}
-            setFlow={setFlow}
-            onCollapse={collapse}
-            onExpand={expand}
-            onOpen={open}
-            onStart={(platform, flow, form) => {
-              const id = `n${Date.now()}`;
-              transition(
-                () => {
-                  setSessions((all) => [
-                    {
-                      activity: "Teaching",
-                      flow,
-                      id,
-                      platform,
-                      requests: [],
-                      since: Date.now(),
-                      status: "ready",
-                    },
-                    ...all,
-                  ]);
-                  setView({ id, name: "session" });
-                  setReturnTo(id);
-                  setExpanded(null);
-                },
-                { element: form, name: "stage" }
-              );
+        <div className="app">
+          {current ? (
+            <SessionView
+              notice={notice}
+              onNotice={setNotice}
+              onPatch={(fn) => patch(current.id, fn)}
+              onHome={home}
+              onOpen={(id) => open(id)}
+              session={current}
+              sessions={sessions}
+            />
+          ) : (
+            <Home
+              expanded={expanded}
+              flow={flow}
+              setFlow={setFlow}
+              onCollapse={collapse}
+              onExpand={expand}
+              onOpen={open}
+              onStart={(platform, flow, form) => {
+                const id = `n${Date.now()}`;
+                transition(
+                  () => {
+                    setSessions((all) => [
+                      {
+                        activity: "Teaching",
+                        flow,
+                        id,
+                        platform,
+                        requests: [],
+                        since: Date.now(),
+                        status: "ready",
+                      },
+                      ...all,
+                    ]);
+                    setView({ id, name: "session" });
+                    setReturnTo(id);
+                    setExpanded(null);
+                  },
+                  { element: form, name: "stage" }
+                );
+              }}
+              returnTo={returnTo}
+              returning={returning}
+              sessions={sessions}
+            />
+          )}
+          <Scaffold
+            onSessions={(on) => {
+              transition(() => {
+                setSessions(on ? SEED.map((s) => ({ ...s })) : []);
+                setView({ name: "home" });
+              });
             }}
-            returnTo={returnTo}
-            returning={returning}
-            sessions={sessions}
+            sessionsOn={sessions.length > 0}
+            inSession={current !== undefined}
+            side={side}
+            onSide={() =>
+              transition(() => setSide(side === "right" ? "left" : "right"))
+            }
+            onRequest={() => {
+              if (!current) return;
+              const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
+              setSample(sample + 1);
+              if (next)
+                patch(current.id, (s) => ({
+                  ...s,
+                  requests: [
+                    ...s.requests,
+                    { ...next, id: `r${Date.now()}` } as Request,
+                  ],
+                }));
+            }}
+            onNotice={() =>
+              setNotice("That gesture did not go through.", "error")
+            }
+            onOptions={setOptions}
+            options={options}
           />
-        )}
-        <Scaffold
-          onSessions={(on) => {
-            transition(() => {
-              setSessions(on ? SEED.map((s) => ({ ...s })) : []);
-              setView({ name: "home" });
-            });
-          }}
-          sessionsOn={sessions.length > 0}
-          inSession={current !== undefined}
-          side={side}
-          onSide={() =>
-            transition(() => setSide(side === "right" ? "left" : "right"))
-          }
-          onRequest={() => {
-            if (!current) return;
-            const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
-            setSample(sample + 1);
-            if (next)
-              patch(current.id, (s) => ({
-                ...s,
-                requests: [
-                  ...s.requests,
-                  { ...next, id: `r${Date.now()}` } as Request,
-                ],
-              }));
-          }}
-          onNotice={() =>
-            setNotice("That gesture did not go through.", "error")
-          }
-        />
-      </div>
-    </>
+        </div>
+      </>
+    </OptionsContext.Provider>
   );
 };
 
@@ -1841,7 +1934,11 @@ const Scaffold = ({
   onSide,
   onRequest,
   onNotice,
+  options,
+  onOptions,
 }: {
+  readonly options: Options;
+  readonly onOptions: (options: Options) => void;
   readonly sessionsOn: boolean;
   readonly onSessions: (on: boolean) => void;
   readonly inSession: boolean;
@@ -1880,6 +1977,27 @@ const Scaffold = ({
           </button>
           <button onClick={onNotice} type="button">
             Notice
+          </button>
+          <button
+            onClick={() => onOptions({ ...options, long: !options.long })}
+            type="button"
+          >
+            Sentence: {options.long ? "long" : "short"}
+          </button>
+          <button
+            onClick={() =>
+              onOptions({
+                ...options,
+                disclosure:
+                  DISCLOSURES[
+                    (DISCLOSURES.indexOf(options.disclosure) + 1) %
+                      DISCLOSURES.length
+                  ] ?? "popover",
+              })
+            }
+            type="button"
+          >
+            Full sentence: {options.disclosure}
           </button>
         </>
       ) : null}

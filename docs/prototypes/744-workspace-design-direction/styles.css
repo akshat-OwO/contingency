@@ -1673,3 +1673,61 @@ body[data-view="session"] .scaffold {
   align-items: stretch;
   translate: 0 -50%;
 }
+
+/* Reading a clipped status sentence in full (#753 review). */
+.sentence-btn {
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sentence-btn:hover,
+.sentence-btn[data-popup-open] {
+  color: var(--fg);
+  background: var(--island-hover);
+}
+.sentence-tip {
+  border-radius: 8px;
+  cursor: default;
+}
+.sentence-tip:focus-visible,
+.sentence-btn:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--fg) 40%, transparent);
+  outline-offset: 2px;
+}
+.sentence-pop {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+.sentence-pop p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.sentence-tooltip {
+  max-width: 300px;
+  white-space: normal;
+  text-wrap: pretty;
+  line-height: 1.45;
+}
+
+/* Status island buttons: small, on the island's own surface (#753 review). */
+.status-island .btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.status-island .pill-btn {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.status-island .btn.ghosty {
+  background: transparent;
+}
