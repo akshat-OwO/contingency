@@ -71,10 +71,10 @@ const CollapsedRequests = ({
 };
 
 /**
- * The dock's first tier: what the agent is waiting on the user for. A paused
- * Execution Boundary and requests for private inputs used to float as cards
- * at the top of the stage, away from the dock's state and its one control.
- * Here they sit directly above the status line they explain.
+ * What the agent is waiting on the user for, in the **Requests** island at
+ * the bottom left of the stage (#753): a paused Execution Boundary and
+ * requests for private inputs. The island floats over the page or device, so
+ * a request coming or going never resizes the stage.
  *
  * The tier collapses to one line so a long request never has to cover the
  * page the person is reading to answer it. Collapsing hides the requests on

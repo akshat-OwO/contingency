@@ -145,7 +145,7 @@ afterEach(async () => {
 
 test("keeps an Execution Boundary on screen through a burst of updates", async () => {
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
 
   const boundary = {
     action: { type: "click" },
@@ -196,7 +196,7 @@ test("keeps an Execution Boundary on screen through a burst of updates", async (
 
 test("keeps refusal available during Takeover and enables Allow on return", async () => {
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   const boundary = {
     action: { type: "click" },
     description: "Submit return",
@@ -255,7 +255,7 @@ test("keeps refusal available during Takeover and enables Allow on return", asyn
 test("holds a paused Boundary in the dock and reopens a folded tier for a new one", async () => {
   const user = userEvent.setup();
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   const run = { activity: "run", captureState: null, teaching: null };
   await act(() =>
     rpc.emit?.(
@@ -270,8 +270,12 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   const boundary = await screen.findByRole("region", {
     name: "Execution Boundary",
   });
-  const dock = screen.getByRole("region", { name: "Workspace dock" });
+  // The Boundary sits in the Requests island, apart from the session status.
+  const dock = screen.getByRole("region", { name: "Requests" });
   expect(dock).toContainElement(boundary);
+  expect(
+    screen.getByRole("region", { name: "Session status" })
+  ).not.toContainElement(boundary);
   expect(
     within(boundary).getByRole("heading", { name: "Confirm this action" })
   ).toBeVisible();
@@ -319,7 +323,7 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
 test("answers the exact decision in Workspace and reuses its resolution id after a transport failure", async () => {
   const user = userEvent.setup();
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   await act(() =>
     rpc.emit?.(
       sessionAt("2026-09-02T00:00:01.000Z", {
@@ -352,7 +356,7 @@ test("answers the exact decision in Workspace and reuses its resolution id after
 test("refuses a pending attempt while the user holds Takeover", async () => {
   const user = userEvent.setup();
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   await act(() =>
     rpc.emit?.(
       sessionAt("2026-09-02T00:00:01.000Z", {
@@ -378,7 +382,7 @@ test("refuses a pending attempt while the user holds Takeover", async () => {
 test("Guided Run host approval explains its saved scope", async () => {
   const user = userEvent.setup();
   renderWorkspace();
-  await screen.findByRole("region", { name: "Workspace dock" });
+  await screen.findByRole("region", { name: "Session status" });
   await act(() =>
     rpc.emit?.(
       sessionAt("2026-09-02T00:00:01.000Z", {

@@ -19,6 +19,8 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { DocsLink } from "@/components/docs-link";
+import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -29,13 +31,16 @@ import {
 import { cn } from "@/lib/utils";
 
 import { useWorkspaceHome } from "./workspace-home-context";
-import { WorkspaceHomeLink } from "./workspace-home-nav";
+import {
+  islandControlClassName,
+  WorkspaceHomeLink,
+} from "./workspace-home-nav";
 
 /**
- * The pieces every Workspace dock is made of. Teaching, a Dry Run, an
- * Interactive Run, and the empty canvas all render the same floating card over
- * the same full-bleed browser, so the shell lives here rather than inside the
- * activity that happened to need it first (#209).
+ * The pieces every session's chrome is made of. Teaching, a Dry Run and an
+ * Interactive Run, on every platform, render the same islands over the same
+ * stage, so the shell lives here rather than inside the activity that
+ * happened to need it first (#209, #753).
  */
 
 /**
@@ -67,11 +72,11 @@ export interface SessionDeletion {
 }
 
 /**
- * Every dock's session picker trigger: quiet, and the first thing to shrink
- * when the actions need the room.
+ * Every session switcher trigger, in the top bar's navigation island: quiet,
+ * and the first thing to shrink when the stage is narrow.
  */
 export const dockSessionTriggerClassName =
-  "min-w-0 max-w-[min(18rem,55%)] shrink justify-start gap-2 px-2";
+  "hover:bg-island-hover h-8 min-w-0 max-w-[18rem] shrink justify-start gap-2 rounded-xl px-2";
 
 /** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
@@ -125,7 +130,7 @@ export const DockSessionSelect = ({
       <PopoverContent
         aria-label="Agent Sessions"
         align="start"
-        side="top"
+        side="bottom"
         className="w-96 max-w-[calc(100vw-2rem)] gap-1 p-1"
       >
         <PopoverTitle className="text-muted-foreground px-1.5 py-1 text-xs">
@@ -195,11 +200,10 @@ export const DockSessionSelect = ({
 };
 
 /**
- * Publishes the height of the dock's deliberate tiers on the stage it floats
- * over as `--dock-height`, so a stage can keep its content clear of the dock
- * however many request tiers it has grown. Transient notices float above the
- * dock outside the measured element, so a refusal appearing or clearing never
- * resizes the stage's content.
+ * Publishes the height of the session status island on the stage it floats
+ * over as `--dock-height`, so a stage can keep its content clear of it.
+ * Requests and notices float over the stage outside the measured element, so
+ * a request or a refusal coming and going never resizes the stage's content.
  */
 const useDockHeight = () => {
   const [element, setElement] = useState<HTMLElement | null>(null);
@@ -223,22 +227,21 @@ const useDockHeight = () => {
 };
 
 /**
- * The dock shell: one compact floating card over a full-bleed browser. What
- * the agent is waiting on comes first, as a tier above. Then the status line,
- * then the session picker and the actions. The card stops at 42rem however
- * wide the stage is, so a wide stage gets a centered card rather than a long
- * bar. The state's tone lives in its label and mark, never in an edge.
+ * The session's chrome along the bottom of the stage, split into islands
+ * (#753). What the agent is waiting on sits in the **Requests** island at the
+ * bottom left, only while there is something to answer. The **Session
+ * status** island at the bottom right holds the state, the next step, the
+ * activity's tools and the one action. The brand, the session switcher and
+ * Flows live in the `SessionTopBar` instead.
  *
- * The dock sits inside the browser stage, which the devtools inspector and the
- * Dry Run Summary narrow independently of the window. So it sizes itself with
- * container queries on the stage rather than viewport breakpoints: at 1440px
- * with devtools docked right the stage is about 800px, and with the summary
- * open too it is about 360px.
+ * The dock sits inside the browser or device stage, which the devtools
+ * inspector and a Run Summary narrow independently of the window. So it
+ * sizes itself with container queries on the stage rather than viewport
+ * breakpoints: on a narrow stage the requests stack above the status island.
  *
- * A transient notice, such as a refused gesture, floats just above the dock
- * rather than inside it. It takes no layout space, so the device or page
- * behind keeps its size and the controls stay where they are while refusals
- * come and go.
+ * A transient notice, such as a refused gesture, floats at the top centre of
+ * the stage. It takes no layout space and lets pointer input through, so the
+ * device or page keeps its size and the next attempt is never blocked.
  */
 export const DockShell = ({
   children,
@@ -247,17 +250,14 @@ export const DockShell = ({
   requests,
   status,
 }: {
-  /** The controls row: wordmark, session picker, and the actions. */
+  /** The activity's tools and its one action. */
   readonly children: React.ReactNode;
   /**
    * A deliberate tier under the controls, such as a rename form. It counts
-   * toward the space the stage reserves for the dock.
+   * toward the space the stage reserves for the status island.
    */
   readonly footer?: React.ReactNode;
-  /**
-   * Transient notices such as refusals, as `DockNotice`s. They float above
-   * the dock and never change the space the stage reserves for it.
-   */
+  /** Transient notices such as refusals, as `DockNotice`s. */
   readonly notice?: React.ReactNode;
   /** What the agent is waiting on, or nothing. */
   readonly requests?: React.ReactNode;
@@ -265,50 +265,54 @@ export const DockShell = ({
 }) => {
   const ref = useDockHeight();
   return (
-    <div
-      className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center p-3"
-      data-slot="workspace-dock-container"
-    >
-      <div className="relative w-full max-w-2xl">
-        {/*
-          Pointer events pass through the notices to the device or page
-          behind, so a refusal never blocks the next attempt.
-        */}
-        <div
-          className="absolute inset-x-0 bottom-full mb-2 flex flex-col items-center gap-1.5 empty:hidden"
-          data-slot="dock-notices"
-        >
-          {notice}
-        </div>
-        <section
-          aria-label="Workspace dock"
-          className="material-float pointer-events-auto relative w-full overflow-hidden rounded-2xl shadow-lg"
-          data-slot="workspace-dock"
-          ref={ref}
-        >
-          {requests}
-          {status}
-          {/*
-            The session picker shrinks before an action does. When the actions
-            still do not fit, as on a narrow device dock, they wrap onto a
-            second line rather than clipping.
-          */}
-          <div
-            className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 pt-1 pb-2"
-            data-slot="dock-controls"
-          >
-            {children}
-          </div>
-          {footer}
-        </section>
+    <>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-3 z-30 flex flex-col items-center gap-1.5 px-3 empty:hidden"
+        data-slot="dock-notices"
+      >
+        {notice}
       </div>
-    </div>
+      <div
+        className="@container pointer-events-none absolute inset-x-0 bottom-0 z-20 p-3"
+        data-slot="workspace-dock-container"
+      >
+        <div className="flex flex-col items-stretch gap-2 @3xl:flex-row @3xl:items-end @3xl:justify-between">
+          <section
+            aria-label="Requests"
+            className="island shadow-island-lift pointer-events-auto w-full overflow-hidden rounded-2xl empty:hidden @3xl:max-w-md [&>*:last-child]:border-b-0"
+            data-slot="dock-requests"
+          >
+            {requests}
+          </section>
+          <section
+            aria-label="Session status"
+            className="island pointer-events-auto w-full overflow-hidden rounded-2xl @3xl:ml-auto @3xl:max-w-xl"
+            data-slot="workspace-dock"
+            ref={ref}
+          >
+            {status}
+            {/*
+              The tools shrink before the action does. When they still do not
+              fit, as on a narrow device stage, they wrap onto a second line
+              rather than clipping.
+            */}
+            <div
+              className="flex min-w-0 flex-wrap items-center justify-end gap-1.5 px-2 pt-1 pb-2"
+              data-slot="dock-controls"
+            >
+              {children}
+            </div>
+            {footer}
+          </section>
+        </div>
+      </div>
+    </>
   );
 };
 
 /**
- * One transient notice above the dock: a refused gesture or a failed
- * control. It is announced as an alert without taking focus.
+ * One transient notice at the top centre of the stage: a refused gesture or a
+ * failed control. It is announced as an alert without taking focus.
  */
 export const DockNotice = ({
   children,
@@ -316,7 +320,7 @@ export const DockNotice = ({
   readonly children: React.ReactNode;
 }) => (
   <p
-    className="material-float text-destructive max-w-full rounded-lg px-3 py-1.5 text-xs text-pretty shadow-md"
+    className="island text-destructive shadow-island-lift max-w-md rounded-full px-4 py-2 text-xs font-medium text-pretty"
     data-slot="dock-notice"
     role="alert"
   >
@@ -324,17 +328,44 @@ export const DockNotice = ({
   </p>
 );
 
-/** A spacer that pushes the actions to the end of the controls row. */
-export const DockSpacer = () => (
-  <div className="min-w-2 flex-1" data-slot="dock-spacer" />
-);
-
 /**
- * The mark alone, as the dock's way to the Workspace home (**Contingency
- * home**): a session dock spends its width on the session, so the mark stays
- * small, but it never gives way, since the platform switcher is gone.
+ * The session's top chrome (#753): the **Contingency home** wordmark and the
+ * session switcher in a navigation island at the top left, and Flows, Docs and
+ * the theme in an island at the top right, as on the Workspace home.
  */
-export const DockWordmark = () => <WorkspaceHomeLink />;
+export const SessionTopBar = ({
+  className,
+  flows,
+  picker,
+}: {
+  readonly className?: string;
+  /** The Flows drawer entry, or nothing while capture hides it. */
+  readonly flows?: React.ReactNode;
+  /** The session switcher. */
+  readonly picker: React.ReactNode;
+}) => (
+  <div
+    className={cn(
+      "pointer-events-none z-20 flex items-center justify-between gap-3 px-3 py-2",
+      className
+    )}
+    data-slot="session-top-bar"
+  >
+    <nav
+      aria-label="Workspace"
+      className="island pointer-events-auto flex min-w-0 items-center gap-1 p-1"
+    >
+      <WorkspaceHomeLink wordmark />
+      <span aria-hidden="true" className="bg-island-border h-5 w-px shrink-0" />
+      {picker}
+    </nav>
+    <div className="island pointer-events-auto flex shrink-0 items-center gap-1 p-1">
+      {flows}
+      <DocsLink className={islandControlClassName} />
+      <ModeToggle className={islandControlClassName} />
+    </div>
+  </div>
+);
 
 /**
  * What the dock has to say above the browser rather than inside the card: a

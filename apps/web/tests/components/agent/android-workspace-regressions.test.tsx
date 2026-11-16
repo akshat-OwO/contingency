@@ -303,7 +303,7 @@ test("refused input is said above the dock, outside its measured height, and set
     refused = update(refused);
   }
   view.rerender(<AndroidSessionView {...props} state={refused} />);
-  const dock = screen.getByRole("region", { name: "Workspace dock" });
+  const dock = screen.getByRole("region", { name: "Session status" });
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Only the user controlling a running session can send input. Nothing was sent."
   );

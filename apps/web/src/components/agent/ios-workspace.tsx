@@ -88,10 +88,9 @@ import { clearDataQuestion } from "./native-starting-data-copy";
 import {
   DockNotice,
   DockShell,
-  DockSpacer,
   DockState,
   DockStatus,
-  DockWordmark,
+  SessionTopBar,
 } from "./workspace-dock";
 import { iosStartGestureAtom, useWorkspaceGesture } from "./workspace-gesture";
 import { WorkspaceHomeBar } from "./workspace-home-nav";
@@ -740,11 +739,9 @@ const IosDockControls = ({
   gesture,
   onComment,
   onNewSession,
-  onSelectSession,
   presentation,
   send,
   session,
-  sessions,
 }: {
   readonly commenting: boolean;
   /** The keyboard's way onto the simulator screen. */
@@ -752,28 +749,15 @@ const IosDockControls = ({
   readonly gesture: { readonly pending: boolean };
   readonly onComment: () => void;
   readonly onNewSession: () => void;
-  readonly onSelectSession: (session: string) => void;
   readonly presentation: IosDockPresentation;
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
-  readonly sessions: readonly IosWorkspaceSummary[];
 }) => {
   const primary = presentation.action;
   return (
     <>
-      <DockWordmark />
-      <IosSessionSelect
-        onSelect={onSelectSession}
-        session={session}
-        sessions={sessions}
-      />
-      {/* Hidden while capturing, as the browser dock does. */}
-      {showsFlowsEntry(iosFlowsSessionView(session)) ? (
-        <FlowsDockButton />
-      ) : null}
       {/* An ended session has no screen to reach. */}
       {isLiveIosSession(session) ? elements : null}
-      <DockSpacer />
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
@@ -925,133 +909,152 @@ const IosDock = ({
   const recording = session.captureState?._tag === "recording";
   const field = typingField(session, dismissedField);
   return (
-    <DockShell
-      notice={
-        <>
-          {gesture.error === undefined ? null : (
-            <DockNotice>{gesture.error}</DockNotice>
-          )}
-          {inputRefusal === null ? null : (
-            <DockNotice>{inputRefusal}</DockNotice>
-          )}
-        </>
-      }
-      footer={
-        <>
-          {session.cleanup?._tag === "purge-pending" ? (
-            <p
-              className="text-destructive border-t px-3 py-1.5 text-xs text-pretty"
-              role="alert"
-            >
-              {session.cleanup.failure} Kept:{" "}
-              {session.cleanup.retainedFiles.join(", ")}.
-            </p>
-          ) : null}
-        </>
-      }
-      requests={
-        <>
-          <IosDecisions
-            pending={gesture.pending}
-            send={send}
+    <>
+      <SessionTopBar
+        className="absolute inset-x-0 top-0"
+        flows={
+          // Hidden while capturing, as the browser dock does.
+          showsFlowsEntry(iosFlowsSessionView(session)) ? (
+            <FlowsDockButton />
+          ) : null
+        }
+        picker={
+          <IosSessionSelect
+            onSelect={onSelectSession}
             session={session}
+            sessions={choices}
           />
-          <AndroidVariables
-            onSupply={(name, requestId, value) =>
-              send({
-                _tag: "variable-supply",
-                name,
-                operationId: operationId(),
-                requestId,
-                sessionId: session.id,
-                value,
-              })
-            }
-            pending={gesture.pending}
-            session={session}
-          />
-          {field === null ? null : (
-            <IosFieldEntry
-              field={field}
-              key={field.observationId}
-              onDismiss={() => setDismissedField(field.observationId)}
+        }
+      />
+      <DockShell
+        notice={
+          <>
+            {gesture.error === undefined ? null : (
+              <DockNotice>{gesture.error}</DockNotice>
+            )}
+            {inputRefusal === null ? null : (
+              <DockNotice>{inputRefusal}</DockNotice>
+            )}
+          </>
+        }
+        footer={
+          <>
+            {session.cleanup?._tag === "purge-pending" ? (
+              <p
+                className="text-destructive border-t px-3 py-1.5 text-xs text-pretty"
+                role="alert"
+              >
+                {session.cleanup.failure} Kept:{" "}
+                {session.cleanup.retainedFiles.join(", ")}.
+              </p>
+            ) : null}
+          </>
+        }
+        requests={
+          <>
+            <IosDecisions
               pending={gesture.pending}
               send={send}
               session={session}
             />
-          )}
-          {commenting && recording ? (
-            <form
-              aria-label="Comment"
-              className="flex items-center gap-1.5 border-b px-3 py-2"
-              onSubmit={(event) => {
-                event.preventDefault();
+            <AndroidVariables
+              onSupply={(name, requestId, value) =>
                 send({
-                  _tag: "instruction",
+                  _tag: "variable-supply",
+                  name,
                   operationId: operationId(),
+                  requestId,
                   sessionId: session.id,
-                  text: text(new FormData(event.currentTarget), "instruction"),
-                });
-                // The composer and its draft stay until the instruction is
-                // saved; a refusal leaves them for another try.
-                setSubmitting(true);
-              }}
-            >
-              <Input
-                aria-label="Instruction"
-                autoFocus
-                className="h-8 flex-1"
-                name="instruction"
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setCommenting(false);
-                  }
-                }}
-                placeholder="Tell the agent what matters on this screen"
-                required
-              />
-              <Button disabled={gesture.pending} size="sm" type="submit">
-                Add
-              </Button>
-            </form>
-          ) : null}
-        </>
-      }
-      status={
-        <DockStatus badges={<IosStateBadge presentation={presentation} />}>
-          {session.error !== null && session.phase !== "paused"
-            ? session.error
-            : presentation.nextStep}
-        </DockStatus>
-      }
-    >
-      <IosDockControls
-        commenting={commenting}
-        elements={
-          <DeviceElements
-            disabled={
-              gesture.pending ||
-              session.phase !== "running" ||
-              session.controller !== "user"
-            }
-            observation={session.observation}
-            onActivate={(inputs) => {
-              for (const input of inputs) {
-                onInput(input);
+                  value,
+                })
               }
-            }}
-          />
+              pending={gesture.pending}
+              session={session}
+            />
+            {field === null ? null : (
+              <IosFieldEntry
+                field={field}
+                key={field.observationId}
+                onDismiss={() => setDismissedField(field.observationId)}
+                pending={gesture.pending}
+                send={send}
+                session={session}
+              />
+            )}
+            {commenting && recording ? (
+              <form
+                aria-label="Comment"
+                className="flex items-center gap-1.5 border-b px-3 py-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  send({
+                    _tag: "instruction",
+                    operationId: operationId(),
+                    sessionId: session.id,
+                    text: text(
+                      new FormData(event.currentTarget),
+                      "instruction"
+                    ),
+                  });
+                  // The composer and its draft stay until the instruction is
+                  // saved; a refusal leaves them for another try.
+                  setSubmitting(true);
+                }}
+              >
+                <Input
+                  aria-label="Instruction"
+                  autoFocus
+                  className="h-8 flex-1"
+                  name="instruction"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setCommenting(false);
+                    }
+                  }}
+                  placeholder="Tell the agent what matters on this screen"
+                  required
+                />
+                <Button disabled={gesture.pending} size="sm" type="submit">
+                  Add
+                </Button>
+              </form>
+            ) : null}
+          </>
         }
-        gesture={gesture}
-        onComment={() => setCommenting(!commenting)}
-        onNewSession={onNewSession}
-        onSelectSession={onSelectSession}
-        presentation={presentation}
-        send={send}
-        session={session}
-        sessions={choices}
-      />
-    </DockShell>
+        status={
+          <DockStatus badges={<IosStateBadge presentation={presentation} />}>
+            {session.error !== null && session.phase !== "paused"
+              ? session.error
+              : presentation.nextStep}
+          </DockStatus>
+        }
+      >
+        <IosDockControls
+          commenting={commenting}
+          elements={
+            <DeviceElements
+              disabled={
+                gesture.pending ||
+                session.phase !== "running" ||
+                session.controller !== "user"
+              }
+              observation={session.observation}
+              onActivate={(inputs) => {
+                for (const input of inputs) {
+                  onInput(input);
+                }
+              }}
+            />
+          }
+          gesture={gesture}
+          onComment={() => setCommenting(!commenting)}
+          onNewSession={onNewSession}
+          presentation={presentation}
+          send={send}
+          session={session}
+        />
+      </DockShell>
+    </>
   );
 };
 
@@ -1356,7 +1359,7 @@ export const IosWorkspace = ({
         data-vt="stage"
         className={cn(
           // The device leaves room above for notices and below for the dock.
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
+          "workspace-canvas relative flex min-h-0 flex-1 justify-center px-6 pt-16",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >

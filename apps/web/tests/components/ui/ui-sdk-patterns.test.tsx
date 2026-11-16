@@ -4,11 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { checkPattern } from "@ui-sdk/core/testing";
 import { afterEach, expect, test, vi } from "vitest";
 
-import {
-  DockSessionSelect,
-  DockWordmark,
-} from "@/components/agent/workspace-dock";
+import { DockSessionSelect } from "@/components/agent/workspace-dock";
 import { WorkspaceHomeContext } from "@/components/agent/workspace-home-context";
+import { WorkspaceHomeLink } from "@/components/agent/workspace-home-nav";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -209,7 +207,7 @@ test("the Agent Session picker starts a new session on the Workspace home", asyn
   const goHome = vi.fn();
   render(
     <WorkspaceHomeContext value={{ goHome }}>
-      <DockWordmark />
+      <WorkspaceHomeLink wordmark />
       <DockSessionSelect
         onSelect={() => null}
         selectedSessionId={teaching.id}
@@ -217,7 +215,7 @@ test("the Agent Session picker starts a new session on the Workspace home", asyn
       />
     </WorkspaceHomeContext>
   );
-  // The logo mark is the dock's link home.
+  // The top bar's wordmark is the session's link home.
   const home = screen.getByRole("link", { name: "Contingency home" });
   expect(home).toHaveAttribute("href", "/");
   await user.click(home);

@@ -298,7 +298,7 @@ const openView = async (sessionId) => {
     "--url",
     `${instance.mcpUrl}?android=${sessionId}`
   );
-  await wait("Workspace dock", "region");
+  await wait("Session status", "region");
 };
 const prepare = async (sessionId) => {
   await openView(sessionId);

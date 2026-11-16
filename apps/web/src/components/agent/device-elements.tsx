@@ -177,8 +177,7 @@ export const DeviceElements = ({
   // controls; they stay one click away rather than filling the list.
   const collapsible = (id: string) => id === "other" && groups.length > 1;
   const dockOf = () =>
-    trigger.current?.closest('[aria-label="Workspace dock"]') ??
-    trigger.current;
+    trigger.current?.closest('[data-slot="workspace-dock"]') ?? trigger.current;
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <Tooltip>

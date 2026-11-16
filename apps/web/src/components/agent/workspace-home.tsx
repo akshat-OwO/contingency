@@ -41,6 +41,7 @@ import {
   StartSetup,
   TileIcon,
 } from "./start-card";
+import { islandControlClassName } from "./workspace-home-nav";
 import {
   androidHomeSession,
   DEFAULT_WEB_VIEWPORT,
@@ -176,10 +177,6 @@ const GlyphBox = ({ platform }: { readonly platform: HomePlatform }) => (
     <PlatformIcon className="size-[17px]" platform={platform} />
   </span>
 );
-
-/** The quiet look the shared header controls take on the home's island. */
-const islandControlClassName =
-  "text-muted-foreground hover:bg-island-hover hover:text-foreground size-[34px] rounded-xl border-transparent bg-transparent shadow-none dark:border-transparent dark:bg-transparent";
 
 /* -------------------------------------------------------------- start card */
 

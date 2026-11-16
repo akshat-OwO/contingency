@@ -27,9 +27,8 @@ import {
   DockNotices,
   DockNotice,
   DockShell,
-  DockSpacer,
   DockStatus,
-  DockWordmark,
+  SessionTopBar,
 } from "@/components/agent/workspace-dock";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
@@ -372,7 +371,7 @@ const useAndroidSessionSync = (
   }, [id, running, runAndroidWorkspaceCommand, setState]);
 };
 
-/** The dock's controls row: navigation first, then the state's own actions. */
+/** The status island's controls: the state's own tools and actions. */
 const AndroidDockControls = ({
   elements,
   instructing,
@@ -381,7 +380,6 @@ const AndroidDockControls = ({
   onNewSession,
   pending,
   session,
-  sessions,
 }: {
   /** The keyboard's way onto the device screen. */
   readonly elements: React.ReactNode;
@@ -391,33 +389,14 @@ const AndroidDockControls = ({
   readonly onNewSession: () => void;
   readonly pending: boolean;
   readonly session: AndroidWorkspaceSnapshot;
-  readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => {
   const presentation = androidDockPresentation(session);
   const primary = presentation.action;
   const stops = primary?.gesture === "stop-recording";
   return (
     <>
-      <DockWordmark />
-      <AndroidSessionSelect
-        onSelect={(value) => {
-          if (Schema.is(AgentSessionId)(value)) {
-            mutate({ _tag: "read", sessionId: value });
-          }
-        }}
-        // An ended session is not a choice; the picker shows its placeholder.
-        selectedSessionId={
-          isLiveAndroidSession(session) ? session.id : undefined
-        }
-        sessions={sessions}
-      />
-      {/* Hidden while capturing, as the browser dock does. */}
-      {showsFlowsEntry(androidFlowsSessionView(session)) ? (
-        <FlowsDockButton />
-      ) : null}
       {/* An ended session has no screen to reach. */}
       {isLiveAndroidSession(session) ? elements : null}
-      <DockSpacer />
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
@@ -701,10 +680,36 @@ export const AndroidSessionView = ({
         data-vt="stage"
         className={cn(
           // The device leaves room above for notices and below for the dock.
-          "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
+          "workspace-canvas relative flex min-h-0 flex-1 justify-center px-6 pt-16",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
+        <SessionTopBar
+          className="absolute inset-x-0 top-0"
+          flows={
+            // Hidden while capturing, as the browser dock does.
+            showsFlowsEntry(androidFlowsSessionView(session)) ? (
+              <FlowsDockButton />
+            ) : null
+          }
+          picker={
+            <AndroidSessionSelect
+              onSelect={(value) => {
+                if (Schema.is(AgentSessionId)(value)) {
+                  mutate({ _tag: "read", sessionId: value });
+                }
+              }}
+              // An ended session is not a choice; the picker shows its placeholder.
+              selectedSessionId={
+                isLiveAndroidSession(session) ? session.id : undefined
+              }
+              sessions={withSelected(
+                AsyncResult.isSuccess(sessions) ? sessions.value : [],
+                session
+              )}
+            />
+          }
+        />
         {notices}
         <AndroidDevice
           canAct={canAct}
@@ -797,10 +802,6 @@ export const AndroidSessionView = ({
             }
             pending={pending}
             session={session}
-            sessions={withSelected(
-              AsyncResult.isSuccess(sessions) ? sessions.value : [],
-              session
-            )}
           />
         </DockShell>
       </main>

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { CopyFeedback, useCopy } from "./evidence-reference";
 
 /**
- * The pieces every request in the dock's first tier is built from, so an
+ * The pieces every request in the Requests island is built from, so an
  * Execution Boundary, setup Variables, prerequisite Variables, and Dry Run
  * secrets read as one surface rather than four cards.
  */
