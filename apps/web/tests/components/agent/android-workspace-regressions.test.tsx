@@ -82,7 +82,7 @@ test("offers the listed sessions without a selected Android session", async () =
   const onSelect = vi.fn();
   render(
     <AndroidEmptyState
-      onOpen={vi.fn()}
+      onStartNew={vi.fn()}
       onSelect={onSelect}
       sessions={[paused, completed]}
     />
@@ -105,7 +105,7 @@ test("offers the listed sessions without a selected Android session", async () =
 test("says a linked session is gone without offering a session selector", () => {
   render(
     <AndroidEmptyState
-      onOpen={vi.fn()}
+      onStartNew={vi.fn()}
       onSelect={vi.fn()}
       sessions={[]}
       unavailable
@@ -118,7 +118,7 @@ test("says a linked session is gone without offering a session selector", () => 
     screen.queryByRole("combobox", { name: "Android Agent Session" })
   ).toBeNull();
   expect(
-    screen.getByRole("button", { name: "Open Android session" })
+    screen.getByRole("button", { name: "Start an Android session" })
   ).toBeEnabled();
 });
 
@@ -194,7 +194,6 @@ test("Confirmation keeps the device healthy and Take control enables the rail", 
       instructionPending: false,
       refusalDismissed: false,
       session,
-      setupOpen: false,
     },
   };
   const view = render(<AndroidSessionView {...props} />, {
@@ -268,7 +267,6 @@ test("refused input is said above the dock, outside its measured height, and set
     instructionPending: false,
     refusalDismissed: false,
     session,
-    setupOpen: false,
   };
   const props = {
     mutate: vi.fn(),

@@ -36,6 +36,8 @@ import { routeTree } from "@/routeTree.gen";
 
 const rpc = vi.hoisted(() => ({
   agentStreamFailureMessage: undefined,
+  /* Commands the Android start card sent, in order. */
+  androidCommands: [] satisfies unknown[],
   /* What the Android list answers, for the home's shelf. */
   androidSessionsResult: [] satisfies unknown[],
   closeCalls: [] satisfies unknown[],
@@ -228,6 +230,43 @@ const rpcOverrides = {
       return {};
     })
   ),
+  listAndroidApps: () =>
+    Effect.succeed([
+      {
+        label: "Shop",
+        launchActivity: "dev.shop/.Main",
+        package: "dev.shop",
+        versionCode: "1",
+        versionName: "1",
+      },
+    ]),
+  listAndroidDevices: Effect.succeed([
+    {
+      api: 36,
+      avd: "Pixel_9",
+      fingerprint: "build",
+      kind: "emulator",
+      model: "Pixel",
+      release: "16",
+      serial: "emulator-5554",
+      state: "device",
+    },
+  ]),
+  runAndroidWorkspaceCommand: (command: {
+    readonly _tag: string;
+    readonly flowName?: unknown;
+    readonly selection?: unknown;
+  }) => {
+    rpc.androidCommands.push(command);
+    // Only a start has an answer here; a read finds no session.
+    return command._tag === "start"
+      ? Effect.succeed({
+          ...startedAndroidSession,
+          flowName: command.flowName,
+          selection: command.selection,
+        })
+      : Effect.fail({ message: "This server has no such Android session." });
+  },
   androidSessionsAtom: Atom.make(() => ({
     _tag: "Success",
     value: rpc.androidSessionsResult,
@@ -527,6 +566,7 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   rpc.agentStreamFailureMessage = undefined;
+  rpc.androidCommands = [];
   rpc.androidSessionsResult = [];
   rpc.iosSessionsResult = [];
   rpc.closeCalls = [];
@@ -733,6 +773,30 @@ test("closes the start card with Escape and keeps the Flow name", async () => {
   expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
 });
 
+/** What the Android start card's start answers: a session preparing. */
+const startedAndroidSession = {
+  assessment: null,
+  captureGaps: [],
+  captureState: null,
+  cleanup: null,
+  completedAt: null,
+  controller: "user",
+  error: null,
+  field: null,
+  flowName: "checkout",
+  id: "agent-started-android",
+  kind: "teaching",
+  observation: null,
+  phase: "pending",
+  preparation: { differences: [], evidence: [], pending: [], phase: "pending" },
+  recordingId: null,
+  requirements: { capabilities: [], platform: "android" },
+  revision: 0,
+  selection: null,
+  startedAt: "2026-10-15T00:00:00.000Z",
+  takeoverOccurred: false,
+} satisfies unknown;
+
 /** Native list entries carry only what the shelf reads from them. */
 const androidSummary = {
   flowName: "login",
@@ -863,10 +927,10 @@ test("goes home from the dock's logo mark and its New session action", async () 
   expect(screen.queryByRole("region", { name: "Workspace dock" })).toBeNull();
 });
 
-test("opens native setup from the home tiles and comes back home", async () => {
+test("opens the Android start card from its tile without leaving the home", async () => {
   rpc.sessionsResult = resultFor([]);
   const user = userEvent.setup();
-  const { history, testRouter } = await renderRoute("/");
+  const { testRouter } = await renderRoute("/");
   // The app header steps aside; the home's island keeps the one theme control.
   expect(
     await screen.findByRole("heading", { name: "Teach a new Flow" })
@@ -881,27 +945,158 @@ test("opens native setup from the home tiles and comes back home", async () => {
   await user.click(
     screen.getByRole("button", { name: "Start an Android session" })
   );
-  await waitFor(() =>
-    expect(testRouter.state.location.search).toEqual({ android: "new" })
+  const card = screen.getByRole("form", { name: "Teach on Android" });
+  expect(testRouter.state.location.search).toEqual({});
+  expect(within(card).getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "new-flow"
+  );
+  expect(within(card).getByRole("group", { name: "Device" })).toBeVisible();
+  expect(
+    await within(card).findByRole("button", { name: /Pixel_9/u, pressed: true })
+  ).toBeEnabled();
+  expect(
+    within(card).getByRole("button", { name: "Upload an .apk" })
+  ).toBeVisible();
+  expect(within(card).getByRole("button", { name: /^Setup/u })).toHaveAttribute(
+    "aria-expanded",
+    "false"
   );
   expect(
-    await screen.findByRole("heading", { name: "No Android session" })
-  ).toBeVisible();
-
-  act(() => history.back());
-  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
-  expect(
-    await screen.findByRole("heading", { name: "Teach a new Flow" })
-  ).toBeVisible();
-
-  act(() => history.forward());
-  await user.click(
-    await screen.findByRole("link", { name: "Contingency home" })
-  );
-  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+    within(card).getByRole("button", { name: "Start teaching" })
+  ).toBeDisabled();
+  // The setup Sheet and the empty Android Workspace are gone.
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(
     screen.queryByRole("heading", { name: "No Android session" })
   ).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Back to platforms" }));
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
+});
+
+test("opens the home with the Android card at ?android=new, and leaves that URL with it", async () => {
+  rpc.sessionsResult = resultFor([session]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/?android=new");
+  const card = await screen.findByRole("form", { name: "Teach on Android" });
+  expect(
+    screen.getByRole("heading", { name: "Teach a new Flow" })
+  ).toBeVisible();
+  expect(testRouter.state.location.search).toEqual({ android: "new" });
+  await user.click(
+    within(card).getByRole("button", { name: "Back to platforms" })
+  );
+  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
+});
+
+test("swaps the start card's platform in place and keeps the Flow name", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/", { ios: true });
+  await user.click(
+    await screen.findByRole("button", { name: "Start a Web session" })
+  );
+  const name = screen.getByRole("textbox", { name: "Flow name" });
+  await user.clear(name);
+  await user.type(name, "checkout");
+  const others = screen.getByRole("group", { name: "Other platforms" });
+  await user.click(within(others).getByRole("button", { name: "Android" }));
+  const card = screen.getByRole("form", { name: "Teach on Android" });
+  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
+  expect(within(card).getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "checkout"
+  );
+  expect(
+    within(
+      screen.getByRole("group", { name: "Other platforms" })
+    ).getAllByRole("button").map((button) => button.textContent)
+  ).toEqual(["Web", "iOS"]);
+  await user.click(
+    within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
+      "button",
+      { name: "Web" }
+    )
+  );
+  expect(
+    within(screen.getByRole("form", { name: "Teach on Web" })).getByRole(
+      "textbox",
+      { name: "Flow name" }
+    )
+  ).toHaveValue("checkout");
+  expect(testRouter.state.location.search).toEqual({});
+  // iOS keeps its own screen for now.
+  await user.click(
+    within(screen.getByRole("group", { name: "Other platforms" })).getByRole(
+      "button",
+      { name: "iOS" }
+    )
+  );
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({ ios: "new" })
+  );
+});
+
+test("confirms preparation, then opens the started Android session", async () => {
+  rpc.sessionsResult = resultFor([]);
+  const user = userEvent.setup();
+  const { testRouter } = await renderRoute("/");
+  await user.click(
+    await screen.findByRole("button", { name: "Start an Android session" })
+  );
+  const card = screen.getByRole("form", { name: "Teach on Android" });
+  const name = within(card).getByRole("textbox", { name: "Flow name" });
+  await user.clear(name);
+  await user.type(name, "checkout");
+  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await user.click(within(card).getByRole("button", { name: /^Setup/u }));
+  await user.click(
+    within(card).getByRole("radio", { name: "Camera: Grant before start" })
+  );
+  await user.click(within(card).getByRole("button", { name: "Start teaching" }));
+  const confirmation = screen.getByRole("dialog", {
+    name: "Prepare and open app?",
+  });
+  expect(rpc.androidCommands).toHaveLength(0);
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Confirm preparation" })
+  );
+  await waitFor(() =>
+    expect(testRouter.state.location.search).toEqual({
+      android: startedAndroidSession.id,
+    })
+  );
+  expect(rpc.androidCommands[0]).toEqual(
+    expect.objectContaining({
+      _tag: "start",
+      flowName: "checkout",
+      kind: "teaching",
+      prepareAndOpen: true,
+      recordingId: null,
+      selection: expect.objectContaining({
+        device: expect.objectContaining({
+          avd: "Pixel_9",
+          serial: "emulator-5554",
+        }),
+        environment: expect.objectContaining({
+          appBuild: "1",
+          appId: "dev.shop",
+          permissions: [
+            { decision: "grant", permission: "android.permission.CAMERA" },
+          ],
+        }),
+        helperConsent: "auto",
+        outcomes: [],
+        privateInput: false,
+        setup: {
+          activity: "dev.shop/.Main",
+          conditions: [],
+          kind: "restart-activity",
+          startingData: "keep",
+        },
+      }),
+    })
+  );
 });
 
 test("reopens a native session URL on the same platform", async () => {
@@ -930,27 +1125,6 @@ test("offers iOS only where this process enables it", async () => {
   );
   await waitFor(() =>
     expect(testRouter.state.location.search).toEqual({ ios: "new" })
-  );
-});
-
-test("leaves the Android setup sheet through the way home", async () => {
-  rpc.sessionsResult = resultFor([session]);
-  const user = userEvent.setup();
-  const { testRouter } = await renderRoute("/?android=new");
-  await user.click(
-    await screen.findByRole("button", { name: "Open Android session" })
-  );
-  const sheet = await screen.findByRole("dialog", {
-    name: "New Android session",
-  });
-  await user.click(
-    within(sheet).getByRole("link", { name: "Contingency home" })
-  );
-  await waitFor(() => expect(testRouter.state.location.search).toEqual({}));
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("dialog", { name: "New Android session" })
-    ).toBeNull()
   );
 });
 

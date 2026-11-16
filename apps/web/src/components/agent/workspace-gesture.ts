@@ -50,6 +50,8 @@ export const commentGestureAtom = sessionGestureFamily();
 export const sessionDeleteGestureAtom = gestureAtom();
 /** Opening a Teaching session from the empty canvas, which has no session yet. */
 export const sessionStartGestureAtom = gestureAtom();
+/** Preparing and opening an Android Teaching session from its start card. */
+export const androidStartGestureAtom = gestureAtom();
 
 /** What stands in for a session's gesture while no session is selected. */
 const unselectedGestureAtom = gestureAtom();

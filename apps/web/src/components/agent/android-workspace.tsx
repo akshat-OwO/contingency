@@ -31,7 +31,6 @@ import {
   DockStatus,
   DockWordmark,
 } from "@/components/agent/workspace-dock";
-import { WatcherLoader } from "@/components/brand";
 import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
 import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -58,7 +57,6 @@ import {
 } from "./android-dock-state";
 import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
-import { AndroidSetupSheet } from "./android-setup-sheet";
 import { WorkspaceLayout } from "./android-workspace-layout";
 import {
   deviceCleanupKey,
@@ -67,6 +65,7 @@ import {
 import { DeviceElements } from "./device-elements";
 import { makeNativeInputQueue } from "./native-input";
 import {
+  androidStartGestureAtom,
   sessionStartGestureAtom,
   useWorkspaceGesture,
 } from "./workspace-gesture";
@@ -89,12 +88,6 @@ interface WorkspaceState {
   readonly inputRefusal: string | null;
   /** The input refusal was set aside when the comment tier opened. */
   readonly refusalDismissed: boolean;
-  readonly setupOpen: boolean;
-  /**
-   * What the last start gesture prepares, when it prepares the app and
-   * device. While it is in flight the stage shows that preparation is running.
-   */
-  readonly preparing: AndroidWorkspaceSelection | null;
   /** The route named a session this server has no record of. */
   readonly unavailable: boolean;
 }
@@ -104,10 +97,8 @@ const workspaceAtom = Atom.make<WorkspaceState>({
   inputRefusal: null,
   instructing: false,
   instructionPending: false,
-  preparing: null,
   refusalDismissed: false,
   session: null,
-  setupOpen: false,
   unavailable: false,
 });
 const applySnapshot = (
@@ -195,66 +186,9 @@ const glassText = (session: AndroidWorkspaceSnapshot) => {
   return "Emulator released.";
 };
 
-const deviceLabel = ({ device }: AndroidWorkspaceSelection) =>
-  `${device.kind === "physical" ? device.model : device.avd} · API ${device.api}`;
-
-/**
- * The stage while a confirmed start installs and launches the app. It replaces
- * the empty state, so the wait never reads as the screen before Open.
- */
-export const AndroidPreparingState = ({
-  selection,
-}: {
-  readonly selection: AndroidWorkspaceSelection;
-}) => (
-  <main aria-busy="true" className="relative flex h-full min-h-0 flex-col">
-    <WorkspaceHomeBar />
-    <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
-      <section
-        aria-labelledby="android-preparing-title"
-        className="material-panel relative w-full max-w-sm overflow-hidden rounded-xl px-5 pt-8 pb-6 text-center shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:px-6"
-      >
-        <WatcherLoader className="mx-auto h-9" />
-        <h1
-          className="mt-6 text-lg font-semibold tracking-tight"
-          id="android-preparing-title"
-        >
-          Preparing your app
-        </h1>
-        <p
-          aria-live="polite"
-          className="text-muted-foreground mt-1.5 text-sm text-pretty"
-          role="status"
-        >
-          Installing and launching it on the device. This can take up to a
-          minute.
-        </p>
-        <dl className="bg-muted/60 mt-5 divide-y rounded-lg border text-left text-xs">
-          <div className="flex items-center justify-between gap-3 px-3 py-2">
-            <dt className="text-muted-foreground">App</dt>
-            <dd className="min-w-0 truncate font-mono">
-              {selection.environment.appId}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-3 px-3 py-2">
-            <dt className="text-muted-foreground">Device</dt>
-            <dd className="min-w-0 truncate">{deviceLabel(selection)}</dd>
-          </div>
-        </dl>
-        <div
-          aria-hidden="true"
-          className="bg-border absolute inset-x-0 bottom-0 h-0.5 overflow-hidden"
-        >
-          <div className="bg-brand h-full w-1/3" data-slot="preparing-sweep" />
-        </div>
-      </section>
-    </div>
-  </main>
-);
-
 export const AndroidEmptyState = ({
-  onOpen,
   onSelect,
+  onStartNew,
   pending = false,
   sessions,
   unavailable = false,
@@ -262,7 +196,8 @@ export const AndroidEmptyState = ({
   readonly pending?: boolean;
   /** The link named a session that no longer exists. */
   readonly unavailable?: boolean;
-  readonly onOpen: () => void;
+  /** Opens the Android start card on the Workspace home. */
+  readonly onStartNew: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
@@ -286,7 +221,7 @@ export const AndroidEmptyState = ({
           >
             {pending
               ? "Opening the session…"
-              : "Open a session to pick a device and an app, then start recording when the journey begins."}
+              : "Start a session to pick a device and an app, then start recording when the journey begins."}
           </p>
           {unavailable && !pending ? (
             <p className="text-muted-foreground text-sm text-pretty">
@@ -304,9 +239,9 @@ export const AndroidEmptyState = ({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button disabled={pending} onClick={onOpen} size="lg">
+          <Button disabled={pending} onClick={onStartNew} size="lg">
             <SmartphoneIcon />
-            Open Android session
+            Start an Android session
           </Button>
         </div>
       </section>
@@ -856,12 +791,9 @@ export const AndroidSessionView = ({
                 refusalDismissed: true,
               }))
             }
+            // Leaving the session opens the Android start card on the home.
             onNewSession={() =>
-              setState((current) => ({
-                ...current,
-                session: null,
-                setupOpen: true,
-              }))
+              setState((current) => ({ ...current, session: null }))
             }
             pending={pending}
             session={session}
@@ -874,6 +806,47 @@ export const AndroidSessionView = ({
       </main>
     </WorkspaceLayout>
   );
+};
+
+/**
+ * Prepares and opens an Android Teaching session, as the start card asks once
+ * the person confirms preparation. The started session becomes the one the
+ * Android Workspace shows, so it opens on the session rather than a read.
+ * The gesture is its own: a refusal shows on the card, never on Web's.
+ */
+export const useAndroidSessionStart = () => {
+  const { androidSessionsAtom, runAndroidWorkspaceCommand } =
+    useRpcDependencies();
+  const refresh = useAtomRefresh(androidSessionsAtom);
+  const setState = useAtomSet(workspaceAtom);
+  const gesture = useWorkspaceGesture(androidStartGestureAtom);
+  const start = (
+    flowName: FlowName,
+    selection: AndroidWorkspaceSelection,
+    onStarted: (sessionId: AgentSessionId) => void
+  ): boolean =>
+    gesture.dispatch(
+      runAndroidWorkspaceCommand({
+        _tag: "start",
+        flowName,
+        kind: "teaching",
+        operationId: operationId(),
+        prepareAndOpen: true,
+        recordingId: null,
+        selection,
+      }).pipe(
+        Effect.tap((session) =>
+          Effect.sync(() => {
+            setState((current) => applySnapshot(current, session));
+            refresh();
+            onStarted(session.id);
+          })
+        ),
+        Effect.mapError(message),
+        Effect.asVoid
+      )
+    );
+  return { error: gesture.error, pending: gesture.pending, start };
 };
 
 /**
@@ -950,19 +923,8 @@ export const AndroidWorkspace = ({
       Effect.asVoid
     );
   };
-  const mutate = (command: AndroidWorkspaceCommand) => {
-    const sent = gesture.dispatch(run(command));
-    if (sent) {
-      const preparing =
-        command._tag === "start" && command.prepareAndOpen === true
-          ? command.selection
-          : null;
-      setState((current) => ({ ...current, preparing }));
-    }
-    return sent;
-  };
-  const setupOpen = (open: boolean) =>
-    setState((current) => ({ ...current, setupOpen: open }));
+  const mutate = (command: AndroidWorkspaceCommand) =>
+    gesture.dispatch(run(command));
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (
@@ -982,21 +944,17 @@ export const AndroidWorkspace = ({
           flowsSession={undefined}
           summary={undefined}
         >
-          {gesture.pending && state.preparing !== null ? (
-            <AndroidPreparingState selection={state.preparing} />
-          ) : (
-            <AndroidEmptyState
-              onOpen={() => setupOpen(true)}
-              pending={gesture.pending}
-              onSelect={(value) => {
-                if (Schema.is(AgentSessionId)(value)) {
-                  mutate({ _tag: "read", sessionId: value });
-                }
-              }}
-              sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
-              unavailable={state.unavailable}
-            />
-          )}
+          <AndroidEmptyState
+            onStartNew={() => onSessionChange?.(NEW_NATIVE_SESSION)}
+            pending={gesture.pending}
+            onSelect={(value) => {
+              if (Schema.is(AgentSessionId)(value)) {
+                mutate({ _tag: "read", sessionId: value });
+              }
+            }}
+            sessions={AsyncResult.isSuccess(sessions) ? sessions.value : []}
+            unavailable={state.unavailable}
+          />
           {notices}
         </WorkspaceLayout>
       ) : (
@@ -1009,26 +967,6 @@ export const AndroidWorkspace = ({
           state={state}
         />
       )}
-      <AndroidSetupSheet
-        onOpen={(flowName: FlowName, selection) => {
-          const sent = mutate({
-            _tag: "start",
-            flowName,
-            kind: "teaching",
-            operationId: operationId(),
-            prepareAndOpen: true,
-            recordingId: null,
-            selection,
-          });
-          if (sent) {
-            setupOpen(false);
-          }
-          return sent;
-        }}
-        onOpenChange={setupOpen}
-        open={state.setupOpen}
-        pending={gesture.pending}
-      />
     </div>
   );
 };

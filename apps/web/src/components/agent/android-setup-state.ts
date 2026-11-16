@@ -3,11 +3,14 @@ import {
   isAndroidSupportedApi,
 } from "@contingency/protocol";
 import type {
+  AndroidDiscoveredApp,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
+  StartingData,
 } from "@contingency/protocol";
 
 import type { DeviceChoice } from "./device-choice-state";
+import { clearDataWarning } from "./native-starting-data-copy";
 
 /** A device the runtime can open a session on, as a selection. */
 export const selectable = (
@@ -126,4 +129,105 @@ export const parseAndroidPermissionDecisions = (
     new Set(entries.map((entry) => entry.permission)).size === entries.length
     ? entries
     : undefined;
+};
+
+/** A role and accessible name that gate the start or prove the finish. */
+export interface AndroidCondition {
+  readonly name: string;
+  readonly role: string;
+}
+
+/**
+ * The device the start card sets up: the one the person picked, or, with
+ * exactly one ready device, that one, since there is nothing to choose.
+ */
+export const chosenSerial = (
+  listed: readonly AndroidDiscoveredDevice[],
+  picked: string | null
+): string | null => {
+  if (picked !== null) {
+    return picked;
+  }
+  const ready = listed.filter((entry) => unavailableReason(entry) === null);
+  return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
+};
+
+/** The Android selection the start card's choices declare. */
+export const setupSelection = ({
+  app,
+  device,
+  outcome,
+  permissions,
+  privateInput,
+  release,
+  start,
+  startingData,
+}: {
+  readonly app: AndroidDiscoveredApp;
+  readonly device: AndroidWorkspaceSelection["device"];
+  readonly outcome: AndroidCondition;
+  readonly permissions: NonNullable<
+    AndroidWorkspaceSelection["environment"]["permissions"]
+  >;
+  readonly privateInput: boolean;
+  readonly release: string;
+  readonly start: AndroidCondition;
+  readonly startingData: StartingData;
+}): AndroidWorkspaceSelection => ({
+  device,
+  environment: {
+    androidVersion: release,
+    appBuild: app.versionCode,
+    appId: app.package,
+    permissions,
+    startingState:
+      start.name === ""
+        ? "Restart the Target App"
+        : `${start.role} ${start.name} is visible`,
+  },
+  helperConsent: "auto",
+  outcomes: outcome.name === "" ? [] : [outcome],
+  privateInput,
+  setup: {
+    activity: app.launchActivity,
+    conditions: start.name === "" ? [] : [start],
+    kind: "restart-activity",
+    startingData,
+  },
+});
+
+/** What the start card still needs, said once under the disabled start. */
+export const setupMissing = ({
+  app,
+  device,
+  validName,
+}: {
+  readonly app: unknown;
+  readonly device: unknown;
+  readonly validName: boolean;
+}): string => {
+  if (!validName) {
+    return "Name the Flow to continue.";
+  }
+  if (device === null) {
+    return "Choose a running device to continue.";
+  }
+  if (app === undefined) {
+    return "Choose the Target App to continue.";
+  }
+  return "Finish the setup above to continue.";
+};
+
+/** What confirming preparation does to the app and its data. */
+export const preparationDescription = (
+  apk: string | undefined,
+  startingData: StartingData,
+  app: string
+) => {
+  if (startingData === "clear") {
+    return `${apk === undefined ? "Use the installed Target App without reinstalling it." : "Reinstall the selected APK."} ${clearDataWarning(app)}`;
+  }
+  return apk === undefined
+    ? "Use the installed Target App without reinstalling it."
+    : "Reinstall the selected APK while preserving existing app data and login state.";
 };

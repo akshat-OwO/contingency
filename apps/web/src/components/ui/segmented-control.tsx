@@ -27,8 +27,12 @@ function SegmentedControl<T extends string = string>({
       )}
       {...props}
     >
-      <SegmentedControlIndicatorPrimitive className="bg-island-solid absolute top-(--segmented-control-indicator-top) left-(--segmented-control-indicator-left) -z-10 h-(--segmented-control-indicator-height) w-(--segmented-control-indicator-width) rounded-lg shadow-[0_1px_2px_oklch(0_0_0/0.12),inset_0_0_0_1px_var(--island-border)] transition-[left,width] duration-200 ease-out motion-reduce:transition-none" />
-      {children}
+      {(state) => (
+        <>
+          <SegmentedControlIndicatorPrimitive className="bg-island-solid absolute top-(--segmented-control-indicator-top) left-(--segmented-control-indicator-left) -z-10 h-(--segmented-control-indicator-height) w-(--segmented-control-indicator-width) rounded-lg shadow-[0_1px_2px_oklch(0_0_0/0.12),inset_0_0_0_1px_var(--island-border)] transition-[left,width] duration-200 ease-out motion-reduce:transition-none" />
+          {typeof children === "function" ? children(state) : children}
+        </>
+      )}
     </SegmentedControlPrimitive>
   );
 }

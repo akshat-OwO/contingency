@@ -2,14 +2,7 @@ import { describeFlowName } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Clock, Effect, Fiber, Schedule } from "effect";
-import {
-  CheckIcon,
-  ChevronRightIcon,
-  CircleAlertIcon,
-  HandIcon,
-  XIcon,
-} from "lucide-react";
-import type { KeyboardEvent, ReactNode } from "react";
+import { CheckIcon, CircleAlertIcon, HandIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
 import { WatcherMark } from "@/components/brand";
@@ -18,11 +11,6 @@ import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -40,8 +28,17 @@ import {
   WORKSPACE_REFRESH_INTERVAL,
 } from "@/lib/workspace-refresh";
 
+import { AndroidStartCard } from "./android-start-card";
+import { useAndroidSessionStart } from "./android-workspace";
 import { useIosEntryEnabled } from "./ios-workspace-entry";
 import { PlatformIcon } from "./platform-icons";
+import {
+  FlowNameField,
+  StartCard,
+  StartSection,
+  StartSetup,
+  TileIcon,
+} from "./start-card";
 import {
   androidHomeSession,
   DEFAULT_WEB_VIEWPORT,
@@ -58,6 +55,9 @@ import type {
   HomeSessionStatus,
   WebSessionStart,
 } from "./workspace-home-state";
+
+/** The platforms whose start card opens on the home; iOS has its own screen. */
+export type HomeCard = "web" | "android";
 
 /** What a Workspace-opened Teaching session is called before it is renamed. */
 const DEFAULT_FLOW_NAME = "new-flow";
@@ -175,45 +175,6 @@ const GlyphBox = ({ platform }: { readonly platform: HomePlatform }) => (
   </span>
 );
 
-const TileIcon = ({
-  platform,
-  small = false,
-}: {
-  readonly platform: HomePlatform;
-  readonly small?: boolean;
-}) => (
-  <span
-    aria-hidden="true"
-    className={cn(
-      "bg-foreground text-background grid shrink-0 place-items-center shadow-[0_8px_18px_-8px_oklch(0_0_0/0.45)]",
-      small ? "size-11 rounded-[14px]" : "size-[52px] rounded-2xl"
-    )}
-  >
-    <PlatformIcon
-      className={small ? "size-[22px]" : "size-[26px]"}
-      platform={platform}
-    />
-  </span>
-);
-
-const SectionNumber = ({
-  children,
-  className,
-}: {
-  readonly children: ReactNode;
-  readonly className?: string;
-}) => (
-  <span
-    aria-hidden="true"
-    className={cn(
-      "bg-island-hover text-muted-foreground inline-grid size-[22px] shrink-0 place-items-center rounded-[7px] font-mono text-[11px] font-semibold shadow-[inset_0_0_0_1px_var(--island-border)]",
-      className
-    )}
-  >
-    {children}
-  </span>
-);
-
 /** The quiet look the shared header controls take on the home's island. */
 const islandControlClassName =
   "text-muted-foreground hover:bg-island-hover hover:text-foreground size-[34px] rounded-xl border-transparent bg-transparent shadow-none dark:border-transparent dark:bg-transparent";
@@ -250,229 +211,106 @@ const WebStartCard = ({
       : "Enter a web address, such as https://example.com.";
   const ready = nameProblem === null && pageProblem === null;
   const selected = webViewportPresets.find(({ id }) => id === viewport);
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (
-      event.key !== "Escape" ||
-      event.defaultPrevented ||
-      (event.target instanceof Element &&
-        event.target.closest('[role="listbox"]') !== null)
-    ) {
-      return;
-    }
-    event.preventDefault();
-    onClose();
-  };
   return (
-    <div className="grid w-full justify-items-center gap-3.5">
-      <form
-        aria-labelledby={`${ids}-title`}
-        className="island shadow-island-lift grid w-full max-w-[540px] gap-1 p-5 [--island-radius:28px]"
-        data-vt="start-card"
-        noValidate
-        onKeyDown={onKeyDown}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (ready && !pending) {
-            onStart(start, event.currentTarget);
-          }
-        }}
-      >
-        <header className="mb-3 flex items-center gap-3">
-          <TileIcon platform="web" small />
-          <div className="min-w-0 flex-1">
-            <h2
-              className="text-[17px] font-semibold tracking-[-0.02em]"
-              id={`${ids}-title`}
-            >
-              Teach on Web
-            </h2>
-            <p className="text-muted-foreground text-[13px]">
-              Name the Flow, choose where it runs and what it opens.
-            </p>
-          </div>
-          <Button
-            aria-label="Back to platforms"
-            onClick={onClose}
-            size="island-icon"
-            title="Back to platforms"
-            variant="island"
-          >
-            <XIcon aria-hidden="true" />
-          </Button>
-        </header>
-
-        <section
-          aria-label="Flow"
-          className="border-island-border relative grid gap-3 border-t py-3.5 pl-9"
-        >
-          <SectionNumber className="absolute top-3.5 left-0">1</SectionNumber>
-          <div className="grid gap-1.5">
-            <Label className="text-[13px]" htmlFor={`${ids}-name`}>
-              Flow name
-            </Label>
-            <Input
-              aria-describedby={
-                nameProblem === null ? undefined : `${ids}-name-problem`
+    <StartCard
+      error={error}
+      onClose={onClose}
+      onOtherPlatform={onOtherPlatform}
+      onSubmit={(form) => onStart(start, form)}
+      platform="web"
+      platforms={platforms}
+      submitDisabled={!ready || pending}
+    >
+      <StartSection label="Flow" number={1}>
+        <FlowNameField
+          name={flowName}
+          onChange={onFlowNameChange}
+          problem={nameProblem}
+        />
+        <div className="grid gap-1.5">
+          <Label className="text-[13px]" id={`${ids}-viewport`}>
+            Viewport
+          </Label>
+          <Select
+            onValueChange={(value) => {
+              const preset = webViewportPresets.find(
+                ({ id }) => id === value
+              );
+              if (preset !== undefined) {
+                setViewport(preset.id);
               }
-              aria-invalid={nameProblem !== null}
-              autoComplete="off"
-              autoFocus
-              className="font-mono"
-              id={`${ids}-name`}
-              onChange={(event) => onFlowNameChange(event.target.value)}
-              required
-              spellCheck={false}
-              value={flowName}
-              variant="island"
-            />
-            {nameProblem === null ? null : (
-              <p
-                className="text-destructive text-xs"
-                id={`${ids}-name-problem`}
-              >
-                {nameProblem}
-              </p>
-            )}
-          </div>
-          <div className="grid gap-1.5">
-            <Label className="text-[13px]" id={`${ids}-viewport`}>
-              Viewport
-            </Label>
-            <Select
-              onValueChange={(value) => {
-                const preset = webViewportPresets.find(
-                  ({ id }) => id === value
-                );
-                if (preset !== undefined) {
-                  setViewport(preset.id);
-                }
-              }}
-              value={viewport}
-            >
-              <SelectTrigger
-                aria-labelledby={`${ids}-viewport`}
-                variant="island"
-              >
-                <SelectValue>
-                  {selected === undefined ? null : (
-                    <span className="flex w-full items-center justify-between gap-3">
-                      {selected.label}
-                      <span className="text-muted-foreground text-xs tabular-nums">
-                        {selected.note}
-                      </span>
+            }}
+            value={viewport}
+          >
+            <SelectTrigger aria-labelledby={`${ids}-viewport`} variant="island">
+              <SelectValue>
+                {selected === undefined ? null : (
+                  <span className="flex w-full items-center justify-between gap-3">
+                    {selected.label}
+                    <span className="text-muted-foreground text-xs tabular-nums">
+                      {selected.note}
                     </span>
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent variant="island">
-                {webViewportPresets.map((preset) => (
-                  <SelectItem
-                    key={preset.id}
-                    label={preset.label}
-                    value={preset.id}
-                  >
-                    <span className="flex w-full items-center justify-between gap-3">
-                      {preset.label}
-                      <span
-                        aria-hidden="true"
-                        className="text-muted-foreground text-xs tabular-nums"
-                      >
-                        {preset.note}
-                      </span>
+                  </span>
+                )}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent variant="island">
+              {webViewportPresets.map((preset) => (
+                <SelectItem
+                  key={preset.id}
+                  label={preset.label}
+                  value={preset.id}
+                >
+                  <span className="flex w-full items-center justify-between gap-3">
+                    {preset.label}
+                    <span
+                      aria-hidden="true"
+                      className="text-muted-foreground text-xs tabular-nums"
+                    >
+                      {preset.note}
                     </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </section>
-
-        <section
-          aria-label="Starting page"
-          className="border-island-border relative grid gap-3 border-t py-3.5 pl-9"
-        >
-          <SectionNumber className="absolute top-3.5 left-0">2</SectionNumber>
-          <div className="grid gap-1.5">
-            <Label className="text-[13px]" htmlFor={`${ids}-page`}>
-              Starting page
-            </Label>
-            <Input
-              aria-describedby={`${ids}-page-hint`}
-              aria-invalid={pageProblem !== null}
-              autoComplete="off"
-              className="font-mono"
-              id={`${ids}-page`}
-              inputMode="url"
-              onChange={(event) => setStartingPage(event.target.value)}
-              placeholder="https://example.com"
-              spellCheck={false}
-              value={startingPage}
-              variant="island"
-            />
-            <p
-              className="text-muted-foreground text-xs"
-              id={`${ids}-page-hint`}
-            >
-              {pageProblem ?? "Optional. A blank page opens without one."}
-            </p>
-          </div>
-        </section>
-
-        <Collapsible className="border-island-border border-t">
-          <CollapsibleTrigger className="group/setup flex w-full items-center gap-3.5 py-3.5 text-left">
-            <SectionNumber>3</SectionNumber>
-            <span className="font-medium">Setup</span>
-            <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-              Browser profile
-            </span>
-            <ChevronRightIcon
-              aria-hidden="true"
-              className="text-muted-foreground size-4 transition-transform duration-300 group-data-open/setup:rotate-90 motion-reduce:transition-none"
-            />
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pb-4 pl-9">
-            <div className="border-island-border grid gap-0.5 rounded-xl border px-3 py-2.5">
-              <span className="text-sm font-medium">Clean profile</span>
-              <span className="text-muted-foreground text-xs">
-                Every session starts with a clean browser profile: no cookies,
-                storage or sign-ins.
-              </span>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
-        <Button
-          className="mt-1.5 w-full"
-          disabled={!ready || pending}
-          size="island-lg"
-          type="submit"
-        >
-          Start teaching
-        </Button>
-        {error === undefined ? null : (
-          <Alert className="mt-3 text-left" variant="destructive">
-            <CircleAlertIcon aria-hidden="true" />
-            <AlertTitle>The session did not open</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-      </form>
-      {platforms.length === 0 ? null : (
-        <div aria-label="Other platforms" className="flex gap-2" role="group">
-          {platforms.map((platform) => (
-            <Button
-              key={platform}
-              onClick={() => onOtherPlatform(platform)}
-              size="island"
-              variant="floating"
-            >
-              <PlatformIcon platform={platform} />
-              {homePlatformName(platform)}
-            </Button>
-          ))}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
-    </div>
+      </StartSection>
+
+      <StartSection label="Starting page" number={2}>
+        <div className="grid gap-1.5">
+          <Label className="text-[13px]" htmlFor={`${ids}-page`}>
+            Starting page
+          </Label>
+          <Input
+            aria-describedby={`${ids}-page-hint`}
+            aria-invalid={pageProblem !== null}
+            autoComplete="off"
+            className="font-mono"
+            id={`${ids}-page`}
+            inputMode="url"
+            onChange={(event) => setStartingPage(event.target.value)}
+            placeholder="https://example.com"
+            spellCheck={false}
+            value={startingPage}
+            variant="island"
+          />
+          <p className="text-muted-foreground text-xs" id={`${ids}-page-hint`}>
+            {pageProblem ?? "Optional. A blank page opens without one."}
+          </p>
+        </div>
+      </StartSection>
+
+      <StartSetup summary="Browser profile">
+        <div className="border-island-border grid gap-0.5 rounded-xl border px-3 py-2.5">
+          <span className="text-sm font-medium">Clean profile</span>
+          <span className="text-muted-foreground text-xs">
+            Every session starts with a clean browser profile: no cookies,
+            storage or sign-ins.
+          </span>
+        </div>
+      </StartSetup>
+    </StartCard>
   );
 };
 
@@ -558,15 +396,19 @@ const SessionCard = ({
  */
 export const WorkspaceHome = ({
   error,
+  onCardChange,
   onOpenNative,
   onOpenWebSession,
   onStartWeb,
   pending,
+  requestedCard,
   returnTo,
   unresolvedSessionId,
   webSessions,
 }: {
   readonly error: string | undefined;
+  /** Says which start card is open now, or null once the tiles are back. */
+  readonly onCardChange?: ((card: HomeCard | null) => void) | undefined;
   /** Opens a native platform at a session, or at its setup for `new`. */
   readonly onOpenNative: (
     platform: "android" | "ios",
@@ -576,6 +418,8 @@ export const WorkspaceHome = ({
   readonly onOpenWebSession: (sessionId: string, card: HTMLElement) => void;
   readonly onStartWeb: (start: WebSessionStart, form: HTMLFormElement) => void;
   readonly pending: boolean;
+  /** The start card the route opens, as `?android=new` does. */
+  readonly requestedCard?: HomeCard | undefined;
   /** The session the person just left, which its card grows back from. */
   readonly returnTo: string | undefined;
   readonly unresolvedSessionId: string | undefined;
@@ -587,28 +431,51 @@ export const WorkspaceHome = ({
     : ["web", "android"];
   // The name is asked for here rather than generated, so the dock's session
   // label is something the person recognizes from the first frame. It
-  // outlives the card, so closing and reopening keeps what was typed.
+  // outlives the card, so closing, reopening and swapping platform keep it.
   const [flowName, setFlowName] = useState(DEFAULT_FLOW_NAME);
-  const [expanded, setExpanded] = useState(false);
-  const [returning, setReturning] = useState(false);
+  const [card, setCard] = useState<HomeCard | null>(requestedCard ?? null);
+  // The card a route change asks for opens, as a link to `?android=new` does.
+  const [requested, setRequested] = useState(requestedCard);
+  if (requested !== requestedCard) {
+    setRequested(requestedCard);
+    if (requestedCard !== undefined) {
+      setCard(requestedCard);
+    }
+  }
+  // The tile the last card folds back into.
+  const [returning, setReturning] = useState<HomeCard | null>(null);
   const sessions = useHomeSessions(webSessions);
+  const android = useAndroidSessionStart();
+  const changeCard = (next: HomeCard | null) => {
+    setCard(next);
+    onCardChange?.(next);
+  };
   const openPlatform = (platform: HomePlatform, tile: HTMLElement | null) => {
-    if (platform === "web") {
-      startWorkspaceTransition(
-        () => {
-          setExpanded(true);
-          setReturning(false);
-        },
-        { element: tile, name: "start-card" }
-      );
+    if (platform === "ios") {
+      onOpenNative(platform, "new", null);
       return;
     }
-    onOpenNative(platform, "new", null);
+    startWorkspaceTransition(
+      () => {
+        changeCard(platform);
+        setReturning(null);
+      },
+      { element: tile, name: "start-card" }
+    );
+  };
+  // Another platform's pill swaps the card's contents in place: nothing
+  // flies, and the Flow name stays.
+  const switchPlatform = (platform: HomePlatform) => {
+    if (platform === "ios") {
+      onOpenNative(platform, "new", null);
+      return;
+    }
+    changeCard(platform);
   };
   const closeCard = () => {
     startWorkspaceTransition(() => {
-      setExpanded(false);
-      setReturning(true);
+      setReturning(card);
+      changeCard(null);
     });
   };
   const openSession = (session: HomeSession, card: HTMLElement) => {
@@ -630,7 +497,7 @@ export const WorkspaceHome = ({
           href="/"
           onClick={(event) => {
             event.preventDefault();
-            if (expanded) {
+            if (card !== null) {
               closeCard();
             }
           }}
@@ -668,18 +535,35 @@ export const WorkspaceHome = ({
               </Alert>
             </div>
           )}
-          {expanded ? (
+          {card === "web" ? (
             <WebStartCard
               error={error}
               flowName={flowName}
               onClose={closeCard}
               onFlowNameChange={setFlowName}
-              onOtherPlatform={(platform) => openPlatform(platform, null)}
+              onOtherPlatform={switchPlatform}
               onStart={onStartWeb}
               pending={pending}
               platforms={platforms.filter((platform) => platform !== "web")}
             />
-          ) : (
+          ) : null}
+          {card === "android" ? (
+            <AndroidStartCard
+              error={android.error}
+              flowName={flowName}
+              onClose={closeCard}
+              onFlowNameChange={setFlowName}
+              onOtherPlatform={switchPlatform}
+              onStart={(name, selection, form) =>
+                android.start(name, selection, (sessionId) =>
+                  onOpenNative("android", sessionId, form)
+                )
+              }
+              pending={android.pending}
+              platforms={platforms.filter((platform) => platform !== "android")}
+            />
+          ) : null}
+          {card === null ? (
             <ul
               aria-label="Start a session"
               className={cn(
@@ -692,9 +576,7 @@ export const WorkspaceHome = ({
                   <Button
                     aria-label={`Start ${platform === "web" ? "a" : "an"} ${homePlatformName(platform)} session`}
                     className="grid h-full gap-[18px] rounded-[26px] p-[18px]"
-                    data-vt={
-                      returning && platform === "web" ? "start-card" : undefined
-                    }
+                    data-vt={returning === platform ? "start-card" : undefined}
                     onClick={(event) =>
                       openPlatform(platform, event.currentTarget)
                     }
@@ -714,7 +596,7 @@ export const WorkspaceHome = ({
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
           {sessions.length === 0 ? null : (
             <section aria-label="In progress" className="grid w-full gap-3">
               <h2
