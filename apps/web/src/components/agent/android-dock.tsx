@@ -453,6 +453,8 @@ export const AndroidSessionSelect = ({
     >
       <SelectTrigger
         aria-label="Android Agent Session"
+        // The home's "In progress" heading morphs into this trigger.
+        data-vt="switcher"
         className="hover:bg-muted dark:hover:bg-muted max-w-[min(18rem,55%)] min-w-28 shrink border-transparent font-medium dark:bg-transparent"
       >
         <SelectValue placeholder="Android session">

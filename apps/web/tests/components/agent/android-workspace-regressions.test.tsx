@@ -87,6 +87,9 @@ test("offers the listed sessions without a selected Android session", async () =
       sessions={[paused, completed]}
     />
   );
+  // The way home leads, as the platform switcher it replaced did.
+  await user.tab();
+  expect(screen.getByRole("link", { name: "Contingency home" })).toHaveFocus();
   await user.tab();
   expect(
     screen.getByRole("combobox", { name: "Android Agent Session" })

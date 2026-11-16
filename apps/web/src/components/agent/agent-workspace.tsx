@@ -87,7 +87,6 @@ import type {
 import {
   TeachingRecordingDock,
   TeachingRecordingNotices,
-  WorkspaceEmptyDock,
 } from "@/components/agent/teaching-recording-dock";
 import type {
   TeachingRecordingGesture,
@@ -134,7 +133,6 @@ import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   InputGroup,
   InputGroupAddon,
@@ -143,6 +141,11 @@ import {
 import { useLatestDefined } from "@/hooks/use-latest-defined";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+import {
+  canViewTransition,
+  nameForTransition,
+  startWorkspaceTransition,
+} from "@/lib/view-transition";
 import {
   useWorkspaceRefreshClock,
   WORKSPACE_REFRESH_INTERVAL,
@@ -154,19 +157,14 @@ import {
 } from "./first-response-probe";
 import { IosWorkspace } from "./ios-workspace";
 import { RecordingViewer } from "./recording-view";
-import {
-  WorkspacePlatformBar,
-  WorkspacePlatformSwitcher,
-} from "./workspace-platform";
-import {
-  NEW_NATIVE_SESSION,
-  WorkspacePlatformContext,
-  webPlatform,
-} from "./workspace-platform-state";
+import { WorkspaceHome } from "./workspace-home";
+import { WorkspaceHomeContext } from "./workspace-home-context";
+import type { WorkspaceHome as WorkspaceHomeNavigation } from "./workspace-home-context";
+import type { WebSessionStart } from "./workspace-home-state";
+import { webPlatform } from "./workspace-platform-state";
 import type {
   SelectWorkspacePlatform,
   WorkspacePlatform,
-  WorkspacePlatformTag,
 } from "./workspace-platform-state";
 
 type TeachingSessionSnapshot = Extract<
@@ -307,25 +305,12 @@ const isFlowName = Schema.is(FlowName);
 
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
 
-/** What a Workspace-opened Teaching session is called before it is renamed. */
-const DEFAULT_FLOW_NAME = "new-flow";
-
 /**
- * The viewport a Workspace-opened Teaching session starts under. A phone-width
- * window starts a phone-width Page, so the frame is drawn near its own size
- * rather than a desktop layout shrunk to a quarter.
+ * The theme and docs controls over a browser Workspace with no toolbar:
+ * loading and unavailable. Without the app header they come along, as the
+ * live toolbar carries them.
  */
-const workspaceSessionViewport = () =>
-  globalThis.matchMedia?.("(max-width: 639px)").matches === true
-    ? { height: 844, width: 390 }
-    : { height: 800, width: 1280 };
-
-/**
- * The platform switcher over a browser Workspace with no toolbar: loading,
- * unavailable, and the empty canvas. Without the app header the theme and
- * docs controls come along, as the live toolbar carries them.
- */
-const WorkspacePlatformControls = () => {
+const WorkspaceStatusControls = () => {
   const chrome = useAtomValue(workspaceChromeAtom);
   const [header, setHeader] = useState(false);
   useEffect(() => {
@@ -333,16 +318,11 @@ const WorkspacePlatformControls = () => {
       !chrome && document.querySelector("#workspace-header-actions") !== null
     );
   }, [chrome]);
-  return (
-    <>
-      <WorkspacePlatformBar />
-      {header ? null : (
-        <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-          <DocsLink />
-          <ModeToggle />
-        </div>
-      )}
-    </>
+  return header ? null : (
+    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
+      <DocsLink />
+      <ModeToggle />
+    </div>
   );
 };
 
@@ -352,7 +332,7 @@ const LoadingState = () => (
     aria-live="polite"
     className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6"
   >
-    <WorkspacePlatformControls />
+    <WorkspaceStatusControls />
     <section className="max-w-md space-y-4 text-center">
       <WatcherLoader className="mx-auto h-7" />
       <div className="space-y-1.5">
@@ -367,120 +347,9 @@ const LoadingState = () => (
   </main>
 );
 
-/**
- * What the Workspace says about a `?session=` id it could not resolve. It sits
- * beside the empty Workspace when this process owns no replacement (#243).
- */
-const UnresolvedSessionNotice = ({
-  sessionId,
-}: {
-  readonly sessionId: string;
-}) => (
-  <Alert variant="destructive">
-    <CircleAlertIcon aria-hidden="true" />
-    <AlertTitle>That session id did not resolve</AlertTitle>
-    <AlertDescription>
-      {`Agent Session ${sessionId} is not owned by this server process or is no longer running. Open a browser session to carry on.`}
-    </AlertDescription>
-  </Alert>
-);
-
-/**
- * The Workspace with no Agent Session behind it. The canvas owns the
- * invitation, and the dock beside it carries the state without repeating the
- * action: `contingency web` opens Teaching sessions itself, so the user does
- * not need an agent to start (#191).
- */
-const EmptyState = ({
-  error,
-  onOpenSession,
-  pending,
-  flows,
-  unresolvedSessionId,
-}: {
-  readonly flows: React.ReactNode;
-  readonly error: string | undefined;
-  readonly onOpenSession: (name: string) => void;
-  readonly pending: boolean;
-  readonly unresolvedSessionId: string | undefined;
-}) => {
-  // The name is asked for here rather than generated, so the dock's session
-  // label is something the user recognizes from the first frame.
-  const [name, setName] = useState(DEFAULT_FLOW_NAME);
-  return (
-    <main className="relative flex h-full min-h-0 flex-col">
-      {/*
-        The card clears the dock's measured height and scrolls when the stage
-        is shorter than both, so the dock never covers its fields. Safe
-        centering starts a card taller than the stage at its top.
-      */}
-      <div className="bg-muted/40 grid min-h-0 flex-1 [place-items:safe_center] overflow-y-auto bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 pb-[calc(var(--dock-height,7rem)+1rem)] sm:p-6 sm:pb-[calc(var(--dock-height,7rem)+1.5rem)]">
-        <section className="material-panel w-full max-w-md min-w-0 space-y-5 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
-          <div className="space-y-3">
-            <div
-              aria-hidden="true"
-              className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border max-sm:hidden"
-            >
-              <GlobeIcon className="size-5" />
-            </div>
-            <div className="space-y-1.5">
-              <h1 className="text-xl font-semibold tracking-tight text-balance">
-                No browser session
-              </h1>
-              <p className="text-muted-foreground text-sm text-pretty max-sm:hidden">
-                Name the Flow you are about to teach, open a browser, and start
-                recording when the journey begins.
-              </p>
-            </div>
-          </div>
-          <form
-            className="space-y-1.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onOpenSession(name);
-            }}
-          >
-            <label
-              className="text-sm font-medium"
-              htmlFor="workspace-flow-name"
-            >
-              Flow name
-            </label>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                className="h-9 font-mono text-sm sm:flex-1"
-                id="workspace-flow-name"
-                onChange={(event) => setName(event.target.value)}
-                spellCheck={false}
-                value={name}
-              />
-              <Button disabled={pending} size="lg" type="submit">
-                Open browser session
-              </Button>
-            </div>
-          </form>
-          {unresolvedSessionId === undefined ? null : (
-            <div className="text-left">
-              <UnresolvedSessionNotice sessionId={unresolvedSessionId} />
-            </div>
-          )}
-          {error === undefined ? null : (
-            <Alert className="text-left" variant="destructive">
-              <CircleAlertIcon aria-hidden="true" />
-              <AlertTitle>The session did not open</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-        </section>
-      </div>
-      <WorkspaceEmptyDock flows={flows} />
-    </main>
-  );
-};
-
 const UnavailableState = ({ message }: { readonly message: string }) => (
   <main className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
-    <WorkspacePlatformControls />
+    <WorkspaceStatusControls />
     <section className="max-w-lg space-y-4 text-center">
       <Alert className="text-left" variant="destructive">
         <CircleAlertIcon aria-hidden="true" />
@@ -676,10 +545,6 @@ const AgentBrowserToolbar = ({
   const addressRef = useAddressStartsVisible(address);
   return (
     <>
-      {/* A phone gives the switcher its own row, so the address keeps the width. */}
-      <div className="bg-background flex justify-center border-b px-2 py-1.5 sm:hidden">
-        <WorkspacePlatformSwitcher className="shadow-none" />
-      </div>
       <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
         <div
           aria-label="Browser navigation"
@@ -748,7 +613,6 @@ const AgentBrowserToolbar = ({
         The theme control lives on the browser chrome rather than in a second
         header band: a live Workspace has no app header to hold it (#209).
       */}
-        <WorkspacePlatformSwitcher className="shadow-none max-sm:hidden" />
         <DocsLink />
         <ModeToggle />
       </div>
@@ -827,7 +691,11 @@ const AgentLiveView = ({
     browserStreamError !== undefined ||
     session.interruptedAction !== null;
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+    <main
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      // The shelf card the person picked grows into this stage.
+      data-vt="stage"
+    >
       <AgentBrowserToolbar
         address={state.address}
         navigationError={navigation.error}
@@ -1022,6 +890,15 @@ const useAgentView = (
     requested: string | undefined;
     selected: AgentSessionId | undefined;
   } | null>(null);
+  /*
+    The route's session as the selection last read it, or `null` before the
+    first read. Arriving at a route that names no session is going home.
+  */
+  const lastRequestRef = useRef<{ readonly id: string | undefined } | null>(
+    null
+  );
+  // Set while the dock's way home waits for the route to drop `?session=`.
+  const pendingHomeRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [responseProbe] = useState(() =>
     makeFirstResponseProbe("browser", () => canvasRef.current)
@@ -1113,6 +990,41 @@ const useAgentView = (
           : {
               ...current,
               phase: "unavailable",
+              selectedSessionId: undefined,
+              session: undefined,
+              unresolvedSessionId: undefined,
+            }
+      );
+      return;
+    }
+    /*
+      `/` with no session is the Workspace home, even while sessions run
+      (#744): arriving there clears the selection rather than adopting the
+      first session. A session the person opened from the home keeps its
+      place until the route catches up with it.
+    */
+    const lastRequest = lastRequestRef.current;
+    lastRequestRef.current = { id: requestedSessionId };
+    const arrivedHome =
+      requestedSessionId === undefined &&
+      (lastRequest === null || lastRequest.id !== undefined);
+    if (requestedSessionId === undefined) {
+      pendingHomeRef.current = false;
+    }
+    if (arrivedHome || pendingHomeRef.current) {
+      selectionRef.current = {
+        requested: requestedSessionId,
+        selected: undefined,
+      };
+      setState((current) =>
+        current.phase === "empty" &&
+        current.selectedSessionId === undefined &&
+        current.session === undefined &&
+        current.unresolvedSessionId === undefined
+          ? current
+          : {
+              ...current,
+              phase: "empty",
               selectedSessionId: undefined,
               session: undefined,
               unresolvedSessionId: undefined,
@@ -1214,12 +1126,14 @@ const useAgentView = (
         followedDryRunIdsRef.current.has(related.id)
           ? undefined
           : related;
+      // An id that no longer resolves still lands on a live session, as it
+      // always has; only a route with no session at all shows the home.
       const selected =
         (requestChanged ? requested : undefined) ??
         follow ??
         existing ??
         requested ??
-        availableSessions[0];
+        (requestedSessionId === undefined ? undefined : availableSessions[0]);
       if (selected !== undefined) {
         followedDryRunIdsRef.current.add(selected.id);
       }
@@ -1696,11 +1610,12 @@ const useAgentView = (
   };
 
   /**
-   * Opening a Teaching session from the empty canvas. `contingency web` owns
-   * Teaching, and refuses `run`, so the activity is named rather than left to
-   * the default: the Workspace never opens an Interactive Run (ADR 0039).
+   * Opening a Teaching session from the Web start card. `contingency web`
+   * owns Teaching, and refuses `run`, so the activity is named rather than
+   * left to the default: the Workspace never opens an Interactive Run (ADR
+   * 0039). The card grows into the stage once the session exists.
    */
-  const openSession = (name: string) => {
+  const openSession = (start: WebSessionStart, form?: HTMLElement | null) => {
     const operationId = OperationId.make(globalThis.crypto.randomUUID());
     startGesture.dispatch(
       Effect.tryPromise({
@@ -1711,22 +1626,30 @@ const useAgentView = (
               activity: "teaching",
               clientName: "Workspace",
               clientVersion: "web",
-              name: name.trim() === "" ? undefined : name.trim(),
+              emulation: start.emulation,
+              name: start.name === "" ? undefined : start.name,
               operationId,
-              viewport: { deviceScaleFactor: 1, ...workspaceSessionViewport() },
+              url: start.url,
+              viewport: start.viewport,
             },
           }),
       }).pipe(
         Effect.flatMap((response) =>
           Effect.sync(() => {
             const started = response.session;
-            onSelectSession?.(started.id);
-            setState((current) => ({
-              ...current,
-              phase: "switching",
-              selectedSessionId: started.id,
-              session: started,
-            }));
+            pendingHomeRef.current = false;
+            startWorkspaceTransition(
+              () => {
+                setState((current) => ({
+                  ...current,
+                  phase: "switching",
+                  selectedSessionId: started.id,
+                  session: started,
+                }));
+                onSelectSession?.(started.id);
+              },
+              { element: form ?? null, name: "stage" }
+            );
             refreshSessions();
           })
         )
@@ -2214,6 +2137,7 @@ const useAgentView = (
     if (related?.activity === "run") {
       followedDryRunIdsRef.current.add(related.id);
     }
+    pendingHomeRef.current = false;
     onSelectSession?.(nextSession.id);
     addressEditingRef.current = false;
     setState((current) => ({
@@ -2288,7 +2212,23 @@ const useAgentView = (
     );
   };
 
-  /** Leave an ended Run for the next live session or the empty Workspace. */
+  /**
+   * Leave the selected session for the Workspace home. The selection clears
+   * now, inside the caller's transition, and stays clear until the route has
+   * dropped `?session=`.
+   */
+  const leaveForHome = () => {
+    pendingHomeRef.current = true;
+    setState((current) => ({
+      ...current,
+      phase: "empty",
+      selectedSessionId: undefined,
+      session: undefined,
+      unresolvedSessionId: undefined,
+    }));
+  };
+
+  /** Leave an ended Run for the next live session or the Workspace home. */
   const dismissEndedRun = () => {
     const ended = state.session;
     if (ended === undefined) {
@@ -2314,13 +2254,16 @@ const useAgentView = (
       session: undefined,
       unresolvedSessionId: undefined,
     }));
+    // Nothing is left, so the route goes home rather than naming the Run.
+    onRecoverSession?.();
   };
 
   /*
-    Every live Workspace is full-bleed: the empty canvas, a Teaching session, a
-    Dry Run, and an Interactive Run all carry the wordmark and the session in
-    one dock, so the app header steps aside for all of them. A Run Summary and
-    an unknown route keep it, because they have no dock (#209).
+    Every live Workspace is full-bleed: the Workspace home carries its own
+    islands, and a Teaching session, a Dry Run, and an Interactive Run carry
+    the logo mark and the session in one dock, so the app header steps aside
+    for all of them. A Run Summary and an unknown route keep it, because they
+    have no dock (#209).
   */
   const chrome = state.phase === "empty" || state.session !== undefined;
   const setChrome = useAtomSet(workspaceChromeAtom);
@@ -2386,6 +2329,7 @@ const useAgentView = (
     highlightComment,
     hoverInspect,
     input,
+    leaveForHome,
     navigate,
     openCommentComposer,
     openSession,
@@ -2487,11 +2431,89 @@ const WorkspaceLayout = ({
   );
 };
 
+/**
+ * How the browser Workspace reaches the rest of the route: home, a native
+ * platform, and which shelf card a session it leaves returns to.
+ */
+interface WorkspaceRouteNavigation {
+  readonly goHome: () => void;
+  readonly openNative: (
+    platform: "android" | "ios",
+    session: string,
+    card: HTMLElement | null
+  ) => void;
+  readonly returnTo: string | undefined;
+  readonly setReturnTo: (sessionId: string | undefined) => void;
+}
+
+/**
+ * The dock's way home: the session shrinks back into its shelf card while
+ * the selection clears, then the route drops `?session=`.
+ */
+const browserHomeNavigation = (
+  view: ReturnType<typeof useAgentView>,
+  navigation: WorkspaceRouteNavigation | undefined
+): WorkspaceHomeNavigation => ({
+  goHome: () => {
+    const leaving = view.state.selectedSessionId;
+    startWorkspaceTransition(() => {
+      navigation?.setReturnTo(leaving);
+      view.leaveForHome();
+      navigation?.goHome();
+    });
+  },
+});
+
+/** Whether the open session is a Teaching session that is recording now. */
+const isRecordingTeaching = (session: AgentSessionSnapshot | undefined) =>
+  session?.activity === "teaching" && session.captureState._tag === "recording";
+
+/** `/` needs no session list to show its tiles, so it never waits on one. */
+const showsBrowserHome = (
+  view: ReturnType<typeof useAgentView>,
+  requestedSessionId: string | undefined
+): boolean =>
+  view.state.phase === "empty" ||
+  (requestedSessionId === undefined && view.sessionsResult._tag === "Initial");
+
+/** The Workspace home over the browser Workspace's sessions and start card. */
+const BrowserWorkspaceHome = ({
+  navigation,
+  view,
+}: {
+  readonly navigation: WorkspaceRouteNavigation | undefined;
+  readonly view: ReturnType<typeof useAgentView>;
+}) => (
+  <div className="relative flex h-svh min-h-0 flex-col">
+    <WorkspaceLayout session={undefined} summary={undefined}>
+      <WorkspaceHome
+        error={view.gestures.start.error}
+        onOpenNative={(tag, session, card) =>
+          navigation?.openNative(tag, session, card)
+        }
+        onOpenWebSession={(sessionId, card) => {
+          startWorkspaceTransition(() => view.selectSession(sessionId), {
+            element: card,
+            name: "stage",
+          });
+        }}
+        onStartWeb={view.openSession}
+        pending={view.gestures.start.pending}
+        returnTo={navigation?.returnTo}
+        unresolvedSessionId={view.state.unresolvedSessionId}
+        webSessions={view.sessions}
+      />
+    </WorkspaceLayout>
+  </div>
+);
+
 const BrowserWorkspace = ({
+  navigation,
   onRecoverSession,
   onSelectSession,
   requestedSessionId,
 }: {
+  readonly navigation?: WorkspaceRouteNavigation | undefined;
   readonly onRecoverSession?:
     | ((sessionId?: AgentSessionId) => void)
     | undefined;
@@ -2504,9 +2526,9 @@ const BrowserWorkspace = ({
     onRecoverSession
   );
   const { sessionsResult, state } = view;
-  const recording =
-    state.session?.activity === "teaching" &&
-    state.session.captureState._tag === "recording";
+  const home = browserHomeNavigation(view, navigation);
+  const showsHome = showsBrowserHome(view, requestedSessionId);
+  const recording = isRecordingTeaching(state.session);
   const [platform] = useState(shortcutPlatform);
   useCommentShortcuts({
     browser: view.canvasRef,
@@ -2515,7 +2537,7 @@ const BrowserWorkspace = ({
     onShortcut: view.runCommentShortcut,
     picking: state.inspect.open,
   });
-  if (sessionsResult._tag === "Initial") {
+  if (sessionsResult._tag === "Initial" && !showsHome) {
     return <LoadingState />;
   }
   if (sessionsResult._tag === "Failure") {
@@ -2533,21 +2555,8 @@ const BrowserWorkspace = ({
       />
     );
   }
-  if (state.phase === "empty") {
-    return (
-      <div className="relative flex h-svh min-h-0 flex-col">
-        <WorkspaceLayout session={undefined} summary={undefined}>
-          <WorkspacePlatformControls />
-          <EmptyState
-            error={view.gestures.start.error}
-            onOpenSession={view.openSession}
-            pending={view.gestures.start.pending}
-            flows={<FlowsDockButton />}
-            unresolvedSessionId={state.unresolvedSessionId}
-          />
-        </WorkspaceLayout>
-      </div>
-    );
+  if (showsHome) {
+    return <BrowserWorkspaceHome navigation={navigation} view={view} />;
   }
   if (state.session === undefined) {
     return <LoadingState />;
@@ -2560,158 +2569,150 @@ const BrowserWorkspace = ({
   ) : null;
 
   return (
-    <div className="relative flex h-svh min-h-0 flex-col">
-      <WorkspaceLayout session={session} summary={finished}>
-        <AgentLiveView
-          canvasRef={view.canvasRef}
-          dock={
-            session.activity === "teaching" ? (
-              <TeachingRecordingDock
-                control={
-                  <GuidedRunControl
-                    session={session}
-                    onControl={view.changeControl}
-                    pending={view.gestures.control.pending}
-                    error={view.gestures.control.error}
-                  />
-                }
-                controlStatus={`${agentControlPresentation(session).holder}. ${agentControlPresentation(session).reason ?? "Stop recording when finished."}`}
-                origin={session.origin}
-                captureState={session.captureState}
-                cleanup={session.recordingCleanup}
-                controller={session.controller}
-                flowName={session.flowName}
-                instructions={session.teaching.instructions}
-                onComment={view.openCommentComposer}
-                onGesture={view.changeRecording}
-                onSecondary={view.runSecondary}
-                deletion={view.deletion}
-                onSelectSession={view.selectSession}
-                pending={view.gestures.recording.pending}
-                phase={session.phase}
-                platform={platform}
-                requests={
-                  <>
-                    <DockRequests session={session} />
-                    <GuidedTakeoverVariable
-                      key={session.id}
+    <WorkspaceHomeContext value={home}>
+      <div className="relative flex h-svh min-h-0 flex-col">
+        <WorkspaceLayout session={session} summary={finished}>
+          <AgentLiveView
+            canvasRef={view.canvasRef}
+            dock={
+              session.activity === "teaching" ? (
+                <TeachingRecordingDock
+                  control={
+                    <GuidedRunControl
                       session={session}
+                      onControl={view.changeControl}
+                      pending={view.gestures.control.pending}
+                      error={view.gestures.control.error}
                     />
-                  </>
-                }
-                selectedSessionId={state.selectedSessionId}
-                sessions={view.sessions}
-                flows={flowsEntry}
-              />
-            ) : (
-              <RunDock
-                controlError={view.gestures.control.error}
-                controlPending={view.gestures.control.pending}
-                onControl={view.changeControl}
-                onDismiss={
-                  isEndedRun(session) ? view.dismissEndedRun : undefined
-                }
-                deletion={view.deletion}
-                onSelectSession={view.selectSession}
-                requests={<DockRequests session={session} />}
-                selectedSessionId={state.selectedSessionId}
-                session={session}
-                sessions={view.sessions}
-                flows={flowsEntry}
-                streamConnected={state.streamConnected}
-              />
-            )
-          }
-          input={view.input}
-          navigation={view.gestures.navigation}
-          inspect={
-            recording
-              ? (canvas) => (
-                  <InspectOverlay
-                    canvas={canvas}
-                    onCancel={view.exitInspect}
-                    onFreeze={view.freezeInspect}
-                    onHover={view.hoverInspect}
-                    projection={state.frameProjection}
-                    state={state.inspect}
-                  />
-                )
-              : undefined
-          }
-          notices={
-            session.activity === "teaching" ? (
-              <TeachingRecordingNotices
-                captureState={session.captureState}
-                error={view.gestures.recording.error}
-                recordingId={session.recordingId}
-              />
-            ) : null
-          }
-          onAddressChange={view.setAddress}
-          onAddressSubmit={view.submitAddress}
-          onAttachBrowserContext={view.attachBrowserContext}
-          onClearConsole={view.clearConsole}
-          onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
-          onNavigate={view.navigate}
-          recording={recording}
-          session={session}
-          state={state}
-        />
-      </WorkspaceLayout>
-      {session.activity === "teaching" &&
-      session.captureState._tag === "recording" ? (
-        <CommentComposer
-          instructions={session.teaching.instructions}
-          origin={httpOriginFromUrl(session.currentUrl)?.origin ?? ""}
-          onEdit={view.editComment}
-          onAttachmentsChange={view.setAttachments}
-          onAttach={view.attachBrowserContext}
-          onDetach={view.detachElement}
-          onDraftChange={view.setInspectDraft}
-          onHighlight={view.highlightComment}
-          onOpenChange={view.changeComposerOpen}
-          onPick={view.pickElement}
-          onSubmit={view.submitComment}
-          onScanChange={view.setScan}
-          onScanMenuChange={view.setScanMenu}
-          pending={view.gestures.comment.pending}
-          platform={platform}
-          startedAt={session.captureState.startedAt}
-          state={state.inspect}
-        />
-      ) : null}
-    </div>
+                  }
+                  controlStatus={`${agentControlPresentation(session).holder}. ${agentControlPresentation(session).reason ?? "Stop recording when finished."}`}
+                  origin={session.origin}
+                  captureState={session.captureState}
+                  cleanup={session.recordingCleanup}
+                  controller={session.controller}
+                  flowName={session.flowName}
+                  instructions={session.teaching.instructions}
+                  onComment={view.openCommentComposer}
+                  onGesture={view.changeRecording}
+                  onSecondary={view.runSecondary}
+                  deletion={view.deletion}
+                  onSelectSession={view.selectSession}
+                  pending={view.gestures.recording.pending}
+                  phase={session.phase}
+                  platform={platform}
+                  requests={
+                    <>
+                      <DockRequests session={session} />
+                      <GuidedTakeoverVariable
+                        key={session.id}
+                        session={session}
+                      />
+                    </>
+                  }
+                  selectedSessionId={state.selectedSessionId}
+                  sessions={view.sessions}
+                  flows={flowsEntry}
+                />
+              ) : (
+                <RunDock
+                  controlError={view.gestures.control.error}
+                  controlPending={view.gestures.control.pending}
+                  onControl={view.changeControl}
+                  onDismiss={
+                    isEndedRun(session) ? view.dismissEndedRun : undefined
+                  }
+                  deletion={view.deletion}
+                  onSelectSession={view.selectSession}
+                  requests={<DockRequests session={session} />}
+                  selectedSessionId={state.selectedSessionId}
+                  session={session}
+                  sessions={view.sessions}
+                  flows={flowsEntry}
+                  streamConnected={state.streamConnected}
+                />
+              )
+            }
+            input={view.input}
+            navigation={view.gestures.navigation}
+            inspect={
+              recording
+                ? (canvas) => (
+                    <InspectOverlay
+                      canvas={canvas}
+                      onCancel={view.exitInspect}
+                      onFreeze={view.freezeInspect}
+                      onHover={view.hoverInspect}
+                      projection={state.frameProjection}
+                      state={state.inspect}
+                    />
+                  )
+                : undefined
+            }
+            notices={
+              session.activity === "teaching" ? (
+                <TeachingRecordingNotices
+                  captureState={session.captureState}
+                  error={view.gestures.recording.error}
+                  recordingId={session.recordingId}
+                />
+              ) : null
+            }
+            onAddressChange={view.setAddress}
+            onAddressSubmit={view.submitAddress}
+            onAttachBrowserContext={view.attachBrowserContext}
+            onClearConsole={view.clearConsole}
+            onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
+            onNavigate={view.navigate}
+            recording={recording}
+            session={session}
+            state={state}
+          />
+        </WorkspaceLayout>
+        {session.activity === "teaching" &&
+        session.captureState._tag === "recording" ? (
+          <CommentComposer
+            instructions={session.teaching.instructions}
+            origin={httpOriginFromUrl(session.currentUrl)?.origin ?? ""}
+            onEdit={view.editComment}
+            onAttachmentsChange={view.setAttachments}
+            onAttach={view.attachBrowserContext}
+            onDetach={view.detachElement}
+            onDraftChange={view.setInspectDraft}
+            onHighlight={view.highlightComment}
+            onOpenChange={view.changeComposerOpen}
+            onPick={view.pickElement}
+            onSubmit={view.submitComment}
+            onScanChange={view.setScan}
+            onScanMenuChange={view.setScanMenu}
+            pending={view.gestures.comment.pending}
+            platform={platform}
+            startedAt={session.captureState.startedAt}
+            state={state.inspect}
+          />
+        ) : null}
+      </div>
+    </WorkspaceHomeContext>
   );
 };
 
 /**
- * The Workspace on the platform the route names. The route is the only
- * source: switching platforms, choosing a native session, and starting one
- * all move it, so refresh and history land where the person was.
+ * The Workspace on the platform the route names, or the Workspace home when
+ * the route names no session. The route is the only source: opening a
+ * platform, choosing a session and going home all move it, so refresh and
+ * history land where the person was.
  */
 export const AgentWorkspace = ({
   onSelectPlatform,
   platform = webPlatform,
   ...props
-}: React.ComponentProps<typeof BrowserWorkspace> & {
+}: Omit<React.ComponentProps<typeof BrowserWorkspace>, "navigation"> & {
   readonly platform?: WorkspacePlatform | undefined;
-  /** Without it the Workspace stays on `platform` and offers no switcher. */
+  /** Without it the Workspace stays on `platform`. */
   readonly onSelectPlatform?: SelectWorkspacePlatform | undefined;
 }) => {
-  // Each native platform reopens at the session it last showed.
-  const lastSession = useRef<Record<"android" | "ios", string>>({
-    android: NEW_NATIVE_SESSION,
-    ios: NEW_NATIVE_SESSION,
-  });
+  // The session the person last left, whose shelf card it shrinks back into.
+  const [returnTo, setReturnTo] = useState<string | undefined>();
   const nativeSession = platform._tag === "web" ? undefined : platform.session;
-  useEffect(() => {
-    if (platform._tag !== "web" && nativeSession !== undefined) {
-      lastSession.current = {
-        ...lastSession.current,
-        [platform._tag]: nativeSession,
-      };
-    }
-  }, [platform._tag, nativeSession]);
   const onSessionChange = (session: string) => {
     if (
       platform._tag !== "web" &&
@@ -2721,37 +2722,50 @@ export const AgentWorkspace = ({
       onSelectPlatform({ _tag: platform._tag, session }, { replace: true });
     }
   };
-  const onSwitch = (tag: WorkspacePlatformTag) => {
-    if (tag === platform._tag || onSelectPlatform === undefined) {
-      return;
-    }
-    onSelectPlatform(
-      tag === "web"
-        ? webPlatform
-        : { _tag: tag, session: lastSession.current[tag] }
-    );
+  const navigation: WorkspaceRouteNavigation = {
+    goHome: () => onSelectPlatform?.(webPlatform),
+    openNative: (tag, session, card) => {
+      if (canViewTransition()) {
+        // The card grows into the native stage the route opens.
+        nameForTransition(card, "stage");
+      }
+      onSelectPlatform?.(
+        { _tag: tag, session },
+        { viewTransition: canViewTransition() }
+      );
+    },
+    returnTo,
+    setReturnTo,
   };
-  let workspace: React.ReactNode = <BrowserWorkspace {...props} />;
-  if (platform._tag === "ios") {
-    workspace = (
-      <IosWorkspace
-        onSessionChange={onSessionChange}
-        requestedSessionId={platform.session}
-      />
-    );
-  } else if (platform._tag === "android") {
-    workspace = (
-      <AndroidWorkspace
-        onSessionChange={onSessionChange}
-        requestedSessionId={platform.session}
-      />
+  // A native screen goes home through the route, which runs the transition.
+  const nativeHome: WorkspaceHomeNavigation = {
+    goHome: () => {
+      setReturnTo(nativeSession);
+      onSelectPlatform?.(webPlatform, { viewTransition: canViewTransition() });
+    },
+  };
+  if (platform._tag === "web") {
+    return (
+      <WorkspaceHomeContext
+        value={onSelectPlatform === undefined ? null : nativeHome}
+      >
+        <BrowserWorkspace {...props} navigation={navigation} />
+      </WorkspaceHomeContext>
     );
   }
-  return onSelectPlatform === undefined ? (
-    workspace
-  ) : (
-    <WorkspacePlatformContext value={{ onSwitch, platform }}>
-      {workspace}
-    </WorkspacePlatformContext>
+  return (
+    <WorkspaceHomeContext value={nativeHome}>
+      {platform._tag === "ios" ? (
+        <IosWorkspace
+          onSessionChange={onSessionChange}
+          requestedSessionId={platform.session}
+        />
+      ) : (
+        <AndroidWorkspace
+          onSessionChange={onSessionChange}
+          requestedSessionId={platform.session}
+        />
+      )}
+    </WorkspaceHomeContext>
   );
 };

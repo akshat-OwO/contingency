@@ -39,7 +39,6 @@ import {
   DockStatus,
   DockWordmark,
 } from "@/components/agent/workspace-dock";
-import { Wordmark } from "@/components/brand";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,32 +93,6 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
     </span>
   );
 };
-
-/**
- * The Workspace dock with no Agent Session behind it. The canvas owns the
- * invitation here, so the dock deliberately offers no primary action: two
- * controls reading **Open browser session** was what the prototype's own
- * capture check caught first.
- */
-export const WorkspaceEmptyDock = ({
-  flows = null,
-}: {
-  /** The Flows drawer entry, beside the wordmark. */
-  readonly flows?: React.ReactNode;
-}) => (
-  <DockShell
-    status={
-      <DockStatus badges={<DockState>No session</DockState>}>
-        Nothing is captured until a session is open and recording.
-      </DockStatus>
-    }
-  >
-    <span className="flex pl-1">
-      <Wordmark />
-    </span>
-    {flows}
-  </DockShell>
-);
 
 /**
  * A Guided Run names itself in the badge. While it records, the badge is one

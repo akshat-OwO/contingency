@@ -13,12 +13,12 @@ import {
   CircleIcon,
   GlobeIcon,
   LoaderCircleIcon,
+  PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
-import { WatcherMark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -27,6 +27,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+import { useWorkspaceHome } from "./workspace-home-context";
+import { WorkspaceHomeLink } from "./workspace-home-nav";
 
 /**
  * The pieces every Workspace dock is made of. Teaching, a Dry Run, an
@@ -85,11 +88,14 @@ export const DockSessionSelect = ({
   readonly sessions: readonly AgentSessionSnapshot[];
 }) => {
   const [open, setOpen] = useState(false);
+  const home = useWorkspaceHome();
   const selected = sessions.find(({ id }) => id === selectedSessionId);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         aria-label="Agent Session"
+        // The home's "In progress" heading morphs into this trigger.
+        data-vt="switcher"
         // The trigger shows the name's start; hovering shows all of it.
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
         role="combobox"
@@ -165,6 +171,23 @@ export const DockSessionSelect = ({
           <p role="alert" className="text-destructive px-1.5 py-1 text-xs">
             {deletion.error}
           </p>
+        )}
+        {home === null ? null : (
+          <>
+            <hr className="mx-1 my-1 border-t" />
+            {/* A new session of any platform starts on the Workspace home. */}
+            <Button
+              className="w-full justify-start px-1.5"
+              onClick={() => {
+                setOpen(false);
+                home.goHome();
+              }}
+              variant="ghost"
+            >
+              <PlusIcon aria-hidden="true" />
+              New session
+            </Button>
+          </>
         )}
       </PopoverContent>
     </Popover>
@@ -307,16 +330,11 @@ export const DockSpacer = () => (
 );
 
 /**
- * The mark alone, with the name kept for assistive technology: a session
- * dock spends its width on the session. It gives way first when the stage
- * narrows.
+ * The mark alone, as the dock's way to the Workspace home (**Contingency
+ * home**): a session dock spends its width on the session, so the mark stays
+ * small, but it never gives way, since the platform switcher is gone.
  */
-export const DockWordmark = () => (
-  <span className="hidden px-1 @2xl:inline-flex">
-    <WatcherMark />
-    <span className="sr-only">Contingency</span>
-  </span>
-);
+export const DockWordmark = () => <WorkspaceHomeLink />;
 
 /**
  * What the dock has to say above the browser rather than inside the card: a

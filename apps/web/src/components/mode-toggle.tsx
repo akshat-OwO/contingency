@@ -9,8 +9,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
-const ModeToggle = () => {
+const ModeToggle = ({ className }: { readonly className?: string }) => {
   const { setTheme } = useTheme();
   // Light and dark cross-fade rather than flash: the view transition captures
   // the old theme, and the synchronous update applies the new one before the
@@ -32,7 +33,7 @@ const ModeToggle = () => {
         render={
           <Button
             aria-label="Change color theme"
-            className="relative"
+            className={cn("relative", className)}
             size="icon"
             variant="outline"
           />

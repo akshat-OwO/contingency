@@ -71,7 +71,7 @@ import {
   useWorkspaceGesture,
 } from "./workspace-gesture";
 import type { GestureRun } from "./workspace-gesture";
-import { WorkspacePlatformBar } from "./workspace-platform";
+import { WorkspaceHomeBar } from "./workspace-home-nav";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 interface WorkspaceState {
@@ -208,7 +208,7 @@ export const AndroidPreparingState = ({
   readonly selection: AndroidWorkspaceSelection;
 }) => (
   <main aria-busy="true" className="relative flex h-full min-h-0 flex-col">
-    <WorkspacePlatformBar />
+    <WorkspaceHomeBar />
     <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
       <section
         aria-labelledby="android-preparing-title"
@@ -267,7 +267,7 @@ export const AndroidEmptyState = ({
   readonly sessions: readonly AndroidWorkspaceSummary[];
 }) => (
   <main aria-busy={pending} className="relative flex h-full min-h-0 flex-col">
-    <WorkspacePlatformBar />
+    <WorkspaceHomeBar />
     <div className="bg-muted/40 grid min-h-0 flex-1 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4 sm:p-6">
       <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
         <div
@@ -763,13 +763,13 @@ export const AndroidSessionView = ({
       }
     >
       <main
+        data-vt="stage"
         className={cn(
-          // The platform switcher floats above the device, the dock below it.
+          // The device leaves room above for notices and below for the dock.
           "bg-muted/30 relative flex min-h-0 flex-1 justify-center px-6 pt-14",
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
-        <WorkspacePlatformBar />
         {notices}
         <AndroidDevice
           canAct={canAct}

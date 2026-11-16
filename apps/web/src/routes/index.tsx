@@ -49,15 +49,17 @@ const WorkspaceRouteComponent = () => {
   const recoverSession = (sessionId: AgentSessionId | undefined) => {
     navigate({ replace: true, search: { run: undefined, session: sessionId } });
   };
-  // Each platform has its own URL: switching pushes history, so back returns
-  // to the previous platform; a native session id replaces in place.
+  // Home and each platform have their own URL: moving between them pushes
+  // history, so back returns to where the person was; a native session id
+  // replaces in place.
   const selectPlatform = (
     platform: WorkspacePlatform,
-    options?: { readonly replace?: boolean }
+    options?: { readonly replace?: boolean; readonly viewTransition?: boolean }
   ) => {
     navigate({
       replace: options?.replace ?? false,
       search: workspacePlatformSearch(platform),
+      viewTransition: options?.viewTransition ?? false,
     });
   };
   return (
