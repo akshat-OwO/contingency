@@ -16,7 +16,7 @@ import {
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import { DocsLink } from "@/components/docs-link";
@@ -516,11 +516,39 @@ export const dockFactClassName =
   "text-muted-foreground block max-w-full truncate text-xs leading-5";
 
 /**
+ * Whether the sentence hides any of its text: clipped by its one-line cap, or
+ * dropped altogether on a narrow stage. The observer follows the stage as the
+ * devtools or a Run Summary change its width.
+ */
+const useHidesText = <Element extends HTMLElement>() => {
+  const ref = useRef<Element>(null);
+  const [hides, setHides] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    const measure = () => {
+      const dropped =
+        element.offsetWidth === 0 && (element.textContent ?? "") !== "";
+      setHides(dropped || element.scrollWidth > element.clientWidth + 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  return [ref, hides] as const;
+};
+
+/**
  * The status island's line: the state chip, any quiet facts beside it, and
  * one short sentence saying what happens next. The sentence truncates to one
- * line and shows whole on hover, and drops on a narrow stage so the chip and
- * the action keep their room. `details` (the Agent Step, the task) open under
- * the line from a toggle.
+ * line, and drops on a narrow stage so the chip and the action keep their
+ * room. Whenever it hides any text, a toggle shows all of it, wrapped, along
+ * with `details` (the Agent Step, the task) when there are any.
  *
  * One polite region, changed only when the state changes.
  */
@@ -539,6 +567,8 @@ export const DockStatus = ({
 }) => {
   const [expandedAtom] = useState(() => Atom.make(false));
   const [expanded, setExpanded] = useAtom(expandedAtom);
+  const [sentenceRef, hidesText] = useHidesText<HTMLOutputElement>();
+  const expandable = expanded || hidesText || details !== undefined;
   return (
     <div className="flex min-w-0 flex-col" data-slot="dock-status">
       <div
@@ -549,15 +579,16 @@ export const DockStatus = ({
         <output
           aria-live="polite"
           className={cn(
-            "text-muted-foreground hidden min-w-0 px-1 text-[12.5px] leading-5 empty:hidden @4xl:block",
+            "text-muted-foreground min-w-0 px-1 text-[12.5px] leading-5 empty:hidden",
             expanded
-              ? "max-w-80 text-pretty whitespace-normal"
-              : "max-w-60 truncate"
+              ? "block max-w-80 text-pretty whitespace-normal"
+              : "hidden max-w-60 truncate @4xl:block"
           )}
+          ref={sentenceRef}
         >
           {children}
         </output>
-        {details === undefined ? null : (
+        {expandable ? (
           <Button
             aria-expanded={expanded}
             aria-label={expanded ? "Hide details" : "Show details"}
@@ -568,7 +599,7 @@ export const DockStatus = ({
           >
             {expanded ? <ChevronDownIcon /> : <ChevronUpIcon />}
           </Button>
-        )}
+        ) : null}
       </div>
       {note === undefined ? null : (
         <p className="text-muted-foreground mt-1 max-w-96 px-1 font-mono text-xs wrap-anywhere whitespace-normal">
