@@ -7,6 +7,68 @@ import tanstackJsPlugins from "ultracite/oxlint/tanstack/js-plugins";
 
 const jsPlugins = selectJsPlugins(["react-doctor"]);
 
+const uiSdkAdr = "docs/adr/0086-workspace-ui-is-built-on-ui-sdk.md";
+
+// Libraries UI SDK replaces. Only `apps/web/src/components/ui/` may still use
+// them, and only until each primitive migrates.
+const replacedUiLibraries = [
+  "@base-ui/react",
+  "@shadcn/react",
+  "shadcn",
+  "cmdk",
+  "vaul",
+  "sonner",
+  "react-resizable-panels",
+  "embla-carousel-react",
+  "react-day-picker",
+  "input-otp",
+];
+
+// Files outside `components/ui/` that still import a replaced library. The
+// sub-issue that migrates a file removes it from this list.
+const uiMigrationExceptions = [
+  {
+    allow: ["react-resizable-panels"],
+    files: ["apps/web/src/components/agent/run-summary-sidebar.tsx"],
+  },
+];
+
+const restrictedUiImports = ({
+  allow = new Set<string>(),
+  allowUiSdkTesting = false,
+} = {}) => [
+  ...replacedUiLibraries.flatMap((name) =>
+    allow.has(name)
+      ? []
+      : [
+          {
+            group: [name, `${name}/**`],
+            message: `UI SDK replaces ${name}. Import from @/components/ui/* instead. See ${uiSdkAdr}.`,
+          },
+        ]
+  ),
+  {
+    group: [
+      "@ui-sdk/**",
+      ...(allowUiSdkTesting ? ["!@ui-sdk/core/testing"] : []),
+    ],
+    message: `Import UI SDK only in apps/web/src/components/ui/. Use the @/components/ui/* facade. See ${uiSdkAdr}.`,
+  },
+];
+
+const restrictedTimerImports = [
+  "node:timers",
+  "node:timers/promises",
+  "timers",
+  "timers/promises",
+].map((name) => ({
+  allowTypeImports: true,
+  importNames: ["default", "scheduler", "setInterval", "setTimeout"],
+  message:
+    "Wait on events or TestClock, not real time. See docs/agents/testing.md.",
+  name,
+}));
+
 export default defineConfig({
   extends: [core, tanstack, tanstackJsPlugins, antiSlop, jsPlugins],
   ignorePatterns: [
@@ -36,27 +98,21 @@ export default defineConfig({
         "no-restricted-imports": [
           "error",
           {
-            paths: [
-              "node:timers",
-              "node:timers/promises",
-              "timers",
-              "timers/promises",
-            ].map((name) => ({
-              allowTypeImports: true,
-              importNames: [
-                "default",
-                "scheduler",
-                "setInterval",
-                "setTimeout",
-              ],
-              message:
-                "Wait on events or TestClock, not real time. See docs/agents/testing.md.",
-              name,
-            })),
+            paths: restrictedTimerImports,
+            patterns: restrictedUiImports({ allowUiSdkTesting: true }),
           },
         ],
       },
     },
+    ...uiMigrationExceptions.map(({ allow, files }) => ({
+      files,
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          { patterns: restrictedUiImports({ allow: new Set(allow) }) },
+        ],
+      },
+    })),
     {
       files: [
         "packages/cli/src/services/recorder-events.ts",
@@ -90,5 +146,8 @@ export default defineConfig({
       },
     },
   ],
+  rules: {
+    "no-restricted-imports": ["error", { patterns: restrictedUiImports() }],
+  },
   settings: jsPluginSettings,
 });

@@ -8,5 +8,7 @@ export default defineConfig({
     ...(ultracite.ignorePatterns ?? []),
     "packages/cli/config.schema.json",
     "packages/cli/docs/settings.md",
+    // Vendored through skills-lock.json, whose hashes cover the files as published.
+    ".agents/skills/**",
   ],
 });
