@@ -2,9 +2,17 @@ import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { checkPattern } from "@ui-sdk/core/testing";
+import { useState } from "react";
 import { afterEach, expect, test } from "vitest";
 
 import { DockSessionSelect } from "@/components/agent/workspace-dock";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -121,6 +129,50 @@ test("Sheet follows the modal dialog pattern and keeps its slots", async () => {
   expect(sheet).toHaveAttribute("data-side", "right");
   expect(document.querySelector('[data-slot="sheet-overlay"]')).not.toBeNull();
   expect(sheet).toHaveAttribute("aria-modal", "true");
+});
+
+const EraseOverSheet = () => {
+  const [open, setOpen] = useState(false);
+  return (
+    <Sheet defaultOpen>
+      <SheetContent>
+        <SheetTitle>New Android session</SheetTitle>
+        <button onClick={() => setOpen(true)} type="button">
+          Erase Pixel_9
+        </button>
+      </SheetContent>
+      <AlertDialog onOpenChange={setOpen} open={open}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Erase Pixel_9?</AlertDialogTitle>
+          <AlertDialogDescription>It cannot be undone.</AlertDialogDescription>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Sheet>
+  );
+};
+
+test("an alert dialog opened over a Sheet joins the Sheet's top layer", async () => {
+  // A body-portalled confirmation sits under a top-layer Sheet and its
+  // backdrop, so Device Erase could not be answered. jsdom has no stacking;
+  // a real-browser check covered the pointer path, and this keeps the
+  // confirmation on the same top layer as the Sheet.
+  render(<EraseOverSheet />);
+  const sheet = screen.getByRole("dialog", { name: "New Android session" });
+  await userEvent.click(screen.getByRole("button", { name: "Erase Pixel_9" }));
+  const confirmation = screen.getByRole("alertdialog", {
+    name: "Erase Pixel_9?",
+  });
+  expect(confirmation).toHaveAttribute("data-slot", "alert-dialog-content");
+  expect(confirmation).toHaveAttribute("aria-modal", "true");
+  expect(confirmation).toHaveAccessibleDescription("It cannot be undone.");
+  expect(sheet).toHaveAttribute("popover");
+  expect(confirmation).toHaveAttribute("popover");
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(
+    screen.queryByRole("alertdialog", { name: "Erase Pixel_9?" })
+  ).toBeNull();
+  expect(sheet).toBeInTheDocument();
 });
 
 test("Popover opens a named dialog from its trigger", async () => {
