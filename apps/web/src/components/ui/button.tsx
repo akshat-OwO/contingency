@@ -37,7 +37,7 @@ const buttonVariants = cva(
         island: "h-[34px] gap-[7px] rounded-xl px-3",
         "island-icon": "size-[34px] rounded-xl",
         "island-lg": "h-10 gap-2 rounded-[13px] px-4",
-        tile: "h-auto w-full rounded-[20px] p-3 text-left whitespace-normal",
+        tile: "h-auto w-full justify-start rounded-[20px] p-3 text-left whitespace-normal",
       },
       variant: {
         default: "bg-primary text-primary-foreground hover:bg-primary/80",
