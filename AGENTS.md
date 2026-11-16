@@ -6,6 +6,7 @@
 - Use Effect throughout and Effect atom for atomic state. Inspect the installed Effect source in `node_modules` before changing Effect code.
 - Own the result: define observable acceptance criteria, inspect the owning module and callers, and read relevant `GLOSSARY.md` terms and `docs/adr/` decisions.
 - Fix causes in the owning module. Prefer performance, reliability, existing conventions, and reusable services. Preserve existing work and keep changes focused.
+- Build Workspace UI on UI SDK through `@/components/ui/*`. Follow the `ui-sdk` skill, except its agent-ready step. Read `apps/web/node_modules/@ui-sdk/react/docs/llms.txt` and `docs/adr/0086-workspace-ui-is-built-on-ui-sdk.md`.
 - Write accessible, type-safe code. Narrow `unknown`, validate external input, await promises, and handle errors. Keep credentials out of logs and evidence.
 
 ## Verification
