@@ -54,19 +54,52 @@ import {
   ChevronIcon,
   ChevronsIcon,
   CloseIcon,
+  CommentIcon,
   DocsIcon,
+  InfoIcon,
   FlowsIcon,
   HandIcon,
+  KeyIcon,
+  MinimizeIcon,
   MoonIcon,
   PlusIcon,
+  PointerIcon,
+  QuestionIcon,
+  ShieldIcon,
   SunIcon,
+  TaskIcon,
   UploadIcon,
   WatcherMark,
   WebIcon,
 } from "./icons";
 
 type Platform = "web" | "android" | "ios";
-type Status = "ready" | "recording" | "running" | "needs-you";
+type Status = "ready" | "recording" | "running" | "needs-you" | "takeover";
+
+/** What the agent is waiting on. Shown bottom centre, one at a time. */
+type Request =
+  | {
+      readonly id: string;
+      readonly kind: "boundary";
+      readonly title: string;
+      readonly detail: string;
+      readonly target: string;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "input";
+      readonly title: string;
+      readonly detail: string;
+      readonly field: string;
+      readonly secret?: boolean;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "question";
+      readonly title: string;
+      readonly detail: string;
+      readonly choices: readonly string[];
+    };
 
 interface Session {
   readonly id: string;
@@ -76,7 +109,56 @@ interface Session {
   status: Status;
   readonly step?: readonly [number, number];
   since: number;
+  /** Who drives the device during a Run. Teaching is always the user's. */
+  control?: "agent" | "user";
+  requests: readonly Request[];
+  readonly task?: string;
 }
+
+type WithoutId<T> = T extends unknown ? Omit<T, "id"> : never;
+
+const REQUEST_SAMPLES: readonly WithoutId<Request>[] = [
+  {
+    detail: "Allow permits this exact attempt once; a retry asks again.",
+    kind: "boundary",
+    target: "Place order · $74.00",
+    title: "Allow the agent to place the order?",
+  },
+  {
+    detail:
+      "Allowing this exact host covers this Run. The saved Domain Scope stays unchanged.",
+    kind: "boundary",
+    target: "pay.stripe.com",
+    title: "Allow the agent to visit a new host?",
+  },
+  {
+    detail: "The Flow asks for it at the sign-in step.",
+    field: "promo_code",
+    kind: "input",
+    title: "The agent needs a value for promo_code",
+  },
+  {
+    detail: "Secrets are used for this Dry Run only and never saved.",
+    field: "password",
+    kind: "input",
+    secret: true,
+    title: "Enter the password for qa@shop.localhost",
+  },
+  {
+    choices: ["Starter", "Pro"],
+    detail:
+      "The document says the account starts on Free, but the app only offers Starter and Pro.",
+    kind: "question",
+    title: "Which plan should the new account start on?",
+  },
+];
+
+const statusOf = (s: Session): Status =>
+  s.requests.length > 0
+    ? "needs-you"
+    : s.control === "user"
+      ? "takeover"
+      : s.status;
 
 const PLATFORMS: Record<
   Platform,
@@ -100,6 +182,7 @@ const SEED: readonly Session[] = [
     id: "s1",
     platform: "web",
     since: now - 42_000,
+    requests: [],
     status: "recording",
   },
   {
@@ -108,6 +191,8 @@ const SEED: readonly Session[] = [
     id: "s2",
     platform: "android",
     since: now - 128_000,
+    control: "agent",
+    requests: [],
     status: "running",
     step: [4, 9],
   },
@@ -117,7 +202,10 @@ const SEED: readonly Session[] = [
     id: "s3",
     platform: "ios",
     since: now - 305_000,
-    status: "needs-you",
+    control: "agent",
+    requests: [{ ...REQUEST_SAMPLES[4], id: "r-seed-3" } as Request],
+    status: "running",
+    step: [3, 7],
   },
   {
     activity: "Run",
@@ -125,8 +213,11 @@ const SEED: readonly Session[] = [
     id: "s4",
     platform: "web",
     since: now - 61_000,
+    control: "agent",
+    requests: [{ ...REQUEST_SAMPLES[1], id: "r-seed-4" } as Request],
     status: "running",
     step: [2, 6],
+    task: "Find a red jacket under $80 in size M and add it to the cart. Stop before paying.",
   },
 ];
 
@@ -191,7 +282,7 @@ const ProgressRing = ({
 };
 
 const StatusChip = ({ session }: { readonly session: Session }) => {
-  switch (session.status) {
+  switch (statusOf(session)) {
     case "recording":
       return (
         <span className="chip" data-status="recording">
@@ -223,6 +314,13 @@ const StatusChip = ({ session }: { readonly session: Session }) => {
         <span className="chip" data-status="ready">
           <CheckIcon />
           Ready
+        </span>
+      );
+    case "takeover":
+      return (
+        <span className="chip" data-status="takeover">
+          <PointerIcon />
+          You have control
         </span>
       );
   }
@@ -999,38 +1097,45 @@ const Home = ({
   </>
 );
 
-const DOCK: Record<
-  Status,
-  {
-    readonly sentence: string;
-    readonly action: string;
-    readonly next?: Status;
-    readonly tone: string;
-  }
-> = {
-  ready: {
-    action: "Start recording",
-    next: "recording",
-    sentence: "Start recording when the journey begins.",
-    tone: "rec",
-  },
-  recording: {
-    action: "Stop",
-    next: "ready",
-    sentence: "Every click and keystroke becomes an instruction.",
-    tone: "",
-  },
-  running: {
-    action: "Take control",
-    sentence: "The agent is following the Flow.",
-    tone: "ghosty",
-  },
-  "needs-you": {
-    action: "Review",
-    sentence: "Allow the location change?",
-    tone: "",
-  },
+const LINE: Record<Status, string> = {
+  "needs-you": "The agent is waiting on you.",
+  ready: "Start recording when the journey begins.",
+  recording: "Every click and keystroke becomes an instruction.",
+  running: "The agent is following the Flow.",
+  takeover: "Capture continues. Return control when you're done.",
 };
+
+type Patch = (s: Session) => Session;
+
+interface Notice {
+  readonly id: number;
+  readonly text: string;
+  readonly tone: "info" | "ok" | "error";
+}
+type NotifyFn = (text: string, tone?: Notice["tone"]) => void;
+
+const primaryAction = (
+  s: Session
+): { readonly label: string; readonly tone: string; readonly patch: Patch } =>
+  s.activity === "Teaching"
+    ? s.status === "recording"
+      ? { label: "Stop", patch: (x) => ({ ...x, status: "ready" }), tone: "" }
+      : {
+          label: "Start recording",
+          patch: (x) => ({ ...x, since: Date.now(), status: "recording" }),
+          tone: "rec",
+        }
+    : s.control === "user"
+      ? {
+          label: "Return control",
+          patch: (x) => ({ ...x, control: "agent" }),
+          tone: "",
+        }
+      : {
+          label: "Take control",
+          patch: (x) => ({ ...x, control: "user" }),
+          tone: "ghosty",
+        };
 
 const Stage = ({ session }: { readonly session: Session }) =>
   session.platform === "web" ? (
@@ -1072,51 +1177,464 @@ const Stage = ({ session }: { readonly session: Session }) =>
     </section>
   );
 
+const DETAILS: Record<
+  Exclude<Session["activity"], "Teaching">,
+  {
+    readonly title: string;
+    readonly body: (s: Session) => string;
+    readonly listTitle: string;
+    readonly list: readonly string[];
+    readonly foot: string;
+  }
+> = {
+  "Dry Run": {
+    body: (s) =>
+      `Repeat the ${s.flow} Flow in a fresh app state, with fresh inputs, to show it still reaches its outcome.`,
+    foot: "Taught 2 days ago on Pixel_9 · Android 16",
+    list: [
+      "Open Contingency Public Login.",
+      "Sign in with the supplied email and password.",
+      "Done when the heading “Welcome back” shows.",
+    ],
+    listTitle: "Flow steps",
+    title: "Dry Run",
+  },
+  "Guided Run": {
+    body: (s) =>
+      `Learn the ${s.flow} Flow by following docs/onboarding.md in the app.`,
+    foot: "Source Document · docs/onboarding.md",
+    list: [
+      "Create an account with a new email.",
+      "Choose the Free plan.",
+      "Turn on notifications.",
+    ],
+    listTitle: "What the document says",
+    title: "Guided Run",
+  },
+  Run: {
+    body: (s) => s.task ?? s.flow,
+    foot: "Demo store",
+    list: [
+      "Search the catalogue for “red jacket”.",
+      "Filter to size M and under $80.",
+      "Open the first result and add it to the cart.",
+    ],
+    listTitle: "Instructions",
+    title: "Task",
+  },
+};
+
+const TaskDetails = ({ session }: { readonly session: Session }) => {
+  if (session.activity === "Teaching") return null;
+  const d = DETAILS[session.activity];
+  return (
+    <Popover>
+      <PopoverTrigger aria-label="Task details" className="pill-btn">
+        <TaskIcon />
+        <span className="tool-label">Task details</span>
+      </PopoverTrigger>
+      <PopoverContent
+        aria-label="Task details"
+        align="end"
+        className="popover island details"
+        side="top"
+        sideOffset={14}
+      >
+        <PopoverTitle className="popover-title">{d.title}</PopoverTitle>
+        <p className="details-task">{d.body(session)}</p>
+        <p className="popover-title">{d.listTitle}</p>
+        <ol className="details-list">
+          {d.list.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ol>
+        <p className="hint">
+          Started {clock(session.since)} ago · {d.foot}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+const CommentComposer = ({
+  session,
+  onSent,
+}: {
+  readonly session: Session;
+  readonly onSent: (text: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  return (
+    <Popover onOpenChange={setOpen} open={open}>
+      <PopoverTrigger aria-label="Comment" className="pill-btn">
+        <CommentIcon />
+        <span className="tool-label">Comment</span>
+      </PopoverTrigger>
+      <PopoverContent
+        aria-label="Comment"
+        align="end"
+        className="popover island details"
+        side="top"
+        sideOffset={14}
+      >
+        <form
+          className="composer"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (text.trim() === "") return;
+            onSent(text.trim());
+            setText("");
+            setOpen(false);
+          }}
+        >
+          <PopoverTitle className="popover-title">
+            Comment at{" "}
+            <span className="mono">
+              {session.status === "recording" ? clock(session.since) : "now"}
+            </span>
+          </PopoverTitle>
+          <textarea
+            aria-label="Comment"
+            autoFocus
+            className="input textarea"
+            onChange={(e) => setText(e.currentTarget.value)}
+            placeholder="Why you did this, or what the agent should notice"
+            rows={3}
+            value={text}
+          />
+          <div className="composer-row">
+            <Button className="pill-btn" type="button">
+              <PointerIcon />
+              Attach element
+            </Button>
+            <Button className="btn" disabled={text.trim() === ""} type="submit">
+              Add comment
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+// The requests island stays centred and narrows to clear the status island,
+// so it reads the status island's width.
+const useStatusWidth = () => {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!el) return;
+    const root = document.documentElement;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry)
+        root.style.setProperty(
+          "--status-w",
+          `${Math.ceil(entry.borderBoxSize[0]?.inlineSize ?? 0)}px`
+        );
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return setEl;
+};
+
+const StatusIsland = ({
+  session,
+  onPatch,
+  onNotice,
+}: {
+  readonly session: Session;
+  readonly onPatch: (patch: Patch) => void;
+  readonly onNotice: NotifyFn;
+}) => {
+  const action = primaryAction(session);
+  const line = LINE[statusOf(session)];
+  const ref = useStatusWidth();
+  return (
+    <section
+      aria-label="Session status"
+      className="status-island island"
+      ref={ref}
+    >
+      <StatusChip session={session} />
+      <span className="sentence" title={line}>
+        {line}
+      </span>
+      <div className="tools">
+        <TaskDetails session={session} />
+        {session.activity === "Teaching" ? (
+          <CommentComposer
+            onSent={() => onNotice("Comment added to the recording.", "ok")}
+            session={session}
+          />
+        ) : null}
+      </div>
+      <Button
+        className={`btn ${action.tone}`}
+        onClick={() => {
+          onPatch(action.patch);
+          if (session.activity === "Teaching" && session.status === "recording")
+            onNotice(`Saved ${session.flow}. Dry Run it from Flows.`, "ok");
+        }}
+      >
+        {action.label}
+      </Button>
+    </section>
+  );
+};
+
+const eyebrow = (r: Request) =>
+  r.kind === "boundary"
+    ? "Execution Boundary"
+    : r.kind === "question"
+      ? "Guided Run question"
+      : r.secret
+        ? "Dry Run secret"
+        : "Input needed";
+
+const REQUEST_ICON = {
+  boundary: ShieldIcon,
+  input: KeyIcon,
+  question: QuestionIcon,
+} as const;
+
+const RequestTier = ({
+  session,
+  collapsed,
+  onCollapse,
+  onResolve,
+}: {
+  readonly session: Session;
+  readonly collapsed: boolean;
+  readonly onCollapse: (collapsed: boolean) => void;
+  readonly onResolve: (request: Request, refused: boolean) => void;
+}) => {
+  const [answer, setAnswer] = useState("");
+  const first = session.requests[0];
+  if (!first) return null;
+  const count = session.requests.length;
+  const Icon = REQUEST_ICON[first.kind];
+  if (collapsed) {
+    return (
+      <Button
+        aria-label={`Show request: ${first.title}`}
+        className="request-pill island"
+        onClick={() => onCollapse(false)}
+      >
+        <span className="request-icon small">
+          <Icon />
+        </span>
+        <span className="request-pill-text">{first.title}</span>
+        {count > 1 ? <span className="count">{count}</span> : null}
+      </Button>
+    );
+  }
+  const takeover = session.control === "user";
+  const send = () => {
+    if (answer.trim() === "") return;
+    onResolve(first, false);
+  };
+  return (
+    <section
+      aria-label="Requests"
+      className="request island"
+      data-kind={first.kind}
+    >
+      <header>
+        <span className="request-icon">
+          <Icon />
+        </span>
+        <div className="request-head">
+          <span className="eyebrow">
+            {eyebrow(first)}
+            {count > 1 ? <span className="mono"> · 1 of {count}</span> : null}
+          </span>
+          <h2>{first.title}</h2>
+        </div>
+        <IconButton
+          className="icon-btn small"
+          label="Collapse requests"
+          onClick={() => onCollapse(true)}
+        >
+          <MinimizeIcon />
+        </IconButton>
+      </header>
+      <p className="request-detail">{first.detail}</p>
+      {first.kind === "boundary" ? (
+        <>
+          <div className="request-target mono">{first.target}</div>
+          <div className="request-actions">
+            {takeover ? (
+              <span className="hint grow">
+                Return control to allow. You can still refuse.
+              </span>
+            ) : null}
+            <Button
+              className="btn ghosty"
+              onClick={() => onResolve(first, true)}
+            >
+              Refuse
+            </Button>
+            <Button
+              className="btn"
+              disabled={takeover}
+              onClick={() => onResolve(first, false)}
+            >
+              Allow
+            </Button>
+          </div>
+        </>
+      ) : null}
+      {first.kind === "input" ? (
+        <form
+          className="request-actions"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          <Input
+            aria-label={first.field}
+            autoComplete="off"
+            autoFocus
+            className="input mono grow"
+            onChange={(e) => setAnswer(e.currentTarget.value)}
+            placeholder={first.field}
+            type={first.secret ? "password" : "text"}
+            value={answer}
+          />
+          <Button className="btn" disabled={answer.trim() === ""} type="submit">
+            Send
+          </Button>
+        </form>
+      ) : null}
+      {first.kind === "question" ? (
+        <form
+          className="request-answers"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          <div className="choices">
+            {first.choices.map((c) => (
+              <Button
+                className="pill-btn floating"
+                key={c}
+                onClick={() => onResolve(first, false)}
+              >
+                {c}
+              </Button>
+            ))}
+          </div>
+          <div className="request-actions">
+            <Input
+              aria-label="Answer"
+              autoComplete="off"
+              className="input grow"
+              onChange={(e) => setAnswer(e.currentTarget.value)}
+              placeholder="Or answer in your own words"
+              value={answer}
+            />
+            <Button
+              className="btn"
+              disabled={answer.trim() === ""}
+              type="submit"
+            >
+              Send answer
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </section>
+  );
+};
+
 const SessionView = ({
   session,
   sessions,
+  notice,
   onHome,
   onOpen,
-  onAdvance,
+  onPatch,
+  onNotice,
 }: {
   readonly session: Session;
   readonly sessions: readonly Session[];
+  readonly notice: Notice | null;
   readonly onHome: () => void;
   readonly onOpen: (id: string) => void;
-  readonly onAdvance: (next: Status) => void;
+  readonly onPatch: (patch: Patch) => void;
+  readonly onNotice: NotifyFn;
 }) => {
-  const dock = DOCK[session.status];
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <>
-      <Actions />
-      <Stage session={session} />
-      <div aria-label="Workspace dock" className="dock island" role="region">
-        <IconButton className="brand" label="Contingency home" onClick={onHome}>
-          <WatcherMark className="brand-mark" />
-        </IconButton>
-        <SessionSwitcher
-          current={session}
-          onNew={onHome}
-          onOpen={onOpen}
-          sessions={sessions}
-          side="top"
-        />
-        <span className="divider" />
-        <div className="dock-state">
-          <StatusChip session={session} />
-          <span className="sentence">{dock.sentence}</span>
-        </div>
-        <Button
-          className={`btn ${dock.tone}`}
-          onClick={() => {
-            if (dock.next) onAdvance(dock.next);
+      <nav aria-label="Workspace" className="chrome left island">
+        <a
+          aria-label="Contingency home"
+          className="brand"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            onHome();
           }}
         >
-          {dock.action}
-        </Button>
-        <IconButton className="icon-btn flows-btn" label="Flows">
-          <FlowsIcon />
-        </IconButton>
+          <WatcherMark className="brand-mark" />
+          <span className="brand-text">contingency</span>
+        </a>
+        <span className="divider" />
+        <div className="switcher-slot">
+          <SessionSwitcher
+            current={session}
+            onNew={onHome}
+            onOpen={onOpen}
+            sessions={sessions}
+            side="bottom"
+          />
+        </div>
+      </nav>
+      <Actions />
+      <Stage session={session} />
+      <div aria-live="polite" className="notices">
+        {notice ? (
+          <div
+            className="notice island"
+            data-tone={notice.tone}
+            key={notice.id}
+            role="status"
+          >
+            <span aria-hidden="true" className="notice-mark">
+              {notice.tone === "ok" ? (
+                <CheckIcon />
+              ) : notice.tone === "error" ? (
+                <CloseIcon />
+              ) : (
+                <InfoIcon />
+              )}
+            </span>
+            {notice.text}
+          </div>
+        ) : null}
+      </div>
+      <div className="bottom-row">
+        <div className="bottom-center">
+          <RequestTier
+            collapsed={collapsed}
+            key={session.requests[0]?.id}
+            onCollapse={(c) => transition(() => setCollapsed(c))}
+            onResolve={(request, refused) => {
+              onPatch((s) => ({
+                ...s,
+                requests: s.requests.filter((r) => r.id !== request.id),
+              }));
+              if (refused)
+                onNotice("Refused. The agent will look for another way.");
+            }}
+            session={session}
+          />
+        </div>
+        <StatusIsland onNotice={onNotice} onPatch={onPatch} session={session} />
       </div>
     </>
   );
@@ -1137,10 +1655,28 @@ const App = () => {
   const [returning, setReturning] = useState<Platform | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const [flow, setFlow] = useState("checkout");
+  const [notice, setNoticeState] = useState<Notice | null>(null);
+  const setNotice: NotifyFn = (text, tone = "info") =>
+    setNoticeState({ id: Date.now(), text, tone });
+  const [side, setSide] = useState<"left" | "right">("right");
+  const [sample, setSample] = useState(0);
 
   useEffect(() => {
     document.body.dataset.view = view.name;
   }, [view.name]);
+  useEffect(() => {
+    document.body.dataset.statusSide = side;
+  }, [side]);
+  useEffect(() => {
+    if (notice === null) return;
+    const id = setTimeout(() => setNoticeState(null), 3600);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  const patch = (id: string, fn: (s: Session) => Session) =>
+    transition(() =>
+      setSessions((all) => all.map((s) => (s.id === id ? fn(s) : s)))
+    );
 
   const expand = (p: Platform, from?: Element | null) =>
     transition(
@@ -1218,21 +1754,9 @@ const App = () => {
       <div className="app">
         {current ? (
           <SessionView
-            onAdvance={(next) =>
-              transition(() =>
-                setSessions((all) =>
-                  all.map((s) =>
-                    s.id === current.id
-                      ? {
-                          ...s,
-                          since: next === "recording" ? Date.now() : s.since,
-                          status: next,
-                        }
-                      : s
-                  )
-                )
-              )
-            }
+            notice={notice}
+            onNotice={setNotice}
+            onPatch={(fn) => patch(current.id, fn)}
             onHome={home}
             onOpen={(id) => open(id)}
             session={current}
@@ -1256,6 +1780,7 @@ const App = () => {
                       flow,
                       id,
                       platform,
+                      requests: [],
                       since: Date.now(),
                       status: "ready",
                     },
@@ -1281,6 +1806,27 @@ const App = () => {
             });
           }}
           sessionsOn={sessions.length > 0}
+          inSession={current !== undefined}
+          side={side}
+          onSide={() =>
+            transition(() => setSide(side === "right" ? "left" : "right"))
+          }
+          onRequest={() => {
+            if (!current) return;
+            const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
+            setSample(sample + 1);
+            if (next)
+              patch(current.id, (s) => ({
+                ...s,
+                requests: [
+                  ...s.requests,
+                  { ...next, id: `r${Date.now()}` } as Request,
+                ],
+              }));
+          }}
+          onNotice={() =>
+            setNotice("That gesture did not go through.", "error")
+          }
         />
       </div>
     </>
@@ -1290,9 +1836,19 @@ const App = () => {
 const Scaffold = ({
   sessionsOn,
   onSessions,
+  inSession,
+  side,
+  onSide,
+  onRequest,
+  onNotice,
 }: {
   readonly sessionsOn: boolean;
   readonly onSessions: (on: boolean) => void;
+  readonly inSession: boolean;
+  readonly side: "left" | "right";
+  readonly onSide: () => void;
+  readonly onRequest: () => void;
+  readonly onNotice: () => void;
 }) => {
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   return (
@@ -1314,6 +1870,19 @@ const Scaffold = ({
       >
         Theme: {theme}
       </button>
+      {inSession ? (
+        <>
+          <button onClick={onSide} type="button">
+            Status: {side}
+          </button>
+          <button onClick={onRequest} type="button">
+            + Request
+          </button>
+          <button onClick={onNotice} type="button">
+            Notice
+          </button>
+        </>
+      ) : null}
     </div>
   );
 };

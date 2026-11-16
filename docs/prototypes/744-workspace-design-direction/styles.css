@@ -297,6 +297,7 @@ body[data-view="session"] #canvas {
   height: 16px;
 }
 .pill-btn {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -695,7 +696,7 @@ body[data-view="session"] #canvas {
   gap: 12px;
   width: 100%;
 }
-/* The heading flies into the dock as the session switcher, and back. */
+/* The heading flies into the top-left island as the session switcher, and back. */
 .shelf-head {
   view-transition-name: switcher;
   width: fit-content;
@@ -1081,7 +1082,7 @@ body[data-view="session"] #canvas {
   view-transition-name: stage;
 }
 .stage.web {
-  inset: 72px 16px 104px;
+  inset: 72px 16px 88px;
   display: grid;
   grid-template-rows: 44px 1fr;
   border: 1px solid var(--island-border);
@@ -1091,7 +1092,7 @@ body[data-view="session"] #canvas {
 }
 .stage.native {
   top: 72px;
-  bottom: 104px;
+  bottom: 88px;
   left: 50%;
   translate: -50% 0;
   aspect-ratio: 390 / 844;
@@ -1179,42 +1180,312 @@ body[data-view="session"] #canvas {
   border-radius: 18px;
   background: var(--skeleton);
 }
-.dock {
+/* ------------------------------------------------- session: segmented dock */
+/* Top left: the brand and the session switcher. Top right: the same actions
+   island as the home page. Bottom: requests in the centre, the session status
+   and its tools in a corner. */
+.chrome .divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 6px 2px;
+  background: var(--island-border);
+}
+.switcher-slot {
+  display: flex;
+}
+/* Requests sit in the bottom-left corner, opposite the status island. They
+   narrow to clear it (--status-w is measured in the page). */
+.bottom-row {
+  --gap: 12px;
   position: fixed;
+  right: 16px;
   bottom: 16px;
-  left: 50%;
-  translate: -50% 0;
+  left: 16px;
+  z-index: 10;
+  height: 0;
+  pointer-events: none;
+}
+.bottom-center {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  justify-items: start;
+  width: min(
+    460px,
+    calc(100vw - 32px - var(--status-w, 320px) - 2 * var(--gap))
+  );
+}
+body[data-status-side="left"] .bottom-center {
+  right: 0;
+  left: auto;
+  justify-items: end;
+}
+.bottom-center > *,
+.status-island {
+  pointer-events: auto;
+}
+.status-island {
+  position: absolute;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  width: min(760px, calc(100vw - 32px));
-  padding: 8px;
+  padding: 8px 8px 8px 12px;
   border-radius: 24px;
-  view-transition-name: dock;
+  white-space: nowrap;
+  view-transition-name: status;
 }
-.dock .brand {
-  padding: 8px 10px;
+body[data-status-side="left"] .status-island {
+  right: auto;
+  left: 0;
 }
-.dock .divider {
-  align-self: stretch;
-  width: 1px;
-  margin: 6px 4px;
-  background: var(--island-border);
+
+/* Notices sit at the top centre, between the two top islands, and let
+   pointer input through. */
+.notices {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  z-index: 30;
+  translate: -50% 0;
+  display: grid;
+  justify-items: center;
+  pointer-events: none;
 }
-.dock-state {
-  display: flex;
+.notice {
+  display: inline-flex;
   align-items: center;
-  flex: 1;
-  gap: 10px;
-  min-width: 0;
-  padding: 0 4px;
+  gap: 9px;
+  max-width: 460px;
+  min-height: 40px;
+  padding: 7px 16px 7px 8px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lift);
+  animation: drop 0.45s var(--ease-spring) both;
+  --tone: var(--muted);
 }
-.dock-state .sentence {
+.notice[data-tone="ok"] {
+  --tone: var(--ok);
+}
+.notice[data-tone="error"] {
+  --tone: var(--rec);
+}
+.notice-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--tone);
+  background: color-mix(in oklch, var(--tone) 14%, transparent);
+}
+.notice-mark svg {
+  width: 14px;
+  height: 14px;
+}
+/* Too narrow to fit between the top islands: drop just below them. */
+@media (max-width: 1365px) {
+  .notices {
+    top: 80px;
+  }
+}
+.request-answers .request-actions {
+  margin-left: 0;
+}
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+}
+@media (max-width: 1279px) {
+  .tool-label {
+    display: none;
+  }
+}
+.status-island .sentence {
+  max-width: 240px;
+  min-width: 0;
   overflow: hidden;
+  padding: 0 4px;
   color: var(--muted);
   font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+@media (max-width: 1279px) {
+  .status-island .sentence {
+    display: none;
+  }
+}
+.status-island .tools {
+  display: flex;
+  gap: 2px;
+}
+.status-island .tools:empty {
+  display: none;
+}
+.chip[data-status="takeover"] {
+  --tone: var(--fg);
+}
+
+.request {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 26px;
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--brand) 9%, transparent),
+      transparent 72px
+    ),
+    var(--island);
+  box-shadow:
+    var(--shadow-lift),
+    inset 0 1px 0 color-mix(in oklch, var(--brand) 22%, transparent);
+  view-transition-name: request;
+}
+.request header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.request-head {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.eyebrow {
+  color: var(--brand-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.eyebrow .mono {
+  color: var(--muted);
+  font-weight: 500;
+}
+.request h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.request-detail {
+  margin: -2px 0 0 44px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.request-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--brand-ink);
+  background: color-mix(in oklch, var(--brand) 16%, transparent);
+}
+.request-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.request-icon.small {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+.request-icon.small svg {
+  width: 14px;
+  height: 14px;
+}
+.request-target {
+  margin-left: 44px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--island-hover);
+  font-size: 12.5px;
+}
+.request-actions,
+.request-answers {
+  margin-left: 44px;
+}
+.request-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.request-actions .grow {
+  flex: 1;
+  min-width: 0;
+}
+.request-answers {
+  display: grid;
+  gap: 10px;
+}
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.request-pill {
+  box-shadow: var(--shadow-lift);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 40px;
+  padding: 0 14px 0 8px;
+  border-radius: 99px;
+  color: var(--fg);
+  font-weight: 500;
+  view-transition-name: request;
+}
+.request-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover.details {
+  width: 360px;
+}
+.details-task {
+  margin: 0 6px 10px;
+  text-wrap: pretty;
+}
+.details-list {
+  margin: 0 0 10px;
+  padding-left: 26px;
+  color: var(--muted);
+}
+.popover.details > .hint {
+  margin: 0 6px 4px;
+}
+.composer {
+  display: grid;
+  gap: 8px;
+}
+.textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+.composer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 /* ----------------------------------------------------------- desktop only */
@@ -1279,6 +1550,14 @@ body[data-view="session"] #canvas {
 ::view-transition-group(start-card) {
   z-index: 2;
 }
+/* The floating chrome stays above the stage while it grows, so a request
+   never slides in behind the page or device. */
+::view-transition-group(request),
+::view-transition-group(status),
+::view-transition-group(switcher),
+::view-transition-group(actions) {
+  z-index: 3;
+}
 ::view-transition-image-pair(stage),
 ::view-transition-image-pair(start-card) {
   overflow: clip;
@@ -1330,11 +1609,13 @@ body[data-view="session"] #canvas {
     transform: translateY(10px) scale(0.98);
   }
 }
-::view-transition-new(dock):only-child,
+::view-transition-new(status):only-child,
+::view-transition-new(request):only-child,
 ::view-transition-new(switcher):only-child {
   animation: rise 0.5s var(--ease-spring) both;
 }
-::view-transition-old(dock):only-child,
+::view-transition-old(status):only-child,
+::view-transition-old(request):only-child,
 ::view-transition-old(switcher):only-child,
 ::view-transition-old(brand-text):only-child {
   animation: sink 0.22s var(--ease-out) both;
@@ -1385,8 +1666,10 @@ body[data-view="session"] #canvas {
   font: inherit;
 }
 body[data-view="session"] .scaffold {
-  top: 24px;
-  right: auto;
+  top: 50%;
+  right: 24px;
   bottom: auto;
-  left: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  translate: 0 -50%;
 }
