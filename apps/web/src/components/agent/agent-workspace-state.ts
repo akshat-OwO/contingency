@@ -70,6 +70,21 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
 });
 
 /**
+ * A recording's unfinished comment, kept while the Workspace is unmounted so
+ * a visit to the Flows page (#755) and Back do not lose it. `url` is the Page
+ * it was written on: element references and pins hold only there.
+ */
+export interface SavedTeachingInspect {
+  readonly inspect: InspectState;
+  readonly recordingId: string;
+  readonly url: string;
+}
+
+export const savedTeachingInspectAtom = Atom.make<SavedTeachingInspect | null>(
+  null
+).pipe(Atom.keepAlive);
+
+/**
  * Whether the Workspace is showing the full-bleed recorded Flow chrome.
  * The app header reads it so one View can own the whole viewport without a
  * second header band above its dock (#191).

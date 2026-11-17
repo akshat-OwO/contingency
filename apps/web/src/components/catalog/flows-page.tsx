@@ -847,9 +847,23 @@ type Entry =
 const entryId = (entry: Entry): string =>
   entry.kind === "run" ? entry.run.runId : entry.recording.recordingId;
 
+/** A `?run=` that names no Run listed in this folder. */
+const MissingRun = ({ runId }: { readonly runId: AgentRunId }) => (
+  <Alert className="m-4 w-auto">
+    <CircleAlertIcon aria-hidden="true" />
+    <AlertTitle>This Run is not listed here</AlertTitle>
+    <AlertDescription>
+      No Run <code className="font-mono">{runId}</code> is listed here. It may
+      have been deleted, or belong to another Flow. Pick a Run to see its Run
+      Summary.
+    </AlertDescription>
+  </Alert>
+);
+
 const RunsPane = ({
   emptyNote,
   entries,
+  missingRun,
   onFolder,
   onShow,
   scope,
@@ -857,6 +871,7 @@ const RunsPane = ({
 }: {
   readonly emptyNote: string;
   readonly entries: readonly Entry[];
+  readonly missingRun: AgentRunId | undefined;
   readonly onFolder: (folder: FlowsFolder) => void;
   readonly onShow: (entry: Entry) => void;
   readonly scope: CatalogRootScope;
@@ -874,6 +889,7 @@ const RunsPane = ({
           {runs}
         </span>
       </header>
+      {missingRun === undefined ? null : <MissingRun runId={missingRun} />}
       {entries.length === 0 ? (
         <div className="text-muted-foreground grid flex-1 place-content-center justify-items-center gap-2.5 p-6 text-center text-balance">
           <PlayIcon aria-hidden="true" className="size-5" />
@@ -999,14 +1015,19 @@ const FolderPanes = ({
   // A recording is picked here, not in the URL; a Run is `?run=`.
   const [recordingAtom] = useState(() => Atom.make<string | null>(null));
   const [recordingId, setRecordingId] = useAtom(recordingAtom);
+  const requested = entries.find(
+    (entry) =>
+      (entry.kind === "run" && entry.run.runId === runId) ||
+      (entry.kind === "recording" &&
+        runId === undefined &&
+        entry.recording.recordingId === recordingId)
+  );
+  // A link that names a Run shows that Run or says it is not here; it never
+  // shows another Run's report under the requested ID.
+  const missingRun =
+    runId !== undefined && requested === undefined ? runId : undefined;
   const shown =
-    entries.find(
-      (entry) =>
-        (entry.kind === "run" && entry.run.runId === runId) ||
-        (entry.kind === "recording" &&
-          runId === undefined &&
-          entry.recording.recordingId === recordingId)
-    ) ?? entries.at(0);
+    requested ?? (missingRun === undefined ? entries.at(0) : undefined);
   const onShow = (entry: Entry) => {
     if (entry.kind === "run") {
       setRecordingId(null);
@@ -1045,6 +1066,7 @@ const FolderPanes = ({
       <RunsPane
         emptyNote={emptyNote}
         entries={entries}
+        missingRun={missingRun}
         onFolder={onFolder}
         onShow={onShow}
         scope={folder.scope}

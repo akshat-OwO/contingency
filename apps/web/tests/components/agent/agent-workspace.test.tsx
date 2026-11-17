@@ -2417,6 +2417,39 @@ test("attaches an inspected element to a comment", async () => {
   expect(canvas.nextElementSibling).toHaveTextContent("1");
 });
 
+test("keeps an unfinished comment across a visit to the Flows page", async () => {
+  const user = userEvent.setup();
+  rpc.sessionsResult = resultFor([teachingRecording]);
+  const workspace = (
+    <TestRegistry>
+      <AgentWorkspace requestedSessionId={session.id} />
+    </TestRegistry>
+  );
+  const view = render(workspace);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  await user.type(
+    await screen.findByRole("textbox", { name: "Comment" }),
+    "Skip the upsell"
+  );
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  // The Flows page is another route: the Workspace unmounts, then Back
+  // mounts it again on the same recording.
+  view.rerender(
+    <TestRegistry>
+      <p>Flows page</p>
+    </TestRegistry>
+  );
+  view.rerender(workspace);
+  await user.click(await screen.findByRole("button", { name: /^Comment/u }));
+  expect(await screen.findByRole("textbox", { name: "Comment" })).toHaveValue(
+    "Skip the upsell"
+  );
+  expect(rpc.instructionCalls).toHaveLength(0);
+});
+
 test("adds a page comment without inspecting an element", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);

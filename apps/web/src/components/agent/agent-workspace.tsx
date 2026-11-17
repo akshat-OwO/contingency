@@ -43,6 +43,7 @@ import {
   adoptSessionSnapshot,
   agentControlPresentation,
   agentViewStateAtom,
+  savedTeachingInspectAtom,
   appendConsoleEntry,
   endedRunSnapshot,
   isInteractiveRunSession,
@@ -77,6 +78,7 @@ import {
   emptyInspectState,
   leavePage,
   openComposer,
+  resumeInspect,
   startPicking,
   stopPicking,
 } from "@/components/agent/teaching-inspect-state";
@@ -2279,14 +2281,60 @@ const useAgentView = (
     state.session.captureState._tag === "recording"
       ? state.session.recordingId
       : undefined;
+  const [savedInspect, setSavedInspect] = useAtom(savedTeachingInspectAtom);
+  const savedInspectRef = useRef(savedInspect);
+  savedInspectRef.current = savedInspect;
   useEffect(() => {
     inspectPageVersionRef.current += 1;
-    setState((current) =>
-      current.inspect === emptyInspectState
+    // Coming back to the same recording, from the Flows page for one, keeps
+    // the comment the user had not finished. On mount the session may not be
+    // read yet, so the saved comment waits until the recording is known.
+    const saved = recordingKey === undefined ? null : savedInspectRef.current;
+    if (saved !== null) {
+      setSavedInspect(null);
+    }
+    setState((current) => {
+      if (saved !== null && saved.recordingId === recordingKey) {
+        return {
+          ...current,
+          inspect: resumeInspect(
+            saved.inspect,
+            saved.url === current.session?.currentUrl
+          ),
+        };
+      }
+      return current.inspect === emptyInspectState
         ? current
-        : { ...current, inspect: emptyInspectState }
-    );
-  }, [recordingKey, setState]);
+        : { ...current, inspect: emptyInspectState };
+    });
+  }, [recordingKey, setSavedInspect, setState]);
+  // Leaving the Workspace mid-recording saves the comment for its return.
+  const leavingRef = useRef({
+    inspect: state.inspect,
+    recordingKey,
+    url: state.session?.currentUrl,
+  });
+  leavingRef.current = {
+    inspect: state.inspect,
+    recordingKey,
+    url: state.session?.currentUrl,
+  };
+  useEffect(
+    () => () => {
+      const leaving = leavingRef.current;
+      if (
+        leaving.recordingKey !== undefined &&
+        leaving.inspect !== emptyInspectState
+      ) {
+        setSavedInspect({
+          inspect: leaving.inspect,
+          recordingId: leaving.recordingKey,
+          url: leaving.url ?? "",
+        });
+      }
+    },
+    [setSavedInspect]
+  );
 
   const clearConsole = () => {
     setState((current) => ({ ...current, consoleEntries: [] }));

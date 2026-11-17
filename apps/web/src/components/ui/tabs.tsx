@@ -39,7 +39,8 @@ const tabsListVariants = cva(
         default: "bg-muted",
         line: "gap-1 bg-transparent",
         // The Flows page's file tabs (#755): monospace names on an underline.
-        file: "border-island-border h-auto! gap-0.5 rounded-none border-b bg-transparent p-0 px-3",
+        // A package with many files scrolls sideways rather than clipping.
+        file: "border-island-border h-auto! max-w-full [scrollbar-width:thin] gap-0.5 overflow-x-auto overflow-y-hidden rounded-none border-b bg-transparent p-0 px-3",
       },
     },
   }
@@ -77,7 +78,7 @@ function TabsTrigger({
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[selected]:bg-transparent dark:group-data-[variant=line]/tabs-list:data-[selected]:border-transparent dark:group-data-[variant=line]/tabs-list:data-[selected]:bg-transparent",
         "group-data-[variant=default]/tabs-list:data-[selected]:bg-background group-data-[variant=default]/tabs-list:data-[selected]:text-foreground dark:group-data-[variant=default]/tabs-list:data-[selected]:border-input dark:group-data-[variant=default]/tabs-list:data-[selected]:bg-input/30 data-[selected]:text-foreground",
         "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[selected]:after:opacity-100",
-        "group-data-[variant=file]/tabs-list:h-8 group-data-[variant=file]/tabs-list:flex-none group-data-[variant=file]/tabs-list:rounded-none group-data-[variant=file]/tabs-list:px-2.5 group-data-[variant=file]/tabs-list:font-mono group-data-[variant=file]/tabs-list:text-[12.5px] group-data-[variant=file]/tabs-list:after:bottom-[-1px] group-data-[variant=file]/tabs-list:data-[selected]:after:opacity-100 group-data-[variant=file]/tabs-list:[&_svg:not([class*='size-'])]:size-3.5",
+        "group-data-[variant=file]/tabs-list:h-8 group-data-[variant=file]/tabs-list:flex-none group-data-[variant=file]/tabs-list:rounded-none group-data-[variant=file]/tabs-list:px-2.5 group-data-[variant=file]/tabs-list:font-mono group-data-[variant=file]/tabs-list:text-[12.5px] group-data-[variant=file]/tabs-list:after:bottom-0 group-data-[variant=file]/tabs-list:data-[selected]:after:opacity-100 group-data-[variant=file]/tabs-list:[&_svg:not([class*='size-'])]:size-3.5",
         typeof className === "string" ? className : undefined
       )}
       {...props}

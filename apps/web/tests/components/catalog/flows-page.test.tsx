@@ -452,6 +452,33 @@ test("opens a Run named only by `?run=` under its Flow", () => {
   ).toHaveAttribute("aria-pressed", "true");
 });
 
+test("says a named Run is missing rather than showing another", () => {
+  rpc.browse = browse([local, global]);
+  renderPage({ run: runId("agentrun-missing") });
+  // The page still opens on a folder, but shows no other Run's report.
+  expect(url()).toBe("1mg mobile login|agentrun-missing");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    /This Run is not listed here.*agentrun-missing/u
+  );
+  expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
+  for (const entry of within(
+    screen.getByRole("list", { name: "Runs and recordings" })
+  ).getAllByRole("button")) {
+    expect(entry).toHaveAttribute("aria-pressed", "false");
+  }
+});
+
+test("says a Run named under another folder is not listed there", () => {
+  rpc.browse = browse([local, global]);
+  renderPage({
+    initial: { kind: "flow", name: "1mg mobile login", scope: "local" },
+    run: runId("agentrun-loose"),
+  });
+  expect(url()).toBe("1mg mobile login|agentrun-loose");
+  expect(screen.getByRole("alert")).toHaveTextContent(/agentrun-loose/u);
+  expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
+});
+
 test("shows a Run's catalog summary when its full Summary cannot be read", () => {
   rpc.browse = browse([
     decodeRoot({
@@ -700,4 +727,28 @@ test("`/?run=<id>` lands on the Flows page with that Run selected", async () => 
     "aria-current",
     "page"
   );
+});
+
+test("a `/?run=` link to a missing Run lands on the page and says so", async () => {
+  rpc.browse = browse([local, global]);
+  const router = createRouter({
+    history: createMemoryHistory({
+      initialEntries: ["/?run=agentrun-missing"],
+    }),
+    routeTree,
+  });
+  render(
+    <RpcDependenciesProvider overrides={rpcOverrides}>
+      <RegistryProvider>
+        <RouterProvider router={router} />
+      </RegistryProvider>
+    </RpcDependenciesProvider>
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /agentrun-missing/u
+  );
+  expect(router.state.location.search).toMatchObject({
+    run: "agentrun-missing",
+  });
+  expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
 });

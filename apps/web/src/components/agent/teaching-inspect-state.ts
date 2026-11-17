@@ -201,3 +201,22 @@ export const completeInspectComment = (
     scanMenu: false,
   };
 };
+
+/**
+ * A recording's comment state, brought back after the Workspace remounts.
+ * Picking and hover were the old view's; element references and pins hold
+ * only if the session is still on the Page they were taken on.
+ */
+export const resumeInspect = (
+  saved: InspectState,
+  samePage: boolean
+): InspectState => {
+  const resumed = samePage ? saved : leavePage(saved);
+  return {
+    ...resumed,
+    error: undefined,
+    hovered: undefined,
+    open: false,
+    returnsToComposer: false,
+  };
+};
