@@ -51,6 +51,7 @@ import {
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { AndroidWorkspace } from "@/components/agent/android-workspace";
+import { WorkspaceLayout } from "@/components/agent/android-workspace-layout";
 import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
 import { DockRequests } from "@/components/agent/dock-requests";
@@ -61,7 +62,6 @@ import { GuidedRunControl } from "@/components/agent/guided-run-control";
 import { GuidedTakeoverVariable } from "@/components/agent/guided-takeover-variable";
 import { RunDock } from "@/components/agent/run-dock";
 import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
-import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { CommentComposer } from "@/components/agent/teaching-comment-composer";
 import type { CommentShortcut } from "@/components/agent/teaching-comment-shortcuts";
@@ -124,15 +124,8 @@ import {
   updateStreamMetrics,
 } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
-import { FlowDetails } from "@/components/catalog/flow-details";
-import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
-import { FlowsDrawer } from "@/components/catalog/flows-drawer";
-import {
-  showsFlowsEntry,
-  flowsDrawerOpenAtom,
-  flowsSelectionAtom,
-  flowsSessionView,
-} from "@/components/catalog/flows-drawer-state";
+import { FlowsButton } from "@/components/catalog/flows-button";
+import { flowsSessionView } from "@/components/catalog/flows-page-state";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -142,7 +135,6 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { useLatestDefined } from "@/hooks/use-latest-defined";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import {
@@ -2356,85 +2348,6 @@ const useAgentView = (
 };
 
 /**
- * The Workspace between the Flows drawer on its left and, on its right,
- * either what the drawer picked or an ended Run's Summary. Details the user
- * opened take the right panel while they are open; closing them brings the
- * Run Summary back.
- */
-const WorkspaceLayout = ({
-  children,
-  session,
-  summary,
-}: {
-  readonly children: React.ReactNode;
-  readonly session: AgentSessionSnapshot | undefined;
-  readonly summary:
-    | { readonly label: string; readonly summary: React.ReactNode }
-    | null
-    | undefined;
-}) => {
-  const [open, setOpen] = useAtom(flowsDrawerOpenAtom);
-  const [selection, setSelection] = useAtom(flowsSelectionAtom);
-  const sessionId = session?.id;
-  // Details belong to what the user was looking at; another session starts
-  // with the drawer open on its own flow instead.
-  useEffect(() => {
-    setSelection(null);
-  }, [sessionId, setSelection]);
-  const allowed = showsFlowsEntry(flowsSessionView(session));
-  // Capture closes the drawer rather than hiding it, so Stop does not bring
-  // it back over the page the user just proved.
-  useEffect(() => {
-    if (!allowed) {
-      setOpen(false);
-      setSelection(null);
-    }
-  }, [allowed, setOpen, setSelection]);
-  const drawerOpen = open && allowed;
-  const details = drawerOpen && selection !== null ? selection : null;
-  const shownLabel = useLatestDefined(summary?.label, "Run Summary");
-  return (
-    <WorkspaceWithRunSummary
-      label={details === null ? shownLabel : "Details"}
-      leading={
-        drawerOpen
-          ? {
-              content: (
-                <FlowsDrawer
-                  key={sessionId ?? "none"}
-                  session={flowsSessionView(session)}
-                />
-              ),
-              label: "Flows Drawer",
-              onClose: () => {
-                setOpen(false);
-                setSelection(null);
-              },
-            }
-          : null
-      }
-      leadingYieldsOnMobile={details !== null}
-      onCloseSummary={
-        details === null
-          ? undefined
-          : () => {
-              setSelection(null);
-            }
-      }
-      summary={
-        details === null ? (
-          (summary?.summary ?? null)
-        ) : (
-          <FlowDetails selection={details} />
-        )
-      }
-    >
-      {children}
-    </WorkspaceWithRunSummary>
-  );
-};
-
-/**
  * How the browser Workspace reaches the rest of the route: home, a native
  * platform, and which shelf card a session it leaves returns to.
  */
@@ -2492,7 +2405,7 @@ const BrowserWorkspaceHome = ({
   readonly view: ReturnType<typeof useAgentView>;
 }) => (
   <div className="relative flex h-svh min-h-0 flex-col">
-    <WorkspaceLayout session={undefined} summary={undefined}>
+    <WorkspaceLayout summary={undefined}>
       <WorkspaceHome
         error={view.gestures.start.error}
         onCardChange={navigation?.onCardChange}
@@ -2573,14 +2486,12 @@ const BrowserWorkspace = ({
 
   const { session } = state;
   const finished = finishedRunSummary(session);
-  const flowsEntry = showsFlowsEntry(flowsSessionView(session)) ? (
-    <FlowsDockButton />
-  ) : null;
+  const flowsEntry = <FlowsButton session={flowsSessionView(session)} />;
 
   return (
     <WorkspaceHomeContext value={home}>
       <div className="relative flex h-svh min-h-0 flex-col">
-        <WorkspaceLayout session={session} summary={finished}>
+        <WorkspaceLayout summary={finished}>
           <AgentLiveView
             canvasRef={view.canvasRef}
             dock={

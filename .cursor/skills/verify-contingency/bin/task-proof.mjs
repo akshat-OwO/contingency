@@ -139,7 +139,9 @@ const capture = (name, url) =>
       "--role",
       "region",
       "--name",
-      url?.includes("?run=") ? "Run Summary" : "Session status"
+      url?.includes("?run=") || url?.includes("/flow")
+        ? "Run Summary"
+        : "Session status"
     );
     yield* command(
       "browser",

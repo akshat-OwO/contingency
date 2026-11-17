@@ -99,7 +99,9 @@ export const EvidenceReference = ({
           <CopyIcon aria-hidden="true" />
         )}
         <span className="text-muted-foreground">{kind}:</span>{" "}
-        <span className="max-w-80 truncate font-mono">{shortId(id)}</span>
+        <span className="max-w-80 min-w-0 truncate font-mono">
+          {shortId(id)}
+        </span>
       </Button>
       <CopyFeedback copied={copied} failed={failed} text={text} />
     </span>

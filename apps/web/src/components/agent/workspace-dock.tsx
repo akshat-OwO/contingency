@@ -361,7 +361,7 @@ export const SessionTopBar = ({
   picker,
 }: {
   readonly className?: string;
-  /** The Flows drawer entry, or nothing while capture hides it. */
+  /** The Flows link. */
   readonly flows?: React.ReactNode;
   /** The session switcher. */
   readonly picker: React.ReactNode;

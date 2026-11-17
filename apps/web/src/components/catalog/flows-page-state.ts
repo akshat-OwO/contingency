@@ -1,4 +1,5 @@
 import type {
+  AgentRunId,
   AgentSessionSnapshot,
   CatalogFlowEntry,
   CatalogRecordingEntry,
@@ -11,75 +12,8 @@ import { Atom } from "effect/reactivity";
 import { sessionTaskRun } from "@/components/agent/run-provenance";
 
 /**
- * The Flows drawer: the Workspace's read-only browser over the Catalog
- * Roots, opened from the dock. Its open state and the selection beside it are
- * shared by the dock, the drawer, and the details panel, so they are atoms
- * rather than one component's state.
- */
-export const flowsDrawerOpenAtom = Atom.make(false);
-
-/** What the details panel shows: a flow's package, a Run, or a recording. */
-export type FlowsSelection =
-  | {
-      readonly kind: "recording";
-      readonly recording: CatalogRecordingEntry;
-      readonly scope: CatalogRootScope;
-    }
-  | {
-      readonly kind: "run";
-      readonly run: CatalogRunEntry;
-      readonly scope: CatalogRootScope;
-    }
-  | {
-      readonly kind: "flow";
-      readonly name: CatalogFlowEntry["name"];
-      readonly scope: CatalogRootScope;
-    };
-
-export const flowsSelectionAtom = Atom.make<FlowsSelection | null>(null);
-
-/** A listed flow, or retained history without a listed flow. */
-export type FlowsFolder =
-  | { readonly kind: "loose"; readonly scope: CatalogRootScope }
-  | { readonly kind: "recordings"; readonly scope: CatalogRootScope }
-  | {
-      readonly kind: "flow";
-      readonly name: string;
-      readonly scope: CatalogRootScope;
-    };
-
-export const sameFolder = (
-  a: FlowsFolder | undefined,
-  b: FlowsFolder
-): boolean =>
-  a !== undefined &&
-  a.kind === b.kind &&
-  a.scope === b.scope &&
-  (a.kind !== "flow" || (b.kind === "flow" && a.name === b.name));
-
-export const sameSelection = (
-  a: FlowsSelection | null,
-  b: FlowsSelection
-): boolean => {
-  if (a === null || a.kind !== b.kind || a.scope !== b.scope) {
-    return false;
-  }
-  if (a.kind === "flow" && b.kind === "flow") {
-    return a.name === b.name;
-  }
-  if (a.kind === "run" && b.kind === "run") {
-    return a.run.runId === b.run.runId;
-  }
-  return (
-    a.kind === "recording" &&
-    b.kind === "recording" &&
-    a.recording.recordingId === b.recording.recordingId
-  );
-};
-
-/**
- * What the drawer needs to know about the selected session: what it is doing,
- * and which Flows it is about.
+ * What the Flows page needs to know about the session it was opened from:
+ * what it is doing, and which Flows it is about.
  */
 export type FlowsSessionView =
   | {
@@ -92,6 +26,15 @@ export type FlowsSessionView =
       readonly dryRun: boolean;
       readonly flowNames: readonly string[];
     };
+
+/**
+ * The session the **Flows** button was pressed in. The page marks its Flow
+ * and opens on it. A `/flow` link opened directly has none. Nothing reads it
+ * between the press and the page mounting, so it is kept alive.
+ */
+export const flowsOriginAtom = Atom.make<FlowsSessionView | null>(null).pipe(
+  Atom.keepAlive
+);
 
 export const flowsSessionView = (
   session: AgentSessionSnapshot | undefined
@@ -114,15 +57,6 @@ export const flowsSessionView = (
   return { activity: "run", dryRun: session.dryRun !== null, flowNames };
 };
 
-/** Capture is user-led; nothing in the dock competes with the journey. */
-const CAPTURING = new Set(["recording", "finalizing"]);
-
-/** Whether the dock offers the Flows entry in this session's state. */
-export const showsFlowsEntry = (
-  session: FlowsSessionView | undefined
-): boolean =>
-  session?.activity !== "teaching" || !CAPTURING.has(session.captureState);
-
 /** Teaching states whose Flow has not been written to disk yet. */
 const UNSAVED = new Set([
   "setup",
@@ -134,9 +68,9 @@ const UNSAVED = new Set([
 ]);
 
 /**
- * How the drawer marks the selected session's own flows. A flow still being
- * taught has no directory yet, so it is `pending` and holds a placeholder row;
- * a saved one is labelled where it is listed.
+ * How the page marks the session's own Flows. A Flow still being taught has
+ * no directory yet, so it is `pending` and holds a placeholder row; a saved
+ * one is labelled where it is listed.
  */
 export interface SessionFlows {
   readonly labels: ReadonlyMap<string, string>;
@@ -157,11 +91,60 @@ export const sessionFlows = (
           pending: undefined,
         };
   }
-  const label = session.dryRun ? "This Dry Run" : "In this run";
   return {
-    labels: new Map(session.flowNames.map((name) => [name, label])),
+    labels: new Map(session.flowNames.map((name) => [name, "This session"])),
     pending: undefined,
   };
+};
+
+/**
+ * What the page shows: one Flow, or a Catalog Root's own history (Runs that
+ * used no Flow or several, and recordings whose Flow is gone).
+ */
+export type FlowsFolder =
+  | { readonly kind: "root"; readonly scope: CatalogRootScope }
+  | {
+      readonly kind: "flow";
+      readonly name: string;
+      readonly scope: CatalogRootScope;
+    };
+
+export const sameFolder = (
+  a: FlowsFolder | undefined,
+  b: FlowsFolder
+): boolean =>
+  a !== undefined &&
+  a.kind === b.kind &&
+  a.scope === b.scope &&
+  (a.kind !== "flow" || (b.kind === "flow" && a.name === b.name));
+
+/** The Catalog Root's own history in `?flow=`. No Flow name starts with `@`. */
+const ROOT = "@root";
+const GLOBAL = "global:";
+
+/**
+ * A folder as the `?flow=` value: the Flow's name, `@root` for the root's
+ * history, and `global:` before either for the user-global root.
+ */
+export const folderParam = (folder: FlowsFolder): string => {
+  const name = folder.kind === "root" ? ROOT : folder.name;
+  return folder.scope === "global" ? `${GLOBAL}${name}` : name;
+};
+
+export const folderFromParam = (
+  value: string | undefined
+): FlowsFolder | undefined => {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+  const scope = value.startsWith(GLOBAL) ? "global" : "local";
+  const name = scope === "global" ? value.slice(GLOBAL.length) : value;
+  if (name === "") {
+    return undefined;
+  }
+  return name === ROOT
+    ? { kind: "root", scope }
+    : { kind: "flow", name, scope };
 };
 
 export const matchesQuery = (
@@ -187,33 +170,44 @@ export const recordingsForFlow = (
 export const looseRuns = (root: CatalogRootView): readonly CatalogRunEntry[] =>
   root.runs.filter((run) => run.ownerFlow === null);
 
+/**
+ * Recordings whose Flow is not listed. A Flow still being taught is listed
+ * under its own placeholder, so its recordings stay with it.
+ */
 export const orphanRecordings = (
-  root: CatalogRootView
+  root: CatalogRootView,
+  pending?: string
 ): readonly CatalogRecordingEntry[] => {
-  const listed = new Set(root.flows.map((flow) => flow.name));
+  const listed = new Set<string>(root.flows.map((flow) => flow.name));
+  if (pending !== undefined) {
+    listed.add(pending);
+  }
   return root.recordings.filter(
     (recording) => !listed.has(recording.ownerFlow ?? recording.flowName)
   );
 };
 
+/** How many entries the root's own history holds. */
+export const rootHistoryCount = (
+  root: CatalogRootView,
+  pending?: string
+): number => looseRuns(root).length + orphanRecordings(root, pending).length;
+
 export const hasBrowsableEntries = (root: CatalogRootView): boolean =>
   root.flows.length > 0 || root.runs.length > 0 || root.recordings.length > 0;
 
-/** Ignore a choice whose folder disappeared on a catalog refresh. */
+/** Ignore a choice whose folder is not, or no longer, in the catalog. */
 export const availableFolder = (
-  folder: FlowsFolder | null,
+  folder: FlowsFolder | undefined,
   roots: readonly CatalogRootView[],
   flows: SessionFlows
 ): FlowsFolder | undefined => {
   const root = roots.find((entry) => entry.scope === folder?.scope);
-  if (folder === null || root === undefined) {
+  if (folder === undefined || root === undefined) {
     return undefined;
   }
-  if (folder.kind === "loose") {
-    return looseRuns(root).length > 0 ? folder : undefined;
-  }
-  if (folder.kind === "recordings") {
-    return orphanRecordings(root).length > 0 ? folder : undefined;
+  if (folder.kind === "root") {
+    return rootHistoryCount(root, flows.pending) > 0 ? folder : undefined;
   }
   return root.flows.some((flow) => flow.name === folder.name) ||
     (folder.scope === "local" && flows.pending === folder.name)
@@ -224,15 +218,9 @@ export const availableFolder = (
 export const flowCount = (roots: readonly CatalogRootView[]): number =>
   roots.reduce((total, root) => total + root.flows.length, 0);
 
-export const runCountLabel = (count: number): string => {
-  if (count === 0) {
-    return "no runs";
-  }
-  return count === 1 ? "1 run" : `${count} runs`;
-};
-
 /**
- * Prefer Teaching and the session's listed flow, then browse local-first.
+ * Prefer the Flow being taught and the session's listed Flow, then browse
+ * local-first.
  */
 export const defaultFolder = (
   roots: readonly CatalogRootView[],
@@ -252,30 +240,48 @@ export const defaultFolder = (
     if (first !== undefined) {
       return { kind: "flow", name: first.name, scope: root.scope };
     }
-    if (looseRuns(root).length > 0) {
-      return { kind: "loose", scope: root.scope };
-    }
-    if (orphanRecordings(root).length > 0) {
-      return { kind: "recordings", scope: root.scope };
+    if (rootHistoryCount(root, flows.pending) > 0) {
+      return { kind: "root", scope: root.scope };
     }
   }
   return undefined;
 };
 
 /**
- * Whether the global root starts unfolded: only when it is the one place with
- * something to show, and no local flow is being taught.
+ * Where a Run is listed: under its Flow, or in its root's history. `/?run=`
+ * links name only the Run, so the page finds its folder here.
  */
-export const opensGlobal = (
+export const folderOfRun = (
   roots: readonly CatalogRootView[],
-  query: string,
-  flows: SessionFlows
+  runId: AgentRunId
+): FlowsFolder | undefined => {
+  for (const root of roots) {
+    const run = root.runs.find((entry) => entry.runId === runId);
+    if (run !== undefined) {
+      return run.ownerFlow === null
+        ? { kind: "root", scope: root.scope }
+        : { kind: "flow", name: run.ownerFlow, scope: root.scope };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Whether the user-global root starts shown: when the page opens on it, or
+ * when it is the one place with anything to show.
+ */
+export const showsGlobalAtFirst = (
+  roots: readonly CatalogRootView[],
+  folder: FlowsFolder | undefined
 ): boolean => {
-  const [local, global] = roots;
-  const hits = (root: CatalogRootView | undefined) =>
-    root !== undefined &&
-    (query.trim() === ""
-      ? hasBrowsableEntries(root)
-      : root.flows.some((flow) => matchesQuery(flow, query)));
-  return !hits(local) && hits(global) && flows.pending === undefined;
+  if (folder?.scope === "global") {
+    return true;
+  }
+  const local = roots.find((root) => root.scope === "local");
+  const global = roots.find((root) => root.scope === "global");
+  return (
+    (local === undefined || !hasBrowsableEntries(local)) &&
+    global !== undefined &&
+    hasBrowsableEntries(global)
+  );
 };

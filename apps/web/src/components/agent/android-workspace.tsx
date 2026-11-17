@@ -30,8 +30,7 @@ import {
   DockStatus,
   SessionTopBar,
 } from "@/components/agent/workspace-dock";
-import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
-import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
+import { FlowsButton } from "@/components/catalog/flows-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { isSessionNotFound } from "@/lib/failure-message";
@@ -665,8 +664,6 @@ export const AndroidSessionView = ({
     });
   return (
     <WorkspaceLayout
-      sessionId={session.id}
-      flowsSession={androidFlowsSessionView(session)}
       summary={
         isLiveAndroidSession(session)
           ? null
@@ -686,12 +683,7 @@ export const AndroidSessionView = ({
       >
         <SessionTopBar
           className="absolute inset-x-0 top-0"
-          flows={
-            // Hidden while capturing, as the browser dock does.
-            showsFlowsEntry(androidFlowsSessionView(session)) ? (
-              <FlowsDockButton />
-            ) : null
-          }
+          flows={<FlowsButton session={androidFlowsSessionView(session)} />}
           picker={
             <AndroidSessionSelect
               onSelect={(value) => {
@@ -859,7 +851,7 @@ export const useAndroidSessionStart = () => {
 
 /**
  * The Android Workspace on the browser Workspace's own dock, state names,
- * Flows drawer, and Run Summary. The device shows only
+ * Flows page, and Run Summary. The device shows only
  * what the device shows: a click on it is resolved by the server against a
  * fresh observation and sent as a semantic action, or refused beside the
  * device with nothing sent.
@@ -947,11 +939,7 @@ export const AndroidWorkspace = ({
   return (
     <div className="relative flex h-svh min-h-0 flex-col">
       {state.session === null ? (
-        <WorkspaceLayout
-          sessionId={undefined}
-          flowsSession={undefined}
-          summary={undefined}
-        >
+        <WorkspaceLayout summary={undefined}>
           <AndroidEmptyState
             onStartNew={() => onSessionChange?.(NEW_NATIVE_SESSION)}
             pending={gesture.pending}

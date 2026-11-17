@@ -38,8 +38,7 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
-import { showsFlowsEntry } from "@/components/catalog/flows-drawer-state";
+import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -911,12 +910,7 @@ const IosDock = ({
     <>
       <SessionTopBar
         className="absolute inset-x-0 top-0"
-        flows={
-          // Hidden while capturing, as the browser dock does.
-          showsFlowsEntry(iosFlowsSessionView(session)) ? (
-            <FlowsDockButton />
-          ) : null
-        }
+        flows={<FlowsButton session={iosFlowsSessionView(session)} />}
         picker={
           <IosSessionSelect
             onSelect={onSelectSession}
@@ -1334,8 +1328,6 @@ export const IosWorkspace = ({
   const live = isLiveIosSession(session);
   return (
     <WorkspaceLayout
-      flowsSession={iosFlowsSessionView(session)}
-      sessionId={session.id}
       summary={
         live
           ? null

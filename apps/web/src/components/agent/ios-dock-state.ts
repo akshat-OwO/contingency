@@ -6,7 +6,7 @@
 import type { IosWorkspaceSnapshot } from "@contingency/protocol";
 
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
-import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
+import type { FlowsSessionView } from "@/components/catalog/flows-page-state";
 
 import type { DockStateTone } from "./workspace-dock";
 
@@ -21,7 +21,7 @@ export const iosSessionLabel = (
   session: Pick<IosWorkspaceSnapshot, "flowName" | "kind">
 ): string => `${session.flowName} · iOS ${KIND_LABEL[session.kind]}`;
 
-/** What the Flows drawer needs to know about an iOS session. */
+/** What the Flows page needs to know about an iOS session. */
 export const iosFlowsSessionView = (
   session: IosWorkspaceSnapshot
 ): FlowsSessionView =>

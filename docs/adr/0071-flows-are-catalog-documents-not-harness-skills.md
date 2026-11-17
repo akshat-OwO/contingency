@@ -1,5 +1,7 @@
 # Flows are catalog documents, not harness skills
 
+> The Flows page (#755) replaces the Flows Drawer named below; it lists and opens Runs as the drawer did.
+
 > Supersedes the storage layout in ADRs [0039](./0039-flow-skills-are-learned-from-temporary-teaching-recordings.md) and [0044](./0044-agents-own-flow-skill-execution.md), the `.contingency` directory name in ADRs [0049](./0049-permanent-mcp-registration-keeps-project-local-catalogs.md) and [0063](./0063-settings-live-in-a-strict-catalog-root-config.md), and the flat catalog listing in ADRs [0050](./0050-bundled-example-skills-have-distinct-authority.md) and [0051](./0051-workspace-lists-the-user-global-catalog-read-only.md).
 
 A Flow Skill was shaped like a harness skill, with a `SKILL.md` and a `references/` folder, but no Agent Harness ever loads it. Agents reach a Flow only through Contingency, and the shape made the catalog hard to navigate because each Flow's Teaching Recordings and Runs lived elsewhere. We renamed the artifact **Flow** and made each Flow a self-contained directory in a project-level `contingency/` Catalog Root (no leading dot). The user-global catalog stays at `~/.contingency`.

@@ -43,7 +43,7 @@ A session started with `contingency start` adds a **This session** section at th
 
 ## Catalog layout
 
-The Catalog Root defaults to the project’s `contingency/` directory. Open **Flows** in Workspace to browse its Group tree in the **Flows Drawer**. Groups are plain directories and may nest.
+The Catalog Root defaults to the project’s `contingency/` directory. Open **Flows** in Workspace to browse its Group tree on the **Flows page**. Groups are plain directories and may nest.
 
 Each Flow has `contingency/<group…>/<flow>/flow.md`, optional supporting Markdown, `recordings/`, and `runs/`. A Run started with no Flow or several Flows belongs in `contingency/runs/`. The read-only user catalog remains `~/.contingency`.
 

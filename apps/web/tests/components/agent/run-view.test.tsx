@@ -1,10 +1,5 @@
 import { RegistryProvider } from "@effect/atom-react";
 import {
-  createMemoryHistory,
-  createRouter,
-  RouterProvider,
-} from "@tanstack/react-router";
-import {
   cleanup,
   fireEvent,
   render,
@@ -12,7 +7,6 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cause } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -21,10 +15,9 @@ import {
   DryRunSummaryView,
   InteractiveRunSummaryView,
 } from "@/components/agent/dry-run-summary";
-import { RunSummaryView, RunViewer } from "@/components/agent/run-view";
+import { RunSummaryView } from "@/components/agent/run-view";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
-import { routeTree } from "@/routeTree.gen";
 
 const readyVideo = {
   _tag: "Success",
@@ -132,15 +125,6 @@ const summary = {
   title: "Buy one product",
   tracePath: "run.trace.zip",
   videoPath: "run.webm",
-};
-
-const successfulSummary = {
-  _tag: "Success",
-  value: {
-    summary,
-    viewUrl: "http://127.0.0.1:7777/?run=agentrun-one",
-  },
-  waiting: false,
 };
 
 // The component takes the protocol shapes; the fixtures above are the same
@@ -312,55 +296,6 @@ test("plays a video that could not be condensed in real time, with the reason", 
   expect(
     screen.getByText("Playing in real time. The footage could not be decoded.")
   ).toBeVisible();
-});
-
-test("opens persisted Run evidence in the Workspace route without a live session", async () => {
-  rpc.summaryResult = successfulSummary;
-  const router = createRouter({
-    history: createMemoryHistory({ initialEntries: ["/?run=agentrun-one"] }),
-    routeTree,
-  });
-  await router.load();
-  render(
-    <TestRegistry>
-      <RouterProvider router={router} />
-    </TestRegistry>
-  );
-  expect(
-    screen.getByRole("heading", { level: 1, name: "Run Summary" })
-  ).toBeVisible();
-  expect(
-    screen.getByText(
-      "A read-only view of persisted evidence. No browser was reopened."
-    )
-  ).toBeVisible();
-  expect(screen.getByText("Ended early")).toBeVisible();
-  expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
-    "aria-current",
-    "page"
-  );
-  expect(
-    screen.queryByRole("combobox", { name: "Agent Session" })
-  ).not.toBeInTheDocument();
-  for (const name of ["Create", "Audit", "Agent"]) {
-    expect(
-      screen.queryByRole("link", { exact: true, name })
-    ).not.toBeInTheDocument();
-  }
-});
-
-test("explains when a persisted Run cannot be opened", () => {
-  rpc.summaryResult = {
-    _tag: "Failure",
-    cause: Cause.fail(new Error("gone")),
-    waiting: false,
-  };
-  render(
-    <TestRegistry>
-      <RunViewer runId={"agentrun-missing"} />
-    </TestRegistry>
-  );
-  expect(screen.getByText("This Run could not be opened")).toBeVisible();
 });
 
 const taskSummary = {

@@ -91,7 +91,7 @@ export const webCommand = Command.make(
             })
           )
         );
-        // The Flows Drawer reads this root and the user's global one.
+        // The Flows page reads this root and the user's global one.
         const catalogBrowser = Layer.succeedContext(
           yield* Layer.build(
             makeCatalogBrowserLayer({

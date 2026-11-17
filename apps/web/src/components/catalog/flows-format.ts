@@ -25,24 +25,6 @@ export const runKindLabel = (run: CatalogRunEntry): string =>
     ? RUN_KIND[run.kind]
     : `${PLATFORM[run.native.platform]} ${RUN_KIND[run.kind]}`;
 
-/**
- * Where this Workspace opens a Run, or `null` when it cannot: a native Run in
- * its device session's ended view, and a browser Run in the read-only viewer
- * over this process's own Run store.
- */
-export const runSummaryHref = (
-  run: CatalogRunEntry,
-  scope: "local" | "global"
-): string | null => {
-  if (scope !== "local") {
-    return null;
-  }
-  if (run.native !== undefined) {
-    return `/?${run.native.platform}=${run.native.sessionId}`;
-  }
-  return run.kind === "dry-run" ? null : `/?run=${run.runId}`;
-};
-
 const ASSESSMENT = {
   blocked: "Blocked",
   inconclusive: "Inconclusive",
@@ -95,20 +77,3 @@ const PHASE = new Map([
 
 export const recordingPhaseLabel = (recording: CatalogRecordingEntry): string =>
   PHASE.get(recording.phase) ?? recording.phase;
-
-const STEP_NUMBER = /^\s{0,3}\d+[.)]\s+/u;
-const DONE_WHEN = /^\s*Done when:/u;
-
-/**
- * A procedure step's instruction as one line: its text without the step
- * number, the `Done when:` line shown beside it, or bold markers.
- */
-export const stepInstruction = (description: string): string =>
-  description
-    .split("\n")
-    .filter((line) => !DONE_WHEN.test(line))
-    .join(" ")
-    .replace(STEP_NUMBER, "")
-    .replaceAll("**", "")
-    .replaceAll(/\s+/gu, " ")
-    .trim();

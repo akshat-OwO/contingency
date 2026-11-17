@@ -118,7 +118,7 @@ const runStoreUnavailable = <A>(
   );
 
 /**
- * The Flows Drawer's read-only catalog view. It is optional for the same
+ * The Flows page's read-only catalog view. It is optional for the same
  * reason the Run store is: a process may serve no Catalog Root.
  */
 const catalogBrowserUnavailable = <A>(

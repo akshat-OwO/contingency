@@ -201,6 +201,14 @@
 
   --color-brand: var(--brand);
 
+  --color-status-ready: var(--status-ready);
+
+  --color-status-running: var(--status-running);
+
+  --color-status-recording: var(--status-recording);
+
+  --color-status-needs-you: var(--status-needs-you);
+
   --color-island-brand: var(--island-brand);
 
   --color-island-hover: var(--island-hover);
@@ -432,6 +440,11 @@
   view-transition-name: start-card;
 }
 
+/* The Flows button grows into the Flows page's catalog sidebar (#755). */
+[data-vt="flows-sidebar"] {
+  view-transition-name: flows-sidebar;
+}
+
 /* The layout around a morphing card travels on the same clock. */
 ::view-transition-group(*) {
   animation-duration: var(--workspace-view-duration);
@@ -483,6 +496,43 @@
 ::view-transition-new(stage),
 ::view-transition-new(start-card) {
   animation: workspace-fade-in 0.32s 0.04s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-group(flows-sidebar) {
+  z-index: 3;
+  animation-duration: 0.58s;
+  animation-timing-function: cubic-bezier(0.3, 1.08, 0.5, 1);
+}
+
+::view-transition-image-pair(flows-sidebar) {
+  overflow: clip;
+  border-radius: var(--island-radius);
+  background: var(--island-solid);
+  box-shadow: var(--island-shadow-lift);
+}
+
+::view-transition-old(flows-sidebar),
+::view-transition-new(flows-sidebar) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: top left;
+}
+
+::view-transition-old(flows-sidebar) {
+  animation: workspace-fade-out 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-new(flows-sidebar) {
+  animation: workspace-fade-in 0.3s 0.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The Flow and Runs panes follow the sidebar in once it has mostly landed. */
+@keyframes flows-pane-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
 }
 
 ::view-transition-old(*):only-child {
@@ -610,5 +660,127 @@
 
   [data-slot="preparing-sweep"] {
     animation: watcher-fade 2s ease-in-out infinite;
+  }
+}
+
+/*
+ * A Flow's markdown on the Flows page (#755). Headings read as quiet
+ * eyebrows under the pane's own title; each procedure step carries its
+ * numbered tile and its "Done when" outcome beneath it.
+ */
+[data-slot="flow-markdown"] {
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+
+  & > :first-child {
+    margin-top: 0;
+  }
+
+  & p {
+    margin: 0 0 10px;
+    text-wrap: pretty;
+  }
+
+  & :is(h3, h4, h5, h6) {
+    margin: 20px 0 8px;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  & h3[data-level="1"] {
+    margin-top: 0;
+    color: var(--foreground);
+    font-size: 15px;
+    letter-spacing: -0.015em;
+    text-transform: none;
+  }
+
+  & code {
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: var(--island-hover);
+    box-shadow: inset 0 0 0 1px var(--island-border);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+
+  & pre {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    border-radius: 12px;
+    background: var(--island-hover);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  & a,
+  & [data-slot="md-link"] {
+    color: var(--foreground);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: var(--island-brand);
+    text-underline-offset: 3px;
+  }
+
+  & ul {
+    margin: 0 0 10px;
+    padding-left: 18px;
+    list-style: disc;
+  }
+
+  & ul li {
+    margin: 3px 0;
+  }
+
+  & [data-slot="md-steps"] {
+    display: grid;
+    gap: 12px;
+    margin: 0 0 10px;
+    padding: 0;
+    list-style: none;
+  }
+
+  & [data-slot="md-steps"] > li {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  & [data-slot="md-steps"] p {
+    margin: 0;
+  }
+
+  & [data-slot="md-step-number"] {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    background: var(--island-hover);
+    box-shadow: inset 0 0 0 1px var(--island-border);
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+
+  & [data-slot="md-done-when"] {
+    margin-top: 6px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: color-mix(in oklch, var(--status-ready) 9%, transparent);
+    font-size: 13px;
+  }
+
+  & [data-slot="md-done-when"] > span:first-child {
+    margin-right: 4px;
+    color: var(--status-ready);
+    font-weight: 600;
   }
 }
