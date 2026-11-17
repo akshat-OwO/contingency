@@ -34,7 +34,7 @@ import { isVerifiedFlow } from "./requested-flows.ts";
 import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 /**
- * The Workspace's read-only view of Catalog Roots for the Flows Drawer.
+ * The Workspace's read-only view of Catalog Roots for the Flows page.
  *
  * It lists the Flows, persisted Runs, and Teaching Recordings of the
  * process's own Catalog Root, and of the user's `~/.contingency` when that is

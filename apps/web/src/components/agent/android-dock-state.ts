@@ -9,7 +9,7 @@ import type {
 
 import { androidDeviceLabel } from "@/components/agent/android-workspace-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
-import type { FlowsSessionView } from "@/components/catalog/flows-drawer-state";
+import type { FlowsSessionView } from "@/components/catalog/flows-page-state";
 
 import type { DockStateTone } from "./workspace-dock";
 
@@ -27,7 +27,7 @@ const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
 export const androidSessionLabel = (session: AndroidWorkspaceSummary): string =>
   `${session.flowName} · Android ${KIND_LABEL[session.kind]}`;
 
-/** What the Flows drawer needs to know about an Android session. */
+/** What the Flows page needs to know about an Android session. */
 export const androidFlowsSessionView = (
   session: AndroidWorkspaceSnapshot
 ): FlowsSessionView =>

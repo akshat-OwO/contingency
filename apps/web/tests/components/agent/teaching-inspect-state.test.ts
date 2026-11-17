@@ -8,6 +8,7 @@ import {
   emptyInspectState,
   leavePage,
   openComposer,
+  resumeInspect,
   startPicking,
   stopPicking,
 } from "@/components/agent/teaching-inspect-state";
@@ -160,5 +161,26 @@ test("closing the composer keeps the draft and the attached element", () => {
     draft: "Draft",
     frozen,
     highlighted: undefined,
+  });
+});
+
+test("a resumed comment keeps its words, and its element only on the same Page", () => {
+  const saved = {
+    ...emptyInspectState,
+    draft: text,
+    frozen,
+    hovered: frozen,
+    open: true,
+  };
+  expect(resumeInspect(saved, true)).toMatchObject({
+    draft: text,
+    frozen,
+    hovered: undefined,
+    open: false,
+  });
+  expect(resumeInspect(saved, false)).toMatchObject({
+    draft: text,
+    frozen: undefined,
+    open: false,
   });
 });

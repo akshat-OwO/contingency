@@ -1,8 +1,12 @@
-"use client";
-
-import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
+import {
+  Tabs as TabsPrimitive,
+  TabsList as TabsListPrimitive,
+  TabsPanel,
+  TabsTab,
+} from "@ui-sdk/react/tabs";
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
+import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,14 +14,14 @@ function Tabs({
   className,
   orientation = "horizontal",
   ...props
-}: TabsPrimitive.Root.Props) {
+}: React.ComponentProps<typeof TabsPrimitive>) {
   return (
-    <TabsPrimitive.Root
+    <TabsPrimitive
       data-slot="tabs"
-      data-orientation={orientation}
+      orientation={orientation}
       className={cn(
-        "group/tabs flex gap-2 data-horizontal:flex-col",
-        className
+        "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
+        typeof className === "string" ? className : undefined
       )}
       {...props}
     />
@@ -25,7 +29,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center rounded-lg p-[3px] group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center rounded-lg p-[3px] group-data-[orientation=horizontal]/tabs:h-8 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none",
   {
     defaultVariants: {
       variant: "default",
@@ -34,6 +38,9 @@ const tabsListVariants = cva(
       variant: {
         default: "bg-muted",
         line: "gap-1 bg-transparent",
+        // The Flows page's file tabs (#755): monospace names on an underline.
+        // A package with many files scrolls sideways rather than clipping.
+        file: "border-island-border h-auto! max-w-full [scrollbar-width:thin] gap-0.5 overflow-x-auto overflow-y-hidden rounded-none border-b bg-transparent p-0 px-3",
       },
     },
   }
@@ -43,38 +50,53 @@ function TabsList({
   className,
   variant = "default",
   ...props
-}: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+}: React.ComponentProps<typeof TabsListPrimitive> &
+  VariantProps<typeof tabsListVariants>) {
   return (
-    <TabsPrimitive.List
+    <TabsListPrimitive
       data-slot="tabs-list"
       data-variant={variant}
-      className={cn(tabsListVariants({ variant }), className)}
-      {...props}
-    />
-  );
-}
-
-function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
-  return (
-    <TabsPrimitive.Tab
-      data-slot="tabs-trigger"
       className={cn(
-        "text-foreground/60 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:outline-ring dark:text-muted-foreground dark:hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
-        "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
-        "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
-        className
+        tabsListVariants({ variant }),
+        typeof className === "string" ? className : undefined
       )}
       {...props}
     />
   );
 }
 
-function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
+/** UI SDK marks the chosen tab with `data-selected=""`, so variants test presence. */
+function TabsTrigger({
+  className,
+  ...props
+}: React.ComponentProps<typeof TabsTab>) {
   return (
-    <TabsPrimitive.Panel
+    <TabsTab
+      data-slot="tabs-trigger"
+      className={cn(
+        "text-foreground/60 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/30 focus-visible:outline-ring dark:text-muted-foreground dark:hover:text-foreground relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[variant=default]/tabs-list:data-[selected]:shadow-sm group-data-[variant=line]/tabs-list:data-[selected]:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[selected]:bg-transparent dark:group-data-[variant=line]/tabs-list:data-[selected]:border-transparent dark:group-data-[variant=line]/tabs-list:data-[selected]:bg-transparent",
+        "group-data-[variant=default]/tabs-list:data-[selected]:bg-background group-data-[variant=default]/tabs-list:data-[selected]:text-foreground dark:group-data-[variant=default]/tabs-list:data-[selected]:border-input dark:group-data-[variant=default]/tabs-list:data-[selected]:bg-input/30 data-[selected]:text-foreground",
+        "after:bg-foreground after:absolute after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=horizontal]/tabs:after:h-0.5 group-data-[orientation=vertical]/tabs:after:inset-y-0 group-data-[orientation=vertical]/tabs:after:-right-1 group-data-[orientation=vertical]/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-[selected]:after:opacity-100",
+        "group-data-[variant=file]/tabs-list:h-8 group-data-[variant=file]/tabs-list:flex-none group-data-[variant=file]/tabs-list:rounded-none group-data-[variant=file]/tabs-list:px-2.5 group-data-[variant=file]/tabs-list:font-mono group-data-[variant=file]/tabs-list:text-[12.5px] group-data-[variant=file]/tabs-list:after:bottom-0 group-data-[variant=file]/tabs-list:data-[selected]:after:opacity-100 group-data-[variant=file]/tabs-list:[&_svg:not([class*='size-'])]:size-3.5",
+        typeof className === "string" ? className : undefined
+      )}
+      {...props}
+    />
+  );
+}
+
+function TabsContent({
+  className,
+  ...props
+}: React.ComponentProps<typeof TabsPanel>) {
+  return (
+    <TabsPanel
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      className={cn(
+        "flex-1 text-sm outline-none",
+        typeof className === "string" ? className : undefined
+      )}
       {...props}
     />
   );

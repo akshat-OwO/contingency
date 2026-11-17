@@ -188,3 +188,76 @@ export const InfoIcon = () => (
     <circle cx="12" cy="8" fill="currentColor" r=".6" stroke="none" />
   </Icon>
 );
+
+export const FileIcon = () => (
+  <Icon>
+    <path d="M7 3h7l5 5v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M14 3v5h5" />
+  </Icon>
+);
+
+export const FolderIcon = () => (
+  <Icon>
+    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+  </Icon>
+);
+
+export const PlayIcon = () => (
+  <Icon>
+    <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" />
+  </Icon>
+);
+
+export const PauseIcon = () => (
+  <Icon>
+    <path d="M8 5v14M16 5v14" strokeWidth={3} />
+  </Icon>
+);
+
+export const SearchIcon = () => (
+  <Icon>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m20 20-4.2-4.2" />
+  </Icon>
+);
+
+export const DraftIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
+  </Icon>
+);
+
+export const VerifiedIcon = () => (
+  <Icon>
+    <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z" />
+    <path d="m9 12 2.2 2.2L15.5 10" />
+  </Icon>
+);
+
+export const ForwardIcon = () => (
+  <Icon>
+    <path d="M4 6v12l8-6zM12 6v12l8-6z" fill="currentColor" />
+  </Icon>
+);
+
+export const EyeOffIcon = () => (
+  <Icon>
+    <path d="M3 3l18 18" />
+    <path d="M10.6 5.1A10 10 0 0 1 12 5c5 0 9 5 9 7a9 9 0 0 1-2.4 3.4M6.6 6.6C4.4 8 3 10.4 3 12c0 2 4 7 9 7a9.6 9.6 0 0 0 4.4-1.1" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+  </Icon>
+);
+
+export const RecordIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="8" />
+    <circle cx="12" cy="12" fill="currentColor" r="3.5" stroke="none" />
+  </Icon>
+);
+
+export const ExternalIcon = () => (
+  <Icon>
+    <path d="M14 4h6v6M20 4l-9 9" />
+    <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+  </Icon>
+);

@@ -1,18 +1,8 @@
 import type {
   AgentAssessmentOutcome,
-  CatalogRecordingEntry,
   CatalogRunEntry,
 } from "@contingency/protocol";
-import { ClapperboardIcon } from "lucide-react";
-import type { ReactNode } from "react";
 
-import {
-  recordingPhaseLabel,
-  runDuration,
-  runKindLabel,
-  runVerdict,
-  when,
-} from "@/components/catalog/flows-format";
 import { cn } from "@/lib/utils";
 
 const outcomeDot: Record<AgentAssessmentOutcome | "failed" | "none", string> = {
@@ -55,104 +45,3 @@ export const OutcomeDot = ({
     />
   );
 };
-
-/**
- * How every catalog row says it is selected, whether a folder in the tree
- * or a Run in a list: the muted fill and a bar on its leading edge.
- */
-export const selectedRowClass =
-  "bg-muted text-foreground relative before:absolute before:inset-y-1.5 before:left-0 before:w-[3px] before:rounded-full before:bg-foreground";
-
-const rowClass = (selected: boolean) =>
-  cn(
-    "hover:bg-muted flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-100",
-    selected && selectedRowClass
-  );
-
-export const RunRow = ({
-  onSelect,
-  run,
-  selected,
-}: {
-  readonly onSelect: () => void;
-  readonly run: CatalogRunEntry;
-  readonly selected: boolean;
-}) => (
-  <button
-    aria-pressed={selected}
-    className={rowClass(selected)}
-    onClick={onSelect}
-    type="button"
-  >
-    <OutcomeDot className="mt-1.5" run={run} />
-    <span className="min-w-0 flex-1">
-      <span className="line-clamp-2 text-sm">{run.title}</span>
-      <span className="text-muted-foreground block text-xs">
-        <span className="text-foreground/80 font-medium">
-          {runVerdict(run)}
-        </span>{" "}
-        · {runKindLabel(run)} ·{" "}
-        {/* When and how long break together, never mid-phrase. */}
-        <span className="whitespace-nowrap">
-          {when(run.startedAt)} · {runDuration(run)}
-        </span>
-        {/* A Working Run can still carry a failing finding. */}
-        {run.findings === undefined || run.findings.length === 0 ? null : (
-          <>
-            {" "}
-            ·{" "}
-            <span className="whitespace-nowrap">
-              {run.findings.length === 1
-                ? "1 finding"
-                : `${run.findings.length} findings`}
-            </span>
-          </>
-        )}
-      </span>
-    </span>
-  </button>
-);
-
-export const RecordingRow = ({
-  onSelect,
-  recording,
-  selected,
-}: {
-  readonly onSelect: () => void;
-  readonly recording: CatalogRecordingEntry;
-  readonly selected: boolean;
-}) => (
-  <button
-    aria-pressed={selected}
-    className={rowClass(selected)}
-    onClick={onSelect}
-    type="button"
-  >
-    <ClapperboardIcon
-      aria-hidden="true"
-      className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
-    />
-    <span className="min-w-0 flex-1">
-      <span className="block truncate font-mono text-xs">
-        {recording.recordingId}
-      </span>
-      <span className="text-muted-foreground block text-xs">
-        {recordingPhaseLabel(recording)} · {when(recording.createdAt)}
-      </span>
-    </span>
-  </button>
-);
-
-export const InlineEmpty = ({ children }: { readonly children: ReactNode }) => (
-  <p className="text-muted-foreground rounded-md border border-dashed px-2.5 py-2 text-xs leading-5">
-    {children}
-  </p>
-);
-
-export const SectionLabel = ({
-  children,
-}: {
-  readonly children: ReactNode;
-}) => (
-  <p className="text-muted-foreground px-2 pt-1 pb-0.5 text-xs">{children}</p>
-);

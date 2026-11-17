@@ -42,11 +42,12 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/react/tooltip";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
+import { FlowsPage, flowOfRun } from "./flows";
 import {
   AndroidIcon,
   AppleIcon,
@@ -379,18 +380,42 @@ const ThemeButton = () => {
   );
 };
 
-const Actions = () => (
-  <div className="chrome right island">
-    <Button className="pill-btn">
+/** Where **Flows** goes: `/flow`, a page of its own instead of a drawer. */
+const FlowsNav = createContext<{
+  readonly open: (from: Element) => void;
+  readonly here: boolean;
+  /** Leaving `/flow`: the sidebar shrinks back into this button. */
+  readonly morphBack: boolean;
+}>({ here: false, morphBack: false, open: () => {} });
+
+const Actions = () => {
+  const nav = useContext(FlowsNav);
+  const flows = (
+    <Button
+      aria-current={nav.here ? "page" : undefined}
+      className="pill-btn"
+      data-here={nav.here || undefined}
+      onClick={(e) => {
+        if (!nav.here) nav.open(e.currentTarget);
+      }}
+      style={{
+        viewTransitionName: nav.morphBack ? "flows-sidebar" : undefined,
+      }}
+    >
       <FlowsIcon />
       Flows
     </Button>
-    <IconButton label="Docs">
-      <DocsIcon />
-    </IconButton>
-    <ThemeButton />
-  </div>
-);
+  );
+  return (
+    <div className="chrome right island">
+      {flows}
+      <IconButton label="Docs">
+        <DocsIcon />
+      </IconButton>
+      <ThemeButton />
+    </div>
+  );
+};
 
 const SessionSwitcher = ({
   sessions,
@@ -1732,10 +1757,9 @@ const App = () => {
   const [sessions, setSessions] = useState<Session[]>(() =>
     SEED.map((s) => ({ ...s }))
   );
-  const [view, setView] = useState<
-    | { readonly name: "home" }
-    | { readonly name: "session"; readonly id: string }
-  >({ name: "home" });
+  const [view, setView] = useState<View>(() => fromUrl());
+  const [fromSession, setFromSession] = useState<string | undefined>();
+  const [catalogEmpty, setCatalogEmpty] = useState(false);
   const [expanded, setExpanded] = useState<Platform | null>(null);
   const [returning, setReturning] = useState<Platform | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
@@ -1753,6 +1777,18 @@ const App = () => {
   useEffect(() => {
     document.body.dataset.view = view.name;
   }, [view.name]);
+  // The view lives in the URL, so `/flow` opens the Flows page directly and
+  // Back returns to where you were.
+  useEffect(() => {
+    const url = toUrl(view);
+    if (url !== location.pathname + location.search)
+      history.pushState(null, "", url);
+  }, [view]);
+  useEffect(() => {
+    const onPop = () => transition(() => setView(fromUrl()));
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, []);
   useEffect(() => {
     document.body.dataset.statusSide = side;
   }, [side]);
@@ -1828,9 +1864,29 @@ const App = () => {
       ? sessions.find((s) => s.id === view.id)
       : undefined;
 
+  // The Flows button grows into the catalog sidebar, and the sidebar shrinks
+  // back into the button on the way out. The ref still holds the previous
+  // view while the transition renders the next one.
+  const openFlows = (from: Element) =>
+    transition(
+      () => {
+        setFromSession(current?.flow);
+        setView({ name: "flows" });
+        setExpanded(null);
+      },
+      { element: from, name: "flows-sidebar" }
+    );
+  const lastView = useRef(view.name);
+  useEffect(() => {
+    lastView.current = view.name;
+  });
+  const morphBack = lastView.current === "flows" && view.name !== "flows";
+
   return (
     <OptionsContext.Provider value={options}>
-      <>
+      <FlowsNav.Provider
+        value={{ here: view.name === "flows", morphBack, open: openFlows }}
+      >
         <div className="desktop-gate" role="alert">
           <div className="island gate-card">
             <WatcherMark className="brand-mark big" />
@@ -1842,7 +1898,47 @@ const App = () => {
           </div>
         </div>
         <div className="app">
-          {current ? (
+          {view.name === "flows" ? (
+            <FlowsPage
+              actions={<Actions />}
+              empty={catalogEmpty}
+              nav={
+                <nav aria-label="Workspace" className="chrome left island">
+                  <a
+                    aria-label="Contingency home"
+                    className="brand"
+                    href="/"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      home();
+                    }}
+                  >
+                    <WatcherMark className="brand-mark" />
+                    <span className="brand-text">contingency</span>
+                  </a>
+                  {sessions.length > 0 ? (
+                    <>
+                      <span className="divider" />
+                      <div className="switcher-slot">
+                        <SessionSwitcher
+                          current={undefined}
+                          onNew={home}
+                          onOpen={(id) => open(id)}
+                          sessions={sessions}
+                          side="bottom"
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </nav>
+              }
+              onRun={(run) => setView({ flow: view.flow, name: "flows", run })}
+              onSelect={(flow) => setView({ flow, name: "flows" })}
+              run={view.run}
+              selected={view.flow}
+              sessionFlow={fromSession}
+            />
+          ) : current ? (
             <SessionView
               notice={notice}
               onNotice={setNotice}
@@ -1897,6 +1993,9 @@ const App = () => {
             }}
             sessionsOn={sessions.length > 0}
             inSession={current !== undefined}
+            inFlows={view.name === "flows"}
+            catalogEmpty={catalogEmpty}
+            onCatalog={() => transition(() => setCatalogEmpty(!catalogEmpty))}
             side={side}
             onSide={() =>
               transition(() => setSide(side === "right" ? "left" : "right"))
@@ -1921,12 +2020,55 @@ const App = () => {
             options={options}
           />
         </div>
-      </>
+      </FlowsNav.Provider>
     </OptionsContext.Provider>
   );
 };
 
+type View =
+  | { readonly name: "home" }
+  | { readonly name: "session"; readonly id: string }
+  | {
+      readonly name: "flows";
+      readonly flow?: string;
+      readonly run?: string;
+    };
+
+const toUrl = (view: View) => {
+  if (view.name === "session") return `/?session=${view.id}`;
+  if (view.name === "home") return "/";
+  const params = new URLSearchParams();
+  // Local Flows go by name alone; `global:<name>` names the user-global root.
+  if (view.flow) params.set("flow", view.flow.replace(/^local:/, ""));
+  if (view.run) params.set("run", view.run);
+  const query = params.toString();
+  return `/flow${query ? `?${query}` : ""}`;
+};
+
+const fromUrl = (): View => {
+  const params = new URLSearchParams(location.search);
+  const run = params.get("run") ?? undefined;
+  if (location.pathname.replace(/\/$/, "") === "/flow") {
+    const flow = params.get("flow");
+    return {
+      flow: flow ? (flow.includes(":") ? flow : `local:${flow}`) : undefined,
+      name: "flows",
+      run,
+    };
+  }
+  // The old Run Summary view, `/?run=<id>`, lands on that Run in its Flow, so
+  // every MCP `viewUrl` already handed out keeps working.
+  if (run) return { flow: flowOfRun(run), name: "flows", run };
+  const session = params.get("session");
+  return session && SEED.some((s) => s.id === session)
+    ? { id: session, name: "session" }
+    : { name: "home" };
+};
+
 const Scaffold = ({
+  inFlows,
+  catalogEmpty,
+  onCatalog,
   sessionsOn,
   onSessions,
   inSession,
@@ -1937,6 +2079,9 @@ const Scaffold = ({
   options,
   onOptions,
 }: {
+  readonly inFlows: boolean;
+  readonly catalogEmpty: boolean;
+  readonly onCatalog: () => void;
   readonly options: Options;
   readonly onOptions: (options: Options) => void;
   readonly sessionsOn: boolean;
@@ -1967,6 +2112,11 @@ const Scaffold = ({
       >
         Theme: {theme}
       </button>
+      {inFlows ? (
+        <button onClick={onCatalog} type="button">
+          Catalog: {catalogEmpty ? "empty" : "full"}
+        </button>
+      ) : null}
       {inSession ? (
         <>
           <button onClick={onSide} type="button">

@@ -77,7 +77,7 @@ Commands:
   browser ios-orientation --orientation <portrait|landscape>
   browser flows-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
   browser video-layout-check --path <directory> [--allow-overflow]
-  browser procedure-check --skill-file <file> --path <directory> [--text-scale <1|2>]
+  browser procedure-check --flow-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>  (a button target answers the file chooser it opens)
   browser download --role <role> --name <name> --path <file> [--partial]
   cli -- <contingency args...>
@@ -800,16 +800,27 @@ const runPageAction = async (page, appUrl, action, flags) => {
         await document.fonts.ready;
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       }, scale);
-      const drawer = page.getByRole("complementary", { name: "Flows Drawer", exact: true });
-      await drawer.waitFor();
-      await page.waitForFunction(() => !document.querySelector('aside[aria-label="Flows Drawer"]').getAnimations({ subtree: true }).some((animation) => animation.playState === "running"));
-      const result = await drawer.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
+      // The Flows page (#755): its Catalog sidebar must hold every heading
+      // glyph and control, and the page must not scroll sideways.
+      const catalog = page.getByRole("complementary", { name: "Catalog", exact: true });
+      const empty = page.getByText("No Flows yet");
+      await catalog.or(empty).first().waitFor();
+      await page.waitForFunction(() => !document.getAnimations().some((animation) => animation.playState === "running"));
+      const result = await page.evaluate(() => {
+        const element = document.querySelector('aside[aria-label="Catalog"]');
         const fontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-        const catalog = element.querySelector('[aria-label="Catalog"]');
-        const back = [...element.querySelectorAll("button")].find((button) => button.textContent.includes("Back to catalog"));
+        const pageFits = document.documentElement.scrollWidth <= innerWidth + 1;
+        const panes = [...document.querySelectorAll("section[aria-label]")].map((pane) => {
+          const rect = pane.getBoundingClientRect();
+          return { name: pane.getAttribute("aria-label"), left: rect.left, right: rect.right, fits: rect.left >= -1 && rect.right <= innerWidth + 1 };
+        });
+        if (element === null) {
+          const empty = document.body.textContent.includes("No Flows yet");
+          return { empty, catalog: false, viewport: innerWidth, fontSize, panes, ok: empty && pageFits };
+        }
+        const bounds = element.getBoundingClientRect();
         const clipped = [];
-        for (const heading of element.querySelectorAll("h2")) {
+        for (const heading of element.querySelectorAll("h1,h2")) {
           const walker = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT);
           while (walker.nextNode()) {
             const node = walker.currentNode;
@@ -828,15 +839,11 @@ const runPageAction = async (page, appUrl, action, flags) => {
         const controls = [...element.querySelectorAll("button,input")].map((control) => {
           const rect = control.getBoundingClientRect();
           return { name: control.getAttribute("aria-label") ?? control.textContent.trim(), left: rect.left, right: rect.right,
-            fits: rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 && rect.width > 0 };
+            fits: rect.width === 0 || (rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.left >= -1 && rect.right <= innerWidth + 1) };
         });
-        const narrow = bounds.width < 36 * fontSize;
-        const empty = element.textContent.includes("No Flows yet");
-        return { empty, width: bounds.width, scrollWidth: element.scrollWidth, viewport: innerWidth, fontSize, narrow,
-          catalog: catalog !== null, back: back !== undefined, clipped, controls,
-          focus: { tag: document.activeElement.tagName, text: document.activeElement.textContent, label: document.activeElement.getAttribute("aria-label") },
-          ok: element.scrollWidth <= Math.ceil(bounds.width) + 1 && clipped.length === 0 && controls.every((control) => control.fits) &&
-            (!narrow || empty || (catalog !== null) !== (back !== undefined)) };
+        return { empty: false, catalog: true, width: bounds.width, scrollWidth: element.scrollWidth, viewport: innerWidth, fontSize, clipped, controls, panes,
+          focus: { tag: document.activeElement.tagName, text: document.activeElement.textContent.slice(0, 80), label: document.activeElement.getAttribute("aria-label") },
+          ok: pageFits && element.scrollWidth <= Math.ceil(bounds.width) + 1 && clipped.length === 0 && controls.every((control) => control.fits) && panes.every((pane) => pane.fits) };
       });
       const destination = resolveEvidencePath(flags.path);
       mkdirSync(destination, { recursive: true });
@@ -844,7 +851,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
       writeFileSync(path.join(destination, "view.aria.txt"), `${await page.locator("body").ariaSnapshot()}\n`);
       await page.screenshot({ path: path.join(destination, "view.png") });
       if (!result.ok && flags["allow-overflow"] !== true) {
-        throw new Error(`Skills layout failed. Read ${destination}/result.json.`);
+        throw new Error(`Flows page layout failed. Read ${destination}/result.json.`);
       }
       return JSON.stringify({ ...result, destination });
     }
@@ -889,23 +896,18 @@ const runPageAction = async (page, appUrl, action, flags) => {
       return Effect.runPromise(
         Effect.tryPromise({
           try: async () => {
-            if (
-              typeof flags["skill-file"] !== "string" ||
-              typeof flags.path !== "string"
-            ) {
+            const flowFile = flags["flow-file"] ?? flags["skill-file"];
+            if (typeof flowFile !== "string" || typeof flags.path !== "string") {
               throw new Error(
-                "browser procedure-check needs --skill-file and --path."
+                "browser procedure-check needs --flow-file and --path."
               );
             }
-            const source = readFileSync(
-              resolveInputFilePath(flags["skill-file"]),
-              "utf8"
-            );
+            const source = readFileSync(resolveInputFilePath(flowFile), "utf8");
             const expected = [
               ...source.matchAll(/^\d+\. (.+?)\s+Done when: (.+)$/gm),
             ].map(([, instruction, doneWhen]) => [
               instruction.trim(),
-              `Done when: ${doneWhen}`,
+              `Done when ${doneWhen}`,
             ]);
             if (expected.length === 0) {
               throw new Error(
@@ -919,13 +921,15 @@ const runPageAction = async (page, appUrl, action, flags) => {
             await page.evaluate((value) => {
               document.documentElement.style.fontSize = `${16 * value}px`;
             }, scale);
+            // The Flows page renders flow.md's steps with each Done when
+            // outcome beneath its step (#755).
             await page
-              .getByRole("tabpanel", { name: "Procedure", exact: true })
+              .getByRole("tabpanel", { name: "flow.md", exact: true })
               .waitFor();
             await page.evaluate(() => document.fonts.ready);
             const paragraphs = page
-              .getByRole("tabpanel", { name: "Procedure", exact: true })
-              .locator("li p");
+              .getByRole("tabpanel", { name: "flow.md", exact: true })
+              .locator('[data-slot="md-steps"] li p');
             await paragraphs.first().scrollIntoViewIfNeeded();
             const result = await paragraphs.evaluateAll((elements) =>
               elements.map((element) => {

@@ -1021,7 +1021,7 @@ const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   success: AgentRunSummaryResult,
 });
 /**
- * The Workspace's Flows Drawer. Both are read-only: browsing never writes to
+ * The Workspace's Flows page. Both are read-only: browsing never writes to
  * either Catalog Root, and neither is an MCP tool (ADR 0051).
  */
 const CatalogBrowseGetRpc = Rpc.make("catalog.browse.get", {

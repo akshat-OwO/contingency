@@ -6,7 +6,7 @@ import { CheckIcon, CircleAlertIcon, HandIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { WatcherMark } from "@/components/brand";
-import { FlowsDockButton } from "@/components/catalog/flows-dock-button";
+import { FlowsButton } from "@/components/catalog/flows-button";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -509,7 +509,7 @@ export const WorkspaceHome = ({
         </a>
       </nav>
       <div className="island absolute top-4 right-4 z-10 flex items-center gap-1 p-1.5">
-        <FlowsDockButton className="text-muted-foreground hover:bg-island-hover hover:text-foreground h-[34px] gap-[7px] rounded-xl px-3 text-sm" />
+        <FlowsButton className="text-muted-foreground hover:bg-island-hover hover:text-foreground h-[34px] gap-[7px] rounded-xl px-3 text-sm" />
         <DocsLink className={islandControlClassName} />
         <ModeToggle className={islandControlClassName} />
       </div>

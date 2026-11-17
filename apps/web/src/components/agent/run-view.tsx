@@ -1,24 +1,19 @@
 import type {
   AgentRunAssessmentCounts,
   AgentRunCoverage,
-  AgentRunId,
   AgentRunStep,
   AgentRunSummary,
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
-import { useAtomValue } from "@effect/atom-react";
-import { CircleAlertIcon, PlayIcon } from "lucide-react";
+import { PlayIcon } from "lucide-react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { RunVideo } from "@/components/agent/run-video";
 import { TaskRunDetails } from "@/components/agent/task-run-details";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { refusal } from "@/lib/refusal";
-import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const executionLabel: Record<AgentRunStep["execution"], string> = {
   active: "In progress",
@@ -289,41 +284,5 @@ export const RunSummaryView = ({
         </>
       )}
     </div>
-  );
-};
-
-/**
- * The read-only viewer `open_run` returns. It reads only persisted evidence
- * and restores no browser state, so it works after the MCP process that
- * recorded the Run has exited.
- */
-export const RunViewer = ({ runId }: { readonly runId: AgentRunId }) => {
-  const { agentRunSummaryAtom } = useRpcDependencies();
-  const result = useAtomValue(agentRunSummaryAtom(runId));
-  if (result._tag === "Initial") {
-    return (
-      <p className="text-muted-foreground p-6 text-sm">Loading the Run…</p>
-    );
-  }
-  if (result._tag === "Failure") {
-    return (
-      <Alert className="m-6" variant="destructive">
-        <CircleAlertIcon aria-hidden="true" />
-        <AlertTitle>This Run could not be opened</AlertTitle>
-        <AlertDescription>
-          {refusal(result) ??
-            "No persisted Run Summary was found under the selected Catalog Root."}
-        </AlertDescription>
-      </Alert>
-    );
-  }
-  return (
-    <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
-      <h1 className="mb-1 text-xl font-semibold tracking-tight">Run Summary</h1>
-      <p className="text-muted-foreground mb-5 text-sm">
-        A read-only view of persisted evidence. No browser was reopened.
-      </p>
-      <RunSummaryView heading={false} summary={result.value.summary} />
-    </main>
   );
 };

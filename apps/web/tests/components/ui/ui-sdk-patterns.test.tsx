@@ -54,12 +54,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Tree,
+  TreeGroup,
+  TreeItem,
+  TreeItemIndicator,
+  TreeItemLabel,
+} from "@/components/ui/tree";
 
 // Roles, names, slots and keys of each swapped facade primitive (#742). The
 // UI SDK testing kit's `checkPattern` runs here only for non-modal popups:
@@ -455,4 +463,59 @@ test("FileInput opens the picker from a named trigger inside its drop zone", asy
   const apk = new File(["PK"], "shop.apk");
   await user.upload(picker ?? document.createElement("input"), apk);
   expect(onValueChange).toHaveBeenCalledWith([apk], expect.anything());
+});
+
+test("Tabs follow the tabs pattern and keep their slots", async () => {
+  render(
+    <Tabs defaultValue="flow.md">
+      <TabsList aria-label="Flow files" variant="file">
+        <TabsTrigger value="flow.md">flow.md</TabsTrigger>
+        <TabsTrigger value="targets.md">targets.md</TabsTrigger>
+      </TabsList>
+      <TabsContent value="flow.md">Steps</TabsContent>
+      <TabsContent value="targets.md">Targets</TabsContent>
+    </Tabs>
+  );
+  const list = screen.getByRole("tablist", { name: "Flow files" });
+  expect(list).toHaveAttribute("data-variant", "file");
+  const first = screen.getByRole("tab", { name: "flow.md" });
+  expect(first).toHaveAttribute("aria-selected", "true");
+  expect(first).toHaveAttribute("data-selected");
+  await checkPattern(list, "tabs");
+  await userEvent.click(screen.getByRole("tab", { name: "targets.md" }));
+  expect(
+    screen.getByRole("tabpanel", { name: "targets.md" })
+  ).toHaveTextContent("Targets");
+});
+
+test("Tree follows the tree view pattern and marks branches", async () => {
+  const onValueChange = vi.fn();
+  render(
+    <Tree
+      aria-label="Local Flows"
+      defaultExpanded={["shop"]}
+      onValueChange={onValueChange}
+    >
+      <TreeItem value="shop">
+        <TreeItemLabel>
+          <TreeItemIndicator />
+          shop
+        </TreeItemLabel>
+        <TreeGroup>
+          <TreeItem value="cart-scan">
+            <TreeItemLabel>cart-scan</TreeItemLabel>
+          </TreeItem>
+        </TreeGroup>
+      </TreeItem>
+      <TreeItem value="add-mug">
+        <TreeItemLabel>add-mug</TreeItemLabel>
+      </TreeItem>
+    </Tree>
+  );
+  const tree = screen.getByRole("tree", { name: "Local Flows" });
+  const branch = screen.getByRole("treeitem", { name: /shop/u });
+  expect(branch).toHaveAttribute("aria-expanded", "true");
+  await checkPattern(tree, "tree");
+  await userEvent.click(screen.getByText("cart-scan"));
+  expect(onValueChange.mock.lastCall?.[0]).toBe("cart-scan");
 });

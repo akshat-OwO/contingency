@@ -66,7 +66,7 @@ describe("native Run Summary", () => {
     expect(nativeRunSummary({ ...ended, ran: false, summary })).toBeNull();
   });
 
-  it("round-trips and lists as a native Run in the Flows Drawer", () => {
+  it("round-trips and lists as a native Run in the Flows page", () => {
     const written = nativeRunSummary({
       ...ended,
       platform: "ios",

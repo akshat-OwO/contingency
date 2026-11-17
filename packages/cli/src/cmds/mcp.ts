@@ -371,7 +371,7 @@ export const mcpCommand = Command.make(
             makeAgentRunStoreLayer({ root: () => selectedCatalogRoot })
           )
         );
-        // The Workspace's Flows Drawer follows the selected root, and also
+        // The Workspace's Flows page follows the selected root, and also
         // lists the user's global root; no tool reads the global one.
         const catalogBrowser = Layer.succeedContext(
           yield* Layer.build(

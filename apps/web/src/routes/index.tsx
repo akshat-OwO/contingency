@@ -1,6 +1,7 @@
 import { AgentRunId, TeachingRecordingId } from "@contingency/protocol";
 import type { AgentSessionId } from "@contingency/protocol";
 import {
+  Navigate,
   createFileRoute,
   useNavigate,
   useSearch,
@@ -9,7 +10,6 @@ import { Option, Schema } from "effect";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { RecordingViewer } from "@/components/agent/recording-view";
-import { RunViewer } from "@/components/agent/run-view";
 import {
   workspacePlatformFromSearch,
   workspacePlatformSearch,
@@ -28,8 +28,6 @@ const WorkspaceSearch = Schema.Struct({
 const WorkspaceRouteComponent = () => {
   const { android, ios, recording, run, session } = useSearch({ from: "/" });
   const navigate = useNavigate({ from: "/" });
-  // A `run` selector opens persisted evidence, not a live Agent Session. It is
-  // what `open_run` returns after the recording process has exited.
   if (recording !== undefined) {
     return (
       <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
@@ -40,8 +38,10 @@ const WorkspaceRouteComponent = () => {
       </main>
     );
   }
+  // `open_run` returns `/?run=<id>`. A Run Summary shows only on the Flows
+  // page now (#755), so the link lands there with that Run selected.
   if (run !== undefined) {
-    return <RunViewer runId={run} />;
+    return <Navigate replace search={{ run }} to="/flow" />;
   }
   const selectSession = (sessionId: AgentSessionId) => {
     navigate({ search: { run: undefined, session: sessionId } });
