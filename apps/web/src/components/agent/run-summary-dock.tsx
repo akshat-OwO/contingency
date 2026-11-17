@@ -91,9 +91,7 @@ export const RunSummaryPill = () => {
     >
       <NotebookTextIcon aria-hidden="true" />
       Summary
-      {dock.verdict === null ? null : (
-        <VerdictChip verdict={dock.verdict} />
-      )}
+      {dock.verdict === null ? null : <VerdictChip verdict={dock.verdict} />}
     </Button>
   );
 };
