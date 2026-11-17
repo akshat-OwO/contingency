@@ -261,3 +261,82 @@ export const ExternalIcon = () => (
     <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
   </Icon>
 );
+
+export const StopIcon = () => (
+  <Icon>
+    <rect
+      fill="currentColor"
+      height="10"
+      rx="2"
+      stroke="none"
+      width="10"
+      x="7"
+      y="7"
+    />
+  </Icon>
+);
+
+export const CopyIcon = () => (
+  <Icon>
+    <rect height="12" rx="2.5" width="12" x="8" y="8" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </Icon>
+);
+
+export const PanelCloseIcon = () => (
+  <Icon>
+    <rect height="16" rx="3" width="18" x="3" y="4" />
+    <path d="M15 4v16" />
+    <path d="m8 10 2 2-2 2" />
+  </Icon>
+);
+
+export const CheckCircleIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12.2 2.4 2.3 4.6-4.8" />
+  </Icon>
+);
+
+export const XCircleIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m9.5 9.5 5 5M14.5 9.5l-5 5" />
+  </Icon>
+);
+
+export const AlertCircleIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 8v4.5" />
+    <circle cx="12" cy="16" fill="currentColor" r="0.6" />
+  </Icon>
+);
+
+export const MinusCircleIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 12h7" />
+  </Icon>
+);
+
+export const CornerIcon = () => (
+  <Icon>
+    <path d="M6 4v7a3 3 0 0 0 3 3h9" />
+    <path d="m14 10 4 4-4 4" />
+  </Icon>
+);
+
+export const ArrowLeftIcon = () => (
+  <Icon>
+    <path d="M19 12H5" />
+    <path d="m11 6-6 6 6 6" />
+  </Icon>
+);
+
+export const SummaryIcon = () => (
+  <Icon>
+    <rect height="16" rx="3" width="16" x="4" y="4" />
+    <path d="M8 9h8M8 13h8M8 17h5" />
+  </Icon>
+);

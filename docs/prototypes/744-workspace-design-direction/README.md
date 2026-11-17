@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755) and [#757](https://github.com/akshat-OwO/contingency/issues/757), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -18,6 +18,8 @@ It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742
 | Flows page catalog | Tree, Collapsible (the global root), Input (search) |
 | Flow files | Tabs |
 | Run video seek bar | Slider |
+| Run Summary sections | Tabs |
+| Docked summary, decision bar | Button (no resizable panels) |
 
 ## Run it
 
@@ -30,6 +32,66 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Run Summary (#757)
+
+One summary component (`src/summary.tsx`) serves every surface, so they can't drift apart:
+
+| Surface | Where | What's around it |
+| --- | --- | --- |
+| Ended session (ADR 0078) | `?session=<id>` once its Run ends, on Web, Android and iOS | The stage freezes on its **Last frame** and gives up its width to a full-height `complementary "Run Summary"` island on the right. The status island shows **Ended**, **Task details**, **Back to Teaching** when that session still runs, and **Done**, which closes the session. A Dry Run adds the decision bar under the summary. |
+| Dry Run review (ADR 0073) | `?recording=<id>` | Same layout, with no live session: the last frame, the docked summary, and a **Dry Run review** status island with **Done** (back to the Flow on `/flow`). |
+| Flows page (#755) | Runs pane | The same summary, inline. It stays read-only: a pending Dry Run links to its **Dry Run review**, and a native Run links to its ended **Device session**. |
+
+The summary reads top to bottom:
+
+1. **Verdict**: a tinted card, such as **Dry Run passed**, **Dry Run did not pass** (only Takeover or a partial attempt failed), **Dry Run failed**, or the Agent Assessment of an Interactive Run, with platform, kind and when.
+2. Title, the reason it can't pass when that applies, and the agent's explanation.
+3. The Run video (ADR 0046), with the seek bar's frame preview. A verified or purged Dry Run shows a note instead.
+4. Four numbers: Duration, Actions, Findings, Evidence.
+5. Tabs, so the video never moves: **Pass checks** (or **Checks**) with Browser Checks and Scan Reports, **Findings**, each with a timestamp that seeks the video, and **Task** with the requested task, changed instructions, the Flows used, Browser Modifications, Emulation and execution outcome.
+6. The Run ID, copied with one click.
+
+**Decision bar**, under a Dry Run's summary in the dock: **Reject flow** and **Verify flow** only when the Dry Run passed and the decision is pending. Otherwise it says why it can't be verified, that you rejected it, that you verified it (the video goes with Cleanup), or which files Cleanup kept, with **Retry cleanup**.
+
+**Collapse** folds the dock into a **Summary** tool in the status island, which keeps the verdict in view; the stage takes the width back. Only collapse and expand morph the dock; leaving the view cross-fades it.
+
+**States:** writing (skeleton and "Writing the Run Summary…"), missing (the summary wasn't written in time, with **Try again**), ready, and no Dry Run yet (review of a recording that has none).
+
+Walk through it:
+
+- **onboarding · Dry Run** (iOS) is already ended: a failed Dry Run that can't be verified.
+- Open **wishlist · Dry Run** (Web), **profile · Dry Run** (Android) or **Find a red jacket under $80** (Web) and press **End Run** in the scaffold. The summary writes, then docks; profile offers Verify and Reject. Click a finding's timestamp to seek the video.
+- `/?recording=rec_8Wl3` (wishlist on Web, passed with Browser Checks and a Scan Report, pending), `rec_5Pf0` (profile, passed, pending), `rec_3Vw8` (onboarding, failed), `rec_7Hc2` (checkout, verified and purged, with **Back to Teaching**), `rec_6Tz4` (settings, no Dry Run yet).
+- On `/flow`: **profile** → the Dry Run → **Dry Run review**; **login** → **Device session**.
+
+Scaffold: **End Run**, **Summary** (ready, writing, missing), **Decision** (pending, rejected, verified, cleanup-failed) and **Cleanup** (whether Verify ends in a Cleanup failure).
+
+### Decisions
+
+Approved on #757:
+
+
+- **Native and global Runs on the Flows page** (carried over from #755): show their full summary inline, like browser Runs, plus a **Device session** link. The catalog summary alone was a dead end.
+- **The `leading` slot** in `run-summary-sidebar.tsx` goes: the Flows page replaced its last caller. The dock has one side.
+- **Resizing:** the dock has a fixed width (420px, 360px below 1280px) and collapses instead of resizing, so `react-resizable-panels` leaves with it.
+- **Seek bar thumbnail:** the hover preview shows a frame, what happened, real Run time and span kind.
+- **Flows page stays read-only:** Verify and Reject live only in the dock (ended Dry Run and review), never inline.
+
+### Proposed contract changes (#757, approved)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Role/name | `complementary "Run Summary"` in a resizable panel with a resize handle (`Resize Run Summary`) | Same landmark and name, a floating island with no resize handle. **Collapse Run Summary** / **Expand Run Summary** keep their names; collapsed, **Expand Run Summary** is a button in `region "Session status"` with the verdict. |
+| Role/name | Summary sections are `Verdict`, `Findings`, `Task` tabs | `tablist "Run Summary sections"`: **Pass checks** (Dry Run) or **Checks**, **Findings N**, **Task**. Findings carry `Show m:ss in the Run video` buttons. |
+| Role/name | Dry Run review: status sentence and Verify/Reject above the summary | `region "Flow decision"` at the foot of the dock with **Verify flow** / **Reject flow**, or a status. **Retry cleanup** moves here from the dock. |
+| Role/name | Run ID shown as text | Button `Copy Run ID <id>`. |
+| Behaviour | Ended session: stage keeps live layout | The stage shows **Last frame** and the status island shows **Ended**, **Back to Teaching** or **Done**. |
+| Behaviour | Native Runs on the Flows page show their catalog summary and a link | Full summary inline, and a **Device session** link. |
+| Glossary | **Run Summary**: "…shown on the Flows page and beside an ended live session…" | "…beside an ended live session or a Dry Run review, docked in an island that collapses to its verdict…" |
+| ADR 0078 | The Flows page shows a native Run's catalog summary | Shows its full summary, with a link to the ended device session. |
+
+The MCP `viewUrl` params don't change: `?session=` and `?recording=` keep their meaning.
 
 ## Flows page (#755)
 
