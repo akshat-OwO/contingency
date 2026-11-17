@@ -15,13 +15,13 @@ interface RunSummaryDockState {
   readonly collapsed: boolean;
   readonly expand: () => void;
   readonly label: string;
-  readonly verdict: SummaryVerdict | undefined;
+  readonly verdict: SummaryVerdict | null;
 }
 
 const RunSummaryDockContext = createContext<RunSummaryDockState | null>(null);
 
 const PublishVerdictContext = createContext<
-  ((verdict?: SummaryVerdict) => void) | null
+  ((verdict: SummaryVerdict | null) => void) | null
 >(null);
 
 /**
@@ -37,7 +37,7 @@ export const usePublishRunSummaryVerdict = (verdict: SummaryVerdict): void => {
     }
     publish({ label, tone });
     return () => {
-      publish();
+      publish(null);
     };
   }, [label, publish, tone]);
 };
@@ -91,7 +91,7 @@ export const RunSummaryPill = () => {
     >
       <NotebookTextIcon aria-hidden="true" />
       Summary
-      {dock.verdict === undefined ? null : (
+      {dock.verdict === null ? null : (
         <VerdictChip verdict={dock.verdict} />
       )}
     </Button>
@@ -175,7 +175,7 @@ export const WorkspaceWithRunSummary = ({
 }) => {
   const [collapsedAtom] = useState(() => Atom.make(false));
   const [collapsed, setCollapsed] = useAtom(collapsedAtom);
-  const [verdictAtom] = useState(() => Atom.make<SummaryVerdict | undefined>());
+  const [verdictAtom] = useState(() => Atom.make<SummaryVerdict | null>(null));
   const [verdict, setVerdict] = useAtom(verdictAtom);
   const present = summary !== null;
   // A new summary opens again, even if the last one was folded away.

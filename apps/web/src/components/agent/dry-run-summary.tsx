@@ -138,7 +138,7 @@ const SummaryVideo = ({
   src,
   summary,
 }: {
-  readonly seekAt: VideoSeek | undefined;
+  readonly seekAt: VideoSeek | null;
   readonly src: string;
   readonly summary: TaskAgentRunSummary;
 }) => (
@@ -368,7 +368,7 @@ const TaskRunSummaryLayout = ({
   readonly videoSrc: string | undefined;
 }) => {
   usePublishRunSummaryVerdict(verdict);
-  const [seekAtom] = useState(() => Atom.make<VideoSeek | undefined>());
+  const [seekAtom] = useState(() => Atom.make<VideoSeek | null>(null));
   const [seekAt, setSeekAt] = useAtom(seekAtom);
   const onSeek = (at: string) => {
     setSeekAt({ at, key: (seekAt?.key ?? 0) + 1 });

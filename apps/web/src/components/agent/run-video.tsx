@@ -896,9 +896,9 @@ export const RunVideoPlayer = ({
 const runVideoSeek = (
   timeMap: RunVideoTimeMap | undefined,
   condensed: boolean,
-  seekAt: { readonly at: string; readonly key: number } | undefined
+  seekAt: { readonly at: string; readonly key: number } | null | undefined
 ): { readonly ms: number; readonly key: number } | undefined => {
-  if (timeMap === undefined || seekAt === undefined) {
+  if (timeMap === undefined || seekAt === undefined || seekAt === null) {
     return undefined;
   }
   const ms = videoOffsetMs(
@@ -932,7 +932,7 @@ export const RunVideo = ({
    * A moment of the Run to show, as an ISO time, such as a finding chosen
    * beside the video. A new `key` repeats the same moment.
    */
-  readonly seekAt?: { readonly at: string; readonly key: number } | undefined;
+  readonly seekAt?: { readonly at: string; readonly key: number } | null;
   readonly src: string;
   /** Places the Run's actions in the video; absent on older Summaries. */
   readonly timeMap: RunVideoTimeMap | undefined;
