@@ -3,13 +3,6 @@
 // markdown, then its Runs with a Run Summary and video.
 import { Button } from "@ui-sdk/react/button";
 import { Input } from "@ui-sdk/react/input";
-import {
-  Slider,
-  SliderControl,
-  SliderIndicator,
-  SliderThumb,
-  SliderTrack,
-} from "@ui-sdk/react/slider";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/react/tabs";
 import {
   Tree,
@@ -18,66 +11,30 @@ import {
   TreeItemIndicator,
   TreeItemLabel,
 } from "@ui-sdk/react/tree";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
-  AndroidIcon,
-  AppleIcon,
   ChevronIcon,
   DraftIcon,
-  EyeOffIcon,
+  ExternalIcon,
   FileIcon,
   FolderIcon,
-  ForwardIcon,
-  PauseIcon,
-  PlayIcon,
-  PointerIcon,
   RecordIcon,
   SearchIcon,
   VerifiedIcon,
   WebIcon,
 } from "./icons";
+import {
+  AssessmentChip,
+  PLATFORM,
+  RunSummary,
+  clock,
+  realLength,
+} from "./summary";
+import type { Platform, Run, Segment } from "./summary";
 
-type Platform = "web" | "android" | "ios";
-type Assessment = "working" | "not-working" | "inconclusive" | "blocked";
 type Scope = "local" | "global";
-
-/** One span of a Run's video. Idle Gaps play condensed (ADR 0046). */
-interface Segment {
-  readonly kind: "action" | "idle" | "hidden" | "takeover";
-  /** Seconds of the real Run this span covers. */
-  readonly real: number;
-  readonly label: string;
-}
-
-interface Run {
-  readonly id: string;
-  readonly kind: "Dry Run" | "Interactive Run";
-  readonly platform: Platform;
-  readonly title: string;
-  readonly assessment: Assessment;
-  readonly when: string;
-  readonly explanation: string;
-  readonly findings: readonly {
-    readonly outcome: Assessment;
-    readonly text: string;
-  }[];
-  readonly modifications?: readonly string[];
-  readonly checks?: readonly {
-    readonly name: string;
-    readonly outcome: Assessment;
-  }[];
-  readonly scans?: readonly {
-    readonly name: string;
-    readonly outcome: Assessment;
-    readonly text: string;
-  }[];
-  readonly flows: readonly string[];
-  readonly video: readonly Segment[];
-  /** Cleanup deleted this Dry Run's evidence when its Flow was verified. */
-  readonly purged?: boolean;
-}
 
 interface Recording {
   readonly id: string;
@@ -98,22 +55,6 @@ interface Flow {
   readonly runs: readonly Run[];
   readonly recordings: readonly Recording[];
 }
-
-const PLATFORM: Record<
-  Platform,
-  { readonly name: string; readonly Icon: () => ReactNode }
-> = {
-  android: { Icon: AndroidIcon, name: "Android" },
-  ios: { Icon: AppleIcon, name: "iOS" },
-  web: { Icon: WebIcon, name: "Web" },
-};
-
-const ASSESSMENT: Record<Assessment, string> = {
-  blocked: "Blocked",
-  inconclusive: "Inconclusive",
-  "not-working": "Not working",
-  working: "Working",
-};
 
 const a = (real: number, label: string): Segment => ({
   kind: "action",
@@ -227,6 +168,130 @@ Sign in through the company identity provider.
 2. Sign in and approve the request.
    Done when: the app shows the signed-in home page.`;
 
+const PROFILE_MD = `# profile
+
+Change the display name on the profile tab and see it saved.
+
+## Inputs
+
+- \`display_name\`: the new name.
+
+## Procedure
+
+1. Open the **Profile** tab.
+   Done when: the current display name shows.
+2. Tap **Edit**, enter \`display_name\`, then tap **Save**.
+   Done when: the profile shows \`display_name\` after the app restarts.`;
+
+/** The Dry Run an Android session ends with; it waits on Verify or Reject. */
+const PROFILE_DRY_RUN: Run = {
+  assessment: "working",
+  explanation:
+    "The new display name saved and still showed after the app was restarted. Both Done when outcomes were observed.",
+  findings: [
+    {
+      at: 18,
+      evidence: 2,
+      outcome: "working",
+      text: "The profile showed “Rae QA” right after Save.",
+    },
+    {
+      at: 37,
+      evidence: 3,
+      outcome: "working",
+      text: "After a restart, the profile still showed “Rae QA”.",
+    },
+  ],
+  flows: ["profile"],
+  id: "run_F2pr",
+  kind: "Dry Run",
+  platform: "android",
+  task: "The profile shows the new display name after the app restarts.",
+  title: "Dry Run of profile",
+  video: [
+    a(5, "Open the Profile tab"),
+    a(6, "Tap Edit"),
+    a(7, "Enter display_name"),
+    idle(11),
+    a(4, "Tap Save"),
+    a(9, "Restart the app"),
+  ],
+  when: "just now",
+};
+
+const WISHLIST_MD = `# wishlist
+
+Save a product to the wishlist as a signed-in shopper and find it there.
+
+## Inputs
+
+- \`email\`: the shopper's sign-in email.
+- \`password\`: the shopper's password.
+
+## Procedure
+
+1. Sign in with \`email\` and \`password\`.
+   Done when: the header shows **Account**.
+2. Open any product and choose **Save to wishlist**.
+   Done when: the heart icon is filled.
+3. Open **Account → Wishlist**.
+   Done when: the saved product is listed.`;
+
+/** The web Dry Run a browser session ends with; it waits on Verify or Reject. */
+const WISHLIST_DRY_RUN: Run = {
+  assessment: "working",
+  checks: [
+    { name: "POST /api/wishlist responds 201", outcome: "working" },
+    { name: "Wishlist badge count is 1", outcome: "working" },
+  ],
+  emulation: "Desktop 1280×800 · en-US · light",
+  explanation:
+    "Signed in, saved the Merino Beanie, and found it on the wishlist page. All three Done when outcomes were observed.",
+  findings: [
+    {
+      at: 14,
+      evidence: 2,
+      outcome: "working",
+      text: "The header showed Account after sign-in.",
+    },
+    {
+      at: 38,
+      evidence: 2,
+      outcome: "working",
+      text: "The heart filled after Save to wishlist.",
+    },
+    {
+      at: 55,
+      evidence: 3,
+      outcome: "working",
+      text: "Account → Wishlist listed the Merino Beanie.",
+    },
+  ],
+  flows: ["wishlist"],
+  id: "run_W8hs",
+  kind: "Dry Run",
+  platform: "web",
+  scans: [
+    {
+      name: "Accessibility · wishlist page",
+      outcome: "working",
+      text: "No violations.",
+    },
+  ],
+  task: "The saved product shows on the wishlist page.",
+  title: "Dry Run of wishlist",
+  video: [
+    a(5, "Open shop.localhost"),
+    a(9, "Sign in as qa@shop.localhost"),
+    idle(16),
+    a(6, "Open Merino Beanie"),
+    a(4, "Save to wishlist"),
+    idle(9),
+    a(8, "Open Account → Wishlist"),
+  ],
+  when: "just now",
+};
+
 const FLOWS: readonly Flow[] = [
   {
     description:
@@ -254,10 +319,14 @@ const FLOWS: readonly Flow[] = [
         findings: [
           {
             outcome: "working",
+            at: 84,
+            evidence: 2,
             text: "Thanks for your order shows with order #10482.",
           },
           {
             outcome: "not-working",
+            at: 92,
+            evidence: 3,
             text: "The View order link in the confirmation email returns 404.",
           },
         ],
@@ -277,8 +346,10 @@ const FLOWS: readonly Flow[] = [
             text: "2 findings: the order number has no label, and one image has no alt text.",
           },
         ],
+        instructions: ["Also open the order email and check its link."],
         kind: "Interactive Run",
         platform: "web",
+        task: "Buy one pair of wool socks with the test card, then check that the confirmation page and email agree.",
         title: "Buy wool socks and check the confirmation email",
         video: [
           a(6, "Open shop.localhost"),
@@ -325,6 +396,7 @@ const FLOWS: readonly Flow[] = [
         findings: [
           {
             outcome: "inconclusive",
+            at: 80,
             text: "3-D Secure was approved by you, not the agent.",
           },
         ],
@@ -351,6 +423,29 @@ const FLOWS: readonly Flow[] = [
       ["Emulation", "Desktop 1280×800 · en-US · light"],
     ],
     verified: true,
+  },
+  {
+    description:
+      "Save a product to the wishlist as a signed-in shopper and find it there.",
+    files: [{ body: WISHLIST_MD, path: "flow.md" }],
+    group: ["shop"],
+    name: "wishlist",
+    platform: "web",
+    recordings: [
+      {
+        id: "rec_8Wl3",
+        keyframes: 26,
+        phase: "Dry Run passed",
+        when: "20 minutes ago",
+      },
+    ],
+    runs: [WISHLIST_DRY_RUN],
+    scope: "local",
+    stamped: [
+      ["Hosts", "shop.localhost"],
+      ["Emulation", "Desktop 1280×800 · en-US · light"],
+    ],
+    verified: false,
   },
   {
     description: "Search the store and narrow the results with filters.",
@@ -416,7 +511,12 @@ const FLOWS: readonly Flow[] = [
         explanation:
           "Signed in and Welcome back showed. The password screen is secure, so it is hidden in the video.",
         findings: [
-          { outcome: "working", text: "Welcome back showed after sign-in." },
+          {
+            at: 24,
+            evidence: 2,
+            outcome: "working",
+            text: "Welcome back showed after sign-in.",
+          },
         ],
         flows: ["login"],
         id: "run_A7nn",
@@ -463,6 +563,8 @@ const FLOWS: readonly Flow[] = [
         findings: [
           {
             outcome: "not-working",
+            at: 49,
+            evidence: 2,
             text: "Step 3 asked for a Free plan the app does not offer.",
           },
         ],
@@ -470,6 +572,7 @@ const FLOWS: readonly Flow[] = [
         id: "run_N4cs",
         kind: "Dry Run",
         platform: "ios",
+        task: "A new account reaches the home tab with notifications on.",
         title: "Dry Run of onboarding",
         video: [
           a(6, "Open the app"),
@@ -508,6 +611,29 @@ const FLOWS: readonly Flow[] = [
     stamped: [
       ["Target App", "com.contingency.publiclogin · 1.4.0"],
       ["Emulation", "Pixel_9 · Android 16 · portrait"],
+    ],
+    verified: false,
+  },
+  {
+    description: "Change the display name on the profile tab.",
+    files: [{ body: PROFILE_MD, path: "flow.md" }],
+    group: ["account"],
+    name: "profile",
+    platform: "android",
+    recordings: [
+      {
+        id: "rec_5Pf0",
+        keyframes: 19,
+        phase: "Dry Run passed",
+        when: "25 minutes ago",
+      },
+    ],
+    runs: [PROFILE_DRY_RUN],
+    scope: "local",
+    stamped: [
+      ["Target App", "com.contingency.publiclogin · 1.4.0"],
+      ["Emulation", "Pixel_9 · Android 16 · portrait"],
+      ["Starting Data", "Signed in as qa@example.com"],
     ],
     verified: false,
   },
@@ -557,10 +683,22 @@ const ROOT_RUNS: readonly Run[] = [
     explanation:
       "Found a red wool jacket in size M for $74 and added it to the cart. Stopped before paying, as asked.",
     findings: [
-      { outcome: "working", text: "Cart holds one Red Wool Jacket, M, $74." },
+      {
+        at: 52,
+        evidence: 2,
+        outcome: "working",
+        text: "Cart holds one Red Wool Jacket, M, $74.",
+      },
+      {
+        at: 21,
+        outcome: "inconclusive",
+        text: "The size filter reset once after the page reloaded; the agent set it again.",
+      },
     ],
     flows: [],
     id: "run_R3dj",
+    instructions: ["Stop before paying."],
+    task: "Find a red jacket under $80 in size M and add it to the cart. Stop before paying.",
     kind: "Interactive Run",
     modifications: ["Mocked /api/recommendations with an empty list"],
     platform: "web",
@@ -585,6 +723,7 @@ const ROOT_RUNS: readonly Run[] = [
     ],
     flows: ["search", "checkout"],
     id: "run_P9mm",
+    outcome: "interrupted",
     kind: "Interactive Run",
     platform: "web",
     title: "Search, then check out the first result",
@@ -596,12 +735,6 @@ const ROOT_RUNS: readonly Run[] = [
     when: "yesterday",
   },
 ];
-
-const playback = (s: Segment) =>
-  s.kind === "idle" ? Math.min(2, s.real / 10) : s.real;
-const clock = (seconds: number) =>
-  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-const realLength = (run: Run) => run.video.reduce((t, s) => t + s.real, 0);
 
 /* ------------------------------------------------------------------- inline */
 
@@ -1012,354 +1145,19 @@ const RootDocPane = ({ run }: { readonly run: Run | undefined }) => (
   </section>
 );
 
-/* ---------------------------------------------------------------- video */
-
-/** Where playback time `t` falls: its span, how far into it, and real time. */
-const locate = (run: Run, t: number) => {
-  let start = 0;
-  let realBefore = 0;
-  for (const s of run.video) {
-    const len = playback(s);
-    if (t < start + len || s === run.video.at(-1)) {
-      const into = Math.min(1, Math.max(0, (t - start) / len));
-      return { current: s, into, realNow: realBefore + s.real * into };
-    }
-    start += len;
-    realBefore += s.real;
-  }
-  return { current: undefined, into: 0, realNow: 0 };
-};
-
-/** One frame of the Run video, for the player and the seek preview. */
-const Frame = ({
-  native,
-  current,
-  realNow,
-}: {
-  readonly native: boolean;
-  readonly current: Segment | undefined;
-  readonly realNow: number;
-}) => (
-  <>
-    {native ? (
-      <div className="phone">
-        <div className="bar" style={{ width: "40%" }} />
-        <div className="card" />
-        <div className="bar" />
-        <div className="bar" style={{ width: "70%" }} />
-      </div>
-    ) : (
-      <div className="mini-page">
-        <div className="bar" style={{ width: "28%" }} />
-        <div className="hero-block" />
-        <div className="grid">
-          <div />
-          <div />
-          <div />
-        </div>
-      </div>
-    )}
-    {current?.kind === "action" && !native ? (
-      <span
-        aria-hidden="true"
-        className="agent-cursor"
-        style={{
-          left: `${20 + ((realNow * 37) % 60)}%`,
-          top: `${30 + ((realNow * 23) % 50)}%`,
-        }}
-      >
-        <PointerIcon />
-      </span>
-    ) : null}
-    {current?.kind === "hidden" ? (
-      <div className="video-veil">
-        <EyeOffIcon />
-        <span className="veil-text">Hidden: secure screen</span>
-      </div>
-    ) : null}
-    {current?.kind === "idle" ? (
-      <span className="video-badge">
-        <ForwardIcon />
-        Fast-forwarded {clock(current.real)}
-      </span>
-    ) : null}
-    {current?.kind === "takeover" ? (
-      <span className="video-badge" data-tone="takeover">
-        <PointerIcon />
-        You had control
-      </span>
-    ) : null}
-  </>
-);
-
-const KIND: Record<Segment["kind"], string> = {
-  action: "Agent action",
-  hidden: "Hidden Interval",
-  idle: "Idle Gap",
-  takeover: "Takeover",
-};
-
-const Video = ({ run }: { readonly run: Run }) => {
-  const total = run.video.reduce((t, s) => t + playback(s), 0);
-  /** The pointer over the seek bar: its x in the track, and the time there. */
-  const [hover, setHover] = useState<{
-    readonly x: number;
-    readonly width: number;
-    readonly t: number;
-  } | null>(null);
-  const [t, setT] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(
-      () =>
-        setT((x) => {
-          if (x + 0.1 >= total) {
-            setPlaying(false);
-            return total;
-          }
-          return x + 0.1;
-        }),
-      100
-    );
-    return () => clearInterval(id);
-  }, [playing, total]);
-
-  const { current, realNow } = locate(run, t);
-  const native = run.platform !== "web";
-  const peek = hover ? locate(run, hover.t) : null;
-
-  return (
-    <div className="video">
-      <div className="video-frame" data-native={native || undefined}>
-        <div className="video-screen">
-          <Frame current={current} native={native} realNow={realNow} />
-          {!playing && t === 0 ? (
-            <button
-              aria-label="Play Run video"
-              className="video-big-play"
-              onClick={() => setPlaying(true)}
-              type="button"
-            >
-              <PlayIcon />
-            </button>
-          ) : null}
-        </div>
-        <p className="video-caption" aria-live="off">
-          {current?.label}
-        </p>
-      </div>
-      <div className="video-controls">
-        <Button
-          aria-label={playing ? "Pause" : "Play"}
-          className="icon-btn"
-          onClick={() => {
-            if (t >= total) setT(0);
-            setPlaying(!playing);
-          }}
-        >
-          {playing ? <PauseIcon /> : <PlayIcon />}
-        </Button>
-        <Slider
-          className="scrub"
-          max={total}
-          min={0}
-          onValueChange={(v: number) => {
-            setPlaying(false);
-            setT(v);
-          }}
-          step={0.1}
-          value={t}
-        >
-          <SliderControl
-            className="scrub-control"
-            onPointerLeave={() => setHover(null)}
-            onPointerMove={(e) => {
-              const track = e.currentTarget.querySelector(".scrub-track");
-              if (!(track instanceof HTMLElement)) return;
-              const box = track.getBoundingClientRect();
-              const x = Math.min(box.width, Math.max(0, e.clientX - box.left));
-              setHover({ t: (x / box.width) * total, width: box.width, x });
-            }}
-          >
-            <SliderTrack className="scrub-track">
-              <span aria-hidden="true" className="scrub-segments">
-                {run.video.map((s, i) => (
-                  <span
-                    data-kind={s.kind}
-                    key={i}
-                    style={{ flexGrow: playback(s) }}
-                  />
-                ))}
-              </span>
-              <SliderIndicator className="scrub-fill" />
-              {hover && peek ? (
-                // Pointer-only preview; the thumb's value text covers keyboard
-                // and screen reader users.
-                <span
-                  aria-hidden="true"
-                  className="scrub-peek island"
-                  data-native={native || undefined}
-                  style={{
-                    left: `clamp(var(--peek-half), ${hover.x}px, ${hover.width}px - var(--peek-half))`,
-                  }}
-                >
-                  <span className="peek-frame video-screen">
-                    <Frame
-                      current={peek.current}
-                      native={native}
-                      realNow={peek.realNow}
-                    />
-                  </span>
-                  <span className="peek-text">
-                    <span className="peek-label">{peek.current?.label}</span>
-                    <span className="peek-meta">
-                      <span className="mono">{clock(peek.realNow)}</span>
-                      {peek.current ? (
-                        <span
-                          className="peek-kind"
-                          data-kind={peek.current.kind}
-                        >
-                          {KIND[peek.current.kind]}
-                        </span>
-                      ) : null}
-                    </span>
-                  </span>
-                </span>
-              ) : null}
-              {hover ? (
-                <span
-                  aria-hidden="true"
-                  className="scrub-hover-line"
-                  style={{ left: hover.x }}
-                />
-              ) : null}
-              <SliderThumb
-                aria-label="Seek"
-                className="scrub-thumb"
-                aria-valuetext={`${clock(realNow)} of the Run`}
-              />
-            </SliderTrack>
-          </SliderControl>
-        </Slider>
-        <span className="mono video-time">
-          {clock(realNow)} / {clock(realLength(run))}
-        </span>
-      </div>
-    </div>
-  );
-};
-
 /* ---------------------------------------------------------------- runs */
 
 type Entry =
   | { readonly kind: "run"; readonly run: Run }
   | { readonly kind: "recording"; readonly recording: Recording };
 
-const AssessmentChip = ({ value }: { readonly value: Assessment }) => (
-  <span className="chip" data-assessment={value}>
-    <span aria-hidden="true" className="dot" />
-    {ASSESSMENT[value]}
-  </span>
-);
-
-const RunSummary = ({
-  run,
-  onFlow,
+const RecordingSummary = ({
+  recording,
+  onReview,
 }: {
-  readonly run: Run;
-  readonly onFlow: (name: string) => void;
+  readonly recording: Recording;
+  readonly onReview: (id: string) => void;
 }) => (
-  <article aria-label="Run Summary" className="summary">
-    {run.purged ? null : <Video key={run.id} run={run} />}
-    <div className="summary-head">
-      <AssessmentChip value={run.assessment} />
-      <span className="hint">
-        {run.kind} · {PLATFORM[run.platform].name} · {run.when} ·{" "}
-        {clock(realLength(run))}
-      </span>
-    </div>
-    <h3 className="summary-title">{run.title}</h3>
-    <p className="summary-text">{run.explanation}</p>
-    <section aria-label="Findings" className="findings">
-      <h4 className="eyebrow">
-        {run.findings.length === 1
-          ? "1 finding"
-          : `${run.findings.length} findings`}
-      </h4>
-      <ul>
-        {run.findings.map((f) => (
-          <li key={f.text}>
-            <AssessmentChip value={f.outcome} />
-            <span>{f.text}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-    {run.checks ? (
-      <section aria-label="Browser Checks" className="findings">
-        <h4 className="eyebrow">Browser Checks</h4>
-        <ul>
-          {run.checks.map((c) => (
-            <li key={c.name}>
-              <AssessmentChip value={c.outcome} />
-              <span className="mono mod">{c.name}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    ) : null}
-    {run.scans ? (
-      <section aria-label="Scan Reports" className="findings">
-        <h4 className="eyebrow">Scan Reports</h4>
-        <ul>
-          {run.scans.map((s) => (
-            <li key={s.name}>
-              <AssessmentChip value={s.outcome} />
-              <span>
-                <strong>{s.name}</strong> {s.text}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    ) : null}
-    {run.modifications ? (
-      <section aria-label="Browser Modifications" className="findings">
-        <h4 className="eyebrow">Browser Modifications</h4>
-        <ul>
-          {run.modifications.map((m) => (
-            <li key={m}>
-              <span className="mono mod">{m}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
-    ) : null}
-    {run.flows.length > 1 ? (
-      <section aria-label="Flows" className="findings">
-        <h4 className="eyebrow">Flows</h4>
-        <div className="chips">
-          {run.flows.map((f) => (
-            <Button className="flow-pill" key={f} onClick={() => onFlow(f)}>
-              {f}
-            </Button>
-          ))}
-        </div>
-      </section>
-    ) : null}
-    <footer className="summary-foot">
-      <code className="run-id">{run.id}</code>
-      {run.purged ? (
-        <span className="hint">
-          Cleanup removed this Dry Run's video when the Flow was verified.
-        </span>
-      ) : null}
-    </footer>
-  </article>
-);
-
-const RecordingSummary = ({ recording }: { readonly recording: Recording }) => (
   <article aria-label="Teaching Recording" className="summary">
     <div className="summary-head">
       <span className="chip" data-status="neutral">
@@ -1376,8 +1174,45 @@ const RecordingSummary = ({ recording }: { readonly recording: Recording }) => (
         ? "Cleanup removed the video, Trace and events after the Flow was verified. Only the manifest is left."
         : "Sensitive learning evidence. Cleanup deletes it once you verify the Flow, after a passing Dry Run."}
     </p>
+    {REVIEWS[recording.id]?.run ? (
+      <div className="summary-links">
+        <Button className="link-pill" onClick={() => onReview(recording.id)}>
+          Open Dry Run review
+          <ExternalIcon />
+        </Button>
+      </div>
+    ) : null}
   </article>
 );
+
+/** Ways from an inline summary to the views that can act on it. */
+const RunLinks = ({
+  run,
+  onReview,
+  onEnded,
+}: {
+  readonly run: Run;
+  readonly onReview: (id: string) => void;
+  readonly onEnded: (runId: string) => void;
+}) => {
+  const review = Object.entries(REVIEWS).find(([, r]) => r.run === run.id);
+  return (
+    <>
+      {review ? (
+        <Button className="link-pill" onClick={() => onReview(review[0])}>
+          Dry Run review
+          <ExternalIcon />
+        </Button>
+      ) : null}
+      {run.platform === "web" || run.purged ? null : (
+        <Button className="link-pill" onClick={() => onEnded(run.id)}>
+          Device session
+          <ExternalIcon />
+        </Button>
+      )}
+    </>
+  );
+};
 
 const RunsPane = ({
   entries,
@@ -1385,9 +1220,13 @@ const RunsPane = ({
   emptyNote,
   onShow,
   initial,
+  onReview,
+  onEnded,
 }: {
   readonly entries: readonly Entry[];
   readonly onFlow: (name: string) => void;
+  readonly onReview: (id: string) => void;
+  readonly onEnded: (runId: string) => void;
   readonly emptyNote: string;
   readonly onShow?: (id: string) => void;
   readonly initial?: string;
@@ -1458,9 +1297,24 @@ const RunsPane = ({
           </ul>
           <div className="pane-body">
             {current?.kind === "run" ? (
-              <RunSummary onFlow={onFlow} run={current.run} />
+              <RunSummary
+                key={current.run.id}
+                links={
+                  <RunLinks
+                    onEnded={onEnded}
+                    onReview={onReview}
+                    run={current.run}
+                  />
+                }
+                onFlow={onFlow}
+                run={current.run}
+                variant="inline"
+              />
             ) : current ? (
-              <RecordingSummary recording={current.recording} />
+              <RecordingSummary
+                onReview={onReview}
+                recording={current.recording}
+              />
             ) : null}
           </div>
         </>
@@ -1480,7 +1334,13 @@ export const FlowsPage = ({
   empty,
   run,
   onRun,
+  onReview,
+  onEnded,
 }: {
+  /** Opens a recording's Dry Run review at `?recording=`. */
+  readonly onReview: (id: string) => void;
+  /** Opens a native Run's ended device session. */
+  readonly onEnded: (runId: string) => void;
   /** The Run in the URL (`?run=`), shown in the Runs pane. */
   readonly run: string | undefined;
   readonly onRun: (id: string) => void;
@@ -1531,13 +1391,21 @@ export const FlowsPage = ({
           />
           <main className="flows-main" key={value}>
             {name === "@root" ? (
-              <RootPanes initial={run} onFlow={openFlow} onRun={onRun} />
+              <RootPanes
+                initial={run}
+                onEnded={onEnded}
+                onFlow={openFlow}
+                onReview={onReview}
+                onRun={onRun}
+              />
             ) : flow ? (
               <>
                 <DocPane flow={flow} scope={scope} />
                 <RunsPane
                   emptyNote="No Runs yet. Ask your agent to Dry Run this Flow."
                   initial={run}
+                  onEnded={onEnded}
+                  onReview={onReview}
                   onShow={onRun}
                   entries={[
                     ...flow.runs.map((run) => ({ kind: "run" as const, run })),
@@ -1561,7 +1429,11 @@ const RootPanes = ({
   onFlow,
   onRun,
   initial,
+  onReview,
+  onEnded,
 }: {
+  readonly onReview: (id: string) => void;
+  readonly onEnded: (runId: string) => void;
   readonly onFlow: (name: string) => void;
   readonly onRun: (id: string) => void;
   readonly initial: string | undefined;
@@ -1575,7 +1447,9 @@ const RootPanes = ({
         emptyNote=""
         entries={ROOT_RUNS.map((run) => ({ kind: "run" as const, run }))}
         initial={initial}
+        onEnded={onEnded}
         onFlow={onFlow}
+        onReview={onReview}
         onShow={(id) => {
           setShown(id);
           onRun(id);
@@ -1590,4 +1464,51 @@ export const flowOfRun = (id: string): string | undefined => {
   if (ROOT_RUNS.some((r) => r.id === id)) return "local:@root";
   const flow = FLOWS.find((f) => f.runs.some((r) => r.id === id));
   return flow ? `${flow.scope}:${flow.name}` : undefined;
+};
+
+/** Every Run the prototype knows, for the ended views. */
+export const runById = (id: string): Run | undefined =>
+  [...FLOWS.flatMap((f) => f.runs), ...ROOT_RUNS].find((r) => r.id === id);
+
+/**
+ * Each Teaching Recording's Dry Run review (ADR 0073): the latest Dry Run and
+ * where the user's decision starts.
+ */
+export const REVIEWS: Record<
+  string,
+  {
+    readonly flow: string;
+    readonly platform: Platform;
+    readonly run?: string;
+    readonly decision: "pending" | "verified";
+    /** The Teaching session this recording came from, while it runs. */
+    readonly session?: string;
+  }
+> = {
+  rec_3Vw8: {
+    decision: "pending",
+    flow: "onboarding",
+    platform: "ios",
+    run: "run_N4cs",
+  },
+  rec_5Pf0: {
+    decision: "pending",
+    flow: "profile",
+    platform: "android",
+    run: "run_F2pr",
+  },
+  rec_8Wl3: {
+    decision: "pending",
+    flow: "wishlist",
+    platform: "web",
+    run: "run_W8hs",
+  },
+  rec_6Tz4: { decision: "pending", flow: "settings", platform: "android" },
+  rec_7Hc2: {
+    decision: "verified",
+    flow: "checkout",
+    platform: "web",
+    run: "run_M2ra",
+    session: "s1",
+  },
 };

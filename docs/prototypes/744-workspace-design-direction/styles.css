@@ -1665,7 +1665,9 @@ body[data-status-side="left"] .status-island {
   color: #eee;
   font: inherit;
 }
-body[data-view="session"] .scaffold {
+body[data-view="session"] .scaffold,
+body[data-view="review"] .scaffold,
+body[data-view="ended"] .scaffold {
   top: 50%;
   right: 24px;
   bottom: auto;
@@ -2761,4 +2763,754 @@ body[data-view="flows"] .scaffold {
   background: var(--fg);
   color: var(--canvas);
   box-shadow: none;
+}
+
+/* ------------------------------------------------------- run summary (#757) */
+/* One summary for every surface: docked beside an ended session or a Dry Run
+   review, and inline in the Flows page's Runs pane. */
+:root {
+  --dock-w: 420px;
+}
+@media (max-width: 1279px) {
+  :root {
+    --dock-w: 360px;
+  }
+}
+body[data-view="review"] #canvas,
+body[data-view="ended"] #canvas {
+  opacity: 0.5;
+}
+body[data-dock="open"] {
+  --dock: calc(var(--dock-w) + 12px);
+}
+body[data-dock="open"] .stage.web,
+body[data-dock="open"] .bottom-row {
+  right: calc(16px + var(--dock));
+}
+body[data-dock="open"] .stage.native {
+  left: calc((100% - var(--dock)) / 2);
+}
+body[data-dock] .scaffold {
+  right: auto;
+  left: 24px;
+}
+
+/* The ended stage: the last frame, quietened, with a label. */
+.stage[data-ended] .fake-page,
+.stage[data-ended] .screen {
+  filter: saturate(0.5);
+  opacity: 0.82;
+}
+.last-frame {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: oklch(0.18 0 0 / 0.78);
+  color: oklch(0.95 0 0);
+  font-size: 12px;
+  font-weight: 500;
+  translate: -50% 0;
+  backdrop-filter: blur(8px);
+}
+.stage.native .last-frame {
+  top: 28px;
+}
+.last-frame svg {
+  width: 11px;
+  height: 11px;
+}
+.chip[data-status="ended"] {
+  --tone: var(--muted);
+}
+.chip[data-status="review"] {
+  --tone: var(--run);
+}
+.chip[data-tone="passed"] {
+  --tone: var(--ok);
+}
+.chip[data-tone="failed"] {
+  --tone: var(--rec);
+}
+.chip[data-tone="attention"] {
+  --tone: var(--brand-ink);
+}
+.chip[data-tone="neutral"] {
+  --tone: var(--muted);
+}
+
+/* The dock: a full-height island on the right. */
+.summary-dock {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  width: var(--dock-w);
+  min-height: 0;
+  overflow: hidden;
+  animation: dock-in 0.46s var(--ease-out) both;
+}
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    translate: 24px 0;
+  }
+}
+.dock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--island-border);
+}
+.dock-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.dock-glyph {
+  display: grid;
+  color: var(--muted);
+}
+.dock-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+.dock-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+  scrollbar-width: thin;
+}
+.dock-foot {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--island-border);
+  background: color-mix(in oklch, var(--island-solid) 60%, transparent);
+}
+.dock-pill .chip {
+  height: 22px;
+  margin-right: -4px;
+}
+/* Named only while collapsing or expanding (see morphDock). */
+[data-dock-morph] .summary-dock,
+[data-dock-morph] .dock-pill {
+  view-transition-name: summary-dock;
+}
+[data-dock-morph] .summary-dock {
+  animation: none;
+}
+::view-transition-group(summary-dock) {
+  z-index: 5;
+  animation-duration: 0.46s;
+  animation-timing-function: cubic-bezier(0.3, 1.08, 0.5, 1);
+}
+::view-transition-image-pair(summary-dock) {
+  overflow: clip;
+  border-radius: var(--radius);
+  background: var(--island-solid);
+}
+::view-transition-old(summary-dock),
+::view-transition-new(summary-dock) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: top right;
+}
+::view-transition-old(summary-dock) {
+  animation: fade-out 0.16s var(--ease-out) both;
+}
+::view-transition-new(summary-dock) {
+  animation: fade-in 0.26s 0.08s var(--ease-out) both;
+}
+
+/* The summary itself. */
+.summary[data-variant] {
+  gap: 14px;
+}
+.verdict {
+  --tone: var(--muted);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--tone) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--tone) 20%, transparent);
+}
+.verdict[data-tone="passed"] {
+  --tone: var(--ok);
+}
+.verdict[data-tone="failed"] {
+  --tone: var(--rec);
+}
+.verdict[data-tone="attention"] {
+  --tone: var(--brand-ink);
+}
+.verdict-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: color-mix(in oklch, var(--tone, var(--rec)) 15%, transparent);
+  color: var(--tone, var(--rec));
+}
+.verdict-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.verdict-text p {
+  margin: 0;
+}
+.verdict-label {
+  color: color-mix(in oklch, var(--tone, var(--rec)) 78%, var(--fg));
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.verdict-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px !important;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.verdict-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.verdict-platform svg {
+  width: 13px;
+  height: 13px;
+}
+.summary-lede {
+  display: grid;
+  gap: 6px;
+}
+.summary-lede .summary-text {
+  margin: 0;
+}
+.summary-why {
+  margin: 0;
+  font-size: 13.5px;
+  text-wrap: pretty;
+}
+.purged {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--island-border);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  text-wrap: pretty;
+}
+.purged svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+.summary[data-variant="dock"] .video-frame[data-native] .video-screen {
+  aspect-ratio: 4 / 3;
+}
+.video-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.video-caption-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-caption .peek-kind {
+  flex: none;
+  font-family: "Geist", sans-serif;
+  font-size: 11.5px;
+}
+.video-caption .peek-kind[data-kind="action"] {
+  --tone: oklch(0.75 0.12 250);
+}
+.video-caption .peek-kind[data-kind="takeover"] {
+  --tone: var(--brand);
+}
+.video-caption .peek-kind:not([data-kind="action"], [data-kind="takeover"]) {
+  --tone: oklch(0.7 0 0);
+}
+.agent-cursor[data-native] svg {
+  width: 16px;
+  height: 16px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.stats div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+  padding: 8px 6px;
+  text-align: center;
+}
+.stats div + div {
+  border-left: 1px solid var(--island-border);
+}
+.stats dt {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.stats dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stats dd.mono {
+  font-size: 15px;
+}
+
+/* Sections behind a segmented tab bar, so the video never moves. */
+.summary-tabs {
+  display: grid;
+  gap: 12px;
+}
+.seg-tabs {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--island-hover);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.seg-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.seg-tab:hover {
+  color: var(--fg);
+}
+.seg-tab[data-selected],
+.seg-tab[aria-selected="true"] {
+  background: var(--island-solid);
+  color: var(--fg);
+  box-shadow:
+    0 1px 2px oklch(0 0 0 / 0.08),
+    inset 0 0 0 1px var(--island-border);
+}
+.seg-count {
+  color: var(--faint);
+  font:
+    500 11px "Geist Mono",
+    monospace;
+}
+.seg-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rec);
+}
+.seg-panel {
+  display: grid;
+  gap: 16px;
+}
+.seg-panel[hidden] {
+  display: none;
+}
+.checklist,
+.rows,
+.finding-list,
+.instructions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.checklist {
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--island-border);
+}
+.checklist li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.checklist li + li {
+  border-top: 1px solid var(--island-border);
+}
+.check-value {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.checklist li[data-state="fail"] .check-value {
+  color: var(--rec);
+  font-weight: 500;
+}
+.check-mark {
+  display: grid;
+}
+.check-mark svg {
+  width: 17px;
+  height: 17px;
+}
+.check-mark[data-state="pass"] {
+  color: var(--ok);
+}
+.check-mark[data-state="fail"] {
+  color: var(--rec);
+}
+.check-mark[data-state="na"] {
+  color: var(--faint);
+}
+.sub {
+  display: grid;
+  gap: 8px;
+}
+.sub .eyebrow {
+  margin: 0;
+  color: var(--faint);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.rows {
+  display: grid;
+  gap: 8px;
+}
+.rows li,
+.finding-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  font-size: 13px;
+}
+.row-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.dot-mark {
+  --tone: var(--muted);
+  width: 8px;
+  height: 8px;
+  margin: 6px 4px 0;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--tone) 18%, transparent);
+}
+.dot-mark[data-assessment="working"] {
+  --tone: var(--ok);
+}
+.dot-mark[data-assessment="not-working"] {
+  --tone: var(--rec);
+}
+.dot-mark[data-assessment="blocked"] {
+  --tone: var(--brand-ink);
+}
+.finding-list {
+  display: grid;
+  gap: 14px;
+}
+.finding-list p {
+  margin: 0;
+  text-wrap: pretty;
+}
+.finding-list p:first-child {
+  font-size: 13.5px;
+}
+.finding-list .row-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 3px;
+}
+.seek-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--island-hover);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  font:
+    500 11.5px "Geist Mono",
+    monospace;
+}
+.seek-link svg {
+  width: 10px;
+  height: 10px;
+}
+.seek-link:hover {
+  box-shadow: inset 0 0 0 1px var(--run);
+  color: var(--run);
+}
+.task-text {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--island-hover);
+  font-size: 13.5px;
+  text-wrap: pretty;
+}
+.instructions {
+  display: grid;
+  gap: 6px;
+}
+.instructions li {
+  display: flex;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.instructions svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+.facts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--island-border);
+}
+.facts div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12.5px;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+}
+.summary-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.run-id-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--faint);
+  font-size: 12px;
+}
+.run-id-btn svg {
+  width: 13px;
+  height: 13px;
+}
+.run-id-btn:hover {
+  background: var(--island-hover);
+  color: var(--fg);
+}
+.link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--island-hover);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--island-border);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.link-pill svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+.link-pill:hover {
+  box-shadow: inset 0 0 0 1px var(--brand);
+}
+.local-note {
+  margin: -6px 0 0;
+  color: var(--faint);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+/* Writing and missing. */
+.writing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    rotate: 360deg;
+  }
+}
+.skeleton {
+  border-radius: 10px;
+  background: var(--skeleton);
+  animation: skel 1.4s ease-in-out infinite;
+}
+@keyframes skel {
+  50% {
+    opacity: 0.55;
+  }
+}
+.verdict-skel {
+  height: 62px;
+  border-radius: 16px;
+}
+.skeleton.line {
+  height: 12px;
+}
+.video-skel {
+  aspect-ratio: 16 / 10;
+  border-radius: 16px;
+}
+.stats-skel {
+  height: 56px;
+  border-radius: 14px;
+}
+.missing {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: color-mix(in oklch, var(--rec) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--rec) 20%, transparent);
+}
+.missing p {
+  margin: 0 0 4px;
+}
+.missing .btn {
+  margin-top: 10px;
+}
+.btn.small {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+/* Verify / Reject under a Dry Run's summary. */
+.decision {
+  --tone: var(--muted);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.decision[data-tone="ask"] {
+  display: grid;
+  gap: 10px;
+}
+.decision[data-tone="failed"] {
+  --tone: var(--rec);
+}
+.decision[data-tone="passed"] {
+  --tone: var(--ok);
+}
+.decision > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--tone);
+}
+.decision-text {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  text-wrap: pretty;
+}
+.decision-text p {
+  margin: 0;
+}
+.decision-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.decision[data-tone="ask"] .decision-actions .btn {
+  flex: 1;
+}
+.decision[data-tone="failed"]:has(.retained) {
+  display: grid;
+}
+.retained {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .summary-dock,
+  .skeleton,
+  .spinner {
+    animation: none;
+  }
 }

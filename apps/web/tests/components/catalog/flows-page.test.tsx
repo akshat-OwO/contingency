@@ -543,7 +543,7 @@ test("points a native Run at its device session for its video", () => {
     })
   ).toBeVisible();
   expect(
-    within(summary).getByRole("link", { name: "device session" })
+    within(summary).getByRole("link", { name: "Device session" })
   ).toHaveAttribute("href", `/?android=${sessionId}`);
 });
 

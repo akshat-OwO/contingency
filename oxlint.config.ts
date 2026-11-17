@@ -26,12 +26,10 @@ const replacedUiLibraries = [
 
 // Files outside `components/ui/` that still import a replaced library. The
 // sub-issue that migrates a file removes it from this list.
-const uiMigrationExceptions = [
-  {
-    allow: ["react-resizable-panels"],
-    files: ["apps/web/src/components/agent/run-summary-sidebar.tsx"],
-  },
-];
+const uiMigrationExceptions: readonly {
+  readonly allow: readonly string[];
+  readonly files: readonly string[];
+}[] = [];
 
 const restrictedUiImports = ({
   allow = new Set<string>(),

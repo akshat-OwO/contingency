@@ -42,16 +42,24 @@ import {
   SelectValue,
 } from "@ui-sdk/react/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@ui-sdk/react/tooltip";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
-import { FlowsPage, flowOfRun } from "./flows";
+import { FlowsPage, REVIEWS, flowOfRun, runById } from "./flows";
 import {
   AndroidIcon,
   AppleIcon,
   CheckIcon,
+  ArrowLeftIcon,
   ChevronIcon,
   ChevronsIcon,
   CloseIcon,
@@ -67,15 +75,36 @@ import {
   PointerIcon,
   QuestionIcon,
   ShieldIcon,
+  StopIcon,
   SunIcon,
   TaskIcon,
   UploadIcon,
   WatcherMark,
   WebIcon,
 } from "./icons";
+import {
+  DecisionBar,
+  RunSummary,
+  SummaryDock,
+  SummaryMissing,
+  SummaryPill,
+  SummaryWriting,
+  VerdictChip,
+  verdictOf,
+} from "./summary";
+import type { Decision, Run } from "./summary";
 
 type Platform = "web" | "android" | "ios";
-type Status = "ready" | "recording" | "running" | "needs-you" | "takeover";
+type Status =
+  | "ready"
+  | "recording"
+  | "running"
+  | "needs-you"
+  | "takeover"
+  | "ended";
+
+/** How far the Runner has got writing an ended Run's summary. */
+type SummaryState = "writing" | "ready" | "missing";
 
 /** What the agent is waiting on. Shown bottom centre, one at a time. */
 type Request =
@@ -114,7 +143,19 @@ interface Session {
   control?: "agent" | "user";
   requests: readonly Request[];
   readonly task?: string;
+  /** The Teaching Recording a Dry Run session tests. */
+  readonly recording?: string;
+  /** Set when the session's Run ends; its summary docks beside it. */
+  ended?: { readonly run: string; readonly summary: SummaryState };
 }
+
+/** The Run each Run session ends with, so the prototype can end it. */
+const ENDS_WITH: Record<string, string> = {
+  s2: "run_F2pr",
+  s4: "run_R3dj",
+  s5: "run_N4cs",
+  s6: "run_W8hs",
+};
 
 type WithoutId<T> = T extends unknown ? Omit<T, "id"> : never;
 
@@ -155,11 +196,13 @@ const REQUEST_SAMPLES: readonly WithoutId<Request>[] = [
 ];
 
 const statusOf = (s: Session): Status =>
-  s.requests.length > 0
-    ? "needs-you"
-    : s.control === "user"
-      ? "takeover"
-      : s.status;
+  s.ended
+    ? "ended"
+    : s.requests.length > 0
+      ? "needs-you"
+      : s.control === "user"
+        ? "takeover"
+        : s.status;
 
 const PLATFORMS: Record<
   Platform,
@@ -188,9 +231,10 @@ const SEED: readonly Session[] = [
   },
   {
     activity: "Dry Run",
-    flow: "login",
+    flow: "profile",
     id: "s2",
     platform: "android",
+    recording: "rec_5Pf0",
     since: now - 128_000,
     control: "agent",
     requests: [],
@@ -219,6 +263,31 @@ const SEED: readonly Session[] = [
     status: "running",
     step: [2, 6],
     task: "Find a red jacket under $80 in size M and add it to the cart. Stop before paying.",
+  },
+  {
+    activity: "Dry Run",
+    control: "agent",
+    flow: "wishlist",
+    id: "s6",
+    platform: "web",
+    recording: "rec_8Wl3",
+    requests: [],
+    since: now - 48_000,
+    status: "running",
+    step: [3, 3],
+  },
+  {
+    activity: "Dry Run",
+    control: "agent",
+    ended: { run: "run_N4cs", summary: "ready" },
+    flow: "onboarding",
+    id: "s5",
+    platform: "ios",
+    recording: "rec_3Vw8",
+    requests: [],
+    since: now - 400_000,
+    status: "running",
+    step: [5, 5],
   },
 ];
 
@@ -322,6 +391,13 @@ const StatusChip = ({ session }: { readonly session: Session }) => {
         <span className="chip" data-status="takeover">
           <PointerIcon />
           You have control
+        </span>
+      );
+    case "ended":
+      return (
+        <span className="chip" data-status="ended">
+          <StopIcon />
+          Ended
         </span>
       );
   }
@@ -1128,6 +1204,7 @@ const LINE: Record<Status, string> = {
   recording: "Every click and keystroke becomes an instruction.",
   running: "The agent is following the Flow.",
   takeover: "Capture continues. Return control when you're done.",
+  ended: "The Run ended. Its summary is beside it.",
 };
 
 /**
@@ -1146,6 +1223,8 @@ const LONG_LINE: Record<Status, string> = {
     "The agent is following the Flow on its own. Take control at any time; the agent waits until you return it.",
   takeover:
     "Capture continues while you drive. Return control when you're done and the agent picks up from this page.",
+  ended:
+    "The Run ended and the device was released. Its summary is docked beside the last frame; Done closes the session.",
 };
 
 /**
@@ -1198,9 +1277,21 @@ const primaryAction = (
           tone: "ghosty",
         };
 
-const Stage = ({ session }: { readonly session: Session }) =>
+/** The page or device, live; or its last frame once the Run has ended. */
+const Stage = ({
+  session,
+  ended = false,
+}: {
+  readonly session: Pick<Session, "platform" | "flow">;
+  readonly ended?: boolean;
+}) =>
   session.platform === "web" ? (
-    <section aria-label="Browser" className="stage web">
+    <section
+      aria-label="Browser"
+      className="stage web"
+      data-ended={ended || undefined}
+    >
+      {ended ? <LastFrame /> : null}
       <div className="urlbar">
         <span className="dots">
           <i />
@@ -1227,7 +1318,9 @@ const Stage = ({ session }: { readonly session: Session }) =>
     <section
       aria-label={`${PLATFORMS[session.platform].name} device`}
       className="stage native"
+      data-ended={ended || undefined}
     >
+      {ended ? <LastFrame /> : null}
       <div className="screen">
         <div className="bar" style={{ width: "40%" }} />
         <div className="card" />
@@ -1237,6 +1330,13 @@ const Stage = ({ session }: { readonly session: Session }) =>
       </div>
     </section>
   );
+
+const LastFrame = () => (
+  <span className="last-frame">
+    <StopIcon />
+    Last frame
+  </span>
+);
 
 const DETAILS: Record<
   Exclude<Session["activity"], "Teaching">,
@@ -1251,11 +1351,11 @@ const DETAILS: Record<
   "Dry Run": {
     body: (s) =>
       `Repeat the ${s.flow} Flow in a fresh app state, with fresh inputs, to show it still reaches its outcome.`,
-    foot: "Taught 2 days ago on Pixel_9 · Android 16",
+    foot: "Taught 25 minutes ago on Pixel_9 · Android 16",
     list: [
-      "Open Contingency Public Login.",
-      "Sign in with the supplied email and password.",
-      "Done when the heading “Welcome back” shows.",
+      "Open the Profile tab.",
+      "Tap Edit, enter display_name, then tap Save.",
+      "Done when the profile shows display_name after a restart.",
     ],
     listTitle: "Flow steps",
     title: "Dry Run",
@@ -1660,6 +1760,281 @@ const RequestTier = ({
   );
 };
 
+/** Marks the page while a summary is docked, so the stage and the bottom
+ * islands give up its width. */
+const useDock = (state: "open" | "collapsed" | null) => {
+  // Layout effect: a view transition snapshots the next view before passive
+  // effects run, and the stage must already have its width back by then.
+  useLayoutEffect(() => {
+    if (state === null) return;
+    document.body.dataset.dock = state;
+    return () => {
+      delete document.body.dataset.dock;
+    };
+  }, [state]);
+};
+
+/**
+ * Collapse and expand are the only moves that morph the dock, into the status
+ * island's Summary pill and back. The name is set just for that transition, so
+ * leaving the view never flies the dock anywhere.
+ */
+const morphDock = (update: () => void) => {
+  const root = document.documentElement;
+  if (!document.startViewTransition || reducedMotion()) {
+    update();
+    return;
+  }
+  root.dataset.dockMorph = "";
+  const vt = document.startViewTransition(() => flushSync(update));
+  void vt.finished.finally(() => {
+    delete root.dataset.dockMorph;
+  });
+};
+
+/** The status island's Summary tool while the dock is collapsed. */
+const CollapsedSummary = ({
+  run,
+  dock,
+}: {
+  readonly run: Run | undefined;
+  readonly dock: DockProps;
+}) =>
+  dock.collapsed ? (
+    <SummaryPill
+      label="Run Summary"
+      onExpand={() => morphDock(() => dock.onCollapse(false))}
+      verdict={run ? <VerdictChip run={run} /> : null}
+    />
+  ) : null;
+
+interface DockProps {
+  readonly decisions: Readonly<Record<string, Decision>>;
+  readonly onDecide: (
+    recording: string,
+    d: "verify" | "reject" | "retry"
+  ) => void;
+  readonly collapsed: boolean;
+  readonly onCollapse: (collapsed: boolean) => void;
+  readonly onFlow: (name: string) => void;
+}
+
+/**
+ * The Run Summary docked on the right, for an ended session, a Dry Run review
+ * or an ended device session. A Dry Run with a Teaching Recording carries the
+ * Verify / Reject bar underneath.
+ */
+const DockedSummary = ({
+  run,
+  summary,
+  recording,
+  onRetry,
+  decisions,
+  onDecide,
+  collapsed,
+  onCollapse,
+  onFlow,
+}: DockProps & {
+  readonly run: Run | undefined;
+  readonly summary: SummaryState;
+  readonly recording: string | undefined;
+  readonly onRetry: () => void;
+}) => {
+  useDock(collapsed ? "collapsed" : "open");
+  const review = recording ? REVIEWS[recording] : undefined;
+  const decision = recording ? decisions[recording] : undefined;
+  // Verifying runs Cleanup, which takes the Dry Run's video with it.
+  const shown =
+    run && (decision === "verified" || decision === "cleanup-failed")
+      ? { ...run, purged: true }
+      : run;
+  const ready = summary === "ready" && shown !== undefined;
+  return (
+    <SummaryDock
+      collapsed={collapsed}
+      footer={
+        ready && review && decision ? (
+          <DecisionBar
+            decision={decision}
+            flow={review.flow}
+            onDecide={(d) => {
+              if (recording) onDecide(recording, d);
+            }}
+            passed={verdictOf(shown).tone === "passed"}
+          />
+        ) : null
+      }
+      label="Run Summary"
+      onCollapse={(c) => morphDock(() => onCollapse(c))}
+    >
+      {summary === "writing" ? (
+        <SummaryWriting />
+      ) : summary === "missing" ? (
+        <SummaryMissing onRetry={onRetry} />
+      ) : shown ? (
+        <RunSummary key={shown.id} onFlow={onFlow} run={shown} variant="dock" />
+      ) : (
+        <div className="pane-empty">
+          <p>
+            No Dry Run yet. Ask your agent to Dry Run{" "}
+            <span className="mono">{review?.flow}</span>; its summary shows
+            here.
+          </p>
+        </div>
+      )}
+    </SummaryDock>
+  );
+};
+
+/** The status island once there is nothing left to drive. */
+const EndedStatus = ({
+  chip,
+  line,
+  children,
+}: {
+  readonly chip: ReactNode;
+  readonly line: string;
+  readonly children: ReactNode;
+}) => {
+  const ref = useStatusWidth();
+  return (
+    <section
+      aria-label="Session status"
+      className="status-island island"
+      ref={ref}
+    >
+      {chip}
+      <span className="sentence">{line}</span>
+      <div className="tools">{children}</div>
+    </section>
+  );
+};
+
+const TopNav = ({
+  sessions,
+  current,
+  onHome,
+  onOpen,
+}: {
+  readonly sessions: readonly Session[];
+  readonly current: Session | undefined;
+  readonly onHome: () => void;
+  readonly onOpen: (id: string) => void;
+}) => (
+  <nav aria-label="Workspace" className="chrome left island">
+    <a
+      aria-label="Contingency home"
+      className="brand"
+      href="/"
+      onClick={(e) => {
+        e.preventDefault();
+        onHome();
+      }}
+    >
+      <WatcherMark className="brand-mark" />
+      <span className="brand-text">contingency</span>
+    </a>
+    {sessions.length > 0 ? (
+      <>
+        <span className="divider" />
+        <div className="switcher-slot">
+          <SessionSwitcher
+            current={current}
+            onNew={onHome}
+            onOpen={onOpen}
+            sessions={sessions}
+            side="bottom"
+          />
+        </div>
+      </>
+    ) : null}
+  </nav>
+);
+
+/**
+ * A finished Run with no live session behind it: a Dry Run review at
+ * `?recording=` (ADR 0073), or a native Run's ended device session opened from
+ * the Flows page (ADR 0078). Both show the last frame and the docked summary.
+ */
+const EndedView = ({
+  mode,
+  platform,
+  flow,
+  run,
+  recording,
+  sessions,
+  onHome,
+  onOpen,
+  onDone,
+  dock,
+}: {
+  readonly mode: "review" | "device";
+  readonly platform: Platform;
+  readonly flow: string;
+  readonly run: Run | undefined;
+  readonly recording: string | undefined;
+  readonly sessions: readonly Session[];
+  readonly onHome: () => void;
+  readonly onOpen: (id: string) => void;
+  readonly onDone: () => void;
+  readonly dock: DockProps;
+}) => {
+  const teaching = recording ? REVIEWS[recording]?.session : undefined;
+  const back = sessions.find((s) => s.id === teaching);
+  return (
+    <>
+      <TopNav
+        current={undefined}
+        onHome={onHome}
+        onOpen={onOpen}
+        sessions={sessions}
+      />
+      <Actions />
+      <Stage ended session={{ flow, platform }} />
+      <DockedSummary
+        {...dock}
+        onRetry={() => {}}
+        recording={recording}
+        run={run}
+        summary="ready"
+      />
+      <div className="bottom-row">
+        <EndedStatus
+          chip={
+            mode === "review" ? (
+              <span className="chip" data-status="review">
+                <CheckIcon />
+                Dry Run review
+              </span>
+            ) : (
+              <span className="chip" data-status="ended">
+                <StopIcon />
+                Ended
+              </span>
+            )
+          }
+          line={
+            mode === "review"
+              ? `${flow} · read-only. Nothing here restarts the Dry Run.`
+              : "This device session ended. Its Run is read-only."
+          }
+        >
+          <CollapsedSummary dock={dock} run={run} />
+          {back ? (
+            <Button className="btn ghosty" onClick={() => onOpen(back.id)}>
+              <ArrowLeftIcon />
+              Back to Teaching
+            </Button>
+          ) : null}
+          <Button className="btn" onClick={onDone}>
+            Done
+          </Button>
+        </EndedStatus>
+      </div>
+    </>
+  );
+};
+
 const SessionView = ({
   session,
   sessions,
@@ -1668,6 +2043,8 @@ const SessionView = ({
   onOpen,
   onPatch,
   onNotice,
+  onDone,
+  dock,
 }: {
   readonly session: Session;
   readonly sessions: readonly Session[];
@@ -1676,8 +2053,20 @@ const SessionView = ({
   readonly onOpen: (id: string) => void;
   readonly onPatch: (patch: Patch) => void;
   readonly onNotice: NotifyFn;
+  /** Closes an ended session. */
+  readonly onDone: () => void;
+  readonly dock: DockProps;
 }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const ended = session.ended;
+  const teaching =
+    ended && session.recording
+      ? sessions.find(
+          (s) =>
+            s.id === REVIEWS[session.recording ?? ""]?.session ||
+            (s.activity === "Teaching" && s.flow === session.flow)
+        )
+      : undefined;
   return (
     <>
       <nav aria-label="Workspace" className="chrome left island">
@@ -1705,7 +2094,21 @@ const SessionView = ({
         </div>
       </nav>
       <Actions />
-      <Stage session={session} />
+      <Stage ended={ended !== undefined} session={session} />
+      {ended ? (
+        <DockedSummary
+          {...dock}
+          onRetry={() =>
+            onPatch((s) => ({
+              ...s,
+              ended: s.ended && { ...s.ended, summary: "ready" },
+            }))
+          }
+          recording={session.recording}
+          run={runById(ended.run)}
+          summary={ended.summary}
+        />
+      ) : null}
       <div aria-live="polite" className="notices">
         {notice ? (
           <div
@@ -1728,7 +2131,35 @@ const SessionView = ({
         ) : null}
       </div>
       <div className="bottom-row">
-        <div className="bottom-center">
+        {ended ? (
+          <EndedStatus
+            chip={<StatusChip session={session} />}
+            line={
+              ended.summary === "writing"
+                ? "The Run ended. Writing its summary…"
+                : LINE.ended
+            }
+          >
+            <CollapsedSummary
+              dock={dock}
+              run={ended.summary === "ready" ? runById(ended.run) : undefined}
+            />
+            <TaskDetails session={session} />
+            {teaching ? (
+              <Button
+                className="btn ghosty"
+                onClick={() => onOpen(teaching.id)}
+              >
+                <ArrowLeftIcon />
+                Back to Teaching
+              </Button>
+            ) : null}
+            <Button className="btn" onClick={onDone}>
+              Done
+            </Button>
+          </EndedStatus>
+        ) : null}
+        <div className="bottom-center" hidden={ended !== undefined}>
           <RequestTier
             collapsed={collapsed}
             key={session.requests[0]?.id}
@@ -1744,7 +2175,13 @@ const SessionView = ({
             session={session}
           />
         </div>
-        <StatusIsland onNotice={onNotice} onPatch={onPatch} session={session} />
+        {ended ? null : (
+          <StatusIsland
+            onNotice={onNotice}
+            onPatch={onPatch}
+            session={session}
+          />
+        )}
       </div>
     </>
   );
@@ -1773,6 +2210,13 @@ const App = () => {
     long: true,
   });
   const [sample, setSample] = useState(0);
+  const [decisions, setDecisions] = useState<Record<string, Decision>>(() =>
+    Object.fromEntries(
+      Object.entries(REVIEWS).map(([id, r]) => [id, r.decision])
+    )
+  );
+  const [cleanupFails, setCleanupFails] = useState(false);
+  const [dockCollapsed, setDockCollapsed] = useState(false);
 
   useEffect(() => {
     document.body.dataset.view = view.name;
@@ -1864,6 +2308,57 @@ const App = () => {
       ? sessions.find((s) => s.id === view.id)
       : undefined;
 
+  const decide = (recording: string, d: "verify" | "reject" | "retry") => {
+    const flowName = REVIEWS[recording]?.flow ?? "the Flow";
+    const next: Decision =
+      d === "reject"
+        ? "rejected"
+        : d === "verify" && cleanupFails
+          ? "cleanup-failed"
+          : "verified";
+    transition(() => setDecisions((all) => ({ ...all, [recording]: next })));
+    setNotice(
+      next === "rejected"
+        ? `Rejected ${flowName}. The agent can fix it and Dry Run again.`
+        : next === "cleanup-failed"
+          ? `Verified ${flowName}, but Cleanup couldn't finish.`
+          : `Verified ${flowName}. Its Teaching evidence is gone.`,
+      next === "cleanup-failed" ? "error" : "ok"
+    );
+  };
+  const dock = {
+    collapsed: dockCollapsed,
+    decisions,
+    onCollapse: setDockCollapsed,
+    onDecide: decide,
+    onFlow: (name: string) =>
+      transition(() => setView({ flow: `local:${name}`, name: "flows" })),
+  };
+  const endRun = (id: string) => {
+    const run = ENDS_WITH[id];
+    if (!run) return;
+    patch(id, (s) => ({
+      ...s,
+      control: "agent",
+      ended: { run, summary: "writing" },
+      requests: [],
+    }));
+    setTimeout(
+      () =>
+        patch(id, (s) =>
+          s.ended?.summary === "writing"
+            ? { ...s, ended: { ...s.ended, summary: "ready" } }
+            : s
+        ),
+      1800
+    );
+  };
+  const closeSession = (id: string) =>
+    transition(() => {
+      setSessions((all) => all.filter((s) => s.id !== id));
+      setView({ name: "home" });
+    });
+
   // The Flows button grows into the catalog sidebar, and the sidebar shrinks
   // back into the button on the way out. The ref still holds the previous
   // view while the transition renders the next one.
@@ -1903,34 +2398,18 @@ const App = () => {
               actions={<Actions />}
               empty={catalogEmpty}
               nav={
-                <nav aria-label="Workspace" className="chrome left island">
-                  <a
-                    aria-label="Contingency home"
-                    className="brand"
-                    href="/"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      home();
-                    }}
-                  >
-                    <WatcherMark className="brand-mark" />
-                    <span className="brand-text">contingency</span>
-                  </a>
-                  {sessions.length > 0 ? (
-                    <>
-                      <span className="divider" />
-                      <div className="switcher-slot">
-                        <SessionSwitcher
-                          current={undefined}
-                          onNew={home}
-                          onOpen={(id) => open(id)}
-                          sessions={sessions}
-                          side="bottom"
-                        />
-                      </div>
-                    </>
-                  ) : null}
-                </nav>
+                <TopNav
+                  current={undefined}
+                  onHome={home}
+                  onOpen={(id) => open(id)}
+                  sessions={sessions}
+                />
+              }
+              onEnded={(run) =>
+                transition(() => setView({ name: "ended", run }))
+              }
+              onReview={(recording) =>
+                transition(() => setView({ name: "review", recording }))
               }
               onRun={(run) => setView({ flow: view.flow, name: "flows", run })}
               onSelect={(flow) => setView({ flow, name: "flows" })}
@@ -1938,8 +2417,53 @@ const App = () => {
               selected={view.flow}
               sessionFlow={fromSession}
             />
+          ) : view.name === "review" ? (
+            <EndedView
+              dock={dock}
+              flow={REVIEWS[view.recording]?.flow ?? view.recording}
+              key={view.recording}
+              mode="review"
+              onDone={() =>
+                transition(() =>
+                  setView({
+                    flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
+                    name: "flows",
+                  })
+                )
+              }
+              onHome={home}
+              onOpen={(id) => open(id)}
+              platform={REVIEWS[view.recording]?.platform ?? "web"}
+              recording={view.recording}
+              run={runById(REVIEWS[view.recording]?.run ?? "")}
+              sessions={sessions}
+            />
+          ) : view.name === "ended" ? (
+            <EndedView
+              dock={dock}
+              flow={runById(view.run)?.flows[0] ?? view.run}
+              key={view.run}
+              mode="device"
+              onDone={() =>
+                transition(() =>
+                  setView({
+                    flow: flowOfRun(view.run),
+                    name: "flows",
+                    run: view.run,
+                  })
+                )
+              }
+              onHome={home}
+              onOpen={(id) => open(id)}
+              platform={runById(view.run)?.platform ?? "android"}
+              recording={undefined}
+              run={runById(view.run)}
+              sessions={sessions}
+            />
           ) : current ? (
             <SessionView
+              dock={dock}
+              onDone={() => closeSession(current.id)}
               notice={notice}
               onNotice={setNotice}
               onPatch={(fn) => patch(current.id, fn)}
@@ -1984,7 +2508,73 @@ const App = () => {
               sessions={sessions}
             />
           )}
+          {view.name === "review" || view.name === "ended" ? (
+            <div aria-live="polite" className="notices">
+              {notice ? (
+                <div
+                  className="notice island"
+                  data-tone={notice.tone}
+                  key={notice.id}
+                  role="status"
+                >
+                  <span aria-hidden="true" className="notice-mark">
+                    {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
+                  </span>
+                  {notice.text}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <Scaffold
+            canEnd={
+              current !== undefined &&
+              !current.ended &&
+              ENDS_WITH[current.id] !== undefined
+            }
+            onEnd={() => {
+              if (current) endRun(current.id);
+            }}
+            summary={current?.ended?.summary}
+            onSummary={() => {
+              if (!current?.ended) return;
+              const order: SummaryState[] = ["ready", "writing", "missing"];
+              const next =
+                order[(order.indexOf(current.ended.summary) + 1) % 3] ??
+                "ready";
+              patch(current.id, (s) => ({
+                ...s,
+                ended: s.ended && { ...s.ended, summary: next },
+              }));
+            }}
+            review={
+              view.name === "review"
+                ? decisions[view.recording]
+                : current?.ended && current.recording
+                  ? decisions[current.recording]
+                  : undefined
+            }
+            onReview={() => {
+              const rec =
+                view.name === "review" ? view.recording : current?.recording;
+              if (!rec) return;
+              const order: Decision[] = [
+                "pending",
+                "rejected",
+                "verified",
+                "cleanup-failed",
+              ];
+              transition(() =>
+                setDecisions((all) => ({
+                  ...all,
+                  [rec]:
+                    order[
+                      (order.indexOf(all[rec] ?? "pending") + 1) % order.length
+                    ] ?? "pending",
+                }))
+              );
+            }}
+            cleanupFails={cleanupFails}
+            onCleanup={() => setCleanupFails(!cleanupFails)}
             onSessions={(on) => {
               transition(() => {
                 setSessions(on ? SEED.map((s) => ({ ...s })) : []);
@@ -2028,6 +2618,8 @@ const App = () => {
 type View =
   | { readonly name: "home" }
   | { readonly name: "session"; readonly id: string }
+  | { readonly name: "review"; readonly recording: string }
+  | { readonly name: "ended"; readonly run: string }
   | {
       readonly name: "flows";
       readonly flow?: string;
@@ -2036,6 +2628,9 @@ type View =
 
 const toUrl = (view: View) => {
   if (view.name === "session") return `/?session=${view.id}`;
+  if (view.name === "review") return `/?recording=${view.recording}`;
+  // A native Run's ended device session; the prototype keys it by Run.
+  if (view.name === "ended") return `/?session=ended:${view.run}`;
   if (view.name === "home") return "/";
   const params = new URLSearchParams();
   // Local Flows go by name alone; `global:<name>` names the user-global root.
@@ -2056,6 +2651,10 @@ const fromUrl = (): View => {
       run,
     };
   }
+  const recording = params.get("recording");
+  if (recording && REVIEWS[recording]) return { name: "review", recording };
+  const endedRun = params.get("session")?.match(/^ended:(.+)$/)?.[1];
+  if (endedRun && runById(endedRun)) return { name: "ended", run: endedRun };
   // The old Run Summary view, `/?run=<id>`, lands on that Run in its Flow, so
   // every MCP `viewUrl` already handed out keeps working.
   if (run) return { flow: flowOfRun(run), name: "flows", run };
@@ -2078,7 +2677,23 @@ const Scaffold = ({
   onNotice,
   options,
   onOptions,
+  canEnd,
+  onEnd,
+  summary,
+  onSummary,
+  review,
+  onReview,
+  cleanupFails,
+  onCleanup,
 }: {
+  readonly canEnd: boolean;
+  readonly onEnd: () => void;
+  readonly summary: SummaryState | undefined;
+  readonly onSummary: () => void;
+  readonly review: Decision | undefined;
+  readonly onReview: () => void;
+  readonly cleanupFails: boolean;
+  readonly onCleanup: () => void;
   readonly inFlows: boolean;
   readonly catalogEmpty: boolean;
   readonly onCatalog: () => void;
@@ -2117,7 +2732,27 @@ const Scaffold = ({
           Catalog: {catalogEmpty ? "empty" : "full"}
         </button>
       ) : null}
-      {inSession ? (
+      {canEnd ? (
+        <button onClick={onEnd} type="button">
+          End Run
+        </button>
+      ) : null}
+      {summary ? (
+        <button onClick={onSummary} type="button">
+          Summary: {summary}
+        </button>
+      ) : null}
+      {review ? (
+        <>
+          <button onClick={onReview} type="button">
+            Decision: {review}
+          </button>
+          <button onClick={onCleanup} type="button">
+            Cleanup: {cleanupFails ? "fails" : "works"}
+          </button>
+        </>
+      ) : null}
+      {inSession && !summary ? (
         <>
           <button onClick={onSide} type="button">
             Status: {side}

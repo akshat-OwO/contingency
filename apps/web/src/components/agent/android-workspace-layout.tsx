@@ -1,4 +1,4 @@
-import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-sidebar";
+import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-dock";
 import { useLatestDefined } from "@/hooks/use-latest-defined";
 
 /**

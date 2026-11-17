@@ -488,6 +488,31 @@ test("Tabs follow the tabs pattern and keep their slots", async () => {
   ).toHaveTextContent("Targets");
 });
 
+test("Segmented Tabs follow the tabs pattern for the Run Summary", async () => {
+  render(
+    <Tabs defaultValue="checks">
+      <TabsList aria-label="Run Summary sections" variant="segmented">
+        <TabsTrigger value="checks">Checks</TabsTrigger>
+        <TabsTrigger value="findings">Findings</TabsTrigger>
+        <TabsTrigger value="task">Task</TabsTrigger>
+      </TabsList>
+      <TabsContent value="checks">Run checks</TabsContent>
+      <TabsContent value="findings">No findings</TabsContent>
+      <TabsContent value="task">The task</TabsContent>
+    </Tabs>
+  );
+  const list = screen.getByRole("tablist", { name: "Run Summary sections" });
+  expect(list).toHaveAttribute("data-variant", "segmented");
+  expect(screen.getByRole("tab", { name: "Checks" })).toHaveAttribute(
+    "data-selected"
+  );
+  await checkPattern(list, "tabs");
+  await userEvent.click(screen.getByRole("tab", { name: "Task" }));
+  expect(screen.getByRole("tabpanel", { name: "Task" })).toHaveTextContent(
+    "The task"
+  );
+});
+
 test("Tree follows the tree view pattern and marks branches", async () => {
   const onValueChange = vi.fn();
   render(

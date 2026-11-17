@@ -1,6 +1,6 @@
 import { TeachingRecordingId } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
@@ -69,7 +69,8 @@ test.each([
     const calls = setup("passed");
     expect(calls).not.toHaveBeenCalled();
     await userEvent.click(await screen.findByRole("button", { name }));
-    await screen.findByText(new RegExp(`The user ${decision} this Flow.`, "u"));
+    const bar = screen.getByRole("region", { name: "Flow decision" });
+    await within(bar).findByText(new RegExp(`You ${decision} `, "u"));
     expect(calls).toHaveBeenCalledWith({
       payload: {
         operationId: expect.any(String),

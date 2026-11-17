@@ -1,6 +1,8 @@
 import { OperationId, dryRunVideoPath } from "@contingency/protocol";
 import type { TeachingRecordingId } from "@contingency/protocol";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { CircleAlertIcon, CircleCheckIcon, CircleXIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
@@ -9,12 +11,64 @@ import { RunSummaryView } from "@/components/agent/run-view";
 import { Button } from "@/components/ui/button";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+import { cn } from "@/lib/utils";
 
-const decisions = {
-  pending: "Awaiting the user's Verify / Reject decision.",
-  rejected: "The user rejected this Flow.",
-  verified:
-    "The user verified this Flow. Cleanup removes its recording evidence.",
+/**
+ * Where a Flow stands after its Dry Run, as one sentence (ADR 0073). Only a
+ * passed Dry Run with a pending decision asks for one.
+ */
+const decisionSentence = (
+  decision: "pending" | "rejected" | "verified",
+  outcome: "failed" | "passed" | undefined,
+  flow: ReactNode
+): ReactNode => {
+  if (decision === "verified") {
+    return <>You verified {flow}. Cleanup removes its recording evidence.</>;
+  }
+  if (decision === "rejected") {
+    return (
+      <>
+        You rejected {flow}. This evidence stays until the next Dry Run starts.
+      </>
+    );
+  }
+  if (outcome === "failed") {
+    return "This Flow can't be verified until a Dry Run passes. Ask the agent to fix it and run another.";
+  }
+  if (outcome === "passed") {
+    return (
+      <>
+        <strong className="font-semibold">Verify {flow}?</strong> Verifying
+        keeps the Flow and deletes its Teaching evidence.
+      </>
+    );
+  }
+  return "Awaiting your Verify or Reject decision.";
+};
+
+const decisionTone = {
+  ask: "",
+  failed: "[--decision-tone:var(--destructive)]",
+  neutral: "[--decision-tone:var(--muted-foreground)]",
+  passed: "[--decision-tone:var(--status-ready)]",
+};
+
+const DecisionIcon = ({
+  tone,
+}: {
+  readonly tone: keyof typeof decisionTone;
+}) => {
+  const className = "mt-0.5 size-4 shrink-0 text-(--decision-tone)";
+  if (tone === "passed") {
+    return <CircleCheckIcon aria-hidden="true" className={className} />;
+  }
+  if (tone === "neutral") {
+    return <CircleXIcon aria-hidden="true" className={className} />;
+  }
+  if (tone === "failed") {
+    return <CircleAlertIcon aria-hidden="true" className={className} />;
+  }
+  return null;
 };
 
 /** Persisted review only. Verification remains an explicit user decision. */
@@ -103,42 +157,78 @@ export const RecordingViewer = ({
       );
     }
   }
+  const outcome = view.result?.outcome;
+  const flowName =
+    view.summary !== null && isTaskDryRunSummary(view.summary)
+      ? view.summary.purpose.flowName
+      : undefined;
+  const flow =
+    flowName === undefined ? (
+      "this Flow"
+    ) : (
+      <span className="font-mono">{flowName}</span>
+    );
+  const asks = view.decision === "pending" && outcome === "passed";
+  let tone: keyof typeof decisionTone = "ask";
+  if (view.decision === "verified") {
+    tone = "passed";
+  } else if (view.decision === "rejected") {
+    tone = "neutral";
+  } else if (outcome === "failed") {
+    tone = "failed";
+  }
   return (
-    <section aria-label="Dry Run Summary" className="space-y-4">
-      <p className="text-sm" role="status">
-        {view.decision === "pending" && view.result?.outcome === "failed"
-          ? "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
-          : decisions[view.decision]}
-      </p>
-      {view.decision === "pending" && view.result?.outcome === "passed" ? (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={pending}
-            onClick={() => {
-              void decide("verify");
-            }}
-            type="button"
-          >
-            Verify flow
-          </Button>
-          <Button
-            disabled={pending}
-            onClick={() => {
-              void decide("reject");
-            }}
-            type="button"
-            variant="outline"
-          >
-            Reject flow
-          </Button>
+    <section aria-label="Dry Run Summary" className="flex flex-1 flex-col">
+      <div className="flex-1">{summary}</div>
+      {/*
+        The decision stays in reach under the summary however far it
+        scrolls: the bar sticks to the bottom of the dock.
+      */}
+      <section
+        aria-label="Flow decision"
+        className={cn(
+          "border-island-border bg-island-solid/85 sticky -bottom-4 z-10 -mx-4 mt-4 -mb-4 grid gap-2.5 border-t px-4 pt-3 pb-4 backdrop-blur-md",
+          decisionTone[tone]
+        )}
+        data-tone={tone}
+      >
+        <div className="flex items-start gap-2">
+          <DecisionIcon tone={tone} />
+          <p className="text-[13px] text-pretty" role="status">
+            {decisionSentence(view.decision, outcome, flow)}
+          </p>
         </div>
-      ) : null}
-      {decisionError === undefined ? null : (
-        <p className="text-destructive text-sm" role="alert">
-          {decisionError}
-        </p>
-      )}
-      {summary}
+        {asks ? (
+          <div className="flex justify-end gap-2">
+            <Button
+              disabled={pending}
+              onClick={() => {
+                void decide("reject");
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Reject flow
+            </Button>
+            <Button
+              disabled={pending}
+              onClick={() => {
+                void decide("verify");
+              }}
+              size="sm"
+              type="button"
+            >
+              Verify flow
+            </Button>
+          </div>
+        ) : null}
+        {decisionError === undefined ? null : (
+          <p className="text-destructive text-[13px]" role="alert">
+            {decisionError}
+          </p>
+        )}
+      </section>
     </section>
   );
 };

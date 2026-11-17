@@ -25,7 +25,17 @@ import {
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import {
+  DryRunSummaryView,
+  InteractiveRunSummaryView,
+} from "@/components/agent/dry-run-summary";
+import {
+  isTaskDryRunSummary,
+  isTaskInteractiveRunSummary,
+} from "@/components/agent/dry-run-summary-state";
+import type { SummaryVerdictTone } from "@/components/agent/dry-run-summary-state";
 import { EvidenceReference } from "@/components/agent/evidence-reference";
+import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { FlowMarkdown } from "@/components/catalog/flow-markdown";
 import {
@@ -57,7 +67,7 @@ import {
 } from "@/components/catalog/flows-page-state";
 import { OutcomeDot } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -669,12 +679,28 @@ const RootPane = ({
  * explanation, and its findings. It stands in where this process cannot read
  * the persisted Summary, such as a Run in the user-global root.
  */
+/** The catalog's verdict tone, as the full summary would colour it. */
+const catalogVerdictTone = (run: CatalogRunEntry): SummaryVerdictTone => {
+  if (run.assessment === null) {
+    return run.outcome === "completed" || run.outcome === "user-closed"
+      ? "attention"
+      : "failed";
+  }
+  if (run.assessment === "working") {
+    return "passed";
+  }
+  return run.assessment === "not-working" ? "failed" : "attention";
+};
+
 const CatalogRunSummary = ({
+  links,
   note,
   onFolder,
   run,
   scope,
 }: {
+  /** Ways out of the summary, such as the Run's device session. */
+  readonly links?: ReactNode;
   readonly note: ReactNode;
   readonly onFolder: (folder: FlowsFolder) => void;
   readonly run: CatalogRunEntry;
@@ -683,15 +709,10 @@ const CatalogRunSummary = ({
   const findings = run.findings ?? [];
   return (
     <section aria-label="Run Summary" className="grid gap-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="status-chip [--status-tone:var(--muted-foreground)]">
-          <OutcomeDot run={run} />
-          {runVerdict(run)}
-        </span>
-        <span className="text-muted-foreground text-xs">
-          {runKindLabel(run)} · {when(run.startedAt)} · {runDuration(run)}
-        </span>
-      </div>
+      <VerdictCard
+        facts={[runKindLabel(run), when(run.startedAt), runDuration(run)]}
+        verdict={{ label: runVerdict(run), tone: catalogVerdictTone(run) }}
+      />
       <h3 className="text-[15px] font-semibold tracking-[-0.015em] text-balance wrap-anywhere">
         {run.title}
       </h3>
@@ -731,6 +752,11 @@ const CatalogRunSummary = ({
       ) : null}
       <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
         <EvidenceReference id={run.runId} kind="Run ID" />
+        {links === undefined ? null : (
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            {links}
+          </div>
+        )}
       </footer>
       <p className="text-muted-foreground text-xs text-pretty">{note}</p>
     </section>
@@ -764,7 +790,34 @@ const StoredRunSummary = ({
       />
     );
   }
-  return <RunSummaryView heading={false} summary={result.value.summary} />;
+  const { summary } = result.value;
+  if (isTaskDryRunSummary(summary)) {
+    return (
+      <section aria-label="Run Summary">
+        <DryRunSummaryView
+          links={
+            run.recordingId === null ? null : (
+              <a
+                className={buttonVariants({ size: "xs", variant: "outline" })}
+                href={`/?recording=${run.recordingId}`}
+              >
+                Dry Run review
+              </a>
+            )
+          }
+          summary={summary}
+        />
+      </section>
+    );
+  }
+  if (isTaskInteractiveRunSummary(summary)) {
+    return (
+      <section aria-label="Run Summary">
+        <InteractiveRunSummaryView summary={summary} />
+      </section>
+    );
+  }
+  return <RunSummaryView heading={false} summary={summary} />;
 };
 
 const RunSummary = ({
@@ -791,18 +844,15 @@ const RunSummary = ({
   } else {
     body = (
       <CatalogRunSummary
-        note={
-          <>
-            Its video and device evidence are in its{" "}
-            <a
-              className="text-foreground font-medium underline underline-offset-2"
-              href={`/?${run.native.platform}=${run.native.sessionId}`}
-            >
-              device session
-            </a>
-            .
-          </>
+        links={
+          <a
+            className={buttonVariants({ size: "xs", variant: "outline" })}
+            href={`/?${run.native.platform}=${run.native.sessionId}`}
+          >
+            Device session
+          </a>
         }
+        note="Its video and device evidence are in its device session."
         onFolder={onFolder}
         run={run}
         scope={scope}
