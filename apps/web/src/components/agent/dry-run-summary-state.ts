@@ -47,7 +47,7 @@ export interface SummaryCheck {
   readonly value: string;
 }
 
-const runOutcomeLabel: Record<AgentTaskRunOutcome, string> = {
+export const runOutcomeLabel: Record<AgentTaskRunOutcome, string> = {
   completed: "Completed",
   crashed: "Crashed",
   interrupted: "Interrupted",

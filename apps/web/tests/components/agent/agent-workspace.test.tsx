@@ -3609,11 +3609,11 @@ test("explains that a failed recording review needs another passing Dry Run", as
     await refreshWorkspace();
     expect(
       await screen.findByText(
-        "This Flow cannot be verified until a Dry Run passes. The agent needs to fix it and run another Dry Run."
+        "This Flow can't be verified until a Dry Run passes. Ask the agent to fix it and run another."
       )
     ).toBeVisible();
     expect(
-      screen.queryByText("Awaiting the user's Verify / Reject decision.")
+      screen.queryByText("Awaiting your Verify or Reject decision.")
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Verify flow" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject flow" })).toBeNull();

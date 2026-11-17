@@ -25,7 +25,10 @@ import type {
 import { EvidenceReference } from "@/components/agent/evidence-reference";
 import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
-import { runVideoChapters } from "@/components/agent/run-video-timeline";
+import {
+  runVideoChapters,
+  videoOffsetMs,
+} from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
 import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
@@ -725,7 +728,9 @@ export const RunVideoPlayer = ({
    * A moment to show, in video milliseconds, from outside the player, such
    * as a keyframe chosen beside it. A new `key` repeats the same moment.
    */
-  readonly seekRequest?: { readonly ms: number; readonly key: number };
+  readonly seekRequest?:
+    | { readonly ms: number; readonly key: number }
+    | undefined;
   readonly src: string;
   readonly timeMap: RunVideoTimeMap | undefined;
   readonly timeline: readonly AgentTimelineEntry[];
@@ -887,6 +892,23 @@ export const RunVideoPlayer = ({
   );
 };
 
+/** Where a moment of the Run lands in its video, if the video holds it. */
+const runVideoSeek = (
+  timeMap: RunVideoTimeMap | undefined,
+  condensed: boolean,
+  seekAt: { readonly at: string; readonly key: number } | undefined
+): { readonly ms: number; readonly key: number } | undefined => {
+  if (timeMap === undefined || seekAt === undefined) {
+    return undefined;
+  }
+  const ms = videoOffsetMs(
+    timeMap,
+    condensed,
+    Date.parse(seekAt.at) - Date.parse(timeMap.startedAt)
+  );
+  return ms === undefined ? undefined : { key: seekAt.key, ms };
+};
+
 /**
  * A finished Run's video. It is condensed after the Run ends — Idle Gaps
  * fast-forwarded, the agent's cursor drawn in — so until it is ready the
@@ -897,6 +919,7 @@ export const RunVideoPlayer = ({
 export const RunVideo = ({
   className,
   note,
+  seekAt,
   src,
   timeMap,
   timeline,
@@ -905,6 +928,11 @@ export const RunVideo = ({
   readonly className?: string;
   /** Said under a video that exists, such as where it is kept. */
   readonly note?: React.ReactNode;
+  /**
+   * A moment of the Run to show, as an ISO time, such as a finding chosen
+   * beside the video. A new `key` repeats the same moment.
+   */
+  readonly seekAt?: { readonly at: string; readonly key: number } | undefined;
   readonly src: string;
   /** Places the Run's actions in the video; absent on older Summaries. */
   readonly timeMap: RunVideoTimeMap | undefined;
@@ -951,6 +979,7 @@ export const RunVideo = ({
         className={className}
         condensed={status?.condensed ?? false}
         path={status?.path}
+        seekRequest={runVideoSeek(timeMap, status?.condensed ?? false, seekAt)}
         src={src}
         timeMap={timeMap}
         timeline={timeline}

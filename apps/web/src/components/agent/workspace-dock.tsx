@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { RunSummaryPill } from "@/components/agent/run-summary-dock";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
@@ -320,6 +321,7 @@ export const DockShell = ({
               className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-8 *:data-[slot=button]:rounded-[10px] *:data-[slot=button]:px-3 *:data-[slot=button]:text-[13px] *:data-[slot=button]:not-[.bg-primary]:bg-transparent dark:*:data-[slot=button]:not-[.bg-primary]:bg-transparent"
               data-slot="dock-controls"
             >
+              <RunSummaryPill />
               {children}
             </div>
             <div className="-mr-2 -mb-2 -ml-3 basis-full whitespace-normal empty:hidden">

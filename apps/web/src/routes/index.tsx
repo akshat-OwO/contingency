@@ -9,7 +9,7 @@ import {
 import { Option, Schema } from "effect";
 
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
-import { RecordingViewer } from "@/components/agent/recording-view";
+import { DryRunReview } from "@/components/agent/dry-run-review";
 import {
   workspacePlatformFromSearch,
   workspacePlatformSearch,
@@ -29,14 +29,7 @@ const WorkspaceRouteComponent = () => {
   const { android, ios, recording, run, session } = useSearch({ from: "/" });
   const navigate = useNavigate({ from: "/" });
   if (recording !== undefined) {
-    return (
-      <main className="mx-auto h-[calc(100svh-3.5rem)] min-h-0 w-full max-w-3xl overflow-y-auto p-6">
-        <h1 className="mb-4 text-xl font-semibold tracking-tight">
-          Dry Run review
-        </h1>
-        <RecordingViewer recordingId={recording} />
-      </main>
-    );
+    return <DryRunReview recordingId={recording} />;
   }
   // `open_run` returns `/?run=<id>`. A Run Summary shows only on the Flows
   // page now (#755), so the link lands there with that Run selected.

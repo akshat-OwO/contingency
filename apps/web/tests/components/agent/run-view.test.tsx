@@ -453,8 +453,8 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
   // tab of another height never moves it.
   const verdict = screen.getByRole("region", { name: "Run verdict" });
   const video = screen.getByRole("region", { name: "Run video" });
-  const stats = screen.getByText("Agent findings").closest("dl");
-  const tabs = screen.getByRole("tablist");
+  const stats = screen.getByText("Findings", { selector: "dt" }).closest("dl");
+  const tabs = screen.getByRole("tablist", { name: "Run Summary sections" });
   const order = [
     ...document.querySelectorAll("section, dl, [role='tablist']"),
   ].filter((element) => [verdict, video, stats, tabs].includes(element));
@@ -537,7 +537,8 @@ test("fails a Dry Run the Runner observed failing even when every check passes",
   expect(screen.getByText("The cart was empty after reload.")).toBeVisible();
 });
 
-test("drops the Findings tab when the Run has no findings", () => {
+test("keeps the Findings segment and says so when the Run has none", async () => {
+  const user = userEvent.setup();
   render(
     <DryRunSummaryView
       result={passedResult}
@@ -548,12 +549,68 @@ test("drops the Findings tab when the Run has no findings", () => {
       }}
     />
   );
-  expect(screen.queryByRole("tab", { name: /Findings/u })).toBeNull();
-  expect(screen.getByRole("tab", { name: "Verdict" })).toBeVisible();
+  expect(
+    screen.getByRole("tab", { name: "Pass checks", selected: true })
+  ).toBeVisible();
   expect(screen.getByRole("tab", { name: "Task" })).toBeVisible();
-  expect(screen.getByText("Agent findings").closest("div")).toHaveTextContent(
-    "0"
+  expect(
+    screen.getByText("Findings", { selector: "dt" }).closest("div")
+  ).toHaveTextContent("0");
+  await user.click(screen.getByRole("tab", { name: "Findings0" }));
+  expect(screen.getByText("The agent reported no findings.")).toBeVisible();
+});
+
+test("shows a finding's moment in the Run video and copies the Run ID", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  render(
+    <TestRegistry>
+      <DryRunSummaryView
+        result={passedResult}
+        summary={{
+          ...dryRunTask,
+          assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+          timeline: [
+            {
+              actor: "agent",
+              at: "2026-09-04T00:00:30.000Z",
+              description: "Choose a delivery area",
+              dispatched: true,
+              id: "attempt-delivery",
+              outcome: "completed",
+            },
+          ],
+          videoTimeMap: {
+            fastForward: "capped",
+            segments: [
+              {
+                kind: "action",
+                rate: 1,
+                runFromMs: 0,
+                runToMs: 60_000,
+                videoFromMs: 0,
+                videoToMs: 60_000,
+              },
+            ],
+            startedAt: dryRunTask.startedAt,
+          },
+        }}
+      />
+    </TestRegistry>
   );
+  const video = screen.getByLabelText<HTMLVideoElement>("Recorded Run video");
+  // jsdom loads no media; the element reports a known duration instead.
+  Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+  fireEvent.loadedMetadata(video);
+  await user.click(screen.getByRole("tab", { name: /Findings/u }));
+  // The finding cites the attempt, so it opens where that action happened.
+  await user.click(
+    screen.getByRole("button", { name: "Show 0:30 in the Run video" })
+  );
+  expect(video.currentTime).toBe(30);
+  expect(
+    screen.getByRole("button", { name: `Copy Run ID ${dryRunTask.runId}` })
+  ).toBeVisible();
 });
 
 test("keeps findings and the task behind their tabs", async () => {

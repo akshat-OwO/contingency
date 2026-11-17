@@ -12,9 +12,12 @@ import type {
 } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
-import { CircleAlertIcon } from "lucide-react";
+import { CircleAlertIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import type { SummaryVerdict } from "@/components/agent/dry-run-summary-state";
+import { usePublishRunSummaryVerdict } from "@/components/agent/run-summary-dock";
+import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
@@ -601,6 +604,47 @@ const startingEmulationLabel = (
   return `${emulation.orientation === "portrait" ? "Portrait" : "Landscape"}, ${emulation.appearance} appearance, ${where}`;
 };
 
+const deviceVerdict = (session: SummarySession): SummaryVerdict => {
+  if (session.assessment === null) {
+    return { label: "No assessment", tone: "attention" };
+  }
+  const { outcome } = session.assessment;
+  let tone: SummaryVerdict["tone"] = "attention";
+  if (outcome === "working") {
+    tone = "passed";
+  } else if (outcome === "not-working") {
+    tone = "failed";
+  }
+  return { label: OUTCOME[outcome], tone };
+};
+
+/**
+ * The verdict card the browser summary opens on, for a device Run: the
+ * Agent Assessment, the platform, and what kind of session it was.
+ */
+const DeviceVerdictCard = ({
+  platform,
+  session,
+}: {
+  readonly platform: DevicePlatform;
+  readonly session: SummarySession;
+}) => {
+  const verdict = deviceVerdict(session);
+  usePublishRunSummaryVerdict(verdict);
+  return (
+    <VerdictCard
+      facts={[KIND[session.kind]]}
+      platform={
+        <>
+          <SmartphoneIcon aria-hidden="true" />
+          {platform === "android" ? "Android" : "iOS"}
+        </>
+      }
+      verdict={verdict}
+    />
+  );
+};
+
 /**
  * An ended device session's Run Summary, in the browser summary's place.
  * What went wrong leads when the agent never assessed the Run; the device and
@@ -637,6 +681,9 @@ export const DeviceRunSummary = ({
       Teaching records a journey; no agent assesses it, so its summary leads
       with the screens rather than with an assessment that never comes.
     */}
+    {session.kind === "teaching" && session.assessment === null ? null : (
+      <DeviceVerdictCard platform={platform} session={session} />
+    )}
     {session.kind === "teaching" && session.assessment === null ? null : (
       <section className="space-y-1">
         <h3 className="text-muted-foreground text-xs font-medium">

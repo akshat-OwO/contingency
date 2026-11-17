@@ -71,7 +71,6 @@ Scaffold: **End Run**, **Summary** (ready, writing, missing), **Decision** (pend
 
 Approved on #757:
 
-
 - **Native and global Runs on the Flows page** (carried over from #755): show their full summary inline, like browser Runs, plus a **Device session** link. The catalog summary alone was a dead end.
 - **The `leading` slot** in `run-summary-sidebar.tsx` goes: the Flows page replaced its last caller. The dock has one side.
 - **Resizing:** the dock has a fixed width (420px, 360px below 1280px) and collapses instead of resizing, so `react-resizable-panels` leaves with it.

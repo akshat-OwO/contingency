@@ -445,6 +445,80 @@
   view-transition-name: flows-sidebar;
 }
 
+/*
+ * An open Run Summary dock (#757) takes its width from the stage: everything
+ * under the top islands ends where the dock begins, so the frame, its notices
+ * and the status island centre in what is left. The top islands keep the full
+ * width, and the dock sits under them.
+ */
+[data-run-summary="open"] {
+  --run-summary-inset: calc(var(--run-summary-width) + 0.75rem);
+}
+
+[data-run-summary="open"]
+  [data-vt="stage"]
+  > :not([data-slot="session-top-bar"]) {
+  margin-right: var(--run-summary-inset);
+}
+
+/*
+ * The dock and its collapsed pill share a name only while one becomes the
+ * other (see `morphDock`), so leaving a session never animates the dock on
+ * its own. The stage steps out of the morph: it just takes the width back.
+ */
+[data-run-summary-morph] [data-slot="run-summary-dock"],
+[data-run-summary-morph] [data-run-summary-pill] {
+  view-transition-name: run-summary-dock;
+}
+
+/*
+ * The rest of the page snaps to its new layout rather than cross-fading two
+ * layouts over each other: only the dock and the pill move.
+ */
+:root[data-run-summary-morph]::view-transition-old(root) {
+  display: none;
+}
+
+:root[data-run-summary-morph]::view-transition-new(root) {
+  animation: none;
+}
+
+[data-run-summary-morph] [data-slot="run-summary-dock"] {
+  animation: none;
+}
+
+[data-run-summary-morph] [data-vt="stage"] {
+  view-transition-name: none !important;
+}
+
+::view-transition-group(run-summary-dock) {
+  z-index: 5;
+  animation-duration: 0.46s;
+  animation-timing-function: cubic-bezier(0.3, 1.08, 0.5, 1);
+}
+
+::view-transition-image-pair(run-summary-dock) {
+  overflow: clip;
+  border-radius: var(--island-radius);
+  background: var(--island-solid);
+}
+
+::view-transition-old(run-summary-dock),
+::view-transition-new(run-summary-dock) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: top right;
+}
+
+::view-transition-old(run-summary-dock) {
+  animation: workspace-fade-out 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::view-transition-new(run-summary-dock) {
+  animation: workspace-fade-in 0.26s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* The layout around a morphing card travels on the same clock. */
 ::view-transition-group(*) {
   animation-duration: var(--workspace-view-duration);

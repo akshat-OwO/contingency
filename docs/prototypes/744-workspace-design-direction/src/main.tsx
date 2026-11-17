@@ -2142,9 +2142,7 @@ const SessionView = ({
           >
             <CollapsedSummary
               dock={dock}
-              run={
-                ended.summary === "ready" ? runById(ended.run) : undefined
-              }
+              run={ended.summary === "ready" ? runById(ended.run) : undefined}
             />
             <TaskDetails session={session} />
             {teaching ? (
