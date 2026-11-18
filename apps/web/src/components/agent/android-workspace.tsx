@@ -716,6 +716,7 @@ export const AndroidSessionView = ({
         />
         {notices}
         <AndroidDevice
+          agentDriving={session.controller === "agent"}
           canAct={canAct}
           cleanup={deviceCleanupKey(session.cleanup)}
           device={androidDeviceLabel(session.selection.device)}

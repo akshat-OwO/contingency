@@ -61,6 +61,7 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
 test("the device rail offers the device's keys and settings and draws nothing over the stream", () => {
   render(
     <AndroidDevice
+      agentDriving={false}
       device="Pixel_9"
       lockedReason={undefined}
       observation={null}
@@ -102,6 +103,7 @@ test("the rail rotates the device and changes its appearance and location", asyn
   const onEmulate = vi.fn();
   render(
     <AndroidDevice
+      agentDriving={false}
       device="Pixel_9"
       lockedReason={undefined}
       observation={null}
@@ -146,6 +148,7 @@ test("the rail rotates the device and changes its appearance and location", asyn
 test("a secure pause names the hidden window instead of a disconnected device", () => {
   render(
     <AndroidDevice
+      agentDriving={false}
       device="Pixel_9"
       lockedReason={undefined}
       observation={null}
@@ -208,6 +211,7 @@ test("keeps the empty state and its disabled start while a pick opens a session"
 const pausedDevice = (pauseCode: string) =>
   render(
     <AndroidDevice
+      agentDriving={false}
       device="Pixel_9"
       lockedReason={undefined}
       observation={null}

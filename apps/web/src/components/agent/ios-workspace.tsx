@@ -82,6 +82,7 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
+import { NativeAgentTouch } from "./native-agent-touch";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { clearDataQuestion } from "./native-starting-data-copy";
@@ -394,6 +395,13 @@ const IosMirror = ({
           {unavailable}
         </div>
       )}
+      {live ? (
+        <NativeAgentTouch
+          frame={frame}
+          sessionId={session.id}
+          visible={session.controller === "agent"}
+        />
+      ) : null}
       <IosMirrorVeil
         connecting={live && transport === "connecting"}
         onReconnect={onReconnect}

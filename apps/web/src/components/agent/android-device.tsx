@@ -34,6 +34,7 @@ import { AndroidLiveStream } from "./android-live-stream";
 import { DeviceLastScreen } from "./android-run-summary";
 import type { AndroidStreamFrame } from "./android-stream-point";
 import { ScreenElements } from "./device-elements";
+import { NativeAgentTouch } from "./native-agent-touch";
 import type {
   NativeStreamState,
   NativeStreamStats,
@@ -638,6 +639,7 @@ const pauseCopy = (code: string | undefined) =>
  * `onInput` as Forwarded Input.
  */
 export const AndroidDevice = ({
+  agentDriving,
   canAct,
   cleanup,
   device,
@@ -650,7 +652,6 @@ export const AndroidDevice = ({
   onDeviceKey,
   onEmulate,
   onInput,
-  overlay,
   paused,
   pending,
   pauseCode,
@@ -676,8 +677,8 @@ export const AndroidDevice = ({
   readonly emulation?: NativeEmulation | undefined;
   readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onInput: (input: NativeInput) => void;
-  /** Drawn over the glass without taking input, such as the agent's touch. */
-  readonly overlay?: (frame: AndroidStreamFrame) => ReactNode;
+  /** The agent holds the device, so its touches are drawn on the screen. */
+  readonly agentDriving: boolean;
   readonly paused: boolean;
   /** Why the session paused: the code of its last Capture Gap. */
   readonly pauseCode?: string | undefined;
@@ -750,7 +751,13 @@ export const AndroidDevice = ({
           {displayUnavailable}
         </div>
       )}
-      {overlay?.(frame)}
+      {live && !secure ? (
+        <NativeAgentTouch
+          frame={frame}
+          sessionId={sessionId}
+          visible={agentDriving}
+        />
+      ) : null}
       {paused ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center">
           <div className="bg-background space-y-1 rounded-2xl border p-4 shadow-lg">
