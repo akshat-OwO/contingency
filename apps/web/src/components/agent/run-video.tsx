@@ -183,14 +183,15 @@ const THUMBNAIL_WIDTH_PX = 160;
  * on the same file seeks to the hovered moment and draws each frame it lands
  * on, so hovering never moves the player. It loads only once the pointer
  * first hovers the scrubber, and a seek still running is not interrupted:
- * when it lands it seeks again to wherever the pointer went meanwhile.
+ * when it lands it seeks again to wherever the pointer went meanwhile. Both
+ * the loaded file and the drawn frame belong to the player's `src`, so a new
+ * recording never previews the last one's frames.
  */
-const useSeekThumbnail = (
-  playerRef: RefObject<HTMLVideoElement | null>,
-  hoverMs: number | undefined
-) => {
-  const [src, setSrc] = useState<string>();
-  const [drawn, setDrawn] = useState(false);
+const useSeekThumbnail = (playerSrc: string, hoverMs: number | undefined) => {
+  const [loadedSrc, setLoadedSrc] = useState<string>();
+  const [drawnSrc, setDrawnSrc] = useState<string>();
+  const src = loadedSrc === playerSrc ? playerSrc : undefined;
+  const drawn = drawnSrc === playerSrc;
   const previewRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wantedRef = useRef(0);
@@ -211,15 +212,11 @@ const useSeekThumbnail = (
       return;
     }
     wantedRef.current = hoverMs;
-    const source = playerRef.current?.currentSrc;
-    if (src === undefined && source !== undefined && source !== "") {
-      setSrc(source);
-    }
     const video = previewRef.current;
     if (video !== null) {
       seek(video);
     }
-  }, [hoverMs, playerRef, src]);
+  }, [hoverMs]);
 
   const draw = (video: HTMLVideoElement) => {
     const canvas = canvasRef.current;
@@ -237,7 +234,7 @@ const useSeekThumbnail = (
       (THUMBNAIL_WIDTH_PX * video.videoHeight) / video.videoWidth
     );
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    setDrawn(true);
+    setDrawnSrc(playerSrc);
   };
 
   const video =
@@ -245,6 +242,7 @@ const useSeekThumbnail = (
       <video
         aria-hidden="true"
         className="hidden"
+        key={src}
         muted
         onLoadedData={(event) => {
           // The first frame needs no seek when the pointer is already there.
@@ -285,7 +283,11 @@ const useSeekThumbnail = (
       }}
     />
   );
-  return { frame, video };
+  /** Loads the player's file for the preview, once the pointer hovers. */
+  const load = () => {
+    setLoadedSrc(playerSrc);
+  };
+  return { frame, load, video };
 };
 
 /**
@@ -299,6 +301,7 @@ const Scrubber = ({
   durationMs,
   onBarCount,
   onSeek,
+  src,
   total,
   videoRef,
 }: {
@@ -307,6 +310,8 @@ const Scrubber = ({
   readonly durationMs: number;
   readonly onBarCount: (count: number) => void;
   readonly onSeek: (ms: number) => void;
+  /** The file the player plays, which the seek preview draws from. */
+  readonly src: string;
   readonly total: number;
   readonly videoRef: RefObject<HTMLVideoElement | null>;
 }) => {
@@ -401,7 +406,7 @@ const Scrubber = ({
   const hovered =
     hover === undefined ? undefined : chapterAt(chapters, hover.ms);
   const current = chapterAt(chapters, currentMs);
-  const thumbnail = useSeekThumbnail(videoRef, hover?.ms);
+  const thumbnail = useSeekThumbnail(src, hover?.ms);
 
   return (
     <div
@@ -429,10 +434,12 @@ const Scrubber = ({
         resumeRef.current = video !== null && !video.paused;
         video?.pause();
         draggingRef.current = true;
+        thumbnail.load();
         onSeek(point(event));
       }}
       onPointerLeave={() => setHover(undefined)}
       onPointerMove={(event) => {
+        thumbnail.load();
         const ms = point(event);
         if (draggingRef.current) {
           onSeek(ms);
@@ -986,6 +993,7 @@ export const RunVideoPlayer = ({
           durationMs={playback.durationMs}
           onBarCount={setBarCount}
           onSeek={playback.seek}
+          src={src}
           total={total}
           videoRef={playback.videoRef}
         />

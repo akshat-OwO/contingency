@@ -55,6 +55,8 @@ afterEach(() => {
 const rpc = vi.hoisted(() => ({
   browse: { _tag: "Initial", waiting: true } satisfies unknown,
   flow: { _tag: "Initial", waiting: true } satisfies unknown,
+  // An ended device session this Workspace no longer holds.
+  keyframes: { _tag: "Success", value: null, waiting: false } satisfies unknown,
   nativeRun: { _tag: "Initial", waiting: true } satisfies unknown,
   summary: { _tag: "Initial", waiting: true } satisfies unknown,
 }));
@@ -64,9 +66,7 @@ const rpcOverrides = {
   catalogBrowseAtom: Atom.make(() => rpc.browse),
   catalogFlowAtom: () => () => Atom.make(() => rpc.flow),
   catalogNativeRunAtom: () => () => () => Atom.make(() => rpc.nativeRun),
-  // An ended device session this Workspace no longer holds.
-  deviceKeyframesAtom: () =>
-    Atom.make(() => ({ _tag: "Success", value: null, waiting: false })),
+  deviceKeyframesAtom: () => Atom.make(() => rpc.keyframes),
   deviceVideoStatusAtom: () =>
     Atom.make(() => ({ _tag: "Success", value: null, waiting: false })),
 };
@@ -537,9 +537,8 @@ const nativeEntry = () =>
     title: "Android Dry Run · 1mg mobile login",
   });
 
-test("shows a native Run's full Run Summary inline", () => {
-  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
-  rpc.nativeRun = {
+const nativeRunResult = () =>
+  ({
     _tag: "Success",
     value: {
       summary: Schema.decodeUnknownSync(NativeAgentRunSummary)({
@@ -574,7 +573,11 @@ test("shows a native Run's full Run Summary inline", () => {
       }),
     },
     waiting: false,
-  };
+  }) as const;
+
+test("shows a native Run's full Run Summary inline", () => {
+  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
+  rpc.nativeRun = nativeRunResult();
   renderPage();
   const summary = screen.getByRole("region", { name: "Run Summary" });
   expect(summary.querySelector('[data-slot="verdict-card"]')).toHaveTextContent(
@@ -596,6 +599,30 @@ test("shows a native Run's full Run Summary inline", () => {
   expect(
     within(summary).queryByText(/Its full Run Summary could not be read/u)
   ).toBeNull();
+});
+
+test("draws a native Run's one kept screen inline, away from its stage", () => {
+  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
+  rpc.nativeRun = nativeRunResult();
+  rpc.keyframes = {
+    _tag: "Success",
+    value: {
+      keyframes: [{ capturedAt: "2026-11-18T10:00:30.000Z", hash: "a1b2" }],
+      retained: true,
+    },
+    waiting: false,
+  };
+  try {
+    renderPage();
+    const summary = screen.getByRole("region", { name: "Run Summary" });
+    // No stage beside the Flows page holds the screen, so the summary does.
+    expect(
+      within(summary).getByRole("img", { name: /^Screen 1 of 1/u })
+    ).toBeVisible();
+    expect(within(summary).queryByText(/is on the stage/u)).toBeNull();
+  } finally {
+    rpc.keyframes = { _tag: "Success", value: null, waiting: false };
+  }
 });
 
 test("falls back to the catalog summary when a native Summary is unreadable", () => {

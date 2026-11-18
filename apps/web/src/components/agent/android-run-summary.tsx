@@ -370,12 +370,14 @@ const DeviceRecording = ({
   onShow,
   platform,
   sessionId,
+  stageShowsLastScreen,
 }: {
   readonly cleanup: string;
   /** Shows a keyframe's moment in the video; absent without one to play. */
   readonly onShow: ((capturedAt: string) => void) | undefined;
   readonly platform: DevicePlatform;
   readonly sessionId: string;
+  readonly stageShowsLastScreen: boolean;
 }) => {
   const { refresh: retry, result } = useDeviceKeyframes(
     platform,
@@ -426,7 +428,7 @@ const DeviceRecording = ({
       );
     }
     const [only] = keyframes;
-    if (keyframes.length === 1 && only !== undefined) {
+    if (stageShowsLastScreen && keyframes.length === 1 && only !== undefined) {
       // The stage already shows the one screen kept; the rail does not draw
       // it a second time.
       return (
@@ -524,11 +526,13 @@ const DeviceEvidence = ({
   cleanup,
   platform,
   sessionId,
+  stageShowsLastScreen,
   teaching,
 }: {
   readonly cleanup: string;
   readonly platform: DevicePlatform;
   readonly sessionId: string;
+  readonly stageShowsLastScreen: boolean;
   readonly teaching: boolean;
 }) => {
   const { refresh, result } = useDeviceVideo(platform, sessionId, cleanup);
@@ -563,6 +567,7 @@ const DeviceEvidence = ({
         onShow={onShow}
         platform={platform}
         sessionId={sessionId}
+        stageShowsLastScreen={stageShowsLastScreen}
       />
     </>
   );
@@ -679,6 +684,7 @@ export const DeviceRunSummary = ({
   ended,
   platform,
   session,
+  stageShowsLastScreen = true,
   targetApp,
 }: {
   readonly device: string;
@@ -686,6 +692,11 @@ export const DeviceRunSummary = ({
   readonly ended?: string | undefined;
   readonly platform: DevicePlatform;
   readonly session: SummarySession;
+  /**
+   * Whether the session's stage beside the summary holds its last screen.
+   * Away from the stage, as on the Flows page, a lone screen draws inline.
+   */
+  readonly stageShowsLastScreen?: boolean;
   readonly targetApp: string;
 }) => (
   <div className="space-y-5 text-sm">
@@ -738,6 +749,7 @@ export const DeviceRunSummary = ({
       cleanup={deviceCleanupKey(session.cleanup)}
       platform={platform}
       sessionId={session.id}
+      stageShowsLastScreen={stageShowsLastScreen}
       teaching={session.kind === "teaching"}
     />
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
@@ -872,6 +884,7 @@ export const NativeRunSummary = ({
       ended={RUN_ENDING[summary.outcome]}
       platform={summary.platform}
       session={session}
+      stageShowsLastScreen={false}
       targetApp={requiredTargetApp(summary.requirements)}
     />
   );
