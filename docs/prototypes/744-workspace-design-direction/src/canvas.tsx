@@ -1576,13 +1576,23 @@ const NetworkPanel = ({ side }: { readonly side: "right" | "bottom" }) => {
             <tbody>
               {rows.map((r) => (
                 <tr
-                  aria-selected={sel === r.path}
                   data-bad={r.status >= 400 || undefined}
+                  data-selected={sel === r.path || undefined}
                   key={r.path}
                   onClick={() => setSel(sel === r.path ? null : r.path)}
                 >
                   <td className="mono net-path">
-                    <span className="net-method">{r.method}</span> {r.path}
+                    <button
+                      aria-pressed={sel === r.path}
+                      className="net-pick"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSel(sel === r.path ? null : r.path);
+                      }}
+                      type="button"
+                    >
+                      <span className="net-method">{r.method}</span> {r.path}
+                    </button>
                   </td>
                   <td className="mono">{r.status}</td>
                   <td>{r.type}</td>

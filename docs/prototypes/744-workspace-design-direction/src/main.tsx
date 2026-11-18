@@ -2025,6 +2025,7 @@ const EndedView = ({
       {platform === "web" ? (
         <WebCanvas
           ended
+          key={`ended-${flow}`}
           onNotice={() => {}}
           onReconnect={() => {}}
           session={{
@@ -2149,6 +2150,7 @@ const SessionView = ({
       {session.platform === "web" ? (
         <WebCanvas
           ended={ended !== undefined}
+          key={session.id}
           onNotice={onNotice}
           onReconnect={onReconnect}
           session={{

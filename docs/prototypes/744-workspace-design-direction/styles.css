@@ -4610,11 +4610,23 @@ body[data-resizing] .resize-handle::after {
 .net-table tbody tr:hover {
   background: var(--island-hover);
 }
-.net-table tr[aria-selected="true"] {
+.net-table tr[data-selected] {
   background: color-mix(in oklch, var(--brand) 12%, transparent);
 }
 .net-table tr[data-bad] td {
   color: var(--rec);
+}
+.net-pick {
+  all: unset;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.net-pick:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 .net-path {
   max-width: 1px;
