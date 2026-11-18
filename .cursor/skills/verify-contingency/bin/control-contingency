@@ -71,9 +71,9 @@ Commands:
   mcp stop
   browser snapshot --aria --path <file>
   browser screenshot --path <file>
-  browser ios-click --name <button>
+  browser ios-click --name <button> [--region <name>]
   browser ios-pick --session-id <id> --role <role> --name <name>
-  browser ios-swipe
+  browser ios-swipe [--direction <up|left>]
   browser ios-orientation --orientation <portrait|landscape>
   browser flows-layout-check --path <directory> [--text-scale <1|2>] [--allow-overflow]
   browser video-layout-check --path <directory> [--allow-overflow]
@@ -334,7 +334,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "ios-swipe": {
       const { swipeIos } = await import("./ios-ui.mjs");
-      return JSON.stringify(await swipeIos(page));
+      return JSON.stringify(await swipeIos(page, flags.direction ?? "up"));
     }
     case "ios-pick": {
       const { pickIos } = await import("./ios-ui.mjs");
@@ -342,7 +342,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "ios-click": {
       const { clickIos } = await import("./ios-ui.mjs");
-      return JSON.stringify(await clickIos(page, flags.name));
+      return JSON.stringify(await clickIos(page, flags.name, flags.region));
     }
     case "android-idle": {
       const { waitAndroidIdle } = await import("./android-ui.mjs");

@@ -36,6 +36,25 @@ it("never turns an application container or static text into an actionable pick"
     false
   );
 });
+it("lets a Home Screen app icon be activated and taught by name", () => {
+  expect(
+    iosNodeInteraction({ hittable: true, kind: "element(44)" })
+  ).toMatchObject({ covered: false, hittable: true });
+});
+it("refuses an element XCTest reports with an empty frame, such as an icon on another Home Screen page", () => {
+  expect(
+    iosNodeInteraction({
+      kind: "element(44)",
+      rect: { height: 0, width: 0, x: 0, y: 0 },
+    }).covered
+  ).toBe(true);
+  expect(
+    iosNodeInteraction({
+      kind: "element(44)",
+      rect: { height: 82, width: 64, x: 30, y: 300 },
+    }).covered
+  ).toBe(false);
+});
 it("keeps explicit covered, disabled, and non-hittable UIKit controls refused", () => {
   expect(
     iosNodeInteraction({ hittable: false, kind: "text-field" }).covered
@@ -162,4 +181,33 @@ it("orders unlabelled stepper buttons decrement first", () => {
   const nodes = [stepper, first, second];
   expect(iosActivationPoint(nodes, first)).toEqual({ x: 23, y: 16 });
   expect(iosActivationPoint(nodes, second)).toEqual({ x: 69, y: 16 });
+});
+/** An App Switcher card, as XCTest reports it on an iOS 26.5 iPhone 17. */
+const card = (index: number, x: number) => ({
+  index,
+  parentIndex: 1,
+  rect: { height: 590, width: 271, x, y: 133 },
+  role: "other",
+});
+it("taps the uncovered part of an App Switcher card the newer card overlaps", () => {
+  // Measured on an iOS 26.5 iPhone 17: the App Switcher's two full-screen
+  // containers, the older app's card, and the newer card stacked over its
+  // right side. Each card's centre lies on the other.
+  const screen = { height: 874, width: 402, x: 0, y: 0 };
+  const container = { index: 1, parentIndex: 0, rect: screen, role: "other" };
+  const older = card(2, 10);
+  const newer = card(3, 121);
+  const switcher = [
+    { index: 0, rect: screen, role: "other" },
+    container,
+    older,
+    newer,
+  ];
+  const point = iosActivationPoint(switcher, older);
+  expect(point?.x).toBeGreaterThan(10);
+  expect(point?.x).toBeLessThan(121);
+  // Either card is tapped where it alone lies, whichever is drawn on top.
+  expect(iosActivationPoint(switcher, newer)?.x).toBeGreaterThan(281);
+  // The containers are not peers of a card: they keep the frame-centre tap.
+  expect(iosActivationPoint(switcher, container)).toBeNull();
 });

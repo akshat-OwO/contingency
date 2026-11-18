@@ -49,6 +49,7 @@ const receipt = {
   entry: proofEntry,
   limits: {},
   resources: [],
+  revealCandidates: [],
   settingsObservations: [],
   signIns: [],
   startedAt: new Date().toISOString(),
@@ -124,6 +125,9 @@ const read = (sessionId) => call({ _tag: "read", sessionId });
 const observe = (sessionId) =>
   call({ _tag: "observe", image: false, sessionId });
 const click = (name) => control("browser", "ios-click", "--name", name);
+/** Allow one pending decision; each renders its own Allow. */
+const allowDecision = (region) =>
+  control("browser", "ios-click", "--name", "Allow", "--region", region);
 const fill = (name, value) =>
   control(
     "browser",
@@ -258,19 +262,46 @@ const shows = (current) => {
 };
 /** How Teaching names the rail's Home (`systemKeyDescription`). */
 const systemKeyHome = "Go home";
-/** The one uncovered node with this name on Springboard. */
+const area = (node) => node.bounds.width * node.bounds.height;
+/**
+ * The uncovered node with this name to activate on Springboard: its icon, or
+ * in the App Switcher its card. The switcher also gives the name to
+ * containers that fill the screen; the card is the largest node within it.
+ */
 const named = (current, name) => {
   const nodes =
     current.observation?.nodes.filter(
       (node) =>
         node.name === name && node.role !== "application" && !node.covered
     ) ?? [];
-  assert.equal(nodes.length, 1, `Expected one node named ${name}`);
-  return nodes[0];
+  const { height, width } = current.observation;
+  const [choice] = nodes
+    .filter(
+      (node) =>
+        node.bounds !== undefined &&
+        area(node) < width * height &&
+        node.bounds.x >= 0 &&
+        node.bounds.y >= 0 &&
+        node.bounds.x + node.bounds.width <= width &&
+        node.bounds.y + node.bounds.height <= height
+    )
+    .toSorted((a, b) => area(b) - area(a));
+  receipt.revealCandidates.push(
+    nodes.map(({ bounds, role }) => ({ bounds, chosen: false, role }))
+  );
+  assert.ok(choice, `Expected a node named ${name} to activate`);
+  receipt.revealCandidates.at(-1)[nodes.indexOf(choice)].chosen = true;
+  return { ...choice, observationId: current.observation.id };
 };
 // The observer follows the app in front (ADR 0083). Each completed product
 // observation is the event; never wait on animation time.
-const settingsDetour = async (sessionId, stage, tap, home, open) => {
+/** Whether the Target App's icon, or its App Switcher card, is on screen. */
+const iconShown = (current) =>
+  current.observation?.nodes.some(
+    (node) =>
+      node.name === appName && node.role !== "application" && !node.covered
+  ) ?? false;
+const settingsDetour = async (sessionId, stage, tap, home, open, reveal) => {
   const started = performance.now();
   const record = async (kind, index, action) => {
     const at = new Date().toISOString();
@@ -305,23 +336,49 @@ const settingsDetour = async (sessionId, stage, tap, home, open) => {
   const settings = await until("settings", "settings");
   await snapshot(`${stage}-settings-followed`);
   await record("home", 0, home);
-  const springboard = await until("home", "springboard");
+  let springboard = await until("home", "springboard");
+  // A fresh simulator puts the Target App on the next Home Screen page, where
+  // its icon has no frame. Bring it within reach once (the user turns the
+  // page; an agent opens the App Switcher), then wait for an observation that
+  // shows it.
+  if (!iconShown(springboard)) {
+    assert.ok(reveal, `${stage}: ${appName} is not on the shown page`);
+    await record("reveal", 0, reveal);
+    for (let index = 1; !iconShown(springboard); index += 1) {
+      assert.ok(index <= 40, `${stage}: ${appName} never came on screen`);
+      springboard = await record("reveal", index, () => observe(sessionId));
+      assert.equal(springboard.phase, "running", `${stage}: reveal paused`);
+    }
+  }
   await snapshot(`${stage}-home-followed`);
   await record("open", 0, () => open(named(springboard, appName)));
   const back = await until("return", "target");
   return { back, settings, springboard };
 };
+/**
+ * Prepare a Dry Run or Run. Each one installs its Teaching Recording's build
+ * (ADR 0085), so its App installation decision is allowed first.
+ */
+const prepareRun = async (sessionId) => {
+  const prepared = await read(sessionId);
+  const { pending } = prepared.preparation;
+  if (pending.some((decision) => decision.kind === "app-installation")) {
+    await allowDecision("App installation");
+  }
+  await click("Prepare selected simulator");
+};
 const railHome = () => click("iOS Home");
-const agentHome = async (sessionId) => {
+const agentKey = async (sessionId, key) => {
   const before = await observe(sessionId);
   return call({
     _tag: "input",
-    action: { _tag: "home" },
+    action: { _tag: key },
     observationId: before.observation.id,
     operationId: operation(),
     sessionId,
   });
 };
+const agentHome = (sessionId) => agentKey(sessionId, "home");
 const ownSessionResources = async () => [
   await selectedSimulatorResource(instance, selected),
 ];
@@ -499,7 +556,8 @@ try {
     "teaching",
     () => pick(teaching.id, "button", "Open device settings"),
     railHome,
-    (icon) => pick(teaching.id, icon.role, icon.name)
+    (icon) => pick(teaching.id, icon.role, icon.name),
+    () => control("browser", "ios-swipe", "--direction", "left")
   );
   assert.equal(teachingDetour.settings.captureState._tag, "recording");
   assert.equal(teachingDetour.springboard.captureState._tag, "recording");
@@ -572,8 +630,12 @@ try {
     systemKeyHome,
   ]);
   const taught = recorded.filter((entry) => !focusTap(entry));
+  // Turning the Home Screen page to the Target App's icon is part of it.
   const detoured = taught.filter(
-    (entry) => detour.has(entry.description) || entry.target?.name === appName
+    (entry) =>
+      detour.has(entry.description) ||
+      entry.kind === "swipe" ||
+      entry.target?.name === appName
   );
   assert.deepEqual(detoured.map((entry) => entry.description).slice(0, 2), [
     "Activate button Open device settings",
@@ -611,18 +673,25 @@ try {
   receipt.coverage.learning = true;
   process.stdout.write("iOS Teaching and Flow learning passed\n");
   // Existing data must survive later sessions on this selected device.
-  const dataContainer = await execute("xcrun", [
-    "simctl",
-    "get_app_container",
-    selected,
-    selection.environment.bundleId,
-    "data",
-  ]);
-  const sentinel = path.join(
-    dataContainer.stdout.trim(),
-    "Documents/selected-data-proof.txt"
+  // Installing the recording's build again can move the data container, so
+  // the sentinel is found through the app each time, not by a stored path.
+  const sentinel = async () => {
+    const container = await execute("xcrun", [
+      "simctl",
+      "get_app_container",
+      selected,
+      selection.environment.bundleId,
+      "data",
+    ]);
+    return path.join(
+      container.stdout.trim(),
+      "Documents/selected-data-proof.txt"
+    );
+  };
+  await writeFile(
+    await sentinel(),
+    "selected simulator data survives sessions"
   );
-  await writeFile(sentinel, "selected simulator data survives sessions");
   const { appPath: _installedPath, ...installedSelection } = selection;
   // The later Run declares a starting permission state Teaching never had.
   const permissions = [{ decision: "revoke", service: "photos" }];
@@ -651,7 +720,7 @@ try {
       sessions.push(repeated.id);
       await view(repeated.id);
       entry.stage = "prepare";
-      await click("Prepare selected simulator");
+      await prepareRun(repeated.id);
       entry.stage = "sign-in-journey";
       signInAttempt = entry;
       const current = await publicJourney(repeated.id);
@@ -717,13 +786,15 @@ try {
         },
       ]);
       assert.deepEqual(
-        declared.preparation.pending.map((decision) => decision.kind),
+        declared.preparation.pending
+          .map((decision) => decision.kind)
+          .filter((decision) => decision !== "app-installation"),
         ["run-environment-permission"]
       );
       await snapshot("permission-states-declared");
-      await click("Allow");
+      await allowDecision("Run Environment Permission");
     }
-    await click("Prepare selected simulator");
+    await prepareRun(started.id);
     receipt.resources.push(...(await ownSessionResources()));
     const prepared = await read(started.id);
     assert.equal(prepared.refusal ?? null, null);
@@ -747,7 +818,7 @@ try {
       await snapshot("permission-state-applied");
     }
     assert.equal(
-      await readFile(sentinel, "utf-8"),
+      await readFile(await sentinel(), "utf-8"),
       "selected simulator data survives sessions"
     );
     receipt.coverage.existingAppData = true;
@@ -828,7 +899,19 @@ try {
         "run",
         () => agentAction(started.id, "button", "Open device settings"),
         () => agentHome(started.id),
-        (icon) => agentAction(started.id, icon.role, icon.name)
+        // The card shares its role and name with the switcher's containers,
+        // so the agent names it by target in the observation it chose from.
+        (icon) =>
+          call({
+            _tag: "input",
+            action: { _tag: "activate", target: icon.target },
+            observationId: icon.observationId,
+            operationId: operation(),
+            sessionId: started.id,
+          }),
+        // An agent cannot turn Home Screen pages; the App Switcher shows the
+        // Target App it just left.
+        () => agentKey(started.id, "app-switcher")
       );
       current = runDetour.back;
       assert.equal(current.refusal ?? null, null);
@@ -896,7 +979,7 @@ try {
   });
   sessions.push(limits.id);
   await view(limits.id);
-  await click("Prepare selected simulator");
+  await prepareRun(limits.id);
   receipt.resources.push(...(await ownSessionResources()));
   receipt.limits.sameDeviceBound = await refusal(
     probe(device, "run"),
@@ -934,7 +1017,7 @@ try {
       operationId: operation(),
       sessionId: limits.id,
     },
-    /capability_missing/u
+    /ios_workspace_refused.*no system Back/u
   );
   await snapshot("limit-back");
   await call(

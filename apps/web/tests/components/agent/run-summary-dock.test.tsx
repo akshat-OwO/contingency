@@ -48,6 +48,22 @@ const Workspace = ({
   </RegistryProvider>
 );
 
+test("fills its container even when the parent is not a flex column", () => {
+  // jsdom computes no layout, so this pins the structure that gives the stage
+  // a height under a block parent (the iOS Workspace, #740): the wrapper is
+  // as tall as its container, and the stage flexes inside it. Real geometry
+  // is proven by the iOS Workspace device proof.
+  const { container } = render(
+    <div className="h-svh">
+      <Workspace ended={false} />
+    </div>
+  );
+  const stage = container.querySelector('[data-vt="stage"]');
+  const wrapper = stage?.parentElement;
+  expect(wrapper).toHaveClass("h-full", "flex", "flex-col");
+  expect(wrapper?.parentElement).toBe(container.firstElementChild);
+});
+
 test("docks an ended Run's summary and folds it into the status island", async () => {
   const user = userEvent.setup();
   const { container, rerender } = render(<Workspace ended={false} />);

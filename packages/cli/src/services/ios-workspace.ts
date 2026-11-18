@@ -263,6 +263,32 @@ const satisfiesOutcomes = (
   requirements.outcomes.every(
     (condition) => visible(before, condition) && visible(after, condition)
   );
+/**
+ * The screen a Variable goes into, as the user sees it. Two captures of an
+ * unchanged screen can list nodes in another order and differ in covered
+ * nodes, such as off-screen keyboard keys, and in generic containers; none of
+ * these can take input, so they never make the screen different.
+ */
+const fieldScreenSignature = (nodes: IosObservation["nodes"]) =>
+  JSON.stringify(
+    nodes
+      .flatMap(
+        ({ role, name, editable, password, packageName, bounds, covered }) =>
+          covered || role === "other"
+            ? []
+            : [
+                JSON.stringify({
+                  bounds,
+                  editable,
+                  name,
+                  packageName,
+                  password,
+                  role,
+                }),
+              ]
+      )
+      .toSorted()
+  );
 /** Compare the visible OS controls before resolving a mirrored selection. */
 const semanticSignature = (nodes: IosObservation["nodes"]) =>
   JSON.stringify(
@@ -1817,15 +1843,20 @@ export const makeIosWorkspaceLayer = (options: {
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
           // The user's earlier input is recorded before a rail key.
           const gestures = railKey ? session.lane.take() : [];
+          // A Variable goes into the field the user tapped, without observing
+          // again as the keyboard opens. It names the runtime's latest
+          // capture: a settle that the tap overtook was discarded here but
+          // is still the latest there. The semantic match below proves it
+          // shows the same field.
           const before =
             action._tag === "variable" && current.observation !== null
-              ? current.observation
+              ? (session.run.latest() ?? current.observation)
               : (fresh ?? (yield* observeRepairing(session)));
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
           }
           yield* recordGestures(session, gestures, before);
-          const matches =
+          const named =
             selectedTarget === undefined
               ? []
               : before.nodes.filter(
@@ -1838,11 +1869,22 @@ export const makeIosWorkspaceLayer = (options: {
                       (node.editable &&
                         JSON.stringify(node.bounds) ===
                           JSON.stringify(selectedTarget.bounds) &&
-                        semanticSignature(before.nodes) ===
-                          semanticSignature(selectedObservation.nodes))) &&
+                        fieldScreenSignature(before.nodes) ===
+                          fieldScreenSignature(selectedObservation.nodes))) &&
                     !node.covered &&
                     node.packageName === selectedTarget.packageName
                 );
+          // Several controls can share a role and name, such as an App
+          // Switcher card and the containers named after its app. The one at
+          // the selected position is the one chosen; otherwise it is ambiguous.
+          const matches =
+            named.length > 1 && selectedTarget?.bounds !== undefined
+              ? named.filter(
+                  (node) =>
+                    JSON.stringify(node.bounds) ===
+                    JSON.stringify(selectedTarget.bounds)
+                )
+              : named;
           if (!isSystemKeyInput(action) && matches.length !== 1) {
             return yield* denied(
               "The selected semantic control changed or is ambiguous. Refresh and choose it again; no input was forwarded."
