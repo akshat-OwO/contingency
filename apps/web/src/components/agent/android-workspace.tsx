@@ -41,7 +41,6 @@ import { workspaceChromeAtom } from "./agent-workspace-state";
 import { AndroidDevice } from "./android-device";
 import {
   AndroidVariables,
-  AndroidFieldEntry,
   AndroidInstructionEntry,
   AndroidRequests,
   AndroidSessionSelect,
@@ -57,10 +56,11 @@ import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
 import {
+  androidDeviceLabel,
   deviceCleanupKey,
   deviceSummaryLabel,
 } from "./android-workspace-state";
-import { DeviceElements } from "./device-elements";
+import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputQueue } from "./native-input";
 import {
   androidStartGestureAtom,
@@ -372,7 +372,6 @@ const useAndroidSessionSync = (
 
 /** The status island's controls: the state's own tools and actions. */
 const AndroidDockControls = ({
-  elements,
   instructing,
   mutate,
   onInstruct,
@@ -380,8 +379,6 @@ const AndroidDockControls = ({
   pending,
   session,
 }: {
-  /** The keyboard's way onto the device screen. */
-  readonly elements: React.ReactNode;
   readonly instructing: boolean;
   readonly mutate: Mutate;
   readonly onInstruct: () => void;
@@ -394,8 +391,6 @@ const AndroidDockControls = ({
   const stops = primary?.gesture === "stop-recording";
   return (
     <>
-      {/* An ended session has no screen to reach. */}
-      {isLiveAndroidSession(session) ? elements : null}
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
@@ -471,16 +466,12 @@ const AndroidDockControls = ({
 
 /** The dock's request tier: what preparation waits on, then what is typed. */
 const AndroidDockRequests = ({
-  field,
-  input,
   mutate,
   pending,
   session,
   setState,
   state,
 }: {
-  readonly field: NonNullable<AndroidWorkspaceSnapshot["field"]> | null;
-  readonly input: (action: InputAction, observationId: string) => void;
   readonly mutate: Mutate;
   readonly pending: boolean;
   readonly session: AndroidWorkspaceSnapshot;
@@ -515,49 +506,6 @@ const AndroidDockRequests = ({
         })
       }
     />
-    {field === null ? null : (
-      <AndroidFieldEntry
-        disabled={pending}
-        field={field}
-        variables={session.variables ?? []}
-        onRequest={(name) =>
-          mutate({
-            _tag: "variable-request",
-            name,
-            operationId: operationId(),
-            purpose: `Private input for ${field.name || field.role}`,
-            replace: (session.variables ?? []).some(
-              (variable) => variable.name === name
-            ),
-            sessionId: session.id,
-          })
-        }
-        onVariable={(name) =>
-          input(
-            { _tag: "variable", name, target: field.target },
-            field.observationId
-          )
-        }
-        key={fieldKey(field)}
-        onDismiss={() => {
-          setState((current) => ({
-            ...current,
-            dismissedField: fieldKey(field),
-          }));
-          mutate({
-            _tag: "field-dismiss",
-            operationId: operationId(),
-            sessionId: session.id,
-          });
-        }}
-        onSubmit={(text) =>
-          input(
-            { _tag: "fill", target: field.target, text },
-            field.observationId
-          )
-        }
-      />
-    )}
     {session.captureState?._tag === "recording" && state.instructing ? (
       <AndroidInstructionEntry
         onDismiss={() =>
@@ -585,6 +533,77 @@ type InputAction = Extract<
   AndroidWorkspaceCommand,
   { readonly _tag: "input" }
 >["action"];
+
+/**
+ * The password field the session is typing into, which takes a Variable.
+ * Teaching offers it only while recording.
+ */
+const typingField = (
+  session: AndroidWorkspaceSnapshot,
+  dismissedField: string | null
+) =>
+  (session.kind !== "teaching" || session.captureState?._tag === "recording") &&
+  session.field !== null &&
+  session.field.password === true &&
+  fieldKey(session.field) !== dismissedField
+    ? session.field
+    : null;
+
+const androidLockedReason = (session: AndroidWorkspaceSnapshot) =>
+  session.controller === "agent" && session.phase === "running"
+    ? "The agent is driving. Take control to use the device."
+    : undefined;
+
+const AndroidFieldVariable = ({
+  disabled,
+  field,
+  input,
+  mutate,
+  session,
+  setState,
+}: {
+  readonly disabled: boolean;
+  readonly field: NonNullable<ReturnType<typeof typingField>>;
+  readonly input: (action: InputAction, observationId: string) => void;
+  readonly mutate: Mutate;
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly setState: SetState;
+}) => (
+  <FieldVariableCard
+    disabled={disabled}
+    field={field.name || field.role}
+    onEnter={(name) =>
+      input(
+        { _tag: "variable", name, target: field.target },
+        field.observationId
+      )
+    }
+    onRequest={(name) =>
+      mutate({
+        _tag: "variable-request",
+        name,
+        operationId: operationId(),
+        purpose: `Private input for ${field.name || field.role}`,
+        replace: (session.variables ?? []).some(
+          (variable) => variable.name === name
+        ),
+        sessionId: session.id,
+      })
+    }
+    onStop={() => {
+      setState((current) => ({
+        ...current,
+        dismissedField: fieldKey(field),
+      }));
+      mutate({
+        _tag: "field-dismiss",
+        operationId: operationId(),
+        sessionId: session.id,
+      });
+    }}
+    variables={session.variables ?? []}
+  />
+);
 
 /** One selected session: the device on the stage and the dock over it. */
 export const AndroidSessionView = ({
@@ -645,15 +664,7 @@ export const AndroidSessionView = ({
   // Text goes to the device as the user types on it. A password field also
   // offers its Variables, and Teaching offers them only while recording.
   const field =
-    canAct &&
-    !pending &&
-    (session.kind !== "teaching" ||
-      session.captureState?._tag === "recording") &&
-    session.field !== null &&
-    session.field.password === true &&
-    fieldKey(session.field) !== state.dismissedField
-      ? session.field
-      : null;
+    canAct && !pending ? typingField(session, state.dismissedField) : null;
   const input = (action: InputAction, observationId: string) =>
     mutate({
       _tag: "input",
@@ -707,6 +718,22 @@ export const AndroidSessionView = ({
         <AndroidDevice
           canAct={canAct}
           cleanup={deviceCleanupKey(session.cleanup)}
+          device={androidDeviceLabel(session.selection.device)}
+          leading={
+            field === null ? null : (
+              <AndroidFieldVariable
+                disabled={pending}
+                field={field}
+                input={input}
+                key={fieldKey(field)}
+                mutate={mutate}
+                session={session}
+                setState={setState}
+              />
+            )
+          }
+          lockedReason={androidLockedReason(session)}
+          observation={session.observation}
           ended={!isLiveAndroidSession(session)}
           live={
             hasPreparedAndroidSession(session) &&
@@ -740,6 +767,9 @@ export const AndroidSessionView = ({
           pauseCode={session.captureGaps.at(-1)}
           pending={pending}
           sessionId={session.id}
+          takeover={
+            session.kind !== "teaching" && session.controller === "user"
+          }
           unavailable={glassText(session)}
         />
         <DockShell
@@ -753,8 +783,6 @@ export const AndroidSessionView = ({
           }
           requests={
             <AndroidDockRequests
-              field={field}
-              input={input}
               mutate={mutate}
               pending={pending}
               session={session}
@@ -769,17 +797,6 @@ export const AndroidSessionView = ({
           }
         >
           <AndroidDockControls
-            elements={
-              <DeviceElements
-                disabled={!canAct}
-                observation={session.observation}
-                onActivate={(inputs) => {
-                  for (const value of inputs) {
-                    onInput(value);
-                  }
-                }}
-              />
-            }
             instructing={state.instructing}
             mutate={mutate}
             onInstruct={() =>

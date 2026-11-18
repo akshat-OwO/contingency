@@ -12,6 +12,7 @@ export const RailButton = ({
   active,
   badge,
   description,
+  disabled = false,
   icon,
   label,
   onClick,
@@ -20,6 +21,7 @@ export const RailButton = ({
   readonly badge?: ReactNode;
   /** What the badge counts, read after the name by assistive technology. */
   readonly description?: string | undefined;
+  readonly disabled?: boolean;
   readonly icon: ReactNode;
   readonly label: string;
   readonly onClick: () => void;
@@ -32,10 +34,11 @@ export const RailButton = ({
           aria-label={label}
           aria-pressed={active}
           className={cn(
-            "text-muted-foreground hover:text-foreground hover:bg-muted/70 focus-visible:ring-ring relative grid size-9 place-items-center rounded-lg transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-95 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-4",
+            "text-muted-foreground hover:text-foreground hover:bg-muted/70 focus-visible:ring-ring relative grid size-9 place-items-center rounded-lg transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-95 disabled:opacity-40 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-4",
             active &&
               "text-foreground bg-[color-mix(in_oklch,var(--ring)_14%,var(--background))] shadow-[inset_0_0_0_1.5px_var(--ring)] hover:bg-[color-mix(in_oklch,var(--ring)_18%,var(--background))]"
           )}
+          disabled={disabled}
           onClick={onClick}
           type="button"
         />

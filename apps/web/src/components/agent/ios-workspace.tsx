@@ -21,16 +21,12 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
   CircleIcon,
-  CornerDownLeftIcon,
-  KeyRoundIcon,
   MessageSquareTextIcon,
   RotateCwIcon,
   ShieldAlertIcon,
   SmartphoneIcon,
   SquareIcon,
-  TextCursorInputIcon,
   UnplugIcon,
-  XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -38,13 +34,19 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
+import { WatcherLoader } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { decodeBase64 } from "@/lib/base64";
 import { isSessionNotFound } from "@/lib/failure-message";
 import {
@@ -58,7 +60,7 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
-import { DeviceFrame, DeviceRail, DeviceUnavailable } from "./android-device";
+import { DeviceUnavailable, NativeStage } from "./android-device";
 import type { DeviceKey } from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
@@ -68,7 +70,6 @@ import {
   deviceSummaryLabel,
 } from "./android-workspace-state";
 import { appInstallationQuestion } from "./app-installation";
-import { DeviceElements } from "./device-elements";
 import {
   makeFirstResponseProbe,
   probeNativeInput,
@@ -81,8 +82,14 @@ import {
   isLiveIosSession,
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
+import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { clearDataQuestion } from "./native-starting-data-copy";
+import { emptyNativeStreamStats } from "./native-stream-status";
+import type {
+  NativeStreamState,
+  NativeStreamStats,
+} from "./native-stream-status";
 import {
   DockNotice,
   DockShell,
@@ -122,13 +129,74 @@ const errorMessage = (cause: unknown) =>
     ? cause.message.replace(/^[a-z][a-z0-9_]*:\s*/u, "")
     : "The iOS session is unavailable.";
 
+const iosDeviceName = (device: IosWorkspaceSelection["device"]) =>
+  device.kind === "simulator"
+    ? `${device.name} · iOS ${device.runtimeVersion}`
+    : device.name;
+const iosStreamState = (transport: string): NativeStreamState => {
+  if (transport === "live") {
+    return "live";
+  }
+  return transport === "transport_lost" ? "lost" : "connecting";
+};
+const iosLockedReason = (session: IosWorkspaceSnapshot) =>
+  session.controller === "agent" && session.phase === "running"
+    ? "The agent is driving. Take control to use the simulator."
+    : undefined;
+
+/** What the glass says while the mirror connects or its transport is lost. */
+const IosMirrorVeil = ({
+  connecting,
+  onReconnect,
+  paused,
+}: {
+  readonly connecting: boolean;
+  readonly onReconnect: () => void;
+  readonly paused: boolean;
+}) => (
+  <>
+    {connecting ? (
+      <div className="absolute inset-0 grid place-items-center p-8 text-center">
+        <div className="grid justify-items-center gap-3">
+          <WatcherLoader className="h-7" />
+          <p className="text-sm text-neutral-300" role="status">
+            Connecting to the simulator…
+          </p>
+        </div>
+      </div>
+    ) : null}
+    {paused ? (
+      <div className="absolute inset-0 grid place-items-center p-6 text-center">
+        <div className="bg-background max-w-56 space-y-2 rounded-2xl border p-4 shadow-lg">
+          <UnplugIcon
+            aria-hidden="true"
+            className="mx-auto size-6 text-amber-600"
+          />
+          <p className="text-sm font-medium">Mirror paused</p>
+          <p className="text-muted-foreground text-xs" role="status">
+            Input waits until the transport is restored.
+          </p>
+          <Button onClick={onReconnect} size="sm" variant="secondary">
+            Reconnect device stream
+          </Button>
+        </div>
+      </div>
+    ) : null}
+  </>
+);
+
 const IosMirror = ({
+  leading,
+  pending,
   session,
   onDeviceKey,
   onEmulate,
   onInput,
   unavailable,
 }: {
+  /** The Field Variable card, beside the frame. */
+  readonly leading: React.ReactNode;
+  readonly pending: boolean;
   readonly session: IosWorkspaceSnapshot;
   readonly unavailable: string;
   /** Forwards the user's input to the simulator. */
@@ -143,11 +211,14 @@ const IosMirror = ({
   );
   const [transport, setTransport] = useState("connecting");
   const [frame, setFrame] = useState(DEFAULT_IOS_FRAME);
+  const [reconnect, setReconnect] = useState(0);
+  const stats = useRef<NativeStreamStats>(emptyNativeStreamStats);
   const live = session.phase === "running" || session.phase === "paused";
   useEffect(() => {
     if (!live) {
       return;
     }
+    setTransport("connecting");
     // Decodes off the main thread and resizes the canvas only when the
     // frame size changes, since a resize clears and reallocates it.
     const drawIosFrame = async (value: IosStreamFrame, signal: AbortSignal) => {
@@ -170,6 +241,12 @@ const IosMirror = ({
           );
         }
         target.getContext("2d")?.drawImage(bitmap, 0, 0);
+        stats.current = {
+          ...stats.current,
+          decoded: stats.current.decoded + 1,
+          height: value.height,
+          width: value.width,
+        };
         probe.frame();
         setTransport("live");
       } finally {
@@ -191,30 +268,30 @@ const IosMirror = ({
               }
               const reader = response.body.getReader();
               const decoder = new TextDecoder();
-              let pending = "";
+              let buffered = "";
               try {
                 while (!signal.aborted) {
                   const chunk = await reader.read();
                   if (chunk.done) {
                     break;
                   }
-                  pending += decoder.decode(chunk.value, { stream: true });
+                  buffered += decoder.decode(chunk.value, { stream: true });
                   // Only the newest complete frame is drawn: an older one
                   // that arrived in the same read would only add delay.
                   let newest: IosStreamFrame | undefined;
                   let lost = false;
-                  let newline = pending.indexOf("\n");
+                  let newline = buffered.indexOf("\n");
                   while (newline !== -1) {
                     const value: unknown = JSON.parse(
-                      pending.slice(0, newline)
+                      buffered.slice(0, newline)
                     );
-                    pending = pending.slice(newline + 1);
+                    buffered = buffered.slice(newline + 1);
                     if (isIosStreamFrame(value)) {
                       newest = value;
                     } else {
                       lost = true;
                     }
-                    newline = pending.indexOf("\n");
+                    newline = buffered.indexOf("\n");
                   }
                   if (lost) {
                     setTransport("transport_lost");
@@ -240,7 +317,7 @@ const IosMirror = ({
     return () => {
       Effect.runFork(Fiber.interrupt(fiber));
     };
-  }, [probe, session.id, session.phase, live]);
+  }, [probe, session.id, session.phase, live, reconnect]);
   const paused = transport === "transport_lost" && live;
   const interactive =
     live && !paused && transport === "live" && session.controller === "user";
@@ -266,73 +343,63 @@ const IosMirror = ({
       />
     );
   }
+  const onReconnect = () => setReconnect((value) => value + 1);
   return (
-    <div className="relative flex h-full min-h-0 w-full min-w-0 items-center justify-center gap-5">
-      <div aria-hidden="true" className="hidden w-56 shrink-0 lg:block" />
-      <div className="h-full min-h-0 min-w-0 flex-1 lg:flex-none lg:basis-[min(100%,28rem)]">
-        <DeviceFrame
-          frame={frame}
-          rail={
-            <DeviceRail
-              canAct={iosRailEnabled(session)}
-              emulation={session.emulation}
-              onEmulate={onEmulate}
-              onKey={onDeviceKey}
-              platform="iOS"
-            />
+    <NativeStage
+      busy={pending}
+      canAct={iosRailEnabled(session)}
+      emulation={session.emulation}
+      frame={frame}
+      leading={leading}
+      lockedReason={iosLockedReason(session)}
+      observation={session.observation}
+      onActivate={(inputs) => {
+        for (const input of inputs) {
+          onInput(input);
+        }
+      }}
+      onEmulate={onEmulate}
+      onKey={onDeviceKey}
+      platform="iOS"
+      stream={{
+        device: iosDeviceName(session.selection.device),
+        format: "JPEG",
+        onReconnect: live ? onReconnect : undefined,
+        state: iosStreamState(transport),
+        stats: () => stats.current,
+      }}
+      takeover={session.kind !== "teaching" && session.controller === "user"}
+    >
+      {live ? (
+        <canvas
+          aria-label={
+            interactive
+              ? "Live iOS viewport. Pointer, wheel, and keyboard input go to the simulator."
+              : "Live iOS viewport"
           }
-        >
-          {live ? (
-            <canvas
-              aria-label={
-                interactive
-                  ? "Live iOS viewport. Pointer, wheel, and keyboard input go to the simulator."
-                  : "Live iOS viewport"
-              }
-              aria-roledescription={interactive ? "device display" : undefined}
-              className={cn(
-                "absolute inset-0 size-full touch-none outline-none",
-                interactive ? "cursor-pointer" : "cursor-default",
-                paused && "opacity-40"
-              )}
-              data-observation-id={session.observation?.id}
-              ref={canvas}
-              role={interactive ? "application" : "img"}
-              tabIndex={interactive ? 0 : -1}
-              {...handlers}
-            />
-          ) : (
-            <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-neutral-400">
-              {unavailable}
-            </div>
+          aria-roledescription={interactive ? "device display" : undefined}
+          className={cn(
+            "absolute inset-0 size-full touch-none outline-none",
+            interactive ? "cursor-pointer" : "cursor-default",
+            paused && "opacity-40"
           )}
-          {paused ? (
-            <div className="absolute inset-0 grid place-items-center p-6 text-center">
-              <div className="bg-background max-w-56 space-y-1 rounded-2xl border p-4 shadow-lg">
-                <UnplugIcon
-                  aria-hidden="true"
-                  className="mx-auto size-6 text-amber-600"
-                />
-                <p className="text-sm font-medium">Mirror paused</p>
-                <p className="text-muted-foreground text-xs">
-                  Input waits until the transport is restored.
-                </p>
-              </div>
-            </div>
-          ) : null}
-        </DeviceFrame>
-      </div>
-      <div
-        aria-live="polite"
-        className="space-y-2 max-lg:absolute max-lg:inset-x-2 max-lg:top-0 max-lg:z-10 lg:w-56 lg:shrink-0"
-      >
-        <p className="sr-only" role="status">
-          {paused
-            ? "iOS mirror paused. No input is sent until transport is restored."
-            : ""}
-        </p>
-      </div>
-    </div>
+          data-observation-id={session.observation?.id}
+          ref={canvas}
+          role={interactive ? "application" : "img"}
+          tabIndex={interactive ? 0 : -1}
+          {...handlers}
+        />
+      ) : (
+        <div className="absolute inset-0 grid place-items-center p-8 text-center text-sm text-neutral-400">
+          {unavailable}
+        </div>
+      )}
+      <IosMirrorVeil
+        connecting={live && transport === "connecting"}
+        onReconnect={onReconnect}
+        paused={paused}
+      />
+    </NativeStage>
   );
 };
 
@@ -424,174 +491,6 @@ const IosDecisions = ({
   );
 
 type IosField = NonNullable<IosWorkspaceSnapshot["field"]>;
-
-/**
- * Typing into the picked field. A public field takes text; a secure field
- * only takes a Variable, requested here and entered by name, so a private
- * value never passes through this form.
- */
-export const IosFieldEntry = ({
-  field,
-  onDismiss,
-  pending,
-  send,
-  session,
-}: {
-  readonly field: IosField;
-  readonly onDismiss: () => void;
-  readonly pending: boolean;
-  readonly send: (command: IosWorkspaceCommand) => boolean;
-  readonly session: Pick<IosWorkspaceSnapshot, "id" | "variables">;
-}) => {
-  const fields = () => ({ operationId: operationId(), sessionId: session.id });
-  const secure = field.password === true || field.role === "secure-text-field";
-  const label = field.name || field.role;
-  const supplied = (session.variables ?? []).filter(
-    (variable) => variable.status === "supplied"
-  );
-  const header = (title: string) => (
-    <RequestHeader
-      action={
-        <Button
-          aria-label="Stop typing"
-          onClick={onDismiss}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <XIcon />
-        </Button>
-      }
-      icon={
-        secure ? (
-          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
-        ) : (
-          <TextCursorInputIcon
-            aria-hidden="true"
-            className={requestIconClassName}
-          />
-        )
-      }
-      title={title}
-    />
-  );
-  const variableForm = (
-    <form
-      aria-label="Field Variable"
-      className={cn(
-        "bg-muted-surface space-y-1.5 border-b px-3 py-2.5",
-        !secure && "pt-0"
-      )}
-      onSubmit={(event) => {
-        event.preventDefault();
-        const name = text(new FormData(event.currentTarget), "variable");
-        send({
-          _tag: "variable-request",
-          ...fields(),
-          name,
-          purpose: `Input for ${field.name}`,
-          replace: false,
-        });
-      }}
-    >
-      {secure ? (
-        <>
-          {header(`Enter a Variable into ${label}`)}
-          <p className="text-muted-foreground text-xs">
-            Secure fields take a named Variable, never typed text.
-          </p>
-        </>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          Or enter a named Variable, for a value that changes between runs.
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Input
-          aria-label="Variable name"
-          className="h-8 w-40 font-mono"
-          defaultValue={secure ? "PASSWORD" : ""}
-          name="variable"
-          placeholder="NAME"
-          required
-        />
-        <Button disabled={pending} size="sm" type="submit" variant="outline">
-          Request Variable
-        </Button>
-        {supplied.map((variable) => (
-          <Button
-            disabled={pending}
-            key={variable.name}
-            onClick={() =>
-              send({
-                _tag: "input",
-                ...fields(),
-                action: {
-                  _tag: "variable",
-                  name: variable.name,
-                  target: field.target,
-                },
-                observationId: field.observationId,
-              })
-            }
-            size="sm"
-            type="button"
-          >
-            <KeyRoundIcon />
-            Enter {variable.name}
-          </Button>
-        ))}
-      </div>
-    </form>
-  );
-  if (secure) {
-    return variableForm;
-  }
-  // An ordinary field takes public text, or a named Variable as before.
-  return (
-    <>
-      <form
-        aria-label={`Type into ${field.name}`}
-        className="bg-muted-surface space-y-1.5 px-3 pt-2.5 pb-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          send({
-            _tag: "input",
-            ...fields(),
-            action: {
-              _tag: "fill",
-              target: field.target,
-              text: text(new FormData(event.currentTarget), "text"),
-            },
-            observationId: field.observationId,
-          });
-        }}
-      >
-        {header(`Type into ${label}`)}
-        <div className="flex items-center gap-1.5">
-          <Input
-            aria-label={`Text for ${field.name}`}
-            autoFocus
-            className="h-8 flex-1"
-            name="text"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                onDismiss();
-              }
-            }}
-            placeholder="Public text"
-            required
-          />
-          <Button disabled={pending} size="sm" type="submit">
-            <CornerDownLeftIcon />
-            Type
-          </Button>
-        </div>
-      </form>
-      {variableForm}
-    </>
-  );
-};
 
 /** The rail's key as a Workspace input; iOS has no Back, so it sends none. */
 const railKeyCommand = (
@@ -689,31 +588,83 @@ const IosSessionSelect = ({
   readonly onSelect: (session: string) => void;
   readonly session: IosWorkspaceSnapshot | null;
   readonly sessions: readonly IosWorkspaceSummary[];
-}) => (
-  <NativeSelect
-    aria-label="iOS Agent Session"
-    className="[&_select]:hover:bg-island-hover max-w-80 min-w-28 shrink [&_select]:h-[34px] [&_select]:rounded-xl [&_select]:border-transparent [&_select]:bg-transparent [&_select]:pl-3 [&_select]:text-sm [&_select]:font-medium dark:[&_select]:bg-transparent"
-    onChange={(event) =>
-      onSelect(event.currentTarget.value || NEW_NATIVE_SESSION)
+}) => {
+  const labels = new Map<string, string>(
+    sessions.map((entry) => [entry.id, iosSessionLabel(entry)])
+  );
+  // The shown ended session names itself, but is no longer a choice.
+  const ended =
+    session !== null && !sessions.some((entry) => entry.id === session.id);
+  const sessionLabel = (value: string | null) => {
+    if (ended && value === session?.id) {
+      return "Ended session";
     }
-    size="sm"
-    value={session?.id ?? ""}
-  >
-    <NativeSelectOption value="">New iOS session</NativeSelectOption>
-    {/* The shown ended session names itself, but is no longer a choice. */}
-    {session === null ||
-    sessions.some((entry) => entry.id === session.id) ? null : (
-      <NativeSelectOption disabled value={session.id}>
-        Ended session
-      </NativeSelectOption>
-    )}
-    {sessions.map((entry) => (
-      <NativeSelectOption key={entry.id} value={entry.id}>
-        {iosSessionLabel(entry)}
-      </NativeSelectOption>
-    ))}
-  </NativeSelect>
-);
+    return value === null ? undefined : labels.get(value);
+  };
+  return (
+    <Select
+      onValueChange={(value) => {
+        if (value !== null) {
+          onSelect(value);
+        }
+      }}
+      value={session?.id ?? null}
+    >
+      <SelectTrigger
+        aria-label="iOS Agent Session"
+        // The home's "In progress" heading morphs into this trigger.
+        data-vt="switcher"
+        className="hover:bg-island-hover dark:hover:bg-island-hover h-[34px] max-w-80 min-w-28 shrink rounded-xl border-transparent bg-transparent pr-2 pl-3 text-sm font-medium dark:bg-transparent"
+      >
+        <SelectValue placeholder="iOS session">
+          {(value: string | null) => {
+            const label = sessionLabel(value);
+            return label === undefined ? (
+              <span className="text-muted-foreground truncate">
+                iOS session
+              </span>
+            ) : (
+              <span className="truncate" title={label}>
+                {label}
+              </span>
+            );
+          }}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        alignItemWithTrigger={false}
+        className="w-96 max-w-[calc(100vw-2rem)]"
+        side="bottom"
+      >
+        <SelectGroup>
+          <SelectLabel>iOS sessions</SelectLabel>
+          <SelectItem label="New iOS session" value={NEW_NATIVE_SESSION}>
+            New iOS session
+          </SelectItem>
+          {ended && session !== null ? (
+            <SelectItem disabled label="Ended session" value={session.id}>
+              Ended session
+            </SelectItem>
+          ) : null}
+          {sessions.map((entry) => {
+            const label = labels.get(entry.id) ?? entry.id;
+            return (
+              <SelectItem
+                aria-label={label}
+                key={entry.id}
+                label={label}
+                value={entry.id}
+              >
+                <span className="truncate">{label}</span>
+              </SelectItem>
+            );
+          })}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+};
 
 /** Recovery a paused iOS session offers outside the dock, kept for callers. */
 export const IosRecovery = ({
@@ -733,7 +684,6 @@ export const IosRecovery = ({
 /** The dock's controls row: navigation first, then the state's own actions. */
 const IosDockControls = ({
   commenting,
-  elements,
   gesture,
   onComment,
   onNewSession,
@@ -742,8 +692,6 @@ const IosDockControls = ({
   session,
 }: {
   readonly commenting: boolean;
-  /** The keyboard's way onto the simulator screen. */
-  readonly elements: React.ReactNode;
   readonly gesture: { readonly pending: boolean };
   readonly onComment: () => void;
   readonly onNewSession: () => void;
@@ -754,8 +702,6 @@ const IosDockControls = ({
   const primary = presentation.action;
   return (
     <>
-      {/* An ended session has no screen to reach. */}
-      {isLiveIosSession(session) ? elements : null}
       {presentation.showsComment ? (
         <Button
           aria-label="Comment"
@@ -856,7 +802,6 @@ const typingField = (
 const IosDock = ({
   gesture,
   inputRefusal,
-  onInput,
   onNewSession,
   onSelectSession,
   send,
@@ -868,7 +813,6 @@ const IosDock = ({
   };
   /** Why the last Forwarded Input sent nothing, if it was refused. */
   readonly inputRefusal: string | null;
-  readonly onInput: (input: NativeInput) => void;
   readonly onNewSession: () => void;
   readonly onSelectSession: (session: string) => void;
   readonly send: (command: IosWorkspaceCommand) => boolean;
@@ -893,8 +837,6 @@ const IosDock = ({
     setSubmitting,
     submitting,
   ]);
-  const [dismissedAtom] = useState(() => Atom.make<string | null>(null));
-  const [dismissedField, setDismissedField] = useAtom(dismissedAtom);
   const listed = useAtomValue(iosSessionsAtom);
   const sessions = AsyncResult.isSuccess(listed) ? listed.value : [];
   // A just-started session may not be listed yet; an ended one is no choice.
@@ -905,7 +847,6 @@ const IosDock = ({
       : [session, ...sessions];
   const presentation = iosDockPresentation(session);
   const recording = session.captureState?._tag === "recording";
-  const field = typingField(session, dismissedField);
   return (
     <>
       <SessionTopBar
@@ -964,16 +905,6 @@ const IosDock = ({
               pending={gesture.pending}
               session={session}
             />
-            {field === null ? null : (
-              <IosFieldEntry
-                field={field}
-                key={field.observationId}
-                onDismiss={() => setDismissedField(field.observationId)}
-                pending={gesture.pending}
-                send={send}
-                session={session}
-              />
-            )}
             {commenting && recording ? (
               <form
                 aria-label="Comment"
@@ -1024,21 +955,6 @@ const IosDock = ({
       >
         <IosDockControls
           commenting={commenting}
-          elements={
-            <DeviceElements
-              disabled={
-                gesture.pending ||
-                session.phase !== "running" ||
-                session.controller !== "user"
-              }
-              observation={session.observation}
-              onActivate={(inputs) => {
-                for (const input of inputs) {
-                  onInput(input);
-                }
-              }}
-            />
-          }
           gesture={gesture}
           onComment={() => setCommenting(!commenting)}
           onNewSession={onNewSession}
@@ -1110,6 +1026,97 @@ export const useIosSessionStart = () => {
   return { error: gesture.error, pending: gesture.pending, start };
 };
 
+/** The iOS Workspace with no session yet, or one its link no longer names. */
+const IosNoSession = ({
+  onStart,
+  pending,
+  unavailable,
+}: {
+  readonly onStart: () => void;
+  readonly pending: boolean;
+  readonly unavailable: boolean;
+}) => (
+  <main
+    aria-busy={pending}
+    aria-label="iOS Workspace"
+    className="bg-muted/40 relative grid h-full min-h-0 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4"
+  >
+    <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
+      <div
+        aria-hidden="true"
+        className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
+      >
+        <SmartphoneIcon className="size-5" />
+      </div>
+      <div className="space-y-1.5">
+        <h1 className="text-xl font-semibold tracking-tight">No iOS session</h1>
+        <p className="text-muted-foreground text-sm text-pretty">
+          Start a session to mirror a running iPhone simulator, then record a
+          journey through its Target App.
+        </p>
+        {unavailable ? (
+          <p
+            className="text-muted-foreground text-sm text-pretty"
+            role="status"
+          >
+            The session this link named is no longer available.
+          </p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onStart} size="lg">
+          <SmartphoneIcon />
+          Start an iOS session
+        </Button>
+      </div>
+    </section>
+    <WorkspaceHomeBar />
+  </main>
+);
+
+/** The Field Variable card for the password field the session is typing into. */
+const IosFieldVariable = ({
+  disabled,
+  field,
+  onStop,
+  send,
+  session,
+}: {
+  readonly disabled: boolean;
+  readonly field: NonNullable<ReturnType<typeof typingField>>;
+  readonly onStop: () => void;
+  readonly send: (command: IosWorkspaceCommand) => void;
+  readonly session: IosWorkspaceSnapshot;
+}) => (
+  <FieldVariableCard
+    disabled={disabled}
+    field={field.name || field.role}
+    onEnter={(name) =>
+      send({
+        _tag: "input",
+        action: { _tag: "variable", name, target: field.target },
+        observationId: field.observationId,
+        operationId: operationId(),
+        sessionId: session.id,
+      })
+    }
+    onRequest={(name) =>
+      send({
+        _tag: "variable-request",
+        name,
+        operationId: operationId(),
+        purpose: `Private input for ${field.name || field.role}`,
+        replace: (session.variables ?? []).some(
+          (variable) => variable.name === name
+        ),
+        sessionId: session.id,
+      })
+    }
+    onStop={onStop}
+    variables={session.variables ?? []}
+  />
+);
+
 export const IosWorkspace = ({
   onSessionChange,
   requestedSessionId,
@@ -1136,6 +1143,8 @@ export const IosWorkspace = ({
     );
   const [inputRefusalAtom] = useState(() => Atom.make<string | null>(null));
   const [inputRefusal, setInputRefusal] = useAtom(inputRefusalAtom);
+  const [dismissedAtom] = useState(() => Atom.make<string | null>(null));
+  const [dismissedField, setDismissedField] = useAtom(dismissedAtom);
   // Which session the route names, read when a command settles.
   const routeRef = useRef(requestedSessionId);
   useEffect(() => {
@@ -1285,47 +1294,15 @@ export const IosWorkspace = ({
   const startNew = () => onSessionChange(NEW_NATIVE_SESSION);
   if (session === null) {
     return (
-      <main
-        aria-busy={gesture.pending}
-        aria-label="iOS Workspace"
-        className="bg-muted/40 relative grid h-full min-h-0 place-items-center bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px] p-4"
-      >
-        <section className="material-panel w-full max-w-md space-y-4 rounded-xl p-5 shadow-[0_24px_64px_-32px_rgb(0_0_0/0.35)] sm:p-6">
-          <div
-            aria-hidden="true"
-            className="bg-muted text-muted-foreground grid size-10 place-items-center rounded-lg border"
-          >
-            <SmartphoneIcon className="size-5" />
-          </div>
-          <div className="space-y-1.5">
-            <h1 className="text-xl font-semibold tracking-tight">
-              No iOS session
-            </h1>
-            <p className="text-muted-foreground text-sm text-pretty">
-              Start a session to mirror a running iPhone simulator, then record
-              a journey through its Target App.
-            </p>
-            {unavailable ? (
-              <p
-                className="text-muted-foreground text-sm text-pretty"
-                role="status"
-              >
-                The session this link named is no longer available.
-              </p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={startNew} size="lg">
-              <SmartphoneIcon />
-              Start an iOS session
-            </Button>
-          </div>
-        </section>
-        <WorkspaceHomeBar />
-      </main>
+      <IosNoSession
+        onStart={startNew}
+        pending={gesture.pending}
+        unavailable={unavailable}
+      />
     );
   }
   const live = isLiveIosSession(session);
+  const field = typingField(session, dismissedField);
   return (
     <WorkspaceLayout
       summaryKey={session.id}
@@ -1337,7 +1314,7 @@ export const IosWorkspace = ({
               summary: (
                 <DeviceRunSummary
                   platform="ios"
-                  device={`${session.selection.device.name}${session.selection.device.kind === "simulator" ? ` · iOS ${session.selection.device.runtimeVersion}` : ""}`}
+                  device={iosDeviceName(session.selection.device)}
                   session={session}
                   targetApp={`${session.selection.environment.bundleId} · build ${session.selection.environment.build}`}
                 />
@@ -1356,6 +1333,19 @@ export const IosWorkspace = ({
         )}
       >
         <IosMirror
+          leading={
+            field === null ? null : (
+              <IosFieldVariable
+                disabled={gesture.pending}
+                field={field}
+                key={field.observationId}
+                onStop={() => setDismissedField(field.observationId)}
+                send={send}
+                session={session}
+              />
+            )
+          }
+          pending={gesture.pending}
           onDeviceKey={(key) => {
             const command = railKeyCommand(key, session);
             if (command !== null) {
@@ -1370,7 +1360,6 @@ export const IosWorkspace = ({
         <IosDock
           gesture={gesture}
           inputRefusal={inputRefusal}
-          onInput={onInput}
           onNewSession={startNew}
           onSelectSession={onSessionChange}
           send={send}

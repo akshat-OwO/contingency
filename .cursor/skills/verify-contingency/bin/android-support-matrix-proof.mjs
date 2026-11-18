@@ -155,17 +155,6 @@ const fill = (name, value) =>
     "--value",
     value
   );
-const select = (name, value) =>
-  control(
-    "browser",
-    "select",
-    "--role",
-    "combobox",
-    "--name",
-    name,
-    "--value",
-    value
-  );
 const snapshot = async (name) => {
   await control(
     "browser",
@@ -532,8 +521,7 @@ try {
   await click("Request Variable");
   await androidIdle(control);
   await supply("PASSWORD");
-  await select("Variable", "PASSWORD");
-  await click("Enter Variable");
+  await click("Enter PASSWORD");
   await androidIdle(control);
   await snapshot("teaching-private-fill");
   await androidPick(control, teaching.id, "button", "Sign in privately");

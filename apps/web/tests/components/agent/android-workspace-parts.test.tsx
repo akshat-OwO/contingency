@@ -1,13 +1,10 @@
 import { AgentSessionId } from "@contingency/protocol";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AndroidDevice } from "@/components/agent/android-device";
-import {
-  AndroidFieldEntry,
-  AndroidInstructionEntry,
-} from "@/components/agent/android-dock";
+import { AndroidInstructionEntry } from "@/components/agent/android-dock";
 import {
   selectable,
   unavailableReason,
@@ -64,6 +61,9 @@ test("offers only identified devices in the API 30 to 36 Support Matrix", () => 
 test("the device rail offers the device's keys and settings and draws nothing over the stream", () => {
   render(
     <AndroidDevice
+      device="Pixel_9"
+      lockedReason={undefined}
+      observation={null}
       canAct
       live={false}
       onDeviceKey={vi.fn()}
@@ -77,16 +77,24 @@ test("the device rail offers the device's keys and settings and draws nothing ov
   );
   // A refused click is said in the dock, never on or beside the glass.
   expect(screen.queryByRole("status")).toBeNull();
-  // The device's own keys are the only controls; there are no per-element targets.
+  // The rail beside the frame holds every control; nothing sits on the glass.
+  const rail = screen.getByRole("navigation", { name: "Device controls" });
   expect(
-    screen.getAllByRole("button").map((button) => button.ariaLabel)
+    within(rail)
+      .getAllByRole("button")
+      .map((button) => button.ariaLabel)
   ).toEqual([
     "Android Back",
     "Android Home",
     "Android Recents",
     "Rotate to landscape",
     "Device settings",
+    "Screen elements",
+    "Stream diagnostics",
   ]);
+  expect(
+    screen.getAllByRole("button").filter((button) => !rail.contains(button))
+  ).toEqual([]);
 });
 
 test("the rail rotates the device and changes its appearance and location", async () => {
@@ -94,6 +102,9 @@ test("the rail rotates the device and changes its appearance and location", asyn
   const onEmulate = vi.fn();
   render(
     <AndroidDevice
+      device="Pixel_9"
+      lockedReason={undefined}
+      observation={null}
       canAct
       emulation={{
         appearance: "light",
@@ -132,84 +143,12 @@ test("the rail rotates the device and changes its appearance and location", asyn
   });
 });
 
-test("types public text into the picked field from the dock", async () => {
-  const onSubmit = vi.fn();
-  const onDismiss = vi.fn();
-  render(
-    <AndroidFieldEntry
-      disabled={false}
-      field={{
-        name: "Shopper name",
-        observationId: "observation-2",
-        role: "text-field",
-        target: "@e3",
-      }}
-      onDismiss={onDismiss}
-      onRequest={vi.fn()}
-      onVariable={vi.fn()}
-      variables={[]}
-      onSubmit={onSubmit}
-    />
-  );
-  expect(screen.getByRole("form", { name: "Type into Shopper name" }));
-  expect(screen.queryByRole("combobox", { name: "Variable" })).toBeNull();
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Text for Shopper name" }),
-    "Fixture Shopper{Enter}"
-  );
-  expect(onSubmit).toHaveBeenCalledWith("Fixture Shopper");
-  await userEvent.keyboard("{Escape}");
-  expect(onDismiss).toHaveBeenCalledOnce();
-});
-
-test("a password field enters a supplied Variable by reference and has no public text entry", async () => {
-  const onVariable = vi.fn();
-  const onSubmit = vi.fn();
-  const onRequest = vi.fn();
-  render(
-    <AndroidFieldEntry
-      disabled={false}
-      field={{
-        name: "Private field",
-        observationId: "observed",
-        password: true,
-        role: "text-field",
-        target: "@password",
-      }}
-      onDismiss={vi.fn()}
-      onRequest={onRequest}
-      onSubmit={onSubmit}
-      onVariable={onVariable}
-      variables={[
-        {
-          name: "PASSWORD",
-          purpose: "Sign in",
-          requestId: "request",
-          setup: false,
-          status: "supplied",
-        },
-      ]}
-    />
-  );
-  expect(
-    screen.queryByRole("textbox", { name: "Text for Private field" })
-  ).toBeNull();
-  await userEvent.selectOptions(
-    screen.getByRole("combobox", { name: "Variable" }),
-    "PASSWORD"
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Enter Variable" }));
-  expect(onVariable).toHaveBeenCalledWith("PASSWORD");
-  expect(onSubmit).not.toHaveBeenCalled();
-  await userEvent.click(
-    screen.getByRole("button", { name: "Request Variable" })
-  );
-  expect(onRequest).toHaveBeenCalledWith("PASSWORD");
-});
-
 test("a secure pause names the hidden window instead of a disconnected device", () => {
   render(
     <AndroidDevice
+      device="Pixel_9"
+      lockedReason={undefined}
+      observation={null}
       canAct={false}
       live
       onDeviceKey={vi.fn()}
@@ -269,6 +208,9 @@ test("keeps the empty state and its disabled start while a pick opens a session"
 const pausedDevice = (pauseCode: string) =>
   render(
     <AndroidDevice
+      device="Pixel_9"
+      lockedReason={undefined}
+      observation={null}
       canAct={false}
       live
       onDeviceKey={vi.fn()}
