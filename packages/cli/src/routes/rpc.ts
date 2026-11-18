@@ -31,6 +31,7 @@ import type {
 } from "../services/catalog-browser.ts";
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
+import { NativeAgentTouches } from "../services/native-agent-touch.ts";
 import { OwnedDevices } from "../services/owned-devices.ts";
 import type { OwnedDevicesService } from "../services/owned-devices.ts";
 import { recordingView } from "../services/recording-view.ts";
@@ -372,6 +373,16 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
           }
           return stream.access;
         }),
+      // A process without native Workspaces has no touches to draw, so the
+      // stream stays open and empty rather than failing the stage.
+      "native.agent.touch.subscribe": ({ sessionId }) =>
+        Stream.unwrap(
+          Effect.map(Effect.serviceOption(NativeAgentTouches), (touches) =>
+            Option.isSome(touches)
+              ? touches.value.stream(sessionId)
+              : Stream.never
+          )
+        ),
       "android.devices.list": () =>
         androidDiscovery
           .devices()

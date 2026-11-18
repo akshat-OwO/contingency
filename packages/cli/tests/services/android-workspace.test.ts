@@ -57,6 +57,8 @@ import {
   DeviceWorkspaceTools,
   DeviceWorkspaceToolHandlersLive,
 } from "../../src/services/mcp-device-workspace.ts";
+import { NativeAgentTouches } from "../../src/services/native-agent-touch.ts";
+import type { NativeAgentGesture } from "../../src/services/native-agent-touch.ts";
 import { OBSERVATION_VALIDATION_MILLIS } from "../../src/services/native-app-runtime.ts";
 import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
 import type { NativeScreenRecorder } from "../../src/services/native-screen-recorder.ts";
@@ -113,6 +115,12 @@ const image =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
 const flow = `---\nname: android-edit\ndescription: Edit a public fixture field and return Home. Use when testing the Android fixture.\ninputs:\n---\n\n# Edit the fixture\n\n1. Activate the button named Edit. Done when: the public field is visible.\n2. Enter public fixture text. Done when: the field shows the value.\n3. Go back. Done when: Home is visible.\n`;
 
+interface TouchRecord {
+  readonly sessionId: string;
+  readonly gesture: NativeAgentGesture;
+  readonly screen: { readonly width: number; readonly height: number };
+}
+
 interface CaptureGate {
   readonly entered: Deferred.Deferred<boolean>;
   readonly release: Deferred.Deferred<boolean>;
@@ -128,6 +136,8 @@ const fixture = (
     readonly setNodes: (nodes: AndroidObservation["nodes"]) => void;
     /** Forwarded Input batches the device stream received, in order. */
     readonly forwarded: NativeInput[][];
+    /** The agent touches the workspace published for the live stage, in order. */
+    readonly touches: TouchRecord[];
     /**
      * Holds the next capture after it starts until the test releases it.
      * Releasing with `false` fails that capture as a lost device.
@@ -180,6 +190,7 @@ const fixture = (
       const calls: string[] = [];
       const resolved: string[] = [];
       const forwarded: NativeInput[][] = [];
+      const touches: TouchRecord[] = [];
       const recorded: string[] = [];
       const setups: AndroidRunInput["setup"][] = [];
       const installs: (string | undefined)[] = [];
@@ -418,7 +429,19 @@ const fixture = (
         makeFlowCatalogLayer({ root }),
         factory,
         Layer.succeed(TargetAppBuilds, builds),
-        Layer.succeed(OwnedDevices, owned)
+        Layer.succeed(OwnedDevices, owned),
+        // Records each touch instead of drawing it, so no touch waits.
+        Layer.succeed(
+          NativeAgentTouches,
+          NativeAgentTouches.of({
+            release: () => Effect.void,
+            stream: () => Stream.empty,
+            touch: (sessionId, gesture, screen) =>
+              Effect.sync(() => {
+                touches.push({ gesture, screen, sessionId });
+              }),
+          })
+        )
       );
       const device = fakeAndroidDevice();
       const adbCalls: string[] = [];
@@ -506,6 +529,7 @@ const fixture = (
           customNodes = nodes;
         },
         setups,
+        touches,
       }).pipe(
         Effect.provide(
           Layer.mergeAll(
@@ -2268,6 +2292,57 @@ it.effect(
       })
     )
 );
+/**
+ * The live stage draws the agent's touch (ADR 0046), and only the agent's:
+ * the user's semantic pick while Teaching and their Forwarded Input are never
+ * drawn (ADR 0076).
+ */
+it.effect(
+  "publishes a touch for the agent's activation and none for the user's input",
+  () =>
+    fixture(({ forwarded, touches }) =>
+      Effect.gen(function* agentTouch() {
+        const workspace = yield* AndroidWorkspace;
+        const recordingId = yield* teach();
+        expect(touches).toEqual([]);
+        const prepared = yield* dryRun(recordingId);
+        yield* workspace.execute(
+          {
+            _tag: "input",
+            action: { _tag: "activate", target: "@e2" },
+            observationId: prepared.observation?.id ?? "",
+            operationId: op("agent-touch"),
+            sessionId: prepared.id,
+          },
+          "agent"
+        );
+        // The centre of Edit's bounds, on the 1 by 1 fixture screenshot.
+        expect(touches).toEqual([
+          {
+            gesture: { action: "tap", x: 0.5, y: 0.5 },
+            screen: { height: 1, width: 1 },
+            sessionId: prepared.id,
+          },
+        ]);
+        yield* workspace.execute(
+          {
+            _tag: "control",
+            controller: "user",
+            operationId: op("take-over"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        yield* workspace.forward(
+          { inputs: tap(0.5, 0.5), sessionId: prepared.id },
+          "user"
+        );
+        expect(forwarded).toHaveLength(1);
+        expect(touches).toHaveLength(1);
+      })
+    )
+);
+
 it.effect("Dry Run allows untaught activation", () =>
   fixture(({ calls, setNodes }) =>
     Effect.gen(function* taughtGate() {
