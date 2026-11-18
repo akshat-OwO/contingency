@@ -487,3 +487,45 @@ export const ForwardArrowIcon = () => (
     <path d="m13 6 6 6-6 6" />
   </Icon>
 );
+
+export const HomeKeyIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="7" />
+  </Icon>
+);
+
+export const RecentsIcon = () => (
+  <Icon>
+    <rect height="13" rx="2" width="13" x="5.5" y="5.5" />
+  </Icon>
+);
+
+export const AppSwitcherIcon = () => (
+  <Icon>
+    <rect height="14" rx="2.5" width="9" x="3" y="5" />
+    <path d="M15 7h4a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-4" />
+  </Icon>
+);
+
+export const SlidersIcon = () => (
+  <Icon>
+    <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+    <circle cx="16" cy="7" r="2" />
+    <circle cx="10" cy="17" r="2" />
+  </Icon>
+);
+
+export const ElementsIcon = () => (
+  <Icon>
+    <rect height="6" rx="1.5" width="16" x="4" y="4" />
+    <path d="M4 14h8M4 19h5" />
+    <path d="M15 13l5 2.2-2.2.8-.8 2.2z" />
+  </Icon>
+);
+
+export const PinIcon = () => (
+  <Icon>
+    <path d="M12 21s-6-5.4-6-11a6 6 0 0 1 12 0c0 5.6-6 11-6 11z" />
+    <circle cx="12" cy="10" r="2.2" />
+  </Icon>
+);
