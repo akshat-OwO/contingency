@@ -21,3 +21,11 @@ export const deviceCleanupKey = (
   cleanup === null
     ? "none"
     : `${cleanup._tag}:${"retainedFiles" in cleanup ? cleanup.retainedFiles.length : 0}`;
+
+/**
+ * The Capture Gap that paused the session. A pause after unobserved Forwarded
+ * Input also records `forwarded_input_unverified`, which names evidence the
+ * input left, never why the session paused.
+ */
+export const pauseCodeOf = (captureGaps: readonly string[]) =>
+  captureGaps.findLast((code) => code !== "forwarded_input_unverified");

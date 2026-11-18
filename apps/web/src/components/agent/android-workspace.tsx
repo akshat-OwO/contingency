@@ -59,6 +59,7 @@ import {
   androidDeviceLabel,
   deviceCleanupKey,
   deviceSummaryLabel,
+  pauseCodeOf,
 } from "./android-workspace-state";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputQueue } from "./native-input";
@@ -765,7 +766,7 @@ export const AndroidSessionView = ({
           paused={
             session.phase === "paused" && hasPreparedAndroidSession(session)
           }
-          pauseCode={session.captureGaps.at(-1)}
+          pauseCode={pauseCodeOf(session.captureGaps)}
           pending={pending}
           sessionId={session.id}
           takeover={

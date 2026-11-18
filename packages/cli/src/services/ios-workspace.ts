@@ -31,11 +31,11 @@ import {
   Fiber,
   FileSystem,
   Layer,
-  Option,
-  Redacted,
   Result,
+  Redacted,
   Schema,
   Scope,
+  Option,
   Semaphore,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
