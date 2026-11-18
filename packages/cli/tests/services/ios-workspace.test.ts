@@ -200,6 +200,18 @@ for (const existing of [false, true]) {
             },
             "user"
           );
+          // A closed session's scope is gone; observing it is refused in words.
+          expect(
+            yield* Effect.flip(
+              workspace.execute(
+                { _tag: "observe", image: false, sessionId: started.id },
+                "agent"
+              )
+            )
+          ).toMatchObject({
+            code: "ios_workspace_refused",
+            message: expect.stringContaining("has ended"),
+          });
         }).pipe(Effect.provide(Layer.merge(storeLayer, workspaceLayer)));
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   );

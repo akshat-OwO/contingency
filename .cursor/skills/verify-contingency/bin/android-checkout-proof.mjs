@@ -246,6 +246,23 @@ const input = (session, action) =>
     operationId: operation(),
     sessionId: session.id,
   });
+/** Another app comes forward asynchronously; observe until its nodes appear. */
+const untilApp = async (sessionId, packageName) => {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const current = await observe(sessionId);
+    assert.equal(current.phase, "running", current.error ?? "");
+    if (
+      nodes(current).some(
+        (node) =>
+          node.packageName === packageName && node.hittable && !node.covered
+      )
+    ) {
+      return current;
+    }
+    await sleep(1000);
+  }
+  assert.fail(`${packageName} was never observed.`);
+};
 /** Mirrored input settles asynchronously; read fresh observations until the node appears. */
 const untilShown = async (sessionId, condition) => {
   for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -789,65 +806,101 @@ try {
     notWorking: { assessment: notWorking.assessment, id: failed.id },
   };
 
-  // Unexpected app: another app takes the foreground mid-Run.
-  const paused = await startSession("run", "broken");
-  sessions.push(paused.id);
-  await allowPermission(paused.id);
+  // Another app in front: the agent uses the whole emulator OS (ADR 0067),
+  // so the Run keeps observing Settings and acts on it without a pause.
+  const crossApp = await startSession("run", "broken");
+  sessions.push(crossApp.id);
+  await allowPermission(crossApp.id);
   await wait(prepareName);
   await click(prepareName);
   await wait("Take control");
-  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  const outside = await refusal("agent_device_workspace", {
-    command: { _tag: "observe", image: false, sessionId: paused.id },
-    platform: "android",
+  // -S restarts Settings at its top page, whatever an earlier run left open.
+  await adb(
+    "shell",
+    "am",
+    "start",
+    "-W",
+    "-S",
+    "-a",
+    "android.settings.SETTINGS"
+  );
+  const settingsPackage = "com.android.settings";
+  const inSettings = await untilApp(crossApp.id, settingsPackage);
+  const settingsNodes = nodes(inSettings).filter(
+    (node) =>
+      node.packageName === settingsPackage && node.hittable && !node.covered
+  );
+  // A Settings page the proof can leave with Back; search opens another app.
+  // A row's name can carry its summary, such as "Apps, Recent apps…".
+  const settingsControl = settingsNodes.find((node) =>
+    ["Network & internet", "Connected devices", "Apps"].some((page) =>
+      node.name?.startsWith(page)
+    )
+  );
+  assert.ok(
+    settingsControl,
+    `Settings showed none of its top-level pages: ${JSON.stringify(
+      settingsNodes.map((node) => [node.role, node.name])
+    )}`
+  );
+  await input(inSettings, {
+    _tag: "activate",
+    target: settingsControl.target,
   });
-  const pausedRead = await read(paused.id);
-  assert.equal(pausedRead.phase, "paused");
-  await openView(paused.id);
-  await wait(recoverName);
-  await snapshot("unexpected-app-paused");
+  const afterSettingsControl = await observe(crossApp.id);
+  assert.equal(afterSettingsControl.phase, "running");
+  await snapshot("cross-app-settings");
+  await input(afterSettingsControl, { _tag: "back" });
   await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
-  await click(recoverName);
+  const returned = await untilShown(crossApp.id, startingCondition);
+  assert.equal(returned.phase, "running");
+  const crossAppRead = await read(crossApp.id);
+  assert.equal(crossAppRead.phase, "running");
+  await openView(crossApp.id);
   await wait("Take control");
-  const recovered = await observe(paused.id);
-  assert.notEqual(recovered.observation.id, pausedRead.observation?.id);
-  assert.equal(recovered.phase, "running");
   await click("Close session");
   receipt.coverage.unexpectedApp = {
-    captureGaps: pausedRead.captureGaps,
-    pause: outside.split("\n").find(Boolean),
-    recoveredObservation: recovered.observation.id,
+    actedOn: { name: settingsControl.name, packageName: settingsPackage },
+    captureGaps: crossAppRead.captureGaps,
+    returnedObservation: returned.observation.id,
+    settingsObservation: inSettings.observation.id,
   };
 
-  // Capture loss ends Teaching as incomplete; it cannot be learned.
+  // Teaching keeps capturing in another app (ADR 0067): Settings in front
+  // neither pauses the session nor ends its recording.
   await installVariant("working");
-  const lost = await startSession("teaching", "working");
-  sessions.push(lost.id);
-  await openView(lost.id);
+  const elsewhere = await startSession("teaching", "working");
+  sessions.push(elsewhere.id);
+  await openView(elsewhere.id);
   await wait(prepareName);
   await click(prepareName);
   await wait("Start recording");
   await click("Start recording");
   await wait("Stop recording");
-  // The Workspace mirror detects the foreign app on its next capture, before any input.
-  await adb("shell", "am", "start", "-W", "-a", "android.settings.SETTINGS");
-  await wait(recoverName);
-  const lostRead = await read(lost.id);
-  assert.equal(lostRead.captureState._tag, "failed");
-  await snapshot("capture-loss");
+  await adb(
+    "shell",
+    "am",
+    "start",
+    "-W",
+    "-S",
+    "-a",
+    "android.settings.SETTINGS"
+  );
+  const teachingInSettings = await untilApp(elsewhere.id, settingsPackage);
+  assert.equal(teachingInSettings.captureState._tag, "recording");
+  await snapshot("teaching-in-settings");
   await adb("shell", "am", "start", "-W", "-n", `${appId}/.MainActivity`);
+  await untilShown(elsewhere.id, startingCondition);
+  await click("Stop recording");
+  await waitText("Ask an agent to learn this recording.");
+  const elsewhereRead = await read(elsewhere.id);
+  assert.equal(elsewhereRead.captureState._tag, "ready");
+  assert.deepEqual(elsewhereRead.captureGaps, []);
   await click("Close session");
-  const learnRefused = await refusal("agent_teaching_recording_claim", {
-    action: "take",
-    claimOperationId: null,
-    error: null,
-    operationId: "android-checkout-lost-claim",
-    recordingId: lost.recordingId,
-  });
-  receipt.coverage.captureLoss = {
-    captureGaps: lostRead.captureGaps,
-    claimRefused: learnRefused.split("\n").find(Boolean),
-    lifecycle: lostRead.captureState,
+  receipt.coverage.teachingElsewhere = {
+    captureGaps: elsewhereRead.captureGaps,
+    lifecycle: elsewhereRead.captureState,
+    settingsObservation: teachingInSettings.observation.id,
   };
 
   // A restarted server owns no device; it rereads retained Summaries.

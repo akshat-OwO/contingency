@@ -1128,6 +1128,18 @@ it.effect(
           "user"
         );
         expect(refused.phase).toBe("refused");
+        // The refused session released its device; observing it is refused in
+        // words, not lost to the interrupted capture of a closed scope.
+        const observeRefused = yield* Effect.flip(
+          workspace.execute(
+            { _tag: "observe", image: false, sessionId: changed.id },
+            "agent"
+          )
+        );
+        expect(observeRefused).toMatchObject({
+          code: "android_workspace_refused",
+          message: expect.stringContaining("has ended"),
+        });
         expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
           "dry-run-failed"
         );

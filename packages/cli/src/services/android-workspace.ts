@@ -22,17 +22,18 @@ import type {
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import {
+  Cause,
   Context,
   Effect,
   Exit,
   Fiber,
   FileSystem,
   Layer,
-  Result,
+  Option,
   Redacted,
+  Result,
   Schema,
   Scope,
-  Option,
   Semaphore,
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
@@ -107,6 +108,9 @@ const error = (code: string, message: string): AndroidWorkspaceError => ({
 });
 const denied = (message: string) =>
   Effect.fail(error("android_workspace_refused", message));
+/** An ended session keeps its Summary but has no device to observe. */
+const SESSION_ENDED =
+  "This Android session has ended, so there is nothing to observe. Read its Summary, or start a new session.";
 /** Claims an uploaded build for a session, refusing any other path. */
 const claimBuild = (
   builds: Option.Option<TargetAppBuildsService>,
@@ -2605,10 +2609,22 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
             // A capture forwards no input, so a caller that stops waiting, such as a
             // closed mirror, must not pause the session or mark its capture incomplete.
+            // An ended session has closed its scope; a capture forked there is
+            // interrupted before it starts, so refuse it in words instead.
             return command._tag === "observe"
-              ? serialized.pipe(
-                  Effect.forkIn(session.scope),
-                  Effect.flatMap(Fiber.join)
+              ? Effect.suspend(() =>
+                  terminalPhase(session)
+                    ? denied(SESSION_ENDED)
+                    : serialized.pipe(
+                        Effect.forkIn(session.scope),
+                        Effect.flatMap(Fiber.join),
+                        Effect.catchCause((cause) =>
+                          Cause.hasInterruptsOnly(cause) &&
+                          terminalPhase(session)
+                            ? denied(SESSION_ENDED)
+                            : Effect.failCause(cause)
+                        )
+                      )
                 )
               : serialized;
           }),

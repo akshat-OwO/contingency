@@ -139,6 +139,8 @@ export const adaptNativeAppRuntime = <
           while: (cause) => cause.code === "capture_incomplete",
         })
       );
+      // A capture of a secure window is not evidence, whatever the cadence.
+      yield* input.backend.requireVisibleScreen?.() ?? Effect.void;
       const foreground = input.foreground?.(captured);
       if (!due && foreground !== validatedForeground) {
         // Another app came forward since the last check: check again now.
