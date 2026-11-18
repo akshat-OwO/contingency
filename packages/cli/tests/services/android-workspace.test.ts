@@ -1128,6 +1128,18 @@ it.effect(
           "user"
         );
         expect(refused.phase).toBe("refused");
+        // The refused session released its device; observing it is refused in
+        // words, not lost to the interrupted capture of a closed scope.
+        const observeRefused = yield* Effect.flip(
+          workspace.execute(
+            { _tag: "observe", image: false, sessionId: changed.id },
+            "agent"
+          )
+        );
+        expect(observeRefused).toMatchObject({
+          code: "android_workspace_refused",
+          message: expect.stringContaining("has ended"),
+        });
         expect((yield* store.read(recordingId)).lifecycle._tag).toBe(
           "dry-run-failed"
         );
@@ -1723,6 +1735,60 @@ it.effect("cancelling a mirror capture leaves Teaching intact", () =>
       expect(stopped.phase).toBe("running");
       expect(stopped.captureGaps).toEqual([]);
       expect(stopped.captureState?._tag).toBe("ready");
+    })
+  )
+);
+
+it.effect("refuses an observation queued behind the session's close", () =>
+  fixture(({ holdNextCapture }) =>
+    Effect.gen(function* observeDuringClose() {
+      const workspace = yield* AndroidWorkspace;
+      const started = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("start-teaching"),
+          recordingId: null,
+          selection,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        { _tag: "prepare", operationId: op("prepare"), sessionId: started.id },
+        "user"
+      );
+      // A slow capture holds the session while close and an observe queue.
+      const gate = yield* holdNextCapture();
+      const slow = yield* Effect.forkChild(
+        workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        )
+      );
+      yield* Deferred.await(gate.entered);
+      const closing = yield* Effect.forkChild(
+        workspace.execute(
+          { _tag: "close", operationId: op("close"), sessionId: started.id },
+          "user"
+        ),
+        { startImmediately: true }
+      );
+      const queued = yield* Effect.forkChild(
+        workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "agent"
+        ),
+        { startImmediately: true }
+      );
+      yield* Deferred.succeed(gate.release, true);
+      yield* Fiber.join(slow);
+      expect((yield* Fiber.join(closing)).phase).toBe("closed");
+      // Close interrupts the queued capture before it records the phase.
+      expect(yield* Effect.flip(Fiber.join(queued))).toMatchObject({
+        code: "android_workspace_refused",
+        message: expect.stringContaining("has ended"),
+      });
     })
   )
 );

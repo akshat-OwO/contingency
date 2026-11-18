@@ -315,6 +315,45 @@ it.effect("pauses on secure windows without dispatch", () =>
   })
 );
 
+it.effect(
+  "refuses an observation once the window turns secure between environment checks",
+  () =>
+    Effect.gen(function* refuseSecureCapture() {
+      const { backend, input } = yield* makeFixture();
+      let secure = false;
+      let validations = 0;
+      const runtime = yield* adaptAndroidRuntime({
+        backend: {
+          ...backend,
+          requireVisibleScreen: () =>
+            secure
+              ? Effect.fail(platformRuntimeError("secure_window"))
+              : Effect.void,
+          validate: () =>
+            Effect.sync(() => {
+              validations += 1;
+            }),
+        },
+        startup: input,
+      });
+      yield* runtime.observe();
+      // The same app shows a FLAG_SECURE window before the next cadence check.
+      secure = true;
+      expect((yield* Effect.flip(runtime.observe())).code).toBe(
+        "secure_window"
+      );
+      expect(validations).toBe(1);
+      expect(runtime.state()).toMatchObject({
+        failure: { code: "secure_window" },
+        observationId: null,
+        phase: "paused",
+      });
+      secure = false;
+      expect((yield* runtime.recover()).id).toBeDefined();
+      expect(runtime.state().phase).toBe("ready");
+    })
+);
+
 it.effect("does not replay a failed dispatched action", () =>
   Effect.gen(function* uncertainDispatch() {
     const { backend, commands, input } = yield* makeFixture();

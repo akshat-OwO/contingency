@@ -624,8 +624,9 @@ export const acquireAndroidBackend = (
             "activate"
           ).pipe(Effect.asVoid),
         capture: () =>
-          // The runtime validates the environment on its own cadence; the
-          // device identity of each capture is still checked here.
+          // The runtime validates the environment on its own cadence and
+          // checks window visibility after every capture; the device identity
+          // of each capture is still checked here.
           Effect.gen(function* captureAndroid() {
             const snapshot = yield* io(
               (signal) =>
@@ -720,6 +721,8 @@ export const acquireAndroidBackend = (
             fillPublic({ ...options(), ref, signal, text })
           ),
         recover: lifecycle.recover,
+        requireVisibleScreen: () =>
+          requireVisibleWindow(input).pipe(Effect.asVoid),
         sessionId,
         systemKey: (key) =>
           io(

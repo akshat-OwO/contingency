@@ -85,6 +85,15 @@ export interface NativeAppRuntimeBackend<
   readonly validate: () => Effect.Effect<void, PlatformRuntimeError>;
   readonly recover: () => Effect.Effect<void, PlatformRuntimeError>;
   readonly capture: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  /**
+   * Checks after every capture that the screen it shows can be seen. A secure
+   * window can open inside the foreground app between two environment checks,
+   * so this runs on every observation, not on the validation cadence.
+   */
+  readonly requireVisibleScreen?: () => Effect.Effect<
+    void,
+    PlatformRuntimeError
+  >;
   readonly activate: (
     target: string
   ) => Effect.Effect<void, PlatformRuntimeError>;

@@ -7,7 +7,15 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, FileSystem, Layer, Result, Stream } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Result,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
@@ -475,4 +483,45 @@ it.effect(
       expect(activations).toHaveLength(1);
       expect(activations[0]).toMatch(/^@e3~s/u);
     })
+);
+
+it.effect("refuses an observation queued behind the session's close", () =>
+  Effect.gen(function* closeRace() {
+    const { phase, result } = yield* teachLogin(
+      loginScreen,
+      ({ hold, run, sessionId, workspace }) =>
+        Effect.gen(function* observeDuringClose() {
+          // A slow capture holds the session while close and an observe queue.
+          const gate = yield* hold();
+          const slow = yield* Effect.forkChild(
+            workspace.execute(
+              { _tag: "observe", image: false, sessionId },
+              "user"
+            )
+          );
+          yield* Deferred.await(gate.started);
+          const closing = yield* Effect.forkChild(
+            run((fields) => ({ _tag: "close", ...fields })),
+            { startImmediately: true }
+          );
+          const queued = yield* Effect.forkChild(
+            workspace.execute(
+              { _tag: "observe", image: false, sessionId },
+              "agent"
+            ),
+            { startImmediately: true }
+          );
+          yield* Deferred.succeed(gate.release, true);
+          yield* Fiber.join(slow);
+          yield* Fiber.join(closing);
+          // Close interrupts the queued capture before it records the phase.
+          return yield* Effect.flip(Fiber.join(queued));
+        })
+    );
+    expect(phase).toBe("closed");
+    expect(result).toMatchObject({
+      code: "ios_workspace_refused",
+      message: expect.stringContaining("has ended"),
+    });
+  })
 );

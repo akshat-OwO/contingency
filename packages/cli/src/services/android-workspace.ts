@@ -22,6 +22,7 @@ import type {
   TeachingRecordingManifest,
 } from "@contingency/protocol";
 import {
+  Cause,
   Context,
   Effect,
   Exit,
@@ -107,6 +108,9 @@ const error = (code: string, message: string): AndroidWorkspaceError => ({
 });
 const denied = (message: string) =>
   Effect.fail(error("android_workspace_refused", message));
+/** An ended session keeps its Summary but has no device to observe. */
+const SESSION_ENDED =
+  "This Android session has ended, so there is nothing to observe. Read its Summary, or start a new session.";
 /** Claims an uploaded build for a session, refusing any other path. */
 const claimBuild = (
   builds: Option.Option<TargetAppBuildsService>,
@@ -874,12 +878,23 @@ export const makeAndroidWorkspaceLayer = (options: {
             });
           }
         });
+      // Sessions whose scope is closing. Close interrupts the scope's
+      // fibers before it records the ended phase, so a capture queued behind
+      // it reads this to refuse in words.
+      const ending = new WeakSet<Session>();
+      const endScope = (session: Session) =>
+        Effect.suspend(() => {
+          ending.add(session);
+          return Scope.close(session.scope, Exit.void);
+        });
       const terminalPhase = (session: Session) => {
         const { phase } = state(session).summary;
         return (
           phase === "closed" || phase === "completed" || phase === "refused"
         );
       };
+      const ended = (session: Session) =>
+        ending.has(session) || terminalPhase(session);
       const close = (
         session: Session,
         outcome: "user-closed" | "interrupted" | "process-exited"
@@ -902,7 +917,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           // The recorder belongs to the device runtime; stop it first.
           yield* endVideo(session);
           yield* session.run.close();
-          yield* Scope.close(session.scope, Exit.void);
+          yield* endScope(session);
           if (Option.isSome(touches)) {
             yield* touches.value.release(state(session).summary.id);
           }
@@ -2113,7 +2128,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           clearVariables(session);
           yield* endVideo(session);
           yield* session.run.close();
-          yield* Scope.close(session.scope, Exit.void);
+          yield* endScope(session);
           yield* persist(session);
           yield* writeRunSummary(session, "completed");
           if (summary.kind === "dry-run" && summary.recordingId !== null) {
@@ -2336,7 +2351,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
               clearVariables(session);
               yield* session.run.close();
-              yield* Scope.close(session.scope, Exit.void);
+              yield* endScope(session);
               update(session, (value) => ({
                 ...value,
                 observation: null,
@@ -2605,10 +2620,21 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
             // A capture forwards no input, so a caller that stops waiting, such as a
             // closed mirror, must not pause the session or mark its capture incomplete.
+            // An ending session closes its scope, which interrupts a capture
+            // forked there, so refuse it in words instead.
             return command._tag === "observe"
-              ? serialized.pipe(
-                  Effect.forkIn(session.scope),
-                  Effect.flatMap(Fiber.join)
+              ? Effect.suspend(() =>
+                  ended(session)
+                    ? denied(SESSION_ENDED)
+                    : serialized.pipe(
+                        Effect.forkIn(session.scope),
+                        Effect.flatMap(Fiber.join),
+                        Effect.catchCause((cause) =>
+                          Cause.hasInterruptsOnly(cause) && ended(session)
+                            ? denied(SESSION_ENDED)
+                            : Effect.failCause(cause)
+                        )
+                      )
                 )
               : serialized;
           }),

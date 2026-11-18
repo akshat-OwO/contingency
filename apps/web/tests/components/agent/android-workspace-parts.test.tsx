@@ -10,6 +10,7 @@ import {
   unavailableReason,
 } from "@/components/agent/android-setup-state";
 import { AndroidEmptyState } from "@/components/agent/android-workspace";
+import { pauseCodeOf } from "@/components/agent/android-workspace-state";
 
 afterEach(cleanup);
 
@@ -160,11 +161,13 @@ test("a secure pause names the hidden window instead of a disconnected device", 
       paused
       pending={false}
       refusal={null}
-      pauseCode="secure_window"
+      pauseCode={pauseCodeOf(["secure_window", "forwarded_input_unverified"])}
       sessionId={AgentSessionId.make("agent-android")}
       unavailable=""
     />
   );
+  // The tap that opened the window went unobserved, so its gap follows the
+  // pause cause; the stage still names the secure window.
   expect(screen.getByText("Secure window, not visible")).toBeVisible();
   expect(screen.getByText(/outcome is inconclusive/u)).toBeVisible();
   expect(screen.queryByText("Device disconnected")).toBeNull();

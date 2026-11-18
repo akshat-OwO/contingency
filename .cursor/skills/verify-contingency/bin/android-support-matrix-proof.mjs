@@ -909,8 +909,31 @@ try {
       }
     }
   }
-  receipt.cleanup.forwardsUnchanged =
-    (await adb("forward", "--list")) === baseline.forwards;
+  // A stopped MCP process closes its stream's forward asynchronously. Wait,
+  // for a bounded time, until no forward the proof added on this serial is
+  // left; forwards that predate the proof are not the proof's to judge.
+  const forwardLines = (list) =>
+    new Set(
+      list
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith(`${serial} `))
+    );
+  const preexistingForwards = forwardLines(baseline.forwards);
+  let addedForwards = [];
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    addedForwards = [...forwardLines(await adb("forward", "--list"))].filter(
+      (line) => !preexistingForwards.has(line)
+    );
+    if (addedForwards.length === 0) {
+      break;
+    }
+    await delay(500);
+  }
+  receipt.cleanup.forwardsUnchanged = addedForwards.length === 0;
+  if (addedForwards.length > 0) {
+    journal.push({ addedForwards, note: "Owned forwards outlived cleanup." });
+  }
   receipt.cleanup.imeUnchanged =
     (await adb(
       "shell",

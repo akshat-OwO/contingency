@@ -1,6 +1,6 @@
 # Android Support Matrix
 
-Issue [#567](https://github.com/akshat-OwO/contingency/issues/567) re-proves Android under [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md). Both cells passed live on 2026-10-29 against product revision `45d156c4`. The matrix covers the two emulator images below. Physical devices are unsupported.
+Issue [#567](https://github.com/akshat-OwO/contingency/issues/567) re-proves Android under [ADR 0067](../adr/0067-runtimes-trade-privacy-and-app-boundaries-for-reach.md). Both cells passed live on 2026-10-29 against product revision `45d156c4`. The Pixel_9 API 36 cell passed again on 2026-11-18 for [#771](https://github.com/akshat-OwO/contingency/issues/771), after a secure window opened inside the fixture began pausing the next observation. The matrix covers the two emulator images below. Physical devices are unsupported.
 
 ## Cells
 
@@ -44,7 +44,7 @@ The limits Run takes Workspace control for the blank-point probe and returns it 
 
 On API 36, the pending-Confirmation screenshots show **Device stream lost** while the decision controls and description remain visible. Fresh MCP observations confirm that the fixture stays visible before a decision, Allow opens Settings, and Refuse leaves the fixture visible. These screenshots prove the decision UI, with MCP readback proving the OS transitions.
 
-The proof restores installed-package, input-method, forwarding, and runtime-directory baselines. It stops its MCP server, isolated Workspace, driver browser, and emulator. The parent-owned ADB server remains running. Raw Teaching and Run state is purged with the isolated verification directory.
+The proof restores installed-package, input-method, forwarding, and runtime-directory baselines. A stopped MCP server closes its stream forward asynchronously, so the forwarding check waits, for a bounded time, until no forward the proof added on the selected serial remains. Forwards that predate the proof are not compared. It stops its MCP server, isolated Workspace, driver browser, and emulator. The parent-owned ADB server remains running. Raw Teaching and Run state is purged with the isolated verification directory.
 
 Secure-window capture, concurrent device Runs, and additional emulator images remain outside this proof.
 
