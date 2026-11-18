@@ -142,9 +142,16 @@ const contains = (rect: Rect, point: { x: number; y: number }) =>
   point.y > rect.y &&
   point.y < rect.y + rect.height;
 const kindOf = (node: ActivatedNode) => node.kind ?? node.role ?? node.type;
-/** Each node's ancestors, by index. */
-const lineage = (nodes: readonly ActivatedNode[], node: ActivatedNode) => {
-  const byIndex = new Map(nodes.map((each) => [each.index, each]));
+const overlaps = (left: Rect, right: Rect) =>
+  left.x < right.x + right.width &&
+  right.x < left.x + left.width &&
+  left.y < right.y + right.height &&
+  right.y < left.y + left.height;
+/** A node's ancestors, by index. */
+const lineage = (
+  byIndex: ReadonlyMap<number, ActivatedNode>,
+  node: ActivatedNode
+) => {
   const ancestors = new Set<number>();
   for (
     let parent = byIndex.get(node.parentIndex ?? -1);
@@ -176,25 +183,38 @@ const uncoveredPoint = (
   if (size <= 0) {
     return null;
   }
-  const own = lineage(nodes, target);
-  const peers = nodes.flatMap((node) =>
-    node !== target &&
-    node.rect !== undefined &&
-    kindOf(node) === kindOf(target) &&
-    !own.has(node.index) &&
-    !lineage(nodes, node).has(target.index) &&
-    area(node.rect) >= size / 2 &&
-    area(node.rect) <= size * 2
-      ? [node.rect]
-      : []
-  );
-  const covered = (point: { x: number; y: number }) =>
-    peers.some((peer) => contains(peer, point));
   const at = (fx: number, fy: number) => ({
     x: Math.round(rect.x + rect.width * fx),
     y: Math.round(rect.y + rect.height * fy),
   });
-  if (!covered(at(0.5, 0.5))) {
+  const centre = at(0.5, 0.5);
+  // Geometry first: capture asks this of every node, and an ordinary tree
+  // has no comparable same-kind frame over a node's centre, so it costs one
+  // pass with no ancestry walk.
+  const candidates = nodes.filter(
+    (node) =>
+      node !== target &&
+      node.rect !== undefined &&
+      kindOf(node) === kindOf(target) &&
+      area(node.rect) >= size / 2 &&
+      area(node.rect) <= size * 2 &&
+      overlaps(node.rect, rect)
+  );
+  if (!candidates.some((node) => node.rect && contains(node.rect, centre))) {
+    return null;
+  }
+  const byIndex = new Map(nodes.map((each) => [each.index, each]));
+  const own = lineage(byIndex, target);
+  const peers = candidates.flatMap((node) =>
+    node.rect === undefined ||
+    own.has(node.index) ||
+    lineage(byIndex, node).has(target.index)
+      ? []
+      : [node.rect]
+  );
+  const covered = (point: { x: number; y: number }) =>
+    peers.some((peer) => contains(peer, point));
+  if (!covered(centre)) {
     return null;
   }
   for (const fy of OFFSETS) {
