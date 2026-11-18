@@ -28,11 +28,16 @@ const waitReply = async (page, before, tag = "ios.workspace.command") => {
         ?.getAttribute("aria-busy") === "false"
   );
 };
-export const clickIos = async (page, name) => {
+/** Click a Workspace button; `region` scopes it, as each decision has its own Allow. */
+export const clickIos = async (page, name, region) => {
   const before = await page.evaluate(
     () => globalThis.__workspaceCommandReplies.length
   );
-  await page.getByRole("button", { exact: true, name }).click();
+  const scope =
+    region === undefined
+      ? page
+      : page.getByRole("region", { exact: true, name: region });
+  await scope.getByRole("button", { exact: true, name }).click();
   const clickedAt = new Date().toISOString();
   await waitReply(page, before);
   return { action: name, clickedAt };
@@ -98,17 +103,33 @@ export const pickIos = async (page, flags) => {
   return { fx, fy, name: flags.name, role: flags.role, sessionId };
 };
 
-/** Drag across the display; the swipe is Forwarded Input sent to the simulator. */
-export const swipeIos = async (page) => {
+/**
+ * Drag across the display; the swipe is Forwarded Input sent to the simulator.
+ * `up` scrolls content; `left` turns to the next Home Screen page.
+ */
+export const swipeIos = async (page, direction = "up") => {
   const canvas = page.locator('canvas[aria-label^="Live iOS viewport"]');
   const box = await canvas.boundingBox();
   assert.ok(box && box.width > 20 && box.height > 20);
   const before = await page.evaluate(
     () => globalThis.__workspaceCommandReplies.length
   );
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.75);
+  const [from, to] =
+    direction === "left"
+      ? [
+          [0.85, 0.5],
+          [0.15, 0.5],
+        ]
+      : [
+          [0.5, 0.75],
+          [0.5, 0.35],
+        ];
+  await page.mouse.move(
+    box.x + box.width * from[0],
+    box.y + box.height * from[1]
+  );
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.35, {
+  await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], {
     steps: 8,
   });
   await page.mouse.up();

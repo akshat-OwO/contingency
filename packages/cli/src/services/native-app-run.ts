@@ -234,6 +234,10 @@ export const createNativeAppRun = <
             })
           )
         ),
+      latest: () => {
+        const captured = registry.get(latest);
+        return captured === null ? null : structuredClone(captured);
+      },
       mirror: () =>
         lock.withPermits(1)(
           guarded(

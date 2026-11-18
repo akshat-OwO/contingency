@@ -219,6 +219,9 @@ export const iosSnapshotFailure = (cause: unknown): PlatformRuntimeError => {
     cause,
     reason === "invalid-viewport" ||
       reason === "missing-viewport" ||
+      // The runner refused the read undispatched while it was still busy,
+      // such as with an app coming forward; agent-device marks it retriable.
+      reason === "runner_busy" ||
       // The bound app left the front between two reads; the observer follows.
       (isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE")
       ? "observation_stale"

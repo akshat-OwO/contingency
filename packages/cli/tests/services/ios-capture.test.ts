@@ -174,6 +174,16 @@ it.effect("observes again when one snapshot arrives without a viewport", () =>
         })
       ).code
     ).toBe("observation_stale");
+    // The runner refuses a read while an app comes forward (#740 proof).
+    expect(
+      iosSnapshotFailure(
+        new AppError("COMMAND_FAILED", "busy", {
+          dispatched: "no",
+          reason: "runner_busy",
+          retriable: true,
+        })
+      ).code
+    ).toBe("observation_stale");
     expect(
       iosSnapshotFailure(
         new AppError("COMMAND_FAILED", "gone", { reason: "device_not_found" })

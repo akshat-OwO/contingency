@@ -304,8 +304,14 @@ export const WorkspaceWithRunSummary = ({
   return (
     <RunSummaryDockContext.Provider value={dock}>
       <PublishVerdictContext.Provider value={setVerdict}>
+        {/*
+         * The Workspace fills its container whether or not the parent is a
+         * flex column: the iOS Workspace mounts it straight under the block
+         * root, where `flex-1` alone left the stage its padding's height and
+         * the device frame no height at all (#740).
+         */}
         <div
-          className="relative flex min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
+          className="relative flex h-full min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
           data-run-summary={open ? "open" : undefined}
           ref={containerRef}
         >

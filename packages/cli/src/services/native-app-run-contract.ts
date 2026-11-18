@@ -75,6 +75,11 @@ export interface NativeAppRunState<
 
 export interface NativeAppRun<Observation extends PlatformObservation, State> {
   readonly mirror: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  /**
+   * The runtime's latest capture: the only observation input may name. A
+   * mirror that later input overtook is still the latest here.
+   */
+  readonly latest: () => Observation | null;
   readonly state: () => State;
   readonly decide: (
     id: string,

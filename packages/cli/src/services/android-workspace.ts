@@ -1821,9 +1821,11 @@ export const makeAndroidWorkspaceLayer = (options: {
           }
           // Semantic selection is resolved once before dispatch, never after a failed or uncertain command.
           // The stock backend's current generation is authoritative; coordinates remain unavailable.
+          // A Variable names the runtime's latest capture, which a settle
+          // the tap overtook may have replaced (see the iOS Workspace).
           const before =
             action._tag === "variable" && current.observation !== null
-              ? current.observation
+              ? (session.run.latest() ?? current.observation)
               : (fresh ?? (yield* observeRepairing(session)));
           if (fresh === undefined && action._tag !== "variable") {
             acceptObservation(session, before);
