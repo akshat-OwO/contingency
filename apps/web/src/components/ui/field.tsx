@@ -62,6 +62,7 @@ function FieldError({
   return (
     <FieldErrorPrimitive
       className={cn("text-destructive text-sm font-normal", className)}
+      role="alert"
       {...props}
     />
   );

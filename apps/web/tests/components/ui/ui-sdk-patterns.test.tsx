@@ -594,6 +594,7 @@ test("Field names its control and shows a rendered error", () => {
   );
   const input = screen.getByRole("textbox", { name: "Name" });
   expect(input).toHaveAccessibleDescription("A cookie needs a name.");
+  expect(screen.getByRole("alert")).toHaveTextContent("A cookie needs a name.");
   expect(input).toHaveAttribute("aria-invalid", "true");
   expect(input.closest('[data-slot="field"]')).toHaveAttribute("data-invalid");
 });
