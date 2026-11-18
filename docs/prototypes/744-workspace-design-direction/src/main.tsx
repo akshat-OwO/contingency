@@ -54,6 +54,8 @@ import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 
+import { InspectContext, WebCanvas } from "./canvas";
+import type { InspectBridge, PickedElement, StageState } from "./canvas";
 import { FlowsPage, REVIEWS, flowOfRun, runById } from "./flows";
 import {
   AndroidIcon,
@@ -1426,6 +1428,8 @@ const CommentComposer = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
+  const [attached, setAttached] = useState<PickedElement | null>(null);
+  const bridge = useContext(InspectContext);
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger aria-label="Comment" className="pill-btn">
@@ -1446,6 +1450,7 @@ const CommentComposer = ({
             if (text.trim() === "") return;
             onSent(text.trim());
             setText("");
+            setAttached(null);
             setOpen(false);
           }}
         >
@@ -1464,8 +1469,35 @@ const CommentComposer = ({
             rows={3}
             value={text}
           />
+          {attached ? (
+            <span className="attached-chip">
+              <PointerIcon />
+              <span className="mono">{attached.role}</span> {attached.name}
+              <button
+                aria-label={`Remove ${attached.name}`}
+                className="icon-btn small"
+                onClick={() => setAttached(null)}
+                type="button"
+              >
+                <CloseIcon />
+              </button>
+            </span>
+          ) : null}
           <div className="composer-row">
-            <Button className="pill-btn" type="button">
+            <Button
+              className="pill-btn"
+              disabled={bridge.current === null}
+              onClick={() => {
+                const start = bridge.current;
+                if (!start) return;
+                setOpen(false);
+                start((el) => {
+                  if (el) setAttached(el);
+                  setOpen(true);
+                });
+              }}
+              type="button"
+            >
               <PointerIcon />
               Attach element
             </Button>
@@ -1990,7 +2022,23 @@ const EndedView = ({
         sessions={sessions}
       />
       <Actions />
-      <Stage ended session={{ flow, platform }} />
+      {platform === "web" ? (
+        <WebCanvas
+          ended
+          key={`ended-${flow}`}
+          onNotice={() => {}}
+          onReconnect={() => {}}
+          session={{
+            activity: "Dry Run",
+            flow,
+            id: `ended-${flow}`,
+            waiting: false,
+          }}
+          stage="live"
+        />
+      ) : (
+        <Stage ended session={{ flow, platform }} />
+      )}
       <DockedSummary
         {...dock}
         onRetry={() => {}}
@@ -2045,6 +2093,8 @@ const SessionView = ({
   onNotice,
   onDone,
   dock,
+  stage,
+  onReconnect,
 }: {
   readonly session: Session;
   readonly sessions: readonly Session[];
@@ -2056,8 +2106,11 @@ const SessionView = ({
   /** Closes an ended session. */
   readonly onDone: () => void;
   readonly dock: DockProps;
+  readonly stage: StageState;
+  readonly onReconnect: () => void;
 }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const bridge = useRef<InspectBridge>({ current: null }).current;
   const ended = session.ended;
   const teaching =
     ended && session.recording
@@ -2068,12 +2121,12 @@ const SessionView = ({
         )
       : undefined;
   return (
-    <>
+    <InspectContext.Provider value={bridge}>
       <nav aria-label="Workspace" className="chrome left island">
         <a
           aria-label="Contingency home"
           className="brand"
-          href="#"
+          href="/"
           onClick={(e) => {
             e.preventDefault();
             onHome();
@@ -2094,7 +2147,24 @@ const SessionView = ({
         </div>
       </nav>
       <Actions />
-      <Stage ended={ended !== undefined} session={session} />
+      {session.platform === "web" ? (
+        <WebCanvas
+          ended={ended !== undefined}
+          key={session.id}
+          onNotice={onNotice}
+          onReconnect={onReconnect}
+          session={{
+            activity: session.activity,
+            control: session.control,
+            flow: session.flow,
+            id: session.id,
+            waiting: session.requests.length > 0,
+          }}
+          stage={stage}
+        />
+      ) : (
+        <Stage ended={ended !== undefined} session={session} />
+      )}
       {ended ? (
         <DockedSummary
           {...dock}
@@ -2183,7 +2253,7 @@ const SessionView = ({
           />
         )}
       </div>
-    </>
+    </InspectContext.Provider>
   );
 };
 
@@ -2195,6 +2265,7 @@ const App = () => {
     SEED.map((s) => ({ ...s }))
   );
   const [view, setView] = useState<View>(() => fromUrl());
+  const legacyUrl = useRef(true);
   const [fromSession, setFromSession] = useState<string | undefined>();
   const [catalogEmpty, setCatalogEmpty] = useState(false);
   const [expanded, setExpanded] = useState<Platform | null>(null);
@@ -2217,6 +2288,13 @@ const App = () => {
   );
   const [cleanupFails, setCleanupFails] = useState(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
+  // The Web stage's stream: a new session connects first, and the scaffold
+  // can pause it.
+  const [stage, setStage] = useState<StageState>("live");
+  const connect = () => {
+    setStage("connecting");
+    setTimeout(() => setStage((s) => (s === "connecting" ? "live" : s)), 1400);
+  };
 
   useEffect(() => {
     document.body.dataset.view = view.name;
@@ -2225,8 +2303,13 @@ const App = () => {
   // Back returns to where you were.
   useEffect(() => {
     const url = toUrl(view);
-    if (url !== location.pathname + location.search)
-      history.pushState(null, "", url);
+    // `/?session=<id>` (every MCP `viewUrl` already handed out) and unknown
+    // ids settle on their canonical URL without a history entry.
+    const replace = legacyUrl.current;
+    legacyUrl.current = false;
+    if (url === location.pathname + location.search) return;
+    if (replace) history.replaceState(null, "", url);
+    else history.pushState(null, "", url);
   }, [view]);
   useEffect(() => {
     const onPop = () => transition(() => setView(fromUrl()));
@@ -2268,6 +2351,7 @@ const App = () => {
         setView({ id, name: "session" });
         setReturnTo(id);
         setExpanded(null);
+        setStage("live");
       },
       from ? { element: from, name: "stage" } : undefined
     );
@@ -2307,6 +2391,12 @@ const App = () => {
     view.name === "session"
       ? sessions.find((s) => s.id === view.id)
       : undefined;
+  useEffect(() => {
+    if (view.name === "session" && !current) {
+      legacyUrl.current = true;
+      setView({ name: "home" });
+    }
+  }, [view, current]);
 
   const decide = (recording: string, d: "verify" | "reject" | "retry") => {
     const flowName = REVIEWS[recording]?.flow ?? "the Flow";
@@ -2464,6 +2554,8 @@ const App = () => {
             <SessionView
               dock={dock}
               onDone={() => closeSession(current.id)}
+              onReconnect={connect}
+              stage={stage}
               notice={notice}
               onNotice={setNotice}
               onPatch={(fn) => patch(current.id, fn)}
@@ -2502,6 +2594,7 @@ const App = () => {
                   },
                   { element: form, name: "stage" }
                 );
+                connect();
               }}
               returnTo={returnTo}
               returning={returning}
@@ -2606,6 +2699,10 @@ const App = () => {
             onNotice={() =>
               setNotice("That gesture did not go through.", "error")
             }
+            stage={
+              current?.platform === "web" && !current.ended ? stage : undefined
+            }
+            onStage={() => setStage((s) => STAGE_NEXT[s])}
             onOptions={setOptions}
             options={options}
           />
@@ -2613,6 +2710,12 @@ const App = () => {
       </FlowsNav.Provider>
     </OptionsContext.Provider>
   );
+};
+
+const STAGE_NEXT: Record<StageState, StageState> = {
+  connecting: "paused",
+  live: "connecting",
+  paused: "live",
 };
 
 type View =
@@ -2627,10 +2730,11 @@ type View =
     };
 
 const toUrl = (view: View) => {
-  if (view.name === "session") return `/?session=${view.id}`;
+  // A running session lives at its own path, `/<session-id>`.
+  if (view.name === "session") return `/${view.id}`;
   if (view.name === "review") return `/?recording=${view.recording}`;
   // A native Run's ended device session; the prototype keys it by Run.
-  if (view.name === "ended") return `/?session=ended:${view.run}`;
+  if (view.name === "ended") return `/ended:${view.run}`;
   if (view.name === "home") return "/";
   const params = new URLSearchParams();
   // Local Flows go by name alone; `global:<name>` names the user-global root.
@@ -2658,10 +2762,12 @@ const fromUrl = (): View => {
   // The old Run Summary view, `/?run=<id>`, lands on that Run in its Flow, so
   // every MCP `viewUrl` already handed out keeps working.
   if (run) return { flow: flowOfRun(run), name: "flows", run };
-  const session = params.get("session");
-  return session && SEED.some((s) => s.id === session)
-    ? { id: session, name: "session" }
-    : { name: "home" };
+  const path = decodeURIComponent(location.pathname.replace(/^\/|\/$/g, ""));
+  const ended = path.match(/^ended:(.+)$/)?.[1];
+  if (ended && runById(ended)) return { name: "ended", run: ended };
+  // `/?session=<id>` is the MCP `viewUrl`; it lands on `/<id>`.
+  const session = path || params.get("session");
+  return session ? { id: session, name: "session" } : { name: "home" };
 };
 
 const Scaffold = ({
@@ -2677,6 +2783,8 @@ const Scaffold = ({
   onNotice,
   options,
   onOptions,
+  stage,
+  onStage,
   canEnd,
   onEnd,
   summary,
@@ -2706,6 +2814,8 @@ const Scaffold = ({
   readonly onSide: () => void;
   readonly onRequest: () => void;
   readonly onNotice: () => void;
+  readonly stage: StageState | undefined;
+  readonly onStage: () => void;
 }) => {
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   return (
@@ -2730,6 +2840,11 @@ const Scaffold = ({
       {inFlows ? (
         <button onClick={onCatalog} type="button">
           Catalog: {catalogEmpty ? "empty" : "full"}
+        </button>
+      ) : null}
+      {stage ? (
+        <button onClick={onStage} type="button">
+          Stage: {stage}
         </button>
       ) : null}
       {canEnd ? (
