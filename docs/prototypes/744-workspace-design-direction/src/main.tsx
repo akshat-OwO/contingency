@@ -47,6 +47,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -84,6 +85,8 @@ import {
   WatcherMark,
   WebIcon,
 } from "./icons";
+import { DEVICE_STAGE_NEXT, EraseDevice, NativeCanvas } from "./native";
+import type { DeviceCanvas, DeviceStage, RailPlace } from "./native";
 import {
   DecisionBar,
   RunSummary,
@@ -805,6 +808,7 @@ const StartCard = ({
 }) => {
   const { Icon, name } = PLATFORMS[platform];
   const [url, setUrl] = useState("https://shop.localhost");
+  const [deviceValue, setDeviceValue] = useState<string | undefined>();
   const [app, setApp] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState(false);
   const native = platform !== "web";
@@ -864,7 +868,16 @@ const StartCard = ({
                   ? "Device"
                   : "Simulator"}
             </FieldLabel>
-            <Select defaultValue={DEVICES[platform][0]?.value}>
+            <Select
+              onValueChange={(v: string | null) => {
+                if (v) setDeviceValue(v);
+              }}
+              value={
+                DEVICES[platform].some((d) => d.value === deviceValue)
+                  ? deviceValue
+                  : DEVICES[platform][0]?.value
+              }
+            >
               <SelectTrigger className="select-trigger">
                 <SelectValue />
                 <ChevronsIcon />
@@ -882,9 +895,17 @@ const StartCard = ({
               </SelectContent>
             </Select>
             {native ? (
-              <FieldDescription className="hint">
-                Devices that are off boot when the session starts.
-              </FieldDescription>
+              <div className="device-foot">
+                <FieldDescription className="hint">
+                  Devices that are off boot when the session starts.
+                </FieldDescription>
+                <EraseDevice
+                  device={
+                    DEVICES[platform].find((d) => d.value === deviceValue) ??
+                    DEVICES[platform][0]
+                  }
+                />
+              </div>
             ) : null}
           </Field>
         </section>
@@ -1278,67 +1299,6 @@ const primaryAction = (
           patch: (x) => ({ ...x, control: "user" }),
           tone: "ghosty",
         };
-
-/** The page or device, live; or its last frame once the Run has ended. */
-const Stage = ({
-  session,
-  ended = false,
-}: {
-  readonly session: Pick<Session, "platform" | "flow">;
-  readonly ended?: boolean;
-}) =>
-  session.platform === "web" ? (
-    <section
-      aria-label="Browser"
-      className="stage web"
-      data-ended={ended || undefined}
-    >
-      {ended ? <LastFrame /> : null}
-      <div className="urlbar">
-        <span className="dots">
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="url">
-          shop.localhost/{session.flow.split(" ")[0]?.toLowerCase()}
-        </span>
-      </div>
-      <div className="fake-page">
-        <div className="bar" style={{ width: "30%" }} />
-        <div className="hero-block" />
-        <div className="grid">
-          <div />
-          <div />
-          <div />
-          <div />
-          <div />
-        </div>
-      </div>
-    </section>
-  ) : (
-    <section
-      aria-label={`${PLATFORMS[session.platform].name} device`}
-      className="stage native"
-      data-ended={ended || undefined}
-    >
-      {ended ? <LastFrame /> : null}
-      <div className="screen">
-        <div className="bar" style={{ width: "40%" }} />
-        <div className="card" />
-        <div className="bar" />
-        <div className="bar" style={{ width: "70%" }} />
-        <div className="card" style={{ height: 80 }} />
-      </div>
-    </section>
-  );
-
-const LastFrame = () => (
-  <span className="last-frame">
-    <StopIcon />
-    Last frame
-  </span>
-);
 
 const DETAILS: Record<
   Exclude<Session["activity"], "Teaching">,
@@ -1999,7 +1959,9 @@ const EndedView = ({
   onOpen,
   onDone,
   dock,
+  device,
 }: {
+  readonly device: DeviceCanvas;
   readonly mode: "review" | "device";
   readonly platform: Platform;
   readonly flow: string;
@@ -2037,7 +1999,19 @@ const EndedView = ({
           stage="live"
         />
       ) : (
-        <Stage ended session={{ flow, platform }} />
+        <NativeCanvas
+          device={device}
+          ended
+          key={`ended-${flow}`}
+          onNotice={() => {}}
+          session={{
+            activity: "Dry Run",
+            flow,
+            id: `ended-${flow}`,
+            platform,
+            waiting: false,
+          }}
+        />
       )}
       <DockedSummary
         {...dock}
@@ -2095,7 +2069,9 @@ const SessionView = ({
   dock,
   stage,
   onReconnect,
+  device,
 }: {
+  readonly device: DeviceCanvas;
   readonly session: Session;
   readonly sessions: readonly Session[];
   readonly notice: Notice | null;
@@ -2163,7 +2139,20 @@ const SessionView = ({
           stage={stage}
         />
       ) : (
-        <Stage ended={ended !== undefined} session={session} />
+        <NativeCanvas
+          device={device}
+          ended={ended !== undefined}
+          key={session.id}
+          onNotice={onNotice}
+          session={{
+            activity: session.activity,
+            control: session.control,
+            flow: session.flow,
+            id: session.id,
+            platform: session.platform,
+            waiting: session.requests.length > 0,
+          }}
+        />
       )}
       {ended ? (
         <DockedSummary
@@ -2291,10 +2280,31 @@ const App = () => {
   // The Web stage's stream: a new session connects first, and the scaffold
   // can pause it.
   const [stage, setStage] = useState<StageState>("live");
+  // A device session's stream, and where its rail sits.
+  const [deviceStage, setDeviceStage] = useState<DeviceStage>("live");
+  const [rail, setRail] = useState<RailPlace>("beside");
   const connect = () => {
     setStage("connecting");
-    setTimeout(() => setStage((s) => (s === "connecting" ? "live" : s)), 1400);
+    setDeviceStage("connecting");
+    setTimeout(() => {
+      setStage((s) => (s === "connecting" ? "live" : s));
+      setDeviceStage((s) => (s === "connecting" ? "live" : s));
+    }, 1400);
   };
+  const device = useMemo<DeviceCanvas>(
+    () => ({
+      onReconnect: () => {
+        setDeviceStage("reconnecting");
+        setTimeout(
+          () => setDeviceStage((s) => (s === "reconnecting" ? "live" : s)),
+          1200
+        );
+      },
+      rail,
+      stage: deviceStage,
+    }),
+    [deviceStage, rail]
+  );
 
   useEffect(() => {
     document.body.dataset.view = view.name;
@@ -2352,6 +2362,7 @@ const App = () => {
         setReturnTo(id);
         setExpanded(null);
         setStage("live");
+        setDeviceStage("live");
       },
       from ? { element: from, name: "stage" } : undefined
     );
@@ -2510,6 +2521,7 @@ const App = () => {
           ) : view.name === "review" ? (
             <EndedView
               dock={dock}
+              device={device}
               flow={REVIEWS[view.recording]?.flow ?? view.recording}
               key={view.recording}
               mode="review"
@@ -2531,6 +2543,7 @@ const App = () => {
           ) : view.name === "ended" ? (
             <EndedView
               dock={dock}
+              device={device}
               flow={runById(view.run)?.flows[0] ?? view.run}
               key={view.run}
               mode="device"
@@ -2553,6 +2566,7 @@ const App = () => {
           ) : current ? (
             <SessionView
               dock={dock}
+              device={device}
               onDone={() => closeSession(current.id)}
               onReconnect={connect}
               stage={stage}
@@ -2700,9 +2714,23 @@ const App = () => {
               setNotice("That gesture did not go through.", "error")
             }
             stage={
-              current?.platform === "web" && !current.ended ? stage : undefined
+              current && !current.ended
+                ? current.platform === "web"
+                  ? stage
+                  : deviceStage
+                : undefined
             }
-            onStage={() => setStage((s) => STAGE_NEXT[s])}
+            onStage={() =>
+              current?.platform === "web"
+                ? setStage((s) => STAGE_NEXT[s])
+                : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
+            }
+            rail={
+              current && !current.ended && current.platform !== "web"
+                ? rail
+                : undefined
+            }
+            onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
             onOptions={setOptions}
             options={options}
           />
@@ -2785,6 +2813,8 @@ const Scaffold = ({
   onOptions,
   stage,
   onStage,
+  rail,
+  onRail,
   canEnd,
   onEnd,
   summary,
@@ -2814,8 +2844,10 @@ const Scaffold = ({
   readonly onSide: () => void;
   readonly onRequest: () => void;
   readonly onNotice: () => void;
-  readonly stage: StageState | undefined;
+  readonly stage: StageState | DeviceStage | undefined;
   readonly onStage: () => void;
+  readonly rail: RailPlace | undefined;
+  readonly onRail: () => void;
 }) => {
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   return (
@@ -2845,6 +2877,11 @@ const Scaffold = ({
       {stage ? (
         <button onClick={onStage} type="button">
           Stage: {stage}
+        </button>
+      ) : null}
+      {rail ? (
+        <button onClick={onRail} type="button">
+          Rail: {rail}
         </button>
       ) : null}
       {canEnd ? (

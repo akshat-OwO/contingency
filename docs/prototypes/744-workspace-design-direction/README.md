@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757) and [#763](https://github.com/akshat-OwO/contingency/issues/763), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763) and [#764](https://github.com/akshat-OwO/contingency/issues/764), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -25,6 +25,10 @@ It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742
 | Web canvas: Color scheme, streaming preference, Console level, storage area, request detail | Segmented Control |
 | Web canvas: address, filters, Locale, Time zone | Input |
 | Web canvas: rail and toolbar labels | Tooltip |
+| Native canvas: Appearance | Segmented Control |
+| Native canvas: Latitude, Longitude, Variable name, element filter | Input |
+| Native canvas: rail labels | Tooltip |
+| Erase confirmation | Alert Dialog |
 
 ## Run it
 
@@ -72,6 +76,52 @@ Walk through it: start a Web session from home (connecting, then live), open **c
 | Role/name | Network request detail: one view | `radiogroup "Request detail"` (Response, Headers, Timing) and `separator "Resize request details"`. |
 | Behaviour | The inspector rail is a column fixed beside the stage; DevTools is a resizable panel in it | The rail floats on the right edge; DevTools is an island docked right or under the page. Names (`navigation "Browser tools"`, `Resize DevTools`, `Dock to bottom`, `Close DevTools`) stay. |
 | Behaviour | A spinner while the browser connects | The Watcher loader. |
+
+## Native session canvas (#764)
+
+Approved on #764. It follows the Web canvas direction approved on #763: the device floats on the canvas, its chrome floats around it, and nothing but the agent's touch and your input ring draws over the screen (ADR 0076).
+
+| Island | Where | Holds |
+| --- | --- | --- |
+| Device, `region "Android device"` or `region "iOS simulator"` | Centred on the canvas, at the size that fits | The frame and the live screen. Rotating turns the frame without zooming it. During Takeover the frame gets a brand ring. The screen keeps today's names (`Selected device live display…`, `Live iOS viewport…`). |
+| Device rail, `navigation "Device controls"` | Beside the frame, on its right (ADR 0082) | **Android Back**, **Android Home**, **Android Recents** (iOS: **iOS Home**, **iOS App Switcher**), then **Rotate to landscape** and **Device settings**, then **Screen elements** and **Stream diagnostics**. Each one that drives the device is locked, with the reason, while the agent drives. |
+| Card | Beside the rail, or at the canvas edge when the window is narrow | **Device settings**: Appearance (Light, Dark) and Location (Latitude, Longitude, **Apply**, **Use my location**, **Clear**). **Screen elements**: a filter, then Fields, Controls and Other elements as the accessibility tree reports them; hovering one outlines it on the screen, and choosing one taps its centre. **Stream diagnostics**: the stream state with **Reconnect**, the device, the stream, and input-to-frame and decode latency. Escape or a press on the screen closes it. |
+| Field Variable, `form "Field Variable"` | Beside the frame, on its left | Opens when you tap a password field while you drive, on both platforms. **Enter <NAME>** for each supplied Variable, **Variable name** with **Request Variable**, and **Stop typing**. |
+
+**Who drives.** While the agent drives, the device keys, Rotate, Device settings and Screen elements are locked with the reason, and the agent's touch (ADR 0046) shows where it taps: a dot labelled Agent, not a pointer. A press on the screen says to take control. During Takeover everything unlocks. While Teaching, your input lands with a ring where you pressed.
+
+**Stage states:** connecting (the Watcher loader over a blurred screen), live, reconnecting, lost (**Reconnect device stream**, on iOS too), paused (Device disconnected), secure window (the screen goes black and says your input still reaches the device), and the last frame of an ended Run beside its docked summary.
+
+**Attach element.** **Comment** → **Attach element** works on the device too: the element under the pointer is outlined with its role and name, a tap attaches it, and Escape cancels.
+
+**Erase** stays on the start card (ADR 0081), now beside the Device field: **Erase <name>** opens `alertdialog "Erase <name>?"` with **Cancel** and **Erase device**. A device another session uses reads "Stop this device to erase it."
+
+Walk through it: open **profile · Dry Run** (Android, the agent drives: locked rail, the agent's touch; **Take control**, then Screen elements, hover and choose one, tap **Password** for the Field Variable card, Device settings, Rotate), **onboarding · Guided Run** (iOS, waiting on a question), and start an Android or iOS session from home (Teaching: Comment → Attach element, Erase on the start card). The ended iOS **onboarding · Dry Run** shows the last frame. The scaffold's **Stage** cycles live, connecting, reconnecting, lost, paused and secure; **Rail** moves the rail between beside the frame and the window's right edge.
+
+### Decisions
+
+Approved on #764, as prototyped:
+
+- **Rail placement:** beside the frame (ADR 0082). The scaffold's **Rail** shows the window-edge alternative that was not chosen.
+- **Screen elements and Stream diagnostics** join the device rail. The Session status island keeps only status, Comment and the one action. ADR 0082 is updated to say the rail also holds these two tools.
+- **The agent's touch on native** is drawn like the Web cursor (ADR 0046). ADR 0079 is updated; your own touches still show only as the input ring.
+- **One Field Variable card on both platforms** replaces Android's "Type into <label>" form and iOS's dock form.
+
+### Proposed contract changes (#764, approved)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Role/name | Android stage unnamed; iOS `main "iOS Workspace"` | `region "Android device"` / `region "iOS simulator"` around the frame. The screen's own names don't change. |
+| Role/name | `navigation "Device controls"`: keys, Rotate, **Device settings** popover, beside the frame | The same landmark as an island, adding **Screen elements** and **Stream diagnostics**. **Device settings** opens a card (`region "Device settings"`); its Appearance, Latitude, Longitude, Apply, Use my location and Clear keep their names. |
+| Role/name | **Screen elements** in the Session status island; a popover above the dock with a flat grouped list | On the rail. `region "Screen elements"` beside it with `textbox "Filter screen elements"`, Fields, Controls and Other elements; items keep **Select <label>** / **Activate <label>**. Hovering or focusing one outlines it on the screen. |
+| Role/name | No stream diagnostics on native; **Reconnect device stream** on Android only | `region "Stream diagnostics"` on both platforms, and **Reconnect device stream** on iOS too. |
+| Role/name | Android: a "Type into <label>" form in the Requests island with `combobox "Variable"`; iOS: `form "Field Variable"` in the dock | `form "Field Variable"` beside the frame on both platforms, with **Enter <NAME>**, **Variable name**, **Request Variable** and **Stop typing**. |
+| Behaviour | No agent cursor or Teaching inspect on native | The agent's touch (`data-testid="agent-cursor"`) and **Attach element** on both platforms. ADR 0079 and 0046 updated. |
+| Behaviour | Connecting is text only (iOS: a black canvas) | The Watcher loader. Secure window says input still reaches the device. |
+| Behaviour | Erase on the start card's device list | Unchanged names, beside the Device field. |
+| verify-contingency | `android-no-overlays` allows only **Android Back** outside the top bar and dock | Allows the whole `Device controls` rail and its cards, and features/workspace.md names the new regions. |
+
+The MCP `viewUrl` params don't change.
 
 ## Run Summary (#757)
 

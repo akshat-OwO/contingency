@@ -260,7 +260,7 @@ const reducedMotion = () =>
  * page instead of jumping it. Names that only matter for this change are set
  * before the old snapshot and cleared once it lands.
  */
-const morph = (update: () => void, names: readonly string[] = []) => {
+export const morph = (update: () => void, names: readonly string[] = []) => {
   const els = names
     .map(
       (n) =>
@@ -289,7 +289,7 @@ const morph = (update: () => void, names: readonly string[] = []) => {
 
 /* ------------------------------------------------------------------ parts */
 
-const Tip = ({
+export const Tip = ({
   label,
   side = "bottom",
   children,
@@ -306,7 +306,7 @@ const Tip = ({
   </Tooltip>
 );
 
-const ToolButton = ({
+export const ToolButton = ({
   label,
   pressed,
   badge,

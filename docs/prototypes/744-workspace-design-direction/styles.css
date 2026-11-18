@@ -4794,3 +4794,698 @@ body[data-canvas="web"] .last-frame {
     animation: none;
   }
 }
+
+/* ============================================ Native session canvas (#764) */
+/* The device or simulator floats on the canvas at the size that fits, its
+   rail (ADR 0082) beside it. Cards open beside the rail; the Field Variable
+   card opens on the frame's other side. Only the agent's touch and your input
+   ring draw over the screen. */
+
+.canvas-area.native {
+  right: calc(16px + var(--rail-space, 0px));
+}
+.device-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------- frame */
+.device-frame {
+  --rim: 34px;
+  --glass-radius: 24px;
+  position: relative;
+  padding: 12px;
+  border-radius: var(--rim);
+  background: linear-gradient(145deg, oklch(0.28 0 0), oklch(0.14 0 0));
+  view-transition-name: stage;
+  box-shadow:
+    var(--shadow-lift),
+    0 0 0 1px oklch(1 0 0 / 0.1) inset,
+    0 0 0 3px oklch(0.2 0 0) inset;
+  transition: box-shadow 0.3s var(--ease-out);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .device-frame:not([data-takeover]) {
+    box-shadow:
+      var(--shadow-lift),
+      0 0 0 1px oklch(1 0 0 / 0.22),
+      0 0 0 3px oklch(0.2 0 0) inset;
+  }
+}
+:root[data-theme="dark"] .device-frame:not([data-takeover]) {
+  box-shadow:
+    var(--shadow-lift),
+    0 0 0 1px oklch(1 0 0 / 0.22),
+    0 0 0 3px oklch(0.2 0 0) inset;
+}
+.device-frame[data-platform="ios"] {
+  --rim: 54px;
+  --glass-radius: 44px;
+}
+.device-frame[data-orientation="landscape"] {
+  --rim: 30px;
+  --glass-radius: 22px;
+}
+.device-frame[data-platform="ios"][data-orientation="landscape"] {
+  --rim: 50px;
+  --glass-radius: 40px;
+}
+.device-frame[data-takeover] {
+  box-shadow:
+    var(--shadow-lift),
+    0 0 0 1px oklch(1 0 0 / 0.1) inset,
+    0 0 0 2px var(--brand),
+    0 0 0 7px color-mix(in oklch, var(--brand) 22%, transparent);
+}
+.device-key {
+  position: absolute;
+  right: -3px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: oklch(0.24 0 0);
+}
+.device-key.a {
+  top: 18%;
+  height: 7%;
+}
+.device-key.b {
+  top: 28%;
+  height: 12%;
+}
+.device-frame[data-orientation="landscape"] .device-key {
+  display: none;
+}
+.glass {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--glass-radius);
+  background: black;
+}
+.screen-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+  touch-action: none;
+}
+.device-frame[data-inspect] .screen-surface,
+.device-frame[data-inspect] .screen-surface * {
+  cursor: crosshair;
+}
+.device-frame[data-ended] .app-screen {
+  filter: saturate(0.5);
+  opacity: 0.82;
+}
+.device-frame:is(
+    [data-state="connecting"],
+    [data-state="reconnecting"],
+    [data-state="lost"],
+    [data-state="paused"]
+  )
+  .app-screen {
+  filter: blur(6px) saturate(0.3);
+  opacity: 0.3;
+}
+.device-frame[data-state="secure"] .app-screen {
+  opacity: 0;
+}
+.device-frame .stage-veil {
+  padding: 24px;
+  color: oklch(0.92 0 0);
+  text-shadow: 0 1px 2px oklch(0 0 0 / 0.4);
+}
+.device-frame .stage-veil .hint {
+  max-width: 240px;
+  color: oklch(0.8 0 0);
+}
+.device-frame .stage-veil.secure svg {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  color: oklch(0.75 0 0);
+}
+.device-frame .stage-veil .btn.ghosty {
+  margin-top: 6px;
+  background: oklch(0.98 0 0);
+  color: oklch(0.2 0 0);
+}
+.device-frame .stage-veil .btn.ghosty:hover {
+  background: white;
+}
+.device-frame .last-frame {
+  top: 44px;
+}
+
+/* ---------------------------------------------------------------- rail */
+.device-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 7px;
+  border-radius: 20px;
+  view-transition-name: tools-rail;
+}
+.device-rail[data-place="edge"] {
+  position: fixed;
+  top: 50%;
+  right: 16px;
+  z-index: 10;
+  translate: 0 -50%;
+}
+
+/* --------------------------------------------------------------- cards */
+.tool-card.device-card[data-place="beside"] {
+  position: absolute;
+  top: 50%;
+  right: auto;
+  left: calc(100% + 12px);
+  translate: 0 -50%;
+  max-height: calc(100vh - 72px - 88px);
+}
+.tool-card.device-card[data-card="elements"] {
+  width: 320px;
+}
+.field-variable {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 12px);
+  z-index: 11;
+  width: 280px;
+  translate: 0 -50%;
+  background: var(--island-solid);
+}
+.field-variable[data-place="edge"] {
+  position: fixed;
+  top: auto;
+  right: auto;
+  bottom: 88px;
+  left: 16px;
+  translate: none;
+}
+.field-variable .tool-card-head h2 {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.field-variable .tool-card-head h2 svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.field-variable .tool-card-body {
+  display: grid;
+  gap: 12px;
+}
+.field-variable .tool-card-body > .hint {
+  margin: 0;
+}
+.fv-vars {
+  display: grid;
+  gap: 6px;
+}
+.fv-vars .pill-btn {
+  justify-content: flex-start;
+}
+.fv-request {
+  display: grid;
+  gap: 8px;
+}
+.fv-request .input.compact {
+  width: 100%;
+}
+.field-variable .hint {
+  white-space: normal;
+}
+
+/* Screen elements: grouped like the accessibility tree reports them. */
+.elements {
+  display: grid;
+  gap: 10px;
+}
+.elements .search {
+  margin: 0;
+}
+.elements-group {
+  display: grid;
+  gap: 2px;
+}
+.elements-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.elements-head .count {
+  height: 18px;
+  min-width: 18px;
+  letter-spacing: 0;
+}
+.elements-head.toggle svg {
+  width: 12px;
+  height: 12px;
+  transition: rotate 0.2s var(--ease-out);
+}
+.elements-head.toggle[aria-expanded="true"] svg {
+  rotate: 90deg;
+}
+.elements-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.element-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--fg);
+  font-size: 13px;
+  text-align: left;
+}
+.element-item:hover,
+.element-item:focus-visible {
+  background: var(--island-hover);
+}
+.element-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.element-name svg {
+  width: 13px;
+  height: 13px;
+  color: var(--muted);
+}
+
+/* Device settings: Location. */
+.location {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.location legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 0;
+}
+.location legend svg {
+  width: 14px;
+  height: 14px;
+}
+.location legend .hint {
+  margin-left: auto;
+  font-size: 11px;
+}
+.location-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.location-inputs .input.compact {
+  width: 100%;
+}
+.location-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.location-actions .pill-btn {
+  height: 30px;
+}
+.field-error {
+  margin: 0;
+  color: var(--rec);
+  font-size: 12px;
+}
+
+/* The agent's touch on a device: a dot, not a pointer. */
+.agent-touch {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 2px solid oklch(0.2 0.01 85);
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--brand) 80%, transparent);
+  box-shadow: 0 2px 6px oklch(0 0 0 / 0.3);
+}
+.agent-cursor[data-native] .agent-tag {
+  top: 14px;
+  left: 12px;
+}
+
+/* ---------------------------------------------------- the app on screen */
+.app-screen {
+  --app-bg: oklch(0.99 0 0);
+  --app-fg: oklch(0.2 0 0);
+  --app-muted: oklch(0.5 0 0);
+  --app-line: oklch(0.88 0 0);
+  --app-fill: oklch(0.95 0 0);
+  --app-accent: oklch(0.55 0.17 255);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--app-bg);
+  color: var(--app-fg);
+  font:
+    400 15px/1.35 system-ui,
+    -apple-system,
+    "Roboto",
+    sans-serif;
+  transition:
+    filter 0.3s,
+    opacity 0.3s;
+}
+[data-appearance="dark"] .app-screen {
+  --app-bg: oklch(0.16 0 0);
+  --app-fg: oklch(0.95 0 0);
+  --app-muted: oklch(0.68 0 0);
+  --app-line: oklch(0.32 0 0);
+  --app-fill: oklch(0.22 0 0);
+  --app-accent: oklch(0.72 0.14 255);
+}
+.app-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.app-screen.ios .app-status {
+  position: relative;
+  height: 54px;
+  padding: 0 32px;
+}
+.app-island {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  width: 124px;
+  height: 36px;
+  border-radius: 20px;
+  background: black;
+  translate: -50% 0;
+}
+.app-status-icons {
+  display: flex;
+  gap: 4px;
+}
+.app-status-icons i {
+  width: 14px;
+  height: 9px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.8;
+}
+.app-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  padding: 0 8px;
+}
+.app-title {
+  flex: 1;
+  font-size: 20px;
+  font-weight: 500;
+}
+.app-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 20px;
+}
+.app-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 12px 20px;
+  overflow: hidden;
+}
+.app-screen.ios .app-body {
+  gap: 16px;
+  padding: 20px 24px;
+}
+[data-orientation="landscape"] .app-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 12px 20px;
+}
+.app-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.app-avatar {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: oklch(0.75 0.1 255);
+  color: white;
+  font-size: 22px;
+  font-weight: 600;
+}
+.app-link {
+  color: var(--app-accent);
+  font-weight: 500;
+}
+.app-link.center {
+  align-self: center;
+  font-size: 14px;
+}
+.app-field {
+  display: grid;
+  gap: 2px;
+  min-height: 56px;
+  padding: 8px 14px;
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+}
+.app-screen.ios .app-field {
+  border: 0;
+  border-radius: 12px;
+  background: var(--app-fill);
+}
+.app-field span {
+  color: var(--app-muted);
+  font-size: 12px;
+}
+.app-field b {
+  min-height: 20px;
+  font-weight: 400;
+}
+.app-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+.app-switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--app-accent);
+  box-shadow: inset -20px 0 0 -2px white;
+}
+.app-primary {
+  display: grid;
+  place-items: center;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--app-accent);
+  color: white;
+  font-weight: 600;
+}
+.app-screen.ios .app-primary {
+  border-radius: 14px;
+}
+.app-tabs {
+  display: flex;
+  flex: none;
+  justify-content: space-around;
+  height: 64px;
+  padding-top: 10px;
+  border-top: 1px solid var(--app-line);
+  color: var(--app-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.app-tabs span {
+  padding: 4px 16px;
+  border-radius: 16px;
+}
+.app-tabs [data-current] {
+  height: fit-content;
+  background: color-mix(in oklch, var(--app-accent) 18%, transparent);
+  color: var(--app-fg);
+}
+.app-gesture,
+.app-home-indicator {
+  align-self: center;
+  flex: none;
+  width: 108px;
+  height: 4px;
+  margin: 6px 0 10px;
+  border-radius: 2px;
+  background: var(--app-fg);
+  opacity: 0.6;
+}
+.app-home-indicator {
+  width: 134px;
+  height: 5px;
+  margin-bottom: 8px;
+}
+.app-wordmark {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.app-h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.app-sub {
+  margin: -10px 0 0;
+  color: var(--app-muted);
+  font-size: 14px;
+}
+.app-plans {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--app-fill);
+}
+.app-plans span {
+  flex: 1;
+  padding: 6px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 14px;
+}
+.app-plans [data-current] {
+  background: var(--app-bg);
+  font-weight: 600;
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.12);
+}
+
+/* --------------------------------------------- around the canvas, tweaks */
+body[data-canvas="native"] .scaffold {
+  right: auto;
+  left: 24px;
+}
+::view-transition-group(device-frame),
+::view-transition-group(field-variable) {
+  z-index: 3;
+}
+::view-transition-new(field-variable):only-child {
+  animation: card-in 0.4s var(--ease-spring) both;
+}
+::view-transition-old(field-variable):only-child {
+  animation: fade-out 0.18s var(--ease-out) both;
+}
+
+/* Erase on the native start card (ADR 0081). */
+.device-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.erase-btn {
+  flex: none;
+  height: 28px;
+  color: var(--rec);
+}
+.erase-note {
+  flex: none;
+  font-size: 12px;
+}
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: oklch(0 0 0 / 0.32);
+  animation: fade-in 0.2s var(--ease-out) both;
+}
+.alert-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 41;
+  display: grid;
+  gap: 10px;
+  width: min(400px, calc(100vw - 32px));
+  padding: 20px;
+  background: var(--island-solid);
+  translate: -50% -50%;
+  animation: card-in 0.3s var(--ease-spring) both;
+}
+.alert-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.alert-card .hint {
+  margin: 0;
+  white-space: normal;
+}
+.alert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.btn.danger {
+  background: var(--rec);
+  color: white;
+}
