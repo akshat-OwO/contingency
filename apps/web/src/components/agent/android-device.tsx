@@ -21,7 +21,7 @@ import {
   UnplugIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
 
 import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
@@ -52,6 +52,10 @@ const DEFAULT_FRAME: AndroidStreamFrame = { height: 2400, width: 1080 };
 
 /** The rail's column: 52px wide, 12px from the frame. */
 const RAIL_SPACE = 64;
+/** A rail card: 320px wide, 12px from the rail. */
+const CARD_SPACE = 332;
+/** The Field Variable card: 288px wide, 12px from the frame. */
+const LEADING_SPACE = 300;
 
 /**
  * A device frame like the one T3 Code draws: a thin metal rim and the side
@@ -63,18 +67,24 @@ const DeviceFrame = ({
   children,
   frame,
   highlight,
+  reserve,
   takeover,
 }: {
   readonly children: ReactNode;
   readonly frame: AndroidStreamFrame;
   /** An element to outline on the screen, as Screen elements points at it. */
   readonly highlight: ScreenBox | null;
+  /**
+   * Room kept clear on each side of the centred row for the cards beside it,
+   * so a wide landscape frame shrinks rather than pushing them off the stage.
+   */
+  readonly reserve: number;
   readonly takeover: boolean;
 }) => (
   <div
     className="relative shrink-0"
     style={{
-      width: `min(100cqw - ${RAIL_SPACE}px, calc((100cqh - 24px) * ${frame.width} / ${frame.height} + 24px))`,
+      width: `max(0px, min(100cqw - ${RAIL_SPACE + reserve * 2}px, calc((100cqh - 24px) * ${frame.width} / ${frame.height} + 24px)))`,
     }}
   >
     <span
@@ -459,26 +469,40 @@ export const NativeStage = ({
   const [highlightAtom] = useState(() => Atom.make<ScreenBox | null>(null));
   const [highlight, setHighlight] = useAtom(highlightAtom);
   const stage = useRef<HTMLElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
   // Losing control closes what only the person in control can use.
   const shown = card === "stream" || canAct ? card : null;
   const close = () => {
+    // Closing removes what has focus; it goes back to the card's rail button.
+    const focused = cardRef.current?.contains(document.activeElement) ?? false;
     setCard(null);
     setHighlight(null);
+    if (focused && shown !== null) {
+      stage.current
+        ?.querySelector<HTMLButtonElement>(
+          `nav button[aria-label="${deviceCardTitles[shown]}"]`
+        )
+        ?.focus();
+    }
   };
+  const onEscape = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key === "Escape" && !event.defaultPrevented) {
+      event.preventDefault();
+      close();
+    }
+  });
   useEffect(() => {
     if (shown === null) {
       return;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) {
-        event.preventDefault();
-        setCard(null);
-        setHighlight(null);
-      }
-    };
-    globalThis.addEventListener("keydown", onKeyDown);
-    return () => globalThis.removeEventListener("keydown", onKeyDown);
-  }, [setCard, setHighlight, shown]);
+    globalThis.addEventListener("keydown", onEscape);
+    return () => globalThis.removeEventListener("keydown", onEscape);
+  }, [shown]);
+  const hasLeading = leading !== undefined && leading !== null;
+  const reserve = Math.max(
+    hasLeading ? LEADING_SPACE : 0,
+    shown === null ? 0 : CARD_SPACE
+  );
   return (
     <section
       aria-busy={busy}
@@ -492,12 +516,17 @@ export const NativeStage = ({
       style={{ containerType: "size" }}
     >
       <div className="relative flex items-center gap-3">
-        {leading === undefined || leading === null ? null : (
+        {hasLeading ? (
           <div className="absolute top-1/2 right-full z-30 mr-3 -translate-y-1/2">
             {leading}
           </div>
-        )}
-        <DeviceFrame frame={frame} highlight={highlight} takeover={takeover}>
+        ) : null}
+        <DeviceFrame
+          frame={frame}
+          highlight={highlight}
+          reserve={reserve}
+          takeover={takeover}
+        >
           {children}
         </DeviceFrame>
         <DeviceRail
@@ -515,6 +544,7 @@ export const NativeStage = ({
         {shown === null ? null : (
           <section
             aria-label={deviceCardTitles[shown]}
+            ref={cardRef}
             className="island bg-island-solid pointer-events-auto absolute top-1/2 left-full z-30 ml-3 flex max-h-[min(40rem,100cqh)] w-80 -translate-y-1/2 flex-col overflow-hidden rounded-[18px]"
           >
             <header className="border-island-border flex h-11 shrink-0 items-center border-b pr-1.5 pl-4">

@@ -41,6 +41,11 @@ const stream = (change: Partial<NativeStream> = {}): NativeStream => ({
   ...change,
 });
 
+const frameWidth = () =>
+  screen
+    .getByLabelText("Live device display")
+    .closest<HTMLElement>('[style*="width"]')?.style.width;
+
 const renderStage = (props: Partial<Parameters<typeof NativeStage>[0]> = {}) =>
   render(
     <NativeStage
@@ -173,4 +178,49 @@ test("the Field Variable card and the cards sit beside the frame, not on it", as
   ]) {
     expect(glass?.contains(element)).toBe(false);
   }
+});
+
+test("closing a focused card returns focus to its rail button", async () => {
+  const user = userEvent.setup();
+  renderStage();
+  const open = screen.getByRole("button", { name: "Stream diagnostics" });
+  await user.click(open);
+  await user.click(
+    screen.getByRole("button", { name: "Close Stream diagnostics" })
+  );
+  expect(open).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Device settings" }));
+  await user.click(screen.getByRole("radio", { name: "Dark" }));
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Device settings" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Device settings" })).toHaveFocus();
+});
+
+test("the frame keeps room for the cards beside it", async () => {
+  const user = userEvent.setup();
+  const { rerender } = renderStage({ frame: { height: 1080, width: 2424 } });
+  expect(frameWidth()).toContain("100cqw - 64px");
+  await user.click(screen.getByRole("button", { name: "Stream diagnostics" }));
+  // The card is 332px wide; the row stays centred, so both sides keep it.
+  expect(frameWidth()).toContain("100cqw - 728px");
+  await user.keyboard("{Escape}");
+  rerender(
+    <NativeStage
+      canAct
+      emulation={undefined}
+      frame={{ height: 1080, width: 2424 }}
+      leading={<form aria-label="Field Variable" />}
+      lockedReason={undefined}
+      observation={observation}
+      onActivate={vi.fn()}
+      onEmulate={vi.fn()}
+      onKey={vi.fn()}
+      platform="Android"
+      stream={stream()}
+      takeover={false}
+    >
+      <canvas aria-label="Live device display" />
+    </NativeStage>
+  );
+  expect(frameWidth()).toContain("100cqw - 664px");
 });
