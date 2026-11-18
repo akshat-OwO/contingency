@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -27,6 +28,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import {
   FileInput,
   FileInputDropzone,
@@ -54,7 +56,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -543,4 +547,81 @@ test("Tree follows the tree view pattern and marks branches", async () => {
   await checkPattern(tree, "tree");
   await userEvent.click(screen.getByText("cart-scan"));
   expect(onValueChange.mock.lastCall?.[0]).toBe("cart-scan");
+});
+
+test("Checkbox is a named checkbox that reports its checked state", async () => {
+  const user = userEvent.setup();
+  const onCheckedChange = vi.fn();
+  render(
+    <label>
+      <Checkbox onCheckedChange={onCheckedChange} />
+      HttpOnly
+    </label>
+  );
+  const box = screen.getByRole("checkbox", { name: "HttpOnly" });
+  expect(box).toHaveAttribute("data-slot", "checkbox");
+  expect(box).not.toBeChecked();
+  await user.click(screen.getByText("HttpOnly"));
+  expect(box).toBeChecked();
+  expect(box).toHaveAttribute("data-checked");
+  expect(onCheckedChange).toHaveBeenLastCalledWith(true, expect.anything());
+  box.focus();
+  await user.keyboard(" ");
+  expect(box).not.toBeChecked();
+});
+
+test("a disabled Checkbox ignores presses", async () => {
+  const user = userEvent.setup();
+  render(
+    <label>
+      <Checkbox defaultChecked disabled />
+      Secure
+    </label>
+  );
+  const box = screen.getByRole("checkbox", { name: "Secure" });
+  await user.click(screen.getByText("Secure"));
+  expect(box).toBeChecked();
+  expect(box).toHaveAttribute("data-disabled");
+});
+
+test("Field names its control and shows a rendered error", () => {
+  render(
+    <Field invalid>
+      <FieldLabel>Name</FieldLabel>
+      <Input />
+      <FieldError>A cookie needs a name.</FieldError>
+    </Field>
+  );
+  const input = screen.getByRole("textbox", { name: "Name" });
+  expect(input).toHaveAccessibleDescription("A cookie needs a name.");
+  expect(input).toHaveAttribute("aria-invalid", "true");
+  expect(input.closest('[data-slot="field"]')).toHaveAttribute("data-invalid");
+});
+
+test("Textarea is a native multi-line textbox named by its Field", async () => {
+  const user = userEvent.setup();
+  render(
+    <Field>
+      <FieldLabel>Value</FieldLabel>
+      <Textarea />
+    </Field>
+  );
+  const textarea = screen.getByRole("textbox", { name: "Value" });
+  expect(textarea.tagName).toBe("TEXTAREA");
+  expect(textarea).toHaveAttribute("data-slot", "textarea");
+  await user.type(textarea, "a{Enter}b");
+  expect(textarea).toHaveValue("a\nb");
+});
+
+test("Separator is announced with its orientation unless decorative", () => {
+  render(
+    <>
+      <Separator orientation="vertical" />
+      <Separator decorative />
+    </>
+  );
+  const line = screen.getByRole("separator");
+  expect(line).toHaveAttribute("aria-orientation", "vertical");
+  expect(line).toHaveAttribute("data-slot", "separator");
+  expect(document.querySelectorAll('[data-slot="separator"]')).toHaveLength(2);
 });
