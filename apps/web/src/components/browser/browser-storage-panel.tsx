@@ -291,9 +291,8 @@ const WebStorageInlineAdd = ({
         onFocusChange(true);
       }}
     >
-      <Field>
+      <Field invalid={draft.fieldError !== undefined}>
         <Input
-          aria-invalid={draft.fieldError !== undefined}
           aria-label="New storage key"
           className="h-7 font-mono text-xs"
           onChange={(event) =>
@@ -504,12 +503,10 @@ const CookieDetail = ({
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-3">
         <div className="space-y-2">
-          <Field>
-            <FieldLabel htmlFor="cookie-name">Name</FieldLabel>
+          <Field invalid={form.fieldError !== undefined}>
+            <FieldLabel>Name</FieldLabel>
             <Input
-              aria-invalid={form.fieldError !== undefined}
               disabled={readOnly || form.identity !== undefined}
-              id="cookie-name"
               onBlur={() => {
                 onFocusChange(false);
               }}
@@ -530,10 +527,9 @@ const CookieDetail = ({
             )}
           </Field>
           <Field>
-            <FieldLabel htmlFor="cookie-value">Value</FieldLabel>
+            <FieldLabel>Value</FieldLabel>
             <Textarea
               disabled={readOnly}
-              id="cookie-value"
               onBlur={() => {
                 onFocusChange(false);
               }}
@@ -548,10 +544,9 @@ const CookieDetail = ({
           </Field>
           {readOnly ? <HighlightedBody value={form.value} /> : null}
           <Field>
-            <FieldLabel htmlFor="cookie-domain">Domain</FieldLabel>
+            <FieldLabel>Domain</FieldLabel>
             <Input
               disabled={readOnly}
-              id="cookie-domain"
               onBlur={() => {
                 onFocusChange(false);
               }}
@@ -565,10 +560,9 @@ const CookieDetail = ({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="cookie-path">Path</FieldLabel>
+            <FieldLabel>Path</FieldLabel>
             <Input
               disabled={readOnly}
-              id="cookie-path"
               onBlur={() => {
                 onFocusChange(false);
               }}
@@ -698,10 +692,9 @@ const WebStorageDetail = ({
       </Button>
     </div>
     <Field className="shrink-0 p-2">
-      <FieldLabel htmlFor="storage-value">Value</FieldLabel>
+      <FieldLabel>Value</FieldLabel>
       <Textarea
         disabled={locked}
-        id="storage-value"
         onBlur={() => {
           onFocusChange(false);
           if (!locked && dirty) {

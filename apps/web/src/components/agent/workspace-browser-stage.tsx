@@ -25,7 +25,6 @@ import {
 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type {
-  ComponentProps,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -53,6 +52,8 @@ import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
 import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
+import { useElementSize } from "@/hooks/use-element-size";
+import type { ElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -106,8 +107,8 @@ const DEFAULT_RIGHT_WIDTH = 576;
 const DEFAULT_BOTTOM_HEIGHT = 240;
 const MIN_INSPECTOR_SIZE = 220;
 const RESIZE_STEP = 16;
-/** The rail's own width, which the stage and inspector share the rest of. */
-const RAIL_WIDTH = 48;
+/** The rail island's column, which the stage and inspector share the rest of. */
+const RAIL_WIDTH = 64;
 /** The narrowest stage worth keeping beside a right-docked inspector. */
 const MIN_STAGE_WIDTH = 560;
 /** The share of the region the inspector may take, so the stage survives. */
@@ -169,60 +170,6 @@ const emulationOverrideCount = (
     emulation.colorScheme,
   ].filter((value) => value !== undefined && value !== null).length;
   return overrides + (emulation.permissions?.length ?? 0);
-};
-
-interface ElementSize {
-  readonly height: number;
-  readonly width: number;
-}
-
-/** Below this height the stage drops the device bar for the page itself. */
-const SHORT_STAGE_HEIGHT = 384;
-
-/**
- * The device bar above the page. A stage squeezed under a Summary (a phone
- * verifying a Dry Run) gives the page the bar's rows; dragging the divider
- * brings it back.
- */
-const StageDeviceBar = ({
-  stageHeight,
-  ...bar
-}: ComponentProps<typeof BrowserDeviceBar> & {
-  readonly stageHeight: number;
-}) => (
-  <div
-    className={cn(
-      "pointer-events-none flex shrink-0 justify-center px-2 pt-2",
-      stageHeight > 0 && stageHeight < SHORT_STAGE_HEIGHT && "hidden"
-    )}
-  >
-    <BrowserDeviceBar {...bar} />
-  </div>
-);
-
-const useElementSize = <Element extends HTMLElement>() => {
-  const ref = useRef<Element>(null);
-  const [size, setSize] = useState<ElementSize>({ height: 0, width: 0 });
-  useEffect(() => {
-    const element = ref.current;
-    if (element === null) {
-      return;
-    }
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry === undefined) {
-        return;
-      }
-      const { height, width } = entry.contentRect;
-      setSize((current) =>
-        current.height === height && current.width === width
-          ? current
-          : { height, width }
-      );
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return { ref, size };
 };
 
 const maxSize = (region: number): number =>
@@ -304,10 +251,8 @@ const InspectorResizeHandle = ({
       aria-valuemin={MIN_INSPECTOR_SIZE}
       aria-valuenow={size}
       className={cn(
-        "bg-border hover:bg-ring/60 focus-visible:bg-ring relative z-10 shrink-0 touch-none transition-colors outline-none after:absolute",
-        side === "right"
-          ? "w-px cursor-col-resize after:-inset-x-1 after:inset-y-0"
-          : "h-px cursor-row-resize after:inset-x-0 after:-inset-y-1"
+        "group/resize relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
+        side === "right" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize"
       )}
       onKeyDown={onKeyDown}
       onPointerCancel={() => {
@@ -332,7 +277,15 @@ const InspectorResizeHandle = ({
       }}
       role="separator"
       tabIndex={0}
-    />
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "group-hover/resize:bg-ring/60 group-focus-visible/resize:bg-ring rounded-full bg-transparent transition-colors",
+          side === "right" ? "h-10 w-1" : "h-1 w-10"
+        )}
+      />
+    </div>
   );
 };
 
@@ -444,7 +397,7 @@ const InspectorRail = ({
 }) => (
   <nav
     aria-label="Browser tools"
-    className="bg-background flex w-12 shrink-0 flex-col items-center gap-1 border-l py-2"
+    className="island pointer-events-auto flex w-[52px] shrink-0 flex-col items-center gap-1 p-2"
   >
     <RailButton
       active={card === "identity"}
@@ -465,7 +418,7 @@ const InspectorRail = ({
       label="Emulation"
       onClick={() => onToggleCard("emulation")}
     />
-    <span aria-hidden="true" className="bg-border my-1 h-px w-5" />
+    <span aria-hidden="true" className="bg-island-border my-1 h-px w-5" />
     <RailButton
       active={panel === "console"}
       badge={
@@ -492,14 +445,13 @@ const InspectorRail = ({
       label="Storage"
       onClick={() => onTogglePanel("storage")}
     />
-    <div className="mt-auto">
-      <RailButton
-        active={card === "stream"}
-        icon={<ActivityIcon />}
-        label="Stream diagnostics"
-        onClick={() => onToggleCard("stream")}
-      />
-    </div>
+    <span aria-hidden="true" className="bg-island-border my-1 h-px w-5" />
+    <RailButton
+      active={card === "stream"}
+      icon={<ActivityIcon />}
+      label="Stream diagnostics"
+      onClick={() => onToggleCard("stream")}
+    />
   </nav>
 );
 
@@ -577,11 +529,11 @@ const InspectorCardSurface = ({
 }) => (
   <section
     aria-label={cardTitles[card]}
-    className="material-panel absolute top-2 right-14 z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-4.5rem)] origin-top-right flex-col overflow-hidden rounded-xl shadow-[0_24px_64px_-24px_rgb(0_0_0/0.4)]"
+    className="island bg-island-solid absolute top-2 right-[4.5rem] z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-5rem)] origin-right flex-col overflow-hidden rounded-[18px]"
     inert={leaving}
     ref={cardRef}
   >
-    <header className="flex h-10 shrink-0 items-center border-b pr-1.5 pl-3.5">
+    <header className="border-island-border flex h-11 shrink-0 items-center border-b pr-1.5 pl-4">
       <h2 className="text-sm font-medium">{cardTitles[card]}</h2>
       <Button
         aria-label={`Close ${cardTitles[card]}`}
@@ -595,7 +547,7 @@ const InspectorCardSurface = ({
     </header>
     <InspectorCardBody>
       {lockedReason === undefined || card === "stream" ? null : (
-        <p className="bg-muted/60 text-muted-foreground mb-3 rounded-lg px-3 py-2 text-xs">
+        <p className="bg-island-hover text-muted-foreground mb-3 rounded-xl px-3 py-2 text-xs">
           {lockedReason}
         </p>
       )}
@@ -603,6 +555,64 @@ const InspectorCardSurface = ({
     </InspectorCardBody>
   </section>
 );
+
+/**
+ * DevTools as an island docked beside or under the stage, behind its resize
+ * separator. A drag past a bound stretches it; releasing it springs back.
+ */
+const DockedInspector = ({
+  children,
+  onResize,
+  region,
+  side,
+  size,
+}: {
+  readonly children: ReactNode;
+  readonly onResize: (size: number) => void;
+  readonly region: number;
+  readonly side: DevtoolsDockSide;
+  readonly size: number;
+}) => {
+  const [stretch, setStretch] = useState({ pixels: 0, settling: false });
+  const drawnSize = Math.max(size + stretch.pixels, 0);
+  return (
+    <>
+      <InspectorResizeHandle
+        onResize={onResize}
+        onStretch={(pixels) =>
+          setStretch((current) =>
+            pixels === 0
+              ? { pixels: 0, settling: Math.abs(current.pixels) >= 1 }
+              : { pixels, settling: false }
+          )
+        }
+        region={region}
+        side={side}
+        size={size}
+      />
+      <div
+        className={cn(
+          // No `duration-*` here: it would give every property a transition
+          // and the inspector would trail the drag.
+          "animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col",
+          side === "right" ? "py-2" : "pb-2 pl-2",
+          stretch.settling &&
+            "transition-[width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+        )}
+        onTransitionEnd={(event) => {
+          if (event.target === event.currentTarget) {
+            setStretch({ pixels: 0, settling: false });
+          }
+        }}
+        style={side === "right" ? { width: drawnSize } : { height: drawnSize }}
+      >
+        <div className="island bg-island-solid flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[18px]">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+};
 
 /**
  * The session's browser setup as the stage reads and changes it: the applied
@@ -745,6 +755,7 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
  * the MCP-owned browser has no handle the Workspace can name (ADR 0038).
  */
 export const WorkspaceBrowserStage = ({
+  browserControls,
   children,
   consoleEntries,
   emulationFixed,
@@ -752,8 +763,11 @@ export const WorkspaceBrowserStage = ({
   onAttachBrowserContext,
   sessionId,
   teaching,
+  topBar,
   userHoldsBrowser,
 }: {
+  /** The browser's navigation and address, which lead the device bar. */
+  readonly browserControls: ReactNode;
   /** The live frame and everything that floats over it. */
   readonly children: ReactNode;
   readonly consoleEntries: readonly BrowserConsoleEntry[];
@@ -769,6 +783,8 @@ export const WorkspaceBrowserStage = ({
    * browser over itself (ADR 0042).
    */
   readonly teaching: boolean;
+  /** The session's top bar, given the device bar to centre between its islands. */
+  readonly topBar: (deviceBar: ReactNode) => ReactNode;
   readonly userHoldsBrowser: boolean;
 }) => {
   const tooling = useAgentBrowserTooling(sessionId);
@@ -816,10 +832,6 @@ export const WorkspaceBrowserStage = ({
     inspector,
     body
   );
-  // A drag past a bound stretches the inspector; releasing it springs back.
-  const [stretch, setStretch] = useState({ pixels: 0, settling: false });
-  const drawnSize = Math.max(inspectorSize + stretch.pixels, 0);
-
   const toggleCard = (card: InspectorCard) =>
     setInspector((current) => ({
       ...current,
@@ -870,53 +882,55 @@ export const WorkspaceBrowserStage = ({
   const shownError = errorPresence.rendered;
 
   return (
-    <div className="relative flex min-h-0 flex-1" ref={bodyRef}>
-      <div
-        className={cn(
-          "flex min-h-0 min-w-0 flex-1",
-          side === "right" ? "flex-row" : "flex-col"
-        )}
-      >
-        {/*
+    <div className="workspace-canvas relative flex min-h-0 flex-1 flex-col">
+      {topBar(
+        <BrowserDeviceBar
+          applied={applied?.viewport}
+          disabled={disabled}
+          leading={browserControls}
+          lockedReason={lockedReason}
+          onPresetChange={changePreset}
+          onViewportChange={(viewport) => patch({ viewport })}
+          presetId={state.presetId}
+        />
+      )}
+      <div className="relative flex min-h-0 flex-1" ref={bodyRef}>
+        <div
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1",
+            side === "right" ? "flex-row" : "flex-col"
+          )}
+        >
+          {/*
           The stage is always the region's first child, so docking the
           inspector, moving it, or closing it never remounts the live canvas.
         */}
-        <section
-          aria-label="Browser stage"
-          className="bg-muted/40 relative flex min-h-0 min-w-0 flex-1 flex-col bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px]"
-          onPointerDown={() => {
-            if (card !== undefined) {
-              closeCard();
-            }
-          }}
-        >
-          <StageDeviceBar
-            applied={applied?.viewport}
-            disabled={disabled}
-            lockedReason={lockedReason}
-            onPresetChange={changePreset}
-            onViewportChange={(viewport) => patch({ viewport })}
-            presetId={state.presetId}
-            stageHeight={body.height}
-          />
-          {shownError === undefined ? null : (
-            <StageError
-              errorRef={errorPresence.ref}
-              leaving={errorPresence.leaving}
-              message={shownError}
-              onDismiss={() =>
-                setState((current) => ({ ...current, error: undefined }))
+          <section
+            aria-label="Browser stage"
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+            onPointerDown={() => {
+              if (card !== undefined) {
+                closeCard();
               }
-            />
-          )}
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {children}
-          </div>
-        </section>
+            }}
+          >
+            {shownError === undefined ? null : (
+              <StageError
+                errorRef={errorPresence.ref}
+                leaving={errorPresence.leaving}
+                message={shownError}
+                onDismiss={() =>
+                  setState((current) => ({ ...current, error: undefined }))
+                }
+              />
+            )}
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              {children}
+            </div>
+          </section>
 
-        {panel === undefined ? null : (
-          <>
-            <InspectorResizeHandle
+          {panel === undefined ? null : (
+            <DockedInspector
               onResize={(size) =>
                 setInspector((current) =>
                   side === "right"
@@ -924,38 +938,14 @@ export const WorkspaceBrowserStage = ({
                     : { ...current, bottomHeight: size }
                 )
               }
-              onStretch={(pixels) =>
-                setStretch((current) =>
-                  pixels === 0
-                    ? { pixels: 0, settling: Math.abs(current.pixels) >= 1 }
-                    : { pixels, settling: false }
-                )
-              }
               region={regionLength}
               side={side}
               size={inspectorSize}
-            />
-            <div
-              className={cn(
-                // No `duration-*` here: it would give every property a
-                // transition and the inspector would trail the drag.
-                "animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col",
-                stretch.settling &&
-                  "transition-[width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
-              )}
-              onTransitionEnd={(event) => {
-                if (event.target === event.currentTarget) {
-                  setStretch({ pixels: 0, settling: false });
-                }
-              }}
-              style={
-                side === "right" ? { width: drawnSize } : { height: drawnSize }
-              }
             >
               {state.activeTab === undefined ? (
                 <section
                   aria-label={devtoolsPanelTitles[panel]}
-                  className="bg-background text-muted-foreground grid size-full place-items-center p-3 text-xs"
+                  className="text-muted-foreground grid size-full place-items-center p-3 text-xs"
                 >
                   Waiting for the browser to open a page.
                 </section>
@@ -983,60 +973,62 @@ export const WorkspaceBrowserStage = ({
                   }}
                 />
               )}
-            </div>
-          </>
+            </DockedInspector>
+          )}
+        </div>
+
+        <div className="pointer-events-none flex w-16 shrink-0 items-center justify-center">
+          <InspectorRail
+            card={card}
+            errors={consoleErrorCount(consoleEntries)}
+            identityCustomised={state.identity !== DEFAULT_IDENTITY}
+            onToggleCard={toggleCard}
+            onTogglePanel={togglePanel}
+            overrides={emulationOverrideCount(applied)}
+            panel={panel}
+            requests={state.networkRequests.length}
+          />
+        </div>
+
+        {shownCard === undefined ? null : (
+          <InspectorCardSurface
+            card={shownCard}
+            cardRef={cardPresence.ref}
+            leaving={cardPresence.leaving}
+            lockedReason={lockedReason}
+            onClose={closeCard}
+          >
+            {shownCard === "identity" ? (
+              <UserAgentList
+                disabled={disabled}
+                onValueChange={(userAgentProfile) => {
+                  // An identity moves every signal it implies together (ADR
+                  // 0013). The session applies the identity's own device
+                  // metrics, so the identity travels alone rather than beside
+                  // a viewport this View may not have read yet.
+                  setState((current) => ({
+                    ...current,
+                    presetId: RESPONSIVE_PRESET_ID,
+                  }));
+                  patch({ userAgentProfile });
+                }}
+                value={state.identity}
+              />
+            ) : null}
+            {shownCard === "emulation" ? (
+              <EmulationPanel
+                applied={state.emulation}
+                currentOrigin={origin}
+                disabled={disabled}
+                onPatch={patch}
+              />
+            ) : null}
+            {shownCard === "stream" ? (
+              <BrowserStreamDiagnostics sessionId={sessionId} />
+            ) : null}
+          </InspectorCardSurface>
         )}
       </div>
-
-      <InspectorRail
-        card={card}
-        errors={consoleErrorCount(consoleEntries)}
-        identityCustomised={state.identity !== DEFAULT_IDENTITY}
-        onToggleCard={toggleCard}
-        onTogglePanel={togglePanel}
-        overrides={emulationOverrideCount(applied)}
-        panel={panel}
-        requests={state.networkRequests.length}
-      />
-
-      {shownCard === undefined ? null : (
-        <InspectorCardSurface
-          card={shownCard}
-          cardRef={cardPresence.ref}
-          leaving={cardPresence.leaving}
-          lockedReason={lockedReason}
-          onClose={closeCard}
-        >
-          {shownCard === "identity" ? (
-            <UserAgentList
-              disabled={disabled}
-              onValueChange={(userAgentProfile) => {
-                // An identity moves every signal it implies together (ADR
-                // 0013). The session applies the identity's own device
-                // metrics, so the identity travels alone rather than beside
-                // a viewport this View may not have read yet.
-                setState((current) => ({
-                  ...current,
-                  presetId: RESPONSIVE_PRESET_ID,
-                }));
-                patch({ userAgentProfile });
-              }}
-              value={state.identity}
-            />
-          ) : null}
-          {shownCard === "emulation" ? (
-            <EmulationPanel
-              applied={state.emulation}
-              currentOrigin={origin}
-              disabled={disabled}
-              onPatch={patch}
-            />
-          ) : null}
-          {shownCard === "stream" ? (
-            <BrowserStreamDiagnostics sessionId={sessionId} />
-          ) : null}
-        </InspectorCardSurface>
-      )}
     </div>
   );
 };

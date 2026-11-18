@@ -9,12 +9,13 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkspaceRouteImport } from './routes/_workspace'
 import { Route as FlowRouteImport } from './routes/flow'
+import { Route as WorkspaceIndexRouteImport } from './routes/_workspace/index'
+import { Route as WorkspaceSessionIdRouteImport } from './routes/_workspace/$sessionId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const WorkspaceRoute = WorkspaceRouteImport.update({
+  id: '/_workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FlowRoute = FlowRouteImport.update({
@@ -22,40 +23,59 @@ const FlowRoute = FlowRouteImport.update({
   path: '/flow',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
+const WorkspaceSessionIdRoute = WorkspaceSessionIdRouteImport.update({
+  id: '/$sessionId',
+  path: '/$sessionId',
+  getParentRoute: () => WorkspaceRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
+  '/': typeof WorkspaceIndexRoute
   '/flow': typeof FlowRoute
+  '/$sessionId': typeof WorkspaceSessionIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
   '/flow': typeof FlowRoute
+  '/$sessionId': typeof WorkspaceSessionIdRoute
+  '/': typeof WorkspaceIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
+  '/_workspace': typeof WorkspaceRouteWithChildren
   '/flow': typeof FlowRoute
+  '/_workspace/$sessionId': typeof WorkspaceSessionIdRoute
+  '/_workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/flow'
+  fullPaths: '/' | '/flow' | '/$sessionId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/flow'
-  id: '__root__' | '/' | '/flow'
+  to: '/flow' | '/$sessionId' | '/'
+  id:
+    | '__root__'
+    | '/_workspace'
+    | '/flow'
+    | '/_workspace/$sessionId'
+    | '/_workspace/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
+  WorkspaceRoute: typeof WorkspaceRouteWithChildren
   FlowRoute: typeof FlowRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
+    '/_workspace': {
+      id: '/_workspace'
+      path: ''
       fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/flow': {
@@ -65,11 +85,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FlowRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_workspace/': {
+      id: '/_workspace/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof WorkspaceIndexRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
+    '/_workspace/$sessionId': {
+      id: '/_workspace/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/$sessionId'
+      preLoaderRoute: typeof WorkspaceSessionIdRouteImport
+      parentRoute: typeof WorkspaceRoute
+    }
   }
 }
 
+interface WorkspaceRouteChildren {
+  WorkspaceSessionIdRoute: typeof WorkspaceSessionIdRoute
+  WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+}
+
+const WorkspaceRouteChildren: WorkspaceRouteChildren = {
+  WorkspaceSessionIdRoute: WorkspaceSessionIdRoute,
+  WorkspaceIndexRoute: WorkspaceIndexRoute,
+}
+
+const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
+  WorkspaceRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
+  WorkspaceRoute: WorkspaceRouteWithChildren,
   FlowRoute: FlowRoute,
 }
 export const routeTree = rootRouteImport

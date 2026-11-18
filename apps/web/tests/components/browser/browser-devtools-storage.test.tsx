@@ -407,3 +407,47 @@ test.each(["before", "after"] as const)(
     expect(screen.getByText("retry recovered")).toBeInTheDocument();
   }
 );
+
+test("opens a request's detail beside the list and resizes it from the keyboard", async () => {
+  // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  rpc.detailAvailable.mockReturnValue(true);
+  renderDevtools(false, {
+    dockSide: "bottom",
+    networkRequests: [
+      {
+        method: "GET",
+        requestId: BrowserRequestId.make("split-detail"),
+        resourceType: "fetch",
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/split-detail",
+      },
+    ],
+    panel: "network",
+  });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /split-detail/u }));
+  const handle = screen.getByRole("separator", {
+    name: "Resize request details",
+  });
+  expect(handle).toHaveAttribute("aria-orientation", "vertical");
+  expect(handle).toHaveAttribute("aria-valuenow", "360");
+  // The list stays usable beside the detail.
+  expect(
+    screen.getByRole("button", { name: /split-detail/u })
+  ).toBeInTheDocument();
+  handle.focus();
+  await user.keyboard("{ArrowLeft}");
+  expect(handle).toHaveAttribute("aria-valuenow", "376");
+  await user.keyboard("{ArrowRight}{ArrowRight}");
+  expect(handle).toHaveAttribute("aria-valuenow", "344");
+  expect(handle).toHaveAttribute("aria-valuemin", "320");
+  await user.click(
+    screen.getByRole("button", { name: "Close request details" })
+  );
+  expect(
+    screen.queryByRole("separator", { name: "Resize request details" })
+  ).not.toBeInTheDocument();
+});

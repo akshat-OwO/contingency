@@ -6,6 +6,7 @@ import {
   SmartphoneIcon,
   TabletIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   devicePresets,
@@ -95,13 +96,14 @@ const scaleFactorOptions = (applied: string | undefined) =>
   ).map((value) => ({ label: `${value}×`, value }));
 
 /**
- * The viewport controls of the device stage: the device preset, the applied
- * size, orientation, and pixel ratio. It floats over the stage it sizes, so
- * the browser below keeps the whole column.
+ * The Web session's device bar: an island at the top centre with the browser's
+ * navigation and address first, then the device preset, the applied size,
+ * orientation, and pixel ratio. A narrow bar drops the size readout first.
  */
 export const BrowserDeviceBar = ({
   applied,
   disabled,
+  leading,
   lockedReason,
   onPresetChange,
   onViewportChange,
@@ -110,6 +112,8 @@ export const BrowserDeviceBar = ({
   /** The viewport the session applies, once the interface has read it. */
   readonly applied: Viewport | undefined;
   readonly disabled: boolean;
+  /** The browser's navigation and address, ahead of the viewport controls. */
+  readonly leading?: ReactNode;
   /** Why the controls are locked, when they are. */
   readonly lockedReason: string | undefined;
   readonly onPresetChange: (presetId: string) => void;
@@ -127,9 +131,10 @@ export const BrowserDeviceBar = ({
   return (
     <div
       aria-label="Device controls"
-      className="material-float pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1 rounded-xl p-1 text-xs shadow-lg"
+      className="island @container pointer-events-auto flex w-full min-w-0 items-center gap-1 p-1 text-xs"
       role="toolbar"
     >
+      {leading}
       <Select
         disabled={disabled}
         onValueChange={(value) => {
@@ -141,11 +146,13 @@ export const BrowserDeviceBar = ({
       >
         <SelectTrigger
           aria-label="Device"
-          className="h-7 gap-1.5 border-transparent bg-transparent shadow-none dark:bg-transparent pointer-coarse:data-[size=sm]:h-9 [&_svg:not([class*='size-'])]:size-3.5"
+          className="hover:bg-island-hover h-[34px] shrink-0 gap-1.5 rounded-xl border-transparent bg-transparent shadow-none dark:bg-transparent pointer-coarse:data-[size=sm]:h-9 [&_svg:not([class*='size-'])]:size-3.5"
           size="sm"
         >
           <DeviceIcon kind={kind} />
-          <SelectValue>{selectedPreset?.name ?? "Responsive"}</SelectValue>
+          <SelectValue className="@max-[600px]:sr-only">
+            {selectedPreset?.name ?? "Responsive"}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent align="start" className="w-64">
           <SelectItem value={RESPONSIVE_PRESET_ID}>Responsive</SelectItem>
@@ -171,7 +178,7 @@ export const BrowserDeviceBar = ({
       </Select>
       {applied === undefined ? null : (
         <>
-          <span className="text-muted-foreground px-1.5 whitespace-nowrap tabular-nums">
+          <span className="text-muted-foreground shrink-0 px-1.5 whitespace-nowrap tabular-nums @max-[640px]:hidden">
             {applied.width} × {applied.height}
           </span>
           <Button

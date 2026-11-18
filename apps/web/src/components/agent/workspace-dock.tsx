@@ -358,10 +358,13 @@ export const DockNotice = ({
  * the theme in an island at the top right, as on the Workspace home.
  */
 export const SessionTopBar = ({
+  center,
   className,
   flows,
   picker,
 }: {
+  /** An island centred between the two, such as a Web session's device bar. */
+  readonly center?: React.ReactNode;
   readonly className?: string;
   /** The Flows link. */
   readonly flows?: React.ReactNode;
@@ -377,12 +380,17 @@ export const SessionTopBar = ({
   >
     <nav
       aria-label="Workspace"
-      className="island pointer-events-auto flex min-w-0 items-center gap-1 p-1"
+      className="island pointer-events-auto flex min-w-0 shrink items-center gap-1 p-1"
     >
       <WorkspaceHomeLink wordmark />
       <span aria-hidden="true" className="bg-island-border h-5 w-px shrink-0" />
       {picker}
     </nav>
+    {center === undefined ? null : (
+      <div className="flex max-w-[720px] min-w-0 flex-1 justify-center">
+        {center}
+      </div>
+    )}
     <div className="island pointer-events-auto flex shrink-0 items-center gap-1 p-1">
       {flows}
       <DocsLink className={islandControlClassName} />
