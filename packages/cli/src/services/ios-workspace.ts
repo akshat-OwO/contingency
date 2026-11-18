@@ -87,6 +87,11 @@ import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
 import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
 import {
+  instructionElementLabel,
+  resolveInstructionElement,
+  staleInstructionElement,
+} from "./native-instruction-element.ts";
+import {
   nativeRunDirectory,
   nativeRunSummary,
   writeNativeRunSummary,
@@ -2498,11 +2503,32 @@ export const makeIosWorkspaceLayer = (options: {
                 "Record Instructions in Workspace during Teaching."
               );
             }
-            yield* emit(session, {
-              _tag: "instruction",
-              target: null,
+            const element =
+              command.element === undefined
+                ? undefined
+                : resolveInstructionElement({
+                    appId:
+                      current.observation?.appId ??
+                      current.summary.selection.environment.bundleId,
+                    element: command.element,
+                    latest: current.observation,
+                    platform: "ios",
+                    retained: current.observations,
+                    unobserved: session.lane.unobserved(),
+                  });
+            if (command.element !== undefined && element === undefined) {
+              return yield* denied(staleInstructionElement);
+            }
+            const instruction = {
+              _tag: "instruction" as const,
+              target:
+                element === undefined ? null : instructionElementLabel(element),
               text: command.text,
-            });
+            };
+            yield* emit(
+              session,
+              element === undefined ? instruction : { ...instruction, element }
+            );
           } else if (command._tag === "input") {
             // An agent action plays at real speed in the condensed video.
             yield* source === "agent"

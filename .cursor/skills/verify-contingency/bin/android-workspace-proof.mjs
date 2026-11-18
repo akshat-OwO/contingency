@@ -257,7 +257,8 @@ try {
   await androidPick(control, taughtSession.id, "button", "Sign in");
   await androidComment(
     control,
-    "Use only this public fixture name. Catalog proves sign-in worked."
+    "Use only this public fixture name. Catalog proves sign-in worked.",
+    "Catalog"
   );
   await click("Stop recording");
   await control(
@@ -295,6 +296,13 @@ try {
     ]
   );
   assert.ok(showsPublicText(JSON.stringify(timeline)));
+  // The comment names the element it was attached to (ADR 0088).
+  const comment = timeline.entries.find(
+    (entry) => entry._tag === "instruction"
+  );
+  assert.equal(comment?.target, 'group "Catalog"');
+  assert.equal(comment?.element?.platform, "android");
+  assert.equal(comment?.element?.name, "Catalog");
   await writeFile(
     path.join(artifacts, "timeline.json"),
     JSON.stringify(timeline, null, 2)
@@ -322,6 +330,7 @@ try {
   receipt.coverage.teaching = {
     actions: actions.map((entry) => entry.description),
     androidStamped: true,
+    attachedComment: comment.target,
     ready: true,
     recordingId,
   };

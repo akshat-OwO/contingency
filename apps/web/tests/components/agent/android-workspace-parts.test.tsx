@@ -4,13 +4,13 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AndroidDevice } from "@/components/agent/android-device";
-import { AndroidInstructionEntry } from "@/components/agent/android-dock";
 import {
   selectable,
   unavailableReason,
 } from "@/components/agent/android-setup-state";
 import { AndroidEmptyState } from "@/components/agent/android-workspace";
 import { pauseCodeOf } from "@/components/agent/android-workspace-state";
+import { NativeCommentComposer } from "@/components/agent/native-comment-composer";
 
 afterEach(cleanup);
 
@@ -180,10 +180,16 @@ test("a submitted comment keeps its draft until the composer closes", async () =
   const user = userEvent.setup();
   const onSubmit = vi.fn();
   render(
-    <AndroidInstructionEntry
+    <NativeCommentComposer
+      attached={undefined}
+      canAttach
+      onAttach={vi.fn()}
+      onCancelPick={vi.fn()}
+      onDetach={vi.fn()}
       onDismiss={vi.fn()}
       onSubmit={onSubmit}
       pending={false}
+      picking={false}
     />
   );
   const box = screen.getByRole("textbox", { name: "Instruction" });

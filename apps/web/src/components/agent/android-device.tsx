@@ -22,7 +22,11 @@ import {
   XIcon,
 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import type { ComponentType, ReactNode } from "react";
+import type {
+  ComponentType,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from "react";
 
 import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
 import { LocationFields } from "@/components/browser/location-fields";
@@ -44,8 +48,17 @@ import {
   androidStreamStateAtom,
   androidStreamStats,
 } from "./native-stream-store";
-import { screenElementCount } from "./screen-elements";
-import type { ScreenBox } from "./screen-elements";
+import {
+  attachedElement,
+  elementAt,
+  elementBox,
+  screenElementCount,
+} from "./screen-elements";
+import type {
+  AttachedElement,
+  ObservedNode,
+  ScreenBox,
+} from "./screen-elements";
 
 /** Most phones are about 9 by 20; the frame takes the real ratio once decoded. */
 const DEFAULT_FRAME: AndroidStreamFrame = { height: 2400, width: 1080 };
@@ -67,10 +80,13 @@ const DeviceFrame = ({
   children,
   frame,
   highlight,
+  picker,
   reserve,
   takeover,
 }: {
   readonly children: ReactNode;
+  /** The element picker over the glass, while a comment picks its element. */
+  readonly picker?: ReactNode;
   readonly frame: AndroidStreamFrame;
   /** An element to outline on the screen, as Screen elements points at it. */
   readonly highlight: ScreenBox | null;
@@ -109,6 +125,7 @@ const DeviceFrame = ({
           style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
         >
           {children}
+          {picker}
           {highlight === null ? null : (
             <span
               aria-hidden="true"
@@ -427,10 +444,104 @@ export interface NativeStream {
 }
 
 /**
+ * A Teaching comment picking the element it attaches to. While `picking`,
+ * the glass is a picker: pointing outlines the element under the pointer, a
+ * click attaches it, and nothing reaches the device. Screen elements opens
+ * beside it, so a keyboard can attach any element too.
+ */
+export interface NativeElementPick {
+  /** The element the comment holds, outlined while the comment is open. */
+  readonly attached: AttachedElement | undefined;
+  readonly picking: boolean;
+  readonly onCancel: () => void;
+  readonly onPick: (element: AttachedElement) => void;
+}
+
+/** The glass as an element picker: an outline follows the pointer, a click attaches. */
+const ElementPicker = ({
+  observation,
+  onHover,
+  onPick,
+}: {
+  readonly observation: AndroidWorkspaceObservation;
+  readonly onHover: (box: ScreenBox | null) => void;
+  readonly onPick: (element: AttachedElement) => void;
+}) => {
+  const nodeAt = (event: ReactPointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return rect.width <= 0 || rect.height <= 0
+      ? undefined
+      : elementAt(
+          observation,
+          (event.clientX - rect.left) / rect.width,
+          (event.clientY - rect.top) / rect.height
+        );
+  };
+  return (
+    <div
+      // Pointer-only: Screen elements is the picker's keyboard path.
+      aria-hidden="true"
+      className="absolute inset-0 z-20 cursor-crosshair touch-none"
+      data-slot="element-picker"
+      onPointerDown={(event) => event.preventDefault()}
+      onPointerLeave={() => onHover(null)}
+      onPointerMove={(event) => {
+        const node = nodeAt(event);
+        onHover(
+          node === undefined ? null : (elementBox(observation, node) ?? null)
+        );
+      }}
+      onPointerUp={(event) => {
+        const node = nodeAt(event);
+        if (node !== undefined) {
+          onHover(null);
+          onPick(attachedElement(observation, node));
+        }
+      }}
+    />
+  );
+};
+
+/**
+ * What a pick adds to the stage while it picks: the picker over the glass
+ * and Screen elements' attach. Nothing while no comment is picking.
+ */
+const activePick = (
+  pick: NativeElementPick | undefined,
+  observation: AndroidWorkspaceObservation | null,
+  onHover: (box: ScreenBox | null) => void
+) => {
+  if (pick?.picking !== true || observation === null) {
+    return;
+  }
+  return {
+    attach: (node: ObservedNode) => {
+      onHover(null);
+      pick.onPick(attachedElement(observation, node));
+    },
+    cancel: pick.onCancel,
+    picker: (
+      <ElementPicker
+        observation={observation}
+        onHover={onHover}
+        onPick={pick.onPick}
+      />
+    ),
+  };
+};
+
+/** The element under the pointer, else the one the open comment holds. */
+const stageOutline = (
+  hovered: ScreenBox | null,
+  pick: NativeElementPick | undefined
+) => hovered ?? pick?.attached?.box ?? null;
+
+/**
  * The device on its stage: the frame centred and fitted, its rail beside it,
  * the rail's cards beside the rail, and the Field Variable card (`leading`)
  * on the frame's other side. Nothing but the glass's own content draws over
- * the screen, so every touch on it reaches the device (ADR 0076).
+ * the screen, so every touch on it reaches the device (ADR 0076), except
+ * while a comment picks its element (ADR 0088).
  */
 export const NativeStage = ({
   busy = false,
@@ -444,6 +555,7 @@ export const NativeStage = ({
   onActivate,
   onEmulate,
   onKey,
+  pick,
   platform,
   stream,
   takeover,
@@ -460,6 +572,7 @@ export const NativeStage = ({
   readonly onActivate: (inputs: readonly NativeInput[]) => void;
   readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onKey: (key: DeviceKey) => void;
+  readonly pick?: NativeElementPick | undefined;
   readonly platform: "Android" | "iOS";
   readonly stream: NativeStream;
   readonly takeover: boolean;
@@ -468,15 +581,21 @@ export const NativeStage = ({
   const [card, setCard] = useAtom(cardAtom);
   const [highlightAtom] = useState(() => Atom.make<ScreenBox | null>(null));
   const [highlight, setHighlight] = useAtom(highlightAtom);
+  const active = activePick(pick, observation, setHighlight);
   const stage = useRef<HTMLElement>(null);
   const cardRef = useRef<HTMLElement>(null);
-  // Losing control closes what only the person in control can use.
-  const shown = card === "stream" || canAct ? card : null;
+  // Losing control closes what only the person in control can use. A pick
+  // lists the screen's elements beside it.
+  let shown = card === "stream" || canAct ? card : null;
+  if (active !== undefined) {
+    shown = "elements";
+  }
   const close = () => {
     // Closing removes what has focus; it goes back to the card's rail button.
     const focused = cardRef.current?.contains(document.activeElement) ?? false;
     setCard(null);
     setHighlight(null);
+    active?.cancel();
     if (focused && shown !== null) {
       stage.current
         ?.querySelector<HTMLButtonElement>(
@@ -523,7 +642,8 @@ export const NativeStage = ({
         ) : null}
         <DeviceFrame
           frame={frame}
-          highlight={highlight}
+          highlight={stageOutline(highlight, pick)}
+          picker={active?.picker}
           reserve={reserve}
           takeover={takeover}
         >
@@ -569,12 +689,13 @@ export const NativeStage = ({
               ) : null}
               {shown === "elements" ? (
                 <ScreenElements
-                  disabled={!canAct || busy === true}
+                  disabled={active === undefined && (!canAct || busy)}
                   observation={observation}
                   onActivate={(inputs) => {
                     onActivate(inputs);
                     close();
                   }}
+                  onAttach={active?.attach}
                   onHover={setHighlight}
                 />
               ) : null}
@@ -685,6 +806,7 @@ export const AndroidDevice = ({
   paused,
   pending,
   pauseCode,
+  pick,
   sessionId,
   takeover = false,
   unavailable,
@@ -713,6 +835,8 @@ export const AndroidDevice = ({
   /** Why the session paused: the code of its last Capture Gap. */
   readonly pauseCode?: string | undefined;
   readonly pending: boolean;
+  /** A Teaching comment picking its element on the screen. */
+  readonly pick?: NativeElementPick | undefined;
   readonly sessionId: AgentSessionId;
   readonly takeover?: boolean;
   /** What the glass says while there is no stream. */
@@ -759,6 +883,7 @@ export const AndroidDevice = ({
       }}
       onEmulate={onEmulate}
       onKey={onDeviceKey}
+      pick={pick}
       platform="Android"
       stream={{
         device,

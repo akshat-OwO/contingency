@@ -37,7 +37,6 @@ import {
 import { WatcherLoader } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -61,7 +60,7 @@ import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
 import { DeviceUnavailable, NativeStage } from "./android-device";
-import type { DeviceKey } from "./android-device";
+import type { DeviceKey, NativeElementPick } from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
@@ -83,6 +82,9 @@ import {
 } from "./ios-dock-state";
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import { NativeAgentTouch } from "./native-agent-touch";
+import { NativeCommentComposer } from "./native-comment-composer";
+import { closedComment, commentPick } from "./native-comment-state";
+import type { NativeComment } from "./native-comment-state";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { clearDataQuestion } from "./native-starting-data-copy";
@@ -123,7 +125,6 @@ const commandAtom = Atom.keepAlive(
 );
 const operationId = () =>
   OperationId.make(`ios-workspace-${crypto.randomUUID()}`);
-const text = (data: FormData, key: string) => String(data.get(key) ?? "");
 /** A refusal's sentence; its leading code is for agents, not people. */
 const errorMessage = (cause: unknown) =>
   Schema.is(Schema.Struct({ message: Schema.String }))(cause)
@@ -189,6 +190,7 @@ const IosMirrorVeil = ({
 const IosMirror = ({
   leading,
   pending,
+  pick,
   session,
   onDeviceKey,
   onEmulate,
@@ -198,6 +200,8 @@ const IosMirror = ({
   /** The Field Variable card, beside the frame. */
   readonly leading: React.ReactNode;
   readonly pending: boolean;
+  /** A Teaching comment picking its element on the screen. */
+  readonly pick: NativeElementPick | undefined;
   readonly session: IosWorkspaceSnapshot;
   readonly unavailable: string;
   /** Forwards the user's input to the simulator. */
@@ -361,6 +365,7 @@ const IosMirror = ({
       }}
       onEmulate={onEmulate}
       onKey={onDeviceKey}
+      pick={pick}
       platform="iOS"
       stream={{
         device: iosDeviceName(session.selection.device),
@@ -808,13 +813,20 @@ const typingField = (
 };
 
 const IosDock = ({
+  comment,
   gesture,
   inputRefusal,
   onNewSession,
   onSelectSession,
   send,
   session,
+  setComment,
 }: {
+  /** The comment being written, shared with the stage's element picker. */
+  readonly comment: NativeComment;
+  readonly setComment: (
+    update: (current: NativeComment) => NativeComment
+  ) => void;
   readonly gesture: {
     readonly pending: boolean;
     readonly error: string | undefined;
@@ -826,25 +838,7 @@ const IosDock = ({
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
 }) => {
-  const [commentingAtom] = useState(() => Atom.make(false));
-  const [commenting, setCommenting] = useAtom(commentingAtom);
-  const [submittingAtom] = useState(() => Atom.make(false));
-  const [submitting, setSubmitting] = useAtom(submittingAtom);
-  useEffect(() => {
-    if (!submitting || gesture.pending) {
-      return;
-    }
-    setSubmitting(false);
-    if (gesture.error === undefined) {
-      setCommenting(false);
-    }
-  }, [
-    gesture.error,
-    gesture.pending,
-    setCommenting,
-    setSubmitting,
-    submitting,
-  ]);
+  const commenting = comment.open;
   const listed = useAtomValue(iosSessionsAtom);
   const sessions = AsyncResult.isSuccess(listed) ? listed.value : [];
   // A just-started session may not be listed yet; an ended one is no choice.
@@ -914,42 +908,52 @@ const IosDock = ({
               session={session}
             />
             {commenting && recording ? (
-              <form
-                aria-label="Comment"
-                className="flex items-center gap-1.5 border-b px-3 py-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  send({
-                    _tag: "instruction",
+              <NativeCommentComposer
+                attached={comment.attached ?? undefined}
+                canAttach={session.observation !== null}
+                onAttach={() =>
+                  setComment((current) => ({ ...current, picking: true }))
+                }
+                onCancelPick={() =>
+                  setComment((current) => ({ ...current, picking: false }))
+                }
+                onDetach={() =>
+                  setComment((current) => ({ ...current, attached: null }))
+                }
+                onDismiss={() => setComment(() => closedComment)}
+                onSubmit={(text) => {
+                  const { attached } = comment;
+                  const instruction = {
+                    _tag: "instruction" as const,
                     operationId: operationId(),
                     sessionId: session.id,
-                    text: text(
-                      new FormData(event.currentTarget),
-                      "instruction"
-                    ),
-                  });
-                  // The composer and its draft stay until the instruction is
-                  // saved; a refusal leaves them for another try.
-                  setSubmitting(true);
+                    text,
+                  };
+                  if (
+                    send(
+                      attached === null
+                        ? instruction
+                        : {
+                            ...instruction,
+                            element: {
+                              observationId: attached.observationId,
+                              target: attached.target,
+                            },
+                          }
+                    )
+                  ) {
+                    // The composer and its draft stay until the instruction
+                    // is saved; a refusal leaves them for another try.
+                    setComment((current) => ({
+                      ...current,
+                      picking: false,
+                      submitting: true,
+                    }));
+                  }
                 }}
-              >
-                <Input
-                  aria-label="Instruction"
-                  autoFocus
-                  className="h-8 flex-1"
-                  name="instruction"
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setCommenting(false);
-                    }
-                  }}
-                  placeholder="Tell the agent what matters on this screen"
-                  required
-                />
-                <Button disabled={gesture.pending} size="sm" type="submit">
-                  Add
-                </Button>
-              </form>
+                pending={gesture.pending}
+                picking={comment.picking}
+              />
             ) : null}
           </>
         }
@@ -964,7 +968,11 @@ const IosDock = ({
         <IosDockControls
           commenting={commenting}
           gesture={gesture}
-          onComment={() => setCommenting(!commenting)}
+          onComment={() =>
+            setComment((current) =>
+              current.open ? closedComment : { ...current, open: true }
+            )
+          }
           onNewSession={onNewSession}
           presentation={presentation}
           send={send}
@@ -1134,6 +1142,8 @@ export const IosWorkspace = ({
   readonly requestedSessionId: string;
 }) => {
   const [session, setSession] = useAtom(snapshotAtom);
+  const [commentAtom] = useState(() => Atom.make(closedComment));
+  const [comment, setComment] = useAtom(commentAtom);
   const setChrome = useAtomSet(workspaceChromeAtom);
   useEffect(() => {
     setChrome(true);
@@ -1141,6 +1151,19 @@ export const IosWorkspace = ({
   }, [setChrome]);
   const enabled = useAtomValue(iosEnabledAtom);
   const gesture = useWorkspaceGesture(commandAtom);
+  // A sent comment closes its composer only once it saves; a refusal leaves
+  // the composer and its draft for another try.
+  const { submitting } = comment;
+  useEffect(() => {
+    if (!submitting || gesture.pending) {
+      return;
+    }
+    setComment((current) =>
+      gesture.error === undefined
+        ? closedComment
+        : { ...current, submitting: false }
+    );
+  }, [gesture.error, gesture.pending, setComment, submitting]);
   /** The route named a session this server has no record of. */
   const [unavailable, setUnavailable] = useState(false);
   const apply = (next: IosWorkspaceSnapshot) =>
@@ -1354,6 +1377,11 @@ export const IosWorkspace = ({
             )
           }
           pending={gesture.pending}
+          pick={
+            session.captureState?._tag === "recording"
+              ? commentPick(comment, setComment)
+              : undefined
+          }
           onDeviceKey={(key) => {
             const command = railKeyCommand(key, session);
             if (command !== null) {
@@ -1366,12 +1394,14 @@ export const IosWorkspace = ({
           unavailable={glassText(session)}
         />
         <IosDock
+          comment={comment}
           gesture={gesture}
           inputRefusal={inputRefusal}
           onNewSession={startNew}
           onSelectSession={onSessionChange}
           send={send}
           session={session}
+          setComment={setComment}
         />
       </main>
     </WorkspaceLayout>

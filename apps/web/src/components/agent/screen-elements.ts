@@ -153,3 +153,70 @@ export const listedNodes = (observation: AndroidWorkspaceObservation | null) =>
 export const screenElementCount = (
   observation: AndroidWorkspaceObservation | null
 ) => listedNodes(observation).length;
+
+/** An element's name as a person reads it, or its role when it has none. */
+export const elementLabel = (node: ObservedNode) => {
+  const name = node.name.trim();
+  return name === "" ? `Unnamed ${roleWord(node.role)}` : name;
+};
+
+/**
+ * The element a native comment holds: one node, by its target, of the
+ * observation it was picked from. The server refuses it once the element
+ * has left the screen.
+ */
+export interface AttachedElement {
+  readonly box: ScreenBox | undefined;
+  readonly label: string;
+  readonly observationId: string;
+  readonly role: string;
+  readonly target: string;
+}
+
+export const attachedElement = (
+  observation: AndroidWorkspaceObservation,
+  node: ObservedNode
+): AttachedElement => ({
+  box: elementBox(observation, node),
+  label: elementLabel(node),
+  observationId: observation.id,
+  role: node.role,
+  target: node.target,
+});
+
+/**
+ * The element a comment can name under a point of the screen, given as
+ * fractions of its size: the smallest listed one that is named or editable,
+ * as the server attributes a tap. A bare container names nothing.
+ */
+export const elementAt = (
+  observation: AndroidWorkspaceObservation,
+  x: number,
+  y: number
+): ObservedNode | undefined => {
+  const px = x * observation.width;
+  const py = y * observation.height;
+  let hit: ObservedNode | undefined;
+  let area = Infinity;
+  for (const node of listedNodes(observation)) {
+    const { bounds } = node;
+    if (
+      bounds === undefined ||
+      bounds.width <= 0 ||
+      bounds.height <= 0 ||
+      (!node.editable && node.name.trim() === "") ||
+      px < bounds.x ||
+      py < bounds.y ||
+      px > bounds.x + bounds.width ||
+      py > bounds.y + bounds.height
+    ) {
+      continue;
+    }
+    const size = bounds.width * bounds.height;
+    if (size < area) {
+      hit = node;
+      area = size;
+    }
+  }
+  return hit;
+};

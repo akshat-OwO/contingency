@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { nativeComment } from "./android-ui.mjs";
 import {
   selectedSimulatorResource,
   simulatorInventory,
@@ -574,6 +575,12 @@ try {
   await snapshot("teaching-settings-returned");
   await pick(teaching.id, "button", "Open account");
   await pick(teaching.id, "button", "Return to account");
+  // A comment attaches the element it is about (ADR 0088).
+  await nativeComment(
+    control,
+    "Open account shows the signed-in details.",
+    "Open account"
+  );
   await snapshot("teaching-outcome");
   await click("Stop recording");
   const stopped = await read(teaching.id);
@@ -656,6 +663,13 @@ try {
       "Activate button Return to account",
     ]
   );
+  const comments = timeline.entries.filter(
+    (entry) => entry._tag === "instruction"
+  );
+  assert.equal(comments.length, 1);
+  assert.equal(comments[0].target, 'button "Open account"');
+  assert.equal(comments[0].element?.platform, "ios");
+  receipt.coverage.attachedComment = comments[0].target;
   // Forwarded typing has no exact readback; the private Variable stays unconfirmed.
   assert.equal(actions[1].inputConfirmation, "unconfirmed");
   assert.ok(actions.every((entry) => entry.before.ios && entry.after.ios));

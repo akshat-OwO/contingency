@@ -474,10 +474,36 @@ const instructionAuthorship = {
   ),
 };
 
+/**
+ * The native element a Teaching Instruction was attached to, as the
+ * observation it was picked from read it. Role, name, and context identify it
+ * in a later Run; the bounds place it on the taught screen (ADR 0088).
+ */
+export const TeachingNativeElement = Schema.Struct({
+  bounds: Schema.optionalKey(
+    Schema.Struct({
+      height: Schema.Finite,
+      width: Schema.Finite,
+      x: Schema.Finite,
+      y: Schema.Finite,
+    })
+  ),
+  /** The Target App the element belongs to, as action targets name it. */
+  context: Schema.Array(Schema.String),
+  editable: Schema.Boolean,
+  name: Schema.String,
+  observationId: nonEmptyString,
+  platform: Schema.Literals(["android", "ios"]),
+  role: nonEmptyString,
+});
+export type TeachingNativeElement = typeof TeachingNativeElement.Type;
+
 /** Free text, including a Guided Run question or its user's answer. */
 const TeachingInstructionEvent = Schema.TaggedStruct("instruction", {
   ...instructionAuthorship,
   attachments: browserAttachmentsField,
+  /** On a native recording, the attached element `target` describes. */
+  element: Schema.optionalKey(TeachingNativeElement),
   id: Schema.optionalKey(nonEmptyString),
   scan: optionalNullable(TeachingScan),
   ...teachingEventBase,
