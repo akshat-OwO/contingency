@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755) and [#757](https://github.com/akshat-OwO/contingency/issues/757), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757) and [#763](https://github.com/akshat-OwO/contingency/issues/763), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -20,6 +20,11 @@ It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742
 | Run video seek bar | Slider |
 | Run Summary sections | Tabs |
 | Docked summary, decision bar | Button (no resizable panels) |
+| Web canvas: Device, pixel ratio | Select (grouped presets) |
+| Web canvas: User agent | Radio |
+| Web canvas: Color scheme, streaming preference, Console level, storage area, request detail | Segmented Control |
+| Web canvas: address, filters, Locale, Time zone | Input |
+| Web canvas: rail and toolbar labels | Tooltip |
 
 ## Run it
 
@@ -32,6 +37,41 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Web session canvas (#763)
+
+Approved on #763. A Web session lives at `/<session-id>` (for example `/s1`). The old `/?session=<id>`, which every MCP `viewUrl` already handed out uses, lands on `/<id>` without adding a history entry. An unknown id falls back to the home page. In the prototype, a native Run's ended device session is keyed `/ended:<run>`.
+
+The page floats on the canvas at the viewport it emulates, and its chrome floats around it:
+
+| Island | Where | Holds |
+| --- | --- | --- |
+| Device bar, `toolbar "Device controls"` | Top centre, between the Navigation and Actions islands, up to 720px wide and never under either | `group "Browser navigation"` (**Go back**, **Go forward**, **Reload page**, which becomes **Stop loading** while a page loads), the **Browser address** field, then **Device** (Responsive or a preset grouped as Phones, Tablets, Displays), the viewport size and zoom, **Rotate viewport** and **Device pixel ratio**. A narrow bar drops the size readout first. |
+| Page, `region "Browser stage"` | The canvas between the islands | Responsive fills the space; a preset draws the page at its size and scales it down to fit, with the canvas around it. A load sweeps a brand bar along its top edge. |
+| Tools rail, `navigation "Browser tools"` | Right edge, centred | **User agent** and **Emulation**, then **Console**, **Network** and **Storage**, then **Stream diagnostics**, with counts and a live dot. |
+| Tool card | Beside the rail | **User agent**, **Emulation**, or **Stream diagnostics** (the streaming preference, the stream state with **Reconnect**, and the latency figures). Escape or a press on the page closes it. |
+| DevTools | Right of the page (the page narrows) or under it (the page shortens) | Console, Network or Storage, switched in its header or from the rail. **Resize DevTools** drags or arrow-keys its size; **Dock to bottom** / **Dock to right** moves it. In Network, a request opens its detail (Response, Headers, Timing) under the list or beside it, sized by **Resize request details**. |
+
+**Who drives.** While the agent drives a Run, the device bar, User agent, Emulation and Storage edits are locked with the reason, the address is read-only, and the agent's cursor (ADR 0046) moves over the page. A press on the page says to take control. During Takeover the page gets a brand ring and everything unlocks. While Teaching, your input lands with a ring where you pressed (ADR 0076).
+
+**Stage states:** connecting (the Watcher loader, as `WatcherLoader` in `apps/web` draws it, over a blurred page), live, paused (**Reconnect**), and the last frame of an ended Run.
+
+**Attach element.** **Comment** → **Attach element** turns the page into a picker: the element under the pointer is outlined with its role and name, a click attaches it to the comment as a chip, and Escape cancels.
+
+**Motion.** Home → session still grows the start card or session card into the page. The device bar and rail rise in. A new viewport, opening DevTools, moving it and opening a tool card morph instead of jumping.
+
+Walk through it: start a Web session from home (connecting, then live), open **checkout** (Teaching: type an address, go back and forward, pick iPhone 12 Pro and rotate, Comment → Attach element), and **Find a red jacket under $80** (Run: locked tools and the agent's cursor; open Network, select `/api/products?category=jackets`, resize its detail, dock DevTools to the bottom; Take control). The scaffold's **Stage** cycles live, connecting and paused.
+
+### Proposed contract changes (#763, approved)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| URL | A session at `/?session=<id>` | `/<session-id>`. `/?session=<id>` still lands on it, so MCP `viewUrl`s keep working. |
+| Role/name | `group "Browser navigation"` and `textbox "Browser address"` in the browser toolbar above the page | The same names inside `toolbar "Device controls"`; **Reload page** reads **Stop loading** while a page loads. |
+| Role/name | `toolbar "Device controls"` floating over the stage | A top-centre island with navigation, address and viewport controls. |
+| Role/name | Network request detail: one view | `radiogroup "Request detail"` (Response, Headers, Timing) and `separator "Resize request details"`. |
+| Behaviour | The inspector rail is a column fixed beside the stage; DevTools is a resizable panel in it | The rail floats on the right edge; DevTools is an island docked right or under the page. Names (`navigation "Browser tools"`, `Resize DevTools`, `Dock to bottom`, `Close DevTools`) stay. |
+| Behaviour | A spinner while the browser connects | The Watcher loader. |
 
 ## Run Summary (#757)
 

@@ -133,6 +133,32 @@ export const WatcherMark = ({ className }: { readonly className?: string }) => (
   </svg>
 );
 
+/**
+ * The watcher as a loader, as the Workspace draws it (`apps/web` brand.tsx):
+ * the eyes look left, look right, then blink. The view box is wider than the
+ * mark so the glance stays inside it.
+ */
+export const WatcherLoader = ({
+  className,
+}: {
+  readonly className?: string;
+}) => (
+  <svg
+    aria-hidden="true"
+    className={className}
+    data-slot="watcher-loader"
+    fill="currentColor"
+    viewBox="0 40 120 38"
+  >
+    <g data-slot="watcher-look">
+      <g data-slot="watcher-blink">
+        <path d="M14 44L54 58V74H36Z" />
+        <path d="M106 44L66 58V74H84Z" />
+      </g>
+    </g>
+  </svg>
+);
+
 export const TaskIcon = () => (
   <Icon>
     <path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
@@ -338,5 +364,126 @@ export const SummaryIcon = () => (
   <Icon>
     <rect height="16" rx="3" width="16" x="4" y="4" />
     <path d="M8 9h8M8 13h8M8 17h5" />
+  </Icon>
+);
+
+/* ------------------------------------------------- Web canvas (#763) */
+
+export const FingerprintIcon = () => (
+  <Icon>
+    <path d="M12 11v2a8 8 0 0 1-1.2 4.3" />
+    <path d="M8.5 7.4A5 5 0 0 1 17 11v1.5a12 12 0 0 1-.8 4.4" />
+    <path d="M7 11a5 5 0 0 1 .3-1.7" />
+    <path d="M7 13.5a9 9 0 0 1-1.4 4" />
+    <path d="M5 8.6A8 8 0 0 1 19.6 9" />
+    <path d="M14.3 15.5a14 14 0 0 1-1.3 4" />
+  </Icon>
+);
+
+export const SparklesIcon = () => (
+  <Icon>
+    <path d="M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6z" />
+    <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" />
+  </Icon>
+);
+
+export const TerminalIcon = () => (
+  <Icon>
+    <path d="m5 8 4 4-4 4" />
+    <path d="M12 17h7" />
+  </Icon>
+);
+
+export const GlobeIcon = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5c2.4 2.6 3.5 5.4 3.5 8.5S14.4 17.9 12 20.5C9.6 17.9 8.5 15.1 8.5 12S9.6 6.1 12 3.5z" />
+  </Icon>
+);
+
+export const DatabaseIcon = () => (
+  <Icon>
+    <ellipse cx="12" cy="6" rx="7" ry="2.6" />
+    <path d="M5 6v12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6" />
+    <path d="M5 12c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6" />
+  </Icon>
+);
+
+export const ActivityIcon = () => (
+  <Icon>
+    <path d="M3 12h4l2.5-6 5 12 2.5-6H21" />
+  </Icon>
+);
+
+export const RotateIcon = () => (
+  <Icon>
+    <path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7" />
+    <path d="M20 4v4.7h-4.7" />
+    <rect height="7" rx="1.5" width="10" x="7" y="11" />
+  </Icon>
+);
+
+export const PhoneIcon = () => (
+  <Icon>
+    <rect height="18" rx="3" width="11" x="6.5" y="3" />
+    <path d="M11 17.5h2" />
+  </Icon>
+);
+
+export const TabletIcon = () => (
+  <Icon>
+    <rect height="18" rx="2.5" width="15" x="4.5" y="3" />
+    <path d="M11 17.5h2" />
+  </Icon>
+);
+
+export const DockRightIcon = () => (
+  <Icon>
+    <rect height="16" rx="3" width="18" x="3" y="4" />
+    <path d="M14 4v16" />
+  </Icon>
+);
+
+export const DockBottomIcon = () => (
+  <Icon>
+    <rect height="16" rx="3" width="18" x="3" y="4" />
+    <path d="M3 14h18" />
+  </Icon>
+);
+
+export const LockIcon = () => (
+  <Icon>
+    <rect height="9" rx="2" width="14" x="5" y="11" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </Icon>
+);
+
+export const RefreshIcon = () => (
+  <Icon>
+    <path d="M20 12a8 8 0 1 1-2.3-5.7L20 8.6" />
+    <path d="M20 4v4.6h-4.6" />
+  </Icon>
+);
+
+export const TrashIcon = () => (
+  <Icon>
+    <path d="M4 7h16" />
+    <path d="M9 7V4.5h6V7" />
+    <path d="M6.5 7l1 12.5h9l1-12.5" />
+  </Icon>
+);
+
+export const BackIcon = () => (
+  <Icon>
+    <path d="M19 12H5" />
+    <path d="m11 6-6 6 6 6" />
+  </Icon>
+);
+
+export const ForwardArrowIcon = () => (
+  <Icon>
+    <path d="M5 12h14" />
+    <path d="m13 6 6 6-6 6" />
   </Icon>
 );
