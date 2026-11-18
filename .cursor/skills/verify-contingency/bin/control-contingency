@@ -433,11 +433,23 @@ const runPageAction = async (page, appUrl, action, flags) => {
     case "mouse": {
       // Inspect mode outlines whatever the pointer is over, and its overlay
       // has no accessible name to aim at, so a drive needs raw viewport
-      // coordinates over the Workspace canvas.
-      const x = Number(flags.x);
-      const y = Number(flags.y);
+      // coordinates over the Workspace canvas. `--selector` with `--fx` and
+      // `--fy` aims at a fraction of one element's box instead, such as the
+      // native element picker over the device screen.
+      let x = Number(flags.x);
+      let y = Number(flags.y);
+      if (typeof flags.selector === "string") {
+        const box = await page.locator(flags.selector).boundingBox();
+        if (box === null) {
+          throw new Error(`browser mouse found no box for ${flags.selector}.`);
+        }
+        x = box.x + Number(flags.fx) * box.width;
+        y = box.y + Number(flags.fy) * box.height;
+      }
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        throw new Error("browser mouse needs --x and --y.");
+        throw new Error(
+          "browser mouse needs --x and --y, or --selector with --fx and --fy."
+        );
       }
       await page.mouse.move(x, y);
       if (flags.click === true || flags.click === "true") {

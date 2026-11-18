@@ -3,10 +3,18 @@ import type {
   AndroidWorkspaceSnapshot,
   NativeForward,
 } from "@contingency/protocol";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { parseAndroidPermissionDecisions } from "@/components/agent/android-setup-state";
@@ -187,11 +195,13 @@ test("Confirmation keeps the device healthy and Take control enables the rail", 
     session,
     setState: vi.fn(),
     state: {
+      attached: null,
       dismissedField: null,
       failure: null,
       inputRefusal: null,
       instructing: false,
       instructionPending: false,
+      picking: false,
       refusalDismissed: false,
       session,
     },
@@ -260,11 +270,13 @@ test("refused input is said above the dock, outside its measured height, and set
     phase: "running",
   };
   const state: WorkspaceState = {
+    attached: null,
     dismissedField: null,
     failure: null,
     inputRefusal: null,
     instructing: false,
     instructionPending: false,
+    picking: false,
     refusalDismissed: false,
     session,
   };
@@ -320,4 +332,133 @@ test("refused input is said above the dock, outside its measured height, and set
     />
   );
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("a native Teaching comment attaches the element the user picks on the screen", async () => {
+  const user = userEvent.setup();
+  const session: AndroidWorkspaceSnapshot = {
+    ...completed,
+    captureState: { _tag: "recording", startedAt: "2026-10-15T00:00:00.000Z" },
+    completedAt: null,
+    id: AgentSessionId.make("agent-attach"),
+    kind: "teaching",
+    observation: {
+      capturedAt: "",
+      height: 800,
+      id: "observed",
+      image: null,
+      nodes: [
+        {
+          bounds: { height: 400, width: 360, x: 0, y: 0 },
+          covered: false,
+          editable: false,
+          name: "",
+          password: false,
+          role: "group",
+          target: "@e0",
+        },
+        {
+          bounds: { height: 40, width: 200, x: 80, y: 100 },
+          covered: false,
+          editable: false,
+          name: "Banner",
+          password: false,
+          role: "button",
+          target: "@e1",
+        },
+        {
+          bounds: { height: 40, width: 200, x: 80, y: 600 },
+          covered: false,
+          editable: false,
+          name: "Checkout",
+          password: false,
+          role: "button",
+          target: "@e2",
+        },
+      ],
+      width: 360,
+    },
+    phase: "running",
+  };
+  const mutate = vi.fn(() => true);
+  const Harness = () => {
+    const [state, setState] = useState<WorkspaceState>({
+      attached: null,
+      dismissedField: null,
+      failure: null,
+      inputRefusal: null,
+      instructing: false,
+      instructionPending: false,
+      picking: false,
+      refusalDismissed: false,
+      session,
+      unavailable: false,
+    });
+    return (
+      <AndroidSessionView
+        mutate={mutate}
+        notices={null}
+        pending={false}
+        session={session}
+        setState={setState}
+        state={state}
+      />
+    );
+  };
+  render(<Harness />, {
+    wrapper: ({ children }) => (
+      <RpcDependenciesProvider>{children}</RpcDependenciesProvider>
+    ),
+  });
+  await user.click(screen.getByRole("button", { name: "Comment" }));
+  const composer = screen.getByRole("form", { name: "Comment" });
+  await user.click(
+    within(composer).getByRole("button", { name: "Attach element" })
+  );
+  // The screen is a picker: an outline follows the pointer, and a click
+  // attaches the smallest named element under it, never sending a touch.
+  const picker = document.querySelector<HTMLElement>(
+    '[data-slot="element-picker"]'
+  );
+  if (picker === null) {
+    throw new Error("The element picker must cover the screen.");
+  }
+  vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ height: 800, width: 360, x: 0, y: 0 })
+  );
+  fireEvent.pointerMove(picker, { clientX: 100, clientY: 120 });
+  expect(
+    document.querySelector('[data-slot="screen-element-highlight"]')
+  ).not.toBeNull();
+  fireEvent.pointerUp(picker, { clientX: 100, clientY: 120 });
+  expect(within(composer).getByText("Banner")).toBeVisible();
+  expect(document.querySelector('[data-slot="element-picker"]')).toBeNull();
+  // Change element from Screen elements, as a keyboard would; Escape cancels.
+  await user.click(
+    within(composer).getByRole("button", { name: "Change element" })
+  );
+  await user.keyboard("{Escape}");
+  expect(document.querySelector('[data-slot="element-picker"]')).toBeNull();
+  expect(within(composer).getByText("Banner")).toBeVisible();
+  await user.click(
+    within(composer).getByRole("button", { name: "Change element" })
+  );
+  await user.click(
+    within(screen.getByRole("region", { name: "Screen elements" })).getByRole(
+      "button",
+      { name: "Attach Checkout" }
+    )
+  );
+  expect(within(composer).getByText("Checkout")).toBeVisible();
+  await user.type(
+    within(composer).getByRole("textbox", { name: "Instruction" }),
+    "Checkout must stay enabled{Enter}"
+  );
+  expect(mutate).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      _tag: "instruction",
+      element: { observationId: "observed", target: "@e2" },
+      text: "Checkout must stay enabled",
+    })
+  );
 });

@@ -1,4 +1,4 @@
-import { FlowName, OperationId } from "@contingency/protocol";
+import { FlowName, OperationId, TeachingEvent } from "@contingency/protocol";
 import type {
   IosWorkspaceCommand,
   IosWorkspaceSelection,
@@ -6,7 +6,7 @@ import type {
 } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Stream } from "effect";
+import { Effect, FileSystem, Layer, Schema, Stream } from "effect";
 
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
 import {
@@ -259,6 +259,59 @@ it.effect(
         }));
         expect(home.phase).toBe("running");
         expect(home.observation?.nodes[0]?.name).toBe("com.apple.springboard");
+        // A comment attaches to an element of the screen the user saw. A later
+        // observation renames every ref, yet the same element still attaches.
+        const picked = home.observation?.nodes[0];
+        if (home.observation === null || picked === undefined) {
+          return yield* Effect.die("Springboard must be observed");
+        }
+        const pickedId = home.observation.id;
+        const observe = () =>
+          workspace.execute(
+            { _tag: "observe", image: false, sessionId: started.id },
+            "user"
+          );
+        const comment = () =>
+          run((fields) => ({
+            _tag: "instruction",
+            ...fields,
+            element: { observationId: pickedId, target: picked.target },
+            text: "Start from Springboard.",
+          }));
+        expect((yield* observe()).observation?.nodes[0]?.target).not.toBe(
+          picked.target
+        );
+        yield* comment();
+        // Once the element leaves the screen, the comment is refused.
+        device.app = "dev.contingency.ioslogin";
+        yield* observe();
+        const stale = yield* Effect.flip(comment());
+        expect(stale.message).toContain("no longer on the screen");
+        const events = yield* fs.readFileString(
+          `${store.directory(started.recordingId)}/events.jsonl`
+        );
+        expect(
+          events
+            .split("\n")
+            .filter((line) => line.includes('"_tag":"instruction"'))
+            .map((line) =>
+              Schema.decodeUnknownSync(Schema.fromJsonString(TeachingEvent))(
+                line
+              )
+            )
+        ).toEqual([
+          expect.objectContaining({
+            element: {
+              context: ["com.apple.springboard"],
+              editable: false,
+              name: "com.apple.springboard",
+              observationId: pickedId,
+              platform: "ios",
+              role: "text",
+            },
+            target: 'text "com.apple.springboard"',
+          }),
+        ]);
         yield* run((fields) => ({
           _tag: "input",
           ...fields,

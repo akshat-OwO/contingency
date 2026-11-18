@@ -617,6 +617,10 @@ const teach = (optional = false, closeTeaching = true, apkPath?: string) =>
     yield* workspace.execute(
       {
         _tag: "instruction",
+        element: {
+          observationId: observed.observation?.id ?? "",
+          target: "@e2",
+        },
         operationId: op("instruction"),
         sessionId: started.id,
         text: "Return to Home; use only public fixture text.",
@@ -658,6 +662,13 @@ const teach = (optional = false, closeTeaching = true, apkPath?: string) =>
       recordingId: stopped.recordingId,
     });
     expect(JSON.stringify(timeline)).toContain("Activate button Edit");
+    // Learning reads the attached element beside the comment.
+    expect(
+      timeline.entries.find((entry) => entry._tag === "instruction")
+    ).toMatchObject({
+      element: { name: "Edit", platform: "android", role: "button" },
+      target: 'button "Edit"',
+    });
     if (optional) {
       const refused = yield* Effect.flip(
         learning.save({
@@ -2171,6 +2182,82 @@ it.effect(
         expect(events).toContain("Activate button Edit");
         expect(events).toContain('"targetInferred":false');
         expect(events).not.toMatch(/"(?:point|bounds|frame|x|y)":/u);
+      })
+    )
+);
+
+it.effect(
+  "attaches a comment to an element still on screen and refuses a stale one",
+  () =>
+    fixture(({ setNodes }) =>
+      Effect.gen(function* attachElement() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("attach-record"),
+            sessionId: prepared.id,
+            start: true,
+          },
+          "user"
+        );
+        const observe = () =>
+          workspace.execute(
+            { _tag: "observe", image: false, sessionId: prepared.id },
+            "user"
+          );
+        const comment = (name: string, observationId: string) =>
+          workspace.execute(
+            {
+              _tag: "instruction",
+              element: { observationId, target: "@e2" },
+              operationId: op(name),
+              sessionId: prepared.id,
+              text: "Edit opens the profile.",
+            },
+            "user"
+          );
+        const picked = (yield* observe()).observation?.id ?? "";
+        // A later observation of the same screen leaves the pick valid.
+        yield* observe();
+        yield* comment("attach", picked);
+        const unknown = yield* Effect.flip(comment("attach-unknown", "none"));
+        expect(unknown.message).toContain("no longer on the screen");
+        setNodes([pickNode({ name: "Save", target: "@e2" })]);
+        yield* observe();
+        const stale = yield* Effect.flip(comment("attach-stale", picked));
+        expect(stale.message).toContain("no longer on the screen");
+        const stopped = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("attach-stop"),
+            sessionId: prepared.id,
+            start: false,
+          },
+          "user"
+        );
+        const instructions = (yield* teachingEvents(stopped.recordingId))
+          .split("\n")
+          .filter((line) => line.includes('"_tag":"instruction"'))
+          .map((line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(TeachingEvent))(line)
+          );
+        expect(instructions).toEqual([
+          expect.objectContaining({
+            element: {
+              bounds: { height: 1, width: 1, x: 0, y: 0 },
+              context: ["dev.fixture"],
+              editable: false,
+              name: "Edit",
+              observationId: picked,
+              platform: "android",
+              role: "button",
+            },
+            target: 'button "Edit"',
+            text: "Edit opens the profile.",
+          }),
+        ]);
       })
     )
 );

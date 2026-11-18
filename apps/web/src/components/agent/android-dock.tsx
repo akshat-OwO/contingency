@@ -14,7 +14,6 @@ import {
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -212,51 +211,6 @@ export const AndroidVariables = ({
         )
       )}
     </section>
-  );
-};
-
-/** A Teaching instruction while recording, in place of the browser composer. */
-export const AndroidInstructionEntry = ({
-  onDismiss,
-  onSubmit,
-  pending,
-}: {
-  readonly onDismiss: () => void;
-  readonly onSubmit: (text: string) => void;
-  readonly pending: boolean;
-}) => {
-  const [draftAtom] = useState(() => Atom.make(""));
-  const [draft, setDraft] = useAtom(draftAtom);
-  return (
-    <form
-      aria-label="Instruction"
-      className="flex items-center gap-1.5 border-b px-3 py-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (draft.trim() === "") {
-          return;
-        }
-        // The draft stays until the comment saves and the composer closes.
-        onSubmit(draft.trim());
-      }}
-    >
-      <Input
-        aria-label="Instruction"
-        autoFocus
-        className="h-8 flex-1"
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            onDismiss();
-          }
-        }}
-        placeholder="Tell the agent what matters on this screen"
-        value={draft}
-      />
-      <Button disabled={pending || draft.trim() === ""} size="sm" type="submit">
-        Add
-      </Button>
-    </form>
   );
 };
 

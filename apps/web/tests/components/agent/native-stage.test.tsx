@@ -1,10 +1,23 @@
 import type { AndroidWorkspaceObservation } from "@contingency/protocol";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { NativeStage } from "@/components/agent/android-device";
 import type { NativeStream } from "@/components/agent/android-device";
+import { NativeCommentComposer } from "@/components/agent/native-comment-composer";
+import {
+  closedComment,
+  commentPick,
+} from "@/components/agent/native-comment-state";
+import type { NativeComment } from "@/components/agent/native-comment-state";
 
 afterEach(cleanup);
 
@@ -223,4 +236,135 @@ test("the frame keeps room for the cards beside it", async () => {
     </NativeStage>
   );
   expect(frameWidth()).toContain("100cqw - 664px");
+});
+
+test("an iOS comment attaches a picked element, and the screen gets no touch", async () => {
+  const user = userEvent.setup();
+  const onActivate = vi.fn();
+  const onSubmit = vi.fn();
+  const Harness = () => {
+    const [comment, setComment] = useState<NativeComment>({
+      ...closedComment,
+      open: true,
+    });
+    return (
+      <>
+        <NativeStage
+          canAct
+          emulation={undefined}
+          frame={{ height: 2622, width: 1206 }}
+          lockedReason={undefined}
+          observation={observation}
+          onActivate={onActivate}
+          onEmulate={vi.fn()}
+          onKey={vi.fn()}
+          pick={commentPick(comment, setComment)}
+          platform="iOS"
+          stream={stream({ format: "JPEG" })}
+          takeover={false}
+        >
+          <canvas aria-label="Live device display" />
+        </NativeStage>
+        <NativeCommentComposer
+          attached={comment.attached ?? undefined}
+          canAttach
+          onAttach={() =>
+            setComment((current) => ({ ...current, picking: true }))
+          }
+          onCancelPick={() =>
+            setComment((current) => ({ ...current, picking: false }))
+          }
+          onDetach={() =>
+            setComment((current) => ({ ...current, attached: null }))
+          }
+          onDismiss={() => setComment(() => closedComment)}
+          onSubmit={(text) => onSubmit(text, comment.attached)}
+          pending={false}
+          picking={comment.picking}
+        />
+      </>
+    );
+  };
+  render(<Harness />);
+  await user.click(screen.getByRole("button", { name: "Attach element" }));
+  const picker = document.querySelector<HTMLElement>(
+    '[data-slot="element-picker"]'
+  );
+  if (picker === null) {
+    throw new Error("The element picker must cover the screen.");
+  }
+  vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ height: 800, width: 400, x: 0, y: 0 })
+  );
+  // Nothing named sits here, so a click attaches nothing.
+  fireEvent.pointerUp(picker, { clientX: 20, clientY: 20 });
+  expect(screen.getByRole("button", { name: "Attach element" })).toBeVisible();
+  fireEvent.pointerUp(picker, { clientX: 200, clientY: 440 });
+  const chip = document.querySelector('[data-slot="comment-element"]');
+  expect(chip).toHaveTextContent("Checkout");
+  // The attached element stays outlined while the comment is open.
+  expect(
+    document.querySelector('[data-slot="screen-element-highlight"]')
+  ).not.toBeNull();
+  await user.type(
+    screen.getByRole("textbox", { name: "Instruction" }),
+    "Checkout opens the cart{Enter}"
+  );
+  expect(onSubmit).toHaveBeenCalledWith(
+    "Checkout opens the cart",
+    expect.objectContaining({
+      label: "Checkout",
+      observationId: "observation-1",
+      target: "@checkout",
+    })
+  );
+  await user.click(screen.getByRole("button", { name: "Detach Checkout" }));
+  expect(document.querySelector('[data-slot="comment-element"]')).toBeNull();
+  expect(onActivate).not.toHaveBeenCalled();
+});
+
+test("a click on a control's label attaches the control, not its text", async () => {
+  const user = userEvent.setup();
+  const onPick = vi.fn();
+  renderStage({
+    observation: {
+      ...observation,
+      nodes: [
+        ...observation.nodes,
+        {
+          bounds: { height: 30, width: 120, x: 140, y: 425 },
+          covered: false,
+          editable: false,
+          name: "Checkout",
+          password: false,
+          role: "text",
+          target: "@checkout-label",
+        },
+      ],
+    },
+    pick: { attached: undefined, onCancel: vi.fn(), onPick, picking: true },
+  });
+  const picker = document.querySelector<HTMLElement>(
+    '[data-slot="element-picker"]'
+  );
+  if (picker === null) {
+    throw new Error("The element picker must cover the screen.");
+  }
+  vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ height: 800, width: 400, x: 0, y: 0 })
+  );
+  fireEvent.pointerUp(picker, { clientX: 200, clientY: 440 });
+  expect(onPick).toHaveBeenCalledWith(
+    expect.objectContaining({ role: "button", target: "@checkout" })
+  );
+  // Screen elements is the keyboard path to the same element.
+  await user.click(
+    within(screen.getByRole("region", { name: "Screen elements" })).getByRole(
+      "button",
+      { name: "Attach Checkout" }
+    )
+  );
+  expect(onPick).toHaveBeenLastCalledWith(
+    expect.objectContaining({ target: "@checkout" })
+  );
 });

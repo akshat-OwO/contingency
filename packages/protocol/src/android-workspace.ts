@@ -322,6 +322,18 @@ export const NativeForward = Schema.Struct({
 });
 export type NativeForward = typeof NativeForward.Type;
 
+/**
+ * The element a native Teaching comment is attached to: one node, by its
+ * target, of an observation the Workspace showed. The server refuses it once
+ * the element is no longer on the screen (ADR 0088).
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const NativeInstructionElement = Schema.Struct({
+  observationId: text,
+  target: text,
+});
+export type NativeInstructionElement = typeof NativeInstructionElement.Type;
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceCommand = Schema.Union([
   Schema.TaggedStruct("start", {
@@ -397,7 +409,11 @@ export const AndroidWorkspaceCommand = Schema.Union([
     change: NativeEmulationChange,
   }),
   Schema.TaggedStruct("record", { ...mutation, start: Schema.Boolean }),
-  Schema.TaggedStruct("instruction", { ...mutation, text }),
+  Schema.TaggedStruct("instruction", {
+    ...mutation,
+    element: Schema.optionalKey(NativeInstructionElement),
+    text,
+  }),
   Schema.TaggedStruct("control", {
     ...mutation,
     controller: Schema.Literals(["agent", "user"]),

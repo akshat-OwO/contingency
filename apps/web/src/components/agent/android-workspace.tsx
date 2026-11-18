@@ -41,7 +41,6 @@ import { workspaceChromeAtom } from "./agent-workspace-state";
 import { AndroidDevice } from "./android-device";
 import {
   AndroidVariables,
-  AndroidInstructionEntry,
   AndroidRequests,
   AndroidSessionSelect,
   AndroidStateBadges,
@@ -61,8 +60,10 @@ import {
   deviceSummaryLabel,
   pauseCodeOf,
 } from "./android-workspace-state";
+import { NativeCommentComposer } from "./native-comment-composer";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputQueue } from "./native-input";
+import type { AttachedElement } from "./screen-elements";
 import {
   androidStartGestureAtom,
   sessionStartGestureAtom,
@@ -74,10 +75,14 @@ import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
 interface WorkspaceState {
   readonly session: AndroidWorkspaceSnapshot | null;
+  /** The element the open comment is attached to. */
+  readonly attached: AttachedElement | null;
   readonly failure: string | null;
   /** The picked field the person closed, until another one is picked. */
   readonly dismissedField: string | null;
   readonly instructing: boolean;
+  /** The open comment is picking its element on the screen. */
+  readonly picking: boolean;
   /**
    * A comment was sent and has not answered. The composer and its draft stay
    * until it saves, so a refusal leaves them for another try.
@@ -91,11 +96,13 @@ interface WorkspaceState {
   readonly unavailable: boolean;
 }
 const workspaceAtom = Atom.make<WorkspaceState>({
+  attached: null,
   dismissedField: null,
   failure: null,
   inputRefusal: null,
   instructing: false,
   instructionPending: false,
+  picking: false,
   refusalDismissed: false,
   session: null,
   unavailable: false,
@@ -130,6 +137,13 @@ const withSelected = (
   !isLiveAndroidSession(session)
     ? sessions
     : [session, ...sessions];
+/** Closes the comment composer with whatever it attached. */
+const closeComment = (current: WorkspaceState): WorkspaceState => ({
+  ...current,
+  attached: null,
+  instructing: false,
+  picking: false,
+});
 const fieldKey = (field: NonNullable<AndroidWorkspaceSnapshot["field"]>) =>
   `${field.observationId}:${field.target}`;
 
@@ -508,23 +522,45 @@ const AndroidDockRequests = ({
       }
     />
     {session.captureState?._tag === "recording" && state.instructing ? (
-      <AndroidInstructionEntry
-        onDismiss={() =>
-          setState((current) => ({ ...current, instructing: false }))
+      <NativeCommentComposer
+        attached={state.attached ?? undefined}
+        canAttach={session.observation !== null}
+        onAttach={() => setState((current) => ({ ...current, picking: true }))}
+        onCancelPick={() =>
+          setState((current) => ({ ...current, picking: false }))
         }
+        onDetach={() => setState((current) => ({ ...current, attached: null }))}
+        onDismiss={() => setState(closeComment)}
         onSubmit={(text) => {
+          const { attached } = state;
+          const comment = {
+            _tag: "instruction" as const,
+            operationId: operationId(),
+            sessionId: session.id,
+            text,
+          };
           if (
-            mutate({
-              _tag: "instruction",
-              operationId: operationId(),
-              sessionId: session.id,
-              text,
-            })
+            mutate(
+              attached === null
+                ? comment
+                : {
+                    ...comment,
+                    element: {
+                      observationId: attached.observationId,
+                      target: attached.target,
+                    },
+                  }
+            )
           ) {
-            setState((current) => ({ ...current, instructionPending: true }));
+            setState((current) => ({
+              ...current,
+              instructionPending: true,
+              picking: false,
+            }));
           }
         }}
         pending={pending}
+        picking={state.picking}
       />
     ) : null}
   </>
@@ -736,6 +772,22 @@ export const AndroidSessionView = ({
           }
           lockedReason={androidLockedReason(session)}
           observation={session.observation}
+          pick={
+            session.captureState?._tag === "recording" && state.instructing
+              ? {
+                  attached: state.attached ?? undefined,
+                  onCancel: () =>
+                    setState((current) => ({ ...current, picking: false })),
+                  onPick: (element) =>
+                    setState((current) => ({
+                      ...current,
+                      attached: element,
+                      picking: false,
+                    })),
+                  picking: state.picking,
+                }
+              : undefined
+          }
           ended={!isLiveAndroidSession(session)}
           live={
             hasPreparedAndroidSession(session) &&
@@ -802,11 +854,11 @@ export const AndroidSessionView = ({
             instructing={state.instructing}
             mutate={mutate}
             onInstruct={() =>
-              setState((current) => ({
-                ...current,
-                instructing: !current.instructing,
-                refusalDismissed: true,
-              }))
+              setState((current) =>
+                current.instructing
+                  ? closeComment(current)
+                  : { ...current, instructing: true, refusalDismissed: true }
+              )
             }
             // Leaving the session opens the Android start card on the home.
             onNewSession={() =>
@@ -922,8 +974,7 @@ export const AndroidWorkspace = ({
       return;
     }
     setState((current) => ({
-      ...current,
-      instructing: gesture.error === undefined ? false : current.instructing,
+      ...(gesture.error === undefined ? closeComment(current) : current),
       instructionPending: false,
     }));
   }, [gesture.error, gesture.pending, instructionPending, setState]);

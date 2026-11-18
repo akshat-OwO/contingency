@@ -279,8 +279,30 @@ export const androidPick = (control, sessionId, role, name) =>
 export const androidIdle = (control) => control("browser", "android-idle");
 export const deviceType = (control, text) =>
   control("browser", "device-type", "--text", text);
-export const androidComment = async (control, text) => {
-  await control("browser", "click", "--role", "button", "--name", "Comment");
+/**
+ * Records a comment through the native composer, on Android or iOS. With
+ * `attach`, it first attaches that element through Attach element and
+ * Screen elements, the keyboard path of the picker (ADR 0088).
+ */
+export const nativeComment = async (control, text, attach) => {
+  const click = (name) =>
+    control("browser", "click", "--role", "button", "--name", name);
+  await click("Comment");
+  if (attach !== undefined) {
+    await click("Attach element");
+    await control(
+      "browser",
+      "fill",
+      "--role",
+      "textbox",
+      "--name",
+      "Filter screen elements",
+      "--value",
+      attach
+    );
+    await click(`Attach ${attach}`);
+    await control("browser", "wait", "--text", "Change element");
+  }
   await control(
     "browser",
     "fill",
@@ -291,7 +313,10 @@ export const androidComment = async (control, text) => {
     "--value",
     text
   );
-  await control("browser", "click", "--role", "button", "--name", "Add");
+  await click("Add");
+};
+export const androidComment = async (control, text, attach) => {
+  await nativeComment(control, text, attach);
   await androidIdle(control);
 };
 

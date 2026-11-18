@@ -7,6 +7,7 @@ import { Atom } from "effect/reactivity";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  CrosshairIcon,
   MousePointerClickIcon,
   SearchIcon,
   TextCursorInputIcon,
@@ -35,11 +36,17 @@ export const ScreenElements = ({
   disabled,
   observation,
   onActivate,
+  onAttach,
   onHover,
 }: {
   readonly disabled: boolean;
   readonly observation: AndroidWorkspaceObservation | null;
   readonly onActivate: (inputs: readonly NativeInput[]) => void;
+  /**
+   * While a comment picks its element, choosing one attaches it instead of
+   * tapping it, so a keyboard attaches whatever a pointer can.
+   */
+  readonly onAttach?: ((node: ObservedNode) => void) | undefined;
   readonly onHover: (box: ScreenBox | null) => void;
 }) => {
   const [showOtherAtom] = useState(() => Atom.make(false));
@@ -130,18 +137,30 @@ export const ScreenElements = ({
           {collapsible(group.id) && !showOther ? null : (
             <ul>
               {group.entries.map(({ label, node }) => {
-                const Icon = node.editable
+                let Icon = node.editable
                   ? TextCursorInputIcon
                   : MousePointerClickIcon;
+                if (onAttach !== undefined) {
+                  Icon = CrosshairIcon;
+                }
+                let verb = node.editable ? "Select" : "Activate";
+                if (onAttach !== undefined) {
+                  verb = "Attach";
+                }
                 return (
                   <li key={node.target}>
                     <Button
-                      aria-label={`${node.editable ? "Select" : "Activate"} ${label}`}
+                      aria-label={`${verb} ${label}`}
                       className="w-full justify-start gap-2 px-1.5 font-normal"
                       disabled={disabled}
                       onBlur={() => hover(null)}
                       onClick={() => {
                         if (observation === null) {
+                          return;
+                        }
+                        if (onAttach !== undefined) {
+                          hover(null);
+                          onAttach(node);
                           return;
                         }
                         const tap = elementTap(observation, node);
