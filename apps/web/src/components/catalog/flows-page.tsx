@@ -769,10 +769,16 @@ const CatalogRunSummary = ({
  * the assessment and findings, Browser Checks, Scan Reports and Browser
  * Modifications.
  */
+/** Said under a verified Flow's Dry Run, whose evidence Cleanup deleted. */
+const CLEANED_DRY_RUN =
+  "Cleanup deleted this Dry Run's video and Trace when the Flow was verified. Its Run Summary is kept.";
+
 const StoredRunSummary = ({
+  cleanup,
   onFolder,
   run,
 }: {
+  readonly cleanup: CatalogRecordingEntry["cleanup"] | null;
   readonly onFolder: (folder: FlowsFolder) => void;
   readonly run: CatalogRunEntry;
 }) => {
@@ -808,6 +814,11 @@ const StoredRunSummary = ({
           }
           summary={summary}
         />
+        {cleanup === "purged" ? (
+          <p className="text-muted-foreground mt-3 text-xs text-pretty">
+            {CLEANED_DRY_RUN}
+          </p>
+        ) : null}
       </section>
     );
   }
@@ -930,7 +941,7 @@ const RunSummary = ({
       />
     );
   } else if (run.native === undefined) {
-    body = <StoredRunSummary onFolder={onFolder} run={run} />;
+    body = <StoredRunSummary cleanup={cleanup} onFolder={onFolder} run={run} />;
   } else {
     body = (
       <CatalogRunSummary
