@@ -10,7 +10,7 @@ On the web, a Teaching comment can name the element it is about. Native comments
 
 ## How an element is picked
 
-The Workspace already holds the session's latest observation, with each node's role, name, target, and bounds, which Screen elements lists. Picking reads only that observation and sends nothing to the device. While a comment picks, the glass is a picker: the outline follows the pointer to the smallest named or editable listed element under it, as the server attributes a tap, and a click attaches it. Screen elements opens beside the glass in attach mode, so a keyboard can attach any element a pointer can. Escape cancels the pick. This is the one time something covers the glass, an exception to [ADR 0076](./0076-workspace-user-input-is-forwarded-directly.md), and it lasts only for the pick.
+The Workspace already holds the session's latest observation, with each node's role, name, target, and bounds, which Screen elements lists. Picking reads only that observation and sends nothing to the device. While a comment picks, the glass is a picker: the outline follows the pointer to the smallest field or control under it, else the smallest named element, and a click attaches it. A control's label is often a smaller text node with the same name, so a field or control wins over text; the first live iOS proof attached `text "Sign in privately"` before this rule. Screen elements opens beside the glass in attach mode, so a keyboard can attach any element a pointer can. Escape cancels the pick. This is the one time something covers the glass, an exception to [ADR 0076](./0076-workspace-user-input-is-forwarded-directly.md), and it lasts only for the pick.
 
 ## What the command and the recording carry
 

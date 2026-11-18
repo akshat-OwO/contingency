@@ -186,8 +186,10 @@ export const attachedElement = (
 
 /**
  * The element a comment can name under a point of the screen, given as
- * fractions of its size: the smallest listed one that is named or editable,
- * as the server attributes a tap. A bare container names nothing.
+ * fractions of its size: the smallest listed field or control there, else the
+ * smallest named element. A control's own label is often a smaller text node
+ * with the same name, and a click means the control. A bare container names
+ * nothing.
  */
 export const elementAt = (
   observation: AndroidWorkspaceObservation,
@@ -198,6 +200,7 @@ export const elementAt = (
   const py = y * observation.height;
   let hit: ObservedNode | undefined;
   let area = Infinity;
+  let control = false;
   for (const node of listedNodes(observation)) {
     const { bounds } = node;
     if (
@@ -213,9 +216,11 @@ export const elementAt = (
       continue;
     }
     const size = bounds.width * bounds.height;
-    if (size < area) {
+    const isControl = elementGroup(node) !== "other";
+    if ((isControl && !control) || (isControl === control && size < area)) {
       hit = node;
       area = size;
+      control = isControl;
     }
   }
   return hit;

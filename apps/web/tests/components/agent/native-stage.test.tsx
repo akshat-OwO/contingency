@@ -322,3 +322,49 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
   expect(document.querySelector('[data-slot="comment-element"]')).toBeNull();
   expect(onActivate).not.toHaveBeenCalled();
 });
+
+test("a click on a control's label attaches the control, not its text", async () => {
+  const user = userEvent.setup();
+  const onPick = vi.fn();
+  renderStage({
+    observation: {
+      ...observation,
+      nodes: [
+        ...observation.nodes,
+        {
+          bounds: { height: 30, width: 120, x: 140, y: 425 },
+          covered: false,
+          editable: false,
+          name: "Checkout",
+          password: false,
+          role: "text",
+          target: "@checkout-label",
+        },
+      ],
+    },
+    pick: { attached: undefined, onCancel: vi.fn(), onPick, picking: true },
+  });
+  const picker = document.querySelector<HTMLElement>(
+    '[data-slot="element-picker"]'
+  );
+  if (picker === null) {
+    throw new Error("The element picker must cover the screen.");
+  }
+  vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(
+    DOMRect.fromRect({ height: 800, width: 400, x: 0, y: 0 })
+  );
+  fireEvent.pointerUp(picker, { clientX: 200, clientY: 440 });
+  expect(onPick).toHaveBeenCalledWith(
+    expect.objectContaining({ role: "button", target: "@checkout" })
+  );
+  // Screen elements is the keyboard path to the same element.
+  await user.click(
+    within(screen.getByRole("region", { name: "Screen elements" })).getByRole(
+      "button",
+      { name: "Attach Checkout" }
+    )
+  );
+  expect(onPick).toHaveBeenLastCalledWith(
+    expect.objectContaining({ target: "@checkout" })
+  );
+});

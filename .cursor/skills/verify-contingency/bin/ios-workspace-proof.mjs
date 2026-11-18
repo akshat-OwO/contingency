@@ -551,6 +551,12 @@ try {
   await click("Supply PASSWORD");
   await click("Enter PASSWORD");
   await pick(teaching.id, "button", "Sign in privately");
+  // A comment attaches the element it is about (ADR 0088).
+  await nativeComment(
+    control,
+    "Open account shows the signed-in details.",
+    "Open account"
+  );
   const teachingResources = await ownSessionResources();
   const teachingDetour = await settingsDetour(
     teaching.id,
@@ -575,12 +581,6 @@ try {
   await snapshot("teaching-settings-returned");
   await pick(teaching.id, "button", "Open account");
   await pick(teaching.id, "button", "Return to account");
-  // A comment attaches the element it is about (ADR 0088).
-  await nativeComment(
-    control,
-    "Open account shows the signed-in details.",
-    "Open account"
-  );
   await snapshot("teaching-outcome");
   await click("Stop recording");
   const stopped = await read(teaching.id);
