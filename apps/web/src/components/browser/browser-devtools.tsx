@@ -17,7 +17,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import {
-  ArrowLeftIcon,
   CircleAlertIcon,
   CircleXIcon,
   LoaderCircleIcon,
@@ -30,6 +29,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
 import {
   dragAttachment,
@@ -61,6 +61,7 @@ import { HighlightedCode } from "@/components/browser/highlighted-code";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
 import { cn } from "@/lib/utils";
 
@@ -548,6 +549,91 @@ const DevtoolsConsolePanel = ({
   );
 };
 
+const DETAIL_MIN = 140;
+const DETAIL_STEP = 16;
+const LIST_MIN = 120;
+
+/**
+ * The separator between the request list and its detail. Dragging it, or the
+ * arrow keys while it has focus, trade room between the two.
+ */
+const RequestDetailResizeHandle = ({
+  max,
+  onResize,
+  side,
+  size,
+}: {
+  readonly max: number;
+  readonly onResize: (size: number) => void;
+  /** Where the detail sits: beside the list, or under it. */
+  readonly side: "beside" | "under";
+  readonly size: number;
+}) => {
+  const drag = useRef<{
+    readonly origin: number;
+    readonly size: number;
+  } | null>(null);
+  const clamp = (value: number) =>
+    Math.round(
+      Math.min(Math.max(value, DETAIL_MIN), Math.max(max, DETAIL_MIN))
+    );
+  const pointer = (event: ReactPointerEvent<HTMLDivElement>) =>
+    side === "beside" ? event.clientX : event.clientY;
+  return (
+    <div
+      aria-label="Resize request details"
+      aria-orientation={side === "beside" ? "vertical" : "horizontal"}
+      aria-valuemax={
+        Number.isFinite(max) ? Math.max(Math.round(max), DETAIL_MIN) : undefined
+      }
+      aria-valuemin={DETAIL_MIN}
+      aria-valuenow={size}
+      className={cn(
+        "group/split relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
+        side === "beside"
+          ? "w-1.5 cursor-col-resize"
+          : "h-1.5 cursor-row-resize"
+      )}
+      onKeyDown={(event) => {
+        const grow = side === "beside" ? "ArrowLeft" : "ArrowUp";
+        const shrink = side === "beside" ? "ArrowRight" : "ArrowDown";
+        if (event.key === grow || event.key === shrink) {
+          event.preventDefault();
+          onResize(
+            clamp(size + (event.key === grow ? DETAIL_STEP : -DETAIL_STEP))
+          );
+        }
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { origin: pointer(event), size };
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current;
+        if (start !== null) {
+          onResize(clamp(start.size + start.origin - pointer(event)));
+        }
+      }}
+      onPointerUp={() => {
+        drag.current = null;
+      }}
+      role="separator"
+      tabIndex={0}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "bg-border group-hover/split:bg-ring/60 group-focus-visible/split:bg-ring transition-colors",
+          side === "beside" ? "h-full w-px" : "h-px w-full"
+        )}
+      />
+    </div>
+  );
+};
+
 const RequestDetailView = ({
   onAttach,
   detail,
@@ -557,6 +643,7 @@ const RequestDetailView = ({
   leaving = false,
   onUpdateUiState,
   request,
+  style,
 }: {
   readonly onAttach:
     | ((attachment: TeachingBrowserAttachment) => void)
@@ -566,23 +653,17 @@ const RequestDetailView = ({
   readonly detailTab: NetworkDetailTab;
   readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
   readonly request: BrowserNetworkRequestSummary;
+  readonly style: CSSProperties;
   readonly detailRef?: (element: HTMLElement | null) => void;
   readonly leaving?: boolean;
 }) => (
   <div
-    className="bg-background absolute inset-0 flex min-h-0 flex-col"
+    className="flex min-h-0 min-w-0 flex-col"
     inert={leaving}
     ref={detailRef}
+    style={style}
   >
     <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
-      <Button
-        aria-label="Close request details"
-        onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
-        size="icon-xs"
-        variant="ghost"
-      >
-        <ArrowLeftIcon />
-      </Button>
       <StatusPill status={request.status} />
       <span className="min-w-0 flex-1 truncate font-mono text-xs">
         {request.method} {requestName(request.url)}
@@ -594,6 +675,14 @@ const RequestDetailView = ({
         size="xs"
         value={detailTab}
       />
+      <Button
+        aria-label="Close request details"
+        onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
+        size="icon-xs"
+        variant="ghost"
+      >
+        <XIcon />
+      </Button>
     </div>
     <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
       {detailTab === "response" &&
@@ -612,6 +701,7 @@ const RequestDetailView = ({
 );
 
 const DevtoolsNetworkPanel = ({
+  dockSide,
   onAttach,
   detail,
   detailLoading,
@@ -623,6 +713,7 @@ const DevtoolsNetworkPanel = ({
   onUpdateUiState,
   selectedRequestId,
 }: {
+  readonly dockSide: DevtoolsDockSide;
   readonly onAttach:
     | ((attachment: TeachingBrowserAttachment) => void)
     | undefined;
@@ -663,12 +754,21 @@ const DevtoolsNetworkPanel = ({
     return () => globalThis.cancelAnimationFrame(frame);
   }, [networkVirtualizer]);
 
-  // The details push over the list and slide back off it, so the list keeps
-  // its scroll position for the way back.
+  // A DevTools island docked under the page is wide, so the detail sits
+  // beside the list; docked beside the page, it sits under the list.
+  const side = dockSide === "bottom" ? "beside" : "under";
+  const [split, setSplit] = useState({ beside: 360, under: 240 });
+  const { ref: panelRef, size: panelSize } = useElementSize<HTMLDivElement>();
+  const room = side === "beside" ? panelSize.width : panelSize.height;
+  // Before the panel is measured there is no bound to hold the detail to.
+  const maxDetail = room === 0 ? Number.POSITIVE_INFINITY : room - LIST_MIN;
+  const detailSize = Math.round(
+    Math.min(split[side], Math.max(maxDetail, DETAIL_MIN))
+  );
   const detailPresence = usePresence(selectedRequest, {
-    durationMs: 220,
-    hidden: { opacity: 0, transform: "translateX(1.5rem)" },
-    shown: { opacity: 1, transform: "translateX(0)" },
+    durationMs: 180,
+    hidden: { opacity: 0 },
+    shown: { opacity: 1 },
   });
   // Going back clears only the selection, so the loaded detail stays drawn
   // while the view slides away.
@@ -679,11 +779,14 @@ const DevtoolsNetworkPanel = ({
   ).length;
 
   return (
-    <div className="relative flex size-full min-h-0 flex-col">
-      <div
-        className="flex min-h-0 flex-1 flex-col"
-        inert={shownRequest !== undefined && !detailPresence.leaving}
-      >
+    <div
+      className={cn(
+        "relative flex size-full min-h-0 min-w-0",
+        side === "beside" ? "flex-row" : "flex-col"
+      )}
+      ref={panelRef}
+    >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="shrink-0 space-y-2 px-3 py-2">
           <SearchField
             label="Filter network requests"
@@ -806,6 +909,16 @@ const DevtoolsNetworkPanel = ({
         </footer>
       </div>
       {shownRequest === undefined ? null : (
+        <RequestDetailResizeHandle
+          max={maxDetail}
+          onResize={(size) =>
+            setSplit((current) => ({ ...current, [side]: size }))
+          }
+          side={side}
+          size={detailSize}
+        />
+      )}
+      {shownRequest === undefined ? null : (
         <RequestDetailView
           onAttach={onAttach}
           detail={detail}
@@ -815,6 +928,9 @@ const DevtoolsNetworkPanel = ({
           leaving={detailPresence.leaving}
           onUpdateUiState={onUpdateUiState}
           request={shownRequest}
+          style={
+            side === "beside" ? { width: detailSize } : { height: detailSize }
+          }
         />
       )}
     </div>
@@ -1049,6 +1165,7 @@ export const BrowserDevtools = ({
         ) : null}
         {panel === "network" ? (
           <DevtoolsNetworkPanel
+            dockSide={dockSide}
             onAttach={tooling.attachBrowserContext}
             detail={detail}
             detailLoading={detailLoading}

@@ -952,12 +952,38 @@ test("opens a session from its card on the shelf", async () => {
   ).toBeNull();
 });
 
+test("leads the device bar with the browser's navigation and address", async () => {
+  rpc.sessionsResult = resultFor([teachingSetup]);
+  await renderRoute(`/${teachingSetup.id}`);
+  const bar = await screen.findByRole("toolbar", { name: "Device controls" });
+  const navigation = within(bar).getByRole("group", {
+    name: "Browser navigation",
+  });
+  for (const name of ["Go back", "Go forward", "Reload page"]) {
+    expect(within(navigation).getByRole("button", { name })).toBeVisible();
+  }
+  expect(
+    within(bar).getByRole("textbox", { name: "Browser address" })
+  ).toBeVisible();
+  expect(within(bar).getByRole("combobox", { name: "Device" })).toBeVisible();
+  // The bar sits in the top bar between the islands, outside the stage.
+  expect(
+    within(screen.getByRole("region", { name: "Browser stage" })).queryByRole(
+      "toolbar",
+      { name: "Device controls" }
+    )
+  ).toBeNull();
+});
+
 test("goes home from the dock's logo mark and its New session action", async () => {
   const user = userEvent.setup();
   rpc.sessionsResult = resultFor([teachingSetup]);
   const { testRouter } = await renderRoute(`/?session=${teachingSetup.id}`);
   await screen.findByRole("region", { name: "Session status" });
-  // `?session=` opens the session directly, without the home.
+  // `?session=` opens the session at its own path, without the home or a
+  // history entry.
+  expect(testRouter.state.location.pathname).toBe(`/${teachingSetup.id}`);
+  expect(testRouter.history.length).toBe(1);
   expect(
     screen.queryByRole("heading", { name: "Teach a new Flow" })
   ).toBeNull();
@@ -978,9 +1004,7 @@ test("goes home from the dock's logo mark and its New session action", async () 
     within(shelf).getByRole("button", { name: "browse-catalogue" })
   );
   await waitFor(() =>
-    expect(testRouter.state.location.search).toEqual({
-      session: teachingSetup.id,
-    })
+    expect(testRouter.state.location.pathname).toBe(`/${teachingSetup.id}`)
   );
   await openSessionPicker(user);
   const picker = screen.getByRole("dialog", { name: "Agent Sessions" });
@@ -1698,9 +1722,7 @@ test("keeps a selected Agent Session in the route query", async () => {
   await chooseSessionAt(user, 1);
 
   await waitFor(() => {
-    expect(testRouter.state.location.search).toEqual({
-      session: secondSession.id,
-    });
+    expect(testRouter.state.location.pathname).toBe(`/${secondSession.id}`);
   });
 });
 
@@ -1722,7 +1744,7 @@ test("replaces a missing session id with the session shown in Workspace", async 
   });
   await waitFor(() => {
     expect(select).toHaveTextContent("Test agent");
-    expect(testRouter.state.location.search).toEqual({ session: session.id });
+    expect(testRouter.state.location.pathname).toBe(`/${session.id}`);
     expect(screen.queryByText(/not owned by this server process/u)).toBeNull();
   });
 });
@@ -3297,17 +3319,17 @@ test("follows a Teaching Dry Run and returns to its owner instead of the first s
   ]);
   await refreshWorkspace();
   await waitFor(() => {
-    expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
+    expect(testRouter.state.location.pathname).toBe(`/${rehearsal.id}`);
     expect(
       screen.getByRole("region", { name: "Session status" })
     ).toHaveTextContent("Rehearsing the Flow add-anvil.");
   });
   await refreshWorkspace();
-  expect(testRouter.state.location.search).toEqual({ session: rehearsal.id });
+  expect(testRouter.state.location.pathname).toBe(`/${rehearsal.id}`);
   rpc.sessionsResult = resultFor([unrelated, dryRunPassedSession]);
   await refreshWorkspace();
   await waitFor(() => {
-    expect(testRouter.state.location.search).toEqual({ session: teaching.id });
+    expect(testRouter.state.location.pathname).toBe(`/${teaching.id}`);
     expect(screen.getByRole("button", { name: "Verify flow" })).toBeVisible();
   });
 });
@@ -3347,7 +3369,7 @@ test("deletes the selected session through the dock and shows the remaining sess
 test("clears the route after deleting the last session", async () => {
   rpc.sessionsResult = resultFor([teachingSetup]);
   const history = createMemoryHistory({
-    initialEntries: [`/?session=${teachingSetup.id}`],
+    initialEntries: [`/${teachingSetup.id}`],
   });
   const testRouter = createRouter({ history, routeTree });
   await testRouter.load();
@@ -3464,7 +3486,7 @@ test("clears a deleted route when polling removes the last session before close 
   rpc.closeGate = Effect.runPromise(Deferred.await(gate));
   rpc.sessionsResult = resultFor([teachingSetup]);
   const history = createMemoryHistory({
-    initialEntries: [`/?session=${teachingSetup.id}`],
+    initialEntries: [`/${teachingSetup.id}`],
   });
   const testRouter = createRouter({ history, routeTree });
   await testRouter.load();
@@ -3486,9 +3508,7 @@ test("clears a deleted route when polling removes the last session before close 
   expect(
     await screen.findByRole("heading", { name: "Teach a new Flow" })
   ).toBeVisible();
-  expect(testRouter.state.location.search).toEqual({
-    session: teachingSetup.id,
-  });
+  expect(testRouter.state.location.pathname).toBe(`/${teachingSetup.id}`);
   await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
   await waitFor(() => expect(rpc.closeSettled).toBe(1));
   await refreshWorkspace();
@@ -3501,7 +3521,7 @@ test("preserves a newer route choice when an old close response settles after po
   rpc.closeGate = Effect.runPromise(Deferred.await(gate));
   rpc.sessionsResult = resultFor([teachingSetup]);
   const history = createMemoryHistory({
-    initialEntries: [`/?session=${teachingSetup.id}`],
+    initialEntries: [`/${teachingSetup.id}`],
   });
   const testRouter = createRouter({ history, routeTree });
   await testRouter.load();
@@ -3524,14 +3544,15 @@ test("preserves a newer route choice when an old close response settles after po
     await screen.findByRole("heading", { name: "Teach a new Flow" })
   ).toBeVisible();
   await act(() =>
-    testRouter.navigate({ search: { session: "agent-new-choice" }, to: "/" })
+    testRouter.navigate({
+      params: { sessionId: "agent-new-choice" },
+      to: "/$sessionId",
+    })
   );
   await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
   await waitFor(() => expect(rpc.closeSettled).toBe(1));
   await refreshWorkspace();
-  expect(testRouter.state.location.search).toEqual({
-    session: "agent-new-choice",
-  });
+  expect(testRouter.state.location.pathname).toBe("/agent-new-choice");
 });
 
 test("takes over a Guided Run and enters a private Variable before returning", async () => {

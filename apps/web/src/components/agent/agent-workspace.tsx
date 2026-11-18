@@ -113,6 +113,7 @@ import {
   useWorkspaceGesture,
 } from "@/components/agent/workspace-gesture";
 import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
+import { islandControlClassName } from "@/components/agent/workspace-home-nav";
 import { WatcherLoader } from "@/components/brand";
 import {
   keyboardModifiers,
@@ -533,9 +534,14 @@ const useAddressStartsVisible = (address: string) => {
   return ref;
 };
 
-const AgentBrowserToolbar = ({
+/**
+ * The browser's history buttons and address, which lead the device bar. A
+ * pending navigation makes the address read-only rather than disabled:
+ * disabling a focused field drops focus, and a refused navigation should
+ * leave the keyboard where the user was typing.
+ */
+const AgentBrowserNavigation = ({
   address,
-  navigationError,
   navigationPending,
   onAddressChange,
   onAddressSubmit,
@@ -543,7 +549,6 @@ const AgentBrowserToolbar = ({
   readOnly,
 }: {
   readonly address: string;
-  readonly navigationError: string | undefined;
   readonly navigationPending: boolean;
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -551,81 +556,77 @@ const AgentBrowserToolbar = ({
   readonly readOnly: boolean;
 }) => {
   const addressRef = useAddressStartsVisible(address);
+  const navigationDisabled = readOnly || navigationPending;
   return (
     <>
-      <div className="bg-background flex h-11 shrink-0 items-center gap-1.5 border-b px-2">
-        <div
-          aria-label="Browser navigation"
-          className="flex gap-0.5"
-          role="group"
+      <div
+        aria-label="Browser navigation"
+        className="flex shrink-0 gap-0.5"
+        role="group"
+      >
+        <Button
+          aria-label="Go back"
+          className={islandControlClassName}
+          disabled={navigationDisabled}
+          onClick={() => onNavigate("back")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
         >
-          <Button
-            aria-label="Go back"
-            disabled={readOnly || navigationPending}
-            onClick={() => onNavigate("back")}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <ArrowLeftIcon />
-          </Button>
-          <Button
-            aria-label="Go forward"
-            disabled={readOnly || navigationPending}
-            onClick={() => onNavigate("forward")}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <ArrowRightIcon />
-          </Button>
-          <Button
-            aria-label="Reload page"
-            disabled={readOnly || navigationPending}
-            onClick={() => onNavigate("reload")}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          >
-            <RotateCwIcon />
-          </Button>
-        </div>
-        <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
-          <InputGroup className="bg-muted/40 h-8">
-            <InputGroupAddon align="inline-start">
-              <AddressIcon address={address} pending={navigationPending} />
-            </InputGroupAddon>
-            <InputGroupInput
-              aria-label="Browser address"
-              // A pending navigation makes the field read-only rather than disabled:
-              // disabling a focused field drops focus, and a refused navigation
-              // should leave the keyboard where the user was typing.
-              disabled={readOnly}
-              readOnly={navigationPending}
-              onBlur={(event) => {
-                event.currentTarget.scrollLeft = 0;
-              }}
-              ref={addressRef}
-              onChange={(event) => onAddressChange(event.target.value)}
-              placeholder={
-                readOnly
-                  ? "Take control to drive the browser"
-                  : "Enter a URL to navigate"
-              }
-              spellCheck={false}
-              value={address}
-            />
-          </InputGroup>
-        </form>
+          <ArrowLeftIcon />
+        </Button>
+        <Button
+          aria-label="Go forward"
+          className={islandControlClassName}
+          disabled={navigationDisabled}
+          onClick={() => onNavigate("forward")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <ArrowRightIcon />
+        </Button>
+        <Button
+          aria-label="Reload page"
+          className={islandControlClassName}
+          disabled={navigationDisabled}
+          onClick={() => onNavigate("reload")}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <RotateCwIcon />
+        </Button>
       </div>
-      {navigationError === undefined ? null : (
-        <p
-          className="text-destructive border-b px-3 py-1.5 text-xs"
-          role="alert"
-        >
-          {navigationError}
-        </p>
-      )}
+      <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
+        <InputGroup className="border-island-border bg-island-hover dark:bg-island-hover h-[34px] rounded-xl">
+          <InputGroupAddon align="inline-start">
+            <AddressIcon address={address} pending={navigationPending} />
+          </InputGroupAddon>
+          <InputGroupInput
+            aria-label="Browser address"
+            className="font-mono text-xs md:text-xs"
+            disabled={readOnly}
+            onBlur={(event) => {
+              event.currentTarget.scrollLeft = 0;
+            }}
+            onChange={(event) => onAddressChange(event.target.value)}
+            placeholder={
+              readOnly
+                ? "Take control to drive the browser"
+                : "Enter a URL to navigate"
+            }
+            readOnly={navigationPending}
+            ref={addressRef}
+            spellCheck={false}
+            value={address}
+          />
+        </InputGroup>
+      </form>
+      <span
+        aria-hidden="true"
+        className="bg-island-border mx-0.5 h-5 w-px shrink-0"
+      />
     </>
   );
 };
@@ -658,8 +659,8 @@ const AgentLiveView = ({
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** The floating dock, overlaid on the canvas rather than stacked above it. */
   readonly dock: React.ReactNode;
-  /** The brand, the session switcher and Flows, above the browser chrome. */
-  readonly topBar: React.ReactNode;
+  /** The brand, the session switcher and Flows, given the device bar to centre. */
+  readonly topBar: (deviceBar: React.ReactNode) => React.ReactNode;
   /** What the dock itself has to say above the browser, stacked with ours. */
   readonly notices: React.ReactNode;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
@@ -701,16 +702,6 @@ const AgentLiveView = ({
       // The shelf card the person picked grows into this stage.
       data-vt="stage"
     >
-      {topBar}
-      <AgentBrowserToolbar
-        address={state.address}
-        navigationError={navigation.error}
-        navigationPending={navigation.pending}
-        onAddressChange={onAddressChange}
-        onAddressSubmit={onAddressSubmit}
-        onNavigate={onNavigate}
-        readOnly={readOnly}
-      />
       {/*
         Browser setup stays available in every state, recording included: the
         device, the Emulation, and the storage a journey needs are part of the
@@ -721,6 +712,16 @@ const AgentLiveView = ({
         inspector.
       */}
       <WorkspaceBrowserStage
+        browserControls={
+          <AgentBrowserNavigation
+            address={state.address}
+            navigationPending={navigation.pending}
+            onAddressChange={onAddressChange}
+            onAddressSubmit={onAddressSubmit}
+            onNavigate={onNavigate}
+            readOnly={readOnly}
+          />
+        }
         consoleEntries={state.consoleEntries}
         emulationFixed={
           session.activity === "teaching" &&
@@ -730,6 +731,7 @@ const AgentLiveView = ({
         onClearConsole={onClearConsole}
         sessionId={session.id}
         teaching={session.activity === "teaching"}
+        topBar={topBar}
         userHoldsBrowser={!readOnly}
       >
         <AgentBrowserCanvas
@@ -752,6 +754,16 @@ const AgentLiveView = ({
           readOnly={readOnly}
           recording={recording}
         />
+        {navigation.error === undefined ? null : (
+          <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3">
+            <p
+              className="island bg-island-solid text-destructive pointer-events-auto max-w-xl rounded-xl px-3 py-1.5 text-xs"
+              role="alert"
+            >
+              {navigation.error}
+            </p>
+          </div>
+        )}
         {/*
         What the dock cannot hold floats over the browser instead: a stream
         failure, a bot protection block, and the action Takeover interrupted.
@@ -2604,9 +2616,10 @@ const BrowserWorkspace = ({
               )
             }
             input={view.input}
-            topBar={
+            topBar={(deviceBar) => (
               <SessionTopBar
-                className="workspace-canvas shrink-0"
+                center={deviceBar}
+                className="shrink-0"
                 flows={flowsEntry}
                 picker={
                   <DockSessionSelect
@@ -2617,7 +2630,7 @@ const BrowserWorkspace = ({
                   />
                 }
               />
-            }
+            )}
             navigation={view.gestures.navigation}
             inspect={
               recording

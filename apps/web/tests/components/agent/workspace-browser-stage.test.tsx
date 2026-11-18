@@ -92,12 +92,15 @@ const renderSetup = (userHoldsBrowser = true, emulationFixed = false) =>
   render(
     <Harness>
       <WorkspaceBrowserStage
+        browserControls={null}
         consoleEntries={[]}
         emulationFixed={emulationFixed}
         onClearConsole={() => {}}
         sessionId={sessionId}
         teaching={false}
         userHoldsBrowser={userHoldsBrowser}
+
+        topBar={(deviceBar) => deviceBar}
       >
         <canvas aria-label="Live browser viewport" />
       </WorkspaceBrowserStage>
