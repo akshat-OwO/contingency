@@ -9,6 +9,8 @@ interface ElementNode {
   readonly name: string;
   readonly editable: boolean;
   readonly covered: boolean;
+  /** The app that owns the node, when the observer could name it. */
+  readonly packageName?: string | null;
   readonly bounds?: {
     readonly x: number;
     readonly y: number;
@@ -38,7 +40,8 @@ const sameBounds = (
  * when it is no longer on the screen. The element must come from an
  * observation the session still retains, and the latest observation, with no
  * Forwarded Input since it began, must still show it uncovered in the same
- * place. A comment never names an element the user can no longer see.
+ * place and owned by the same app. A comment never names an element the user
+ * can no longer see, nor another app's control that looks the same.
  */
 export const resolveInstructionElement = <Node extends ElementNode>(input: {
   readonly element: NativeInstructionElement;
@@ -47,6 +50,7 @@ export const resolveInstructionElement = <Node extends ElementNode>(input: {
   /** Inputs sent since the latest observation began. */
   readonly unobserved: number;
   readonly platform: TeachingNativeElement["platform"];
+  /** The app to name when the picked node does not say which owns it. */
   readonly appId: string;
 }): TeachingNativeElement | undefined => {
   const { element, latest } = input;
@@ -64,13 +68,14 @@ export const resolveInstructionElement = <Node extends ElementNode>(input: {
         !node.covered &&
         node.role === attached.role &&
         node.name === attached.name &&
+        (node.packageName ?? null) === (attached.packageName ?? null) &&
         sameBounds(node.bounds, attached.bounds)
     )
   ) {
     return undefined;
   }
   const resolved: TeachingNativeElement = {
-    context: [input.appId],
+    context: [attached.packageName ?? input.appId],
     editable: attached.editable,
     name: attached.name,
     observationId: element.observationId,
