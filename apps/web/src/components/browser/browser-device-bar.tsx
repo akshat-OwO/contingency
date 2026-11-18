@@ -150,7 +150,9 @@ export const BrowserDeviceBar = ({
           size="sm"
         >
           <DeviceIcon kind={kind} />
-          <SelectValue>{selectedPreset?.name ?? "Responsive"}</SelectValue>
+          <SelectValue className="@max-[600px]:sr-only">
+            {selectedPreset?.name ?? "Responsive"}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent align="start" className="w-64">
           <SelectItem value={RESPONSIVE_PRESET_ID}>Responsive</SelectItem>

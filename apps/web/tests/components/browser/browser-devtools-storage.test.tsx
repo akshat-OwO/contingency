@@ -443,6 +443,7 @@ test("opens a request's detail beside the list and resizes it from the keyboard"
   expect(handle).toHaveAttribute("aria-valuenow", "376");
   await user.keyboard("{ArrowRight}{ArrowRight}");
   expect(handle).toHaveAttribute("aria-valuenow", "344");
+  expect(handle).toHaveAttribute("aria-valuemin", "320");
   await user.click(
     screen.getByRole("button", { name: "Close request details" })
   );

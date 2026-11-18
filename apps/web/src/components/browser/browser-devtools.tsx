@@ -549,9 +549,17 @@ const DevtoolsConsolePanel = ({
   );
 };
 
-const DETAIL_MIN = 140;
 const DETAIL_STEP = 16;
-const LIST_MIN = 120;
+const SPLIT_HANDLE = 6;
+
+/**
+ * The room each pane keeps. Beside the list, the detail needs its header's
+ * status, tabs and close button, and the list its four columns.
+ */
+const splitBounds = {
+  beside: { detail: 320, list: 400 },
+  under: { detail: 140, list: 120 },
+} as const;
 
 /**
  * The separator between the request list and its detail. Dragging it, or the
@@ -573,10 +581,9 @@ const RequestDetailResizeHandle = ({
     readonly origin: number;
     readonly size: number;
   } | null>(null);
+  const min = splitBounds[side].detail;
   const clamp = (value: number) =>
-    Math.round(
-      Math.min(Math.max(value, DETAIL_MIN), Math.max(max, DETAIL_MIN))
-    );
+    Math.round(Math.min(Math.max(value, min), Math.max(max, min)));
   const pointer = (event: ReactPointerEvent<HTMLDivElement>) =>
     side === "beside" ? event.clientX : event.clientY;
   return (
@@ -584,9 +591,9 @@ const RequestDetailResizeHandle = ({
       aria-label="Resize request details"
       aria-orientation={side === "beside" ? "vertical" : "horizontal"}
       aria-valuemax={
-        Number.isFinite(max) ? Math.max(Math.round(max), DETAIL_MIN) : undefined
+        Number.isFinite(max) ? Math.max(Math.round(max), min) : undefined
       }
-      aria-valuemin={DETAIL_MIN}
+      aria-valuemin={min}
       aria-valuenow={size}
       className={cn(
         "group/split relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
@@ -663,26 +670,28 @@ const RequestDetailView = ({
     ref={detailRef}
     style={style}
   >
-    <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1.5">
       <StatusPill status={request.status} />
-      <span className="min-w-0 flex-1 truncate font-mono text-xs">
+      <span className="min-w-24 flex-1 truncate font-mono text-xs">
         {request.method} {requestName(request.url)}
       </span>
-      <SegmentedControl
-        label="Request detail"
-        onChange={(value) => onUpdateUiState({ detailTab: value })}
-        options={detailTabs}
-        size="xs"
-        value={detailTab}
-      />
-      <Button
-        aria-label="Close request details"
-        onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
-        size="icon-xs"
-        variant="ghost"
-      >
-        <XIcon />
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        <SegmentedControl
+          label="Request detail"
+          onChange={(value) => onUpdateUiState({ detailTab: value })}
+          options={detailTabs}
+          size="xs"
+          value={detailTab}
+        />
+        <Button
+          aria-label="Close request details"
+          onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
+          size="icon-xs"
+          variant="ghost"
+        >
+          <XIcon />
+        </Button>
+      </div>
     </div>
     <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
       {detailTab === "response" &&
@@ -761,9 +770,11 @@ const DevtoolsNetworkPanel = ({
   const { ref: panelRef, size: panelSize } = useElementSize<HTMLDivElement>();
   const room = side === "beside" ? panelSize.width : panelSize.height;
   // Before the panel is measured there is no bound to hold the detail to.
-  const maxDetail = room === 0 ? Number.POSITIVE_INFINITY : room - LIST_MIN;
+  const bounds = splitBounds[side];
+  const maxDetail =
+    room === 0 ? Number.POSITIVE_INFINITY : room - bounds.list - SPLIT_HANDLE;
   const detailSize = Math.round(
-    Math.min(split[side], Math.max(maxDetail, DETAIL_MIN))
+    Math.min(split[side], Math.max(maxDetail, bounds.detail))
   );
   const detailPresence = usePresence(selectedRequest, {
     durationMs: 180,
@@ -786,7 +797,7 @@ const DevtoolsNetworkPanel = ({
       )}
       ref={panelRef}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 space-y-2 px-3 py-2">
           <SearchField
             label="Filter network requests"
