@@ -27,6 +27,7 @@ import { makeAmbientBlend } from "@/components/agent/run-video-ambient";
 import type { AmbientBlend } from "@/components/agent/run-video-ambient";
 import {
   runVideoChapters,
+  videoClock,
   videoOffsetMs,
 } from "@/components/agent/run-video-timeline";
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
@@ -52,7 +53,7 @@ const PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
 const BAR_PITCH_PX = 5;
 const COPIED_FOR_MS = 1500;
 /** How far the hover tip stays from either end of the scrubber. */
-const TIP_INSET_PX = 64;
+const TIP_INSET_PX = 88;
 
 /** A path's last segment. */
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
@@ -79,15 +80,6 @@ const FOCUS_RING =
  * A time on the player's clock. A recording under ten seconds counts in
  * tenths, so a short one never reads as "0:00" long.
  */
-const clock = (ms: number, durationMs = Number.POSITIVE_INFINITY): string => {
-  const safe = Math.max(0, ms);
-  const seconds = Math.floor(safe / 1000);
-  const whole = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-  return durationMs > 0 && durationMs < 10_000
-    ? `${whole}.${Math.floor((safe % 1000) / 100)}`
-    : whole;
-};
-
 const chapterAt = (
   chapters: readonly RunVideoChapter[],
   ms: number
@@ -183,6 +175,121 @@ const SkipGlyph = ({
   return <Icon aria-hidden="true" />;
 };
 
+/** How wide the seek preview draws its frame. */
+const THUMBNAIL_WIDTH_PX = 160;
+
+/**
+ * The frame under the pointer, for the seek preview. A hidden second video
+ * on the same file seeks to the hovered moment and draws each frame it lands
+ * on, so hovering never moves the player. It loads only once the pointer
+ * first hovers the scrubber, and a seek still running is not interrupted:
+ * when it lands it seeks again to wherever the pointer went meanwhile. Both
+ * the loaded file and the drawn frame belong to the player's `src`, so a new
+ * recording never previews the last one's frames.
+ */
+const useSeekThumbnail = (playerSrc: string, hoverMs: number | undefined) => {
+  const [loadedSrc, setLoadedSrc] = useState<string>();
+  const [drawnSrc, setDrawnSrc] = useState<string>();
+  const src = loadedSrc === playerSrc ? playerSrc : undefined;
+  const drawn = drawnSrc === playerSrc;
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wantedRef = useRef(0);
+
+  const seek = (video: HTMLVideoElement) => {
+    const seconds = wantedRef.current / 1000;
+    if (
+      video.readyState >= HTMLMediaElement.HAVE_METADATA &&
+      !video.seeking &&
+      Math.abs(video.currentTime - seconds) > 0.04
+    ) {
+      video.currentTime = seconds;
+    }
+  };
+
+  useEffect(() => {
+    if (hoverMs === undefined) {
+      return;
+    }
+    wantedRef.current = hoverMs;
+    const video = previewRef.current;
+    if (video !== null) {
+      seek(video);
+    }
+  }, [hoverMs]);
+
+  const draw = (video: HTMLVideoElement) => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (
+      canvas === null ||
+      context === null ||
+      context === undefined ||
+      video.videoWidth === 0
+    ) {
+      return;
+    }
+    canvas.width = THUMBNAIL_WIDTH_PX;
+    canvas.height = Math.round(
+      (THUMBNAIL_WIDTH_PX * video.videoHeight) / video.videoWidth
+    );
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setDrawnSrc(playerSrc);
+  };
+
+  const video =
+    src === undefined ? null : (
+      <video
+        aria-hidden="true"
+        className="hidden"
+        key={src}
+        muted
+        onLoadedData={(event) => {
+          // The first frame needs no seek when the pointer is already there.
+          draw(event.currentTarget);
+          seek(event.currentTarget);
+        }}
+        onLoadedMetadata={(event) => {
+          seek(event.currentTarget);
+        }}
+        onSeeked={(event) => {
+          draw(event.currentTarget);
+          seek(event.currentTarget);
+        }}
+        playsInline
+        preload="auto"
+        ref={previewRef}
+        src={src}
+        tabIndex={-1}
+      />
+    );
+  const frame = (
+    <canvas
+      className={cn(
+        "bg-muted mb-1 block w-40 rounded-sm",
+        drawn ? undefined : "hidden"
+      )}
+      ref={(node) => {
+        canvasRef.current = node;
+        // A new preview card draws the frame the hidden video already holds.
+        const preview = previewRef.current;
+        if (
+          node !== null &&
+          preview !== null &&
+          preview.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+          draw(preview);
+        }
+      }}
+    />
+  );
+  /** Loads the player's file for the preview, once the pointer hovers. */
+  const load = () => {
+    setLoadedSrc(playerSrc);
+  };
+  return { frame, load, video };
+};
+
 /**
  * The bars, grouped into chapters. A chapter is as wide as its share of the
  * video, so a pointer maps to time through the chapter under it; the gap
@@ -194,6 +301,7 @@ const Scrubber = ({
   durationMs,
   onBarCount,
   onSeek,
+  src,
   total,
   videoRef,
 }: {
@@ -202,6 +310,8 @@ const Scrubber = ({
   readonly durationMs: number;
   readonly onBarCount: (count: number) => void;
   readonly onSeek: (ms: number) => void;
+  /** The file the player plays, which the seek preview draws from. */
+  readonly src: string;
   readonly total: number;
   readonly videoRef: RefObject<HTMLVideoElement | null>;
 }) => {
@@ -296,6 +406,7 @@ const Scrubber = ({
   const hovered =
     hover === undefined ? undefined : chapterAt(chapters, hover.ms);
   const current = chapterAt(chapters, currentMs);
+  const thumbnail = useSeekThumbnail(src, hover?.ms);
 
   return (
     <div
@@ -303,8 +414,8 @@ const Scrubber = ({
       aria-valuemax={ariaSeconds(durationMs)}
       aria-valuemin={0}
       aria-valuenow={ariaSeconds(currentMs)}
-      aria-valuetext={`${clock(currentMs, durationMs)} of ${
-        durationMs > 0 ? clock(durationMs, durationMs) : "unknown length"
+      aria-valuetext={`${videoClock(currentMs, durationMs)} of ${
+        durationMs > 0 ? videoClock(durationMs, durationMs) : "unknown length"
       }${current === undefined ? "" : `, ${current.label}`}`}
       className={cn(
         "focus-visible:ring-offset-card relative flex h-[30px] cursor-pointer touch-none items-end rounded-sm focus-visible:ring-offset-4 pointer-coarse:h-11",
@@ -323,10 +434,12 @@ const Scrubber = ({
         resumeRef.current = video !== null && !video.paused;
         video?.pause();
         draggingRef.current = true;
+        thumbnail.load();
         onSeek(point(event));
       }}
       onPointerLeave={() => setHover(undefined)}
       onPointerMove={(event) => {
+        thumbnail.load();
         const ms = point(event);
         if (draggingRef.current) {
           onSeek(ms);
@@ -366,15 +479,19 @@ const Scrubber = ({
           </div>
         ))}
       </div>
+      {thumbnail.video}
       {hover === undefined || hovered === undefined ? null : (
         <span
           aria-hidden="true"
-          className="bg-popover text-popover-foreground pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 truncate rounded-md border px-2 py-1 text-xs font-medium shadow-md"
+          className="bg-popover text-popover-foreground pointer-events-none absolute bottom-[calc(100%+10px)] max-w-64 -translate-x-1/2 rounded-md border px-2 py-1 text-xs font-medium shadow-md"
           style={{ left: hover.x }}
         >
-          <ChapterName chapter={hovered} total={total} />
-          <span className="text-muted-foreground ml-1.5 font-mono font-normal tabular-nums">
-            {clock(hover.ms, durationMs)}
+          {thumbnail.frame}
+          <span className="block truncate">
+            <ChapterName chapter={hovered} total={total} />
+            <span className="text-muted-foreground ml-1.5 font-mono font-normal tabular-nums">
+              {videoClock(hover.ms, durationMs)}
+            </span>
           </span>
         </span>
       )}
@@ -652,12 +769,12 @@ const PlayerControls = ({
         <SkipGlyph direction="forward" />
       </DockButton>
       <span className="text-muted-foreground ml-1.5 shrink-0 font-mono text-xs tabular-nums">
-        {clock(playback.currentMs, playback.durationMs)}
+        {videoClock(playback.currentMs, playback.durationMs)}
         <span className="hidden @[20rem]:inline">
           {" / "}
           {/* Until the metadata arrives the length is unknown, not zero. */}
           {playback.durationMs > 0
-            ? clock(playback.durationMs, playback.durationMs)
+            ? videoClock(playback.durationMs, playback.durationMs)
             : "—"}
         </span>
       </span>
@@ -876,6 +993,7 @@ export const RunVideoPlayer = ({
           durationMs={playback.durationMs}
           onBarCount={setBarCount}
           onSeek={playback.seek}
+          src={src}
           total={total}
           videoRef={playback.videoRef}
         />

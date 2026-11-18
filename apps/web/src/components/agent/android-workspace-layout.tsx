@@ -9,8 +9,11 @@ import { useLatestDefined } from "@/hooks/use-latest-defined";
 export const WorkspaceLayout = ({
   children,
   summary,
+  summaryKey,
 }: {
   readonly children: React.ReactNode;
+  /** The session the summary belongs to; another one opens the dock again. */
+  readonly summaryKey?: string | undefined;
   readonly summary:
     | { readonly label: string; readonly summary: React.ReactNode }
     | null
@@ -21,6 +24,7 @@ export const WorkspaceLayout = ({
     <WorkspaceWithRunSummary
       label={shownLabel}
       summary={summary?.summary ?? null}
+      summaryKey={summaryKey}
     >
       {children}
     </WorkspaceWithRunSummary>

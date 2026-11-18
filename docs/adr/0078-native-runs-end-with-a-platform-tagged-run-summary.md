@@ -4,7 +4,7 @@ status: accepted
 
 # Native Runs end with a platform-tagged Run Summary
 
-> The Flows page (#755) replaces the Flows Drawer named below. It shows a native Run's catalog summary inline, with a link to its device session's ended Workspace view.
+> The Flows page (#755) replaces the Flows Drawer named below. It shows a native Run's full Run Summary inline (#760), read through `catalog.run.native.get` from the Run's own directory in either Catalog Root, with a link to its device session's ended Workspace view. Its video and screens are still served by session, so they show only in a Workspace that holds that session's record; elsewhere the summary says so. The browser `AgentRunSummary` and `agent.run.summary.get` stay browser-only.
 
 An Agent Session dies with its process, while its Run outlives it. Android and iOS Runs and Dry Runs kept their only durable result in the device session's own record, so a closed native session stayed in the session picker as the sole way back to that result (#696). Instead, every native Run or Dry Run that reached `running` writes a Run Summary into its own Run directory when it ends, filed as the Run store files a single-Flow Run, and the Flows Drawer lists it beside browser Runs. The native Run Summary is its own version, tagged with its platform, in the `CatalogRunSummary` union the Catalog Root holds; the browser `AgentRunSummary` stays browser-only. The Flows Drawer opens a native Run in its device session's ended Workspace view. The session picker then lists only sessions their process still owns.
 

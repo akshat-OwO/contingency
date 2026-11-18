@@ -14,6 +14,8 @@ import type {
   CatalogRootScope,
   CatalogRootView,
   CatalogRunEntry,
+  AgentRunId,
+  NativeAgentRunSummary,
 } from "@contingency/protocol";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
@@ -46,7 +48,7 @@ import { TEACHING_RECORDINGS_DIRECTORY } from "./teaching-recording-store.ts";
 
 export interface CatalogBrowserError {
   readonly _tag: "CatalogBrowserError";
-  readonly code: "catalog_io" | "flow_not_found";
+  readonly code: "catalog_io" | "flow_not_found" | "run_not_found";
   readonly message: string;
 }
 
@@ -67,6 +69,15 @@ export interface CatalogBrowserService {
     scope: CatalogRootScope,
     name: FlowName
   ) => Effect.Effect<CatalogFlowResult, CatalogBrowserError>;
+  /**
+   * A native Run's full Run Summary from its Flow's Run directory. It reads
+   * only that Summary; the device evidence beside it is served by session.
+   */
+  readonly nativeRun: (
+    scope: CatalogRootScope,
+    flowName: FlowName,
+    runId: AgentRunId
+  ) => Effect.Effect<NativeAgentRunSummary, CatalogBrowserError>;
 }
 
 export const CatalogBrowser = Context.Service<CatalogBrowserService>(
@@ -401,9 +412,9 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     };
   });
 
-  const readCatalogFlow = Effect.fnUntraced(function* readFlow(
-    scope: CatalogRootScope,
-    name: FlowName
+  /** The directory a scope names, or a refusal when it lists none. */
+  const scopeRoot = Effect.fnUntraced(function* resolveScopeRoot(
+    scope: CatalogRootScope
   ) {
     const root =
       scope === "local"
@@ -417,6 +428,75 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
         )
       );
     }
+    return root;
+  });
+
+  const readNativeRun = Effect.fnUntraced(function* readNativeRun(
+    scope: CatalogRootScope,
+    flowName: FlowName,
+    runId: AgentRunId
+  ) {
+    const root = yield* scopeRoot(scope);
+    const discovered = yield* discoverFlows(root, fileSystem).pipe(
+      Effect.mapError((cause) => browserError("catalog_io", cause.message))
+    );
+    const flow = discovered.get(flowName);
+    if (flow === undefined) {
+      return yield* Effect.fail(
+        browserError("flow_not_found", `No Flow named ${flowName} is listed.`)
+      );
+    }
+    // `runId` is a validated `AgentRunId`, so the name stays in the Flow; a
+    // symlinked Run directory must resolve inside it too, so a Flow never
+    // serves another catalog's Summary.
+    const file = path.join(
+      flow.directory,
+      AGENT_RUNS_DIRECTORY,
+      runId,
+      SUMMARY_FILE
+    );
+    const contained = yield* Effect.all([
+      fileSystem.realPath(flow.directory),
+      fileSystem.realPath(file),
+    ]).pipe(
+      Effect.map(([directory, resolved]) => {
+        const relative = path.relative(directory, resolved);
+        return !relative.startsWith("..") && !path.isAbsolute(relative);
+      }),
+      // A missing Summary is answered below as absent.
+      Effect.orElseSucceed(() => true)
+    );
+    if (!contained) {
+      return yield* Effect.fail(
+        browserError(
+          "run_not_found",
+          `The Run Summary of ${runId} is outside ${flowName}.`
+        )
+      );
+    }
+    const read = yield* readJson(file, decodeSummary);
+    if (
+      read._tag === "read" &&
+      read.value.schemaVersion === 4 &&
+      read.value.runId === runId
+    ) {
+      return read.value;
+    }
+    return yield* Effect.fail(
+      browserError(
+        "run_not_found",
+        read._tag === "unreadable"
+          ? `The Run Summary of ${runId} could not be read.`
+          : `${flowName} holds no native Run ${runId}.`
+      )
+    );
+  });
+
+  const readCatalogFlow = Effect.fnUntraced(function* readFlow(
+    scope: CatalogRootScope,
+    name: FlowName
+  ) {
+    const root = yield* scopeRoot(scope);
     const flow = yield* catalog
       .read(name, root)
       .pipe(
@@ -442,7 +522,11 @@ const makeCatalogBrowser = Effect.fn("CatalogBrowser.make")(function* make(
     } satisfies CatalogFlowResult;
   });
 
-  return CatalogBrowser.of({ browse, flow: readCatalogFlow });
+  return CatalogBrowser.of({
+    browse,
+    flow: readCatalogFlow,
+    nativeRun: readNativeRun,
+  });
 });
 
 export const makeCatalogBrowserLayer = (

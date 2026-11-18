@@ -2,6 +2,7 @@ import {
   AgentRunId,
   CatalogRootView,
   CatalogRunEntry,
+  NativeAgentRunSummary,
 } from "@contingency/protocol";
 import type {
   CatalogBrowseResult,
@@ -54,6 +55,9 @@ afterEach(() => {
 const rpc = vi.hoisted(() => ({
   browse: { _tag: "Initial", waiting: true } satisfies unknown,
   flow: { _tag: "Initial", waiting: true } satisfies unknown,
+  // An ended device session this Workspace no longer holds.
+  keyframes: { _tag: "Success", value: null, waiting: false } satisfies unknown,
+  nativeRun: { _tag: "Initial", waiting: true } satisfies unknown,
   summary: { _tag: "Initial", waiting: true } satisfies unknown,
 }));
 
@@ -61,6 +65,10 @@ const rpcOverrides = {
   agentRunSummaryAtom: () => Atom.make(() => rpc.summary),
   catalogBrowseAtom: Atom.make(() => rpc.browse),
   catalogFlowAtom: () => () => Atom.make(() => rpc.flow),
+  catalogNativeRunAtom: () => () => () => Atom.make(() => rpc.nativeRun),
+  deviceKeyframesAtom: () => Atom.make(() => rpc.keyframes),
+  deviceVideoStatusAtom: () =>
+    Atom.make(() => ({ _tag: "Success", value: null, waiting: false })),
 };
 
 /** The page with its URL state held here, as the `/flow` route holds it. */
@@ -516,25 +524,118 @@ test("shows a Run's catalog summary when its full Summary cannot be read", () =>
   ).toBeVisible();
 });
 
-test("points a native Run at its device session for its video", () => {
-  const sessionId = `agent-android-${"d".repeat(32)}`;
-  rpc.browse = browse([
-    decodeRoot({
-      ...local,
-      runs: [
-        Schema.decodeUnknownSync(CatalogRunEntry)({
-          ...run,
-          assessment: null,
-          kind: "dry-run",
-          native: { platform: "android", sessionId },
-          outcome: "user-closed",
-          ownerFlow: "1mg mobile login",
-          runId: `agentrun-${sessionId}`,
-          title: "Android Dry Run · 1mg mobile login",
-        }),
-      ],
+const nativeSessionId = `agent-android-${"d".repeat(32)}`;
+const nativeEntry = () =>
+  Schema.decodeUnknownSync(CatalogRunEntry)({
+    ...run,
+    assessment: "working",
+    kind: "dry-run",
+    native: { platform: "android", sessionId: nativeSessionId },
+    outcome: "completed",
+    ownerFlow: "1mg mobile login",
+    runId: `agentrun-${nativeSessionId}`,
+    title: "Android Dry Run · 1mg mobile login",
+  });
+
+const nativeRunResult = () =>
+  ({
+    _tag: "Success",
+    value: {
+      summary: Schema.decodeUnknownSync(NativeAgentRunSummary)({
+        assessment: {
+          explanation: "The OTP screen accepted the code.",
+          observationId: "observation-1",
+          outcome: "working",
+        },
+        captureGaps: [],
+        endedAt: "2026-11-18T10:01:00.000Z",
+        flowName: "1mg mobile login",
+        kind: "dry-run",
+        outcome: "completed",
+        platform: "android",
+        recordingId: null,
+        requirements: {
+          capabilities: [],
+          environment: {
+            androidVersion: "16",
+            appBuild: "42",
+            appId: "com.aranoah.healthkart.plus",
+            startingState: "Signed out",
+          },
+          platform: "android",
+        },
+        runId: `agentrun-${nativeSessionId}`,
+        schemaVersion: 4,
+        sessionId: nativeSessionId,
+        startedAt: "2026-11-18T10:00:00.000Z",
+        takeoverOccurred: false,
+        title: "Android Dry Run · 1mg mobile login",
+      }),
+    },
+    waiting: false,
+  }) as const;
+
+test("shows a native Run's full Run Summary inline", () => {
+  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
+  rpc.nativeRun = nativeRunResult();
+  renderPage();
+  const summary = screen.getByRole("region", { name: "Run Summary" });
+  expect(summary.querySelector('[data-slot="verdict-card"]')).toHaveTextContent(
+    "Working"
+  );
+  expect(
+    within(summary).getByText("The OTP screen accepted the code.")
+  ).toBeVisible();
+  expect(
+    within(summary).getByText("com.aranoah.healthkart.plus · build 42")
+  ).toBeVisible();
+  // How it ended reads apart from the Agent Assessment.
+  expect(within(summary).getByText("Ended")).toBeVisible();
+  expect(within(summary).getByText("Completed")).toBeVisible();
+  expect(within(summary).getByRole("heading", { name: "Video" })).toBeVisible();
+  expect(
+    within(summary).getByRole("link", { name: "Device session" })
+  ).toHaveAttribute("href", `/?android=${nativeSessionId}`);
+  expect(
+    within(summary).queryByText(/Its full Run Summary could not be read/u)
+  ).toBeNull();
+});
+
+test("draws a native Run's one kept screen inline, away from its stage", () => {
+  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
+  rpc.nativeRun = nativeRunResult();
+  rpc.keyframes = {
+    _tag: "Success",
+    value: {
+      keyframes: [{ capturedAt: "2026-11-18T10:00:30.000Z", hash: "a1b2" }],
+      retained: true,
+    },
+    waiting: false,
+  };
+  try {
+    renderPage();
+    const summary = screen.getByRole("region", { name: "Run Summary" });
+    // No stage beside the Flows page holds the screen, so the summary does.
+    expect(
+      within(summary).getByRole("img", { name: /^Screen 1 of 1/u })
+    ).toBeVisible();
+    expect(within(summary).queryByText(/is on the stage/u)).toBeNull();
+  } finally {
+    rpc.keyframes = { _tag: "Success", value: null, waiting: false };
+  }
+});
+
+test("falls back to the catalog summary when a native Summary is unreadable", () => {
+  rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
+  rpc.nativeRun = {
+    _tag: "Failure",
+    cause: Cause.fail({
+      _tag: "BrowserRpcError",
+      code: "agent_run_not_found",
+      message: "1mg mobile login holds no native Run.",
     }),
-  ]);
+    waiting: false,
+  };
   renderPage();
   const summary = screen.getByRole("region", { name: "Run Summary" });
   expect(
@@ -543,8 +644,11 @@ test("points a native Run at its device session for its video", () => {
     })
   ).toBeVisible();
   expect(
+    within(summary).getByText(/Its full Run Summary could not be read/u)
+  ).toBeVisible();
+  expect(
     within(summary).getByRole("link", { name: "Device session" })
-  ).toHaveAttribute("href", `/?android=${sessionId}`);
+  ).toHaveAttribute("href", `/?android=${nativeSessionId}`);
 });
 
 test("says a global Run's evidence stays with its own root", () => {

@@ -462,6 +462,21 @@
 }
 
 /*
+ * A phone has no room beside the dock: it floats over the stage instead, at
+ * the full width under the top islands, until the user collapses it.
+ */
+@media (width < 48rem) {
+  [data-run-summary="open"] {
+    --run-summary-inset: 0px;
+  }
+}
+
+/* The dock's entrance plays once; it never replays after a morph. */
+[data-slot="run-summary-dock"][data-entered] {
+  animation: none;
+}
+
+/*
  * The dock and its collapsed pill share a name only while one becomes the
  * other (see `morphDock`), so leaving a session never animates the dock on
  * its own. The stage steps out of the morph: it just takes the width back.

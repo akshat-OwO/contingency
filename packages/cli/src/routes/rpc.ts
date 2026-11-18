@@ -121,6 +121,15 @@ const runStoreUnavailable = <A>(
  * The Flows page's read-only catalog view. It is optional for the same
  * reason the Run store is: a process may serve no Catalog Root.
  */
+const CATALOG_BROWSER_ERROR_CODE = {
+  catalog_io: "agent_catalog_invalid",
+  flow_not_found: "agent_flow_not_found",
+  run_not_found: "agent_run_not_found",
+} as const satisfies Record<
+  CatalogBrowserError["code"],
+  BrowserRpcErrorType["code"]
+>;
+
 const catalogBrowserUnavailable = <A>(
   operation: (
     service: CatalogBrowserService
@@ -132,9 +141,7 @@ const catalogBrowserUnavailable = <A>(
         ? operation(service.value).pipe(
             Effect.mapError((cause) =>
               makeBrowserRpcError(
-                cause.code === "flow_not_found"
-                  ? "agent_flow_not_found"
-                  : "agent_catalog_invalid",
+                CATALOG_BROWSER_ERROR_CODE[cause.code],
                 cause.message
               )
             )
@@ -654,7 +661,8 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         teachingRecordingUnavailable(
           Effect.gen(function* readRecordingView() {
             const store = yield* TeachingRecordingStore;
-            return recordingView(yield* store.read(data.recordingId));
+            const manifest = yield* store.read(data.recordingId);
+            return { ...recordingView(manifest), cleanup: manifest.cleanup };
           })
         ),
       "agent.run.summary.get": (data) =>
@@ -673,6 +681,10 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         catalogBrowserUnavailable((service) =>
           service.flow(data.scope, data.name)
         ),
+      "catalog.run.native.get": (data) =>
+        catalogBrowserUnavailable((service) =>
+          service.nativeRun(data.scope, data.flowName, data.runId)
+        ).pipe(Effect.map((summary) => ({ summary }))),
     };
   })
 );

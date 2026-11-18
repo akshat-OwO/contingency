@@ -45,12 +45,15 @@ import { SessionEventOrigin } from "./session-events.ts";
 
 /**
  * Where a Teaching Recording's Dry Run keeps its evidence: in its Flow's
- * `runs`, beside the recording rather than inside it.
+ * `runs`, beside the recording rather than inside it. Cleanup deletes all of
+ * it except the Run Summary.
  */
 export const dryRunDirectory = (recordingDirectory: string, runId: string) =>
   path.join(recordingDirectory, "..", "..", "runs", runId);
 
 export const TEACHING_RECORDINGS_DIRECTORY = "recordings";
+/** The one file of a Dry Run's directory that Cleanup keeps. */
+const DRY_RUN_SUMMARY_FILE = "summary.json";
 const MANIFEST_FILE = "manifest.json";
 const LOCK_FILE = ".manifest.lock";
 /** Final manifests of purged Recordings, written before their directories are deleted. */
@@ -1804,8 +1807,27 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 .readDirectory(links)
                 .pipe(Effect.mapError(ioError("Could not read Dry Run links")))
             : [];
+          // A Dry Run keeps its Run Summary, so the Flows page still lists
+          // what verified the Flow; its video, Trace and screens go (#760).
+          const dryRunEvidence: string[] = [];
+          for (const runId of runIds) {
+            const run = dryRunDirectory(directory, runId);
+            const entries = yield* fileSystem
+              .readDirectory(run)
+              .pipe(Effect.orElseSucceed((): readonly string[] => []));
+            if (entries.includes(DRY_RUN_SUMMARY_FILE)) {
+              for (const entry of entries) {
+                if (entry !== DRY_RUN_SUMMARY_FILE) {
+                  dryRunEvidence.push(path.join(run, entry));
+                }
+              }
+            } else {
+              // A Dry Run that never wrote a Summary leaves nothing to list.
+              dryRunEvidence.push(run);
+            }
+          }
           const targets = [
-            ...runIds.map((runId) => dryRunDirectory(directory, runId)),
+            ...dryRunEvidence,
             ...sensitiveNames.map((name) => path.join(directory, name)),
           ];
           for (const target of targets) {

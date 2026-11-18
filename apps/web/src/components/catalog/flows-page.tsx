@@ -25,6 +25,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { NativeRunSummary } from "@/components/agent/android-run-summary";
 import {
   DryRunSummaryView,
   InteractiveRunSummaryView,
@@ -768,10 +769,16 @@ const CatalogRunSummary = ({
  * the assessment and findings, Browser Checks, Scan Reports and Browser
  * Modifications.
  */
+/** Said under a verified Flow's Dry Run, whose evidence Cleanup deleted. */
+const CLEANED_DRY_RUN =
+  "Cleanup deleted this Dry Run's video and Trace when the Flow was verified. Its Run Summary is kept.";
+
 const StoredRunSummary = ({
+  cleanup,
   onFolder,
   run,
 }: {
+  readonly cleanup: CatalogRecordingEntry["cleanup"] | null;
   readonly onFolder: (folder: FlowsFolder) => void;
   readonly run: CatalogRunEntry;
 }) => {
@@ -807,6 +814,11 @@ const StoredRunSummary = ({
           }
           summary={summary}
         />
+        {cleanup === "purged" ? (
+          <p className="text-muted-foreground mt-3 text-xs text-pretty">
+            {CLEANED_DRY_RUN}
+          </p>
+        ) : null}
       </section>
     );
   }
@@ -820,17 +832,106 @@ const StoredRunSummary = ({
   return <RunSummaryView heading={false} summary={summary} />;
 };
 
-const RunSummary = ({
+/** A native Run's link to its device session's ended Workspace view. */
+const DeviceSessionLink = ({
+  native,
+}: {
+  readonly native: NonNullable<CatalogRunEntry["native"]>;
+}) => (
+  <a
+    className={buttonVariants({ size: "xs", variant: "outline" })}
+    href={`/?${native.platform}=${native.sessionId}`}
+  >
+    Device session
+  </a>
+);
+
+/**
+ * A native Run's full Run Summary, read from its Flow's Run directory
+ * (ADR 0078), with its Run ID and a link to its device session. Without a
+ * readable Summary it falls back to what the catalog knows.
+ */
+const StoredNativeRunSummary = ({
+  cleanup,
+  flowName,
+  native,
   onFolder,
   run,
   scope,
 }: {
+  readonly cleanup: CatalogRecordingEntry["cleanup"] | null;
+  readonly flowName: FlowName;
+  readonly native: NonNullable<CatalogRunEntry["native"]>;
   readonly onFolder: (folder: FlowsFolder) => void;
   readonly run: CatalogRunEntry;
   readonly scope: CatalogRootScope;
 }) => {
+  const { catalogNativeRunAtom } = useRpcDependencies();
+  const result = useAtomValue(catalogNativeRunAtom(scope)(flowName)(run.runId));
+  if (result._tag === "Initial") {
+    return <p className="text-muted-foreground text-sm">Loading the Run…</p>;
+  }
+  if (result._tag === "Failure") {
+    return (
+      <CatalogRunSummary
+        links={<DeviceSessionLink native={native} />}
+        note={`Its full Run Summary could not be read. ${refusal(result) ?? ""}`.trim()}
+        onFolder={onFolder}
+        run={run}
+        scope={scope}
+      />
+    );
+  }
+  const { summary } = result.value;
+  return (
+    <section aria-label="Run Summary" className="grid gap-4 text-sm">
+      <h3 className="text-[15px] font-semibold tracking-[-0.015em] text-balance wrap-anywhere">
+        {summary.title}
+      </h3>
+      <NativeRunSummary cleanup={cleanup} summary={summary} />
+      <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
+        <EvidenceReference id={run.runId} kind="Run ID" />
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          <DeviceSessionLink native={native} />
+        </div>
+      </footer>
+      {scope === "global" ? (
+        <p className="text-muted-foreground text-xs text-pretty">
+          This Run is stored in ~/.contingency. Its video and screens open only
+          in a Workspace serving that root.
+        </p>
+      ) : null}
+    </section>
+  );
+};
+
+const RunSummary = ({
+  cleanup,
+  onFolder,
+  run,
+  scope,
+}: {
+  /** The Cleanup of the recording a Dry Run belongs to, when it is listed. */
+  readonly cleanup: CatalogRecordingEntry["cleanup"] | null;
+  readonly onFolder: (folder: FlowsFolder) => void;
+  readonly run: CatalogRunEntry;
+  readonly scope: CatalogRootScope;
+}) => {
+  // A native Run is filed under its one Flow.
+  const nativeFlow = run.ownerFlow ?? run.flowNames[0];
   let body: ReactNode;
-  if (scope === "global") {
+  if (run.native !== undefined && nativeFlow !== undefined) {
+    body = (
+      <StoredNativeRunSummary
+        cleanup={cleanup}
+        flowName={nativeFlow}
+        native={run.native}
+        onFolder={onFolder}
+        run={run}
+        scope={scope}
+      />
+    );
+  } else if (scope === "global") {
     body = (
       <CatalogRunSummary
         note="This Run is stored in ~/.contingency. Its video and evidence open only in a Workspace serving that root."
@@ -840,18 +941,11 @@ const RunSummary = ({
       />
     );
   } else if (run.native === undefined) {
-    body = <StoredRunSummary onFolder={onFolder} run={run} />;
+    body = <StoredRunSummary cleanup={cleanup} onFolder={onFolder} run={run} />;
   } else {
     body = (
       <CatalogRunSummary
-        links={
-          <a
-            className={buttonVariants({ size: "xs", variant: "outline" })}
-            href={`/?${run.native.platform}=${run.native.sessionId}`}
-          >
-            Device session
-          </a>
-        }
+        links={<DeviceSessionLink native={run.native} />}
         note="Its video and device evidence are in its device session."
         onFolder={onFolder}
         run={run}
@@ -1011,6 +1105,14 @@ const RunsPane = ({
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-5">
             {shown?.kind === "run" ? (
               <RunSummary
+                cleanup={
+                  entries.flatMap((entry) =>
+                    entry.kind === "recording" &&
+                    entry.recording.recordingId === shown.run.recordingId
+                      ? [entry.recording.cleanup]
+                      : []
+                  )[0] ?? null
+                }
                 key={shown.run.runId}
                 onFolder={onFolder}
                 run={shown.run}

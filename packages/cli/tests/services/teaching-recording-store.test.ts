@@ -270,6 +270,13 @@ it.effect.each([
             path.join(evidence, "video.webm"),
             "sensitive"
           );
+          if (runId === "agentrun-dry-attempt-two") {
+            // The Dry Run that ended writes its Run Summary beside its video.
+            yield* fileSystem.writeFileString(
+              path.join(evidence, "summary.json"),
+              "{}"
+            );
+          }
         }
         if (moveAt === "before-pass") {
           yield* moveFlow;
@@ -341,14 +348,19 @@ it.effect.each([
             path.join(flowDirectory, "support.md")
           )
         ).toBe("supporting document");
-        for (const runId of [
-          "agentrun-dry-attempt-one",
-          "agentrun-dry-attempt-two",
-        ]) {
-          expect(
-            yield* fileSystem.exists(path.join(flowDirectory, "runs", runId))
-          ).toBe(false);
-        }
+        // Cleanup deletes a Dry Run's evidence but keeps its Run Summary, so
+        // the Flows page still lists what verified the Flow (#760). A Dry Run
+        // that wrote no Summary leaves no directory.
+        expect(
+          yield* fileSystem.exists(
+            path.join(flowDirectory, "runs", "agentrun-dry-attempt-one")
+          )
+        ).toBe(false);
+        expect(
+          yield* fileSystem.readDirectory(
+            path.join(flowDirectory, "runs", "agentrun-dry-attempt-two")
+          )
+        ).toEqual(["summary.json"]);
         const cleaned = yield* store.cleanup(cleanup);
         expect(yield* fileSystem.exists(artifactDirectory)).toBe(false);
         const duplicateCleanup = yield* Effect.flip(

@@ -12,9 +12,37 @@ import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 afterEach(cleanup);
 
-const setup = (outcome: string, decision = "pending", refusal?: string) => {
+type Cleanup =
+  | { readonly _tag: "pending" }
+  | {
+      readonly _tag: "purge-pending";
+      readonly failure: string | null;
+      readonly retainedFiles: readonly string[];
+    }
+  | { readonly _tag: "purged"; readonly completedAt: string };
+
+const PENDING_CLEANUP: Cleanup = { _tag: "pending" };
+
+interface ReviewFixture {
+  cleanup: Cleanup;
+  decision: string;
+  result: { readonly outcome: string };
+  summary: null;
+}
+
+const setup = (
+  outcome: string,
+  decision = "pending",
+  refusal?: string,
+  initialCleanup = PENDING_CLEANUP
+) => {
   const calls = vi.fn();
-  const view = { decision, result: { outcome }, summary: null };
+  const view: ReviewFixture = {
+    cleanup: initialCleanup,
+    decision,
+    result: { outcome },
+    summary: null,
+  };
   const recordingViewAtom = Atom.family(() =>
     Atom.family(() =>
       Atom.make(() => ({
@@ -24,7 +52,7 @@ const setup = (outcome: string, decision = "pending", refusal?: string) => {
       }))
     )
   );
-  const mutation = (next: string) =>
+  const mutation = (next: string, nextCleanup?: Cleanup) =>
     Atom.fn(
       (payload: {
         readonly payload: {
@@ -38,12 +66,19 @@ const setup = (outcome: string, decision = "pending", refusal?: string) => {
             throw new Error(refusal);
           }
           view.decision = next;
+          if (nextCleanup !== undefined) {
+            view.cleanup = nextCleanup;
+          }
           return {};
         })
     );
   // Omit evidence to isolate the decision boundary from Summary rendering.
   // SAFETY: These fixtures implement the read and mutation atoms used by this component; Summary evidence is deliberately absent.
   const overrides = {
+    agentTeachingCleanupRetryMutation: mutation("verified", {
+      _tag: "purged",
+      completedAt: "2026-11-18T00:00:00.000Z",
+    }),
     agentTeachingFlowRejectMutation: mutation("rejected"),
     agentTeachingFlowVerifyMutation: mutation("verified"),
     recordingViewAtom,
@@ -106,3 +141,26 @@ test.each(["Verify flow", "Reject flow"])(
     expect(screen.getByRole("button", { name })).toBeEnabled();
   }
 );
+
+test("offers Retry cleanup when Cleanup kept files after verifying", async () => {
+  const calls = setup("passed", "verified", undefined, {
+    _tag: "purge-pending",
+    failure: "The video was in use.",
+    retainedFiles: ["video.webm"],
+  });
+  const bar = screen.getByRole("region", { name: "Flow decision" });
+  expect(within(bar).getByRole("status")).toHaveTextContent(
+    "Cleanup could not remove all of its Teaching evidence. The video was in use. It kept video.webm."
+  );
+  await userEvent.click(
+    within(bar).getByRole("button", { name: "Retry cleanup" })
+  );
+  expect(calls).toHaveBeenCalledWith({
+    payload: {
+      operationId: expect.any(String),
+      recordingId: "recording-review",
+    },
+  });
+  await within(bar).findByText(/You verified /u);
+  expect(screen.queryByRole("button", { name: "Retry cleanup" })).toBeNull();
+});

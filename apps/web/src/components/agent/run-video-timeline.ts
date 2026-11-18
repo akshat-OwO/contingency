@@ -184,3 +184,19 @@ export const runVideoChapters = ({
   }
   return chapters;
 };
+
+/**
+ * A moment of a video as the player clock shows it: `m:ss`, with tenths on a
+ * video shorter than ten seconds.
+ */
+export const videoClock = (
+  ms: number,
+  durationMs = Number.POSITIVE_INFINITY
+): string => {
+  const safe = Math.max(0, ms);
+  const seconds = Math.floor(safe / 1000);
+  const whole = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return durationMs > 0 && durationMs < 10_000
+    ? `${whole}.${Math.floor((safe % 1000) / 100)}`
+    : whole;
+};

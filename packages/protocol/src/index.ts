@@ -42,6 +42,8 @@ import {
   CatalogBrowseResult,
   CatalogFlowGet,
   CatalogFlowResult,
+  CatalogNativeRunGet,
+  CatalogNativeRunResult,
 } from "./catalog-browser.ts";
 import { DeviceErasePlatform, DeviceEraseState } from "./device-erase.ts";
 import {
@@ -65,7 +67,7 @@ import {
 } from "./storage.ts";
 import { IosInstalledApp, TargetAppBuildId } from "./target-app-build.ts";
 import {
-  RecordingView,
+  RecordingReview,
   GuidedRunCheckDecision,
   FlowName,
   TeachingCaptureState,
@@ -1013,7 +1015,7 @@ const AgentBrowserStorageClearRpc = Rpc.make("agent.browser.storage.clear", {
 const RecordingViewGetRpc = Rpc.make("agent.recording.view.get", {
   error: BrowserRpcError,
   payload: Schema.Struct({ recordingId: TeachingRecordingId }),
-  success: RecordingView,
+  success: RecordingReview,
 });
 const AgentRunSummaryGetRpc = Rpc.make("agent.run.summary.get", {
   error: BrowserRpcError,
@@ -1033,6 +1035,11 @@ const CatalogFlowGetRpc = Rpc.make("catalog.flow.get", {
   error: BrowserRpcError,
   payload: CatalogFlowGet,
   success: CatalogFlowResult,
+});
+const CatalogNativeRunGetRpc = Rpc.make("catalog.run.native.get", {
+  error: BrowserRpcError,
+  payload: CatalogNativeRunGet,
+  success: CatalogNativeRunResult,
 });
 export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("ios.devices.list", {
@@ -1197,7 +1204,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   AgentRunSummaryGetRpc,
   RecordingViewGetRpc,
   CatalogBrowseGetRpc,
-  CatalogFlowGetRpc
+  CatalogFlowGetRpc,
+  CatalogNativeRunGetRpc
 ) {}
 
 /** Browser devtools operations available only through agent_code_execute. */

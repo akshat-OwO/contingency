@@ -263,6 +263,17 @@ export const RecordingView = Schema.Struct({
 });
 
 /**
+ * The Workspace's Dry Run review: the read-only report, plus the recording's
+ * Cleanup state, so a verified Flow whose Cleanup kept files can offer Retry
+ * cleanup. The agent's `RecordingView` leaves Cleanup out.
+ */
+export const RecordingReview = Schema.Struct({
+  ...RecordingView.fields,
+  cleanup: TeachingRecordingCleanupState,
+});
+export type RecordingReview = typeof RecordingReview.Type;
+
+/**
  * The Target App Build a native recording owns from its creation until
  * Cleanup, so every Dry Run installs what was taught (ADR 0085).
  */

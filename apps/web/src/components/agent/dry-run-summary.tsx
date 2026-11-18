@@ -5,7 +5,7 @@ import type {
   TaskAgentRunSummary,
 } from "@contingency/protocol";
 import { agentRunVideoPath } from "@contingency/protocol";
-import { useAtom } from "@effect/atom-react";
+import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   CircleCheckIcon,
@@ -46,9 +46,11 @@ import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { RunVideo } from "@/components/agent/run-video";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { BrowserCheckResults } from "./browser-check-results";
+import { videoClock, videoOffsetMs } from "./run-video-timeline";
 import { ScanResults } from "./scan-results.tsx";
 
 const passedTone = "text-status-ready";
@@ -278,34 +280,48 @@ const findingMoment = (
   );
 };
 
-/** Milliseconds into the Run as `m:ss`. */
-const runClock = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-};
-
 /**
  * A finding's button to its moment in the video, when the video holds that
- * moment.
+ * moment. It names the moment by the video's own clock, the one the player
+ * shows, so a condensed video's skipped Idle Gaps do not shift it.
  */
 const FindingSeek = ({
   at,
   onSeek,
   summary,
+  videoSrc,
 }: {
   readonly at: string;
   readonly onSeek: (at: string) => void;
   readonly summary: TaskAgentRunSummary;
+  readonly videoSrc: string;
 }) => {
+  const { runVideoStatusAtom } = useRpcDependencies();
+  const status = useAtomValue(runVideoStatusAtom(videoSrc));
   const timeMap = summary.videoTimeMap;
-  if (summary.videoPath === null || timeMap === undefined) {
+  if (
+    summary.videoPath === null ||
+    timeMap === undefined ||
+    status._tag !== "Success" ||
+    status.value.state !== "ready"
+  ) {
     return null;
   }
-  const runMs = Date.parse(at) - Date.parse(summary.startedAt);
-  if (!Number.isFinite(runMs) || runMs < 0) {
+  const videoMs = videoOffsetMs(
+    timeMap,
+    status.value.condensed,
+    Date.parse(at) - Date.parse(timeMap.startedAt)
+  );
+  if (videoMs === undefined || !Number.isFinite(videoMs) || videoMs < 0) {
     return null;
   }
-  const clock = runClock(runMs);
+  // The player's own clock, which shows tenths on a short video.
+  const last = timeMap.segments.at(-1);
+  let durationMs: number | undefined;
+  if (last !== undefined) {
+    durationMs = status.value.condensed ? last.videoToMs : last.runToMs;
+  }
+  const clock = videoClock(videoMs, durationMs);
   return (
     <Button
       aria-label={`Show ${clock} in the Run video`}
@@ -411,7 +427,7 @@ const TaskRunSummaryLayout = ({
             ) : null}
           </TabsTrigger>
           <TabsTrigger value="findings">
-            Findings
+            Findings{" "}
             <span className="text-muted-foreground/80 font-mono text-xs tabular-nums">
               {summary.findings.length}
             </span>
@@ -454,6 +470,7 @@ const TaskRunSummaryLayout = ({
                         at={findingMoment(summary, finding)}
                         onSeek={onSeek}
                         summary={summary}
+                        videoSrc={videoSrc ?? agentRunVideoPath(summary.runId)}
                       />
                     </p>
                     <EvidenceList evidence={finding.evidence} />
