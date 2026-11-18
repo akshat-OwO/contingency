@@ -304,13 +304,14 @@ const runPageAction = async (page, appUrl, action, flags) => {
         'canvas[aria-label^="Selected device live display"]'
       );
       await canvas.waitFor();
+      // Controls belong to the dock, the rail, its cards, and the Field
+      // Variable card beside the frame; none sits on the glass (ADR 0076).
       const extra = await main.getByRole("button").evaluateAll((buttons) =>
         buttons
           .filter((button) =>
             !button.closest(
-              '[data-slot="session-top-bar"], [aria-label="Session status"], [aria-label="Requests"]'
-            ) &&
-            button.getAttribute("aria-label") !== "Android Back"
+              '[data-slot="session-top-bar"], [aria-label="Session status"], [aria-label="Requests"], nav[aria-label="Device controls"], form[aria-label="Field Variable"], section[aria-label="Device settings"], section[aria-label="Screen elements"], section[aria-label="Stream diagnostics"]'
+            )
           )
           .map((button) => button.getAttribute("aria-label") || button.textContent)
       );
@@ -318,7 +319,9 @@ const runPageAction = async (page, appUrl, action, flags) => {
         throw new Error(`Unexpected device overlay buttons: ${JSON.stringify(extra)}`);
       }
       const children = await canvas.evaluate((element) =>
-        element.parentElement.querySelectorAll("button, input, svg, [role=button]").length
+        element.parentElement.querySelectorAll(
+          "button, input, a[href], [role=button], [tabindex]:not(canvas)"
+        ).length
       );
       if (children !== 0) {
         throw new Error("Device glass contains element overlays.");

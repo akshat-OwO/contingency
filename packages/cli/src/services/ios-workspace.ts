@@ -67,6 +67,7 @@ import {
 import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
+import { NativeAgentTouches } from "./native-agent-touch.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
@@ -486,6 +487,7 @@ export const makeIosWorkspaceLayer = (options: {
       const catalog = yield* FlowCatalog;
       const builds = yield* Effect.serviceOption(TargetAppBuilds);
       const ownedDevices = yield* Effect.serviceOption(OwnedDevices);
+      const touches = yield* Effect.serviceOption(NativeAgentTouches);
       const renderer = yield* Effect.serviceOption(DeviceVideoRenderer);
       const simctl = options.simctl ?? iosSimctl;
       // Simulators a dead process changed get their appearance and location
@@ -894,6 +896,9 @@ export const makeIosWorkspaceLayer = (options: {
           yield* session.stream.close();
           yield* session.run.close();
           yield* Scope.close(session.scope, Exit.void);
+          if (Option.isSome(touches)) {
+            yield* touches.value.release(state(session).summary.id);
+          }
           update(session, (value) => ({
             ...value,
             observation: null,
@@ -1911,6 +1916,24 @@ export const makeIosWorkspaceLayer = (options: {
             field: null,
             observation: null,
           }));
+          // The agent's touch is drawn on the live stage before it lands
+          // (ADR 0046). A system key touches no point on the screen, and the
+          // user's own input is Forwarded Input, which is never drawn.
+          if (
+            source === "agent" &&
+            Option.isSome(touches) &&
+            target?.bounds !== undefined
+          ) {
+            yield* touches.value.touch(
+              summary.id,
+              {
+                action: "tap",
+                x: target.bounds.x + target.bounds.width / 2,
+                y: target.bounds.y + target.bounds.height / 2,
+              },
+              observationSize(before)
+            );
+          }
           let fillResult: PlatformFillResult | undefined;
           if (action._tag === "variable") {
             fillResult = yield* session.run.enterVariable(before.id, {

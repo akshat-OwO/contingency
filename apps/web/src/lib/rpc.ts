@@ -11,6 +11,7 @@ import type {
   AgentSessionSnapshot,
   BrowserStreamEvent,
   IosDeviceSelection,
+  NativeAgentTouch,
 } from "@contingency/protocol";
 import {
   ContingencyRpcs,
@@ -595,6 +596,27 @@ export const runAgentSessionStream = (
       );
 
       yield* events.pipe(Stream.runForEach((event) => onEvent(event)));
+    })
+  ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
+
+/**
+ * Subscribe to the agent's touches on one Android or iOS session, which the
+ * live stage draws over the device (ADR 0046). The latest touch is replayed.
+ */
+export const runNativeAgentTouchStream = (
+  sessionId: AgentSessionId,
+  onTouch: (touch: NativeAgentTouch) => Effect.Effect<void>
+) =>
+  Effect.scoped(
+    Effect.gen(function* streamNativeAgentTouches() {
+      const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
+      const touches = client(
+        "native.agent.touch.subscribe",
+        { sessionId },
+        { streamBufferSize: 1 }
+      );
+
+      yield* touches.pipe(Stream.runForEach((touch) => onTouch(touch)));
     })
   ).pipe(Effect.provide(RpcProtocolLive), Effect.retry(reconnectSchedule));
 

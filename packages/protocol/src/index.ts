@@ -377,6 +377,48 @@ export const BrowserAgentPointer = Schema.Struct({
 });
 export type BrowserAgentPointer = typeof BrowserAgentPointer.Type;
 
+const nativeTouchPoint = {
+  x: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  y: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+};
+const nativeTouchFields = {
+  ...nativeTouchPoint,
+  durationMs: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  /**
+   * The screen the point was measured on, in device pixels: the observation
+   * the agent acted from. A Workspace whose decoded frame is scaled or
+   * rotated against it can still place the touch, or know not to.
+   */
+  screen: Schema.Struct({
+    height: Schema.Int.check(Schema.isGreaterThan(0)),
+    width: Schema.Int.check(Schema.isGreaterThan(0)),
+  }),
+  timestamp: Schema.Finite,
+  type: Schema.Literal("agent_touch"),
+};
+
+/**
+ * Where the agent is about to touch an Android or iOS screen, in device
+ * pixels, published just before the gesture so the live stage can draw it as
+ * the Web stage draws `BrowserAgentPointer` (ADR 0046). Only the agent's own
+ * gestures produce one; Forwarded Input never does (ADR 0076). `tap` and
+ * `press` (a long press) touch one point; `swipe` travels to `end`.
+ * `durationMs` is how long the drawn touch takes to arrive, which the server
+ * waits before acting.
+ */
+export const NativeAgentTouch = Schema.Union([
+  Schema.Struct({
+    ...nativeTouchFields,
+    action: Schema.Literals(["tap", "press"]),
+  }),
+  Schema.Struct({
+    ...nativeTouchFields,
+    action: Schema.Literal("swipe"),
+    end: Schema.Struct(nativeTouchPoint),
+  }),
+]);
+export type NativeAgentTouch = typeof NativeAgentTouch.Type;
+
 /** Where the agent's cursor enters from, relative to its first target. */
 export const AGENT_POINTER_ENTRY_OFFSET = { x: -72, y: 96 } as const;
 
@@ -1165,6 +1207,16 @@ export class ContingencyRpcs extends RpcGroup.make(
     error: BrowserRpcError,
     payload: Schema.Struct({ sessionId: AgentSessionId }),
     success: Schema.Struct({ path: Schema.String, token: Schema.String }),
+  }),
+  /**
+   * The agent's touches on one Android or iOS session, newest first replayed
+   * on subscribe. A session with no touches yet streams nothing until one.
+   */
+  Rpc.make("native.agent.touch.subscribe", {
+    error: BrowserRpcError,
+    payload: Schema.Struct({ sessionId: AgentSessionId }),
+    stream: true,
+    success: NativeAgentTouch,
   }),
   AgentSessionsGetRpc,
   AgentSessionStartRpc,

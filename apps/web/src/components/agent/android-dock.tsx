@@ -5,13 +5,7 @@ import type {
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import {
-  CornerDownLeftIcon,
-  KeyRoundIcon,
-  ShieldAlertIcon,
-  TextCursorInputIcon,
-  XIcon,
-} from "lucide-react";
+import { KeyRoundIcon, ShieldAlertIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -21,10 +15,6 @@ import {
 } from "@/components/agent/dock-request-parts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "@/components/ui/native-select";
 import {
   Select,
   SelectContent,
@@ -39,6 +29,7 @@ import {
   androidDockPresentation,
   androidSessionLabel,
 } from "./android-dock-state";
+import { androidDeviceLabel } from "./android-workspace-state";
 import { appInstallationQuestion } from "./app-installation";
 import { clearDataQuestion } from "./native-starting-data-copy";
 import { DockState } from "./workspace-dock";
@@ -52,10 +43,6 @@ export const AndroidStateBadges = ({
   const presentation = androidDockPresentation(session);
   return <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
 };
-
-const androidDeviceName = (
-  device: AndroidWorkspaceSnapshot["selection"]["device"]
-) => ("avd" in device ? device.avd : device.model);
 
 /**
  * What preparation is waiting on, in the dock's request tier: a Run
@@ -120,14 +107,14 @@ export const AndroidRequests = ({
                 ? appInstallationQuestion({
                     app: environment.appId,
                     build: environment.appBuild,
-                    device: androidDeviceName(session.selection.device),
+                    device: androidDeviceLabel(session.selection.device),
                     installedBuild: decision.installedBuild,
                   })
                 : null}
               {decision.kind === "clear-app-data"
                 ? clearDataQuestion(
                     environment.appId,
-                    androidDeviceName(session.selection.device)
+                    androidDeviceLabel(session.selection.device)
                   )
                 : null}
               {decision.kind === "confirmation"
@@ -142,157 +129,6 @@ export const AndroidRequests = ({
       })}
     </div>
   );
-
-type PickedField = NonNullable<AndroidWorkspaceSnapshot["field"]>;
-
-/** Entry stays in the dock; password fields accept Variable references only. */
-export const AndroidFieldEntry = ({
-  disabled,
-  field,
-  onDismiss,
-  onSubmit,
-  variables,
-  onRequest,
-  onVariable,
-}: {
-  readonly disabled: boolean;
-  readonly field: PickedField;
-  readonly onDismiss: () => void;
-  readonly onSubmit: (text: string) => void;
-  readonly variables: NonNullable<AndroidWorkspaceSnapshot["variables"]>;
-  readonly onRequest: (name: string) => void;
-  readonly onVariable: (name: string) => void;
-}) => {
-  const [draftAtom] = useState(() =>
-    Atom.make({ name: "PASSWORD", text: "", variable: "" })
-  );
-  const [draft, setDraft] = useAtom(draftAtom);
-  const label = field.name || field.role;
-  const privateField = field.password === true;
-  return (
-    <form
-      aria-label={`Type into ${label}`}
-      className="bg-muted-surface space-y-1.5 border-b px-3 py-2.5"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (privateField) {
-          if (draft.variable) {
-            onVariable(draft.variable);
-          }
-        } else {
-          onSubmit(draft.text);
-        }
-        setDraft((current) => ({ ...current, text: "" }));
-      }}
-    >
-      <RequestHeader
-        title={`Type into ${label}`}
-        icon={
-          <TextCursorInputIcon
-            aria-hidden="true"
-            className={requestIconClassName}
-          />
-        }
-        action={
-          <Button
-            aria-label="Stop typing"
-            onClick={onDismiss}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <XIcon />
-          </Button>
-        }
-      />
-      {privateField ? (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <NativeSelect
-              aria-label="Variable"
-              value={draft.variable}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  variable: event.currentTarget.value,
-                }))
-              }
-            >
-              <NativeSelectOption value="">
-                Choose a Variable
-              </NativeSelectOption>
-              {variables.map((variable) => (
-                <NativeSelectOption
-                  disabled={variable.status !== "supplied"}
-                  key={variable.name}
-                  value={variable.name}
-                >
-                  {variable.name} · {variable.status}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <Button
-              disabled={disabled || !draft.variable}
-              size="sm"
-              type="submit"
-            >
-              <KeyRoundIcon />
-              Enter Variable
-            </Button>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Input
-              aria-label="Variable name"
-              maxLength={128}
-              value={draft.name}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  name: event.currentTarget.value.toUpperCase(),
-                }))
-              }
-            />
-            <Button
-              disabled={disabled || !/^[A-Z][A-Z0-9_]*$/u.test(draft.name)}
-              onClick={() => onRequest(draft.name)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Request Variable
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-1.5">
-          <Input
-            aria-label={`Text for ${label}`}
-            autoFocus
-            className="h-8 flex-1"
-            maxLength={4096}
-            placeholder="Public text"
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                onDismiss();
-              }
-            }}
-            value={draft.text}
-            onChange={(event) =>
-              setDraft((current) => ({
-                ...current,
-                text: event.currentTarget.value,
-              }))
-            }
-          />
-          <Button disabled={disabled} size="sm" type="submit">
-            <CornerDownLeftIcon />
-            Type
-          </Button>
-        </div>
-      )}
-    </form>
-  );
-};
 
 const AndroidVariableAnswer = ({
   variable,

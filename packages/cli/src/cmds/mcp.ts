@@ -75,6 +75,7 @@ import {
   describeSettings,
   describeSystemOne,
 } from "../services/mcp-process-info.ts";
+import { NativeAgentTouchesLive } from "../services/native-agent-touch.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
   loadSettings,
@@ -422,6 +423,11 @@ export const mcpCommand = Command.make(
         const deviceVideoRenderer = Layer.succeedContext(
           yield* Layer.build(DeviceVideoRendererLive)
         );
+        // The agent's touches on device screens, drawn by the live stage;
+        // one per process, shared by both device workspaces and the RPC.
+        const nativeAgentTouches = Layer.succeedContext(
+          yield* Layer.build(NativeAgentTouchesLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
             makeAndroidWorkspaceLayer({
@@ -433,7 +439,8 @@ export const mcpCommand = Command.make(
                   teachingRecordingStore,
                   catalog,
                   targetAppBuilds,
-                  deviceVideoRenderer
+                  deviceVideoRenderer,
+                  nativeAgentTouches
                 )
               )
             )
@@ -450,7 +457,8 @@ export const mcpCommand = Command.make(
                   teachingRecordingStore,
                   catalog,
                   targetAppBuilds,
-                  deviceVideoRenderer
+                  deviceVideoRenderer,
+                  nativeAgentTouches
                 )
               )
             )
@@ -461,7 +469,8 @@ export const mcpCommand = Command.make(
           androidWorkspace,
           iosWorkspace,
           targetAppBuilds,
-          deviceVideoRenderer
+          deviceVideoRenderer,
+          nativeAgentTouches
         );
         const shared = Layer.mergeAll(
           agentSession,

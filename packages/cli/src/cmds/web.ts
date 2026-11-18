@@ -24,6 +24,7 @@ import {
 } from "../services/flow-catalog.ts";
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
+import { NativeAgentTouchesLive } from "../services/native-agent-touch.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { loadSettings } from "../services/settings.ts";
 import {
@@ -131,6 +132,11 @@ export const webCommand = Command.make(
         const deviceVideoRenderer = Layer.succeedContext(
           yield* Layer.build(DeviceVideoRendererLive)
         );
+        // The agent's touches on device screens, drawn by the live stage;
+        // one per process, shared by both device workspaces and the RPC.
+        const nativeAgentTouches = Layer.succeedContext(
+          yield* Layer.build(NativeAgentTouchesLive)
+        );
         const androidWorkspace = Layer.succeedContext(
           yield* Layer.build(
             makeAndroidWorkspaceLayer({ root: () => selectedCatalogRoot }).pipe(
@@ -139,7 +145,8 @@ export const webCommand = Command.make(
                   teachingRecordingStore,
                   makeFlowCatalogLayer({ root: selectedCatalogRoot }),
                   targetAppBuilds,
-                  deviceVideoRenderer
+                  deviceVideoRenderer,
+                  nativeAgentTouches
                 )
               )
             )
@@ -155,7 +162,8 @@ export const webCommand = Command.make(
                   teachingRecordingStore,
                   makeFlowCatalogLayer({ root: selectedCatalogRoot }),
                   targetAppBuilds,
-                  deviceVideoRenderer
+                  deviceVideoRenderer,
+                  nativeAgentTouches
                 )
               )
             )
@@ -166,7 +174,8 @@ export const webCommand = Command.make(
           androidWorkspace,
           iosWorkspace,
           targetAppBuilds,
-          deviceVideoRenderer
+          deviceVideoRenderer,
+          nativeAgentTouches
         );
         yield* Effect.addFinalizer(() =>
           fileSystem

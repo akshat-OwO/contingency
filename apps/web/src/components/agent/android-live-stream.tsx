@@ -2,9 +2,9 @@ import { AndroidStreamPacket } from "@contingency/protocol";
 import type { AgentSessionId, NativeInput } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Clock, Duration, Effect, Fiber, Schema } from "effect";
-import { Atom } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
 
+import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { decodeBase64 } from "@/lib/base64";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
@@ -17,24 +17,24 @@ import {
   probeNativeInput,
 } from "./first-response-probe";
 import { makeNativeInputHandlers } from "./native-input";
+import type { NativeStreamState } from "./native-stream-status";
+import {
+  androidStreamRetryAtom,
+  androidStreamStateAtom,
+  countAndroidStream,
+} from "./native-stream-store";
 
 const packet = Schema.decodeUnknownSync(
   Schema.fromJsonString(AndroidStreamPacket)
 );
-type StreamState =
-  | "connecting"
-  | "live"
-  | "reconnecting"
-  | "secure"
-  | "unclassified"
-  | "lost"
-  | "unsupported";
+type StreamState = NativeStreamState;
+
 const labels: Record<StreamState, string> = {
   connecting: "Connecting to selected device…",
   live: "Live device display",
   lost: "Device stream lost.",
   reconnecting: "Device stream interrupted. Reconnecting…",
-  secure: "Secure window, not visible",
+  secure: "Secure window, not visible. Your input still reaches the device.",
   unclassified: "Screen hidden. Contingency cannot classify this window yet.",
   unsupported: "This browser cannot decode the live device stream.",
 };
@@ -101,10 +101,8 @@ export const AndroidLiveStream = ({
   }, [onInput]);
   const clock = useWorkspaceRefreshClock();
   const { androidStreamAccess } = useRpcDependencies();
-  const [stateAtom] = useState(() => Atom.make<StreamState>("connecting"));
-  const [retryAtom] = useState(() => Atom.make(0));
-  const [state, setState] = useAtom(stateAtom);
-  const [retry, setRetry] = useAtom(retryAtom);
+  const [state, setState] = useAtom(androidStreamStateAtom(sessionId));
+  const [retry, setRetry] = useAtom(androidStreamRetryAtom(sessionId));
   // The decoder outlives renders; it reads the latest callback, not the first.
   const reportFrame = useRef(onFrame);
   useEffect(() => {
@@ -159,6 +157,12 @@ export const AndroidLiveStream = ({
                     });
                   }
                   context.drawImage(frame, 0, 0);
+                  countAndroidStream(sessionId, (current) => ({
+                    ...current,
+                    decoded: current.decoded + 1,
+                    height: frame.displayHeight,
+                    width: frame.displayWidth,
+                  }));
                   frame.close();
                   probe.frame();
                   shown();
@@ -229,6 +233,10 @@ export const AndroidLiveStream = ({
                       // resume at the next keyframe.
                       decoder.reset();
                       configured = false;
+                      countAndroidStream(sessionId, (current) => ({
+                        ...current,
+                        resyncs: current.resyncs + 1,
+                      }));
                     }
                     const data = decodeBase64(event.data);
                     if (!configured) {
@@ -240,6 +248,10 @@ export const AndroidLiveStream = ({
                         throw new Error("Missing H.264 configuration");
                       }
                       decoder.configure({ codec, optimizeForLatency: true });
+                      countAndroidStream(sessionId, (current) => ({
+                        ...current,
+                        codec,
+                      }));
                       configured = true;
                       visible = true;
                     }
@@ -329,8 +341,11 @@ export const AndroidLiveStream = ({
           live && "hidden"
         )}
       >
-        <div className="space-y-3">
-          <p className="text-sm text-neutral-400" role="status">
+        <div className="grid justify-items-center gap-3">
+          {state === "connecting" || state === "reconnecting" ? (
+            <WatcherLoader className="h-7" />
+          ) : null}
+          <p className="text-sm text-pretty text-neutral-300" role="status">
             {labels[state]}
           </p>
           {state === "lost" ? (
