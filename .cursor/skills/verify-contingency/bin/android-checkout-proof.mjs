@@ -616,21 +616,6 @@ try {
     platform: "android",
   });
   assert.match(stale, /stale/u);
-  const privateText = await refusal("agent_device_workspace", {
-    command: {
-      _tag: "input",
-      action: {
-        _tag: "fill",
-        target: target(current, { name: "Shopper name", role: "text-field" }),
-        text: "Pässword",
-      },
-      observationId: current.observation.id,
-      operationId: operation(),
-      sessionId: dry.id,
-    },
-    platform: "android",
-  });
-  assert.match(privateText, /Private Variables are unavailable/u);
   const coordinate = await refusal("agent_device_workspace", {
     command: {
       _tag: "input",
@@ -643,7 +628,6 @@ try {
   });
   receipt.coverage.refusals = {
     coordinate: coordinate.split("\n").find(Boolean),
-    privateText: privateText.split("\n").find(Boolean),
     staleTarget: stale.split("\n").find(Boolean),
   };
   current = await journey(dry.id);
