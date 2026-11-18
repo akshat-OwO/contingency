@@ -452,6 +452,22 @@ export const catalogFlowAtom = Atom.family((scope: CatalogRootScope) =>
   )
 );
 
+/**
+ * One native Run's full Run Summary, read from its Flow in either Catalog
+ * Root, for the Flows page (ADR 0078). Per root, Flow and Run.
+ */
+export const catalogNativeRunAtom = Atom.family((scope: CatalogRootScope) =>
+  Atom.family((flowName: FlowName) =>
+    Atom.family((runId: AgentRunId) =>
+      ContingencyRpcClient.query("catalog.run.native.get", {
+        flowName,
+        runId,
+        scope,
+      })
+    )
+  )
+);
+
 const decodeRunVideoStatus = Schema.decodeUnknownEffect(RunVideoStatus);
 
 /**

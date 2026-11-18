@@ -2,7 +2,14 @@ import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { NotebookTextIcon, PanelRightCloseIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { createContext, useContext, useEffect, useId, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 
 import type { SummaryVerdict } from "@/components/agent/dry-run-summary-state";
@@ -42,12 +49,23 @@ export const usePublishRunSummaryVerdict = (verdict: SummaryVerdict): void => {
   }, [label, publish, tone]);
 };
 
-/** Drops the morph's names once the transition has run, however it ends. */
+/** The morph still running, if any; a newer one replaces it. */
+let currentMorph: ViewTransition | undefined;
+
+/**
+ * Drops the morph's names once the transition has run, however it ends. A
+ * morph a newer one skipped leaves them to the newer one.
+ */
 const clearMorphWhenDone = async (transition: ViewTransition) => {
   try {
     await transition.finished;
+  } catch {
+    // The update itself threw; React reports that. The names still go.
   } finally {
-    delete document.documentElement.dataset.runSummaryMorph;
+    if (currentMorph === transition) {
+      currentMorph = undefined;
+      delete document.documentElement.dataset.runSummaryMorph;
+    }
   }
 };
 
@@ -62,10 +80,18 @@ const morphDock = (update: () => void) => {
     return;
   }
   const root = document.documentElement;
+  // A morph during the entrance cancels it, and the dock is in place from
+  // here on, so its entrance counts as played.
+  for (const dock of root.querySelectorAll<HTMLElement>(
+    '[data-slot="run-summary-dock"]'
+  )) {
+    dock.dataset.entered = "";
+  }
   root.dataset.runSummaryMorph = "";
   const transition = document.startViewTransition(() => {
     flushSync(update);
   });
+  currentMorph = transition;
   void clearMorphWhenDone(transition);
 };
 
@@ -82,7 +108,12 @@ export const RunSummaryPill = () => {
   return (
     <Button
       aria-expanded={false}
-      aria-label={`Expand ${dock.label}`}
+      // The name keeps the visible text, so the verdict is read out too.
+      aria-label={
+        dock.verdict === null
+          ? `Expand ${dock.label}`
+          : `Expand ${dock.label}: Summary ${dock.verdict.label}`
+      }
       className="gap-1.5 pr-1.5"
       data-run-summary-pill=""
       onClick={dock.expand}
@@ -94,6 +125,13 @@ export const RunSummaryPill = () => {
       {dock.verdict === null ? null : <VerdictChip verdict={dock.verdict} />}
     </Button>
   );
+};
+
+/** Marks the dock's entrance as played, once its own animation ends. */
+const markEntered = (event: React.AnimationEvent<HTMLElement>) => {
+  if (event.target === event.currentTarget) {
+    event.currentTarget.dataset.entered = "";
+  }
 };
 
 /**
@@ -117,6 +155,9 @@ const RunSummaryDock = ({
   return (
     <aside
       aria-labelledby={headingId}
+      // The entrance plays once. After a morph the dock is already in place,
+      // so it must not slide in again when the morph's names are dropped.
+      onAnimationEnd={markEntered}
       className="island animate-in fade-in slide-in-from-right-6 absolute top-[4.25rem] right-3 bottom-3 z-30 flex min-h-0 w-(--run-summary-width) flex-col overflow-hidden duration-500 ease-out motion-reduce:animate-none"
       data-slot="run-summary-dock"
     >
@@ -135,6 +176,7 @@ const RunSummaryDock = ({
           aria-controls={bodyId}
           aria-expanded
           aria-label={`Collapse ${label}`}
+          data-run-summary-collapse=""
           onClick={onCollapse}
           size="icon-sm"
           type="button"
@@ -164,25 +206,94 @@ export const WorkspaceWithRunSummary = ({
   children,
   label,
   summary,
+  summaryKey,
 }: {
   readonly children: ReactNode;
   /** Names the dock for assistive technology and its controls. */
   readonly label: string;
   /** The summary to show, or `null` for a full-width Workspace. */
   readonly summary: ReactNode | null;
+  /**
+   * Which Run the summary belongs to. A different one opens the dock again,
+   * even when one ended session follows another directly.
+   */
+  readonly summaryKey?: string | undefined;
 }) => {
   const [collapsedAtom] = useState(() => Atom.make(false));
   const [collapsed, setCollapsed] = useAtom(collapsedAtom);
   const [verdictAtom] = useState(() => Atom.make<SummaryVerdict | null>(null));
   const [verdict, setVerdict] = useAtom(verdictAtom);
   const present = summary !== null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Where focus goes once a collapse or expand the user asked for lands.
+  const focusAfterRef = useRef<"dock" | "pill" | null>(null);
   // A new summary opens again, even if the last one was folded away.
   useEffect(() => {
     if (!present) {
       setCollapsed(false);
     }
   }, [present, setCollapsed]);
+  // Another Run's summary opens too, even straight after this one.
+  useEffect(() => {
+    setCollapsed(false);
+  }, [summaryKey, setCollapsed]);
+  // The control that hid itself had focus; hand it to the one that replaced
+  // it, so keyboard and screen reader users are not dropped to the page.
+  useEffect(() => {
+    const target = focusAfterRef.current;
+    focusAfterRef.current = null;
+    if (target === null) {
+      return;
+    }
+    containerRef.current
+      ?.querySelector<HTMLElement>(
+        target === "pill"
+          ? "[data-run-summary-pill]"
+          : "[data-run-summary-collapse]"
+      )
+      ?.focus();
+  }, [collapsed]);
+  const open = present && !collapsed;
+  // On a phone the open dock covers the stage, so what it covers leaves the
+  // tab order until it collapses. The top islands stay in reach.
+  useEffect(() => {
+    const container = containerRef.current;
+    // jsdom and older engines have no `matchMedia`; the dock then stays
+    // inset as on a wide screen.
+    const narrow = globalThis.matchMedia?.("(width < 48rem)");
+    if (!open || container === null || narrow === undefined) {
+      return;
+    }
+    let covered: HTMLElement[] = [];
+    const release = () => {
+      for (const element of covered) {
+        element.removeAttribute("inert");
+      }
+      covered = [];
+    };
+    const apply = () => {
+      release();
+      if (!narrow.matches) {
+        return;
+      }
+      covered = [
+        ...container.querySelectorAll<HTMLElement>(
+          '[data-vt="stage"] > :not([data-slot="session-top-bar"])'
+        ),
+      ];
+      for (const element of covered) {
+        element.setAttribute("inert", "");
+      }
+    };
+    apply();
+    narrow.addEventListener("change", apply);
+    return () => {
+      narrow.removeEventListener("change", apply);
+      release();
+    };
+  }, [open]);
   const expand = () => {
+    focusAfterRef.current = "dock";
     morphDock(() => {
       setCollapsed(false);
     });
@@ -190,13 +301,13 @@ export const WorkspaceWithRunSummary = ({
   const dock: RunSummaryDockState | null = present
     ? { collapsed, expand, label, verdict }
     : null;
-  const open = present && !collapsed;
   return (
     <RunSummaryDockContext.Provider value={dock}>
       <PublishVerdictContext.Provider value={setVerdict}>
         <div
-          className="relative flex min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] xl:[--run-summary-width:26.25rem]"
+          className="relative flex min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
           data-run-summary={open ? "open" : undefined}
+          ref={containerRef}
         >
           {children}
           {present ? (
@@ -206,6 +317,7 @@ export const WorkspaceWithRunSummary = ({
               <RunSummaryDock
                 label={label}
                 onCollapse={() => {
+                  focusAfterRef.current = "pill";
                   morphDock(() => {
                     setCollapsed(true);
                   });

@@ -39,7 +39,12 @@ export const DryRunReview = ({
     <div className="workspace-canvas fixed inset-0 flex flex-col">
       <WorkspaceWithRunSummary
         label="Dry Run Summary"
-        summary={<RecordingViewer recordingId={recordingId} />}
+        // Another recording's review opens its dock again, with none of this
+        // one's pending decision or error.
+        summary={
+          <RecordingViewer key={recordingId} recordingId={recordingId} />
+        }
+        summaryKey={recordingId}
       >
         <main className="relative flex min-h-0 flex-1 flex-col" data-vt="stage">
           <SessionTopBar

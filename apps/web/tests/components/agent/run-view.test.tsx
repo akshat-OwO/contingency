@@ -556,7 +556,7 @@ test("keeps the Findings segment and says so when the Run has none", async () =>
   expect(
     screen.getByText("Findings", { selector: "dt" }).closest("div")
   ).toHaveTextContent("0");
-  await user.click(screen.getByRole("tab", { name: "Findings0" }));
+  await user.click(screen.getByRole("tab", { name: "Findings 0" }));
   expect(screen.getByText("The agent reported no findings.")).toBeVisible();
 });
 
@@ -613,6 +613,81 @@ test("shows a finding's moment in the Run video and copies the Run ID", async ()
   ).toBeVisible();
 });
 
+test("names a finding's moment by the condensed video's own clock", async () => {
+  rpc.videoStatus = readyVideo;
+  const user = userEvent.setup();
+  render(
+    <TestRegistry>
+      <DryRunSummaryView
+        result={passedResult}
+        summary={{
+          ...dryRunTask,
+          timeline: [
+            {
+              actor: "agent",
+              at: "2026-09-04T00:00:50.000Z",
+              description: "Choose a delivery area",
+              dispatched: true,
+              id: "attempt-delivery",
+              outcome: "completed",
+            },
+          ],
+          videoTimeMap: {
+            fastForward: "capped",
+            segments: [
+              // A 40 s think plays in 5 s, so 0:50 of the Run is 0:15 of
+              // the video.
+              {
+                kind: "idle-gap",
+                rate: 8,
+                runFromMs: 0,
+                runToMs: 40_000,
+                videoFromMs: 0,
+                videoToMs: 5000,
+              },
+              {
+                kind: "real-time",
+                rate: 1,
+                runFromMs: 40_000,
+                runToMs: 60_000,
+                videoFromMs: 5000,
+                videoToMs: 25_000,
+              },
+            ],
+            startedAt: dryRunTask.startedAt,
+          },
+        }}
+      />
+    </TestRegistry>
+  );
+  const video = screen.getByLabelText<HTMLVideoElement>("Recorded Run video");
+  Object.defineProperty(video, "duration", { configurable: true, value: 25 });
+  fireEvent.loadedMetadata(video);
+  await user.click(screen.getByRole("tab", { name: /Findings/u }));
+  await user.click(
+    screen.getByRole("button", { name: "Show 0:15 in the Run video" })
+  );
+  expect(video.currentTime).toBe(15);
+});
+
+test("offers no finding seek while the video is not ready", async () => {
+  rpc.videoStatus = {
+    _tag: "Success",
+    value: { reason: "The encoder failed.", state: "unavailable" },
+    waiting: false,
+  };
+  const user = userEvent.setup();
+  render(
+    <TestRegistry>
+      <DryRunSummaryView result={passedResult} summary={dryRunTask} />
+    </TestRegistry>
+  );
+  await user.click(screen.getByRole("tab", { name: /Findings/u }));
+  expect(
+    screen.queryByRole("button", { name: /in the Run video$/u })
+  ).toBeNull();
+});
+
 test("keeps findings and the task behind their tabs", async () => {
   const user = userEvent.setup();
   render(
@@ -633,7 +708,7 @@ test("keeps findings and the task behind their tabs", async () => {
 
   const findingsTab = screen.getByRole("tab", { name: /Findings/u });
   expect(findingsTab).toHaveTextContent(
-    `Findings${dryRunTask.findings.length}`
+    `Findings ${dryRunTask.findings.length}`
   );
   await user.click(findingsTab);
   expect(screen.getByRole("list", { name: "Findings" })).toHaveTextContent(

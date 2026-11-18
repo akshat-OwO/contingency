@@ -664,6 +664,7 @@ export const AndroidSessionView = ({
     });
   return (
     <WorkspaceLayout
+      summaryKey={session.id}
       summary={
         isLiveAndroidSession(session)
           ? null

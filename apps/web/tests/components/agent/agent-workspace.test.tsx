@@ -343,6 +343,7 @@ const rpcOverrides = {
         return {
           _tag: "Success",
           value: {
+            cleanup: { _tag: "pending" },
             decision: "pending",
             result: rpc.recordingResult,
             summary: rpc.endedRunSummary,

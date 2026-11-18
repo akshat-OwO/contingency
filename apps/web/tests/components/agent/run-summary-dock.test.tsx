@@ -1,7 +1,7 @@
 import { RegistryProvider } from "@effect/atom-react";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 
 import {
   WorkspaceWithRunSummary,
@@ -20,11 +20,18 @@ const Summary = () => {
   return <p>The cart shows no total.</p>;
 };
 
-const Workspace = ({ ended }: { readonly ended: boolean }) => (
+const Workspace = ({
+  ended,
+  run = "run-1",
+}: {
+  readonly ended: boolean;
+  readonly run?: string;
+}) => (
   <RegistryProvider>
     <WorkspaceWithRunSummary
       label="Run Summary"
       summary={ended ? <Summary /> : null}
+      summaryKey={run}
     >
       <main data-vt="stage">
         <DockShell
@@ -60,7 +67,7 @@ test("docks an ended Run's summary and folds it into the status island", async (
   );
   const status = screen.getByRole("region", { name: "Session status" });
   expect(
-    within(status).queryByRole("button", { name: "Expand Run Summary" })
+    within(status).queryByRole("button", { name: /^Expand Run Summary/u })
   ).toBeNull();
 
   await user.click(
@@ -70,18 +77,22 @@ test("docks an ended Run's summary and folds it into the status island", async (
   expect(container.querySelector('[data-run-summary="open"]')).toBeNull();
   // Collapsed, nothing floats over the canvas: the summary is a tool in the
   // status island that keeps its verdict in view.
+  // Its name keeps the visible verdict, and focus moves to it.
   const pill = within(status).getByRole("button", {
-    name: "Expand Run Summary",
+    name: "Expand Run Summary: Summary Not working",
   });
   expect(pill).toHaveAttribute("aria-expanded", "false");
   expect(pill).toHaveTextContent("Not working");
+  expect(pill).toHaveFocus();
 
   await user.click(pill);
+  const reopened = screen.getByRole("complementary", { name: "Run Summary" });
+  expect(reopened).toBeVisible();
   expect(
-    screen.getByRole("complementary", { name: "Run Summary" })
-  ).toBeVisible();
+    within(reopened).getByRole("button", { name: "Collapse Run Summary" })
+  ).toHaveFocus();
   expect(
-    within(status).queryByRole("button", { name: "Expand Run Summary" })
+    within(status).queryByRole("button", { name: /^Expand Run Summary/u })
   ).toBeNull();
 });
 
@@ -93,10 +104,44 @@ test("opens the next summary even when the last one was folded away", async () =
   );
   rerender(<Workspace ended={false} />);
   expect(
-    screen.queryByRole("button", { name: "Expand Run Summary" })
+    screen.queryByRole("button", { name: /^Expand Run Summary/u })
   ).toBeNull();
   rerender(<Workspace ended />);
   expect(
     screen.getByRole("complementary", { name: "Run Summary" })
   ).toBeVisible();
+});
+
+test("opens the next session's summary when one ended session follows another", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<Workspace ended run="run-1" />);
+  await user.click(
+    screen.getByRole("button", { name: "Collapse Run Summary" })
+  );
+  rerender(<Workspace ended run="run-2" />);
+  expect(
+    screen.getByRole("complementary", { name: "Run Summary" })
+  ).toBeVisible();
+});
+
+test("takes the covered stage out of reach while the dock covers a phone", async () => {
+  const user = userEvent.setup();
+  // A phone-width viewport: the dock's narrow query matches.
+  vi.stubGlobal("matchMedia", (query: string) =>
+    Object.assign(new EventTarget(), {
+      matches: query === "(width < 48rem)",
+      media: query,
+    })
+  );
+  try {
+    render(<Workspace ended />);
+    const status = screen.getByRole("region", { name: "Session status" });
+    expect(status.closest("[inert]")).not.toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Collapse Run Summary" })
+    );
+    expect(status.closest("[inert]")).toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

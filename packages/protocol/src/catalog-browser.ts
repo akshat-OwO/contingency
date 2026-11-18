@@ -2,7 +2,11 @@ import { Schema } from "effect";
 
 import { DemoSiteId } from "./agent-decision.ts";
 import { AgentSessionId } from "./agent-identifiers.ts";
-import { AgentAssessmentOutcome, AgentRunId } from "./agent-run.ts";
+import {
+  AgentAssessmentOutcome,
+  AgentRunId,
+  NativeAgentRunSummary,
+} from "./agent-run.ts";
 import { FlowName } from "./flow-identifiers.ts";
 import { TeachingRecordingId } from "./teaching-recording-identifiers.ts";
 import { FlowFile } from "./teaching-recording.ts";
@@ -153,3 +157,23 @@ export const CatalogFlowResult = Schema.Struct({
 });
 // oxlint-disable-next-line eslint/no-redeclare
 export type CatalogFlowResult = typeof CatalogFlowResult.Type;
+
+/**
+ * One native Run's full Run Summary, read from its Flow's Run directory in
+ * either Catalog Root, so the Flows page can show it inline (ADR 0078).
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const CatalogNativeRunGet = Schema.Struct({
+  flowName: FlowName,
+  runId: AgentRunId,
+  scope: CatalogRootScope,
+});
+// oxlint-disable-next-line eslint/no-redeclare
+export type CatalogNativeRunGet = typeof CatalogNativeRunGet.Type;
+
+// oxlint-disable-next-line eslint/no-redeclare
+export const CatalogNativeRunResult = Schema.Struct({
+  summary: NativeAgentRunSummary,
+});
+// oxlint-disable-next-line eslint/no-redeclare
+export type CatalogNativeRunResult = typeof CatalogNativeRunResult.Type;

@@ -402,6 +402,7 @@ const AgentBrowserCanvas = ({
   agentCursor,
   canvasRef,
   dockedBelow,
+  ended,
   frameReady,
   input,
   inspect,
@@ -413,6 +414,8 @@ const AgentBrowserCanvas = ({
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
   /** Whether the floating dock overlaps the bottom of this column. */
   readonly dockedBelow: boolean;
+  /** The session ended: the frame is its last, not a live browser. */
+  readonly ended: boolean;
   readonly frameReady: boolean;
   readonly input: ReturnType<typeof makeBrowserInputHandlers>;
   /** Renders inspect mode over the frame, given the canvas it is drawn on. */
@@ -482,6 +485,12 @@ const AgentBrowserCanvas = ({
           tabIndex={readOnly ? undefined : 0}
         />
         {frameReady ? <StageZoom canvas={canvas} /> : null}
+        {frameReady && ended ? (
+          <span className="material-float text-muted-foreground pointer-events-none absolute top-0 left-0 rounded-full px-2 py-0.5 text-xs font-medium shadow-xs">
+            Last frame
+            <span className="sr-only"> of the Run. The browser closed.</span>
+          </span>
+        ) : null}
         {inspect?.(canvas)}
         {agentCursor(canvas)}
       </div>
@@ -736,6 +745,7 @@ const AgentLiveView = ({
           )}
           canvasRef={canvasRef}
           dockedBelow
+          ended={ended}
           frameReady={state.frameReady}
           input={input}
           inspect={inspect}
@@ -2539,7 +2549,7 @@ const BrowserWorkspace = ({
   return (
     <WorkspaceHomeContext value={home}>
       <div className="relative flex h-svh min-h-0 flex-col">
-        <WorkspaceLayout summary={finished}>
+        <WorkspaceLayout summary={finished} summaryKey={session.id}>
           <AgentLiveView
             canvasRef={view.canvasRef}
             dock={

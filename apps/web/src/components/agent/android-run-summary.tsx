@@ -9,9 +9,12 @@ import type {
   DevicePlatform,
   DeviceVideoCapture,
   DeviceVideoStatus,
+  NativeAgentRunSummary,
+  TeachingRecordingCleanupState,
 } from "@contingency/protocol";
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
+import type { Mutable } from "effect/Types";
 import { CircleAlertIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -141,7 +144,7 @@ export const DeviceLastScreen = ({
         src={deviceKeyframePath(platform, sessionId, kept.hash)}
       />
       <figcaption className="text-muted-foreground text-xs">
-        Last screen kept, at {time(kept.capturedAt)}
+        Last frame of the session, kept at {time(kept.capturedAt)}
       </figcaption>
     </figure>
   );
@@ -618,6 +621,27 @@ const deviceVerdict = (session: SummarySession): SummaryVerdict => {
   return { label: OUTCOME[outcome], tone };
 };
 
+/** Where the session's recording stands with Cleanup, as one sentence. */
+const cleanupLabel = (
+  session: Pick<SummarySession, "cleanup" | "recordingId">
+): string => {
+  const { cleanup } = session;
+  if (cleanup?._tag === "purged") {
+    return "Recording deleted. Verified Flow retained.";
+  }
+  if (cleanup?._tag === "purge-pending") {
+    const kept =
+      cleanup.retainedFiles.length === 0
+        ? ""
+        : ` Kept: ${cleanup.retainedFiles.join(", ")}.`;
+    return `${cleanup.failure ?? "Cleanup could not remove every file."}${kept}`;
+  }
+  if (cleanup?._tag === "pending" || session.recordingId !== null) {
+    return "Recording kept until the flow is verified.";
+  }
+  return "Nothing to clean up; this session made no recording.";
+};
+
 /**
  * The verdict card the browser summary opens on, for a device Run: the
  * Agent Assessment, the platform, and what kind of session it was.
@@ -652,11 +676,14 @@ const DeviceVerdictCard = ({
  */
 export const DeviceRunSummary = ({
   device,
+  ended,
   platform,
   session,
   targetApp,
 }: {
   readonly device: string;
+  /** How a persisted Run ended, said apart from its Agent Assessment. */
+  readonly ended?: string | undefined;
   readonly platform: DevicePlatform;
   readonly session: SummarySession;
   readonly targetApp: string;
@@ -716,6 +743,12 @@ export const DeviceRunSummary = ({
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
       <dt className="text-muted-foreground">Session</dt>
       <dd>{KIND[session.kind]}</dd>
+      {ended === undefined ? null : (
+        <>
+          <dt className="text-muted-foreground">Ended</dt>
+          <dd>{ended}</dd>
+        </>
+      )}
       <dt className="text-muted-foreground">Device</dt>
       <dd className="wrap-anywhere">{device}</dd>
       <dt className="text-muted-foreground">Target App</dt>
@@ -733,21 +766,7 @@ export const DeviceRunSummary = ({
       <dt className="text-muted-foreground">Capture gaps</dt>
       <dd>{gapLabels(session).join(", ") || "None"}</dd>
       <dt className="text-muted-foreground">Cleanup</dt>
-      <dd className="text-pretty">
-        {session.cleanup?._tag === "purged"
-          ? "Recording deleted. Verified Flow retained."
-          : null}
-        {session.cleanup?._tag === "purge-pending"
-          ? `${session.cleanup.failure} Kept: ${session.cleanup.retainedFiles.join(", ")}.`
-          : null}
-        {session.cleanup?._tag === "pending" ||
-        (session.cleanup === null && session.recordingId !== null)
-          ? "Recording kept until the flow is verified."
-          : null}
-        {session.cleanup === null && session.recordingId === null
-          ? "Nothing to clean up; this session made no recording."
-          : null}
-      </dd>
+      <dd className="text-pretty">{cleanupLabel(session)}</dd>
     </dl>
   </div>
 );
@@ -765,3 +784,95 @@ export const AndroidRunSummary = ({
     targetApp={`${session.selection.environment.appId} · build ${session.selection.environment.appBuild}`}
   />
 );
+
+/**
+ * The catalog's Cleanup tag as the summary's Cleanup state. The catalog keeps
+ * no failure, kept files, or completion time; the summary shows none of
+ * them for a catalog Run, so `endedAt` only fills the required field.
+ */
+const catalogCleanup = (
+  cleanup: TeachingRecordingCleanupState["_tag"] | null,
+  endedAt: string
+): TeachingRecordingCleanupState | null => {
+  if (cleanup === "purge-pending") {
+    return { _tag: "purge-pending", failure: null, retainedFiles: [] };
+  }
+  if (cleanup === "purged") {
+    return { _tag: "purged", completedAt: endedAt };
+  }
+  return cleanup === null ? null : { _tag: "pending" };
+};
+
+/** How a native Run ended, in words. */
+const RUN_ENDING: Record<NativeAgentRunSummary["outcome"], string> = {
+  completed: "Completed",
+  crashed: "Crashed",
+  interrupted: "Interrupted",
+  "process-exited": "Agent process exited",
+  "user-closed": "Closed by user",
+};
+
+/** The device a native Run's Flow names, from its requirements. */
+const requiredDevice = (
+  requirements: NativeAgentRunSummary["requirements"]
+) => {
+  if (requirements.platform === "android") {
+    return `Android ${requirements.environment.androidVersion}`;
+  }
+  if (requirements.platform === "ios") {
+    return `${requirements.environment.deviceType} · iOS ${requirements.environment.runtimeVersion}`;
+  }
+  return "Not recorded";
+};
+
+/** The Target App a native Run's Flow names, from its requirements. */
+const requiredTargetApp = (
+  requirements: NativeAgentRunSummary["requirements"]
+) => {
+  if (requirements.platform === "android") {
+    return `${requirements.environment.appId} · build ${requirements.environment.appBuild}`;
+  }
+  if (requirements.platform === "ios") {
+    return `${requirements.environment.bundleId} · build ${requirements.environment.build}`;
+  }
+  return "Not recorded";
+};
+
+/**
+ * A native Run's full Run Summary from its persisted Summary, where no live
+ * session snapshot exists, such as on the Flows page (ADR 0078). Its video and
+ * screens are read by session, so they show while this Workspace still holds
+ * the session's record. `cleanup` is the Dry Run's recording Cleanup as the
+ * catalog lists it, or `null` when no recording is listed.
+ */
+export const NativeRunSummary = ({
+  cleanup,
+  summary,
+}: {
+  readonly cleanup: TeachingRecordingCleanupState["_tag"] | null;
+  readonly summary: NativeAgentRunSummary;
+}) => {
+  const session: Mutable<SummarySession> = {
+    assessment: summary.assessment,
+    captureGaps: summary.captureGaps,
+    cleanup: catalogCleanup(cleanup, summary.endedAt),
+    error: null,
+    id: summary.sessionId,
+    kind: summary.kind,
+    recordingId: summary.recordingId,
+    requirements: summary.requirements,
+    takeoverOccurred: summary.takeoverOccurred,
+  };
+  if (summary.captureRepairs !== undefined) {
+    session.captureRepairs = summary.captureRepairs;
+  }
+  return (
+    <DeviceRunSummary
+      device={requiredDevice(summary.requirements)}
+      ended={RUN_ENDING[summary.outcome]}
+      platform={summary.platform}
+      session={session}
+      targetApp={requiredTargetApp(summary.requirements)}
+    />
+  );
+};

@@ -1328,6 +1328,7 @@ export const IosWorkspace = ({
   const live = isLiveIosSession(session);
   return (
     <WorkspaceLayout
+      summaryKey={session.id}
       summary={
         live
           ? null

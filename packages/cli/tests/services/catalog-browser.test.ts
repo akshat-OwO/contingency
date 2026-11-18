@@ -1,6 +1,10 @@
 import path from "node:path";
 
-import { FlowName, TaskAgentRunSummary } from "@contingency/protocol";
+import {
+  AgentRunId,
+  FlowName,
+  TaskAgentRunSummary,
+} from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import {
@@ -685,4 +689,138 @@ it.effect(
       ).toBe("draft-cart");
       expect(view?.recordings[0]?.ownerFlow).toBe("draft-cart");
     }).pipe(Effect.provide(NodeServices.layer))
+);
+
+const nativeSessionId = `agent-android-${"e".repeat(32)}`;
+const nativeSummary = {
+  assessment: {
+    explanation: "Signed in.",
+    observationId: "observation-1",
+    outcome: "working",
+  },
+  captureGaps: ["secure_window"],
+  endedAt: "2026-11-18T10:01:00.000Z",
+  flowName: "browse-catalogue",
+  kind: "run",
+  outcome: "completed",
+  platform: "android",
+  recordingId: null,
+  requirements: {
+    capabilities: [],
+    environment: {
+      androidVersion: "16",
+      appBuild: "42",
+      appId: "com.example.shop",
+      startingState: "Signed out",
+    },
+    platform: "android",
+  },
+  runId: `agentrun-${nativeSessionId}`,
+  schemaVersion: 4,
+  sessionId: nativeSessionId,
+  startedAt: "2026-11-18T10:00:00.000Z",
+  takeoverOccurred: false,
+  title: "Android Run · browse-catalogue",
+};
+
+it.effect("reads a native Run's full Summary from its Flow", () =>
+  Effect.gen(function* readNativeRun() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const workspace = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-catalog-browser-native-",
+    });
+    const local = path.join(workspace, ".contingency");
+    yield* seedLocal(local);
+    yield* writeJson(
+      path.join(
+        local,
+        "browse-catalogue",
+        "runs",
+        nativeSummary.runId,
+        "summary.json"
+      ),
+      JSON.stringify(nativeSummary)
+    );
+    const [summary, browserRun, missing, missingFlow] = yield* Effect.gen(
+      function* read() {
+        const browser = yield* CatalogBrowser;
+        return [
+          yield* browser.nativeRun(
+            "local",
+            FlowName.make("browse-catalogue"),
+            AgentRunId.make(nativeSummary.runId)
+          ),
+          // A browser Run is no native Run, even where one is filed.
+          yield* Effect.flip(
+            browser.nativeRun(
+              "local",
+              FlowName.make("draft-cart"),
+              AgentRunId.make("agentrun-dry-run")
+            )
+          ),
+          yield* Effect.flip(
+            browser.nativeRun(
+              "local",
+              FlowName.make("browse-catalogue"),
+              AgentRunId.make("agentrun-absent")
+            )
+          ),
+          yield* Effect.flip(
+            browser.nativeRun(
+              "local",
+              FlowName.make("no-such-flow"),
+              AgentRunId.make(nativeSummary.runId)
+            )
+          ),
+        ] as const;
+      }
+    ).pipe(Effect.provide(browserFor(local)));
+    expect(summary).toMatchObject({
+      captureGaps: ["secure_window"],
+      platform: "android",
+      sessionId: nativeSessionId,
+      title: "Android Run · browse-catalogue",
+    });
+    expect(browserRun.code).toBe("run_not_found");
+    expect(missing.code).toBe("run_not_found");
+    expect(missingFlow.code).toBe("flow_not_found");
+  }).pipe(Effect.provide(NodeServices.layer))
+);
+
+it.effect("refuses a native Run directory that links outside its Flow", () =>
+  Effect.gen(function* refuseLinkedRun() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const workspace = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-catalog-browser-native-link-",
+    });
+    const local = path.join(workspace, ".contingency");
+    yield* seedLocal(local);
+    const outside = path.join(workspace, "elsewhere", nativeSummary.runId);
+    yield* writeJson(
+      path.join(outside, "summary.json"),
+      JSON.stringify(nativeSummary)
+    );
+    yield* fileSystem.makeDirectory(
+      path.join(local, "browse-catalogue", "runs"),
+      {
+        recursive: true,
+      }
+    );
+    yield* fileSystem.symlink(
+      outside,
+      path.join(local, "browse-catalogue", "runs", nativeSummary.runId)
+    );
+    const error = yield* Effect.gen(function* read() {
+      const browser = yield* CatalogBrowser;
+      return yield* Effect.flip(
+        browser.nativeRun(
+          "local",
+          FlowName.make("browse-catalogue"),
+          AgentRunId.make(nativeSummary.runId)
+        )
+      );
+    }).pipe(Effect.provide(browserFor(local)));
+    expect(error.code).toBe("run_not_found");
+    expect(error.message).toContain("outside");
+  }).pipe(Effect.provide(NodeServices.layer))
 );
