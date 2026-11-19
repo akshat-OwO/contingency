@@ -106,7 +106,12 @@ export const ThemeMenu = () => {
       >
         {dark ? <MoonIcon /> : <SunIcon />}
       </MenuTrigger>
-      <MenuContent align="end" className="popover island theme-menu">
+      <MenuContent
+        align="end"
+        // Like the session switcher: clear the island, then a gap of its own.
+        className="popover island theme-menu"
+        sideOffset={14}
+      >
         <MenuRadioGroup
           onValueChange={(value) => choose(value as ThemeChoice)}
           value={choice}

@@ -49,7 +49,7 @@ The dark strip is prototype scaffolding, not proposed UI. It turns the running s
 
 ## App chrome (#779)
 
-Awaiting sign-off on #779. The header band no longer shows on any page a person normally reaches. Since #744 to #757, the Workspace home, every session, the Dry Run review and the Flows page carry their own islands and hide it. Only three pages still show it: an unknown route, the Workspace while it loads its sessions, and a session link that no longer resolves. This slice removes the band from those too, so every page has the same two islands.
+Approved on #779, with one change: the theme menu opens 8px below its island, like the session switcher. The header band no longer shows on any page a person normally reaches. Since #744 to #757, the Workspace home, every session, the Dry Run review and the Flows page carry their own islands and hide it. Only three pages still show it: an unknown route, the Workspace while it loads its sessions, and a session link that no longer resolves. This slice removes the band from those too, so every page has the same two islands.
 
 | Surface | Today | Proposed |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ Awaiting sign-off on #779. The header band no longer shows on any page a person 
 | Not-found page | Header band, then "Page not found" centred on a blank page | The home's islands: `navigation "Workspace"` with `link "Contingency home"`, and Flows, Docs and the theme menu. One island card: **404**, "Page not found", "This route does not exist in Contingency.", and **Go to the Workspace**. |
 | Workspace loading | Header band, or a floating Docs and theme pair, over the loader | The same islands, with the loader and "Loading Agent Sessions…" on the canvas. |
 | Session unavailable | Header band over an Alert | The same islands. One island card holds the `alert` "Agent Session unavailable" with the reason, the note about session ids, and **Go to the Workspace**. |
-| Theme menu | Base UI Dropdown Menu: three plain items, none marked | UI SDK Menu: `menuitemradio` **Light**, **Dark** and **System**. The saved choice is checked, and **System** says which theme it resolves to now ("Light now"). Choosing closes the menu. The trigger shows the theme in effect. |
+| Theme menu | Base UI Dropdown Menu: three plain items, none marked | UI SDK Menu: `menuitemradio` **Light**, **Dark** and **System**. The saved choice is checked, and **System** says which theme it resolves to now ("Light now"). Choosing closes the menu. It opens 8px below the island. The trigger shows the theme in effect. |
 
 Walk it with the scaffold's **Page** button (app, not-found, loading, unavailable), or open `/?status=<kind>`. The theme menu is on every page's top-right island. The prototype saves the choice under the prod key, `contingency-theme`, and reapplies it on reload. **System** clears the key and follows the OS again.
 
