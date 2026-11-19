@@ -88,13 +88,6 @@ export const savedTeachingInspectAtom = Atom.make<SavedTeachingInspect | null>(
 ).pipe(Atom.keepAlive);
 
 /**
- * Whether the Workspace is showing the full-bleed recorded Flow chrome.
- * The app header reads it so one View can own the whole viewport without a
- * second header band above its dock (#191).
- */
-export const workspaceChromeAtom = Atom.make(false);
-
-/**
  * The console keeps the most recent entries only. A page can log without
  * bound, and the Workspace holds this in memory for as long as it watches.
  */

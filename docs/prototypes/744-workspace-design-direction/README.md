@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775), [#776](https://github.com/akshat-OwO/contingency/issues/776), [#777](https://github.com/akshat-OwO/contingency/issues/777) and [#778](https://github.com/akshat-OwO/contingency/issues/778), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island. #777 restyles the Interactive Run chrome: the Guided Run control, the Takeover Variable and the bot-protection notice. #778 restyles the Run details: the sections inside the Run dock's Task details and the Run Summary's tabs.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775), [#776](https://github.com/akshat-OwO/contingency/issues/776), [#777](https://github.com/akshat-OwO/contingency/issues/777) and [#778](https://github.com/akshat-OwO/contingency/issues/778), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island. #777 restyles the Interactive Run chrome: the Guided Run control, the Takeover Variable and the bot-protection notice. #778 restyles the Run details: the sections inside the Run dock's Task details and the Run Summary's tabs. #779 retires the header band and moves the theme menu onto UI SDK.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -46,6 +46,45 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## App chrome (#779)
+
+Approved on #779, with one change: the theme menu opens 8px below its island, like the session switcher. The header band no longer shows on any page a person normally reaches. Since #744 to #757, the Workspace home, every session, the Dry Run review and the Flows page carry their own islands and hide it. Only three pages still show it: an unknown route, the Workspace while it loads its sessions, and a session link that no longer resolves. This slice removes the band from those too, so every page has the same two islands.
+
+| Surface | Today | Proposed |
+| --- | --- | --- |
+| Header band | `header` with the wordmark, `navigation "Primary navigation"` with one `Workspace` link, then Docs and the theme button | Removed. `AppNavbar` and `workspaceChromeAtom` go. |
+| Not-found page | Header band, then "Page not found" centred on a blank page | The home's islands: `navigation "Workspace"` with `link "Contingency home"`, and Flows, Docs and the theme menu. One island card: **404**, "Page not found", "This route does not exist in Contingency.", and **Go to the Workspace**. |
+| Workspace loading | Header band, or a floating Docs and theme pair, over the loader | The same islands, with the loader and "Loading Agent Sessions…" on the canvas. |
+| Session unavailable | Header band over an Alert | The same islands. One island card holds the `alert` "Agent Session unavailable" with the reason, the note about session ids, and **Go to the Workspace**. |
+| Theme menu | Base UI Dropdown Menu: three plain items, none marked | UI SDK Menu: `menuitemradio` **Light**, **Dark** and **System**. The saved choice is checked, and **System** says which theme it resolves to now ("Light now"). Choosing closes the menu. It opens 8px below the island. The trigger shows the theme in effect. |
+
+Walk it with the scaffold's **Page** button (app, not-found, loading, unavailable), or open `/?status=<kind>`. The theme menu is on every page's top-right island. The prototype saves the choice under the prod key, `contingency-theme`, and reapplies it on reload. **System** clears the key and follows the OS again.
+
+### Decisions
+
+- **The header band goes.** The dock and the islands already carry navigation in sessions. The band's one `Workspace` link duplicated `link "Contingency home"`, and it showed only on error and loading pages.
+- **One card, not a page of text.** An unknown route and a lost session each offer one way out, **Go to the Workspace**, instead of telling the reader to edit the URL.
+- **Radio items, not plain items.** The menu shows which choice is saved. Without it, **System** and the theme it resolves to look the same.
+- **Dropdown Menu moves onto UI SDK Menu.** The Base UI facade has one feature consumer, `mode-toggle.tsx`. The facade keeps its name and gains the radio parts, so the new look is opt-in, as #779 asks.
+
+### Proposed contract changes (#779)
+
+| Kind | Before | After |
+| --- | --- | --- |
+| Role/name | `navigation "Primary navigation"` with `link "Workspace"` (`aria-current="page"` on `/`) | Removed. `navigation "Workspace"` with `link "Contingency home"` is on every page. |
+| Role/name | Theme items are `menuitem` **Light**, **Dark**, **System** | `menuitemradio` **Light**, **Dark**, **System, Light now** or **System, Dark now**, with `aria-checked` on the saved choice. The trigger stays `button "Change color theme"`. |
+| Text | Not-found: "Page not found" and "This route does not exist in Contingency." | The same text, plus **404** and **Go to the Workspace**. |
+| Behaviour | Session unavailable offers no way out | **Go to the Workspace** opens the home. |
+| Docs | `verify-contingency` names `Primary navigation` and the `Workspace` link | `SKILL.md` and `features/workspace.md` drop them. Theme switching reads `menuitemradio`. |
+
+![Theme menu, light](review/779-theme-menu-light.png) ![Theme menu, dark](review/779-theme-menu-dark.png)
+
+|  | Light | Dark |
+| --- | --- | --- |
+| Not found | ![](review/779-not-found-light.png) | ![](review/779-not-found-dark.png) |
+| Loading | ![](review/779-loading-light.png) | ![](review/779-loading-dark.png) |
+| Unavailable | ![](review/779-unavailable-light.png) | ![](review/779-unavailable-dark.png) |
 
 ## Run details (#778)
 

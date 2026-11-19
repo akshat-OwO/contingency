@@ -37,7 +37,6 @@ import { isSessionNotFound } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
-import { workspaceChromeAtom } from "./agent-workspace-state";
 import { AndroidDevice } from "./android-device";
 import {
   AndroidVariables,
@@ -975,11 +974,6 @@ export const AndroidWorkspace = ({
   readonly onSessionChange?: ((session: string) => void) | undefined;
   readonly requestedSessionId?: string | undefined;
 }) => {
-  const setChrome = useAtomSet(workspaceChromeAtom);
-  useEffect(() => {
-    setChrome(true);
-    return () => setChrome(false);
-  }, [setChrome]);
   const [state, setState] = useAtom(workspaceAtom);
   const { androidSessionsAtom, runAndroidWorkspaceCommand } =
     useRpcDependencies();
