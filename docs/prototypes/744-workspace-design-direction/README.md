@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775), [#776](https://github.com/akshat-OwO/contingency/issues/776) and [#777](https://github.com/akshat-OwO/contingency/issues/777), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island. #777 restyles the Interactive Run chrome: the Guided Run control, the Takeover Variable and the bot-protection notice.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775), [#776](https://github.com/akshat-OwO/contingency/issues/776), [#777](https://github.com/akshat-OwO/contingency/issues/777) and [#778](https://github.com/akshat-OwO/contingency/issues/778), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island. #777 restyles the Interactive Run chrome: the Guided Run control, the Takeover Variable and the bot-protection notice. #778 restyles the Run details: the sections inside the Run dock's Task details and the Run Summary's tabs.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -46,6 +46,57 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Run details (#778)
+
+Waiting for sign-off on #778. #757 and #760 restyled the Run Summary frame; this restyles the sections inside it and inside the Run dock's **Task details**. One component per section (`src/run-details.tsx`) serves both places.
+
+| Section | Region | Holds |
+| --- | --- | --- |
+| Requested task | `Requested task` (`Intended outcome` on a Dry Run) | The task in a tinted block, the demo-store line, then `list "Changed instructions"`. |
+| Referenced Flows | `Referenced flows` | One pill per Flow, linking to it on the Flows page, with an **Example** tag. Empty: "No Flows referenced." |
+| Emulation | `Emulation` | Viewport, page zoom and text scale as a fact list, then `list "Emulation changes"`: the time, the change, and who made it. |
+| Browser Modifications | `Browser Modifications` | **N active** beside the heading; one row per modification: time, what it does, **Saved with the Flow** or **Added by the agent**, and **Removed <time>** when it was. |
+| Browser Checks (ADR 0056) | `Browser Checks` | **N of M required passed** beside the heading, red while any fails. One row per check: a pass, fail or open mark, the check id, its status word, the summary, then its Flow, attempt and time. |
+| Required scans (ADR 0048) | `Required scans` | **N of M completed**, plus **coverage incomplete** in red. One row per requirement: mark, mode, status word, when (and until), destination, an out-of-scope note, the report summary, duration and **Download full report**. |
+| System One Pursuits (ADR 0057) | `System One Pursuits` | **N delegated**; one row per Pursuit: goal, ending, reason, then `list "Model-chosen attempts"` with each attempt's confidences. |
+| Agent Assessment | `Task assessment` | The outcome with its dot, the explanation and the evidence chips. Live: "Not submitted yet." |
+| Findings | `Findings` | Live: "No findings yet." or the findings so far. |
+
+**Where they show.**
+
+- **Task details** (Run dock, live Web Run): task, Flows and setup first, then what it has recorded, then assessment and findings. It opens at 400px and scrolls inside.
+- **Run Summary** (ended Run, Dry Run review, Flows page): **Checks** adds the evidence chips, **Browser Checks** and **Required scans** under the checklist. **Task** holds the task, **Referenced Flows**, **System One Pursuits**, **Browser Modifications**, **Emulation** and the execution outcome. **Findings** doesn't change.
+- **Native Run** (ADR 0078): the browser sections never show. The Task tab holds the task, its Flows and a **Device** fact list (device, Target App, starting data, Takeover, capture gaps).
+- **Ended-Run summary** (`ended-run-summary.tsx`): the #757 writing skeleton and the **Try again** missing state replace the plain loading line and the destructive alert.
+
+**States.** Every section walks through empty (hidden, or one line when the section always shows), short and long. Statuses: a check is Passed, Failed, Inconclusive, Interrupted or Not evaluated; a scan is Completed, Partial, Failed, Running or Not run; a Pursuit is Done, Blocked, Unsure, Paused or Needs input.
+
+Walk through it: the scaffold's **Details** cycles `seeded`, `empty`, `short` and `long`. Open **Find a red jacket under $80** → **Task details** (live Web Run). Open `/?session=ended:run_W8hs` (Web Dry Run) and look at **Pass checks** and **Task**, and `/?session=ended:run_N4cs` (iOS) for the native Task tab.
+
+### Decisions to sign off
+
+- **One row style, no bordered cards.** Each section is an eyebrow heading, its count on the right, and a single outlined list of rows, like the Run Summary checklist. Today each check, scan and Pursuit is its own bordered card with a Badge.
+- **Status words, not raw values.** **Passed**, **Partial**, **Needs input**, coloured by tone, replace the lowercase protocol values in Badges.
+- **The summary's Task tab gains the setup sections.** Pursuits, Browser Modifications and Emulation reach the docked summary; today only the legacy Run view and Task details show them.
+- **Native Runs get the Device list in the same style.** It touches `android-run-summary.tsx`, so prod would add the Android and iOS workspace proofs. The alternative is to leave native as it is.
+- **No Badge variant change.** The status words are text in the row; Badge isn't used, so it needs no new variant.
+
+### Proposed contract changes (#778)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Text | Browser Checks: "N/M required checks passed"; status is the raw value or "Unfulfilled"; first line "<flow> · <id>" | "N of M required passed"; **Passed**, **Failed**, **Inconclusive**, **Interrupted**, **Not evaluated**; the id leads and the Flow moves to the foot. |
+| Text | Required scans: "N/M applicable scans completed · Scan coverage incomplete"; raw status Badge; "Not executed"; "Destination: <url>"; "Outside requested scope: …" | "N of M completed · coverage incomplete"; **Completed**, **Partial**, **Failed**, **Running**; **Not run**; the URL alone; "Outside the requested scope: …". |
+| Text | Browser Modifications: "<time> · <text> · Agent · Saved / Agent-initiated · Removed <time>" | Time, text, then **Saved with the Flow** or **Added by the agent**, and **Removed <time>**. |
+| Text | Pursuit ending as a raw Badge; attempts "<id> operation N%, target N%, value N%" | **Done**, **Blocked**, **Unsure**, **Paused**, **Needs input**; "<id> operation N% · target N% · value N%". |
+| Text | Emulation: "Starting page zoom: N%. Text scale: N%."; changes "<time> · <actor>: page zoom a% → b%, text scale c% → d%" | A fact list (Viewport, Page zoom, Text scale); each change names only what changed and who. |
+| Text | Live Task details: "No Agent Assessment submitted." | "Not submitted yet. The agent assesses the task when it finishes." and "No findings yet." |
+| Role/name | Referenced flows are plain list items | Each is a `link` to `/flow?flow=<name>`. |
+| Role/name | Run Summary Task tab: requested task, changed instructions, Flows, Execution | Adds `region "Referenced flows"`, `"System One Pursuits"`, `"Browser Modifications"` and `"Emulation"` on Web, and `region "Device"` on native. |
+| Role/name | Ended-Run summary loading is a polite line; a missing summary is a destructive `alert` | The #757 skeleton with `status` "Writing the Run Summary…"; a missing summary keeps its `alert` and gains **Try again**. |
+
+Every region and list name stays: `Requested task`, `Changed instructions`, `Referenced flows`, `Emulation`, `Emulation changes`, `Browser Modifications`, `Browser Modification activity`, `Browser Checks`, `Required scans`, `System One Pursuits`, `Model-chosen attempts`, `Task assessment`, `Findings`, `Browser evidence`, and the `Copy <kind> <id>` buttons. The #760 names (`Findings 0`, `Expand Run Summary: Summary <verdict>`) and the MCP `viewUrl` params don't change. The browser `AgentRunSummary` stays browser-only (ADR 0078). No ADR changes.
 
 ## Interactive Run chrome (#777)
 
