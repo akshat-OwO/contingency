@@ -10,8 +10,9 @@ import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
-  AnsweredVariable,
+  AnsweredVariables,
   RequestHeader,
+  RequestNote,
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
@@ -99,18 +100,11 @@ export const SetupVariables = ({
     ({ status }) => status === "requested"
   );
   return (
-    <section aria-label="Setup Variables" className="space-y-2">
+    <section aria-label="Setup Variables" className="space-y-3">
       <RequestHeader
-        action={
-          <>
-            <span className="text-muted-foreground hidden text-xs @xl:inline">
-              Values are visible in journey evidence
-            </span>
-            {collapse}
-          </>
-        }
+        action={collapse}
         badge={
-          <span className="text-muted-foreground text-xs tabular-nums">
+          <span className="tabular-nums">
             {waiting.length} of {variables.length} needed
           </span>
         }
@@ -119,10 +113,8 @@ export const SetupVariables = ({
         }
         title="Setup Variables"
       />
-      <p className="text-muted-foreground text-xs @xl:hidden">
-        Supply setup Variables here. Values are visible in journey evidence.
-      </p>
-      <div className="space-y-2.5">
+      <RequestNote>Values are visible in journey evidence.</RequestNote>
+      <div className="space-y-3.5">
         {waiting.map((variable) => (
           <SetupVariable
             key={`${session.id}/${variable.requestId}`}
@@ -131,17 +123,13 @@ export const SetupVariables = ({
           />
         ))}
       </div>
-      {answered.length === 0 ? null : (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {answered.map((variable) => (
-            <AnsweredVariable
-              key={variable.requestId}
-              label={variable.name}
-              status={variable.status}
-            />
-          ))}
-        </div>
-      )}
+      <AnsweredVariables
+        answers={answered.map((variable) => ({
+          key: variable.requestId,
+          label: variable.name,
+          status: variable.status,
+        }))}
+      />
     </section>
   );
 };

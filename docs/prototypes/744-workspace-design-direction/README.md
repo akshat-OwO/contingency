@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764) and [#775](https://github.com/akshat-OwO/contingency/issues/775), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775) and [#776](https://github.com/akshat-OwO/contingency/issues/776), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -46,6 +46,51 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Request cards (#776)
+
+Approved on #776. The cards sit inside the Requests island #753 shipped; the island, its collapse and the Execution Boundary card don't change.
+
+| Card | Region | Holds |
+| --- | --- | --- |
+| Variable card | `Setup Variables`, `Runtime Variables`, `Dry Run Variables`, `Prerequisite Variables`, `Example private inputs` | The count as the eyebrow (**2 of 3 needed**), the title, and one line on who sees the values. Then one field per waiting Variable: its name, its purpose when that says more than the name, the value, **Supply <name>** and, unless it is a Dry Run secret, **Refuse <name>**. Answered Variables fold into `list "Answered"` under the fields, as **<name> supplied** or **<name> refused**, never the value. |
+| Guided Run questions | `Guided Run questions` (ADR 0065) | The open question at full weight. A free-text question has `textbox "Answer: <question>"` with **Send answer** (⌘↵). A proposed check shows its kind, reason and details as a short list, with **Reject check** and **Confirm check**. Answered questions settle under it in `list "Answered questions"`, each with its answer and who gave it. |
+
+**One Variable layout.** Every Variable request uses the same card; only the title and the line under it change. Setup and Runtime fields show what you type. Prerequisite, Example and Dry Run values are private Variables the agent never reads, so their fields are masked with **Show <name>** / **Hide <name>**.
+
+**States.** Each field and question walks through:
+
+- **Empty:** **Supply** and **Send answer** are off.
+- **Filled:** they turn on.
+- **Invalid:** Enter on an empty field marks it and says "Enter a value, or refuse it." (or "Write an answer first.").
+- **Submitting:** the field locks and the button reads **Supplying** or **Sending**; its name doesn't change.
+- **Error:** an `alert` under the field. A failed Variable clears its value; a failed answer keeps its text.
+- **Closed:** a question left open when recording stopped reads "Unanswered when recording stopped." (or "Unconfirmed …" for a check).
+
+Walk through it: open **checkout**, press the scaffold's **+ Request** past the two boundaries (**Allow** each), and each press after that adds the next card: Setup, Dry Run, Prerequisite, Runtime, Example, a question and a proposed check. **Request state** forces every field into one state; **live** lets you type. In live mode, `fail` fails. **onboarding** (iOS Guided Run) opens on a question.
+
+### Decisions
+
+Approved on #776, as prototyped:
+
+- **One Variable card** for all five Variable requests.
+- **Private values are masked** while typed, with a reveal toggle. Today every field shows its value.
+- **Who sees the value** is one line under the title, at every width. Today Setup and Dry Run show it only on wide islands.
+- **Proposed checks** read as a list, not raw JSON.
+- **No answer choices.** The #753 prototype offered choice buttons for a question; the protocol has only free text and check proposals, so they go.
+
+### Proposed contract changes (#776, approved)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Role/name | Answered Variables are loose paragraphs | `list "Answered"` with one item per Variable: **<name> supplied** or **<name> refused**. |
+| Role/name | Prerequisite, Example and Dry Run values are plain text fields | Password fields, plus **Show <name>** / **Hide <name>** toggle buttons. |
+| Role/name | An empty value relies on the browser's `required` bubble | The field gets `aria-invalid` and a message under it. |
+| Role/name | Answered questions read "Answered by user" or "User answer relayed by agent" | `list "Answered questions"`; each item ends with "you" or "relayed by the agent". |
+| Role/name | A proposed check is a JSON `pre` | A short description list. |
+| Text | "Values are visible in journey evidence" beside the collapse control on wide islands | One line under the title on every card, worded per Variable kind. |
+
+**Supply <name>**, **Refuse <name>**, **Answer: <question>**, **Send answer**, **Confirm check**, **Reject check** and every region name stay. The MCP `viewUrl` params don't change. No ADR changes.
 
 ## Teaching overlays (#775)
 

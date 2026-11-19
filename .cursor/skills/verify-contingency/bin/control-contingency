@@ -56,7 +56,7 @@ Commands:
   browser input-check --session-id <id>
   browser scroll-check --session-id <id> [--record] [--path <directory>] [--events <n>] [--delta <px>]
   browser click --role <role> --name <name> [--partial]
-  browser fill --role <role> --name <name> --value <value> [--partial]
+  browser fill --role <role> --name <name> | --label <label> --value <value> [--partial]
   browser select --role <role> --name <name> --value <option-value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
   browser wait --role <role> --name <name> [--state visible|hidden] [--has-text <substring>] [--timeout-ms <n>] [--partial]
@@ -230,10 +230,16 @@ const partialMatch = (flags) =>
   flags.partial === true || flags.partial === "true";
 
 const locator = (page, flags) => {
+  // A password field has no role, so a masked Variable is found by its label.
+  if (typeof flags.label === "string") {
+    return page.getByLabel(flags.label, { exact: !partialMatch(flags) });
+  }
   const role = flags.role;
   const name = flags.name;
   if (typeof role !== "string" || typeof name !== "string") {
-    fail("browser actions that target a control need --role and --name.");
+    fail(
+      "browser actions that target a control need --role and --name, or --label."
+    );
   }
   return page.getByRole(role, { exact: !partialMatch(flags), name });
 };
