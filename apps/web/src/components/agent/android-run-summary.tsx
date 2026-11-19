@@ -30,6 +30,7 @@ import {
   deviceCleanupKey,
 } from "./android-workspace-state";
 import { EvidenceReference } from "./evidence-reference";
+import { DetailFacts, DetailSection } from "./run-detail-parts";
 import { RunVideoPlayer } from "./run-video";
 import { videoOffsetMs } from "./run-video-timeline";
 
@@ -752,34 +753,38 @@ export const DeviceRunSummary = ({
       stageShowsLastScreen={stageShowsLastScreen}
       teaching={session.kind === "teaching"}
     />
-    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-t pt-4 text-xs">
-      <dt className="text-muted-foreground">Session</dt>
-      <dd>{KIND[session.kind]}</dd>
-      {ended === undefined ? null : (
-        <>
-          <dt className="text-muted-foreground">Ended</dt>
-          <dd>{ended}</dd>
-        </>
-      )}
-      <dt className="text-muted-foreground">Device</dt>
-      <dd className="wrap-anywhere">{device}</dd>
-      <dt className="text-muted-foreground">Target App</dt>
-      <dd className="wrap-anywhere">{targetApp}</dd>
-      <dt className="text-muted-foreground">Starting data</dt>
-      <dd>{startingDataLabel(session.requirements)}</dd>
-      <dt className="text-muted-foreground">Starting Emulation</dt>
-      <dd className="text-pretty">
-        {startingEmulationLabel(session.requirements)}
-      </dd>
-      <dt className="text-muted-foreground">Takeover</dt>
-      <dd>
-        {session.takeoverOccurred ? "Occurred; a Dry Run cannot pass" : "None"}
-      </dd>
-      <dt className="text-muted-foreground">Capture gaps</dt>
-      <dd>{gapLabels(session).join(", ") || "None"}</dd>
-      <dt className="text-muted-foreground">Cleanup</dt>
-      <dd className="text-pretty">{cleanupLabel(session)}</dd>
-    </dl>
+    <DetailSection label="Device">
+      <DetailFacts>
+        <dt>Session</dt>
+        <dd>{KIND[session.kind]}</dd>
+        {ended === undefined ? null : (
+          <>
+            <dt>Ended</dt>
+            <dd>{ended}</dd>
+          </>
+        )}
+        <dt>Device</dt>
+        <dd className="wrap-anywhere">{device}</dd>
+        <dt>Target App</dt>
+        <dd className="wrap-anywhere">{targetApp}</dd>
+        <dt>Starting data</dt>
+        <dd>{startingDataLabel(session.requirements)}</dd>
+        <dt>Starting Emulation</dt>
+        <dd className="text-pretty">
+          {startingEmulationLabel(session.requirements)}
+        </dd>
+        <dt>Takeover</dt>
+        <dd>
+          {session.takeoverOccurred
+            ? "Occurred; a Dry Run cannot pass"
+            : "None"}
+        </dd>
+        <dt>Capture gaps</dt>
+        <dd>{gapLabels(session).join(", ") || "None"}</dd>
+        <dt>Cleanup</dt>
+        <dd className="text-pretty">{cleanupLabel(session)}</dd>
+      </DetailFacts>
+    </DetailSection>
   </div>
 );
 

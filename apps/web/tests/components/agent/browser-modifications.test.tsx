@@ -63,10 +63,17 @@ test("Summary retains redacted descriptions, activity times, and removal times",
   const region = screen.getByRole("region", { name: "Browser Modifications" });
   expect(within(region).getAllByRole("listitem")).toHaveLength(3);
   expect(region).toHaveTextContent("[redacted]");
-  expect(region).toHaveTextContent("Agent · Saved");
-  expect(region).toHaveTextContent("Agent · Agent-initiated");
-  expect(region).toHaveTextContent("2026-10-18T12:00:00.000Z");
-  expect(region).toHaveTextContent("Removed 2026-10-18T12:03:00.000Z");
+  expect(region).toHaveTextContent("Saved with the Flow");
+  expect(region).toHaveTextContent("Added by the agent");
+  expect(region).toHaveTextContent("2 active");
+  // Times read as the clock; the exact instant stays machine-readable.
+  expect(
+    region.querySelector('time[datetime="2026-10-18T12:00:00.000Z"]')
+  ).not.toBeNull();
+  expect(region).toHaveTextContent(/Removed \d{2}:\d{2}:\d{2}/u);
+  expect(
+    region.querySelector('time[datetime="2026-10-18T12:03:00.000Z"]')
+  ).not.toBeNull();
 });
 
 test("dock and Summary retain irreversible evaluation evidence", () => {

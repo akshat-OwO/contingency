@@ -388,10 +388,119 @@ test("tells System One's attempts from the agent's own", () => {
   );
   const pursuits = screen.getByRole("region", { name: "System One Pursuits" });
   expect(pursuits).toHaveTextContent("Add the anvil to the cart.");
-  expect(pursuits).toHaveTextContent("done");
+  expect(pursuits).toHaveTextContent("1 delegated");
+  expect(pursuits).toHaveTextContent("Done");
   expect(
     within(pursuits).getByRole("list", { name: "Model-chosen attempts" })
-  ).toHaveTextContent("action-add-anvil operation 97%, target 91%");
+  ).toHaveTextContent("action-add-anvil operation 97% · target 91%");
+});
+
+const cartCheck = {
+  demonstrated: true,
+  expectation: {
+    itemPath: [],
+    predicates: [{ expected: 200, operator: "equals", path: ["status"] }],
+  },
+  id: "cart-total",
+  kind: "response",
+  request: {
+    method: "GET",
+    origin: "https://shop.example",
+    path: "/cart",
+    query: {},
+  },
+  response: "matching",
+  timeoutMs: 5000,
+  when: "After adding to cart",
+} as const;
+
+test("reads checks, scans and Flows as rows with their status words", () => {
+  render(
+    <RunSummaryView
+      summary={{
+        ...taskSummary,
+        browserCheckResults: [
+          {
+            at: "2026-09-04T00:00:20.000Z",
+            flowName: "browse-catalogue",
+            id: "cart-total",
+            operationId: "attempt-cart",
+            status: "passed",
+            summary: "GET /cart answered 200.",
+          },
+        ],
+        browserChecks: [
+          { check: cartCheck, flowName: "browse-catalogue" },
+          {
+            check: { ...cartCheck, id: "coupon-applied" },
+            flowName: "browse-catalogue",
+          },
+        ],
+        referencedFlows: [
+          ...taskSummary.referencedFlows,
+          {
+            flowName: "sign-in",
+            origin: "example",
+            referencedAt: "2026-09-04T00:00:00.000Z",
+          },
+        ],
+        scanReports: [
+          {
+            durationMs: 6900,
+            flowName: "browse-catalogue",
+            id: "scan-nav",
+            mode: "navigation",
+            requirementId: "nav",
+            startedAt: "2026-09-04T00:00:10.000Z",
+            status: "partial",
+            summary: "The payment frame never finished loading.",
+            tabId: "tab-1",
+            url: "https://shop.example/pay",
+          },
+        ],
+        scanRequirements: [
+          {
+            flowName: "browse-catalogue",
+            id: "nav",
+            mode: "navigation",
+            when: "Continue to payment is chosen",
+          },
+          {
+            flowName: "browse-catalogue",
+            id: "reload",
+            mode: "reload",
+            when: "the confirmation shows",
+          },
+        ],
+      }}
+    />
+  );
+  const checks = screen.getByRole("region", { name: "Browser Checks" });
+  expect(checks).toHaveTextContent("1 of 2 required passed");
+  expect(within(checks).getByRole("img", { name: "Passed" })).toBeVisible();
+  expect(
+    within(checks).getByRole("img", { name: "Not evaluated" })
+  ).toBeVisible();
+  expect(checks).toHaveTextContent(
+    "This required check has not been evaluated."
+  );
+  const scans = screen.getByRole("region", { name: "Required scans" });
+  expect(scans).toHaveTextContent("0 of 2 completed · coverage incomplete");
+  expect(within(scans).getByRole("img", { name: "Partial" })).toBeVisible();
+  expect(within(scans).getByRole("img", { name: "Not run" })).toBeVisible();
+  expect(scans).toHaveTextContent("When Continue to payment is chosen");
+  const flows = screen.getByRole("region", { name: "Referenced flows" });
+  expect(
+    within(flows).getByRole("link", { name: "browse-catalogue" })
+  ).toHaveAttribute("href", "/flow?flow=browse-catalogue");
+  expect(
+    within(flows).getByRole("link", { name: "sign-in Example" })
+  ).toHaveAttribute("href", "/flow?flow=sign-in");
+  expect(
+    within(screen.getByRole("region", { name: "Emulation" })).getByText(
+      "1024×720"
+    )
+  ).toBeVisible();
 });
 
 test("shows closure without inventing a task assessment", () => {

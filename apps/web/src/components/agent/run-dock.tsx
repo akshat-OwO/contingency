@@ -209,7 +209,7 @@ const TaskDetails = ({
         anchor={() => trigger.current?.closest("section") ?? null}
         side="top"
         sideOffset={8}
-        className="max-h-[min(60svh,32rem)] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto"
+        className="max-h-[min(60svh,35rem)] w-100 max-w-[calc(100vw-2rem)] overflow-y-auto"
       >
         <PopoverTitle>{title}</PopoverTitle>
         <TaskRunDetails run={run} />

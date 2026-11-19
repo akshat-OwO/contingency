@@ -1,6 +1,6 @@
 import type { AgentRunId } from "@contingency/protocol";
 import { isBrowserRpcError } from "@contingency/protocol";
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Cause } from "effect";
 import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 
@@ -8,6 +8,8 @@ import { InteractiveRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskInteractiveRunSummary } from "@/components/agent/dry-run-summary-state";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { refusal } from "@/lib/refusal";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -30,16 +32,30 @@ const missingSummaryMessage = (cause: Cause.Cause<unknown>): string | null => {
  */
 export const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
   const { endedRunSummaryAtom } = useRpcDependencies();
-  const result = useAtomValue(endedRunSummaryAtom(runId));
+  const summaryAtom = endedRunSummaryAtom(runId);
+  const result = useAtomValue(summaryAtom);
+  const retry = useAtomRefresh(summaryAtom);
   if (result._tag === "Initial") {
+    // The shape of the summary it is writing, so the dock doesn't jump when
+    // the summary lands.
     return (
-      <p
-        aria-live="polite"
-        className="text-muted-foreground flex items-center gap-2 text-sm"
-      >
-        <LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" />
-        Writing the Run Summary…
-      </p>
+      <div aria-busy="true" className="grid gap-3.5">
+        <p
+          className="text-muted-foreground flex items-center gap-2 text-sm"
+          role="status"
+        >
+          <LoaderCircleIcon
+            aria-hidden="true"
+            className="size-4 animate-spin"
+          />
+          Writing the Run Summary…
+        </p>
+        <Skeleton className="h-16 rounded-[14px]" />
+        <Skeleton className="h-3.5 w-[72%]" />
+        <Skeleton className="h-3.5 w-[90%]" />
+        <Skeleton className="aspect-video rounded-[14px]" />
+        <Skeleton className="h-14 rounded-[14px]" />
+      </div>
     );
   }
   if (result._tag === "Failure") {
@@ -48,9 +64,20 @@ export const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>The Run Summary could not be opened</AlertTitle>
         <AlertDescription>
-          {missingSummaryMessage(result.cause) ??
-            refusal(result) ??
-            "The server refused to read this Run Summary."}
+          <p>
+            {missingSummaryMessage(result.cause) ??
+              refusal(result) ??
+              "The server refused to read this Run Summary."}
+          </p>
+          <Button
+            className="mt-2"
+            onClick={retry}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Try again
+          </Button>
         </AlertDescription>
       </Alert>
     );

@@ -3561,6 +3561,19 @@ test("says an ended Run's Summary was not written rather than missing from the c
       "The Run ended, but its Run Summary was not written in time. Open it later with open_run."
     )
   ).toBeVisible();
+
+  // Once the Runner writes it, Try again reads it without leaving the dock.
+  const reads = rpc.endedRunSummaryCalls.length;
+  rpc.endedRunSummaryResult = undefined;
+  await userEvent.click(
+    within(summary).getByRole("button", { name: "Try again" })
+  );
+  expect(rpc.endedRunSummaryCalls.length).toBeGreaterThan(reads);
+  expect(
+    await within(summary).findByRole("tablist", {
+      name: "Run Summary sections",
+    })
+  ).toBeVisible();
 });
 
 test("follows a Teaching Dry Run and returns to its owner instead of the first session", async () => {
