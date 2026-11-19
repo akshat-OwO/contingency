@@ -43,7 +43,7 @@ function DropdownMenuTrigger(
 const islandContentClassName =
   "bg-island-solid ring-island-border shadow-island w-52 rounded-[14px] p-1";
 const islandItemClassName =
-  "data-highlighted:bg-island-hover data-highlighted:text-foreground h-[34px] gap-2.5 rounded-[10px] px-2.5 font-medium [&_svg:not([class*='text-'])]:text-muted-foreground data-checked:[&>svg:first-child]:text-island-brand";
+  "data-highlighted:bg-island-hover data-highlighted:text-foreground h-[34px] gap-2.5 rounded-[10px] pl-2.5 font-medium [&_svg:not([class*='text-'])]:text-muted-foreground data-checked:[&>svg:first-child]:text-island-brand";
 
 const MenuVariant = React.createContext<"default" | "island">("default");
 
@@ -122,7 +122,7 @@ function DropdownMenuItem({
       className={cn(
         itemClassName,
         "data-[variant=destructive]:text-destructive data-[variant=destructive]:data-highlighted:bg-destructive/10 data-[variant=destructive]:data-highlighted:text-destructive dark:data-[variant=destructive]:data-highlighted:bg-destructive/20 data-[variant=destructive]:*:[svg]:text-destructive",
-        menu === "island" && islandItemClassName,
+        menu === "island" && [islandItemClassName, "pr-2.5"],
         className
       )}
       data-inset={inset}
