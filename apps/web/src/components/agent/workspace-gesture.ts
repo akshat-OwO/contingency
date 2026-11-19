@@ -45,6 +45,8 @@ export const controlGestureAtom = sessionGestureFamily();
 export const recordingGestureAtom = sessionGestureFamily();
 /** Back, forward, reload, and address-bar navigation during Takeover. */
 export const navigationGestureAtom = sessionGestureFamily();
+/** Stop loading, apart from the navigation it stops, which is still pending. */
+export const stopLoadingGestureAtom = sessionGestureFamily();
 /** Saving a Teaching comment as an instruction on the recording. */
 export const commentGestureAtom = sessionGestureFamily();
 export const sessionDeleteGestureAtom = gestureAtom();

@@ -7,6 +7,7 @@ import {
   AgentElementRef,
   AgentHistoryAction,
   AgentNavigateAction,
+  AgentStopLoadingAction,
 } from "./agent-browser.ts";
 import { AgentPendingDecisionResolve } from "./agent-decision.ts";
 import { AgentSessionId } from "./agent-identifiers.ts";
@@ -177,6 +178,8 @@ export type {
 export const BrowserTab = Schema.Struct({
   active: Schema.Boolean,
   label: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The tab's document is loading, while a browser would show Stop. */
+  loading: Schema.Boolean,
   tabId: BrowserTabId,
   title: Schema.String,
   type: Schema.String,
@@ -700,11 +703,16 @@ export const AgentSetupVariableAnswered = Schema.Struct({
 
 /**
  * Address-bar and history navigation while the user holds the browser. It
- * carries the same actions the agent may take, so a Takeover is a real
- * browser, not a viewport: only the actor changes.
+ * carries the same navigation the agent may take, so a Takeover is a real
+ * browser, not a viewport: only the actor changes. Stop is the one addition,
+ * because only a person watching a load decides to stop it.
  */
 export const AgentBrowserNavigate = Schema.Struct({
-  action: Schema.Union([AgentNavigateAction, AgentHistoryAction]),
+  action: Schema.Union([
+    AgentNavigateAction,
+    AgentHistoryAction,
+    AgentStopLoadingAction,
+  ]),
   sessionId: AgentBrowserObserve.fields.sessionId,
 });
 export const AgentBrowserNavigated = Schema.Struct({

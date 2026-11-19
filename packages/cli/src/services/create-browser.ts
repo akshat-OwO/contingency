@@ -374,6 +374,7 @@ const makeService = (
         geolocation: environment?.geolocation,
         identity: undefined,
         lastStreamId: undefined,
+        loading: new Set(),
         locale: environment?.locale,
         pageIds: new Map(),
         pageZoom: environment?.pageZoom ?? 100,
@@ -827,6 +828,13 @@ const makeService = (
       Effect.gen(function* navigateSession() {
         const session = yield* requireSession(sessionId);
         const { activePage } = yield* Ref.get(session.state);
+        if (action === "stop") {
+          const cdp = yield* requireEmulationSession(session, activePage);
+          yield* tryBrowser("Could not stop loading", () =>
+            cdp.send("Page.stopLoading")
+          );
+          return;
+        }
         yield* tryBrowser(`Could not ${action}`, async () => {
           if (action === "back") {
             await activePage.goBack();

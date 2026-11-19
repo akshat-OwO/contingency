@@ -39,6 +39,8 @@ export interface AgentViewState {
   readonly frameReady: boolean;
   /** Inspect mode over the live frame, and the comments it has attached. */
   readonly inspect: InspectState;
+  /** The shown tab is loading, so the device bar offers Stop loading. */
+  readonly pageLoading: boolean;
   readonly phase: AgentViewPhase;
   readonly selectedSessionId: AgentSessionId | undefined;
   readonly session: AgentSessionSnapshot | undefined;
@@ -60,6 +62,7 @@ export const agentViewStateAtom = Atom.make<AgentViewState>({
   frameProjection: flatFrameProjection,
   frameReady: false,
   inspect: emptyInspectState,
+  pageLoading: false,
   phase: "loading",
   selectedSessionId: undefined,
   session: undefined,

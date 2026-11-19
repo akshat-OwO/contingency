@@ -7,7 +7,7 @@ import {
 import type { TeachingCaptureLimits } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Stream } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Stream } from "effect";
 import { RpcTest } from "effect/rpc";
 
 import { RpcHandlersLive } from "../../src/routes/rpc.ts";
@@ -20,6 +20,7 @@ import { discardTeachingRecording } from "../../src/services/mcp-teaching-record
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 import { evidenceDirectory, awaitSession } from "./agent-harness.ts";
+import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = {
   deviceScaleFactor: 1,
@@ -366,6 +367,69 @@ it.live(
         expect(manifest).toMatchObject({ lifecycle: { _tag: "ready" } });
       }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+/**
+ * A stopped load never fires `load`, so the user's navigation would wait out
+ * its timeout and report a failure, or fail at once with the abort when the
+ * Page had not committed yet. Stop settles it instead.
+ */
+it.live("settles the user's navigation when the user stops its load", () =>
+  Effect.gen(function* stopUserLoad() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-stop-loading-",
+    });
+    yield* Effect.gen(function* driveStopLoading() {
+      const fixtures = yield* fixtureServer;
+      const client = yield* RpcTest.makeClient(ContingencyRpcs, {
+        flatten: true,
+      });
+      const opened = yield* client("agent.session.start", {
+        activity: "teaching",
+        clientName: "integration-agent",
+        clientVersion: "1.0.0",
+        name: "stop-loading",
+        operationId: OperationId.make("open-stop-loading"),
+        url: "about:blank",
+        viewport,
+      });
+      const sessionId = opened.session.id;
+      const awaitLoading = (loading: boolean) =>
+        client("agent.browser.stream.subscribe", { sessionId }).pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "tabs" &&
+              event.tabs.find(({ active }) => active)?.loading === loading
+          ),
+          Stream.runHead,
+          Effect.timeout("30 seconds")
+        );
+      // First a document that never answers, then one whose image never does.
+      for (const url of [
+        `${fixtures.origin}${NEVER_ANSWERED}`,
+        fixtures.url("slow.html"),
+      ]) {
+        const navigation = yield* client("agent.browser.navigate", {
+          action: { type: "navigate", url },
+          sessionId,
+        }).pipe(Effect.forkScoped);
+        yield* awaitLoading(true);
+        yield* client("agent.browser.navigate", {
+          action: { type: "stop" },
+          sessionId,
+        });
+        const settled = yield* Fiber.join(navigation).pipe(
+          Effect.timeout("30 seconds")
+        );
+        expect(settled.session.timeline.at(-1)).toMatchObject({
+          actor: "user",
+          outcome: "completed",
+        });
+        yield* awaitLoading(false);
+      }
+    }).pipe(Effect.scoped, Effect.provide(teachingIntegrationLive(root)));
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 
 it.live("ends the recording itself when a capture ceiling is reached", () =>

@@ -81,6 +81,8 @@ interface FakeBrowser {
   readonly emulations: DraftEmulation[];
   /** The viewport each session was created at, in order. */
   readonly viewports: Viewport[];
+  /** The history actions the browser was asked for, in order. */
+  readonly navigations: string[];
   /** Suspend the next `currentUrl` read, the way a real one can suspend. */
   readonly holdNextCurrentUrl: (held: HeldRead) => void;
   /** Move the fake Page the way a user click during Takeover would. */
@@ -102,6 +104,7 @@ const makeFakeBrowser = (options?: {
   const closed: SessionId[] = [];
   const emulations: DraftEmulation[] = [];
   const viewports: Viewport[] = [];
+  const navigations: string[] = [];
   let pageUrl = "about:blank";
   let activePageCalls = 0;
   const blockClose = options?.blockClose;
@@ -176,7 +179,10 @@ const makeFakeBrowser = (options?: {
     getTabStorage: notUnderTest,
     getTabs: notUnderTest,
     list: notUnderTest,
-    navigate: notUnderTest,
+    navigate: (_sessionId, action) =>
+      Effect.sync(() => {
+        navigations.push(action);
+      }),
     newTab: notUnderTest,
     open: (sessionId, url, emulation) => {
       if (options?.failOpen || sessionId === undefined) {
@@ -205,6 +211,7 @@ const makeFakeBrowser = (options?: {
     holdNextCurrentUrl: (held) => {
       hold = held;
     },
+    navigations,
     viewports,
     visit: (url: string) => {
       pageUrl = url;
@@ -607,6 +614,11 @@ it.effect("refuses user navigation while the agent holds the browser", () =>
       service.userNavigate(started.id, { action: "back", type: "history" })
     );
     expect(refusal.code).toBe("agent_control_unavailable");
+    const stopRefusal = yield* Effect.flip(
+      service.userNavigate(started.id, { type: "stop" })
+    );
+    expect(stopRefusal.code).toBe("agent_control_unavailable");
+    expect(fake.navigations).toEqual([]);
 
     yield* service.takeover(
       started.id,
@@ -619,6 +631,8 @@ it.effect("refuses user navigation while the agent holds the browser", () =>
       service.userNavigate(started.id, { action: "back", type: "history" })
     );
     expect(dispatched.code).toBe("agent_browser_failed");
+    yield* service.userNavigate(started.id, { type: "stop" });
+    expect(fake.navigations).toEqual(["stop"]);
   })
 );
 
