@@ -42,11 +42,11 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AgentCursor } from "@/components/agent/agent-cursor";
 import {
   adoptSessionSnapshot,
-  agentControlPresentation,
   agentViewStateAtom,
   savedTeachingInspectAtom,
   appendConsoleEntry,
   endedRunSnapshot,
+  guidedControlSentence,
   isInteractiveRunSession,
   relatedWorkspaceSession,
   workspaceChromeAtom,
@@ -60,8 +60,10 @@ import { DockRequests } from "@/components/agent/dock-requests";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { EndedRunSummary } from "@/components/agent/ended-run-summary";
-import { GuidedRunControl } from "@/components/agent/guided-run-control";
-import { GuidedTakeoverVariable } from "@/components/agent/guided-takeover-variable";
+import {
+  GuidedControlNotice,
+  GuidedRunControl,
+} from "@/components/agent/guided-run-control";
 import { RunDock } from "@/components/agent/run-dock";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { CommentComposer } from "@/components/agent/teaching-comment-composer";
@@ -787,6 +789,13 @@ const AgentLiveView = ({
         {showsNotices ? (
           <DockNotices>
             <>
+              {/* The persistent block sits above the transient notices. */}
+              {state.botProtectionBlock === undefined ? null : (
+                <BotProtectionNotice
+                  block={state.botProtectionBlock}
+                  onDismiss={onDismissBotProtectionBlock}
+                />
+              )}
               {notices}
               {browserStreamError === undefined ? null : (
                 <Alert variant="destructive">
@@ -794,12 +803,6 @@ const AgentLiveView = ({
                   <AlertTitle>Browser stream unavailable</AlertTitle>
                   <AlertDescription>{browserStreamError}</AlertDescription>
                 </Alert>
-              )}
-              {state.botProtectionBlock === undefined ? null : (
-                <BotProtectionNotice
-                  block={state.botProtectionBlock}
-                  onDismiss={onDismissBotProtectionBlock}
-                />
               )}
               {session.interruptedAction === null ? null : (
                 <Alert variant="destructive">
@@ -2623,10 +2626,9 @@ const BrowserWorkspace = ({
                       session={session}
                       onControl={view.changeControl}
                       pending={view.gestures.control.pending}
-                      error={view.gestures.control.error}
                     />
                   }
-                  controlStatus={`${agentControlPresentation(session).holder}. ${agentControlPresentation(session).reason ?? "Stop recording when finished."}`}
+                  controlStatus={guidedControlSentence(session)}
                   origin={session.origin}
                   captureState={session.captureState}
                   cleanup={session.recordingCleanup}
@@ -2644,10 +2646,6 @@ const BrowserWorkspace = ({
                       <DockRequests session={session} />
                       <DemoTeachingPassword
                         key={`demo-${session.id}`}
-                        session={session}
-                      />
-                      <GuidedTakeoverVariable
-                        key={session.id}
                         session={session}
                       />
                     </>
@@ -2702,11 +2700,17 @@ const BrowserWorkspace = ({
             }
             notices={
               session.activity === "teaching" ? (
-                <TeachingRecordingNotices
-                  captureState={session.captureState}
-                  error={view.gestures.recording.error}
-                  recordingId={session.recordingId}
-                />
+                <>
+                  <TeachingRecordingNotices
+                    captureState={session.captureState}
+                    error={view.gestures.recording.error}
+                    recordingId={session.recordingId}
+                  />
+                  <GuidedControlNotice
+                    error={view.gestures.control.error}
+                    session={session}
+                  />
+                </>
               ) : null
             }
             onAddressChange={view.setAddress}

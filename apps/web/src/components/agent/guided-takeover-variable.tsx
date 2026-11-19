@@ -2,16 +2,42 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
+import { KeyRoundIcon, LoaderCircleIcon } from "lucide-react";
 import { useId, useState } from "react";
 
+import {
+  AnsweredVariables,
+  RequestHeader,
+  RequestInvalid,
+  RequestMessage,
+  RequestNote,
+  requestIconClassName,
+} from "@/components/agent/dock-request-parts";
+import { takesTakeoverVariable } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
+const VARIABLE_NAME = /^[A-Z][A-Z0-9_]*$/u;
+
+const labelClassName = "text-[12.5px] font-medium";
+
+/** The form's own state; the entered names are the only record it keeps. */
+interface TakeoverForm {
+  readonly entered: readonly string[];
+  readonly error: string;
+  readonly invalid: boolean;
+  readonly name: string;
+  readonly pending: boolean;
+  readonly value: string;
+}
+
 const PrivateVariableForm = ({
+  collapse,
   session,
 }: {
+  readonly collapse: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {
   const { agentTeachingVariableInputMutation } = useRpcDependencies();
@@ -20,23 +46,45 @@ const PrivateVariableForm = ({
   });
   const id = useId();
   const [stateAtom] = useState(() =>
-    Atom.make({ error: "", name: "", pending: false, value: "" })
+    Atom.make<TakeoverForm>({
+      entered: [],
+      error: "",
+      invalid: false,
+      name: "",
+      pending: false,
+      value: "",
+    })
   );
   const [state, setState] = useAtom(stateAtom);
+  const nameMessageId = `${id}-name-message`;
+  const errorId = `${id}-error`;
   return (
-    <section
-      aria-label="Takeover Variable"
-      className="space-y-2 border-b p-3 text-sm"
-    >
-      <p>
-        Focus the browser field first. Enter a Variable here. The Timeline shows
-        its value; the saved flow keeps its reference.
-      </p>
+    <section aria-label="Takeover Variable" className="space-y-3">
+      <RequestHeader
+        action={collapse}
+        badge="While you have control"
+        icon={
+          <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
+        }
+        title="Takeover Variable"
+      />
+      <RequestNote>
+        Focus the page field first. The Timeline shows the value; the saved Flow
+        keeps the name.
+      </RequestNote>
       <form
-        className="flex flex-wrap items-end gap-2"
+        className="space-y-2.5"
+        noValidate
         onSubmit={async (event) => {
           event.preventDefault();
           const { name, value } = state;
+          if (!VARIABLE_NAME.test(name)) {
+            setState((current) => ({ ...current, invalid: true }));
+            return;
+          }
+          if (value === "") {
+            return;
+          }
           setState((current) => ({
             ...current,
             error: "",
@@ -52,7 +100,14 @@ const PrivateVariableForm = ({
                 variable: { name, runtime: true },
               },
             });
-            setState((current) => ({ ...current, pending: false }));
+            setState((current) => ({
+              ...current,
+              entered: [
+                ...current.entered.filter((entered) => entered !== name),
+                name,
+              ],
+              pending: false,
+            }));
           } catch (error) {
             setState((current) => ({
               ...current,
@@ -65,56 +120,106 @@ const PrivateVariableForm = ({
           }
         }}
       >
-        <label htmlFor={`${id}-name`} className="grid gap-1">
-          Variable name
+        <div className="grid gap-1.5">
+          <label className={labelClassName} htmlFor={`${id}-name`}>
+            Variable name
+          </label>
           <Input
-            id={`${id}-name`}
-            value={state.name}
-            pattern="[A-Z][A-Z0-9_]*"
-            title="Start with an uppercase letter. Use uppercase letters, numbers, and underscores."
-            required
-            disabled={state.pending}
-            onChange={(event) =>
-              setState((current) => ({ ...current, name: event.target.value }))
-            }
-          />
-        </label>
-        <label htmlFor={`${id}-value`} className="grid gap-1">
-          Variable value
-          <Input
-            id={`${id}-value`}
-            type="text"
+            aria-describedby={state.invalid ? nameMessageId : undefined}
+            aria-invalid={state.invalid || undefined}
             autoComplete="off"
-            value={state.value}
-            required
+            className="h-[34px] font-mono"
             disabled={state.pending}
+            id={`${id}-name`}
             onChange={(event) =>
-              setState((current) => ({ ...current, value: event.target.value }))
+              setState((current) => ({
+                ...current,
+                invalid: false,
+                name: event.target.value,
+              }))
             }
+            placeholder="PROMO_CODE"
+            spellCheck={false}
+            value={state.name}
+            variant="island"
           />
-        </label>
-        <Button type="submit" disabled={state.pending}>
-          Enter Variable
-        </Button>
-        {state.error === "" ? null : <p role="alert">{state.error}</p>}
+          {state.invalid ? (
+            <RequestInvalid id={nameMessageId}>
+              Start with a capital letter. Use A–Z, 0–9 and _.
+            </RequestInvalid>
+          ) : null}
+        </div>
+        <div className="grid gap-1.5">
+          <label className={labelClassName} htmlFor={`${id}-value`}>
+            Variable value
+          </label>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Input
+              aria-describedby={state.error === "" ? undefined : errorId}
+              autoComplete="off"
+              className="h-[34px] min-w-0 flex-1 font-mono"
+              disabled={state.pending}
+              id={`${id}-value`}
+              onChange={(event) =>
+                setState((current) => ({
+                  ...current,
+                  value: event.target.value,
+                }))
+              }
+              placeholder="Value"
+              spellCheck={false}
+              type="text"
+              value={state.value}
+              variant="island"
+            />
+            <Button
+              aria-busy={state.pending || undefined}
+              disabled={
+                state.pending || state.name === "" || state.value === ""
+              }
+              size="island"
+              type="submit"
+            >
+              {state.pending ? (
+                <LoaderCircleIcon
+                  aria-hidden="true"
+                  className="size-3.5 animate-spin"
+                />
+              ) : null}
+              Enter Variable
+            </Button>
+          </div>
+        </div>
+        <RequestMessage
+          error={state.error === "" ? undefined : state.error}
+          id={errorId}
+          invalid={undefined}
+        />
       </form>
+      <AnsweredVariables
+        answers={state.entered.map((name) => ({
+          key: name,
+          label: name,
+          status: "entered",
+        }))}
+        label="Entered"
+      />
     </section>
   );
 };
 
-/** Private values enter the page through Teaching's existing masking path. */
+/**
+ * Private values enter the page through Teaching's existing masking path,
+ * while the user holds the browser in a Guided recording (ADR 0052).
+ */
 export const GuidedTakeoverVariable = ({
+  collapse,
   session,
 }: {
+  /** The tier's collapse control, when this is its first request. */
+  readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
-}) => {
-  if (
-    session.activity !== "teaching" ||
-    session.origin !== "guided-run" ||
-    session.captureState._tag !== "recording" ||
-    session.controller !== "user"
-  ) {
-    return null;
-  }
-  return <PrivateVariableForm session={session} />;
-};
+}) =>
+  takesTakeoverVariable(session) ? (
+    <PrivateVariableForm collapse={collapse} session={session} />
+  ) : null;

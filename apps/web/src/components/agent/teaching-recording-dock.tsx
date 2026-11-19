@@ -35,6 +35,7 @@ import {
   DockState,
   DockStatus,
 } from "@/components/agent/workspace-dock";
+import type { DockStateTone } from "@/components/agent/workspace-dock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,15 +95,35 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
  * A Guided Run names itself in the badge. While it records, the badge is one
  * phrase rather than two labels joined.
  */
+/** What the dock's state badge says, and in which tone. */
+interface DockBadge {
+  readonly badge: string;
+  readonly tone: DockStateTone;
+}
+
+/**
+ * A Guided recording's badge names who holds the browser (#777): the agent
+ * while it drives, then the takeover it asked for, then the user.
+ */
 const guidedBadge = (
   origin: "teaching" | "guided-run" | undefined,
   tag: TeachingCaptureState["_tag"],
-  badge: string
-) => {
+  presentation: DockBadge,
+  controller: AgentSessionController,
+  phase: AgentSessionPhase
+): DockBadge => {
   if (origin !== "guided-run") {
-    return badge;
+    return presentation;
   }
-  return tag === "recording" ? "Guided recording" : `Guided Run · ${badge}`;
+  if (tag !== "recording") {
+    return { ...presentation, badge: `Guided Run · ${presentation.badge}` };
+  }
+  if (controller === "user") {
+    return { badge: "You have control", tone: "live" };
+  }
+  return phase === "takeover"
+    ? { badge: "Takeover requested", tone: "attention" }
+    : { ...presentation, badge: "Guided recording" };
 };
 
 /**
@@ -242,6 +263,13 @@ export const TeachingRecordingDock = ({
     phase
   );
   const { action } = presentation;
+  const badge = guidedBadge(
+    origin,
+    captureState._tag,
+    presentation,
+    controller,
+    phase
+  );
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);
   const startRename = () => {
@@ -289,9 +317,7 @@ export const TeachingRecordingDock = ({
         <DockStatus
           badges={
             <>
-              <DockState tone={presentation.tone}>
-                {guidedBadge(origin, captureState._tag, presentation.badge)}
-              </DockState>
+              <DockState tone={badge.tone}>{badge.badge}</DockState>
               <BrowserModificationBadge
                 modifications={
                   sessions.find((session) => session.id === selectedSessionId)

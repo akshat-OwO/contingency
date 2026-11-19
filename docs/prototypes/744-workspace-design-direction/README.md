@@ -49,7 +49,7 @@ The dark strip is prototype scaffolding, not proposed UI. It turns the running s
 
 ## Interactive Run chrome (#777)
 
-Awaiting sign-off on #777. These pieces are Web-only: the Android and iOS docks have no Guided recording, Takeover Variable or bot-protection notice.
+Approved on #777. These pieces are Web-only: the Android and iOS docks have no Guided recording, Takeover Variable or bot-protection notice.
 
 | Piece | Where | Holds |
 | --- | --- | --- |
@@ -69,7 +69,7 @@ Walk through it: open **signup · Guided Run**. In the scaffold, **Control** cyc
 
 ### Decisions
 
-Proposed for #777:
+Approved on #777, as prototyped:
 
 - **Control stays one button** beside **Stop recording**, not a second primary. **Take over** gets the needs-you tone because the agent has stopped and is waiting.
 - **A control error leaves the dock.** Today an always-present `alert` span sits inside the dock; a failure becomes a notice at the top centre, like every other refused gesture since #753.
@@ -77,7 +77,7 @@ Proposed for #777:
 - **The bot-protection notice is a toned island, not a destructive alert.** The site refused the browser; nothing is broken. It is the first notice to stop being destructive, which #753 carried forward.
 - **Only the notice card takes input over the stream.** Today the notices column is a full-width block, up to 64rem wide, that takes pointer input. Now only the 480px card does, so Forwarded Input (ADR 0076) gets more of the frame back.
 
-### Proposed contract changes (#777)
+### Proposed contract changes (#777, approved)
 
 | Kind | Today | Proposed |
 | --- | --- | --- |

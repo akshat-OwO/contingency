@@ -18,6 +18,7 @@ import type { DockRequest } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
 import { ExecutionBoundary } from "./execution-boundary";
 import { GuidedRunQuestions } from "./guided-run-questions";
+import { GuidedTakeoverVariable } from "./guided-takeover-variable";
 import { RuntimeVariables } from "./runtime-variables";
 import { SetupVariables } from "./setup-variables";
 
@@ -146,6 +147,11 @@ export const DockRequests = ({
         collapse={collapseFor("dry-run-secrets")}
         sessionId={session.id}
         variables={secrets}
+      />
+      <GuidedTakeoverVariable
+        collapse={collapseFor("takeover-variable")}
+        key={session.id}
+        session={session}
       />
     </div>
   );

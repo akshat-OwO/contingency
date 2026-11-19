@@ -1,12 +1,6 @@
 import type { BrowserBotProtectionBlock } from "@contingency/protocol";
 import { ShieldAlertIcon, XIcon } from "lucide-react";
 
-import {
-  Alert,
-  AlertAction,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 const PROVIDER_NAMES: Record<BrowserBotProtectionBlock["provider"], string> = {
@@ -27,6 +21,10 @@ const hostOf = (url: string): string => {
  * blocked login just resets its form, and the user blames the site or the
  * Flow (#266). Only the latest block shows: one refusal usually brings
  * several requests down with it, and they all say the same thing.
+ *
+ * It is a toned island rather than a destructive alert (#777): nothing is
+ * broken, the site is turning automated browsers away. It stays until
+ * dismissed, and only its own box takes pointer input over the stream.
  */
 export const BotProtectionNotice = ({
   block,
@@ -35,23 +33,32 @@ export const BotProtectionNotice = ({
   readonly block: BrowserBotProtectionBlock;
   readonly onDismiss: () => void;
 }) => (
-  <Alert variant="destructive">
-    <ShieldAlertIcon aria-hidden="true" />
-    <AlertTitle>{hostOf(block.url)} blocked this browser</AlertTitle>
-    <AlertDescription>
-      {PROVIDER_NAMES[block.provider]} bot protection refused a request with
-      HTTP {block.status}. The site is turning away automated browsers, so the
-      page is not broken and neither is the Flow.
-    </AlertDescription>
-    <AlertAction>
-      <Button
-        aria-label="Dismiss bot protection notice"
-        onClick={onDismiss}
-        size="icon-xs"
-        variant="ghost"
-      >
-        <XIcon aria-hidden="true" />
-      </Button>
-    </AlertAction>
-  </Alert>
+  <div
+    className="island bg-island-solid mx-auto flex w-full max-w-[480px] items-start gap-2.5 rounded-2xl py-2.5 pr-2 pl-2.5 text-left"
+    role="alert"
+  >
+    <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--island-brand)_16%,transparent)] text-(--status-needs-you)">
+      <ShieldAlertIcon aria-hidden="true" className="size-3.5" />
+    </span>
+    <div className="grid min-w-0 flex-1 gap-0.5">
+      <p className="text-[13px] font-semibold wrap-anywhere">
+        {hostOf(block.url)} blocked this browser
+      </p>
+      <p className="text-muted-foreground text-[12.5px] text-pretty">
+        {PROVIDER_NAMES[block.provider]} bot protection refused a request with
+        HTTP {block.status}. The site is turning away automated browsers, so the
+        page is not broken and neither is the Flow.
+      </p>
+    </div>
+    <Button
+      aria-label="Dismiss bot protection notice"
+      className="-mt-0.5 shrink-0"
+      onClick={onDismiss}
+      size="icon-xs"
+      type="button"
+      variant="ghost"
+    >
+      <XIcon aria-hidden="true" />
+    </Button>
+  </div>
 );

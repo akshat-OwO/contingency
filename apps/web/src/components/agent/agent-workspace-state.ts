@@ -273,6 +273,31 @@ export const agentControlPresentation = (
   };
 };
 
+/**
+ * A Guided recording's status sentence. The badge already names who holds
+ * the browser, so the sentence says what comes next, or why the agent asked.
+ */
+export const guidedControlSentence = (
+  session: AgentSessionSnapshot
+): string => {
+  const { action, reason } = agentControlPresentation(session);
+  if (session.controller === "user") {
+    return (
+      reason ??
+      "Capture continues while you drive. Return control when you're done."
+    );
+  }
+  if (action === "Take over") {
+    return reason ?? "The agent is asking you to take over.";
+  }
+  if (session.boundary !== undefined && session.boundary !== null) {
+    return "The agent is waiting for confirmation.";
+  }
+  return (
+    reason ?? "The agent is following the document. Take control at any time."
+  );
+};
+
 export const hasExecutionBoundaryNotice = (session: AgentSessionSnapshot) =>
   session.boundary !== null && session.boundary !== undefined;
 

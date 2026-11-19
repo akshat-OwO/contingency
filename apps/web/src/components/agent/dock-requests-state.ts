@@ -20,7 +20,8 @@ export interface DockRequest {
     | "boundary"
     | "dry-run-secrets"
     | "runtime-variables"
-    | "setup-variables";
+    | "setup-variables"
+    | "takeover-variable";
   /** What is asked, in a few words: the action, or how many inputs remain. */
   readonly summary: string;
   readonly title: string;
@@ -180,6 +181,28 @@ const questionsRequest = (
 };
 
 /** The requests the Requests island shows, in the order it shows them. */
+/**
+ * Whether the user can type a Variable into the page: only while they hold
+ * the browser during a Guided recording (ADR 0052, ADR 0065).
+ */
+export const takesTakeoverVariable = (session: AgentSessionSnapshot) =>
+  session.activity === "teaching" &&
+  session.origin === "guided-run" &&
+  session.captureState._tag === "recording" &&
+  session.controller === "user";
+
+const takeoverVariableRequest = (
+  session: AgentSessionSnapshot
+): DockRequest | undefined =>
+  takesTakeoverVariable(session)
+    ? {
+        key: `takeover:${session.id}`,
+        kind: "takeover-variable",
+        summary: "Type a Variable into the focused field",
+        title: "Takeover Variable",
+      }
+    : undefined;
+
 export const dockRequests = (
   session: AgentSessionSnapshot
 ): readonly DockRequest[] =>
@@ -189,6 +212,7 @@ export const dockRequests = (
     setupVariablesRequest(session),
     runtimeVariablesRequest(session),
     dryRunSecretsRequest(session),
+    takeoverVariableRequest(session),
   ].filter((request) => request !== undefined);
 
 /**
