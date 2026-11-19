@@ -58,7 +58,6 @@ import {
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
-import { workspaceChromeAtom } from "./agent-workspace-state";
 import { DeviceUnavailable, NativeStage } from "./android-device";
 import type {
   DeviceKey,
@@ -1170,11 +1169,6 @@ export const IosWorkspace = ({
   const [session, setSession] = useAtom(snapshotAtom);
   const [commentAtom] = useState(() => Atom.make(closedComment));
   const [comment, setComment] = useAtom(commentAtom);
-  const setChrome = useAtomSet(workspaceChromeAtom);
-  useEffect(() => {
-    setChrome(true);
-    return () => setChrome(false);
-  }, [setChrome]);
   const enabled = useAtomValue(iosEnabledAtom);
   const gesture = useWorkspaceGesture(commandAtom);
   // A sent comment closes its composer only once it saves; a refusal leaves

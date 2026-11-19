@@ -49,7 +49,6 @@ import {
   guidedControlSentence,
   isInteractiveRunSession,
   relatedWorkspaceSession,
-  workspaceChromeAtom,
 } from "@/components/agent/agent-workspace-state";
 import type { AgentViewState } from "@/components/agent/agent-workspace-state";
 import { AndroidWorkspace } from "@/components/agent/android-workspace";
@@ -117,6 +116,7 @@ import {
 } from "@/components/agent/workspace-gesture";
 import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
 import { islandControlClassName } from "@/components/agent/workspace-home-nav";
+import { GoToWorkspace, StatusPage } from "@/components/app-islands";
 import { WatcherLoader } from "@/components/brand";
 import {
   keyboardModifiers,
@@ -132,8 +132,6 @@ import {
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { flowsSessionView } from "@/components/catalog/flows-page-state";
-import { DocsLink } from "@/components/docs-link";
-import { ModeToggle } from "@/components/mode-toggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -308,62 +306,30 @@ const isFlowName = Schema.is(FlowName);
 
 const EMPTY_AGENT_SESSIONS: readonly AgentSessionSnapshot[] = [];
 
-/**
- * The theme and docs controls over a browser Workspace with no toolbar:
- * loading and unavailable. Without the app header they come along, as the
- * live toolbar carries them.
- */
-const WorkspaceStatusControls = () => {
-  const chrome = useAtomValue(workspaceChromeAtom);
-  const [header, setHeader] = useState(false);
-  useEffect(() => {
-    setHeader(
-      !chrome && document.querySelector("#workspace-header-actions") !== null
-    );
-  }, [chrome]);
-  return header ? null : (
-    <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5">
-      <DocsLink />
-      <ModeToggle />
-    </div>
-  );
-};
-
 const LoadingState = () => (
-  <main
-    aria-busy="true"
-    aria-live="polite"
-    className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6"
-  >
-    <WorkspaceStatusControls />
-    <section className="max-w-md space-y-4 text-center">
-      <WatcherLoader className="mx-auto h-7" />
-      <div className="space-y-1.5">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Loading Agent Sessions…
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          Looking for sessions owned by this local MCP process.
-        </p>
-      </div>
-    </section>
-  </main>
+  <StatusPage busy island={false}>
+    <WatcherLoader className="mb-2 h-7" />
+    <h1 className="text-xl font-semibold tracking-tight">
+      Loading Agent Sessions…
+    </h1>
+    <p className="text-muted-foreground text-sm">
+      Looking for sessions owned by this local MCP process.
+    </p>
+  </StatusPage>
 );
 
 const UnavailableState = ({ message }: { readonly message: string }) => (
-  <main className="relative grid h-[calc(100svh-3.5rem)] min-h-0 place-items-center p-6">
-    <WorkspaceStatusControls />
-    <section className="max-w-lg space-y-4 text-center">
-      <Alert className="text-left" variant="destructive">
-        <CircleAlertIcon aria-hidden="true" />
-        <AlertTitle>Agent Session unavailable</AlertTitle>
-        <AlertDescription>{message}</AlertDescription>
-      </Alert>
-      <p className="text-muted-foreground text-sm">
-        The session id selects a session; it is not an authentication token.
-      </p>
-    </section>
-  </main>
+  <StatusPage>
+    <Alert className="text-left" variant="destructive">
+      <CircleAlertIcon aria-hidden="true" />
+      <AlertTitle>Agent Session unavailable</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+    <p className="text-muted-foreground mt-1 text-xs text-pretty">
+      The session id selects a session; it is not an authentication token.
+    </p>
+    <GoToWorkspace />
+  </StatusPage>
 );
 
 const SwitchingState = () => (
@@ -2328,22 +2294,6 @@ const useAgentView = (
     // Nothing is left, so the route goes home rather than naming the Run.
     onRecoverSession?.();
   };
-
-  /*
-    Every live Workspace is full-bleed: the Workspace home carries its own
-    islands, and a Teaching session, a Dry Run, and an Interactive Run carry
-    the logo mark and the session in one dock, so the app header steps aside
-    for all of them. A Run Summary and an unknown route keep it, because they
-    have no dock (#209).
-  */
-  const chrome = state.phase === "empty" || state.session !== undefined;
-  const setChrome = useAtomSet(workspaceChromeAtom);
-  useEffect(() => {
-    setChrome(chrome);
-    return () => {
-      setChrome(false);
-    };
-  }, [chrome, setChrome]);
 
   /*
     Inspect and its pins belong to the recording they were attached to. Stop,

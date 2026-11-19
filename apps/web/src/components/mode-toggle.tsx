@@ -1,4 +1,5 @@
-import { MoonIcon, SunIcon } from "lucide-react";
+import { MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { flushSync } from "react-dom";
 
@@ -6,24 +7,45 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
+type ThemeChoice = "dark" | "light" | "system";
+
+const CHOICES: readonly {
+  readonly Icon: LucideIcon;
+  readonly label: string;
+  readonly value: ThemeChoice;
+}[] = [
+  { Icon: SunIcon, label: "Light", value: "light" },
+  { Icon: MoonIcon, label: "Dark", value: "dark" },
+  { Icon: MonitorIcon, label: "System", value: "system" },
+];
+
+const isThemeChoice = (value: unknown): value is ThemeChoice =>
+  value === "dark" || value === "light" || value === "system";
+
+/**
+ * Light, Dark and System as radio items (#779). The saved choice is checked,
+ * so System stays a choice of its own, and it says which theme it gives now.
+ */
 const ModeToggle = ({ className }: { readonly className?: string }) => {
-  const { setTheme } = useTheme();
+  const { setTheme, systemTheme, theme } = useTheme();
+  const choice: ThemeChoice = isThemeChoice(theme) ? theme : "system";
   // Light and dark cross-fade rather than flash: the view transition captures
   // the old theme, and the synchronous update applies the new one before the
   // new frame is captured. next-themes still turns other transitions off for
   // the switch, so controls don't animate one by one.
-  const changeTheme = (theme: "dark" | "light" | "system") => {
+  const changeTheme = (next: ThemeChoice) => {
     if (!("startViewTransition" in document)) {
-      setTheme(theme);
+      setTheme(next);
       return;
     }
     document.startViewTransition(() => {
-      flushSync(() => setTheme(theme));
+      flushSync(() => setTheme(next));
     });
   };
 
@@ -42,16 +64,30 @@ const ModeToggle = ({ className }: { readonly className?: string }) => {
         <SunIcon className="scale-100 rotate-0 opacity-100 transition-[opacity,transform] motion-reduce:transition-none dark:scale-95 dark:-rotate-90 dark:opacity-0" />
         <MoonIcon className="absolute scale-95 rotate-90 opacity-0 transition-[opacity,transform] motion-reduce:transition-none dark:scale-100 dark:rotate-0 dark:opacity-100" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => changeTheme("light")}>
-          Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => changeTheme("dark")}>
-          Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => changeTheme("system")}>
-          System
-        </DropdownMenuItem>
+      {/* Like the session switcher: clear the island, then a gap of its own. */}
+      <DropdownMenuContent align="end" sideOffset={14} variant="island">
+        <DropdownMenuRadioGroup
+          onValueChange={(value) => {
+            if (isThemeChoice(value)) {
+              changeTheme(value);
+            }
+          }}
+          value={choice}
+        >
+          {CHOICES.map(({ Icon, label, value }) => (
+            <DropdownMenuRadioItem closeOnSelect key={value} value={value}>
+              <Icon aria-hidden="true" />
+              {label}
+              {value === "system" && systemTheme !== undefined ? (
+                <span className="text-muted-foreground/80 ml-auto text-xs font-normal">
+                  {/* Read as "System, Light now"; the gap separates it. */}
+                  <span className="sr-only">,</span>{" "}
+                  {systemTheme === "dark" ? "Dark now" : "Light now"}
+                </span>
+              ) : null}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
