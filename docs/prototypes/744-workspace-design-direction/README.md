@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775) and [#776](https://github.com/akshat-OwO/contingency/issues/776), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764), [#775](https://github.com/akshat-OwO/contingency/issues/775), [#776](https://github.com/akshat-OwO/contingency/issues/776) and [#777](https://github.com/akshat-OwO/contingency/issues/777), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password. #776 restyles the request cards inside the Requests island. #777 restyles the Interactive Run chrome: the Guided Run control, the Takeover Variable and the bot-protection notice.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -46,6 +46,47 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Interactive Run chrome (#777)
+
+Awaiting sign-off on #777. These pieces are Web-only: the Android and iOS docks have no Guided recording, Takeover Variable or bot-protection notice.
+
+| Piece | Where | Holds |
+| --- | --- | --- |
+| Guided Run control | `Session status`, between the tools and **Stop recording** | One button: **Take control** while the agent drives, **Take over** (filled in the needs-you tone) after `agent_session_takeover_request`, **Return control** while you drive. While a change is pending it shows a spinner and keeps its name. |
+| Takeover Variable | `region "Requests"`, as its own card, only while you hold control in a Guided recording | The #776 card layout: eyebrow **While you have control**, title, one line on what the Timeline and the saved Flow keep, then **Variable name**, **Variable value** and **Enter Variable**. Entered Variables fold into `list "Entered"` as **<NAME> entered**. |
+| Bot-protection notice | The notices at the top centre | **<host> blocked this browser**, the provider and status, why the page and Flow are fine, and **Dismiss bot protection notice**. It stays until dismissed and sits above transient notices. |
+
+**Status chip and sentence.** A Guided recording's chip reads **Guided recording <mm:ss>**, **Takeover requested** or **You have control**. The sentence says only what comes next, or why the agent asked (**The agent asked for help: <reason>**), because the chip already says who holds the browser.
+
+**States.**
+
+- **Control:** agent, requested, you. The control button is pending while a change is in flight. A failed change is an `alert` at the top centre: **<action> did not go through.**, followed by who still holds control.
+- **Takeover Variable:** empty, filled, invalid (**Start with a capital letter. Use A–Z, 0–9 and \_.** under the name), submitting, error (**Could not enter the Variable. Focus the browser field and try again.**), entered.
+- **Bot protection:** shown or dismissed.
+
+Walk through it: open **signup · Guided Run**. In the scaffold, **Control** cycles agent, requested and you, **Control change** makes the next change fail, **Takeover Variable** forces the card's state (**live** lets you type; a value of `fail` fails), and **Bot block** shows the notice on any Web session.
+
+### Decisions
+
+Proposed for #777:
+
+- **Control stays one button** beside **Stop recording**, not a second primary. **Take over** gets the needs-you tone because the agent has stopped and is waiting.
+- **A control error leaves the dock.** Today an always-present `alert` span sits inside the dock; a failure becomes a notice at the top centre, like every other refused gesture since #753.
+- **The Takeover Variable is a request card** and collapses with the Requests island. Its value stays visible because the Timeline shows it.
+- **The bot-protection notice is a toned island, not a destructive alert.** The site refused the browser; nothing is broken. It is the first notice to stop being destructive, which #753 carried forward.
+- **Only the notice card takes input over the stream.** Today the notices column is a full-width block, up to 64rem wide, that takes pointer input. Now only the 480px card does, so Forwarded Input (ADR 0076) gets more of the frame back.
+
+### Proposed contract changes (#777)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Role/name | An empty `alert` always sits beside the control button | No alert until a change fails; then an `alert` at the top centre. |
+| Role/name | Entered Takeover Variables leave no trace | `list "Entered"` with one item per Variable, **<NAME> entered**. |
+| Role/name | An invalid Variable name relies on the browser's pattern bubble | The name field gets `aria-invalid` and a message under it. |
+| Text | Guided status reads `<holder>. <reason>`, e.g. **The agent has control. Stop recording when finished.** | The chip names the holder; the sentence is the next step or the agent's reason. |
+
+**Take control**, **Take over**, **Return control**, `region "Takeover Variable"`, **Variable name**, **Variable value**, **Enter Variable** and **Dismiss bot protection notice** stay. The MCP `viewUrl` params don't change. No ADR changes.
 
 ## Request cards (#776)
 

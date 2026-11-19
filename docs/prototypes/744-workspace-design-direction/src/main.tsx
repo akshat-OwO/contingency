@@ -85,6 +85,16 @@ import {
   WatcherMark,
   WebIcon,
 } from "./icons";
+import {
+  BotProtectionNotice,
+  CONTROL_LABEL,
+  ControlButton,
+  GUIDED_CONTROLS,
+  TAKEOVER_STATES,
+  TakeoverVariableCard,
+  controlSentence,
+} from "./interactive";
+import type { GuidedControl, TakeoverState } from "./interactive";
 import { DEVICE_STAGE_NEXT, EraseDevice, NativeCanvas } from "./native";
 import type { DeviceCanvas, DeviceStage, RailPlace } from "./native";
 import {
@@ -170,6 +180,13 @@ interface Session {
   readonly recording?: string;
   /** Set when the session's Run ends; its summary docks beside it. */
   ended?: { readonly run: string; readonly summary: SummaryState };
+  /**
+   * A Guided recording on Web (ADR 0065, #777): the agent drives while
+   * capture runs, and asks for help with a reason.
+   */
+  guided?: { readonly requested?: string };
+  /** The site's bot protection refused a request (#266). */
+  bot?: string;
 }
 
 /** The Run each Run session ends with, so the prototype can end it. */
@@ -288,6 +305,14 @@ const REQUEST_SAMPLES: readonly WithoutId<Request>[] = [
   },
 ];
 
+/** Who holds the browser in a Guided recording. */
+const guidedControl = (s: Session): GuidedControl =>
+  s.control === "user"
+    ? "user"
+    : s.guided?.requested !== undefined
+      ? "requested"
+      : "agent";
+
 const statusOf = (s: Session): Status =>
   s.ended
     ? "ended"
@@ -356,6 +381,18 @@ const SEED: readonly Session[] = [
     status: "running",
     step: [2, 6],
     task: "Find a red jacket under $80 in size M and add it to the cart. Stop before paying.",
+  },
+  {
+    activity: "Guided Run",
+    bot: "auth.shop.example",
+    control: "agent",
+    flow: "signup",
+    guided: {},
+    id: "s7",
+    platform: "web",
+    requests: [],
+    since: now - 96_000,
+    status: "recording",
   },
   {
     activity: "Dry Run",
@@ -445,7 +482,24 @@ const ProgressRing = ({
 };
 
 const StatusChip = ({ session }: { readonly session: Session }) => {
-  switch (statusOf(session)) {
+  const status = statusOf(session);
+  if (session.guided?.requested !== undefined && status === "recording") {
+    return (
+      <span className="chip" data-status="needs-you">
+        <HandIcon />
+        Takeover requested
+      </span>
+    );
+  }
+  if (session.guided && status === "recording") {
+    return (
+      <span className="chip" data-status="recording">
+        <span aria-hidden="true" className="rec-mark" />
+        Guided recording <span className="mono">{clock(session.since)}</span>
+      </span>
+    );
+  }
+  switch (status) {
     case "recording":
       return (
         <span className="chip" data-status="recording">
@@ -1352,9 +1406,15 @@ interface Options {
   readonly long: boolean;
   /** A demo Flow whose variation needs a password (#775). */
   readonly demo: boolean;
+  /** Whether a control change fails, to show its error (#777). */
+  readonly controlFails: boolean;
+  /** Forces the Takeover Variable into one state (#777). */
+  readonly takeover: TakeoverState;
 }
 const OptionsContext = createContext<Options>({
+  controlFails: false,
   demo: false,
+  takeover: "live",
   disclosure: "popover",
   long: true,
 });
@@ -1580,14 +1640,47 @@ const StatusIsland = ({
   readonly onPatch: (patch: Patch) => void;
   readonly onNotice: NotifyFn;
 }) => {
-  const action = primaryAction(session);
-  const { disclosure, long } = useContext(OptionsContext);
-  const line = (long ? LONG_LINE : LINE)[statusOf(session)];
+  const { controlFails, disclosure, long } = useContext(OptionsContext);
+  // A Guided recording keeps Stop as its primary action; control is the one
+  // button beside it (#777).
+  const guided = session.guided !== undefined && session.status === "recording";
+  const control = guidedControl(session);
+  const action = guided
+    ? {
+        label: "Stop recording",
+        patch: ((x) => ({ ...x, status: "ready" })) satisfies Patch,
+        tone: "",
+      }
+    : primaryAction(session);
+  const line =
+    guided && session.requests.length === 0
+      ? controlSentence(control, session.guided?.requested ?? "")
+      : (long ? LONG_LINE : LINE)[statusOf(session)];
   const ref = useStatusWidth();
   const [commenting, setCommenting] = useState(false);
+  const [controlPending, setControlPending] = useState(false);
   const bridge = useContext(InspectContext);
   const teaching =
-    session.activity === "Teaching" && session.status === "recording";
+    (session.activity === "Teaching" || session.guided !== undefined) &&
+    session.status === "recording";
+  const changeControl = () => {
+    setControlPending(true);
+    setTimeout(() => {
+      setControlPending(false);
+      if (controlFails) {
+        onNotice(
+          `${CONTROL_LABEL[control]} did not go through. ${control === "user" ? "You still have control." : "The agent still has control."}`,
+          "error"
+        );
+        return;
+      }
+      onPatch((x) => ({
+        ...x,
+        control: control === "user" ? "agent" : "user",
+        guided: {},
+      }));
+    }, 700);
+  };
   useEffect(() => {
     if (!teaching) setCommenting(false);
   }, [teaching]);
@@ -1638,14 +1731,18 @@ const StatusIsland = ({
             />
           ) : null}
         </div>
+        {guided ? (
+          <ControlButton
+            control={control}
+            onClick={changeControl}
+            pending={controlPending}
+          />
+        ) : null}
         <Button
           className={`btn ${action.tone}`}
           onClick={() => {
             onPatch(action.patch);
-            if (
-              session.activity === "Teaching" &&
-              session.status === "recording"
-            )
+            if (teaching)
               onNotice(`Saved ${session.flow}. Dry Run it from Flows.`, "ok");
           }}
         >
@@ -1653,6 +1750,42 @@ const StatusIsland = ({
         </Button>
       </section>
     </>
+  );
+};
+
+/** The Takeover Variable, in its own card in the Requests island (#777). */
+const TakeoverIsland = () => {
+  const { takeover } = useContext(OptionsContext);
+  const [collapsed, setCollapsed] = useState(false);
+  if (collapsed) {
+    return (
+      <Button
+        aria-label="Show request: Takeover Variable"
+        className="request-pill island"
+        onClick={() => transition(() => setCollapsed(false))}
+      >
+        <span className="request-icon small">
+          <KeyIcon />
+        </span>
+        <span className="request-pill-text">Takeover Variable</span>
+      </Button>
+    );
+  }
+  return (
+    <section aria-label="Requests" className="request island">
+      <TakeoverVariableCard
+        collapse={
+          <IconButton
+            className="icon-btn small"
+            label="Collapse requests"
+            onClick={() => transition(() => setCollapsed(true))}
+          >
+            <MinimizeIcon />
+          </IconButton>
+        }
+        forced={takeover}
+      />
+    </section>
   );
 };
 
@@ -2223,6 +2356,12 @@ const SessionView = ({
         />
       ) : null}
       <div aria-live="polite" className="notices">
+        {session.bot !== undefined && session.platform === "web" && !ended ? (
+          <BotProtectionNotice
+            host={session.bot}
+            onDismiss={() => onPatch((s) => ({ ...s, bot: undefined }))}
+          />
+        ) : null}
         {notice ? (
           <div
             className="notice island"
@@ -2287,6 +2426,11 @@ const SessionView = ({
               }}
             />
           ) : null}
+          {session.guided !== undefined &&
+          session.status === "recording" &&
+          session.control === "user" ? (
+            <TakeoverIsland />
+          ) : null}
           <RequestTier
             collapsed={collapsed}
             key={session.requests[0]?.id}
@@ -2343,7 +2487,9 @@ const App = () => {
     setNoticeState({ id: Date.now(), text, tone });
   const [side, setSide] = useState<"left" | "right">("right");
   const [options, setOptions] = useState<Options>({
+    controlFails: false,
     demo: false,
+    takeover: "live",
     disclosure: "popover",
     long: true,
   });
@@ -2829,6 +2975,44 @@ const App = () => {
                 onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
                 onOptions={setOptions}
                 options={options}
+                guided={
+                  current?.guided !== undefined &&
+                  current.status === "recording" &&
+                  !current.ended
+                    ? guidedControl(current)
+                    : undefined
+                }
+                onGuided={() => {
+                  if (!current) return;
+                  const next =
+                    GUIDED_CONTROLS[
+                      (GUIDED_CONTROLS.indexOf(guidedControl(current)) + 1) %
+                        GUIDED_CONTROLS.length
+                    ] ?? "agent";
+                  patch(current.id, (s) => ({
+                    ...s,
+                    control: next === "user" ? "user" : "agent",
+                    guided:
+                      next === "requested"
+                        ? {
+                            requested:
+                              "The sign-up form asks for a phone code.",
+                          }
+                        : {},
+                  }));
+                }}
+                bot={
+                  current?.platform === "web" && !current.ended
+                    ? current.bot !== undefined
+                    : undefined
+                }
+                onBot={() => {
+                  if (!current) return;
+                  patch(current.id, (s) => ({
+                    ...s,
+                    bot: s.bot === undefined ? "auth.shop.example" : undefined,
+                  }));
+                }}
               />
             </div>
           </FlowsNav.Provider>
@@ -2923,7 +3107,15 @@ const Scaffold = ({
   onReview,
   cleanupFails,
   onCleanup,
+  guided,
+  onGuided,
+  bot,
+  onBot,
 }: {
+  readonly guided: GuidedControl | undefined;
+  readonly onGuided: () => void;
+  readonly bot: boolean | undefined;
+  readonly onBot: () => void;
   readonly canEnd: boolean;
   readonly onEnd: () => void;
   readonly summary: SummaryState | undefined;
@@ -3047,6 +3239,41 @@ const Scaffold = ({
           >
             Demo password: {options.demo ? "on" : "off"}
           </button>
+          {guided ? (
+            <>
+              <button onClick={onGuided} type="button">
+                Control: {guided}
+              </button>
+              <button
+                onClick={() =>
+                  onOptions({ ...options, controlFails: !options.controlFails })
+                }
+                type="button"
+              >
+                Control change: {options.controlFails ? "fails" : "works"}
+              </button>
+              <button
+                onClick={() =>
+                  onOptions({
+                    ...options,
+                    takeover:
+                      TAKEOVER_STATES[
+                        (TAKEOVER_STATES.indexOf(options.takeover) + 1) %
+                          TAKEOVER_STATES.length
+                      ] ?? "live",
+                  })
+                }
+                type="button"
+              >
+                Takeover Variable: {options.takeover}
+              </button>
+            </>
+          ) : null}
+          {bot === undefined ? null : (
+            <button onClick={onBot} type="button">
+              Bot block: {bot ? "on" : "off"}
+            </button>
+          )}
         </>
       ) : null}
     </div>
