@@ -49,7 +49,7 @@ The dark strip is prototype scaffolding, not proposed UI. It turns the running s
 
 ## Run details (#778)
 
-Waiting for sign-off on #778. #757 and #760 restyled the Run Summary frame; this restyles the sections inside it and inside the Run dock's **Task details**. One component per section (`src/run-details.tsx`) serves both places.
+Approved on #778. #757 and #760 restyled the Run Summary frame; this restyles the sections inside it and inside the Run dock's **Task details**. One component per section (`src/run-details.tsx`) serves both places.
 
 | Section | Region | Holds |
 | --- | --- | --- |
@@ -74,15 +74,17 @@ Waiting for sign-off on #778. #757 and #760 restyled the Run Summary frame; this
 
 Walk through it: the scaffold's **Details** cycles `seeded`, `empty`, `short` and `long`. Open **Find a red jacket under $80** → **Task details** (live Web Run). Open `/?session=ended:run_W8hs` (Web Dry Run) and look at **Pass checks** and **Task**, and `/?session=ended:run_N4cs` (iOS) for the native Task tab.
 
-### Decisions to sign off
+### Decisions
+
+Approved on #778, as prototyped, including the native Device list:
 
 - **One row style, no bordered cards.** Each section is an eyebrow heading, its count on the right, and a single outlined list of rows, like the Run Summary checklist. Today each check, scan and Pursuit is its own bordered card with a Badge.
 - **Status words, not raw values.** **Passed**, **Partial**, **Needs input**, coloured by tone, replace the lowercase protocol values in Badges.
 - **The summary's Task tab gains the setup sections.** Pursuits, Browser Modifications and Emulation reach the docked summary; today only the legacy Run view and Task details show them.
-- **Native Runs get the Device list in the same style.** It touches `android-run-summary.tsx`, so prod would add the Android and iOS workspace proofs. The alternative is to leave native as it is.
+- **Native Runs get the Device list in the same style.** It touches `android-run-summary.tsx`, so prod adds the Android and iOS workspace proofs.
 - **No Badge variant change.** The status words are text in the row; Badge isn't used, so it needs no new variant.
 
-### Proposed contract changes (#778)
+### Proposed contract changes (#778, approved)
 
 | Kind | Today | Proposed |
 | --- | --- | --- |
