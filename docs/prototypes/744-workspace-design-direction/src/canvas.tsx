@@ -57,6 +57,7 @@ import {
   TrashIcon,
   WatcherLoader,
 } from "./icons";
+import { CommentPins, InspectHint } from "./teaching";
 
 /* ------------------------------------------------------------------ model */
 
@@ -76,6 +77,8 @@ export interface CanvasSession {
 export interface PickedElement {
   readonly role: string;
   readonly name: string;
+  /** Where it sits on the page, for the comment's pin. */
+  readonly box?: { x: number; y: number; w: number; h: number };
 }
 
 /**
@@ -496,6 +499,7 @@ export const WebCanvas = ({
   const [inspect, setInspect] = useState<
     ((el: PickedElement | null) => void) | null
   >(null);
+  const [missed, setMissed] = useState(false);
   const [hover, setHover] = useState<{
     readonly box: { x: number; y: number; w: number; h: number };
     readonly el: PickedElement;
@@ -634,6 +638,7 @@ export const WebCanvas = ({
         inspect(null);
         setInspect(null);
         setHover(null);
+        setMissed(false);
       } else if (card) {
         e.preventDefault();
         morph(() => setCard(null), ["tool-card"]);
@@ -662,8 +667,9 @@ export const WebCanvas = ({
       box: {
         h: r.height / s,
         w: r.width / s,
-        x: (r.left - box.left) / s,
-        y: (r.top - box.top) / s,
+        // In the page's scrolled content, so a pin stays on its element.
+        x: (r.left - box.left) / s + page.scrollLeft,
+        y: (r.top - box.top) / s + page.scrollTop,
       },
       el: { name, role },
     };
@@ -671,7 +677,12 @@ export const WebCanvas = ({
 
   const bridge = useContext(InspectContext);
   useEffect(() => {
-    bridge.current = ended ? null : (fn) => setInspect(() => fn);
+    bridge.current = ended
+      ? null
+      : (fn) => {
+          setMissed(false);
+          setInspect(() => fn);
+        };
     return () => {
       bridge.current = null;
     };
@@ -891,10 +902,14 @@ export const WebCanvas = ({
               if (inspect) {
                 e.preventDefault();
                 const hit = pickAt(e.target);
-                if (!hit) return;
-                inspect(hit.el);
+                if (!hit) {
+                  setMissed(true);
+                  return;
+                }
+                inspect({ ...hit.el, box: hit.box });
                 setInspect(null);
                 setHover(null);
+                setMissed(false);
               }
             }}
             onPointerDown={(e) => {
@@ -949,6 +964,9 @@ export const WebCanvas = ({
                 </span>
               </div>
             ) : null}
+            {session.activity === "Teaching" && !ended ? (
+              <CommentPins session={session.id} />
+            ) : null}
             {ended ? null : (
               <AgentCursor
                 active={live && agentDrives && !session.waiting}
@@ -983,14 +1001,7 @@ export const WebCanvas = ({
         </section>
       </div>
 
-      {inspect ? (
-        <div className="inspect-hint island" role="status">
-          Click an element to attach it to the comment
-          <span className="hint">
-            <kbd>Esc</kbd> cancels
-          </span>
-        </div>
-      ) : null}
+      {inspect ? <InspectHint error={missed} verb="Click" /> : null}
 
       {ended ? null : (
         <nav aria-label="Browser tools" className="tools-rail island">

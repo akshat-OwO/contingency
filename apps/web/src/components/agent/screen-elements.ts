@@ -1,6 +1,7 @@
 import type {
   AndroidWorkspaceObservation,
   NativeInput,
+  NativeTeachingInstruction,
 } from "@contingency/protocol";
 
 export type ObservedNode = AndroidWorkspaceObservation["nodes"][number];
@@ -224,4 +225,49 @@ export const elementAt = (
     }
   }
   return hit;
+};
+
+/** A comment's numbered pin on the screen, where its element sits now. */
+export interface CommentPin {
+  readonly box: ScreenBox;
+  /** The comment's number on the recording, counting from 1. */
+  readonly index: number;
+}
+
+/** How far a box may move, in fractions of the screen, and still be the same element. */
+const PIN_TOLERANCE = 0.01;
+
+const sameBox = (a: ScreenBox, b: ScreenBox) =>
+  Math.abs(a.left - b.left) <= PIN_TOLERANCE &&
+  Math.abs(a.top - b.top) <= PIN_TOLERANCE &&
+  Math.abs(a.width - b.width) <= PIN_TOLERANCE &&
+  Math.abs(a.height - b.height) <= PIN_TOLERANCE;
+
+/**
+ * The pins of the comments whose element is on this screen: the observation
+ * holds a node with the element's role and name where it was picked. A screen
+ * that moved on, or scrolled the element away, shows no pin for it.
+ */
+export const commentPins = (
+  observation: AndroidWorkspaceObservation | null,
+  instructions: readonly NativeTeachingInstruction[]
+): readonly CommentPin[] => {
+  if (observation === null) {
+    return [];
+  }
+  return instructions.flatMap((instruction, position) => {
+    const box = instruction.element?.box;
+    if (instruction.element === undefined || box === undefined) {
+      return [];
+    }
+    const { name, role } = instruction.element;
+    const onScreen = observation.nodes.some((node) => {
+      if (node.role !== role || node.name !== name) {
+        return false;
+      }
+      const nodeBox = elementBox(observation, node);
+      return nodeBox !== undefined && sameBox(nodeBox, box);
+    });
+    return onScreen ? [{ box, index: position + 1 }] : [];
+  });
 };

@@ -2,16 +2,22 @@ import { OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { useId, useState } from "react";
+import { KeyRoundIcon } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
+import { RequestHeader, requestIconClassName } from "./dock-request-parts";
 import { hasDemoTeachingPassword } from "./run-provenance";
 
-/** Sign-in belongs in the user's recording when their variation needs a password. */
+/**
+ * Sign-in belongs in the user's recording when their variation needs a
+ * password. It asks in the Requests island, which Teaching otherwise leaves
+ * free, so it never covers the page the user is signing in on.
+ */
 export const DemoTeachingPassword = ({
   session,
 }: {
@@ -21,7 +27,6 @@ export const DemoTeachingPassword = ({
   const enter = useAtomSet(agentTeachingVariableInputMutation, {
     mode: "promise",
   });
-  const id = useId();
   const [stateAtom] = useState(() =>
     Atom.make({ error: "", pending: false, value: "" })
   );
@@ -30,72 +35,90 @@ export const DemoTeachingPassword = ({
     return null;
   }
   return (
-    <section
-      aria-label="Teaching demo password"
-      className="bg-background space-y-2 rounded-lg border p-3 text-sm shadow-lg"
-    >
-      <h2 className="text-sm leading-5 font-semibold">
-        Record sign-in with a test password
-      </h2>
-      <p>
-        Click the store's Password field first. Enter a demo password here, then
-        continue in the store. Your recording keeps DEMO_PASSWORD in place of
-        its value.
-      </p>
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const { value } = state;
-          setState({ error: "", pending: true, value: "" });
-          try {
-            await enter({
-              payload: {
-                operationId: OperationId.make(crypto.randomUUID()),
-                sessionId: session.id,
-                value,
-                variable: {
-                  name: "DEMO_PASSWORD",
-                  runtime: true,
-                },
-              },
-            });
-            setState({ error: "", pending: false, value: "" });
-          } catch (error) {
-            setState({
-              error: failureMessage(
-                error,
-                "Could not enter the demo password. Click the store's Password field and try again."
-              ),
-              pending: false,
-              value: "",
-            });
+    <div className="border-b p-3.5">
+      <section aria-label="Teaching demo password" className="space-y-2.5">
+        <RequestHeader
+          badge="Demo sign-in"
+          icon={
+            <KeyRoundIcon aria-hidden="true" className={requestIconClassName} />
           }
-        }}
-      >
-        <label className="grid min-w-40 flex-1 gap-1" htmlFor={id}>
-          <span>Demo password</span>
+          title="Record sign-in with a test password"
+        />
+        <ol className="text-muted-foreground list-decimal pl-[18px] text-[12.5px]">
+          <li>Click the store's Password field.</li>
+          <li>Enter a demo password here, then continue in the store.</li>
+        </ol>
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const { value } = state;
+            setState({ error: "", pending: true, value: "" });
+            try {
+              await enter({
+                payload: {
+                  operationId: OperationId.make(crypto.randomUUID()),
+                  sessionId: session.id,
+                  value,
+                  variable: {
+                    name: "DEMO_PASSWORD",
+                    runtime: true,
+                  },
+                },
+              });
+              setState({ error: "", pending: false, value: "" });
+            } catch (error) {
+              setState({
+                error: failureMessage(
+                  error,
+                  "Could not enter the demo password. Click the store's Password field and try again."
+                ),
+                pending: false,
+                value: "",
+              });
+            }
+          }}
+        >
           <Input
-            id={id}
-            type="text"
+            aria-label="Demo password"
             autoComplete="off"
-            minLength={8}
-            required
+            className="h-10 min-w-40 flex-1 font-mono"
             disabled={state.pending}
-            value={state.value}
+            minLength={8}
             onChange={(event) =>
               setState((current) => ({ ...current, value: event.target.value }))
             }
+            placeholder="At least 8 characters"
+            required
+            type="text"
+            value={state.value}
+            variant="island"
           />
-        </label>
-        <Button
-          type="submit"
-          disabled={state.pending || state.value.length < 8}
-        >
-          Enter demo password
-        </Button>
-        {state.error === "" ? null : <p role="alert">{state.error}</p>}
-      </form>
-    </section>
+          <Button
+            disabled={state.pending || state.value.length < 8}
+            size="island-lg"
+            type="submit"
+          >
+            Enter demo password
+          </Button>
+        </form>
+        {state.error === "" ? (
+          <p className="text-muted-foreground text-xs">
+            Your recording keeps{" "}
+            <code className="bg-island-hover rounded-[5px] px-[5px] py-px font-mono text-xs">
+              DEMO_PASSWORD
+            </code>{" "}
+            in place of the value.
+          </p>
+        ) : (
+          <p
+            className="bg-status-recording/12 text-status-recording rounded-[10px] px-2.5 py-[7px] text-[12.5px]"
+            role="alert"
+          >
+            {state.error}
+          </p>
+        )}
+      </section>
+    </div>
   );
 };

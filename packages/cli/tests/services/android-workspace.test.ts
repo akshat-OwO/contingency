@@ -1909,6 +1909,13 @@ for (const optional of [false, true]) {
           );
           expect(verified.cleanup?._tag).toBe("purged");
           expect(verified.observation).toBeNull();
+          // Cleanup leaves no copy of the comments beside the summaries.
+          const summaries = path.join(root, ".android-workspace");
+          for (const name of yield* fs.readDirectory(summaries)) {
+            expect(
+              yield* fs.readFileString(path.join(summaries, name))
+            ).not.toContain("Return to Home; use only public fixture text.");
+          }
           // Cleanup deletes the Dry Run's screens but not what they were, so
           // its Run Summary can say they were deleted, here and after restart.
           const purgedShots = yield* workspace.keyframes(prepared.id);
@@ -1933,6 +1940,28 @@ for (const optional of [false, true]) {
           );
           expect(reopened.captureState?._tag).toBe("verified");
           expect(reopened.cleanup?._tag).toBe("purged");
+          expect(reopened.instructions).toEqual([]);
+          // A summary another process wrote before the purge loses its
+          // comments when this one starts.
+          const planted = path.join(summaries, "planted.json");
+          // Copy the dry run's real summary so it decodes, then add a comment.
+          const dryRunSummary = yield* fs.readFileString(
+            path.join(summaries, `${prepared.id}.json`)
+          );
+          yield* fs.writeFileString(
+            planted,
+            dryRunSummary.replace(
+              '"instructions": []',
+              `"instructions": [{"at":"2026-01-01T00:00:00.000Z","id":"planted","target":null,"text":"Planted comment."}]`
+            )
+          );
+          expect(yield* fs.readFileString(planted)).toContain(
+            "Planted comment."
+          );
+          yield* Effect.scoped(restart());
+          expect(yield* fs.readFileString(planted)).not.toContain(
+            "Planted comment."
+          );
           const store = yield* TeachingRecordingStore;
           expect(
             yield* fs.exists(
@@ -2258,6 +2287,122 @@ it.effect(
             text: "Edit opens the profile.",
           }),
         ]);
+      })
+    )
+);
+
+it.effect(
+  "lists the recording's comments, oldest first, in the snapshot and its persisted summary",
+  () =>
+    fixture(({ restart, root, setNodes }) =>
+      Effect.gen(function* listComments() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        // On the 1 by 1 fixture screenshot, bounds are already fractions.
+        setNodes([
+          pickNode({
+            bounds: { height: 0.25, width: 0.5, x: 0.25, y: 0.5 },
+            target: "@e2",
+          }),
+        ]);
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("list-record"),
+            sessionId: prepared.id,
+            start: true,
+          },
+          "user"
+        );
+        const picked = (yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        )).observation?.id;
+        if (picked === undefined) {
+          return yield* Effect.die("The screen must be observed.");
+        }
+        expect(
+          (yield* workspace.execute(
+            { _tag: "read", sessionId: prepared.id },
+            "user"
+          )).instructions
+        ).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "instruction",
+            element: { observationId: picked, target: "@e2" },
+            operationId: op("list-attached"),
+            sessionId: prepared.id,
+            text: "Edit opens the profile.",
+          },
+          "user"
+        );
+        const listed = yield* workspace.execute(
+          {
+            _tag: "instruction",
+            operationId: op("list-page"),
+            sessionId: prepared.id,
+            text: "Skip the welcome tour.",
+          },
+          "user"
+        );
+        const expected = [
+          {
+            at: expect.any(String),
+            element: {
+              box: { height: 0.25, left: 0.25, top: 0.5, width: 0.5 },
+              name: "Edit",
+              role: "button",
+            },
+            id: expect.any(String),
+            target: 'button "Edit"',
+            text: "Edit opens the profile.",
+          },
+          {
+            at: expect.any(String),
+            id: expect.any(String),
+            target: null,
+            text: "Skip the welcome tour.",
+          },
+        ];
+        expect(listed.instructions).toEqual(expected);
+        // Each listed comment is the recording's own instruction event.
+        const events = (yield* teachingEvents(listed.recordingId))
+          .split("\n")
+          .filter((line) => line.includes('"_tag":"instruction"'))
+          .map((line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(TeachingEvent))(line)
+          );
+        expect(
+          events.map((event) => ("id" in event ? event.id : undefined))
+        ).toEqual(listed.instructions?.map(({ id }) => id));
+        expect(
+          events.map((event) => ("at" in event ? event.at : undefined))
+        ).toEqual(listed.instructions?.map(({ at }) => at));
+
+        // Another process reads them from the persisted summary.
+        const fs = yield* FileSystem.FileSystem;
+        const records = path.join(root, ".android-workspace");
+        const record = JSON.parse(
+          yield* fs.readFileString(path.join(records, `${prepared.id}.json`))
+        );
+        // A summary persisted before comments were listed has none.
+        const older = AgentSessionId.make(`agent-android-${"c".repeat(32)}`);
+        const { instructions: _instructions, ...withoutComments } = record;
+        yield* fs.writeFileString(
+          path.join(records, `${older}.json`),
+          JSON.stringify({ ...withoutComments, id: older })
+        );
+        const [reopened, legacy] = yield* Effect.scoped(
+          Effect.flatMap(restart(), (fresh) =>
+            Effect.all([
+              fresh.execute({ _tag: "read", sessionId: prepared.id }, "user"),
+              fresh.execute({ _tag: "read", sessionId: older }, "user"),
+            ])
+          )
+        );
+        expect(reopened.instructions).toEqual(listed.instructions);
+        expect(legacy.instructions).toEqual([]);
       })
     )
 );

@@ -1,5 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { InspectOverlay } from "@/components/agent/teaching-inspect";
@@ -12,7 +11,6 @@ afterEach(cleanup);
 
 const props = {
   canvas: null,
-  onCancel: vi.fn(),
   onFreeze: vi.fn(),
   onHover: vi.fn(),
   projection: flatFrameProjection,
@@ -62,17 +60,25 @@ test("takes no pointer input outside a pick, so the Page stays usable under its 
   expect(layer).toHaveTextContent("1");
 });
 
-test("cancels a pick from its own pill", async () => {
-  const user = userEvent.setup();
-  const onCancel = vi.fn();
-  render(
+test("the pick hint takes no input, so a press on it picks what is underneath", () => {
+  const onFreeze = vi.fn();
+  const { container } = render(
     <InspectOverlay
       {...props}
-      onCancel={onCancel}
+      onFreeze={onFreeze}
       state={{ ...emptyInspectState, open: true }}
     />
   );
-  expect(screen.getByText("Click an element to attach it")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: /Cancel/u }));
-  expect(onCancel).toHaveBeenCalledOnce();
+  const hint = screen.getByRole("status");
+  expect(hint).toHaveTextContent(
+    "Click an element to attach it to the comment"
+  );
+  expect(hint.className).toContain("pointer-events-none");
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByLabelText("Escape cancels")).toBeVisible();
+  // SAFETY: the overlay always renders its own root element.
+  const layer = container.firstElementChild as Element;
+  fireEvent.pointerDown(hint, { clientX: 10, clientY: 10 });
+  expect(onFreeze).toHaveBeenCalledOnce();
+  expect(layer).toHaveAttribute("data-picking");
 });

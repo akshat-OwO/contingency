@@ -198,6 +198,7 @@ test("Confirmation keeps the device healthy and Take control enables the rail", 
       attached: null,
       dismissedField: null,
       failure: null,
+      highlightedComment: null,
       inputRefusal: null,
       instructing: false,
       instructionPending: false,
@@ -386,6 +387,7 @@ test("a native Teaching comment attaches the element the user picks on the scree
       attached: null,
       dismissedField: null,
       failure: null,
+      highlightedComment: null,
       inputRefusal: null,
       instructing: false,
       instructionPending: false,
@@ -411,7 +413,7 @@ test("a native Teaching comment attaches the element the user picks on the scree
     ),
   });
   await user.click(screen.getByRole("button", { name: "Comment" }));
-  const composer = screen.getByRole("form", { name: "Comment" });
+  const composer = screen.getByRole("dialog", { name: "Comment" });
   await user.click(
     within(composer).getByRole("button", { name: "Attach element" })
   );
@@ -451,7 +453,7 @@ test("a native Teaching comment attaches the element the user picks on the scree
   );
   expect(within(composer).getByText("Checkout")).toBeVisible();
   await user.type(
-    within(composer).getByRole("textbox", { name: "Instruction" }),
+    within(composer).getByRole("textbox", { name: "Comment" }),
     "Checkout must stay enabled{Enter}"
   );
   expect(mutate).toHaveBeenLastCalledWith(

@@ -61,8 +61,10 @@ import {
   pauseCodeOf,
 } from "./android-workspace-state";
 import { NativeCommentComposer } from "./native-comment-composer";
+import { recordingPins } from "./native-comment-state";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputQueue } from "./native-input";
+import { commentPins } from "./screen-elements";
 import type { AttachedElement } from "./screen-elements";
 import {
   androidStartGestureAtom,
@@ -83,6 +85,8 @@ interface WorkspaceState {
   readonly instructing: boolean;
   /** The open comment is picking its element on the screen. */
   readonly picking: boolean;
+  /** The earlier comment the card's list points at, outlined on the screen. */
+  readonly highlightedComment: number | null;
   /**
    * A comment was sent and has not answered. The composer and its draft stay
    * until it saves, so a refusal leaves them for another try.
@@ -99,6 +103,7 @@ const workspaceAtom = Atom.make<WorkspaceState>({
   attached: null,
   dismissedField: null,
   failure: null,
+  highlightedComment: null,
   inputRefusal: null,
   instructing: false,
   instructionPending: false,
@@ -141,6 +146,7 @@ const withSelected = (
 const closeComment = (current: WorkspaceState): WorkspaceState => ({
   ...current,
   attached: null,
+  highlightedComment: null,
   instructing: false,
   picking: false,
 });
@@ -484,14 +490,10 @@ const AndroidDockRequests = ({
   mutate,
   pending,
   session,
-  setState,
-  state,
 }: {
   readonly mutate: Mutate;
   readonly pending: boolean;
   readonly session: AndroidWorkspaceSnapshot;
-  readonly setState: SetState;
-  readonly state: WorkspaceState;
 }) => (
   <>
     <AndroidRequests
@@ -521,50 +523,81 @@ const AndroidDockRequests = ({
         })
       }
     />
-    {session.captureState?._tag === "recording" && state.instructing ? (
-      <NativeCommentComposer
-        attached={state.attached ?? undefined}
-        canAttach={session.observation !== null}
-        onAttach={() => setState((current) => ({ ...current, picking: true }))}
-        onCancelPick={() =>
-          setState((current) => ({ ...current, picking: false }))
-        }
-        onDetach={() => setState((current) => ({ ...current, attached: null }))}
-        onDismiss={() => setState(closeComment)}
-        onSubmit={(text) => {
-          const { attached } = state;
-          const comment = {
-            _tag: "instruction" as const,
-            operationId: operationId(),
-            sessionId: session.id,
-            text,
-          };
-          if (
-            mutate(
-              attached === null
-                ? comment
-                : {
-                    ...comment,
-                    element: {
-                      observationId: attached.observationId,
-                      target: attached.target,
-                    },
-                  }
-            )
-          ) {
-            setState((current) => ({
-              ...current,
-              instructionPending: true,
-              picking: false,
-            }));
-          }
-        }}
-        pending={pending}
-        picking={state.picking}
-      />
-    ) : null}
   </>
 );
+
+/**
+ * The comment card while a recording is open. It floats above the Session
+ * status island, so it is not a request: the Requests island stays empty.
+ */
+const AndroidCommentCard = ({
+  mutate,
+  pending,
+  session,
+  setState,
+  state,
+}: {
+  readonly mutate: Mutate;
+  readonly pending: boolean;
+  readonly session: AndroidWorkspaceSnapshot;
+  readonly setState: SetState;
+  readonly state: WorkspaceState;
+}) => {
+  if (session.captureState?._tag !== "recording" || !state.instructing) {
+    return null;
+  }
+  return (
+    <NativeCommentComposer
+      attached={state.attached ?? undefined}
+      canAttach={session.observation !== null}
+      instructions={session.instructions ?? []}
+      onAttach={() => setState((current) => ({ ...current, picking: true }))}
+      onCancelPick={() =>
+        setState((current) => ({ ...current, picking: false }))
+      }
+      onDetach={() => setState((current) => ({ ...current, attached: null }))}
+      onDismiss={() => setState(closeComment)}
+      onSubmit={(text) => {
+        const { attached } = state;
+        const comment = {
+          _tag: "instruction" as const,
+          operationId: operationId(),
+          sessionId: session.id,
+          text,
+        };
+        if (
+          mutate(
+            attached === null
+              ? comment
+              : {
+                  ...comment,
+                  element: {
+                    observationId: attached.observationId,
+                    target: attached.target,
+                  },
+                }
+          )
+        ) {
+          setState((current) => ({
+            ...current,
+            instructionPending: true,
+            picking: false,
+          }));
+        }
+      }}
+      pending={pending}
+      onHighlight={(index) =>
+        setState((current) => ({
+          ...current,
+          highlightedComment: index ?? null,
+        }))
+      }
+      picking={state.picking}
+      pins={commentPins(session.observation, session.instructions ?? [])}
+      startedAt={session.captureState.startedAt}
+    />
+  );
+};
 
 type InputAction = Extract<
   AndroidWorkspaceCommand,
@@ -754,6 +787,7 @@ export const AndroidSessionView = ({
         {notices}
         <AndroidDevice
           agentDriving={session.controller === "agent"}
+          comments={recordingPins(session, state.highlightedComment)}
           canAct={canAct}
           cleanup={deviceCleanupKey(session.cleanup)}
           device={androidDeviceLabel(session.selection.device)}
@@ -840,8 +874,6 @@ export const AndroidSessionView = ({
               mutate={mutate}
               pending={pending}
               session={session}
-              setState={setState}
-              state={state}
             />
           }
           status={
@@ -868,6 +900,13 @@ export const AndroidSessionView = ({
             session={session}
           />
         </DockShell>
+        <AndroidCommentCard
+          mutate={mutate}
+          pending={pending}
+          session={session}
+          setState={setState}
+          state={state}
+        />
       </main>
     </WorkspaceLayout>
   );

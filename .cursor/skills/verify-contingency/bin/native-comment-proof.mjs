@@ -268,8 +268,8 @@ const pointerComment = async (sessionId, element, text) => {
   );
   await control("browser", "wait", "--text", "Change element");
   await snapshot("pointer-attached");
-  await fill("Instruction", text);
-  await button("Add");
+  await fill("Comment", text);
+  await button("Add comment");
 };
 
 let sessionId;

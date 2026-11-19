@@ -66,7 +66,8 @@ export const makeNativeAppTeachingCapture = <
   const emit = (session: CaptureSession, event: EventPayload) =>
     Effect.gen(function* appendEvent() {
       const current = input.state(session);
-      const encoded = `${JSON.stringify({ ...event, at: now(), seq: current.sequence })}\n`;
+      const stamp = { at: now(), seq: current.sequence };
+      const encoded = `${JSON.stringify({ ...event, ...stamp })}\n`;
       if (
         current.bytes + Buffer.byteLength(encoded) > 64 * 1024 * 1024 ||
         current.sequence >= 10_000
@@ -87,6 +88,7 @@ export const makeNativeAppTeachingCapture = <
         bytes: value.bytes + Buffer.byteLength(encoded),
         sequence: value.sequence + 1,
       }));
+      return stamp;
     });
   const keyframe = (
     session: CaptureSession,

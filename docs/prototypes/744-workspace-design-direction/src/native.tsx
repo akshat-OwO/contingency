@@ -53,6 +53,7 @@ import {
   StopIcon,
   WatcherLoader,
 } from "./icons";
+import { CommentPins, InspectHint } from "./teaching";
 
 /* ------------------------------------------------------------------ model */
 
@@ -348,6 +349,7 @@ export const NativeCanvas = ({
   const [inspect, setInspect] = useState<
     ((el: PickedElement | null) => void) | null
   >(null);
+  const [missed, setMissed] = useState(false);
   const [ripple, setRipple] = useState<{
     x: number;
     y: number;
@@ -472,7 +474,12 @@ export const NativeCanvas = ({
 
   const bridge = useContext(InspectContext);
   useEffect(() => {
-    bridge.current = ended ? null : (fn) => setInspect(() => fn);
+    bridge.current = ended
+      ? null
+      : (fn) => {
+          setMissed(false);
+          setInspect(() => fn);
+        };
     return () => {
       bridge.current = null;
     };
@@ -485,6 +492,7 @@ export const NativeCanvas = ({
         e.preventDefault();
         inspect(null);
         setInspect(null);
+        setMissed(false);
         setHover(null);
       } else if (card) {
         e.preventDefault();
@@ -673,10 +681,14 @@ export const NativeCanvas = ({
                   if (!inspect) return;
                   e.preventDefault();
                   const hit = pickAt(e.target);
-                  if (!hit) return;
-                  inspect(hit.el);
+                  if (!hit) {
+                    setMissed(true);
+                    return;
+                  }
+                  inspect({ ...hit.el, box: hit.box });
                   setInspect(null);
                   setHover(null);
+                  setMissed(false);
                 }}
                 onPointerDown={(e) => {
                   if (inspect || !live) return;
@@ -738,6 +750,9 @@ export const NativeCanvas = ({
                       </span>
                     ) : null}
                   </div>
+                ) : null}
+                {session.activity === "Teaching" && !ended ? (
+                  <CommentPins session={session.id} />
                 ) : null}
                 {ended ? null : (
                   <AgentTouch
@@ -821,14 +836,7 @@ export const NativeCanvas = ({
         </div>
       </div>
       {beside ? null : railEl}
-      {inspect ? (
-        <div className="inspect-hint island" role="status">
-          Tap an element to attach it to the comment
-          <span className="hint">
-            <kbd>Esc</kbd> cancels
-          </span>
-        </div>
-      ) : null}
+      {inspect ? <InspectHint error={missed} verb="Tap" /> : null}
     </>
   );
 };

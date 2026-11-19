@@ -309,11 +309,11 @@ export const nativeComment = async (control, text, attach) => {
     "--role",
     "textbox",
     "--name",
-    "Instruction",
+    "Comment",
     "--value",
     text
   );
-  await click("Add");
+  await click("Add comment");
 };
 export const androidComment = async (control, text, attach) => {
   await nativeComment(control, text, attach);

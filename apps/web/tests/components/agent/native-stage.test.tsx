@@ -1,4 +1,7 @@
-import type { AndroidWorkspaceObservation } from "@contingency/protocol";
+import type {
+  AndroidWorkspaceObservation,
+  NativeTeachingInstruction,
+} from "@contingency/protocol";
 import {
   cleanup,
   fireEvent,
@@ -16,6 +19,7 @@ import { NativeCommentComposer } from "@/components/agent/native-comment-compose
 import {
   closedComment,
   commentPick,
+  recordingPins,
 } from "@/components/agent/native-comment-state";
 import type { NativeComment } from "@/components/agent/native-comment-state";
 
@@ -281,6 +285,10 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
           onSubmit={(text) => onSubmit(text, comment.attached)}
           pending={false}
           picking={comment.picking}
+          instructions={[]}
+          onHighlight={vi.fn()}
+          pins={[]}
+          startedAt={undefined}
         />
       </>
     );
@@ -300,14 +308,15 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
   fireEvent.pointerUp(picker, { clientX: 20, clientY: 20 });
   expect(screen.getByRole("button", { name: "Attach element" })).toBeVisible();
   fireEvent.pointerUp(picker, { clientX: 200, clientY: 440 });
-  const chip = document.querySelector('[data-slot="comment-element"]');
+  const card = screen.getByRole("dialog", { name: "Comment" });
+  const chip = card.querySelector('[data-slot="comment-chip"]');
   expect(chip).toHaveTextContent("Checkout");
   // The attached element stays outlined while the comment is open.
   expect(
     document.querySelector('[data-slot="screen-element-highlight"]')
   ).not.toBeNull();
   await user.type(
-    screen.getByRole("textbox", { name: "Instruction" }),
+    screen.getByRole("textbox", { name: "Comment" }),
     "Checkout opens the cart{Enter}"
   );
   expect(onSubmit).toHaveBeenCalledWith(
@@ -318,8 +327,10 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
       target: "@checkout",
     })
   );
-  await user.click(screen.getByRole("button", { name: "Detach Checkout" }));
-  expect(document.querySelector('[data-slot="comment-element"]')).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Remove attached element" })
+  );
+  expect(card.querySelector('[data-slot="comment-chip"]')).toBeNull();
   expect(onActivate).not.toHaveBeenCalled();
 });
 
@@ -367,4 +378,83 @@ test("a click on a control's label attaches the control, not its text", async ()
   expect(onPick).toHaveBeenLastCalledWith(
     expect.objectContaining({ target: "@checkout" })
   );
+});
+
+const recordedComments: readonly NativeTeachingInstruction[] = [
+  {
+    at: "2026-11-18T00:00:05.000Z",
+    element: {
+      box: { height: 0.1, left: 0.25, top: 0.5, width: 0.5 },
+      name: "Checkout",
+      role: "button",
+    },
+    id: "on-screen",
+    target: "Checkout button",
+    text: "Checkout opens the cart",
+  },
+  {
+    at: "2026-11-18T00:00:09.000Z",
+    element: {
+      box: { height: 0.1, left: 0.1, top: 0.1, width: 0.2 },
+      name: "Back",
+      role: "button",
+    },
+    id: "earlier-screen",
+    target: "Back button",
+    text: "Back returns to the list",
+  },
+  {
+    at: "2026-11-18T00:00:12.000Z",
+    id: "page",
+    target: null,
+    text: "The cart badge counts items",
+  },
+];
+
+test("pins the comments whose element is on this screen and lists them all", async () => {
+  const user = userEvent.setup();
+  const onHighlight = vi.fn();
+  const recording = {
+    captureState: {
+      _tag: "recording" as const,
+      startedAt: "2026-11-18T00:00:00.000Z",
+    },
+    instructions: recordedComments,
+    observation,
+  };
+  const comments = recordingPins(recording, 1);
+  renderStage({ comments });
+  render(
+    <NativeCommentComposer
+      attached={undefined}
+      canAttach
+      instructions={recordedComments}
+      onAttach={vi.fn()}
+      onCancelPick={vi.fn()}
+      onDetach={vi.fn()}
+      onDismiss={vi.fn()}
+      onHighlight={onHighlight}
+      onSubmit={vi.fn()}
+      pending={false}
+      picking={false}
+      pins={comments?.pins ?? []}
+      startedAt={recording.captureState.startedAt}
+    />
+  );
+  // Only Checkout is on this screen; Back was on an earlier one.
+  const pins = document.querySelector('[data-slot="comment-pins"]');
+  expect(pins).toHaveTextContent(/^1$/u);
+  const list = screen.getByRole("list", { name: "Earlier comments" });
+  const items = within(list).getAllByRole("listitem");
+  expect(items.map((item) => item.textContent)).toEqual([
+    expect.stringContaining("The cart badge counts items"),
+    expect.stringContaining("Back returns to the list"),
+    expect.stringContaining("Checkout opens the cart"),
+  ]);
+  expect(items[2]).toHaveTextContent("0:05");
+  // A native comment is a recorded event: there is no Edit.
+  expect(within(list).queryByRole("button")).toBeNull();
+  // SAFETY: the list has three items, checked above.
+  await user.hover(items[2] as HTMLElement);
+  expect(onHighlight).toHaveBeenLastCalledWith(1);
 });

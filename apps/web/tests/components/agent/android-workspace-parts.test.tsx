@@ -187,12 +187,16 @@ test("a submitted comment keeps its draft until the composer closes", async () =
       onCancelPick={vi.fn()}
       onDetach={vi.fn()}
       onDismiss={vi.fn()}
+      instructions={[]}
+      onHighlight={vi.fn()}
       onSubmit={onSubmit}
       pending={false}
       picking={false}
+      pins={[]}
+      startedAt={undefined}
     />
   );
-  const box = screen.getByRole("textbox", { name: "Instruction" });
+  const box = screen.getByRole("textbox", { name: "Comment" });
   await user.type(box, "The total must include tax{Enter}");
   expect(onSubmit).toHaveBeenCalledWith("The total must include tax");
   // A refused save leaves the words for another try.
