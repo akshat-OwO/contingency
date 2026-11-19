@@ -5,19 +5,18 @@ import type {
   ScanMode,
   TeachingInstruction,
 } from "@contingency/protocol";
+import { useAtom } from "@effect/atom-react";
+import { Atom } from "effect/reactivity";
 import {
   AccessibilityIcon,
+  CookieIcon,
   GaugeIcon,
+  MousePointer2Icon,
   SquareIcon,
-  AppWindowIcon,
-  CornerDownLeftIcon,
-  CrosshairIcon,
-  MessageCircleIcon,
-  MousePointerClickIcon,
-  XIcon,
 } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { CommentCard, CommentChip } from "@/components/agent/comment-card";
 import type {
   CommentShortcut,
   ShortcutPlatform,
@@ -26,12 +25,6 @@ import { shortcutKeys } from "@/components/agent/teaching-comment-shortcuts";
 import type { InspectState } from "@/components/agent/teaching-inspect-state";
 import { elapsedLabel } from "@/components/agent/teaching-recording-state";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogDescription,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import {
   Popover,
@@ -39,14 +32,16 @@ import {
   PopoverTrigger,
   PopoverTitle,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 
 import {
   attachmentMime,
   readAttachment,
   storageAttachment,
 } from "./browser-check-attachments";
-import { BrowserAttachmentEditor } from "./browser-check-authoring";
+import {
+  BrowserAttachmentChip,
+  BrowserAttachmentEditor,
+} from "./browser-check-authoring";
 
 const scanLabels: Record<ScanMode, string> = {
   accessibility: "Accessibility scan",
@@ -74,109 +69,10 @@ export const ShortcutKbd = ({
   </KbdGroup>
 );
 
-const CommentTarget = ({ target }: { readonly target: string | null }) =>
-  target === null ? (
-    <span className="inline-flex items-center gap-1">
-      <AppWindowIcon aria-hidden="true" className="size-3" />
-      Page
-    </span>
-  ) : (
-    <span className="inline-flex min-w-0 items-center gap-1 text-blue-600 dark:text-blue-400">
-      <CrosshairIcon aria-hidden="true" className="size-3 shrink-0" />
-      <span className="truncate">{target}</span>
-    </span>
-  );
+const scanName = (scan: TeachingScan) =>
+  scan.phase === "stop" ? "End interaction timespan" : scanLabels[scan.mode];
 
-/**
- * The comments this recording has collected, newest first. An instruction is
- * a recorded event, so the list is read-only. Pointing at one whose pin is on
- * this Page outlines its element behind the composer.
- */
-const CommentHistory = ({
-  onEdit,
-  instructions,
-  onHighlight,
-  pinned,
-  startedAt,
-}: {
-  readonly onEdit: (instruction: TeachingInstruction) => void;
-  readonly instructions: readonly TeachingInstruction[];
-  readonly onHighlight: (index?: number) => void;
-  readonly pinned: ReadonlySet<number>;
-  readonly startedAt: string;
-}) => {
-  if (instructions.length === 0) {
-    return (
-      <p className="text-muted-foreground px-3 py-6 text-center text-sm">
-        No comments yet. Type one, or attach an element first.
-      </p>
-    );
-  }
-  return (
-    <ul
-      aria-label="Earlier comments"
-      className="flex max-h-64 flex-col gap-0.5 overflow-y-auto overscroll-contain"
-    >
-      {instructions
-        .map((instruction, position) => ({ index: position + 1, instruction }))
-        .toReversed()
-        .map(({ index, instruction }) => {
-          const hasPin = pinned.has(index);
-          return (
-            <li
-              className="hover:bg-muted flex gap-3 rounded-lg px-2.5 py-2 transition-colors"
-              key={instruction.id}
-              onPointerEnter={hasPin ? () => onHighlight(index) : undefined}
-              onPointerLeave={hasPin ? () => onHighlight() : undefined}
-            >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-semibold tabular-nums",
-                  hasPin
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
-                )}
-              >
-                {instruction.target === null ? (
-                  <MessageCircleIcon className="size-3" />
-                ) : (
-                  index
-                )}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="text-sm leading-snug text-pretty wrap-anywhere">
-                  {instruction.text}
-                  {instruction.scan === undefined ? null : (
-                    <span className="text-muted-foreground mt-1 block text-xs">
-                      {instruction.scan.phase === "stop"
-                        ? "End interaction timespan"
-                        : scanLabels[instruction.scan.mode]}
-                    </span>
-                  )}
-                </span>
-                <span className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
-                  <span className="shrink-0 font-mono tabular-nums">
-                    {elapsedLabel(startedAt, Date.parse(instruction.at))}
-                  </span>
-                  <CommentTarget target={instruction.target} />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onEdit(instruction)}
-                  >
-                    Edit comment
-                  </Button>
-                </span>
-              </span>
-            </li>
-          );
-        })}
-    </ul>
-  );
-};
-
-const ScanButtons = ({
+const ScanTools = ({
   open,
   onOpenChange,
   openTimespan,
@@ -197,23 +93,32 @@ const ScanButtons = ({
             aria-label="Performance scan"
             title="Performance scan"
             disabled={pending}
-            size="icon-sm"
+            size="island-icon"
             type="button"
-            variant="ghost"
+            variant="island"
           />
         }
       >
         <GaugeIcon aria-hidden="true" />
       </PopoverTrigger>
-      <PopoverContent align="start" positionerClassName="z-[60]">
-        <PopoverTitle>Teach a scan for later Runs</PopoverTitle>
+      <PopoverContent
+        align="start"
+        className="bg-island-solid shadow-island ring-island-border w-56 gap-0.5 rounded-[14px] p-[5px]"
+        positionerClassName="z-[60]"
+        side="top"
+        sideOffset={10}
+      >
+        <PopoverTitle className="text-muted-foreground px-2.5 pt-1.5 pb-1 text-xs font-medium">
+          Teach a scan for later Runs
+        </PopoverTitle>
         {openTimespan === undefined ? (
           (["reload", "navigation", "timespan"] as const).map((mode) => (
             <Button
               className="justify-start"
               key={mode}
               onClick={() => selectScan(mode)}
-              variant="ghost"
+              type="button"
+              variant="island"
             >
               {scanLabels[mode]}
             </Button>
@@ -222,25 +127,13 @@ const ScanButtons = ({
           <Button
             className="justify-start"
             onClick={() => selectScan("timespan", true)}
-            variant="ghost"
+            type="button"
+            variant="island"
           >
             <SquareIcon />
             End timespan
           </Button>
         )}
-        <Button
-          className="justify-start"
-          disabled={openTimespan !== undefined}
-          onClick={() => selectScan("accessibility")}
-          variant="ghost"
-        >
-          <AccessibilityIcon />
-          Accessibility scan
-        </Button>
-        <p className="text-muted-foreground px-2 text-xs">
-          The agent will propose when to scan for your review. Reload may
-          discard transient page state.
-        </p>
       </PopoverContent>
     </Popover>
     <Button
@@ -248,9 +141,9 @@ const ScanButtons = ({
       title="Accessibility scan"
       disabled={pending || openTimespan !== undefined}
       onClick={() => selectScan("accessibility")}
-      size="icon-sm"
+      size="island-icon"
       type="button"
-      variant="ghost"
+      variant="island"
     >
       <AccessibilityIcon aria-hidden="true" />
     </Button>
@@ -258,73 +151,18 @@ const ScanButtons = ({
 );
 
 /**
- * The comment composer: a command-palette dialog over the browser. A comment
- * is written here whether or not it names an element. Without one it is a
- * page comment; with one, inspect has attached the element as a chip.
- *
- * The composer stays open while DevTools is used and closes on Escape or submission.
+ * The Web Teaching comment card. A comment is written here whether or not it
+ * names an element: without one it is a page comment; with one, inspect has
+ * attached the element as a chip. Requests and cookies dragged from DevTools
+ * attach as browser checks, each edited in a card beside this one.
  */
-const CommentAttachments = ({
-  state,
-  pending,
-  origin,
-  onAttach,
-  onAttachmentsChange,
-}: {
-  readonly state: InspectState;
-  readonly pending: boolean;
-  readonly origin: string;
-  readonly onAttach: (attachment: TeachingBrowserAttachment) => void;
-  readonly onAttachmentsChange: (
-    attachments: readonly TeachingBrowserAttachment[]
-  ) => void;
-}) => (
-  <fieldset disabled={pending} className="grid gap-2">
-    {" "}
-    {(state.attachments ?? []).map((attachment) => (
-      <BrowserAttachmentEditor
-        key={attachment.id}
-        attachment={attachment}
-        onChange={(updated) =>
-          onAttachmentsChange(
-            (state.attachments ?? []).map((existing) =>
-              existing.id === attachment.id ? updated : existing
-            )
-          )
-        }
-        onRemove={() =>
-          onAttachmentsChange(
-            (state.attachments ?? []).filter(
-              (existing) => existing.id !== attachment.id
-            )
-          )
-        }
-      />
-    ))}
-    <p className="text-muted-foreground text-xs">
-      Drag a request or cookie from DevTools here. A response field starts a
-      check.
-    </p>
-    <Button
-      disabled={pending || (state.attachments?.length ?? 0) >= 50}
-      type="button"
-      variant="ghost"
-      onClick={() => {
-        const context = storageAttachment(origin, "cookie-name", "cookie");
-        onAttach({ ...context, requirement: context.candidate });
-      }}
-    >
-      Require an unseen cookie
-    </Button>
-  </fieldset>
-);
-
 export const CommentComposer = ({
   onEdit,
   origin,
   onAttachmentsChange,
   onAttach,
   instructions,
+  onCancelPick,
   onDetach,
   onDraftChange,
   onHighlight,
@@ -346,6 +184,7 @@ export const CommentComposer = ({
   readonly onEdit: (instruction: TeachingInstruction) => void;
   /** Every instruction on this recording, oldest first. */
   readonly instructions: readonly TeachingInstruction[];
+  readonly onCancelPick: () => void;
   readonly onDetach: () => void;
   readonly onDraftChange: (draft: string) => void;
   readonly onHighlight: (index?: number) => void;
@@ -361,8 +200,23 @@ export const CommentComposer = ({
   readonly state: InspectState;
 }) => {
   const field = useRef<HTMLTextAreaElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
+  const [openCheckAtom] = useState(() => Atom.make<string | null>(null));
+  const [openCheckId, setOpenCheckId] = useAtom(openCheckAtom);
   const attached = state.frozen;
+  const attachments = state.attachments ?? [];
+  const openCheck = attachments.find(
+    (attachment) => attachment.id === openCheckId
+  );
   const openTimespan = openTeachingTimespan(instructions);
+  const focusField = () => field.current?.focus();
+  // A pick lands while the card stays open, after the press on the Page took
+  // focus. Writing about the element is next, so the field takes it back.
+  useEffect(() => {
+    if (attached !== undefined) {
+      field.current?.focus();
+    }
+  }, [attached]);
   const selectScan = (mode: ScanMode, stop = false) => {
     onScanChange({
       id:
@@ -382,14 +236,25 @@ export const CommentComposer = ({
           : `Run ${scanLabels[mode].toLowerCase()} here.`
       );
     }
-    field.current?.focus();
+    onScanMenuChange(false);
+    focusField();
   };
-  const popup = useRef<HTMLDivElement>(null);
   // Removing a chip unmounts the button that held focus. A non-modal dialog
   // takes Escape only while focus is inside it, so focus goes to the field.
   const removeThen = (remove: () => void) => () => {
     remove();
-    field.current?.focus();
+    focusField();
+  };
+  const removeAttachment = (id: string) => {
+    onAttachmentsChange(attachments.filter((existing) => existing.id !== id));
+    if (openCheckId === id) {
+      setOpenCheckId(null);
+    }
+    focusField();
+  };
+  const attach = (attachment: TeachingBrowserAttachment) => {
+    onAttach(attachment);
+    setOpenCheckId(attachment.id);
   };
   const submit = () => {
     const inputs = popup.current?.querySelectorAll<HTMLInputElement>(
@@ -400,219 +265,171 @@ export const CommentComposer = ({
         return;
       }
     }
+    setOpenCheckId(null);
     onSubmit();
   };
-  const canSubmit = !pending && state.draft.trim() !== "";
   const pinned = new Set(state.comments.map((comment) => comment.index));
   return (
-    <Dialog
-      closeOnOutsidePress={false}
-      modal={false}
-      onOpenChange={onOpenChange}
-      open={state.composing}
-    >
-      {/*
-          No backdrop blur: the outline of a comment's element has to stay
-          legible behind the composer while its list item is pointed at.
-        */}
-      <DialogPopup
-        onDragOver={(event) => {
-          if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
-            event.preventDefault();
-          }
-        }}
-        onDrop={(event) => {
-          if (pending) {
-            return;
-          }
-          const attachment = readAttachment(event);
-          if (attachment !== undefined) {
-            event.preventDefault();
-            onAttach(attachment);
-          }
-        }}
-        className="bg-popover text-popover-foreground ring-foreground/10 fixed top-auto right-auto bottom-28 left-4 z-50 m-0 flex max-h-[65svh] w-[min(30rem,calc(100%-2rem))] flex-col overflow-auto rounded-2xl border-0 p-0 text-sm shadow-2xl ring-1 outline-none"
-        initialFocus={() => field.current}
-        ref={popup}
-      >
-        <DialogTitle className="sr-only">Comment</DialogTitle>
-        <DialogDescription className="sr-only">
-          Tell the agent something about this moment of the recording.
-        </DialogDescription>
-        <div className="flex flex-col gap-2 px-4 pt-4 pb-2">
-          <CommentAttachments
-            state={state}
-            pending={pending}
-            origin={origin}
-            onAttach={onAttach}
-            onAttachmentsChange={onAttachmentsChange}
-          />
-          {state.scan === undefined ? null : (
-            <span className="bg-muted inline-flex items-center gap-1 self-start rounded-md py-0.5 pr-0.5 pl-2 text-xs">
-              {state.scan.phase === "stop"
-                ? "End interaction timespan"
-                : scanLabels[state.scan.mode]}
-              <Button
-                aria-label="Remove scan"
-                disabled={pending}
-                onClick={removeThen(() => onScanChange())}
-                size="icon-xs"
-                variant="ghost"
-              >
-                <XIcon />
-              </Button>
-            </span>
-          )}
-          {openTimespan === undefined ? null : (
-            <p className="text-muted-foreground text-xs">
-              Open timespan · collection happens in later Runs
-            </p>
-          )}
-          {attached === undefined ? null : (
-            <span className="inline-flex max-w-full items-center gap-1 self-start rounded-md bg-blue-500/10 py-0.5 pr-0.5 pl-1.5 text-sm font-medium text-blue-600 dark:text-blue-400">
-              <CrosshairIcon aria-hidden="true" className="size-3.5 shrink-0" />
-              <span className="truncate">{attached.description}</span>
-              <Button
-                aria-label="Remove attached element"
-                className="hover:bg-blue-500/15"
-                disabled={pending}
-                onClick={removeThen(onDetach)}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <XIcon />
-              </Button>
-            </span>
-          )}
-          <textarea
-            aria-label="Comment"
-            className="placeholder:text-muted-foreground field-sizing-content max-h-48 min-h-14 w-full resize-none bg-transparent text-base leading-7 outline-none"
-            onChange={(event) => onDraftChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) {
-                return;
-              }
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (canSubmit) {
-                  submit();
-                }
-              } else if (
-                event.key === "Backspace" &&
-                state.draft === "" &&
-                attached !== undefined
-              ) {
-                event.preventDefault();
-                onDetach();
-              }
-            }}
-            placeholder={
-              attached === undefined
-                ? "What should the agent know about this moment?"
-                : "What should change here?"
+    <CommentCard
+      aside={
+        openCheck === undefined ? undefined : (
+          <BrowserAttachmentEditor
+            attachment={openCheck}
+            className="max-h-full"
+            key={openCheck.id}
+            onChange={(updated) =>
+              onAttachmentsChange(
+                attachments.map((existing) =>
+                  existing.id === updated.id ? updated : existing
+                )
+              )
             }
-            readOnly={pending}
-            ref={field}
-            rows={1}
-            value={state.draft}
+            onClose={() => {
+              setOpenCheckId(null);
+              focusField();
+            }}
+            onRemove={() => removeAttachment(openCheck.id)}
           />
-        </div>
-        <div className="flex items-center gap-2 px-3 pb-3">
-          <Button
-            disabled={pending}
-            onClick={onPick}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            <MousePointerClickIcon aria-hidden="true" />
-            {attached === undefined ? "Attach element" : "Change element"}
-            <ShortcutKbd
-              className="hidden sm:inline-flex"
-              platform={platform}
-              scope="chord"
-              shortcut="inspect"
+        )
+      }
+      attach={{
+        attached: attached !== undefined,
+        disabled: pending,
+        onCancel: onCancelPick,
+        onPick,
+        picking: state.open,
+        shortcut: shortcutKeys("inspect", "chord", platform).join(
+          platform === "mac" ? "" : "+"
+        ),
+      }}
+      canSubmit={!pending && state.draft.trim() !== ""}
+      chips={
+        <>
+          {attached === undefined ? null : (
+            <CommentChip
+              disabled={pending}
+              icon={<MousePointer2Icon aria-hidden="true" />}
+              onRemove={removeThen(onDetach)}
+              removeLabel="Remove attached element"
+              tone="element"
+            >
+              <span className="truncate">{attached.description}</span>
+            </CommentChip>
+          )}
+          {state.scan === undefined ? null : (
+            <CommentChip
+              disabled={pending}
+              icon={<GaugeIcon aria-hidden="true" />}
+              onRemove={removeThen(() => onScanChange())}
+              removeLabel="Remove scan"
+              tone="scan"
+            >
+              <span className="truncate">{scanName(state.scan)}</span>
+            </CommentChip>
+          )}
+          {attachments.map((attachment) => (
+            <BrowserAttachmentChip
+              attachment={attachment}
+              disabled={pending}
+              key={attachment.id}
+              onOpen={() =>
+                setOpenCheckId(
+                  openCheckId === attachment.id ? null : attachment.id
+                )
+              }
+              onRemove={() => removeAttachment(attachment.id)}
+              open={openCheckId === attachment.id}
             />
-          </Button>
-          <ScanButtons
+          ))}
+        </>
+      }
+      draft={state.draft}
+      earlier={instructions.map((instruction, position) => ({
+        details:
+          instruction.scan === undefined ? [] : [scanName(instruction.scan)],
+        id: instruction.id,
+        index: position + 1,
+        pinned: pinned.has(position + 1),
+        target: instruction.target ?? undefined,
+        text: instruction.text,
+        time: elapsedLabel(startedAt, Date.parse(instruction.at)),
+      }))}
+      editingId={state.editingInstructionId}
+      error={state.error}
+      fieldRef={field}
+      note={
+        openTimespan === undefined || state.scan !== undefined ? null : (
+          <p className="text-muted-foreground text-xs">
+            A timespan is open. Later Runs collect it until you end it.
+          </p>
+        )
+      }
+      onBackspaceEmpty={attached === undefined ? undefined : onDetach}
+      onCloseAside={() => setOpenCheckId(null)}
+      onDraftChange={onDraftChange}
+      onDragOver={(event) => {
+        if (!pending && event.dataTransfer.types.includes(attachmentMime)) {
+          event.preventDefault();
+        }
+      }}
+      onDrop={(event) => {
+        if (pending) {
+          return;
+        }
+        const attachment = readAttachment(event);
+        if (attachment !== undefined) {
+          event.preventDefault();
+          attach(attachment);
+        }
+      }}
+      onEdit={(id) => {
+        const instruction = instructions.find((each) => each.id === id);
+        if (instruction !== undefined) {
+          onEdit(instruction);
+          focusField();
+        }
+      }}
+      onHighlight={onHighlight}
+      onOpenChange={onOpenChange}
+      onSubmit={submit}
+      open={state.composing}
+      pending={pending}
+      placeholder={
+        attached === undefined
+          ? "What should the agent know about this moment?"
+          : "What should change here?"
+      }
+      popupRef={popup}
+      startedAt={startedAt}
+      tools={
+        <>
+          <ScanTools
             open={state.scanMenu ?? false}
             onOpenChange={onScanMenuChange}
             openTimespan={openTimespan}
             pending={pending}
             selectScan={selectScan}
           />
-          <span className="flex-1" />
-          {state.error === undefined ? null : (
-            <p
-              className="text-destructive min-w-0 truncate text-xs"
-              role="alert"
-            >
-              {state.error}
-            </p>
-          )}
           <Button
-            disabled={!canSubmit}
-            onClick={submit}
-            size="sm"
+            aria-label="Require an unseen cookie"
+            title="Require an unseen cookie"
+            disabled={pending || attachments.length >= 50}
+            onClick={() => {
+              const context = storageAttachment(
+                origin,
+                "cookie-name",
+                "cookie"
+              );
+              attach({ ...context, requirement: context.candidate });
+            }}
+            size="island-icon"
             type="button"
+            variant="island"
           >
-            {state.editingInstructionId === undefined
-              ? "Add comment"
-              : "Save comment"}
-            <Kbd className="bg-primary-foreground/15 text-primary-foreground">
-              <CornerDownLeftIcon aria-hidden="true" />
-            </Kbd>
+            <CookieIcon aria-hidden="true" />
           </Button>
-        </div>
-        <section
-          aria-label="Earlier in this recording"
-          className="flex min-h-0 flex-col border-t"
-        >
-          <h2 className="text-muted-foreground px-4 pt-3 pb-1 text-xs font-medium">
-            Earlier in this recording
-          </h2>
-          <div className="min-h-0 px-1.5 pb-1.5">
-            <CommentHistory
-              onEdit={onEdit}
-              instructions={instructions}
-              onHighlight={onHighlight}
-              pinned={pinned}
-              startedAt={startedAt}
-            />
-          </div>
-        </section>
-        <footer className="text-muted-foreground bg-muted/40 flex flex-wrap gap-x-4 gap-y-1 border-t px-4 py-2 text-xs">
-          <span className="inline-flex items-center gap-1.5">
-            <Kbd>
-              <CornerDownLeftIcon aria-hidden="true" />
-            </Kbd>
-            add
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <KbdGroup>
-              <Kbd>{platform === "mac" ? "⇧" : "Shift"}</Kbd>
-              <Kbd>
-                <CornerDownLeftIcon aria-hidden="true" />
-              </Kbd>
-            </KbdGroup>
-            new line
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <ShortcutKbd
-              className="hidden sm:inline-flex"
-              platform={platform}
-              scope="chord"
-              shortcut="inspect"
-            />
-            attach element
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Kbd>Esc</Kbd>
-            close
-          </span>
-        </footer>
-      </DialogPopup>
-    </Dialog>
+        </>
+      }
+    />
   );
 };

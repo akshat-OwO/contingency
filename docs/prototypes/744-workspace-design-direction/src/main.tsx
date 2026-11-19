@@ -98,6 +98,12 @@ import {
   verdictOf,
 } from "./summary";
 import type { Decision, Run } from "./summary";
+import {
+  CommentCard,
+  DemoPassword,
+  TeachingProvider,
+  useCommentCount,
+} from "./teaching";
 
 type Platform = "web" | "android" | "ios";
 type Status =
@@ -1262,8 +1268,11 @@ const DISCLOSURES: readonly Disclosure[] = ["popover", "tooltip", "none"];
 interface Options {
   readonly disclosure: Disclosure;
   readonly long: boolean;
+  /** A demo Flow whose variation needs a password (#775). */
+  readonly demo: boolean;
 }
 const OptionsContext = createContext<Options>({
+  demo: false,
   disclosure: "popover",
   long: true,
 });
@@ -1379,95 +1388,34 @@ const TaskDetails = ({ session }: { readonly session: Session }) => {
   );
 };
 
-const CommentComposer = ({
+/** Comment opens the comment card above the status island. */
+const CommentButton = ({
   session,
-  onSent,
+  open,
+  onToggle,
 }: {
   readonly session: Session;
-  readonly onSent: (text: string) => void;
+  readonly open: boolean;
+  readonly onToggle: () => void;
 }) => {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [attached, setAttached] = useState<PickedElement | null>(null);
-  const bridge = useContext(InspectContext);
+  const count = useCommentCount(session.id);
   return (
-    <Popover onOpenChange={setOpen} open={open}>
-      <PopoverTrigger aria-label="Comment" className="pill-btn">
-        <CommentIcon />
-        <span className="tool-label">Comment</span>
-      </PopoverTrigger>
-      <PopoverContent
-        aria-label="Comment"
-        align="end"
-        className="popover island details"
-        side="top"
-        sideOffset={14}
-      >
-        <form
-          className="composer"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (text.trim() === "") return;
-            onSent(text.trim());
-            setText("");
-            setAttached(null);
-            setOpen(false);
-          }}
-        >
-          <PopoverTitle className="popover-title">
-            Comment at{" "}
-            <span className="mono">
-              {session.status === "recording" ? clock(session.since) : "now"}
-            </span>
-          </PopoverTitle>
-          <textarea
-            aria-label="Comment"
-            autoFocus
-            className="input textarea"
-            onChange={(e) => setText(e.currentTarget.value)}
-            placeholder="Why you did this, or what the agent should notice"
-            rows={3}
-            value={text}
-          />
-          {attached ? (
-            <span className="attached-chip">
-              <PointerIcon />
-              <span className="mono">{attached.role}</span> {attached.name}
-              <button
-                aria-label={`Remove ${attached.name}`}
-                className="icon-btn small"
-                onClick={() => setAttached(null)}
-                type="button"
-              >
-                <CloseIcon />
-              </button>
-            </span>
-          ) : null}
-          <div className="composer-row">
-            <Button
-              className="pill-btn"
-              disabled={bridge.current === null}
-              onClick={() => {
-                const start = bridge.current;
-                if (!start) return;
-                setOpen(false);
-                start((el) => {
-                  if (el) setAttached(el);
-                  setOpen(true);
-                });
-              }}
-              type="button"
-            >
-              <PointerIcon />
-              Attach element
-            </Button>
-            <Button className="btn" disabled={text.trim() === ""} type="submit">
-              Add comment
-            </Button>
-          </div>
-        </form>
-      </PopoverContent>
-    </Popover>
+    <Button
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={
+        count === 0
+          ? "Comment"
+          : `Comment, ${count} ${count === 1 ? "comment" : "comments"} so far`
+      }
+      className="pill-btn"
+      data-open={open || undefined}
+      onClick={onToggle}
+    >
+      <CommentIcon />
+      <span className="tool-label">Comment</span>
+      {count > 0 ? <span className="count">{count}</span> : null}
+    </Button>
   );
 };
 
@@ -1554,34 +1502,75 @@ const StatusIsland = ({
   const { disclosure, long } = useContext(OptionsContext);
   const line = (long ? LONG_LINE : LINE)[statusOf(session)];
   const ref = useStatusWidth();
+  const [commenting, setCommenting] = useState(false);
+  const bridge = useContext(InspectContext);
+  const teaching =
+    session.activity === "Teaching" && session.status === "recording";
+  useEffect(() => {
+    if (!teaching) setCommenting(false);
+  }, [teaching]);
+  // ⌘⇧K (Ctrl+Shift+K) opens the card while recording, as in the product.
+  useEffect(() => {
+    if (!teaching) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "k"
+      ) {
+        e.preventDefault();
+        setCommenting(true);
+      }
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [teaching]);
   return (
-    <section
-      aria-label="Session status"
-      className="status-island island"
-      ref={ref}
-    >
-      <StatusChip session={session} />
-      <Sentence disclosure={disclosure} line={line} session={session} />
-      <div className="tools">
-        <TaskDetails session={session} />
-        {session.activity === "Teaching" ? (
-          <CommentComposer
-            onSent={() => onNotice("Comment added to the recording.", "ok")}
-            session={session}
-          />
-        ) : null}
-      </div>
-      <Button
-        className={`btn ${action.tone}`}
-        onClick={() => {
-          onPatch(action.patch);
-          if (session.activity === "Teaching" && session.status === "recording")
-            onNotice(`Saved ${session.flow}. Dry Run it from Flows.`, "ok");
-        }}
+    <>
+      {commenting ? (
+        <CommentCard
+          onClose={() => setCommenting(false)}
+          onPick={(done) => bridge.current?.(done)}
+          onSent={(text) => onNotice(text, "ok")}
+          session={{
+            id: session.id,
+            platform: session.platform,
+            since: session.since,
+          }}
+        />
+      ) : null}
+      <section
+        aria-label="Session status"
+        className="status-island island"
+        ref={ref}
       >
-        {action.label}
-      </Button>
-    </section>
+        <StatusChip session={session} />
+        <Sentence disclosure={disclosure} line={line} session={session} />
+        <div className="tools">
+          <TaskDetails session={session} />
+          {teaching ? (
+            <CommentButton
+              onToggle={() => setCommenting((o) => !o)}
+              open={commenting}
+              session={session}
+            />
+          ) : null}
+        </div>
+        <Button
+          className={`btn ${action.tone}`}
+          onClick={() => {
+            onPatch(action.patch);
+            if (
+              session.activity === "Teaching" &&
+              session.status === "recording"
+            )
+              onNotice(`Saved ${session.flow}. Dry Run it from Flows.`, "ok");
+          }}
+        >
+          {action.label}
+        </Button>
+      </section>
+    </>
   );
 };
 
@@ -2087,6 +2076,9 @@ const SessionView = ({
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const bridge = useRef<InspectBridge>({ current: null }).current;
+  const options = useContext(OptionsContext);
+  const [demoDone, setDemoDone] = useState(false);
+  const demo = options.demo && !demoDone;
   const ended = session.ended;
   const teaching =
     ended && session.recording
@@ -2219,6 +2211,20 @@ const SessionView = ({
           </EndedStatus>
         ) : null}
         <div className="bottom-center" hidden={ended !== undefined}>
+          {demo &&
+          session.activity === "Teaching" &&
+          session.platform === "web" &&
+          session.status === "recording" ? (
+            <DemoPassword
+              onEntered={() => {
+                setDemoDone(true);
+                onNotice(
+                  "Entered DEMO_PASSWORD into the Password field.",
+                  "ok"
+                );
+              }}
+            />
+          ) : null}
           <RequestTier
             collapsed={collapsed}
             key={session.requests[0]?.id}
@@ -2266,6 +2272,7 @@ const App = () => {
     setNoticeState({ id: Date.now(), text, tone });
   const [side, setSide] = useState<"left" | "right">("right");
   const [options, setOptions] = useState<Options>({
+    demo: false,
     disclosure: "popover",
     long: true,
   });
@@ -2480,262 +2487,267 @@ const App = () => {
 
   return (
     <OptionsContext.Provider value={options}>
-      <FlowsNav.Provider
-        value={{ here: view.name === "flows", morphBack, open: openFlows }}
-      >
-        <div className="desktop-gate" role="alert">
-          <div className="island gate-card">
-            <WatcherMark className="brand-mark big" />
-            <h1>Open Contingency on a desktop</h1>
-            <p>
-              The Workspace drives browsers, emulators and simulators side by
-              side. It needs a screen at least 1024 pixels wide.
-            </p>
-          </div>
-        </div>
-        <div className="app">
-          {view.name === "flows" ? (
-            <FlowsPage
-              actions={<Actions />}
-              empty={catalogEmpty}
-              nav={
-                <TopNav
-                  current={undefined}
-                  onHome={home}
-                  onOpen={(id) => open(id)}
-                  sessions={sessions}
-                />
-              }
-              onEnded={(run) =>
-                transition(() => setView({ name: "ended", run }))
-              }
-              onReview={(recording) =>
-                transition(() => setView({ name: "review", recording }))
-              }
-              onRun={(run) => setView({ flow: view.flow, name: "flows", run })}
-              onSelect={(flow) => setView({ flow, name: "flows" })}
-              run={view.run}
-              selected={view.flow}
-              sessionFlow={fromSession}
-            />
-          ) : view.name === "review" ? (
-            <EndedView
-              dock={dock}
-              device={device}
-              flow={REVIEWS[view.recording]?.flow ?? view.recording}
-              key={view.recording}
-              mode="review"
-              onDone={() =>
-                transition(() =>
-                  setView({
-                    flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
-                    name: "flows",
-                  })
-                )
-              }
-              onHome={home}
-              onOpen={(id) => open(id)}
-              platform={REVIEWS[view.recording]?.platform ?? "web"}
-              recording={view.recording}
-              run={runById(REVIEWS[view.recording]?.run ?? "")}
-              sessions={sessions}
-            />
-          ) : view.name === "ended" ? (
-            <EndedView
-              dock={dock}
-              device={device}
-              flow={runById(view.run)?.flows[0] ?? view.run}
-              key={view.run}
-              mode="device"
-              onDone={() =>
-                transition(() =>
-                  setView({
-                    flow: flowOfRun(view.run),
-                    name: "flows",
-                    run: view.run,
-                  })
-                )
-              }
-              onHome={home}
-              onOpen={(id) => open(id)}
-              platform={runById(view.run)?.platform ?? "android"}
-              recording={undefined}
-              run={runById(view.run)}
-              sessions={sessions}
-            />
-          ) : current ? (
-            <SessionView
-              dock={dock}
-              device={device}
-              onDone={() => closeSession(current.id)}
-              onReconnect={connect}
-              stage={stage}
-              notice={notice}
-              onNotice={setNotice}
-              onPatch={(fn) => patch(current.id, fn)}
-              onHome={home}
-              onOpen={(id) => open(id)}
-              session={current}
-              sessions={sessions}
-            />
-          ) : (
-            <Home
-              expanded={expanded}
-              flow={flow}
-              setFlow={setFlow}
-              onCollapse={collapse}
-              onExpand={expand}
-              onOpen={open}
-              onStart={(platform, flow, form) => {
-                const id = `n${Date.now()}`;
-                transition(
-                  () => {
-                    setSessions((all) => [
-                      {
-                        activity: "Teaching",
-                        flow,
-                        id,
-                        platform,
-                        requests: [],
-                        since: Date.now(),
-                        status: "ready",
-                      },
-                      ...all,
-                    ]);
-                    setView({ id, name: "session" });
-                    setReturnTo(id);
-                    setExpanded(null);
-                  },
-                  { element: form, name: "stage" }
-                );
-                connect();
-              }}
-              returnTo={returnTo}
-              returning={returning}
-              sessions={sessions}
-            />
-          )}
-          {view.name === "review" || view.name === "ended" ? (
-            <div aria-live="polite" className="notices">
-              {notice ? (
-                <div
-                  className="notice island"
-                  data-tone={notice.tone}
-                  key={notice.id}
-                  role="status"
-                >
-                  <span aria-hidden="true" className="notice-mark">
-                    {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
-                  </span>
-                  {notice.text}
-                </div>
-              ) : null}
+      <TeachingProvider>
+        <FlowsNav.Provider
+          value={{ here: view.name === "flows", morphBack, open: openFlows }}
+        >
+          <div className="desktop-gate" role="alert">
+            <div className="island gate-card">
+              <WatcherMark className="brand-mark big" />
+              <h1>Open Contingency on a desktop</h1>
+              <p>
+                The Workspace drives browsers, emulators and simulators side by
+                side. It needs a screen at least 1024 pixels wide.
+              </p>
             </div>
-          ) : null}
-          <Scaffold
-            canEnd={
-              current !== undefined &&
-              !current.ended &&
-              ENDS_WITH[current.id] !== undefined
-            }
-            onEnd={() => {
-              if (current) endRun(current.id);
-            }}
-            summary={current?.ended?.summary}
-            onSummary={() => {
-              if (!current?.ended) return;
-              const order: SummaryState[] = ["ready", "writing", "missing"];
-              const next =
-                order[(order.indexOf(current.ended.summary) + 1) % 3] ??
-                "ready";
-              patch(current.id, (s) => ({
-                ...s,
-                ended: s.ended && { ...s.ended, summary: next },
-              }));
-            }}
-            review={
-              view.name === "review"
-                ? decisions[view.recording]
-                : current?.ended && current.recording
-                  ? decisions[current.recording]
-                  : undefined
-            }
-            onReview={() => {
-              const rec =
-                view.name === "review" ? view.recording : current?.recording;
-              if (!rec) return;
-              const order: Decision[] = [
-                "pending",
-                "rejected",
-                "verified",
-                "cleanup-failed",
-              ];
-              transition(() =>
-                setDecisions((all) => ({
-                  ...all,
-                  [rec]:
-                    order[
-                      (order.indexOf(all[rec] ?? "pending") + 1) % order.length
-                    ] ?? "pending",
-                }))
-              );
-            }}
-            cleanupFails={cleanupFails}
-            onCleanup={() => setCleanupFails(!cleanupFails)}
-            onSessions={(on) => {
-              transition(() => {
-                setSessions(on ? SEED.map((s) => ({ ...s })) : []);
-                setView({ name: "home" });
-              });
-            }}
-            sessionsOn={sessions.length > 0}
-            inSession={current !== undefined}
-            inFlows={view.name === "flows"}
-            catalogEmpty={catalogEmpty}
-            onCatalog={() => transition(() => setCatalogEmpty(!catalogEmpty))}
-            side={side}
-            onSide={() =>
-              transition(() => setSide(side === "right" ? "left" : "right"))
-            }
-            onRequest={() => {
-              if (!current) return;
-              const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
-              setSample(sample + 1);
-              if (next)
+          </div>
+          <div className="app">
+            {view.name === "flows" ? (
+              <FlowsPage
+                actions={<Actions />}
+                empty={catalogEmpty}
+                nav={
+                  <TopNav
+                    current={undefined}
+                    onHome={home}
+                    onOpen={(id) => open(id)}
+                    sessions={sessions}
+                  />
+                }
+                onEnded={(run) =>
+                  transition(() => setView({ name: "ended", run }))
+                }
+                onReview={(recording) =>
+                  transition(() => setView({ name: "review", recording }))
+                }
+                onRun={(run) =>
+                  setView({ flow: view.flow, name: "flows", run })
+                }
+                onSelect={(flow) => setView({ flow, name: "flows" })}
+                run={view.run}
+                selected={view.flow}
+                sessionFlow={fromSession}
+              />
+            ) : view.name === "review" ? (
+              <EndedView
+                dock={dock}
+                device={device}
+                flow={REVIEWS[view.recording]?.flow ?? view.recording}
+                key={view.recording}
+                mode="review"
+                onDone={() =>
+                  transition(() =>
+                    setView({
+                      flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
+                      name: "flows",
+                    })
+                  )
+                }
+                onHome={home}
+                onOpen={(id) => open(id)}
+                platform={REVIEWS[view.recording]?.platform ?? "web"}
+                recording={view.recording}
+                run={runById(REVIEWS[view.recording]?.run ?? "")}
+                sessions={sessions}
+              />
+            ) : view.name === "ended" ? (
+              <EndedView
+                dock={dock}
+                device={device}
+                flow={runById(view.run)?.flows[0] ?? view.run}
+                key={view.run}
+                mode="device"
+                onDone={() =>
+                  transition(() =>
+                    setView({
+                      flow: flowOfRun(view.run),
+                      name: "flows",
+                      run: view.run,
+                    })
+                  )
+                }
+                onHome={home}
+                onOpen={(id) => open(id)}
+                platform={runById(view.run)?.platform ?? "android"}
+                recording={undefined}
+                run={runById(view.run)}
+                sessions={sessions}
+              />
+            ) : current ? (
+              <SessionView
+                dock={dock}
+                device={device}
+                onDone={() => closeSession(current.id)}
+                onReconnect={connect}
+                stage={stage}
+                notice={notice}
+                onNotice={setNotice}
+                onPatch={(fn) => patch(current.id, fn)}
+                onHome={home}
+                onOpen={(id) => open(id)}
+                session={current}
+                sessions={sessions}
+              />
+            ) : (
+              <Home
+                expanded={expanded}
+                flow={flow}
+                setFlow={setFlow}
+                onCollapse={collapse}
+                onExpand={expand}
+                onOpen={open}
+                onStart={(platform, flow, form) => {
+                  const id = `n${Date.now()}`;
+                  transition(
+                    () => {
+                      setSessions((all) => [
+                        {
+                          activity: "Teaching",
+                          flow,
+                          id,
+                          platform,
+                          requests: [],
+                          since: Date.now(),
+                          status: "ready",
+                        },
+                        ...all,
+                      ]);
+                      setView({ id, name: "session" });
+                      setReturnTo(id);
+                      setExpanded(null);
+                    },
+                    { element: form, name: "stage" }
+                  );
+                  connect();
+                }}
+                returnTo={returnTo}
+                returning={returning}
+                sessions={sessions}
+              />
+            )}
+            {view.name === "review" || view.name === "ended" ? (
+              <div aria-live="polite" className="notices">
+                {notice ? (
+                  <div
+                    className="notice island"
+                    data-tone={notice.tone}
+                    key={notice.id}
+                    role="status"
+                  >
+                    <span aria-hidden="true" className="notice-mark">
+                      {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
+                    </span>
+                    {notice.text}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <Scaffold
+              canEnd={
+                current !== undefined &&
+                !current.ended &&
+                ENDS_WITH[current.id] !== undefined
+              }
+              onEnd={() => {
+                if (current) endRun(current.id);
+              }}
+              summary={current?.ended?.summary}
+              onSummary={() => {
+                if (!current?.ended) return;
+                const order: SummaryState[] = ["ready", "writing", "missing"];
+                const next =
+                  order[(order.indexOf(current.ended.summary) + 1) % 3] ??
+                  "ready";
                 patch(current.id, (s) => ({
                   ...s,
-                  requests: [
-                    ...s.requests,
-                    { ...next, id: `r${Date.now()}` } as Request,
-                  ],
+                  ended: s.ended && { ...s.ended, summary: next },
                 }));
-            }}
-            onNotice={() =>
-              setNotice("That gesture did not go through.", "error")
-            }
-            stage={
-              current && !current.ended
-                ? current.platform === "web"
-                  ? stage
-                  : deviceStage
-                : undefined
-            }
-            onStage={() =>
-              current?.platform === "web"
-                ? setStage((s) => STAGE_NEXT[s])
-                : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
-            }
-            rail={
-              current && !current.ended && current.platform !== "web"
-                ? rail
-                : undefined
-            }
-            onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
-            onOptions={setOptions}
-            options={options}
-          />
-        </div>
-      </FlowsNav.Provider>
+              }}
+              review={
+                view.name === "review"
+                  ? decisions[view.recording]
+                  : current?.ended && current.recording
+                    ? decisions[current.recording]
+                    : undefined
+              }
+              onReview={() => {
+                const rec =
+                  view.name === "review" ? view.recording : current?.recording;
+                if (!rec) return;
+                const order: Decision[] = [
+                  "pending",
+                  "rejected",
+                  "verified",
+                  "cleanup-failed",
+                ];
+                transition(() =>
+                  setDecisions((all) => ({
+                    ...all,
+                    [rec]:
+                      order[
+                        (order.indexOf(all[rec] ?? "pending") + 1) %
+                          order.length
+                      ] ?? "pending",
+                  }))
+                );
+              }}
+              cleanupFails={cleanupFails}
+              onCleanup={() => setCleanupFails(!cleanupFails)}
+              onSessions={(on) => {
+                transition(() => {
+                  setSessions(on ? SEED.map((s) => ({ ...s })) : []);
+                  setView({ name: "home" });
+                });
+              }}
+              sessionsOn={sessions.length > 0}
+              inSession={current !== undefined}
+              inFlows={view.name === "flows"}
+              catalogEmpty={catalogEmpty}
+              onCatalog={() => transition(() => setCatalogEmpty(!catalogEmpty))}
+              side={side}
+              onSide={() =>
+                transition(() => setSide(side === "right" ? "left" : "right"))
+              }
+              onRequest={() => {
+                if (!current) return;
+                const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
+                setSample(sample + 1);
+                if (next)
+                  patch(current.id, (s) => ({
+                    ...s,
+                    requests: [
+                      ...s.requests,
+                      { ...next, id: `r${Date.now()}` } as Request,
+                    ],
+                  }));
+              }}
+              onNotice={() =>
+                setNotice("That gesture did not go through.", "error")
+              }
+              stage={
+                current && !current.ended
+                  ? current.platform === "web"
+                    ? stage
+                    : deviceStage
+                  : undefined
+              }
+              onStage={() =>
+                current?.platform === "web"
+                  ? setStage((s) => STAGE_NEXT[s])
+                  : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
+              }
+              rail={
+                current && !current.ended && current.platform !== "web"
+                  ? rail
+                  : undefined
+              }
+              onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
+              onOptions={setOptions}
+              options={options}
+            />
+          </div>
+        </FlowsNav.Provider>
+      </TeachingProvider>
     </OptionsContext.Provider>
   );
 };
@@ -2935,6 +2947,12 @@ const Scaffold = ({
             type="button"
           >
             Full sentence: {options.disclosure}
+          </button>
+          <button
+            onClick={() => onOptions({ ...options, demo: !options.demo })}
+            type="button"
+          >
+            Demo password: {options.demo ? "on" : "off"}
           </button>
         </>
       ) : null}

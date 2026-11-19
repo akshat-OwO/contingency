@@ -128,7 +128,7 @@ test("the pin keeps the document position from selection even if scrolling conti
 test("a pick started from the composer returns to it on cancel and on attach", () => {
   const composing = openComposer({ ...emptyInspectState, draft: "Draft" });
   const picking = startPicking(composing);
-  expect(picking).toMatchObject({ composing: false, open: true });
+  expect(picking).toMatchObject({ composing: true, open: true });
   expect(stopPicking(picking)).toMatchObject({
     composing: true,
     draft: "Draft",

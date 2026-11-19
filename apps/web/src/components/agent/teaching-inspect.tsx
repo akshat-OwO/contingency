@@ -1,7 +1,7 @@
-import { MousePointerClickIcon } from "lucide-react";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { InspectHint } from "@/components/agent/comment-card";
 import type { OverlayRectangle } from "@/components/agent/teaching-inspect-geometry";
 import {
   pagePointOf,
@@ -13,8 +13,6 @@ import type {
   InspectState,
 } from "@/components/agent/teaching-inspect-state";
 import { useCanvasBox } from "@/components/agent/use-canvas-box";
-import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 
 const Pin = ({
   at,
@@ -24,7 +22,7 @@ const Pin = ({
   readonly index: number;
 }) => (
   <span
-    className="bg-primary text-primary-foreground absolute grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full text-xs font-semibold shadow-sm"
+    className="bg-status-running border-background absolute grid size-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 font-mono text-xs font-semibold text-white shadow-[0_2px_6px_oklch(0_0_0/0.25)]"
     style={{ left: at.left + at.width / 2, top: at.top }}
   >
     {index}
@@ -44,7 +42,7 @@ const Outline = ({
   readonly label?: string | undefined;
 }) => (
   <span
-    className="pointer-events-none absolute top-0 left-0 block rounded-sm border-2 border-blue-500 bg-blue-500/20 transition-[transform,width,height] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+    className="border-status-running bg-status-running/15 pointer-events-none absolute top-0 left-0 block rounded-sm border-2 transition-[transform,width,height] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
     style={{
       height: at.height,
       transform: `translate(${at.left}px, ${at.top}px)`,
@@ -52,7 +50,7 @@ const Outline = ({
     }}
   >
     {label === undefined ? null : (
-      <span className="absolute bottom-full left-0 mb-1 max-w-64 truncate rounded bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white">
+      <span className="bg-status-running absolute bottom-full left-0 mb-1 max-w-64 truncate rounded px-1.5 py-0.5 text-xs font-medium text-white">
         {label}
       </span>
     )}
@@ -72,14 +70,12 @@ const Outline = ({
  */
 export const InspectOverlay = ({
   canvas,
-  onCancel,
   onFreeze,
   onHover,
   projection,
   state,
 }: {
   readonly canvas: HTMLCanvasElement | null;
-  readonly onCancel: () => void;
   readonly onFreeze: (x: number, y: number) => void;
   readonly onHover: (x: number, y: number) => void;
   /** How the frame on the canvas maps onto the Page viewport it came from. */
@@ -148,30 +144,14 @@ export const InspectOverlay = ({
         />
       ))}
       {state.open ? (
-        <div
-          className="material-float absolute top-3 left-1/2 z-10 flex -translate-x-1/2 cursor-default items-center gap-2 rounded-full py-1 pr-1 pl-3 text-sm shadow-lg"
-          onPointerDown={(event) => event.stopPropagation()}
-          onPointerMove={(event) => event.stopPropagation()}
-        >
-          <MousePointerClickIcon
-            aria-hidden="true"
-            className="size-4 text-blue-500"
-          />
-          <span>Click an element to attach it</span>
-          <Button onClick={onCancel} size="sm" type="button" variant="ghost">
-            Cancel
-            <Kbd>Esc</Kbd>
-          </Button>
-        </div>
-      ) : null}
-      {state.open && state.error !== undefined ? (
-        <p
-          className="bg-background text-destructive pointer-events-none absolute top-16 left-1/2 z-10 max-w-sm -translate-x-1/2 rounded-md border p-3 text-sm shadow-lg"
-          role="alert"
-        >
-          Could not select this element. Try another visible element or retry
-          after the page finishes updating.
-        </p>
+        <InspectHint
+          error={
+            state.error === undefined
+              ? undefined
+              : "Could not select this element. Try another visible element."
+          }
+          verb="Click"
+        />
       ) : null}
     </div>
   );

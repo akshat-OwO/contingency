@@ -4,8 +4,29 @@ import type {
   BrowserPredicate,
 } from "@contingency/protocol";
 import { Schema } from "effect";
+import {
+  ActivityIcon,
+  ChevronRightIcon,
+  DatabaseIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 const operators = [
   "exists",
@@ -76,6 +97,92 @@ const pathValue = (
     input.reportValidity();
   }
 };
+
+const inputClassName = "h-8 rounded-[10px] px-2.5 font-mono text-xs md:text-xs";
+
+const fieldClassName =
+  "text-muted-foreground grid min-w-0 gap-1 text-xs font-medium";
+
+/** A field's visible name above its input, as the check card lays them out. */
+const Field = ({
+  children,
+  label,
+}: {
+  readonly children: ReactNode;
+  readonly label: string;
+}) => (
+  // oxlint-disable-next-line jsx-a11y/label-has-associated-control -- the control is the label's child
+  <label className={fieldClassName}>
+    <span>{label}</span>
+    {children}
+  </label>
+);
+
+/**
+ * A Select's visible name. Not a `<label>`: the Select's list renders in
+ * place, and a press on an option inside a label would reopen the trigger.
+ * The trigger carries its own accessible name.
+ */
+const SelectField = ({
+  children,
+  label,
+}: {
+  readonly children: ReactNode;
+  readonly label: string;
+}) => (
+  <div className={fieldClassName}>
+    <span aria-hidden="true">{label}</span>
+    {children}
+  </div>
+);
+
+const SectionHeading = ({ children }: { readonly children: ReactNode }) => (
+  <h3 className="text-muted-foreground/80 mt-1.5 -mb-0.5 text-xs font-semibold tracking-[0.04em] uppercase">
+    {children}
+  </h3>
+);
+
+const CompactSelect = <T extends string>({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  readonly label: string;
+  readonly onChange: (value: T) => void;
+  readonly options: readonly (readonly [T, string])[];
+  readonly value: T;
+}) => (
+  <Select
+    onValueChange={(next) => {
+      const option = options.find(([candidate]) => candidate === next);
+      if (option !== undefined) {
+        onChange(option[0]);
+      }
+    }}
+    value={value}
+  >
+    <SelectTrigger
+      aria-label={label}
+      className="h-8 w-full min-w-0 rounded-[10px] text-xs"
+      size="sm"
+    >
+      <SelectValue>
+        {(current: string | null) =>
+          options.find(([candidate]) => candidate === current)?.[1] ?? current
+        }
+      </SelectValue>
+    </SelectTrigger>
+    <SelectContent align="start" variant="island">
+      {options.map(([option, text]) => (
+        <SelectItem key={option} value={option}>
+          {text}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
+
 const BrowserSourceEditor = ({
   check,
   update,
@@ -85,188 +192,258 @@ const BrowserSourceEditor = ({
 }) =>
   check.kind === "response" ? (
     <>
-      <label>
-        Method{" "}
-        <input
-          aria-label="Request method"
-          value={check.request.method}
-          onChange={(event) =>
-            update({
-              ...check,
-              demonstrated: false,
-              request: {
-                ...check.request,
-                method: event.target.value.toUpperCase(),
-              },
-            })
-          }
-        />
-      </label>
-      <label>
-        Origin{" "}
-        <input
+      <SectionHeading>Request</SectionHeading>
+      <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
+        <Field label="Method">
+          <Input
+            aria-label="Request method"
+            className={inputClassName}
+            value={check.request.method}
+            onChange={(event) =>
+              update({
+                ...check,
+                demonstrated: false,
+                request: {
+                  ...check.request,
+                  method: event.currentTarget.value.toUpperCase(),
+                },
+              })
+            }
+          />
+        </Field>
+        <Field label="Path">
+          <Input
+            aria-label="Request path"
+            className={inputClassName}
+            placeholder="/api/orders/:id"
+            title="Use :name for one variable path segment."
+            value={check.request.path}
+            onChange={(event) =>
+              update({
+                ...check,
+                demonstrated: false,
+                request: { ...check.request, path: event.currentTarget.value },
+              })
+            }
+          />
+        </Field>
+      </div>
+      <Field label="Origin">
+        <Input
           aria-label="Request origin"
+          className={inputClassName}
           value={check.request.origin}
           onChange={(event) =>
             update({
               ...check,
               demonstrated: false,
-              request: {
-                ...check.request,
-                origin: event.target.value,
-              },
+              request: { ...check.request, origin: event.currentTarget.value },
             })
           }
         />
-      </label>
-      <label>
-        Path{" "}
-        <input
-          aria-label="Request path"
-          value={check.request.path}
-          onChange={(event) =>
-            update({
-              ...check,
-              demonstrated: false,
-              request: { ...check.request, path: event.target.value },
-            })
-          }
-        />
-      </label>
-      <p>
-        Use :name for one variable path segment. Query parameters are
-        unconstrained unless listed below.
-      </p>
-      <label>
-        Query constraints{" "}
-        <input
-          aria-label="Query constraints"
-          defaultValue={JSON.stringify(check.request.query)}
-          onBlur={(event) => {
-            try {
-              const query = Schema.decodeUnknownSync(
-                Schema.Record(Schema.String, Schema.String)
-              )(JSON.parse(event.currentTarget.value));
-              update({
-                ...check,
-                demonstrated: false,
-                request: { ...check.request, query },
-              });
-              event.currentTarget.setCustomValidity("");
-            } catch {
-              event.currentTarget.setCustomValidity(
-                "Enter an object of query names and string values."
-              );
-              event.currentTarget.reportValidity();
-            }
-          }}
-        />
-      </label>
-      <label>
-        Response timing{" "}
-        <select
-          aria-label="Response timing"
-          value={check.response}
-          onChange={(event) =>
-            update({
-              ...check,
-              response: event.target.value === "first" ? "first" : "matching",
-            })
-          }
-        >
-          <option value="matching">Wait for a matching response</option>
-          <option value="first">Check the first response</option>
-        </select>
-      </label>
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Query constraints">
+          <Input
+            aria-label="Query constraints"
+            className={inputClassName}
+            defaultValue={JSON.stringify(check.request.query)}
+            title="Query parameters are unconstrained unless listed here."
+            onBlur={(event) => {
+              try {
+                const query = Schema.decodeUnknownSync(
+                  Schema.Record(Schema.String, Schema.String)
+                )(JSON.parse(event.currentTarget.value));
+                update({
+                  ...check,
+                  demonstrated: false,
+                  request: { ...check.request, query },
+                });
+                event.currentTarget.setCustomValidity("");
+              } catch {
+                event.currentTarget.setCustomValidity(
+                  "Enter an object of query names and string values."
+                );
+                event.currentTarget.reportValidity();
+              }
+            }}
+          />
+        </Field>
+        <SelectField label="Response">
+          <CompactSelect
+            label="Response timing"
+            onChange={(response) => update({ ...check, response })}
+            options={[
+              ["matching", "Wait for a match"],
+              ["first", "The first response"],
+            ]}
+            value={check.response}
+          />
+        </SelectField>
+      </div>
     </>
   ) : (
     <>
-      <label>
-        Name{" "}
-        <input
-          aria-label="Storage check name"
-          value={check.name}
-          onChange={(event) =>
-            update({
-              ...check,
-              demonstrated: false,
-              name: event.target.value,
-            })
-          }
-        />
-      </label>
-      <label>
-        Origin{" "}
-        <input
-          aria-label="Storage check origin"
-          value={check.origin}
-          onChange={(event) =>
-            update({
-              ...check,
-              demonstrated: false,
-              origin: event.target.value,
-            })
-          }
-        />
-      </label>
-      <label>
-        State{" "}
-        <select
-          aria-label="Storage check change"
-          value={check.change}
-          onChange={(event) =>
-            update({
-              ...check,
-              change: Schema.decodeUnknownSync(
-                Schema.Literals(["current", "changed", "created"])
-              )(event.target.value),
-            })
-          }
-        >
-          <option value="created">Created after the action</option>
-          <option value="changed">Changed after the action</option>
-          <option value="current">Current state</option>
-        </select>
-      </label>
-      {check.kind === "cookie" ? null : (
-        <label>
-          Storage format{" "}
-          <select
-            aria-label="Storage format"
-            value={check.format ?? "raw"}
+      <SectionHeading>
+        {check.kind === "cookie" ? "Cookie" : "Storage"}
+      </SectionHeading>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Name">
+          <Input
+            aria-label="Storage check name"
+            className={inputClassName}
+            value={check.name}
             onChange={(event) =>
-              update(
-                event.target.value === "json"
-                  ? { ...check, demonstrated: false, format: "json" }
-                  : asRawString({ ...check, format: "raw" })
-              )
+              update({
+                ...check,
+                demonstrated: false,
+                name: event.currentTarget.value,
+              })
             }
-          >
-            <option value="raw">Raw string</option>
-            <option value="json">JSON</option>
-          </select>
-        </label>
-      )}
-      {readsFields(check) ? (
-        <p>
-          JSON values over 64 KiB or that fail to parse are unreadable evidence.
-        </p>
-      ) : (
-        <p>
-          The stored value is checked as one string. Field paths do not apply.
-        </p>
-      )}
-      <p>This declares an expectation. It never creates or changes storage.</p>
+          />
+        </Field>
+        <SelectField label="State">
+          <CompactSelect
+            label="Storage check change"
+            onChange={(change) => update({ ...check, change })}
+            options={[
+              ["created", "Created after the action"],
+              ["changed", "Changed after the action"],
+              ["current", "Current state"],
+            ]}
+            value={check.change}
+          />
+        </SelectField>
+      </div>
+      <div
+        className={cn(
+          "grid gap-2",
+          check.kind === "cookie" ? null : "grid-cols-[minmax(0,1fr)_8rem]"
+        )}
+      >
+        <Field label="Origin">
+          <Input
+            aria-label="Storage check origin"
+            className={inputClassName}
+            value={check.origin}
+            onChange={(event) =>
+              update({
+                ...check,
+                demonstrated: false,
+                origin: event.currentTarget.value,
+              })
+            }
+          />
+        </Field>
+        {check.kind === "cookie" ? null : (
+          <SelectField label="Format">
+            <CompactSelect
+              label="Storage format"
+              onChange={(format) =>
+                update(
+                  format === "json"
+                    ? { ...check, demonstrated: false, format: "json" }
+                    : asRawString({ ...check, format: "raw" })
+                )
+              }
+              options={[
+                ["raw", "Raw string"],
+                ["json", "JSON"],
+              ]}
+              value={check.format ?? "raw"}
+            />
+          </SelectField>
+        )}
+      </div>
     </>
   );
 
+/**
+ * An attached browser check in the comment card. Its label opens the check's
+ * editor beside the card; the cross removes it, like every other chip.
+ */
+export const BrowserAttachmentChip = ({
+  attachment,
+  disabled,
+  onOpen,
+  onRemove,
+  open,
+}: {
+  readonly attachment: TeachingBrowserAttachment;
+  readonly disabled: boolean;
+  readonly onOpen: () => void;
+  readonly onRemove: () => void;
+  readonly open: boolean;
+}) => {
+  const required = attachment.requirement !== undefined;
+  const check = attachment.requirement ?? attachment.candidate;
+  const Icon = check.kind === "response" ? ActivityIcon : DatabaseIcon;
+  return (
+    <span
+      className={cn(
+        "bg-island-hover inline-flex max-w-full items-center rounded-[10px] py-[3px] pr-1.5 pl-1 text-xs shadow-[inset_0_0_0_1px_var(--island-border)]",
+        open && "shadow-[inset_0_0_0_1.5px_var(--brand)]"
+      )}
+    >
+      <button
+        aria-expanded={open}
+        className="hover:bg-island-hover focus-visible:ring-ring/40 inline-flex h-[22px] min-w-0 items-center gap-1.5 rounded-[7px] pr-0.5 pl-1.5 outline-none focus-visible:ring-2 disabled:opacity-50"
+        disabled={disabled}
+        onClick={onOpen}
+        type="button"
+      >
+        <Icon
+          aria-hidden="true"
+          className="text-muted-foreground size-[13px] shrink-0"
+        />
+        <span className="max-w-50 truncate font-mono text-xs">
+          {attachment.label}
+        </span>
+        <span
+          className={cn(
+            "rounded-md px-1.5 py-px text-xs",
+            required
+              ? "bg-brand/18 text-foreground"
+              : "bg-island-hover text-muted-foreground"
+          )}
+        >
+          {required ? "Must happen" : "Context"}
+        </span>
+        <ChevronRightIcon
+          aria-hidden="true"
+          className="text-muted-foreground size-3 shrink-0"
+        />
+      </button>
+      <Button
+        aria-label={`Remove ${attachment.label}`}
+        className="size-[22px] rounded-[7px]"
+        disabled={disabled}
+        onClick={onRemove}
+        size="icon-xs"
+        type="button"
+        variant="island"
+      >
+        <XIcon />
+      </Button>
+    </span>
+  );
+};
+
+/**
+ * The editor for one attached browser check: a card beside the comment card,
+ * so the comment stays readable while the check is shaped.
+ */
 export const BrowserAttachmentEditor = ({
   attachment,
+  className,
   onChange,
+  onClose,
   onRemove,
 }: {
   readonly attachment: TeachingBrowserAttachment;
+  readonly className?: string;
   readonly onChange: (attachment: TeachingBrowserAttachment) => void;
+  readonly onClose: () => void;
   readonly onRemove: () => void;
 }) => {
   const check = attachment.requirement ?? attachment.candidate;
@@ -291,105 +468,130 @@ export const BrowserAttachmentEditor = ({
         ),
       },
     });
+  const Icon = check.kind === "response" ? ActivityIcon : DatabaseIcon;
+  const fields = readsFields(check);
   return (
-    <details className="bg-muted rounded-lg px-3 py-2 text-xs">
-      <summary className="cursor-pointer">
-        {attachment.label} ·{" "}
-        {attachment.requirement === undefined ? "Context" : "Must happen"}
-      </summary>
-      <div className="[&_input]:bg-background [&_select]:bg-background mt-2 grid max-h-80 gap-3 overflow-auto pr-1 [&_input]:min-w-0 [&_input]:rounded-md [&_input]:border [&_input]:px-2 [&_input]:py-1.5 [&_label]:grid [&_label]:gap-1 [&_select]:rounded-md [&_select]:border [&_select]:px-2 [&_select]:py-1.5">
-        <label>
-          Purpose{" "}
-          <select
-            aria-label={`Purpose for ${attachment.label}`}
-            value={
-              attachment.requirement === undefined ? "context" : "required"
+    <section
+      aria-label={attachment.label}
+      className={cn(
+        "island bg-island-solid shadow-island-lift flex min-h-0 w-95 flex-col overflow-clip rounded-[18px] text-sm",
+        className
+      )}
+    >
+      <header className="border-island-border flex h-11 shrink-0 items-center gap-2 border-b pr-1.5 pl-4">
+        <h2 className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium">
+          <Icon
+            aria-hidden="true"
+            className="text-muted-foreground size-3.5 shrink-0"
+          />
+          <span className="truncate font-mono text-[12.5px]">
+            {attachment.label}
+          </span>
+        </h2>
+        <Button
+          aria-label="Close check"
+          onClick={onClose}
+          size="icon-sm"
+          type="button"
+          variant="island"
+        >
+          <XIcon />
+        </Button>
+      </header>
+      <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] gap-2.5 overflow-y-auto overscroll-contain p-4">
+        <SegmentedControl
+          aria-label={`Purpose for ${attachment.label}`}
+          className="flex"
+          onValueChange={(purpose) => {
+            if (purpose === "context") {
+              const { requirement: _removed, ...context } = attachment;
+              onChange(context);
+            } else {
+              onChange({ ...attachment, requirement: check });
             }
-            onChange={(event) => {
-              if (event.target.value === "context") {
-                const { requirement: _removed, ...context } = attachment;
-                onChange(context);
-              } else {
-                onChange({ ...attachment, requirement: check });
-              }
-            }}
-          >
-            <option value="context">Context for the agent</option>
-            <option value="required">Must happen</option>
-          </select>
-        </label>
-        {attachment.requirement === undefined ? (
-          <p>Context does not constrain later Run success.</p>
-        ) : (
+          }}
+          value={attachment.requirement === undefined ? "context" : "required"}
+        >
+          <SegmentedControlItem className="flex-1" value="context">
+            Context for the agent
+          </SegmentedControlItem>
+          <SegmentedControlItem className="flex-1" value="required">
+            Must happen
+          </SegmentedControlItem>
+        </SegmentedControl>
+        {attachment.requirement === undefined ? null : (
           <>
-            <label>
-              When{" "}
-              <input
-                aria-label="Check timing"
-                value={check.when}
-                onChange={(event) =>
-                  update({ ...check, when: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Timeout in milliseconds{" "}
-              <input
-                aria-label="Check timeout"
-                type="number"
-                min={1}
-                max={60_000}
-                value={check.timeoutMs}
-                onChange={(event) => {
-                  const timeoutMs = event.target.valueAsNumber;
-                  if (
-                    Number.isInteger(timeoutMs) &&
-                    timeoutMs > 0 &&
-                    timeoutMs <= 60_000
-                  ) {
-                    update({ ...check, timeoutMs });
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="When">
+                <Input
+                  aria-label="Check timing"
+                  className={cn(inputClassName, "font-sans")}
+                  value={check.when}
+                  onChange={(event) =>
+                    update({ ...check, when: event.currentTarget.value })
                   }
-                }}
-              />
-            </label>
+                />
+              </Field>
+              <Field label="Timeout (ms)">
+                <Input
+                  aria-label="Check timeout"
+                  className={inputClassName}
+                  type="number"
+                  min={1}
+                  max={60_000}
+                  value={String(check.timeoutMs)}
+                  onChange={(event) => {
+                    const timeoutMs = event.currentTarget.valueAsNumber;
+                    if (
+                      Number.isInteger(timeoutMs) &&
+                      timeoutMs > 0 &&
+                      timeoutMs <= 60_000
+                    ) {
+                      update({ ...check, timeoutMs });
+                    }
+                  }}
+                />
+              </Field>
+            </div>
             <BrowserSourceEditor check={check} update={update} />
-            {readsFields(check) ? (
-              <>
-                <label>
-                  Array item path{" "}
-                  <input
-                    aria-label="Array item path"
-                    defaultValue={JSON.stringify(check.expectation.itemPath)}
-                    onBlur={(event) => {
-                      const itemPath = pathValue(event.currentTarget);
-                      if (itemPath !== undefined) {
-                        update({
-                          ...check,
-                          demonstrated: false,
-                          expectation: { ...check.expectation, itemPath },
-                        });
-                      }
-                    }}
-                  />
-                </label>
-                <p>
-                  Use "*" for an item anywhere in an array, or a number for an
-                  explicit index. All predicates below must match the same
-                  selected item.
-                </p>
-              </>
+            <SectionHeading>Expect</SectionHeading>
+            {fields ? (
+              <Field label="Array item path">
+                <Input
+                  aria-label="Array item path"
+                  className={inputClassName}
+                  defaultValue={JSON.stringify(check.expectation.itemPath)}
+                  title={
+                    'Use "*" for an item anywhere in an array, or a number for an explicit index. Every predicate must match the same item.'
+                  }
+                  onBlur={(event) => {
+                    const itemPath = pathValue(event.currentTarget);
+                    if (itemPath !== undefined) {
+                      update({
+                        ...check,
+                        demonstrated: false,
+                        expectation: { ...check.expectation, itemPath },
+                      });
+                    }
+                  }}
+                />
+              </Field>
             ) : null}
-            {check.expectation.predicates.map((predicate, index) => (
-              <fieldset
-                className="grid gap-1 rounded border p-2"
-                key={predicate.id ?? JSON.stringify(predicate.path)}
-              >
-                <legend>Field {index + 1}</legend>
-                {readsFields(check) ? (
-                  <label>
-                    Full field path{" "}
-                    <input
+            <ol aria-label="Predicates" className="grid gap-1.5">
+              {check.expectation.predicates.map((predicate, index) => (
+                <li
+                  className={cn(
+                    "grid items-center gap-1.5",
+                    fields
+                      ? "grid-cols-[minmax(0,1.1fr)_5.75rem_minmax(0,1fr)_auto]"
+                      : "grid-cols-[5.75rem_minmax(0,1fr)_auto]"
+                  )}
+                  key={predicate.id ?? JSON.stringify(predicate.path)}
+                >
+                  {fields ? (
+                    <Input
                       aria-label={`Field path ${index + 1}`}
+                      className={inputClassName}
                       defaultValue={JSON.stringify(predicate.path)}
                       onBlur={(event) => {
                         const path = pathValue(event.currentTarget);
@@ -398,17 +600,10 @@ export const BrowserAttachmentEditor = ({
                         }
                       }}
                     />
-                  </label>
-                ) : null}
-                <label>
-                  Comparison{" "}
-                  <select
-                    aria-label={`Comparison ${index + 1}`}
-                    value={predicate.operator}
-                    onChange={(event) => {
-                      const operator = Schema.decodeUnknownSync(
-                        Schema.Literals(operators)
-                      )(event.target.value);
+                  ) : null}
+                  <CompactSelect
+                    label={`Comparison ${index + 1}`}
+                    onChange={(operator) => {
                       const { expected, ...withoutExpected } = predicate;
                       updatePredicate(
                         index,
@@ -421,19 +616,17 @@ export const BrowserAttachmentEditor = ({
                             }
                       );
                     }}
-                  >
-                    {(readsFields(check) ? operators : rawOperators).map(
-                      (operator) => (
-                        <option key={operator}>{operator}</option>
-                      )
+                    options={(fields ? operators : rawOperators).map(
+                      (operator) => [operator, operator] as const
                     )}
-                  </select>
-                </label>
-                {predicate.operator === "exists" ? null : (
-                  <label>
-                    Expected JSON value{" "}
-                    <input
+                    value={predicate.operator}
+                  />
+                  {predicate.operator === "exists" ? (
+                    <span />
+                  ) : (
+                    <Input
                       aria-label={`Expected value ${index + 1}`}
+                      className={inputClassName}
                       defaultValue={JSON.stringify(predicate.expected)}
                       onBlur={(event) =>
                         updateExpected(event.currentTarget, (expected) =>
@@ -441,32 +634,35 @@ export const BrowserAttachmentEditor = ({
                         )
                       }
                     />
-                  </label>
-                )}
-                {check.expectation.predicates.length < 2 ? null : (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() =>
-                      update({
-                        ...check,
-                        expectation: {
-                          ...check.expectation,
-                          predicates: check.expectation.predicates.filter(
-                            (_, position) => position !== index
-                          ),
-                        },
-                      })
-                    }
-                  >
-                    Remove predicate
-                  </Button>
-                )}
-              </fieldset>
-            ))}
+                  )}
+                  {check.expectation.predicates.length < 2 ? (
+                    <span />
+                  ) : (
+                    <Button
+                      aria-label={`Remove predicate ${index + 1}`}
+                      onClick={() =>
+                        update({
+                          ...check,
+                          expectation: {
+                            ...check.expectation,
+                            predicates: check.expectation.predicates.filter(
+                              (_, position) => position !== index
+                            ),
+                          },
+                        })
+                      }
+                      size="icon-xs"
+                      type="button"
+                      variant="island"
+                    >
+                      <XIcon />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ol>
             <Button
-              type="button"
-              variant="ghost"
+              className="justify-self-start"
               disabled={check.expectation.predicates.length >= 20}
               onClick={() =>
                 update({
@@ -481,20 +677,39 @@ export const BrowserAttachmentEditor = ({
                   },
                 })
               }
+              size="sm"
+              type="button"
+              variant="island"
             >
               Add predicate to this item
             </Button>
-            {check.demonstrated ? (
-              <p>Observed during Teaching</p>
-            ) : (
-              <p>Not demonstrated. A fresh Dry Run must pass this check.</p>
-            )}
+            <p
+              className={cn(
+                "rounded-[10px] px-2.5 py-2 text-xs",
+                check.demonstrated
+                  ? "bg-status-ready/12 text-status-ready"
+                  : "bg-brand/12 text-foreground"
+              )}
+            >
+              {check.demonstrated
+                ? "Observed during Teaching"
+                : "Not demonstrated. A fresh Dry Run must pass this check."}
+            </p>
           </>
         )}
-        <Button type="button" variant="ghost" onClick={onRemove}>
+      </div>
+      <footer className="border-island-border border-t px-2.5 pt-2 pb-2.5">
+        <Button
+          className="hover:bg-destructive/10 hover:text-destructive"
+          onClick={onRemove}
+          size="sm"
+          type="button"
+          variant="island"
+        >
+          <Trash2Icon aria-hidden="true" />
           Remove attachment
         </Button>
-      </div>
-    </details>
+      </footer>
+    </section>
   );
 };

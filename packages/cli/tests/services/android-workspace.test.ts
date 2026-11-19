@@ -2262,6 +2262,122 @@ it.effect(
     )
 );
 
+it.effect(
+  "lists the recording's comments, oldest first, in the snapshot and its persisted summary",
+  () =>
+    fixture(({ restart, root, setNodes }) =>
+      Effect.gen(function* listComments() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* preparePick;
+        // On the 1 by 1 fixture screenshot, bounds are already fractions.
+        setNodes([
+          pickNode({
+            bounds: { height: 0.25, width: 0.5, x: 0.25, y: 0.5 },
+            target: "@e2",
+          }),
+        ]);
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("list-record"),
+            sessionId: prepared.id,
+            start: true,
+          },
+          "user"
+        );
+        const picked = (yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        )).observation?.id;
+        if (picked === undefined) {
+          return yield* Effect.die("The screen must be observed.");
+        }
+        expect(
+          (yield* workspace.execute(
+            { _tag: "read", sessionId: prepared.id },
+            "user"
+          )).instructions
+        ).toEqual([]);
+        yield* workspace.execute(
+          {
+            _tag: "instruction",
+            element: { observationId: picked, target: "@e2" },
+            operationId: op("list-attached"),
+            sessionId: prepared.id,
+            text: "Edit opens the profile.",
+          },
+          "user"
+        );
+        const listed = yield* workspace.execute(
+          {
+            _tag: "instruction",
+            operationId: op("list-page"),
+            sessionId: prepared.id,
+            text: "Skip the welcome tour.",
+          },
+          "user"
+        );
+        const expected = [
+          {
+            at: expect.any(String),
+            element: {
+              box: { height: 0.25, left: 0.25, top: 0.5, width: 0.5 },
+              name: "Edit",
+              role: "button",
+            },
+            id: expect.any(String),
+            target: 'button "Edit"',
+            text: "Edit opens the profile.",
+          },
+          {
+            at: expect.any(String),
+            id: expect.any(String),
+            target: null,
+            text: "Skip the welcome tour.",
+          },
+        ];
+        expect(listed.instructions).toEqual(expected);
+        // Each listed comment is the recording's own instruction event.
+        const events = (yield* teachingEvents(listed.recordingId))
+          .split("\n")
+          .filter((line) => line.includes('"_tag":"instruction"'))
+          .map((line) =>
+            Schema.decodeUnknownSync(Schema.fromJsonString(TeachingEvent))(line)
+          );
+        expect(
+          events.map((event) => ("id" in event ? event.id : undefined))
+        ).toEqual(listed.instructions?.map(({ id }) => id));
+        expect(
+          events.map((event) => ("at" in event ? event.at : undefined))
+        ).toEqual(listed.instructions?.map(({ at }) => at));
+
+        // Another process reads them from the persisted summary.
+        const fs = yield* FileSystem.FileSystem;
+        const records = path.join(root, ".android-workspace");
+        const record = JSON.parse(
+          yield* fs.readFileString(path.join(records, `${prepared.id}.json`))
+        );
+        // A summary persisted before comments were listed has none.
+        const older = AgentSessionId.make(`agent-android-${"c".repeat(32)}`);
+        const { instructions: _instructions, ...withoutComments } = record;
+        yield* fs.writeFileString(
+          path.join(records, `${older}.json`),
+          JSON.stringify({ ...withoutComments, id: older })
+        );
+        const [reopened, legacy] = yield* Effect.scoped(
+          Effect.flatMap(restart(), (fresh) =>
+            Effect.all([
+              fresh.execute({ _tag: "read", sessionId: prepared.id }, "user"),
+              fresh.execute({ _tag: "read", sessionId: older }, "user"),
+            ])
+          )
+        );
+        expect(reopened.instructions).toEqual(listed.instructions);
+        expect(legacy.instructions).toEqual([]);
+      })
+    )
+);
+
 it.effect("refuses Forwarded Input from anyone but the controlling user", () =>
   fixture(({ forwarded }) =>
     Effect.gen(function* refuseForward() {

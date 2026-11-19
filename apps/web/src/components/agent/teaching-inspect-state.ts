@@ -103,9 +103,12 @@ export const closeComposer = (state: InspectState): InspectState => ({
   highlighted: undefined,
 });
 
+/**
+ * The comment stays open, dimmed, while the user picks, so the words they are
+ * attaching the element to stay in view.
+ */
 export const startPicking = (state: InspectState): InspectState => ({
   ...state,
-  composing: false,
   error: undefined,
   highlighted: undefined,
   hovered: undefined,

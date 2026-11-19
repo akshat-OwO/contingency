@@ -182,6 +182,42 @@ export const NativeCaptureRepair = Schema.Struct({
 });
 export type NativeCaptureRepair = typeof NativeCaptureRepair.Type;
 
+const fraction = Schema.Finite.check(
+  Schema.isBetween({ maximum: 1, minimum: 0 })
+);
+
+/** At most this many of a recording's latest comments ride on a summary. */
+export const nativeTeachingInstructionLimit = 200;
+
+/**
+ * One comment of a native Teaching recording, as the Workspace lists it and
+ * pins it on the screen. `box` places the attached element in fractions of
+ * the screen it was picked from; it is absent when the element had no bounds.
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const NativeTeachingInstruction = Schema.Struct({
+  at: text,
+  element: Schema.optionalKey(
+    Schema.Struct({
+      box: Schema.optionalKey(
+        Schema.Struct({
+          height: fraction,
+          left: fraction,
+          top: fraction,
+          width: fraction,
+        })
+      ),
+      name: Schema.String,
+      role: text,
+    })
+  ),
+  id: text,
+  /** The attached element as one phrase, or null for a comment on the page. */
+  target: Schema.NullOr(text),
+  text,
+});
+export type NativeTeachingInstruction = typeof NativeTeachingInstruction.Type;
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceSummary = Schema.Struct({
   assessment: Schema.NullOr(
@@ -212,6 +248,16 @@ export const AndroidWorkspaceSummary = Schema.Struct({
    */
   handedOffTo: Schema.optionalKey(AgentSessionId),
   id: AgentSessionId,
+  /**
+   * The comments of this session's Teaching recording, oldest first, capped
+   * to the latest `nativeTeachingInstructionLimit`. Absent from summaries
+   * persisted before comments were listed; empty outside Teaching.
+   */
+  instructions: Schema.optionalKey(
+    Schema.Array(NativeTeachingInstruction).check(
+      Schema.isMaxLength(nativeTeachingInstructionLimit)
+    )
+  ),
   kind: Schema.Literals(["teaching", "dry-run", "run"]),
   phase: Schema.Literals([
     "pending",
@@ -262,9 +308,6 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
 });
 export type AndroidWorkspaceSnapshot = typeof AndroidWorkspaceSnapshot.Type;
 
-const fraction = Schema.Finite.check(
-  Schema.isBetween({ maximum: 1, minimum: 0 })
-);
 /** When the Workspace saw the input, in its own milliseconds. Orders and times gestures only. */
 const inputTime = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 

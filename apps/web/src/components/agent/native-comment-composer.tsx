@@ -1,125 +1,130 @@
+import type { NativeTeachingInstruction } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
-import { CrosshairIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { MousePointer2Icon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
+import { CommentCard, CommentChip } from "./comment-card";
 import { roleWord } from "./screen-elements";
-import type { AttachedElement } from "./screen-elements";
+import type { AttachedElement, CommentPin } from "./screen-elements";
+import { elapsedLabel } from "./teaching-recording-state";
 
 /**
- * The native Teaching comment composer, on Android and iOS. Attach element
- * turns the device screen into a picker; the chosen element sits in the
- * composer as a chip and is sent with the comment. Escape cancels a pick
- * first, then closes the composer. The draft stays until the comment saves.
+ * The native Teaching comment card, on Android and iOS: the same card as on
+ * the Web, without the browser's scans and checks. Attach element turns the
+ * device screen into a picker; the chosen element sits in the card as a chip
+ * and is sent with the comment. Escape cancels a pick first, then closes the
+ * card. The draft stays until the comment saves.
  */
 export const NativeCommentComposer = ({
   attached,
   canAttach,
+  instructions,
   onAttach,
   onCancelPick,
   onDetach,
   onDismiss,
+  onHighlight,
   onSubmit,
   pending,
   picking,
+  pins,
+  startedAt,
 }: {
   readonly attached: AttachedElement | undefined;
   /** Whether the screen shows an observation to pick from. */
   readonly canAttach: boolean;
+  /** The recording's comments, oldest first. */
+  readonly instructions: readonly NativeTeachingInstruction[];
   readonly onAttach: () => void;
   readonly onCancelPick: () => void;
   readonly onDetach: () => void;
   readonly onDismiss: () => void;
+  readonly onHighlight: (index?: number) => void;
   readonly onSubmit: (text: string) => void;
   readonly pending: boolean;
   readonly picking: boolean;
+  /** The comments pinned on the current screen. */
+  readonly pins: readonly CommentPin[];
+  readonly startedAt: string | undefined;
 }) => {
   const [draftAtom] = useState(() => Atom.make(""));
   const [draft, setDraft] = useAtom(draftAtom);
+  const field = useRef<HTMLTextAreaElement>(null);
+  // A pick lands after the press on the screen took focus. Writing about the
+  // element is next, so the field takes it back.
+  useEffect(() => {
+    if (attached !== undefined) {
+      field.current?.focus();
+    }
+  }, [attached]);
+  const pinned = new Set(pins.map((pin) => pin.index));
+  const submit = () => {
+    if (draft.trim() !== "") {
+      onSubmit(draft.trim());
+    }
+  };
   return (
-    <form
-      aria-label="Comment"
-      className="flex flex-col gap-1.5 border-b px-3 py-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (draft.trim() === "") {
-          return;
-        }
-        onSubmit(draft.trim());
+    <CommentCard
+      attach={{
+        attached: attached !== undefined,
+        disabled: !canAttach,
+        onCancel: onCancelPick,
+        onPick: onAttach,
+        picking,
       }}
-    >
-      {attached === undefined ? null : (
-        <div className="flex min-w-0 items-center gap-1">
-          <span
-            className="inline-flex min-w-0 items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-600 dark:text-blue-400"
-            data-slot="comment-element"
+      canSubmit={!pending && draft.trim() !== ""}
+      chips={
+        attached === undefined ? null : (
+          <CommentChip
+            disabled={pending}
+            icon={<MousePointer2Icon aria-hidden="true" />}
+            onRemove={() => {
+              onDetach();
+              field.current?.focus();
+            }}
+            removeLabel="Remove attached element"
+            tone="element"
           >
-            <CrosshairIcon aria-hidden="true" className="size-3 shrink-0" />
             <span className="truncate">{attached.label}</span>
-            <span className="text-muted-foreground shrink-0">
+            <span className="shrink-0 opacity-70">
               {roleWord(attached.role)}
             </span>
-          </span>
-          <Button
-            aria-label={`Detach ${attached.label}`}
-            onClick={onDetach}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <XIcon aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-      <div className="flex items-center gap-1.5">
-        <Input
-          aria-label="Instruction"
-          autoFocus
-          className="h-8 flex-1"
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") {
-              return;
-            }
-            // The stage's own Escape would close the picker's list too.
-            event.preventDefault();
-            if (picking) {
-              onCancelPick();
-            } else {
-              onDismiss();
-            }
-          }}
-          placeholder="Tell the agent what matters on this screen"
-          value={draft}
-        />
-        <Button
-          aria-pressed={picking}
-          disabled={!canAttach}
-          onClick={picking ? onCancelPick : onAttach}
-          size="sm"
-          type="button"
-          variant={picking ? "secondary" : "ghost"}
-        >
-          <CrosshairIcon aria-hidden="true" />
-          {attached === undefined ? "Attach element" : "Change element"}
-        </Button>
-        <Button
-          disabled={pending || draft.trim() === ""}
-          size="sm"
-          type="submit"
-        >
-          Add
-        </Button>
-      </div>
-      {picking ? (
-        <p className="text-muted-foreground text-xs" role="status">
-          Click an element on the screen, or choose one from Screen elements.
-          Escape cancels.
-        </p>
-      ) : null}
-    </form>
+          </CommentChip>
+        )
+      }
+      draft={draft}
+      earlier={instructions.map((instruction, position) => ({
+        id: instruction.id,
+        index: position + 1,
+        pinned: pinned.has(position + 1),
+        target: instruction.target ?? undefined,
+        text: instruction.text,
+        time:
+          startedAt === undefined
+            ? ""
+            : elapsedLabel(startedAt, Date.parse(instruction.at)),
+      }))}
+      editingId={undefined}
+      error={undefined}
+      fieldRef={field}
+      onBackspaceEmpty={attached === undefined ? undefined : onDetach}
+      onDraftChange={setDraft}
+      onHighlight={onHighlight}
+      onOpenChange={(open) => {
+        if (!open) {
+          onDismiss();
+        }
+      }}
+      onSubmit={submit}
+      open
+      pending={pending}
+      placeholder={
+        attached === undefined
+          ? "What should the agent know about this screen?"
+          : "What should change here?"
+      }
+      startedAt={startedAt}
+    />
   );
 };

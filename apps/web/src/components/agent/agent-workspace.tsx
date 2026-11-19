@@ -63,7 +63,6 @@ import { EndedRunSummary } from "@/components/agent/ended-run-summary";
 import { GuidedRunControl } from "@/components/agent/guided-run-control";
 import { GuidedTakeoverVariable } from "@/components/agent/guided-takeover-variable";
 import { RunDock } from "@/components/agent/run-dock";
-import { hasDemoTeachingPassword } from "@/components/agent/run-provenance";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { CommentComposer } from "@/components/agent/teaching-comment-composer";
 import type { CommentShortcut } from "@/components/agent/teaching-comment-shortcuts";
@@ -705,7 +704,6 @@ const AgentLiveView = ({
     explains and collapses out of the browser's way.
   */
   const showsNotices =
-    hasDemoTeachingPassword(session) ||
     notices !== null ||
     state.botProtectionBlock !== undefined ||
     browserStreamError !== undefined ||
@@ -816,7 +814,6 @@ const AgentLiveView = ({
                   </AlertDescription>
                 </Alert>
               )}
-              <DemoTeachingPassword key={session.id} session={session} />
             </>
           </DockNotices>
         ) : null}
@@ -2645,6 +2642,10 @@ const BrowserWorkspace = ({
                   requests={
                     <>
                       <DockRequests session={session} />
+                      <DemoTeachingPassword
+                        key={`demo-${session.id}`}
+                        session={session}
+                      />
                       <GuidedTakeoverVariable
                         key={session.id}
                         session={session}
@@ -2691,7 +2692,6 @@ const BrowserWorkspace = ({
                 ? (canvas) => (
                     <InspectOverlay
                       canvas={canvas}
-                      onCancel={view.exitInspect}
                       onFreeze={view.freezeInspect}
                       onHover={view.hoverInspect}
                       projection={state.frameProjection}
@@ -2730,6 +2730,7 @@ const BrowserWorkspace = ({
             onEdit={view.editComment}
             onAttachmentsChange={view.setAttachments}
             onAttach={view.attachBrowserContext}
+            onCancelPick={view.exitInspect}
             onDetach={view.detachElement}
             onDraftChange={view.setInspectDraft}
             onHighlight={view.highlightComment}

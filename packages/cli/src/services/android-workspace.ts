@@ -74,7 +74,9 @@ import { describeGesture } from "./native-forwarded-input.ts";
 import { makeForwardedLane } from "./native-forwarded-lane.ts";
 import type { ForwardedLane, PendingGesture } from "./native-forwarded-lane.ts";
 import {
+  appendInstruction,
   instructionElementLabel,
+  listedInstruction,
   resolveInstructionElement,
   staleInstructionElement,
 } from "./native-instruction-element.ts";
@@ -649,6 +651,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             ...recording,
             boundary: session.boundary.pending()?.boundary ?? null,
             field: current.field,
+            instructions: current.summary.instructions ?? [],
             observation:
               captured === null
                 ? null
@@ -1353,6 +1356,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 error: null,
                 flowName: command.flowName,
                 id,
+                instructions: [],
                 kind: command.kind,
                 phase: "pending",
                 preparation: run.state(),
@@ -2473,14 +2477,37 @@ export const makeAndroidWorkspaceLayer = (options: {
             }
             const instruction = {
               _tag: "instruction" as const,
+              id: randomUUID(),
               target:
                 element === undefined ? null : instructionElementLabel(element),
               text: command.text,
             };
-            yield* emit(
+            const { at } = yield* emit(
               session,
               element === undefined ? instruction : { ...instruction, element }
             );
+            // The Workspace lists the recording's comments and pins each on
+            // the screen its element was picked from.
+            const listed = listedInstruction({
+              at,
+              element,
+              id: instruction.id,
+              screen: current.observations.find(
+                (observation) => observation.id === element?.observationId
+              ),
+              target: instruction.target,
+              text: instruction.text,
+            });
+            update(session, (value) => ({
+              ...value,
+              summary: {
+                ...value.summary,
+                instructions: appendInstruction(
+                  value.summary.instructions,
+                  listed
+                ),
+              },
+            }));
           } else if (command._tag === "input") {
             // An agent action plays at real speed in the condensed video.
             yield* source === "agent"
@@ -2524,6 +2551,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 ? "This process can read the retained Summary but does not own its device. Open the owning Workspace to drive it."
                 : summary.error,
             field: null,
+            instructions: summary.instructions ?? [],
             observation: null,
             phase:
               summary.phase === "running" ||

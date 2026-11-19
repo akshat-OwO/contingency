@@ -60,7 +60,11 @@ import { cn } from "@/lib/utils";
 
 import { workspaceChromeAtom } from "./agent-workspace-state";
 import { DeviceUnavailable, NativeStage } from "./android-device";
-import type { DeviceKey, NativeElementPick } from "./android-device";
+import type {
+  DeviceKey,
+  NativeCommentPins,
+  NativeElementPick,
+} from "./android-device";
 import { AndroidVariables } from "./android-dock";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
@@ -83,7 +87,11 @@ import {
 import type { IosDockGesture, IosDockPresentation } from "./ios-dock-state";
 import { NativeAgentTouch } from "./native-agent-touch";
 import { NativeCommentComposer } from "./native-comment-composer";
-import { closedComment, commentPick } from "./native-comment-state";
+import {
+  closedComment,
+  commentPick,
+  recordingPins,
+} from "./native-comment-state";
 import type { NativeComment } from "./native-comment-state";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
@@ -93,6 +101,7 @@ import type {
   NativeStreamState,
   NativeStreamStats,
 } from "./native-stream-status";
+import { commentPins } from "./screen-elements";
 import {
   DockNotice,
   DockShell,
@@ -188,6 +197,7 @@ const IosMirrorVeil = ({
 );
 
 const IosMirror = ({
+  comments,
   leading,
   pending,
   pick,
@@ -202,6 +212,8 @@ const IosMirror = ({
   readonly pending: boolean;
   /** A Teaching comment picking its element on the screen. */
   readonly pick: NativeElementPick | undefined;
+  /** The recording's comment pins, while Teaching records. */
+  readonly comments: NativeCommentPins | undefined;
   readonly session: IosWorkspaceSnapshot;
   readonly unavailable: string;
   /** Forwards the user's input to the simulator. */
@@ -366,6 +378,7 @@ const IosMirror = ({
       onEmulate={onEmulate}
       onKey={onDeviceKey}
       pick={pick}
+      comments={comments}
       platform="iOS"
       stream={{
         device: iosDeviceName(session.selection.device),
@@ -907,54 +920,6 @@ const IosDock = ({
               pending={gesture.pending}
               session={session}
             />
-            {commenting && recording ? (
-              <NativeCommentComposer
-                attached={comment.attached ?? undefined}
-                canAttach={session.observation !== null}
-                onAttach={() =>
-                  setComment((current) => ({ ...current, picking: true }))
-                }
-                onCancelPick={() =>
-                  setComment((current) => ({ ...current, picking: false }))
-                }
-                onDetach={() =>
-                  setComment((current) => ({ ...current, attached: null }))
-                }
-                onDismiss={() => setComment(() => closedComment)}
-                onSubmit={(text) => {
-                  const { attached } = comment;
-                  const instruction = {
-                    _tag: "instruction" as const,
-                    operationId: operationId(),
-                    sessionId: session.id,
-                    text,
-                  };
-                  if (
-                    send(
-                      attached === null
-                        ? instruction
-                        : {
-                            ...instruction,
-                            element: {
-                              observationId: attached.observationId,
-                              target: attached.target,
-                            },
-                          }
-                    )
-                  ) {
-                    // The composer and its draft stay until the instruction
-                    // is saved; a refusal leaves them for another try.
-                    setComment((current) => ({
-                      ...current,
-                      picking: false,
-                      submitting: true,
-                    }));
-                  }
-                }}
-                pending={gesture.pending}
-                picking={comment.picking}
-              />
-            ) : null}
           </>
         }
         status={
@@ -979,6 +944,67 @@ const IosDock = ({
           session={session}
         />
       </DockShell>
+      {commenting && recording ? (
+        <NativeCommentComposer
+          attached={comment.attached ?? undefined}
+          canAttach={session.observation !== null}
+          instructions={session.instructions ?? []}
+          onAttach={() =>
+            setComment((current) => ({ ...current, picking: true }))
+          }
+          onCancelPick={() =>
+            setComment((current) => ({ ...current, picking: false }))
+          }
+          onDetach={() =>
+            setComment((current) => ({ ...current, attached: null }))
+          }
+          onDismiss={() => setComment(() => closedComment)}
+          onSubmit={(text) => {
+            const { attached } = comment;
+            const instruction = {
+              _tag: "instruction" as const,
+              operationId: operationId(),
+              sessionId: session.id,
+              text,
+            };
+            if (
+              send(
+                attached === null
+                  ? instruction
+                  : {
+                      ...instruction,
+                      element: {
+                        observationId: attached.observationId,
+                        target: attached.target,
+                      },
+                    }
+              )
+            ) {
+              // The composer and its draft stay until the instruction
+              // is saved; a refusal leaves them for another try.
+              setComment((current) => ({
+                ...current,
+                picking: false,
+                submitting: true,
+              }));
+            }
+          }}
+          pending={gesture.pending}
+          onHighlight={(index) =>
+            setComment((current) => ({
+              ...current,
+              highlighted: index ?? null,
+            }))
+          }
+          picking={comment.picking}
+          pins={commentPins(session.observation, session.instructions ?? [])}
+          startedAt={
+            session.captureState?._tag === "recording"
+              ? session.captureState.startedAt
+              : undefined
+          }
+        />
+      ) : null}
     </>
   );
 };
@@ -1382,6 +1408,7 @@ export const IosWorkspace = ({
               ? commentPick(comment, setComment)
               : undefined
           }
+          comments={recordingPins(session, comment.highlighted)}
           onDeviceKey={(key) => {
             const command = railKeyCommand(key, session);
             if (command !== null) {

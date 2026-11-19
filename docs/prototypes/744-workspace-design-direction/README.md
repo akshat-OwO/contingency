@@ -1,6 +1,6 @@
 # Prototype: Workspace design direction
 
-Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763) and [#764](https://github.com/akshat-OwO/contingency/issues/764), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards.
+Throwaway prototype for [#744](https://github.com/akshat-OwO/contingency/issues/744), [#753](https://github.com/akshat-OwO/contingency/issues/753) and [#755](https://github.com/akshat-OwO/contingency/issues/755), [#757](https://github.com/akshat-OwO/contingency/issues/757), [#763](https://github.com/akshat-OwO/contingency/issues/763), [#764](https://github.com/akshat-OwO/contingency/issues/764) and [#775](https://github.com/akshat-OwO/contingency/issues/775), part of [#740](https://github.com/akshat-OwO/contingency/issues/740). It is not production code and does not touch the Workspace route. #744 covered the Workspace home and the hand-off to a session. #753 splits the session dock into separate islands and adds the requests tier. #755 replaces the Flows Drawer with a Flows page at `/flow`, which also becomes the only place a Run Summary shows. #763 floats the Web session canvas: the page, its device bar, the tools rail and DevTools. #764 floats the Android and iOS session canvas: the device, its rail and its cards. #775 restyles the Teaching overlays: the comment card, its pins, the inspect hint, browser checks and the demo password.
 
 It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742), and on the Workspace's own React. `vite.config.mjs` resolves both from `apps/web`, so the prototype installs nothing.
 
@@ -29,6 +29,11 @@ It renders on `@ui-sdk/react` `0.1.0-beta.5`, the version the spike pinned (#742
 | Native canvas: Latitude, Longitude, Variable name, element filter | Input |
 | Native canvas: rail labels | Tooltip |
 | Erase confirmation | Alert Dialog |
+| Teaching: scan and browser-check menus | Popover |
+| Teaching: check purpose | Segmented Control |
+| Teaching: response timing, cookie state, comparisons | Select |
+| Teaching: check fields, demo password | Input |
+| Teaching: comment tools | Tooltip |
 
 ## Run it
 
@@ -41,6 +46,50 @@ vp dev --config vite.config.mjs
 Run `vp install` at the repo root first, if you haven't already. View transitions need Chrome or Edge 111+ or Safari 18+.
 
 The dark strip is prototype scaffolding, not proposed UI. It turns the running sessions on or off and cycles the theme. In a session it also moves the status island between corners (**Status**), queues the next sample request (**+ Request**), and shows a transient notice (**Notice**). **Sentence** switches the status sentence between short copy and the product's long copy, and **Full sentence** cycles how a clipped sentence is read: `popover` (chosen in the #754 review: the sentence is a button that opens it whole in a card above the status island), `tooltip`, or `none`. On the home page, `1`, `2` and `3` open a platform, and Escape closes it.
+
+## Teaching overlays (#775)
+
+Approved on #775. It follows the canvas direction approved on #763 and #764: chrome floats on the canvas, and nothing but pins, outlines and your input ring draws over the page or screen (ADR 0076).
+
+| Island | Where | Holds |
+| --- | --- | --- |
+| Comment card, `dialog "Comment"` (non-modal) | Above the Session status island it opens from, clear of the tools rail. It follows the status island when **Status** moves it left. | **Comment at 00:42** and **Close comment**. Chips for the attached element (**Remove attached element**), the scan (**Remove scan**) and each browser check. The **Comment** field. Then **Attach element** (**Change element** once one is attached), and on Web **Performance scan**, **Accessibility scan** and **Browser check**, then **Add comment** (**Save comment** while editing). Under it, **Earlier in this recording**: every comment so far, newest first, with its time, its element or Page, its scan and checks, and **Edit comment <n>**. |
+| Pins and outline | On the page or device screen | A numbered pin on each element a comment names. Pointing at a comment in the list outlines its element. They take no input. |
+| Inspect hint | Top centre, where notices drop in | "Click (Tap on native) an element to attach it to the comment", with `Esc`. It takes no input and fades while the pointer is under it, so the element beneath can still be picked. Escape or **Attach element** again cancels. A pick that lands on nothing turns the hint into the error. |
+| Browser check card, `region "<check>"` | Beside the comment card, opened from its chip; the chip's **Remove <check>** removes it, like the other chips | **Purpose for <check>**: Context for the agent or Must happen. A required check adds **When**, **Timeout**, the request (Method, Path, Origin, Query constraints, Response timing) or cookie (Name, State, Origin), **Array item path**, one row per predicate (**Field path <n>**, **Comparison <n>**, **Expected value <n>**, **Remove predicate <n>**), **Add predicate to this item**, whether Teaching observed it, and **Remove attachment**. |
+| Demo password, `region "Teaching demo password"` | The Requests corner, which Teaching leaves free | Two steps, **Demo password** and **Enter demo password**. The recording keeps `DEMO_PASSWORD`. |
+
+**One card on every platform.** Android and iOS use the same comment card, without scans and browser checks, which only a browser collects. They gain the list of earlier comments and pins on the screen.
+
+**Shortcuts.** ⌘⇧K (Ctrl+Shift+K) opens the card, Enter adds, Shift+Enter breaks the line, Backspace in an empty field removes the element, Escape closes a check and then the card. The card shows them in tooltips and on **Add comment**, not in a footer.
+
+Walk through it: open **checkout** (Web Teaching): **Comment** shows the three seeded comments and pin 2 on **Shop jackets**. Point at that comment to outline the button. **Attach element** and click a product, or click empty space to see the pick error. **Browser check** → **GET /api/cart from Network** opens its card; switch **Purpose** and add a predicate. **Performance scan** adds a scan chip. **Add comment** adds pin 4. Type `fail` and press Enter for the save error. The scaffold's **Demo password** shows the demo card; `wrongfield` shows its error. For native, start an Android or iOS session from home, **Start recording**, then **Comment** → **Attach element** and tap the screen.
+
+### Decisions
+
+Approved on #775, as prototyped:
+
+- **Card position:** above the status island.
+- **Browser checks:** each check is a chip in the comment with its own remove button; its editor opens as a card beside the comment.
+- **Demo password:** in the Requests corner.
+- **Native:** one card for every platform, replacing the native inline comment form.
+- **Inspect hint:** takes no input and fades under the pointer; Escape or **Attach element** again cancels.
+- **No explanatory subtexts** in the card, its menus or the check editor.
+
+### Proposed contract changes (#775, approved)
+
+| Kind | Today | Proposed |
+| --- | --- | --- |
+| Role/name | Web `dialog "Comment"` bottom left, with a shortcut footer | The same `dialog "Comment"` above the Session status island. Adds **Close comment**. The footer goes; its shortcuts move into tooltips. |
+| Role/name | **Edit comment** on every earlier comment | **Edit comment <n>**, numbered like the pins, so each name is unique. |
+| Role/name | **Require an unseen cookie** button and a drag hint in the card | **Require an unseen cookie** stays a tool button, now an icon beside the scans. The prototype's **Browser check** menu showed **GET … from Network**, but the product attaches requests by dragging them from DevTools, which still works; a menu with one item would add a press. The card, menus and check editor drop their explanatory subtexts. |
+| Role/name | Each browser check is a `<details>` whose summary is its label, with native selects | A chip button named after the check that opens `region "<check>"`. **Purpose for <check>** becomes a radio group (Segmented Control). **Response timing**, **Storage check change** and **Comparison <n>** become UI SDK Selects (combobox). **Remove predicate** becomes **Remove predicate <n>**. Other field names stay. |
+| Role/name | Native: `form "Comment"` in the dock with `textbox "Instruction"`, **Add** and **Detach <label>** | `dialog "Comment"` as on Web, with `textbox "Comment"`, **Add comment** and **Remove attached element**. Native gains **Earlier in this recording** and pins. |
+| Role/name | Inspect: Web hint with **Cancel**; native picking text inside the composer | One top-centre status hint on both platforms, without a button: Escape or **Attach element** (pressed while picking) cancels. A missed pick is an `alert` in the hint. |
+| Role/name | `region "Teaching demo password"` among the top notices | The same region in the Requests corner. **Demo password** and **Enter demo password** keep their names. |
+| verify-contingency | `native-comment-proof.mjs` and `android-ui.mjs` fill `Instruction` and press **Add** | They use `Comment` and **Add comment**, and `features/workspace.md` names the card. |
+
+The MCP `viewUrl` params don't change. No ADR changes; ADR 0048, 0056, 0076 and 0088 hold as written.
 
 ## Web session canvas (#763)
 

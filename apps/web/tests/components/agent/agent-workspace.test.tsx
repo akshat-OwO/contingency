@@ -2484,15 +2484,14 @@ test("Escape still closes the composer after its chip is removed", async () => {
   await user.click(
     within(composer).getByRole("button", { name: /Attach element/u })
   );
-  await waitFor(() => {
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
   const canvas = screen.getByLabelText("Live browser viewport");
   // SAFETY: while recording, the comment layer is the canvas's next sibling.
   await user.click(canvas.nextElementSibling as Element);
   const reopened = await screen.findByRole("dialog", { name: "Comment" });
   await user.click(
-    within(reopened).getByRole("button", { name: "Remove attached element" })
+    await within(reopened).findByRole("button", {
+      name: "Remove attached element",
+    })
   );
   // The removed chip held focus. A non-modal dialog takes Escape only while
   // focus is inside it, so focus returns to the field (#742).
@@ -2510,22 +2509,26 @@ test("attaches an inspected element to a comment", async () => {
   renderWorkspace(resultFor([teachingRecording]), session.id);
   await user.click(await screen.findByRole("button", { name: "Comment" }));
   const composer = await screen.findByRole("dialog", { name: "Comment" });
-  await user.click(
-    within(composer).getByRole("button", { name: /Attach element/u })
-  );
-  // Picking closes the composer so the whole Page can be pointed at.
-  await waitFor(() => {
-    expect(screen.queryByRole("dialog")).toBeNull();
+  const attach = within(composer).getByRole("button", {
+    name: /Attach element/u,
   });
-  expect(screen.getByText("Click an element to attach it")).toBeVisible();
+  await user.click(attach);
+  // The comment stays open while picking, so its words stay in view.
+  expect(attach).toHaveAttribute("aria-pressed", "true");
+  expect(composer).toBeVisible();
+  expect(
+    screen.getByText("Click an element to attach it to the comment")
+  ).toBeVisible();
   const canvas = screen.getByLabelText("Live browser viewport");
   // SAFETY: while recording, the comment layer is the canvas's next sibling.
   await user.click(canvas.nextElementSibling as Element);
 
-  // The picked element lands in the reopened composer as a removable chip.
+  // The picked element lands in the composer as a removable chip.
   const reopened = await screen.findByRole("dialog", { name: "Comment" });
   expect(
-    within(reopened).getByRole("button", { name: "Remove attached element" })
+    await within(reopened).findByRole("button", {
+      name: "Remove attached element",
+    })
   ).toBeVisible();
   expect(reopened).toHaveTextContent("button: Place order");
   const field = within(reopened).getByRole("textbox", { name: "Comment" });
@@ -2692,10 +2695,36 @@ test("opens the composer with a single key outside the Page", async () => {
     expect(composer).not.toBeInTheDocument();
   });
   await user.keyboard("i");
-  expect(screen.getByText("Click an element to attach it")).toBeVisible();
+  const hint = "Click an element to attach it to the comment";
+  expect(screen.getByText(hint)).toBeVisible();
   await user.keyboard("{Escape}");
   await waitFor(() => {
-    expect(screen.queryByText("Click an element to attach it")).toBeNull();
+    expect(screen.queryByText(hint)).toBeNull();
+  });
+});
+
+test("Escape cancels a pick before it closes the comment", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
+  const attach = within(composer).getByRole("button", {
+    name: /Attach element/u,
+  });
+  await user.click(attach);
+  expect(attach).toHaveAttribute("aria-pressed", "true");
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(attach).toHaveAttribute("aria-pressed", "false");
+  });
+  expect(composer).toBeVisible();
+  // Attach element again cancels a pick, as Escape does.
+  await user.click(attach);
+  await user.click(attach);
+  expect(attach).toHaveAttribute("aria-pressed", "false");
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
@@ -3754,4 +3783,26 @@ test("explains that a failed recording review needs another passing Dry Run", as
     rpc.recordingResult = null;
     rpc.endedRunSummary = endedTaskSummary;
   }
+});
+
+test("asks for the demo password in the Requests island, never over the page", async () => {
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingRecording,
+        currentUrl: "http://ridgeline.localhost:4173/signin.html",
+      },
+    ]),
+    session.id
+  );
+  const requests = await screen.findByRole("region", { name: "Requests" });
+  const card = within(requests).getByRole("region", {
+    name: "Teaching demo password",
+  });
+  expect(
+    within(card).getByRole("textbox", { name: "Demo password" })
+  ).toBeVisible();
+  expect(
+    within(card).getByRole("button", { name: "Enter demo password" })
+  ).toBeDisabled();
 });

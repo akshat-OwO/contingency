@@ -1,5 +1,7 @@
+import { nativeTeachingInstructionLimit } from "@contingency/protocol";
 import type {
   NativeInstructionElement,
+  NativeTeachingInstruction,
   TeachingNativeElement,
 } from "@contingency/protocol";
 
@@ -104,3 +106,71 @@ export const instructionElementLabel = (element: TeachingNativeElement) =>
 
 export const staleInstructionElement =
   "The attached element is no longer on the screen. Attach it again; the comment was not saved.";
+
+const unit = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * Where an element sits on the screen it was picked from, in fractions of
+ * that screen, clipped to it: the convention the Workspace draws boxes in.
+ * Null when the element has no bounds, the screen has no size, or the
+ * element lies wholly off it.
+ */
+export const instructionElementBox = (
+  bounds: TeachingNativeElement["bounds"],
+  screen: { readonly width: number; readonly height: number } | undefined
+) => {
+  if (
+    bounds === undefined ||
+    screen === undefined ||
+    !(screen.width > 0) ||
+    !(screen.height > 0)
+  ) {
+    return null;
+  }
+  const left = unit(bounds.x / screen.width);
+  const top = unit(bounds.y / screen.height);
+  const right = unit((bounds.x + bounds.width) / screen.width);
+  const bottom = unit((bounds.y + bounds.height) / screen.height);
+  return right <= left || bottom <= top
+    ? null
+    : { height: bottom - top, left, top, width: right - left };
+};
+
+/**
+ * One recorded comment as a native workspace summary lists it, with its
+ * attached element placed on the screen it was picked from.
+ */
+export const listedInstruction = (input: {
+  readonly id: string;
+  readonly at: string;
+  readonly text: string;
+  readonly target: string | null;
+  readonly element: TeachingNativeElement | undefined;
+  readonly screen:
+    | { readonly width: number; readonly height: number }
+    | undefined;
+}): NativeTeachingInstruction => {
+  const listed = {
+    at: input.at,
+    id: input.id,
+    // A summary's text fields stay within the protocol's bound.
+    target: input.target === null ? null : input.target.slice(0, 4096),
+    text: input.text,
+  };
+  if (input.element === undefined) {
+    return listed;
+  }
+  const box = instructionElementBox(input.element.bounds, input.screen);
+  const element = { name: input.element.name, role: input.element.role };
+  return {
+    ...listed,
+    element: box === null ? element : { ...element, box },
+  };
+};
+
+/** Appends a comment, keeping only the latest ones a summary may carry. */
+export const appendInstruction = (
+  listed: readonly NativeTeachingInstruction[] | undefined,
+  instruction: NativeTeachingInstruction
+): readonly NativeTeachingInstruction[] =>
+  [...(listed ?? []), instruction].slice(-nativeTeachingInstructionLimit);

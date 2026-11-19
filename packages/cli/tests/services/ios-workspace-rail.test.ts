@@ -114,6 +114,8 @@ it.effect(
               id: `observation-${generation}`,
               nodes: [
                 {
+                  // The middle quarter of the portrait screenshot's size.
+                  bounds: { height: 655.5, width: 301.5, x: 603, y: 1311 },
                   covered: false,
                   editable: false,
                   hittable: true,
@@ -287,6 +289,33 @@ it.effect(
         yield* observe();
         const stale = yield* Effect.flip(comment());
         expect(stale.message).toContain("no longer on the screen");
+        // A comment on the page names no element.
+        const commented = yield* run((fields) => ({
+          _tag: "instruction",
+          ...fields,
+          text: "Sign in next.",
+        }));
+        // The snapshot lists the recording's comments oldest first, the
+        // attached one boxed in fractions of the screen it was picked from.
+        expect(commented.instructions).toEqual([
+          {
+            at: expect.any(String),
+            element: {
+              box: { height: 0.25, left: 0.5, top: 0.5, width: 0.25 },
+              name: "com.apple.springboard",
+              role: "text",
+            },
+            id: expect.any(String),
+            target: 'text "com.apple.springboard"',
+            text: "Start from Springboard.",
+          },
+          {
+            at: expect.any(String),
+            id: expect.any(String),
+            target: null,
+            text: "Sign in next.",
+          },
+        ]);
         const events = yield* fs.readFileString(
           `${store.directory(started.recordingId)}/events.jsonl`
         );
@@ -302,6 +331,7 @@ it.effect(
         ).toEqual([
           expect.objectContaining({
             element: {
+              bounds: { height: 655.5, width: 301.5, x: 603, y: 1311 },
               context: ["com.apple.springboard"],
               editable: false,
               name: "com.apple.springboard",
@@ -309,7 +339,13 @@ it.effect(
               platform: "ios",
               role: "text",
             },
+            id: commented.instructions?.[0]?.id,
             target: 'text "com.apple.springboard"',
+          }),
+          expect.objectContaining({
+            id: commented.instructions?.[1]?.id,
+            target: null,
+            text: "Sign in next.",
           }),
         ]);
         yield* run((fields) => ({

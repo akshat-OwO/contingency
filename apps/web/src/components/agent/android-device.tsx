@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { AndroidLiveStream } from "./android-live-stream";
 import { DeviceLastScreen } from "./android-run-summary";
 import type { AndroidStreamFrame } from "./android-stream-point";
+import { InspectHint } from "./comment-card";
 import { ScreenElements } from "./device-elements";
 import { NativeAgentTouch } from "./native-agent-touch";
 import type {
@@ -56,6 +57,7 @@ import {
 } from "./screen-elements";
 import type {
   AttachedElement,
+  CommentPin,
   ObservedNode,
   ScreenBox,
 } from "./screen-elements";
@@ -70,6 +72,58 @@ const CARD_SPACE = 332;
 /** The Field Variable card: 288px wide, 12px from the frame. */
 const LEADING_SPACE = 300;
 
+/** A Teaching recording's comments, pinned where their elements are. */
+export interface NativeCommentPins {
+  /** The comment the card's list points at, whose element is outlined. */
+  readonly highlighted: number | undefined;
+  readonly pins: readonly CommentPin[];
+}
+
+const percent = (box: ScreenBox) => ({
+  height: `${box.height * 100}%`,
+  left: `${box.left * 100}%`,
+  top: `${box.top * 100}%`,
+  width: `${box.width * 100}%`,
+});
+
+/** Numbered pins on the glass. They take no input, so every touch reaches the device. */
+const CommentPinLayer = ({
+  comments,
+}: {
+  readonly comments: NativeCommentPins;
+}) => {
+  const outlined = comments.pins.find(
+    (pin) => pin.index === comments.highlighted
+  );
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0"
+      data-slot="comment-pins"
+    >
+      {outlined === undefined ? null : (
+        <span
+          className="border-status-running bg-status-running/15 absolute rounded-md border-2"
+          style={percent(outlined.box)}
+        />
+      )}
+      {comments.pins.map((pin) => (
+        <span
+          className="bg-status-running border-background absolute grid size-[22px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 font-mono text-xs font-semibold text-white shadow-[0_2px_6px_oklch(0_0_0/0.25)] transition-[scale] duration-200 data-on:scale-120"
+          data-on={pin.index === comments.highlighted ? "" : undefined}
+          key={pin.index}
+          style={{
+            left: `${(pin.box.left + pin.box.width / 2) * 100}%`,
+            top: `${pin.box.top * 100}%`,
+          }}
+        >
+          {pin.index}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 /**
  * A device frame like the one T3 Code draws: a thin metal rim and the side
  * keys. The glass is exactly the frame's aspect, so a click's position on it
@@ -78,6 +132,7 @@ const LEADING_SPACE = 300;
  */
 const DeviceFrame = ({
   children,
+  comments,
   frame,
   highlight,
   picker,
@@ -85,6 +140,8 @@ const DeviceFrame = ({
   takeover,
 }: {
   readonly children: ReactNode;
+  /** The recording's comment pins on this screen. */
+  readonly comments: NativeCommentPins | undefined;
   /** The element picker over the glass, while a comment picks its element. */
   readonly picker?: ReactNode;
   readonly frame: AndroidStreamFrame;
@@ -125,6 +182,9 @@ const DeviceFrame = ({
           style={{ aspectRatio: `${frame.width} / ${frame.height}` }}
         >
           {children}
+          {comments === undefined ? null : (
+            <CommentPinLayer comments={comments} />
+          )}
           {picker}
           {highlight === null ? null : (
             <span
@@ -547,6 +607,7 @@ export const NativeStage = ({
   busy = false,
   canAct,
   children,
+  comments,
   emulation,
   frame,
   leading,
@@ -573,6 +634,8 @@ export const NativeStage = ({
   readonly onEmulate: (change: NativeEmulationChange) => void;
   readonly onKey: (key: DeviceKey) => void;
   readonly pick?: NativeElementPick | undefined;
+  /** The recording's comment pins, while Teaching records. */
+  readonly comments?: NativeCommentPins | undefined;
   readonly platform: "Android" | "iOS";
   readonly stream: NativeStream;
   readonly takeover: boolean;
@@ -634,6 +697,9 @@ export const NativeStage = ({
       // A size container has no width of its own, so its parent gives it one.
       style={{ containerType: "size" }}
     >
+      {active === undefined ? null : (
+        <InspectHint error={undefined} verb="Click" />
+      )}
       <div className="relative flex items-center gap-3">
         {hasLeading ? (
           <div className="absolute top-1/2 right-full z-30 mr-3 -translate-y-1/2">
@@ -641,6 +707,7 @@ export const NativeStage = ({
           </div>
         ) : null}
         <DeviceFrame
+          comments={comments}
           frame={frame}
           highlight={stageOutline(highlight, pick)}
           picker={active?.picker}
@@ -807,6 +874,7 @@ export const AndroidDevice = ({
   pending,
   pauseCode,
   pick,
+  comments,
   sessionId,
   takeover = false,
   unavailable,
@@ -837,6 +905,8 @@ export const AndroidDevice = ({
   readonly pending: boolean;
   /** A Teaching comment picking its element on the screen. */
   readonly pick?: NativeElementPick | undefined;
+  /** The recording's comment pins, while Teaching records. */
+  readonly comments?: NativeCommentPins | undefined;
   readonly sessionId: AgentSessionId;
   readonly takeover?: boolean;
   /** What the glass says while there is no stream. */
@@ -884,6 +954,7 @@ export const AndroidDevice = ({
       onEmulate={onEmulate}
       onKey={onDeviceKey}
       pick={pick}
+      comments={comments}
       platform="Android"
       stream={{
         device,
