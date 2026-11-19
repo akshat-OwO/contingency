@@ -191,6 +191,28 @@ export const takesTakeoverVariable = (session: AgentSessionSnapshot) =>
   session.captureState._tag === "recording" &&
   session.controller === "user";
 
+/**
+ * The Takeover Variable form's state. The request tier owns it, so folding
+ * Requests away keeps the typed name and the Entered list.
+ */
+export interface TakeoverForm {
+  readonly entered: readonly string[];
+  readonly error: string;
+  readonly invalid: boolean;
+  readonly name: string;
+  readonly pending: boolean;
+  readonly value: string;
+}
+
+export const emptyTakeoverForm: TakeoverForm = {
+  entered: [],
+  error: "",
+  invalid: false,
+  name: "",
+  pending: false,
+  value: "",
+};
+
 const takeoverVariableRequest = (
   session: AgentSessionSnapshot
 ): DockRequest | undefined =>

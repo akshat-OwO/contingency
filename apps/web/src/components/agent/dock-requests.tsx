@@ -1,5 +1,5 @@
 import type { AgentSessionSnapshot } from "@contingency/protocol";
-import { useAtom } from "@effect/atom-react";
+import { useAtom, useAtomMount } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   ChevronUpIcon,
@@ -13,8 +13,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { requestIconClassName } from "./dock-request-parts";
-import { dockRequests, staysCollapsed } from "./dock-requests-state";
-import type { DockRequest } from "./dock-requests-state";
+import {
+  dockRequests,
+  emptyTakeoverForm,
+  staysCollapsed,
+} from "./dock-requests-state";
+import type { DockRequest, TakeoverForm } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
 import { ExecutionBoundary } from "./execution-boundary";
 import { GuidedRunQuestions } from "./guided-run-questions";
@@ -88,6 +92,13 @@ export const DockRequests = ({
     Atom.make<ReadonlySet<string>>(new Set<string>())
   );
   const [collapsedKeys, setCollapsedKeys] = useAtom(collapsedAtom);
+  // The tier stays mounted while collapsed, so it keeps the Takeover
+  // Variable's typed name and Entered list across a fold.
+  const [takeoverAtom] = useState(() =>
+    Atom.make<TakeoverForm>(emptyTakeoverForm)
+  );
+  // Mounted here, the atom outlives the card: an unsubscribed atom resets.
+  useAtomMount(takeoverAtom);
   const requests = dockRequests(session);
   if (requests.length === 0) {
     return null;
@@ -150,8 +161,8 @@ export const DockRequests = ({
       />
       <GuidedTakeoverVariable
         collapse={collapseFor("takeover-variable")}
-        key={session.id}
         session={session}
+        stateAtom={takeoverAtom}
       />
     </div>
   );

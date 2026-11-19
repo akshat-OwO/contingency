@@ -2643,7 +2643,7 @@ const BrowserWorkspace = ({
                   platform={platform}
                   requests={
                     <>
-                      <DockRequests session={session} />
+                      <DockRequests key={session.id} session={session} />
                       <DemoTeachingPassword
                         key={`demo-${session.id}`}
                         session={session}

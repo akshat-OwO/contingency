@@ -1,9 +1,9 @@
 import { OperationId } from "@contingency/protocol";
 import type { AgentSessionSnapshot } from "@contingency/protocol";
 import { useAtom, useAtomSet } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
+import type { Atom } from "effect/reactivity";
 import { KeyRoundIcon, LoaderCircleIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useId } from "react";
 
 import {
   AnsweredVariables,
@@ -14,6 +14,7 @@ import {
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
 import { takesTakeoverVariable } from "@/components/agent/dock-requests-state";
+import type { TakeoverForm } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { failureMessage } from "@/lib/failure-message";
@@ -23,38 +24,20 @@ const VARIABLE_NAME = /^[A-Z][A-Z0-9_]*$/u;
 
 const labelClassName = "text-[12.5px] font-medium";
 
-/** The form's own state; the entered names are the only record it keeps. */
-interface TakeoverForm {
-  readonly entered: readonly string[];
-  readonly error: string;
-  readonly invalid: boolean;
-  readonly name: string;
-  readonly pending: boolean;
-  readonly value: string;
-}
-
 const PrivateVariableForm = ({
   collapse,
   session,
+  stateAtom,
 }: {
   readonly collapse: React.ReactNode;
   readonly session: AgentSessionSnapshot;
+  readonly stateAtom: Atom.Writable<TakeoverForm>;
 }) => {
   const { agentTeachingVariableInputMutation } = useRpcDependencies();
   const enter = useAtomSet(agentTeachingVariableInputMutation, {
     mode: "promise",
   });
   const id = useId();
-  const [stateAtom] = useState(() =>
-    Atom.make<TakeoverForm>({
-      entered: [],
-      error: "",
-      invalid: false,
-      name: "",
-      pending: false,
-      value: "",
-    })
-  );
   const [state, setState] = useAtom(stateAtom);
   const nameMessageId = `${id}-name-message`;
   const errorId = `${id}-error`;
@@ -215,11 +198,18 @@ const PrivateVariableForm = ({
 export const GuidedTakeoverVariable = ({
   collapse,
   session,
+  stateAtom,
 }: {
   /** The tier's collapse control, when this is its first request. */
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
+  /** Owned by the request tier, so collapsing it keeps the form. */
+  readonly stateAtom: Atom.Writable<TakeoverForm>;
 }) =>
   takesTakeoverVariable(session) ? (
-    <PrivateVariableForm collapse={collapse} session={session} />
+    <PrivateVariableForm
+      collapse={collapse}
+      session={session}
+      stateAtom={stateAtom}
+    />
   ) : null;

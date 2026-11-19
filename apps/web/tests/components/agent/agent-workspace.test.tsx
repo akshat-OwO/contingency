@@ -3890,6 +3890,18 @@ test("takes over a Guided Run and enters a private Variable before returning", a
     await screen.findByRole("list", { name: "Entered" })
   ).toHaveTextContent("PASSWORD entered");
   expect(screen.queryByText("private-fixture")).toBeNull();
+  // Folding Requests away keeps the typed name and the Entered list.
+  await user.click(screen.getByRole("button", { name: "Collapse requests" }));
+  expect(screen.queryByRole("list", { name: "Entered" })).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: /^Show request: Takeover Variable/u })
+  );
+  expect(screen.getByRole("list", { name: "Entered" })).toHaveTextContent(
+    "PASSWORD entered"
+  );
+  expect(screen.getByRole("textbox", { name: "Variable name" })).toHaveValue(
+    "PASSWORD"
+  );
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
 });
