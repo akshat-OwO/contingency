@@ -468,7 +468,14 @@ try {
     `${instance.mcpUrl}?android=${later.id}`
   );
   await wait("Run Summary", "complementary");
+  // ADR 0078: the device keeps its own facts (#778), never browser sections.
+  await wait("Device", "region");
   await snapshot("later-run-summary");
+  const summaryAria = await readFile(
+    path.join(artifacts, "later-run-summary.aria.txt"),
+    "utf-8"
+  );
+  assert.ok(!summaryAria.includes('region "Emulation"'));
   receipt.coverage.laterRun = {
     assessment: completed.assessment,
     captureGaps: completed.captureGaps,
