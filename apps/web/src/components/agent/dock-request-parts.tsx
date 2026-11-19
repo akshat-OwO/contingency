@@ -398,7 +398,10 @@ export const VariableField = ({
  */
 export const AnsweredVariables = ({
   answers,
+  label: listLabel = "Answered",
 }: {
+  /** The list's name: what happened to these Variables. */
+  readonly label?: string;
   readonly answers: readonly {
     readonly key: string;
     readonly label: string;
@@ -407,20 +410,20 @@ export const AnsweredVariables = ({
 }) =>
   answers.length === 0 ? null : (
     <ul
-      aria-label="Answered"
+      aria-label={listLabel}
       className="flex flex-wrap gap-x-3.5 gap-y-1 text-xs"
     >
       {answers.map(({ key, label, status }) => (
         <li className="inline-flex items-center gap-1.5" key={key}>
-          {status === "supplied" ? (
-            <CircleCheckIcon
-              aria-hidden="true"
-              className="text-status-ready size-[13px] shrink-0"
-            />
-          ) : (
+          {status === "refused" ? (
             <CircleSlashIcon
               aria-hidden="true"
               className="text-muted-foreground size-[13px] shrink-0"
+            />
+          ) : (
+            <CircleCheckIcon
+              aria-hidden="true"
+              className="text-status-ready size-[13px] shrink-0"
             />
           )}
           <span className="font-mono">{label}</span>{" "}

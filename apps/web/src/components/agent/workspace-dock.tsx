@@ -417,7 +417,11 @@ export const DockNotices = ({
       className
     )}
   >
-    <div className="pointer-events-auto max-h-[60svh] w-full max-w-5xl space-y-2 overflow-y-auto">
+    {/*
+      Only each notice's own box takes pointer input, so the gaps between
+      notices and beside a narrow one still reach the stream (ADR 0076).
+    */}
+    <div className="pointer-events-none max-h-[60svh] w-full max-w-5xl space-y-2 overflow-y-auto *:pointer-events-auto">
       {children}
     </div>
   </div>

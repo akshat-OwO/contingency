@@ -3853,11 +3853,28 @@ test("takes over a Guided Run and enters a private Variable before returning", a
   const variableName = await screen.findByRole("textbox", {
     name: "Variable name",
   });
+  // The badge names who holds the browser; the sentence says what is next.
+  const status = screen.getByRole("region", { name: "Session status" });
+  expect(status).toHaveTextContent("You have control");
+  expect(status).toHaveTextContent(
+    "Capture continues while you drive. Return control when you're done."
+  );
+  expect(
+    within(screen.getByRole("region", { name: "Requests" })).getByRole(
+      "region",
+      { name: "Takeover Variable" }
+    )
+  ).toBeVisible();
   await user.type(variableName, "password");
   await user.type(screen.getByLabelText("Variable value"), "private-fixture");
   await user.click(screen.getByRole("button", { name: "Enter Variable" }));
   expect(rpc.privateInputCalls).toHaveLength(0);
+  expect(variableName).toHaveAttribute("aria-invalid", "true");
+  expect(variableName).toHaveAccessibleDescription(
+    "Start with a capital letter. Use A–Z, 0–9 and _."
+  );
   await user.clear(variableName);
+  expect(variableName).not.toHaveAttribute("aria-invalid");
   await user.type(variableName, "PASSWORD");
   await user.click(screen.getByRole("button", { name: "Enter Variable" }));
   await waitFor(() => expect(rpc.privateInputCalls).toHaveLength(1));
@@ -3869,8 +3886,106 @@ test("takes over a Guided Run and enters a private Variable before returning", a
     },
   });
   expect(screen.getByLabelText("Variable value")).toHaveValue("");
+  expect(
+    await screen.findByRole("list", { name: "Entered" })
+  ).toHaveTextContent("PASSWORD entered");
+  expect(screen.queryByText("private-fixture")).toBeNull();
+  // Folding Requests away keeps the draft and the Entered list.
+  await user.type(screen.getByLabelText("Variable value"), "draft-value");
+  await user.click(screen.getByRole("button", { name: "Collapse requests" }));
+  expect(screen.queryByRole("list", { name: "Entered" })).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: /^Show request: Takeover Variable/u })
+  );
+  expect(screen.getByRole("list", { name: "Entered" })).toHaveTextContent(
+    "PASSWORD entered"
+  );
+  expect(screen.getByRole("textbox", { name: "Variable name" })).toHaveValue(
+    "PASSWORD"
+  );
+  expect(screen.getByLabelText("Variable value")).toHaveValue("draft-value");
   await user.click(screen.getByRole("button", { name: "Return control" }));
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
+});
+
+test("a new Takeover starts the Takeover Variable empty", async () => {
+  const user = userEvent.setup();
+  const guided = {
+    ...teachingRecording,
+    controller: "user",
+    origin: "guided-run",
+    phase: "takeover",
+    takeover: {
+      reason: "Finishing the sign-in myself.",
+      requestedAt: "2026-08-31T00:00:03.000Z",
+      requestedBy: "user",
+    },
+  };
+  renderWorkspace(resultFor([guided]), session.id);
+  const value = await screen.findByLabelText("Variable value");
+  await user.type(screen.getByLabelText("Variable name"), "PASSWORD");
+  await user.type(value, "unsent-draft");
+  // Control goes back to the agent, then the user takes over again, all in
+  // one mounted Workspace.
+  rpc.sessionsResult = resultFor([
+    {
+      ...guided,
+      controller: "agent",
+      phase: "running",
+      takeover: null,
+      updatedAt: "2026-08-31T00:00:05.000Z",
+    },
+  ]);
+  await refreshWorkspace();
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Variable value")).toBeNull()
+  );
+  rpc.sessionsResult = resultFor([
+    {
+      ...guided,
+      takeover: { ...guided.takeover, requestedAt: "2026-08-31T00:00:09.000Z" },
+      updatedAt: "2026-08-31T00:00:09.000Z",
+    },
+  ]);
+  await refreshWorkspace();
+  expect(await screen.findByLabelText("Variable value")).toHaveValue("");
+  expect(screen.getByLabelText("Variable name")).toHaveValue("");
+});
+
+test("a Guided recording names a requested takeover and reports a failed one above the stage", async () => {
+  const user = userEvent.setup();
+  rpc.takeoverFailure = new Error("The agent session refused the Takeover.");
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingRecording,
+        controller: "agent",
+        origin: "guided-run",
+        phase: "takeover",
+        takeover: {
+          reason: "The sign-up form asks for a phone code.",
+          requestedAt: "2026-08-31T00:00:03.000Z",
+          requestedBy: "agent",
+        },
+      },
+    ]),
+    session.id
+  );
+  const status = await screen.findByRole("region", { name: "Session status" });
+  expect(status).toHaveTextContent("Takeover requested");
+  expect(status).toHaveTextContent(
+    "The agent asked for help: The sign-up form asks for a phone code."
+  );
+  // No alert waits in the dock before anything fails.
+  expect(within(status).queryByRole("alert")).toBeNull();
+  await user.click(within(status).getByRole("button", { name: "Take over" }));
+  await waitFor(() => expect(rpc.takeoverCalls).toHaveLength(1));
+  const title = await screen.findByText("Take over did not go through");
+  const alert = title.closest('[role="alert"]');
+  expect(alert).toHaveTextContent(
+    "The agent session refused the Takeover. The agent still has control."
+  );
+  expect(status).not.toContainElement(alert);
 });
 
 test("keeps a Dry Run Summary by recording ID after Teaching has closed", async () => {
