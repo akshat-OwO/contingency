@@ -57,6 +57,8 @@ import { createRoot } from "react-dom/client";
 
 import { InspectContext, WebCanvas } from "./canvas";
 import type { InspectBridge, PickedElement, StageState } from "./canvas";
+import { STATUS_KINDS, StatusPage, ThemeMenu } from "./chrome";
+import type { StatusKind } from "./chrome";
 import { FlowsPage, REVIEWS, flowOfRun, runById } from "./flows";
 import {
   AndroidIcon,
@@ -73,13 +75,11 @@ import {
   HandIcon,
   KeyIcon,
   MinimizeIcon,
-  MoonIcon,
   PlusIcon,
   PointerIcon,
   QuestionIcon,
   ShieldIcon,
   StopIcon,
-  SunIcon,
   TaskIcon,
   UploadIcon,
   WatcherMark,
@@ -590,26 +590,6 @@ const IconButton = ({
   </Hint>
 );
 
-const ThemeButton = () => {
-  const [dark, setDark] = useState(
-    () =>
-      document.documentElement.dataset.theme === "dark" ||
-      (!document.documentElement.dataset.theme &&
-        matchMedia("(prefers-color-scheme: dark)").matches)
-  );
-  return (
-    <IconButton
-      label={dark ? "Light theme" : "Dark theme"}
-      onClick={() => {
-        document.documentElement.dataset.theme = dark ? "light" : "dark";
-        setDark(!dark);
-      }}
-    >
-      {dark ? <SunIcon /> : <MoonIcon />}
-    </IconButton>
-  );
-};
-
 /** Where **Flows** goes: `/flow`, a page of its own instead of a drawer. */
 const FlowsNav = createContext<{
   readonly open: (from: Element) => void;
@@ -642,7 +622,7 @@ const Actions = () => {
       <IconButton label="Docs">
         <DocsIcon />
       </IconButton>
-      <ThemeButton />
+      <ThemeMenu />
     </div>
   );
 };
@@ -2801,6 +2781,12 @@ const App = () => {
                     selected={view.flow}
                     sessionFlow={fromSession}
                   />
+                ) : view.name === "status" ? (
+                  <StatusPage
+                    actions={<Actions />}
+                    kind={view.kind}
+                    onHome={home}
+                  />
                 ) : view.name === "review" ? (
                   <EndedView
                     dock={dock}
@@ -2916,6 +2902,19 @@ const App = () => {
                   </div>
                 ) : null}
                 <Scaffold
+                  status={view.name === "status" ? view.kind : undefined}
+                  onStatus={() => {
+                    const at =
+                      view.name === "status"
+                        ? STATUS_KINDS.indexOf(view.kind) + 1
+                        : 0;
+                    const kind = STATUS_KINDS[at];
+                    transition(() =>
+                      setView(
+                        kind ? { kind, name: "status" } : { name: "home" }
+                      )
+                    );
+                  }}
                   canEnd={
                     current !== undefined &&
                     !current.ended &&
@@ -3104,6 +3103,7 @@ type View =
   | { readonly name: "session"; readonly id: string }
   | { readonly name: "review"; readonly recording: string }
   | { readonly name: "ended"; readonly run: string }
+  | { readonly name: "status"; readonly kind: StatusKind }
   | {
       readonly name: "flows";
       readonly flow?: string;
@@ -3117,6 +3117,9 @@ const toUrl = (view: View) => {
   // A native Run's ended device session; the prototype keys it by Run.
   if (view.name === "ended") return `/ended:${view.run}`;
   if (view.name === "home") return "/";
+  // Not a real route: it stands for an unknown path, the Workspace loading,
+  // and a session link that no longer resolves.
+  if (view.name === "status") return `/?status=${view.kind}`;
   const params = new URLSearchParams();
   // Local Flows go by name alone; `global:<name>` names the user-global root.
   if (view.flow) params.set("flow", view.flow.replace(/^local:/, ""));
@@ -3136,6 +3139,9 @@ const fromUrl = (): View => {
       run,
     };
   }
+  const status = params.get("status");
+  const kind = STATUS_KINDS.find((k) => k === status);
+  if (kind) return { kind, name: "status" };
   const recording = params.get("recording");
   if (recording && REVIEWS[recording]) return { name: "review", recording };
   const endedRun = params.get("session")?.match(/^ended:(.+)$/)?.[1];
@@ -3152,6 +3158,8 @@ const fromUrl = (): View => {
 };
 
 const Scaffold = ({
+  status,
+  onStatus,
   inFlows,
   catalogEmpty,
   onCatalog,
@@ -3185,6 +3193,9 @@ const Scaffold = ({
   fill,
   onFill,
 }: {
+  /** The page without a dock on show: an unknown route, loading, unavailable. */
+  readonly status: StatusKind | undefined;
+  readonly onStatus: () => void;
   readonly fill: Fill;
   readonly onFill: () => void;
   readonly guided: GuidedControl | undefined;
@@ -3218,25 +3229,14 @@ const Scaffold = ({
   readonly rail: RailPlace | undefined;
   readonly onRail: () => void;
 }) => {
-  const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   return (
     <div aria-label="Prototype controls" className="scaffold" role="group">
       <span>Prototype</span>
       <button onClick={() => onSessions(!sessionsOn)} type="button">
         Sessions: {sessionsOn ? "on" : "off"}
       </button>
-      <button
-        onClick={() => {
-          const next = (
-            { dark: "system", light: "dark", system: "light" } as const
-          )[theme];
-          if (next === "system") delete document.documentElement.dataset.theme;
-          else document.documentElement.dataset.theme = next;
-          setTheme(next);
-        }}
-        type="button"
-      >
-        Theme: {theme}
+      <button onClick={onStatus} type="button">
+        Page: {status ?? "app"}
       </button>
       {inFlows ? (
         <button onClick={onCatalog} type="button">
