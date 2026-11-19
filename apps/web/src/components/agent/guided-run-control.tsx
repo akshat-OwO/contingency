@@ -37,9 +37,11 @@ export const GuidedRunControl = ({
   return (
     <Button
       aria-busy={pending || undefined}
+      // The dock clears every non-primary button's background, so the
+      // needs-you tint is marked important to survive it.
       className={cn(
         action === "Take over" &&
-          "bg-[color-mix(in_oklch,var(--island-brand)_22%,transparent)] text-(--status-needs-you) shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--island-brand)_45%,transparent)] hover:bg-[color-mix(in_oklch,var(--island-brand)_32%,transparent)]"
+          "border-transparent! bg-[color-mix(in_oklch,var(--island-brand)_22%,transparent)]! text-(--status-needs-you)! shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--island-brand)_45%,transparent)] hover:bg-[color-mix(in_oklch,var(--island-brand)_32%,transparent)]!"
       )}
       disabled={pending}
       onClick={onControl}
