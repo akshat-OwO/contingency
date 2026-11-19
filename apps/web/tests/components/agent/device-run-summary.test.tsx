@@ -96,6 +96,10 @@ test("an ended device session shows the screens it kept, in order", () => {
   expect(screens[1]).toHaveAccessibleName("Screen 2 of 2, 0:05 in");
   // Teaching has no Agent Assessment, so the summary leads with its screens.
   expect(screen.queryByText("Agent Assessment")).toBeNull();
+  // ADR 0078: a device keeps its own facts, never browser Emulation.
+  const device = screen.getByRole("region", { name: "Device" });
+  expect(device).toHaveTextContent("dev.contingency.login · build 1");
+  expect(screen.queryByRole("region", { name: "Emulation" })).toBeNull();
 });
 
 test("says what became of screens cleanup deleted", () => {

@@ -204,12 +204,13 @@ const TaskDetails = ({
       The details open above the whole dock rather than over its status
       line, so what the agent is doing stays readable beside them.
     */}
+      {/* The dock keeps its status on one line; the details wrap. */}
       <PopoverContent
         align="end"
         anchor={() => trigger.current?.closest("section") ?? null}
         side="top"
         sideOffset={8}
-        className="max-h-[min(60svh,32rem)] w-96 max-w-[calc(100vw-2rem)] overflow-y-auto"
+        className="max-h-[min(60svh,35rem)] w-100 max-w-[calc(100vw-2rem)] overflow-y-auto whitespace-normal"
       >
         <PopoverTitle>{title}</PopoverTitle>
         <TaskRunDetails run={run} />

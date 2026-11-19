@@ -11,7 +11,6 @@ import {
   CircleCheckIcon,
   CircleMinusIcon,
   CircleXIcon,
-  CornerDownRightIcon,
   GlobeIcon,
   PlayIcon,
 } from "lucide-react";
@@ -50,8 +49,15 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
 import { BrowserCheckResults } from "./browser-check-results";
+import { BrowserModifications } from "./browser-modifications";
 import { videoClock, videoOffsetMs } from "./run-video-timeline";
 import { ScanResults } from "./scan-results.tsx";
+import {
+  EmulationSection,
+  Pursuits,
+  ReferencedFlows,
+  RequestedTask,
+} from "./task-run-details";
 
 const passedTone = "text-status-ready";
 
@@ -339,9 +345,6 @@ const FindingSeek = ({
   );
 };
 
-const eyebrowClassName =
-  "text-muted-foreground/80 text-xs font-medium tracking-[0.06em] uppercase";
-
 /**
  * A finished task Run: its verdict, its video, four numbers, and the rest
  * behind three segments. The video sits above the segments so switching
@@ -481,28 +484,13 @@ const TaskRunSummaryLayout = ({
           )}
         </TabsContent>
         <TabsContent className="grid gap-4 text-sm" value="task">
-          <section aria-label={taskLabel} className="grid gap-2">
-            <h4 className={eyebrowClassName}>{taskLabel}</h4>
-            <p className="bg-island-hover rounded-xl px-3 py-2.5 text-[13.5px] text-pretty wrap-anywhere">
-              {summary.requestedTask}
-            </p>
-            {summary.instructions.length === 0 ? null : (
-              <ol aria-label="Changed instructions" className="grid gap-1.5">
-                {summary.instructions.map((instruction) => (
-                  <li
-                    className="text-muted-foreground flex gap-1.5 text-[12.5px] wrap-anywhere"
-                    key={`${instruction.receivedAt}:${instruction.instruction}`}
-                  >
-                    <CornerDownRightIcon
-                      aria-hidden="true"
-                      className="mt-0.5 size-3.5 shrink-0"
-                    />
-                    {instruction.instruction}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
+          <RequestedTask label={taskLabel} run={summary} />
+          <ReferencedFlows run={summary} />
+          <Pursuits run={summary} />
+          <BrowserModifications
+            modifications={summary.browserModifications ?? []}
+          />
+          <EmulationSection run={summary} />
           <dl className="border-island-border [&_dt]:text-muted-foreground grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t pt-3 text-[12.5px]">
             {details}
             <dt>Execution</dt>
@@ -584,16 +572,7 @@ export const InteractiveRunSummaryView = ({
     checks={interactiveRunChecks(summary)}
     checksLabel="Run checks"
     checksTab="Checks"
-    details={
-      summary.referencedFlows.length === 0 ? null : (
-        <>
-          <dt>Flows</dt>
-          <dd className="wrap-anywhere">
-            {summary.referencedFlows.map((flow) => flow.flowName).join(", ")}
-          </dd>
-        </>
-      )
-    }
+    details={null}
     failure={undefined}
     kind="Interactive Run"
     links={links}

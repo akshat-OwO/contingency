@@ -22,7 +22,6 @@ import {
   CheckCircleIcon,
   CheckIcon,
   CopyIcon,
-  CornerIcon,
   EyeOffIcon,
   ForwardIcon,
   MinusCircleIcon,
@@ -34,6 +33,20 @@ import {
   WebIcon,
   XCircleIcon,
 } from "./icons";
+import {
+  BrowserChecks,
+  BrowserModifications,
+  DeviceFacts,
+  EmulationSection,
+  EvidenceList,
+  Pursuits,
+  ReferencedFlows,
+  RequestedTask,
+  RequiredScans,
+  detailsOf,
+  useFilledRun,
+} from "./run-details";
+import type { Details } from "./run-details";
 
 export type Platform = "web" | "android" | "ios";
 export type Assessment = "working" | "not-working" | "inconclusive" | "blocked";
@@ -85,6 +98,8 @@ export interface Run {
   /** The agent attempted the whole intended outcome. */
   readonly outcomeComplete?: boolean;
   readonly emulation?: string;
+  /** The Run details (#778); seeds without them derive them. */
+  readonly details?: Details;
 }
 
 export const PLATFORM: Record<
@@ -569,7 +584,7 @@ const evidenceCount = (run: Run) =>
   (run.scans?.length ?? 0);
 
 export const RunSummary = ({
-  run,
+  run: seeded,
   variant,
   onFlow,
   links,
@@ -581,6 +596,7 @@ export const RunSummary = ({
   /** Ways out of the summary, such as the ended session or the review. */
   readonly links?: ReactNode;
 }) => {
+  const run = useFilledRun(seeded);
   const [seek, setSeek] = useState<Seek | null>(null);
   const [tab, setTab] = useState("checks");
   const verdict = verdictOf(run);
@@ -676,40 +692,12 @@ export const RunSummary = ({
               </li>
             ))}
           </ul>
-          {run.checks ? (
-            <section aria-label="Browser Checks" className="sub">
-              <h4 className="eyebrow">Browser Checks</h4>
-              <ul className="rows">
-                {run.checks.map((c) => (
-                  <li key={c.name}>
-                    <CheckMark
-                      state={c.outcome === "working" ? "pass" : "fail"}
-                    />
-                    <span className="mono mod">{c.name}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          {run.scans ? (
-            <section aria-label="Scan Reports" className="sub">
-              <h4 className="eyebrow">Scan Reports</h4>
-              <ul className="rows">
-                {run.scans.map((s) => (
-                  <li key={s.name}>
-                    <span
-                      aria-hidden="true"
-                      className="dot-mark"
-                      data-assessment={s.outcome}
-                    />
-                    <span>
-                      <strong>{s.name}</strong>
-                      <span className="row-sub">{s.text}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
+          <EvidenceList evidence={detailsOf(run).assessmentEvidence} hint />
+          {run.platform === "web" ? (
+            <>
+              <BrowserChecks run={run} />
+              <RequiredScans run={run} />
+            </>
           ) : null}
         </TabsPanel>
         <TabsPanel className="seg-panel" value="findings">
@@ -748,64 +736,23 @@ export const RunSummary = ({
           )}
         </TabsPanel>
         <TabsPanel className="seg-panel" value="task">
-          <section aria-label="Requested task" className="sub">
-            <h4 className="eyebrow">
-              {run.kind === "Dry Run" ? "Intended outcome" : "Requested task"}
-            </h4>
-            <p className="task-text">{run.task ?? run.title}</p>
-            {run.instructions && run.instructions.length > 0 ? (
-              <ol aria-label="Changed instructions" className="instructions">
-                {run.instructions.map((i) => (
-                  <li key={i}>
-                    <CornerIcon />
-                    {i}
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-          </section>
-          {run.flows.length > 0 ? (
-            <section aria-label="Flows" className="sub">
-              <h4 className="eyebrow">
-                {run.flows.length === 1 ? "Flow" : "Flows it used"}
-              </h4>
-              <div className="chips">
-                {run.flows.map((f) => (
-                  <Button
-                    className="flow-pill"
-                    key={f}
-                    onClick={() => onFlow?.(f)}
-                  >
-                    {f}
-                  </Button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-          {run.modifications ? (
-            <section aria-label="Browser Modifications" className="sub">
-              <h4 className="eyebrow">Browser Modifications</h4>
-              <ul className="rows">
-                {run.modifications.map((m) => (
-                  <li key={m}>
-                    <span className="mono mod">{m}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          <RequestedTask
+            label={
+              run.kind === "Dry Run" ? "Intended outcome" : "Requested task"
+            }
+            run={run}
+          />
+          <ReferencedFlows onFlow={onFlow} run={run} />
+          {run.platform === "web" ? (
+            <>
+              <Pursuits run={run} />
+              <BrowserModifications run={run} />
+              <EmulationSection run={run} />
+            </>
+          ) : (
+            <DeviceFacts platform={run.platform} run={run} />
+          )}
           <dl className="facts">
-            <div>
-              <dt>Emulation</dt>
-              <dd>
-                {run.emulation ??
-                  (run.platform === "web"
-                    ? "Desktop 1280×800 · en-US"
-                    : run.platform === "android"
-                      ? "Pixel_9 · Android 16"
-                      : "iPhone 17 · iOS 26.5")}
-              </dd>
-            </div>
             <div>
               <dt>Execution</dt>
               <dd>{OUTCOME[run.outcome ?? "completed"]}</dd>

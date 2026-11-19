@@ -110,6 +110,13 @@ import type {
   VariableItem,
 } from "./requests";
 import {
+  DetailsFillContext,
+  FILLS,
+  LiveTaskDetails,
+  useFilledRun,
+} from "./run-details";
+import type { Fill } from "./run-details";
+import {
   DecisionBar,
   RunSummary,
   SummaryDock,
@@ -1498,9 +1505,51 @@ const DETAILS: Record<
   },
 };
 
+/**
+ * A live Web task Run's details (#778): the sections its Run Summary keeps,
+ * with the result last because nothing is concluded yet.
+ */
+const LiveDetails = ({ run }: { readonly run: Run }) => {
+  const filled = useFilledRun(run);
+  return (
+    <LiveTaskDetails
+      run={{ ...filled, findings: filled.findings.slice(0, 1) }}
+    />
+  );
+};
+
 const TaskDetails = ({ session }: { readonly session: Session }) => {
   if (session.activity === "Teaching") return null;
   const d = DETAILS[session.activity];
+  const run = ENDS_WITH[session.id]
+    ? runById(ENDS_WITH[session.id] ?? "")
+    : undefined;
+  if (
+    run &&
+    session.platform === "web" &&
+    (session.activity === "Run" || session.activity === "Dry Run")
+  ) {
+    return (
+      <Popover>
+        <PopoverTrigger aria-label="Task details" className="pill-btn">
+          <TaskIcon />
+          <span className="tool-label">Task details</span>
+        </PopoverTrigger>
+        <PopoverContent
+          aria-label="Task details"
+          align="end"
+          className="popover island details run-details"
+          side="top"
+          sideOffset={14}
+        >
+          <PopoverTitle className="popover-title">
+            {session.activity === "Run" ? "Interactive Run" : "Dry Run"}
+          </PopoverTitle>
+          <LiveDetails run={run} />
+        </PopoverContent>
+      </Popover>
+    );
+  }
   return (
     <Popover>
       <PopoverTrigger aria-label="Task details" className="pill-btn">
@@ -2494,6 +2543,7 @@ const App = () => {
     long: true,
   });
   const [sample, setSample] = useState(0);
+  const [fill, setFill] = useState<Fill>("seeded");
   const [decisions, setDecisions] = useState<Record<string, Decision>>(() =>
     Object.fromEntries(
       Object.entries(REVIEWS).map(([id, r]) => [id, r.decision])
@@ -2704,320 +2754,341 @@ const App = () => {
 
   return (
     <OptionsContext.Provider value={options}>
-      <RequestStateContext.Provider value={requestState}>
-        <TeachingProvider>
-          <FlowsNav.Provider
-            value={{ here: view.name === "flows", morphBack, open: openFlows }}
-          >
-            <div className="desktop-gate" role="alert">
-              <div className="island gate-card">
-                <WatcherMark className="brand-mark big" />
-                <h1>Open Contingency on a desktop</h1>
-                <p>
-                  The Workspace drives browsers, emulators and simulators side
-                  by side. It needs a screen at least 1024 pixels wide.
-                </p>
-              </div>
-            </div>
-            <div className="app">
-              {view.name === "flows" ? (
-                <FlowsPage
-                  actions={<Actions />}
-                  empty={catalogEmpty}
-                  nav={
-                    <TopNav
-                      current={undefined}
-                      onHome={home}
-                      onOpen={(id) => open(id)}
-                      sessions={sessions}
-                    />
-                  }
-                  onEnded={(run) =>
-                    transition(() => setView({ name: "ended", run }))
-                  }
-                  onReview={(recording) =>
-                    transition(() => setView({ name: "review", recording }))
-                  }
-                  onRun={(run) =>
-                    setView({ flow: view.flow, name: "flows", run })
-                  }
-                  onSelect={(flow) => setView({ flow, name: "flows" })}
-                  run={view.run}
-                  selected={view.flow}
-                  sessionFlow={fromSession}
-                />
-              ) : view.name === "review" ? (
-                <EndedView
-                  dock={dock}
-                  device={device}
-                  flow={REVIEWS[view.recording]?.flow ?? view.recording}
-                  key={view.recording}
-                  mode="review"
-                  onDone={() =>
-                    transition(() =>
-                      setView({
-                        flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
-                        name: "flows",
-                      })
-                    )
-                  }
-                  onHome={home}
-                  onOpen={(id) => open(id)}
-                  platform={REVIEWS[view.recording]?.platform ?? "web"}
-                  recording={view.recording}
-                  run={runById(REVIEWS[view.recording]?.run ?? "")}
-                  sessions={sessions}
-                />
-              ) : view.name === "ended" ? (
-                <EndedView
-                  dock={dock}
-                  device={device}
-                  flow={runById(view.run)?.flows[0] ?? view.run}
-                  key={view.run}
-                  mode="device"
-                  onDone={() =>
-                    transition(() =>
-                      setView({
-                        flow: flowOfRun(view.run),
-                        name: "flows",
-                        run: view.run,
-                      })
-                    )
-                  }
-                  onHome={home}
-                  onOpen={(id) => open(id)}
-                  platform={runById(view.run)?.platform ?? "android"}
-                  recording={undefined}
-                  run={runById(view.run)}
-                  sessions={sessions}
-                />
-              ) : current ? (
-                <SessionView
-                  dock={dock}
-                  device={device}
-                  onDone={() => closeSession(current.id)}
-                  onReconnect={connect}
-                  stage={stage}
-                  notice={notice}
-                  onNotice={setNotice}
-                  onPatch={(fn) => patch(current.id, fn)}
-                  onHome={home}
-                  onOpen={(id) => open(id)}
-                  session={current}
-                  sessions={sessions}
-                />
-              ) : (
-                <Home
-                  expanded={expanded}
-                  flow={flow}
-                  setFlow={setFlow}
-                  onCollapse={collapse}
-                  onExpand={expand}
-                  onOpen={open}
-                  onStart={(platform, flow, form) => {
-                    const id = `n${Date.now()}`;
-                    transition(
-                      () => {
-                        setSessions((all) => [
-                          {
-                            activity: "Teaching",
-                            flow,
-                            id,
-                            platform,
-                            requests: [],
-                            since: Date.now(),
-                            status: "ready",
-                          },
-                          ...all,
-                        ]);
-                        setView({ id, name: "session" });
-                        setReturnTo(id);
-                        setExpanded(null);
-                      },
-                      { element: form, name: "stage" }
-                    );
-                    connect();
-                  }}
-                  returnTo={returnTo}
-                  returning={returning}
-                  sessions={sessions}
-                />
-              )}
-              {view.name === "review" || view.name === "ended" ? (
-                <div aria-live="polite" className="notices">
-                  {notice ? (
-                    <div
-                      className="notice island"
-                      data-tone={notice.tone}
-                      key={notice.id}
-                      role="status"
-                    >
-                      <span aria-hidden="true" className="notice-mark">
-                        {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
-                      </span>
-                      {notice.text}
-                    </div>
-                  ) : null}
+      <DetailsFillContext.Provider value={fill}>
+        <RequestStateContext.Provider value={requestState}>
+          <TeachingProvider>
+            <FlowsNav.Provider
+              value={{
+                here: view.name === "flows",
+                morphBack,
+                open: openFlows,
+              }}
+            >
+              <div className="desktop-gate" role="alert">
+                <div className="island gate-card">
+                  <WatcherMark className="brand-mark big" />
+                  <h1>Open Contingency on a desktop</h1>
+                  <p>
+                    The Workspace drives browsers, emulators and simulators side
+                    by side. It needs a screen at least 1024 pixels wide.
+                  </p>
                 </div>
-              ) : null}
-              <Scaffold
-                canEnd={
-                  current !== undefined &&
-                  !current.ended &&
-                  ENDS_WITH[current.id] !== undefined
-                }
-                onEnd={() => {
-                  if (current) endRun(current.id);
-                }}
-                summary={current?.ended?.summary}
-                onSummary={() => {
-                  if (!current?.ended) return;
-                  const order: SummaryState[] = ["ready", "writing", "missing"];
-                  const next =
-                    order[(order.indexOf(current.ended.summary) + 1) % 3] ??
-                    "ready";
-                  patch(current.id, (s) => ({
-                    ...s,
-                    ended: s.ended && { ...s.ended, summary: next },
-                  }));
-                }}
-                review={
-                  view.name === "review"
-                    ? decisions[view.recording]
-                    : current?.ended && current.recording
-                      ? decisions[current.recording]
-                      : undefined
-                }
-                onReview={() => {
-                  const rec =
-                    view.name === "review"
-                      ? view.recording
-                      : current?.recording;
-                  if (!rec) return;
-                  const order: Decision[] = [
-                    "pending",
-                    "rejected",
-                    "verified",
-                    "cleanup-failed",
-                  ];
-                  transition(() =>
-                    setDecisions((all) => ({
-                      ...all,
-                      [rec]:
-                        order[
-                          (order.indexOf(all[rec] ?? "pending") + 1) %
-                            order.length
-                        ] ?? "pending",
-                    }))
-                  );
-                }}
-                cleanupFails={cleanupFails}
-                onCleanup={() => setCleanupFails(!cleanupFails)}
-                onSessions={(on) => {
-                  transition(() => {
-                    setSessions(on ? SEED.map((s) => ({ ...s })) : []);
-                    setView({ name: "home" });
-                  });
-                }}
-                sessionsOn={sessions.length > 0}
-                inSession={current !== undefined}
-                inFlows={view.name === "flows"}
-                catalogEmpty={catalogEmpty}
-                onCatalog={() =>
-                  transition(() => setCatalogEmpty(!catalogEmpty))
-                }
-                side={side}
-                onSide={() =>
-                  transition(() => setSide(side === "right" ? "left" : "right"))
-                }
-                requestState={requestState}
-                onRequestState={() =>
-                  setRequestState(
-                    REQUEST_STATES[
-                      (REQUEST_STATES.indexOf(requestState) + 1) %
-                        REQUEST_STATES.length
-                    ] ?? "live"
-                  )
-                }
-                onRequest={() => {
-                  if (!current) return;
-                  const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
-                  setSample(sample + 1);
-                  if (next)
+              </div>
+              <div className="app">
+                {view.name === "flows" ? (
+                  <FlowsPage
+                    actions={<Actions />}
+                    empty={catalogEmpty}
+                    nav={
+                      <TopNav
+                        current={undefined}
+                        onHome={home}
+                        onOpen={(id) => open(id)}
+                        sessions={sessions}
+                      />
+                    }
+                    onEnded={(run) =>
+                      transition(() => setView({ name: "ended", run }))
+                    }
+                    onReview={(recording) =>
+                      transition(() => setView({ name: "review", recording }))
+                    }
+                    onRun={(run) =>
+                      setView({ flow: view.flow, name: "flows", run })
+                    }
+                    onSelect={(flow) => setView({ flow, name: "flows" })}
+                    run={view.run}
+                    selected={view.flow}
+                    sessionFlow={fromSession}
+                  />
+                ) : view.name === "review" ? (
+                  <EndedView
+                    dock={dock}
+                    device={device}
+                    flow={REVIEWS[view.recording]?.flow ?? view.recording}
+                    key={view.recording}
+                    mode="review"
+                    onDone={() =>
+                      transition(() =>
+                        setView({
+                          flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
+                          name: "flows",
+                        })
+                      )
+                    }
+                    onHome={home}
+                    onOpen={(id) => open(id)}
+                    platform={REVIEWS[view.recording]?.platform ?? "web"}
+                    recording={view.recording}
+                    run={runById(REVIEWS[view.recording]?.run ?? "")}
+                    sessions={sessions}
+                  />
+                ) : view.name === "ended" ? (
+                  <EndedView
+                    dock={dock}
+                    device={device}
+                    flow={runById(view.run)?.flows[0] ?? view.run}
+                    key={view.run}
+                    mode="device"
+                    onDone={() =>
+                      transition(() =>
+                        setView({
+                          flow: flowOfRun(view.run),
+                          name: "flows",
+                          run: view.run,
+                        })
+                      )
+                    }
+                    onHome={home}
+                    onOpen={(id) => open(id)}
+                    platform={runById(view.run)?.platform ?? "android"}
+                    recording={undefined}
+                    run={runById(view.run)}
+                    sessions={sessions}
+                  />
+                ) : current ? (
+                  <SessionView
+                    dock={dock}
+                    device={device}
+                    onDone={() => closeSession(current.id)}
+                    onReconnect={connect}
+                    stage={stage}
+                    notice={notice}
+                    onNotice={setNotice}
+                    onPatch={(fn) => patch(current.id, fn)}
+                    onHome={home}
+                    onOpen={(id) => open(id)}
+                    session={current}
+                    sessions={sessions}
+                  />
+                ) : (
+                  <Home
+                    expanded={expanded}
+                    flow={flow}
+                    setFlow={setFlow}
+                    onCollapse={collapse}
+                    onExpand={expand}
+                    onOpen={open}
+                    onStart={(platform, flow, form) => {
+                      const id = `n${Date.now()}`;
+                      transition(
+                        () => {
+                          setSessions((all) => [
+                            {
+                              activity: "Teaching",
+                              flow,
+                              id,
+                              platform,
+                              requests: [],
+                              since: Date.now(),
+                              status: "ready",
+                            },
+                            ...all,
+                          ]);
+                          setView({ id, name: "session" });
+                          setReturnTo(id);
+                          setExpanded(null);
+                        },
+                        { element: form, name: "stage" }
+                      );
+                      connect();
+                    }}
+                    returnTo={returnTo}
+                    returning={returning}
+                    sessions={sessions}
+                  />
+                )}
+                {view.name === "review" || view.name === "ended" ? (
+                  <div aria-live="polite" className="notices">
+                    {notice ? (
+                      <div
+                        className="notice island"
+                        data-tone={notice.tone}
+                        key={notice.id}
+                        role="status"
+                      >
+                        <span aria-hidden="true" className="notice-mark">
+                          {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
+                        </span>
+                        {notice.text}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <Scaffold
+                  canEnd={
+                    current !== undefined &&
+                    !current.ended &&
+                    ENDS_WITH[current.id] !== undefined
+                  }
+                  onEnd={() => {
+                    if (current) endRun(current.id);
+                  }}
+                  fill={fill}
+                  onFill={() =>
+                    setFill(
+                      FILLS[(FILLS.indexOf(fill) + 1) % FILLS.length] ??
+                        "seeded"
+                    )
+                  }
+                  summary={current?.ended?.summary}
+                  onSummary={() => {
+                    if (!current?.ended) return;
+                    const order: SummaryState[] = [
+                      "ready",
+                      "writing",
+                      "missing",
+                    ];
+                    const next =
+                      order[(order.indexOf(current.ended.summary) + 1) % 3] ??
+                      "ready";
                     patch(current.id, (s) => ({
                       ...s,
-                      requests: [
-                        ...s.requests,
-                        { ...next, id: `r${Date.now()}` } as Request,
-                      ],
+                      ended: s.ended && { ...s.ended, summary: next },
                     }));
-                }}
-                onNotice={() =>
-                  setNotice("That gesture did not go through.", "error")
-                }
-                stage={
-                  current && !current.ended
-                    ? current.platform === "web"
-                      ? stage
-                      : deviceStage
-                    : undefined
-                }
-                onStage={() =>
-                  current?.platform === "web"
-                    ? setStage((s) => STAGE_NEXT[s])
-                    : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
-                }
-                rail={
-                  current && !current.ended && current.platform !== "web"
-                    ? rail
-                    : undefined
-                }
-                onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
-                onOptions={setOptions}
-                options={options}
-                guided={
-                  current?.guided !== undefined &&
-                  current.status === "recording" &&
-                  !current.ended
-                    ? guidedControl(current)
-                    : undefined
-                }
-                onGuided={() => {
-                  if (!current) return;
-                  const next =
-                    GUIDED_CONTROLS[
-                      (GUIDED_CONTROLS.indexOf(guidedControl(current)) + 1) %
-                        GUIDED_CONTROLS.length
-                    ] ?? "agent";
-                  patch(current.id, (s) => ({
-                    ...s,
-                    control: next === "user" ? "user" : "agent",
-                    guided:
-                      next === "requested"
-                        ? {
-                            requested:
-                              "The sign-up form asks for a phone code.",
-                          }
-                        : {},
-                  }));
-                }}
-                bot={
-                  current?.platform === "web" && !current.ended
-                    ? current.bot !== undefined
-                    : undefined
-                }
-                onBot={() => {
-                  if (!current) return;
-                  patch(current.id, (s) => ({
-                    ...s,
-                    bot: s.bot === undefined ? "auth.shop.example" : undefined,
-                  }));
-                }}
-              />
-            </div>
-          </FlowsNav.Provider>
-        </TeachingProvider>
-      </RequestStateContext.Provider>
+                  }}
+                  review={
+                    view.name === "review"
+                      ? decisions[view.recording]
+                      : current?.ended && current.recording
+                        ? decisions[current.recording]
+                        : undefined
+                  }
+                  onReview={() => {
+                    const rec =
+                      view.name === "review"
+                        ? view.recording
+                        : current?.recording;
+                    if (!rec) return;
+                    const order: Decision[] = [
+                      "pending",
+                      "rejected",
+                      "verified",
+                      "cleanup-failed",
+                    ];
+                    transition(() =>
+                      setDecisions((all) => ({
+                        ...all,
+                        [rec]:
+                          order[
+                            (order.indexOf(all[rec] ?? "pending") + 1) %
+                              order.length
+                          ] ?? "pending",
+                      }))
+                    );
+                  }}
+                  cleanupFails={cleanupFails}
+                  onCleanup={() => setCleanupFails(!cleanupFails)}
+                  onSessions={(on) => {
+                    transition(() => {
+                      setSessions(on ? SEED.map((s) => ({ ...s })) : []);
+                      setView({ name: "home" });
+                    });
+                  }}
+                  sessionsOn={sessions.length > 0}
+                  inSession={current !== undefined}
+                  inFlows={view.name === "flows"}
+                  catalogEmpty={catalogEmpty}
+                  onCatalog={() =>
+                    transition(() => setCatalogEmpty(!catalogEmpty))
+                  }
+                  side={side}
+                  onSide={() =>
+                    transition(() =>
+                      setSide(side === "right" ? "left" : "right")
+                    )
+                  }
+                  requestState={requestState}
+                  onRequestState={() =>
+                    setRequestState(
+                      REQUEST_STATES[
+                        (REQUEST_STATES.indexOf(requestState) + 1) %
+                          REQUEST_STATES.length
+                      ] ?? "live"
+                    )
+                  }
+                  onRequest={() => {
+                    if (!current) return;
+                    const next =
+                      REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
+                    setSample(sample + 1);
+                    if (next)
+                      patch(current.id, (s) => ({
+                        ...s,
+                        requests: [
+                          ...s.requests,
+                          { ...next, id: `r${Date.now()}` } as Request,
+                        ],
+                      }));
+                  }}
+                  onNotice={() =>
+                    setNotice("That gesture did not go through.", "error")
+                  }
+                  stage={
+                    current && !current.ended
+                      ? current.platform === "web"
+                        ? stage
+                        : deviceStage
+                      : undefined
+                  }
+                  onStage={() =>
+                    current?.platform === "web"
+                      ? setStage((s) => STAGE_NEXT[s])
+                      : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
+                  }
+                  rail={
+                    current && !current.ended && current.platform !== "web"
+                      ? rail
+                      : undefined
+                  }
+                  onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
+                  onOptions={setOptions}
+                  options={options}
+                  guided={
+                    current?.guided !== undefined &&
+                    current.status === "recording" &&
+                    !current.ended
+                      ? guidedControl(current)
+                      : undefined
+                  }
+                  onGuided={() => {
+                    if (!current) return;
+                    const next =
+                      GUIDED_CONTROLS[
+                        (GUIDED_CONTROLS.indexOf(guidedControl(current)) + 1) %
+                          GUIDED_CONTROLS.length
+                      ] ?? "agent";
+                    patch(current.id, (s) => ({
+                      ...s,
+                      control: next === "user" ? "user" : "agent",
+                      guided:
+                        next === "requested"
+                          ? {
+                              requested:
+                                "The sign-up form asks for a phone code.",
+                            }
+                          : {},
+                    }));
+                  }}
+                  bot={
+                    current?.platform === "web" && !current.ended
+                      ? current.bot !== undefined
+                      : undefined
+                  }
+                  onBot={() => {
+                    if (!current) return;
+                    patch(current.id, (s) => ({
+                      ...s,
+                      bot:
+                        s.bot === undefined ? "auth.shop.example" : undefined,
+                    }));
+                  }}
+                />
+              </div>
+            </FlowsNav.Provider>
+          </TeachingProvider>
+        </RequestStateContext.Provider>
+      </DetailsFillContext.Provider>
     </OptionsContext.Provider>
   );
 };
@@ -3111,7 +3182,11 @@ const Scaffold = ({
   onGuided,
   bot,
   onBot,
+  fill,
+  onFill,
 }: {
+  readonly fill: Fill;
+  readonly onFill: () => void;
   readonly guided: GuidedControl | undefined;
   readonly onGuided: () => void;
   readonly bot: boolean | undefined;
@@ -3178,6 +3253,9 @@ const Scaffold = ({
           Rail: {rail}
         </button>
       ) : null}
+      <button onClick={onFill} type="button">
+        Details: {fill}
+      </button>
       {canEnd ? (
         <button onClick={onEnd} type="button">
           End Run

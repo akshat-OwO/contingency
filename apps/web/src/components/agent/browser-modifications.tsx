@@ -1,6 +1,14 @@
 import { browserModificationSummary } from "@contingency/protocol";
 import type { BrowserModification } from "@contingency/protocol";
 
+import {
+  DetailRow,
+  DetailRowText,
+  DetailRows,
+  DetailSection,
+  DetailTime,
+} from "./run-detail-parts";
+import { clockTime } from "./run-detail-state";
 import { dockFactClassName } from "./workspace-dock";
 
 export const BrowserModifications = ({
@@ -9,32 +17,38 @@ export const BrowserModifications = ({
   readonly modifications: readonly BrowserModification[];
 }) =>
   modifications.length === 0 ? null : (
-    <section aria-label="Browser Modifications" className="space-y-2">
-      <h3 className="text-sm leading-5 font-semibold">Browser Modifications</h3>
-      <ol
-        aria-label="Browser Modification activity"
-        className="space-y-1 text-sm"
-      >
+    <DetailSection
+      label="Browser Modifications"
+      meta={`${modifications.filter((m) => m.removedAt === undefined).length} active`}
+    >
+      <DetailRows label="Browser Modification activity" ordered>
         {modifications.map((modification) => (
-          <li className="wrap-anywhere" key={modification.id}>
-            <time dateTime={modification.at}>{modification.at}</time>
-            {" · "}
-            {modification.description}
-            {" · Agent · "}
-            {modification.source === "saved" ? "Saved" : "Agent-initiated"}
-            {modification.removedAt === undefined ? null : (
-              <>
-                {" "}
-                · Removed{" "}
-                <time dateTime={modification.removedAt}>
-                  {modification.removedAt}
-                </time>
-              </>
-            )}
-          </li>
+          <DetailRow
+            key={modification.id}
+            lead={<DetailTime at={modification.at} />}
+            muted={modification.removedAt !== undefined}
+          >
+            <p className="text-pretty">{modification.description}</p>
+            <DetailRowText>
+              {modification.source === "saved"
+                ? "Saved with the Flow"
+                : "Added by the agent"}
+              {modification.removedAt === undefined ? null : (
+                <>
+                  {" · Removed "}
+                  <time
+                    dateTime={modification.removedAt}
+                    title={modification.removedAt}
+                  >
+                    {clockTime(modification.removedAt)}
+                  </time>
+                </>
+              )}
+            </DetailRowText>
+          </DetailRow>
         ))}
-      </ol>
-    </section>
+      </DetailRows>
+    </DetailSection>
   );
 
 export const BrowserModificationBadge = ({

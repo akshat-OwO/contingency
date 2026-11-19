@@ -148,6 +148,10 @@ await Effect.runPromise(
       summary.browserModifications
     );
     yield* command("browser", "goto", "--url", reopened.viewUrl);
+    // The Run Summary keeps a Run's setup, its modifications among it, under
+    // its Task tab (#778).
+    yield* command("browser", "wait", "--role", "tab", "--name", "Task");
+    yield* command("browser", "click", "--role", "tab", "--name", "Task");
     yield* command(
       "browser",
       "wait",
