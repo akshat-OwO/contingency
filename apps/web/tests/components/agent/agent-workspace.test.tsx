@@ -2304,6 +2304,76 @@ test.each(["confirm", "reject"] as const)(
   }
 );
 
+test("a proposed Browser Check keeps its item, query, and timing", async () => {
+  const question = {
+    actor: "agent",
+    at: "2026-08-31T00:00:02.000Z",
+    dialogue: {
+      _tag: "question",
+      proposal: {
+        _tag: "browser",
+        check: {
+          demonstrated: false,
+          expectation: {
+            itemPath: ["body", "items", "*"],
+            predicates: [
+              { expected: "anvil", operator: "equals", path: ["sku"] },
+              { expected: 2, operator: "gte", path: ["quantity"] },
+            ],
+          },
+          id: "cart-has-anvils",
+          kind: "response",
+          request: {
+            method: "GET",
+            origin: "https://shop.example",
+            path: "/cart",
+            query: { store: "staging" },
+          },
+          response: "matching",
+          timeoutMs: 5000,
+          when: "After adding to cart",
+        },
+        reason: "The cart must list the anvils",
+      },
+    },
+    id: "browser-proposal",
+    target: null,
+    text: "Check the cart",
+  };
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingRecording,
+        origin: "guided-run",
+        teaching: {
+          actionCount: 0,
+          instructionCount: 1,
+          instructions: [question],
+        },
+      },
+    ]),
+    session.id
+  );
+  const region = await screen.findByRole("region", {
+    name: "Guided Run questions",
+  });
+  const lines = Object.fromEntries(
+    within(region)
+      .getAllByRole("term")
+      .map((term) => [term.textContent, term.nextElementSibling?.textContent])
+  );
+  expect(lines).toEqual({
+    Expect: 'sku = "anvil"; quantity ≥ 2',
+    Observed: "Not yet",
+    "One item": "body.items.*",
+    Origin: "https://shop.example",
+    Request: "GET /cart?store=staging",
+    Response: "Wait for a match",
+    Timeout: "5000 ms",
+    When: "After adding to cart",
+  });
+});
+
 test("sends a Guided Run answer with Command+Enter and marks an empty one", async () => {
   const user = userEvent.setup();
   const question = {

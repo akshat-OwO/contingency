@@ -69,9 +69,70 @@ const predicateLine = ({ expected, operator, path }: BrowserPredicate) =>
     .join(" ");
 
 /** What a proposed check would add, as a short list rather than its JSON. */
+const RESPONSE_TIMING = {
+  first: "The first response",
+  matching: "Wait for a match",
+} as const;
+const STORAGE_CHANGE = {
+  changed: "Changed after the action",
+  created: "Created after the action",
+  current: "Current state",
+} as const;
+const STORAGE_KIND = {
+  cookie: "Cookie",
+  local: "Local storage",
+  session: "Session storage",
+} as const;
+
+type ProposalLine = readonly [string, string];
+
+/** The request a response check waits for, with its query constraints. */
+const requestLine = ({
+  method,
+  path,
+  query,
+}: {
+  readonly method: string;
+  readonly path: string;
+  readonly query: Readonly<Record<string, string>>;
+}) => {
+  const constraints = new URLSearchParams(Object.entries(query)).toString();
+  return `${method} ${path}${constraints === "" ? "" : `?${constraints}`}`;
+};
+
+/** What a check targets: the request, or the cookie or storage entry. */
+const targetLines = (
+  check: Extract<GuidedRunCheckProposal, { _tag: "browser" }>["check"]
+): readonly ProposalLine[] => {
+  if (check.kind === "response") {
+    return [
+      ["Request", requestLine(check.request)],
+      ["Origin", check.request.origin],
+      ["Response", RESPONSE_TIMING[check.response]],
+    ];
+  }
+  const lines: ProposalLine[] = [
+    [STORAGE_KIND[check.kind], check.name],
+    ["Origin", check.origin],
+    ["Change", STORAGE_CHANGE[check.change]],
+  ];
+  if (check.cookiePath !== undefined && check.cookiePath !== null) {
+    lines.push(["Path", check.cookiePath]);
+  }
+  if (check.format !== undefined) {
+    lines.push(["Format", check.format]);
+  }
+  return lines;
+};
+
+/**
+ * What a proposed check would add, as a short list rather than its JSON. It
+ * keeps every part that changes what the check requires: the target, the item
+ * the predicates apply to, the predicates, and when and how long it waits.
+ */
 const proposalLines = (
   proposal: GuidedRunCheckProposal
-): readonly (readonly [string, string])[] => {
+): readonly ProposalLine[] => {
   if (proposal._tag === "scan") {
     return [
       ["Scan", `${proposal.scan.mode}, ${proposal.scan.phase}`],
@@ -79,25 +140,17 @@ const proposalLines = (
     ];
   }
   const { check } = proposal;
-  const expect = check.expectation.predicates.map(predicateLine).join("; ");
-  const target: (readonly [string, string])[] =
-    check.kind === "response"
-      ? [
-          ["Request", `${check.request.method} ${check.request.path}`],
-          ["Origin", check.request.origin],
-        ]
-      : [
-          [
-            {
-              cookie: "Cookie",
-              local: "Local storage",
-              session: "Session storage",
-            }[check.kind],
-            check.name,
-          ],
-          ["Origin", check.origin],
-        ];
-  return [...target, ["Expect", expect], ["When", check.when]];
+  const { itemPath, predicates } = check.expectation;
+  return [
+    ...targetLines(check),
+    ...(itemPath.length === 0
+      ? []
+      : [["One item", itemPath.join(".")] as const]),
+    ["Expect", predicates.map(predicateLine).join("; ")],
+    ["When", check.when],
+    ["Timeout", `${check.timeoutMs} ms`],
+    ["Observed", check.demonstrated ? "Yes, while teaching" : "Not yet"],
+  ];
 };
 
 const CheckProposal = ({
@@ -117,7 +170,7 @@ const CheckProposal = ({
       <dl className="grid gap-[3px]">
         {proposalLines(proposal).map(([term, detail]) => (
           <div
-            className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2"
+            className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2"
             key={term}
           >
             <dt className="text-muted-foreground">{term}</dt>
