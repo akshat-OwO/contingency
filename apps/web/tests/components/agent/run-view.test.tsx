@@ -446,6 +446,17 @@ test("reads checks, scans and Flows as rows with their status words", () => {
         ],
         scanReports: [
           {
+            flowName: "browse-catalogue",
+            id: "scan-nav-first",
+            mode: "navigation",
+            requirementId: "nav",
+            startedAt: "2026-09-04T00:00:05.000Z",
+            status: "failed",
+            summary: "The tab closed before the navigation.",
+            tabId: "tab-1",
+            url: "https://shop.example/pay",
+          },
+          {
             durationMs: 6900,
             flowName: "browse-catalogue",
             id: "scan-nav",
@@ -488,14 +499,24 @@ test("reads checks, scans and Flows as rows with their status words", () => {
   expect(scans).toHaveTextContent("0 of 2 completed · coverage incomplete");
   expect(within(scans).getByRole("img", { name: "Partial" })).toBeVisible();
   expect(within(scans).getByRole("img", { name: "Not run" })).toBeVisible();
+  // A retried scan keeps each attempt's status, not only the latest.
+  expect(scans).toHaveTextContent(
+    "Attempt 1FailedThe tab closed before the navigation."
+  );
+  expect(scans).toHaveTextContent(
+    "Attempt 2PartialThe payment frame never finished loading."
+  );
   expect(scans).toHaveTextContent("When Continue to payment is chosen");
   const flows = screen.getByRole("region", { name: "Referenced flows" });
   expect(
     within(flows).getByRole("link", { name: "browse-catalogue" })
   ).toHaveAttribute("href", "/flow?flow=browse-catalogue");
+  // Bundled Examples live outside every Catalog Root, so no page to link.
   expect(
-    within(flows).getByRole("link", { name: "sign-in Example" })
-  ).toHaveAttribute("href", "/flow?flow=sign-in");
+    within(flows).queryByRole("link", { name: /sign-in/u })
+  ).not.toBeInTheDocument();
+  expect(within(flows).getByText("sign-in")).toBeVisible();
+  expect(within(flows).getByText("Example")).toBeVisible();
   expect(
     within(screen.getByRole("region", { name: "Emulation" })).getByText(
       "1024×720"

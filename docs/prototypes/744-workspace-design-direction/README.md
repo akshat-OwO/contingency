@@ -54,7 +54,7 @@ Approved on #778. #757 and #760 restyled the Run Summary frame; this restyles th
 | Section | Region | Holds |
 | --- | --- | --- |
 | Requested task | `Requested task` (`Intended outcome` on a Dry Run) | The task in a tinted block, the demo-store line, then `list "Changed instructions"`. |
-| Referenced Flows | `Referenced flows` | One pill per Flow, linking to it on the Flows page, with an **Example** tag. Empty: "No Flows referenced." |
+| Referenced Flows | `Referenced flows` | One pill per Flow, linking to it on the Flows page. An Example has an **Example** tag and no link, because no Catalog Root holds it. Empty: "No Flows referenced." |
 | Emulation | `Emulation` | Viewport, page zoom and text scale as a fact list, then `list "Emulation changes"`: the time, the change, and who made it. |
 | Browser Modifications | `Browser Modifications` | **N active** beside the heading; one row per modification: time, what it does, **Saved with the Flow** or **Added by the agent**, and **Removed <time>** when it was. |
 | Browser Checks (ADR 0056) | `Browser Checks` | **N of M required passed** beside the heading, red while any fails. One row per check: a pass, fail or open mark, the check id, its status word, the summary, then its Flow, attempt and time. |
@@ -94,7 +94,7 @@ Approved on #778, as prototyped, including the native Device list:
 | Text | Pursuit ending as a raw Badge; attempts "<id> operation N%, target N%, value N%" | **Done**, **Blocked**, **Unsure**, **Paused**, **Needs input**; "<id> operation N% · target N% · value N%". |
 | Text | Emulation: "Starting page zoom: N%. Text scale: N%."; changes "<time> · <actor>: page zoom a% → b%, text scale c% → d%" | A fact list (Viewport, Page zoom, Text scale); each change names only what changed and who. |
 | Text | Live Task details: "No Agent Assessment submitted." | "Not submitted yet. The agent assesses the task when it finishes." and "No findings yet." |
-| Role/name | Referenced flows are plain list items | Each is a `link` to `/flow?flow=<name>`. |
+| Role/name | Referenced flows are plain list items | Each is a `link` to `/flow?flow=<name>`, except an Example. |
 | Role/name | Run Summary Task tab: requested task, changed instructions, Flows, Execution | Adds `region "Referenced flows"`, `"System One Pursuits"`, `"Browser Modifications"` and `"Emulation"` on Web, and `region "Device"` on native. |
 | Role/name | Ended-Run summary loading is a polite line; a missing summary is a destructive `alert` | The #757 skeleton with `status` "Writing the Run Summary…"; a missing summary keeps its `alert` and gains **Try again**. |
 

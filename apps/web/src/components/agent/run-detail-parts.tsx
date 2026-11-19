@@ -211,9 +211,14 @@ export const DetailFacts = ({
   </dl>
 );
 
+const flowPillClassName =
+  "bg-island-hover ring-island-border inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-lg px-2.5 font-mono text-xs font-medium ring-1 ring-inset";
+
 /**
  * A Flow the Run referenced, as a pill to it on the Flows page. Inside the
- * router it opens there without reloading the Workspace.
+ * router it opens there without reloading the Workspace. A bundled Example
+ * lives outside every Catalog Root, so the Flows page has no entry for it and
+ * its pill is not a link.
  */
 export const FlowPill = ({
   example,
@@ -227,10 +232,20 @@ export const FlowPill = ({
   const router = useRouter({ warn: false }) as ReturnType<
     typeof useRouter
   > | null;
+  if (example) {
+    return (
+      <span className={flowPillClassName}>
+        <span className="truncate">{name}</span>{" "}
+        <span className="rounded-md bg-[color-mix(in_oklch,var(--island-brand)_22%,transparent)] px-1.5 py-px font-sans text-xs font-semibold text-(--status-needs-you)">
+          Example
+        </span>
+      </span>
+    );
+  }
   return (
     // oxlint-disable-next-line react-doctor/no-prevent-default -- Inside the router the page opens without a reload.
     <a
-      className="bg-island-hover hover:ring-island-brand ring-island-border inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-lg px-2.5 font-mono text-xs font-medium ring-1 ring-inset"
+      className={cn(flowPillClassName, "hover:ring-island-brand")}
       href={`/flow?flow=${encodeURIComponent(name)}`}
       onClick={(event) => {
         if (
@@ -247,12 +262,6 @@ export const FlowPill = ({
       }}
     >
       <span className="truncate">{name}</span>
-      {example ? " " : null}
-      {example ? (
-        <span className="rounded-md bg-[color-mix(in_oklch,var(--island-brand)_22%,transparent)] px-1.5 py-px font-sans text-xs font-semibold text-(--status-needs-you)">
-          Example
-        </span>
-      ) : null}
     </a>
   );
 };
