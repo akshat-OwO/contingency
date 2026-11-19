@@ -164,6 +164,15 @@ test("closing the composer keeps the draft and the attached element", () => {
   });
 });
 
+test("closing the composer ends a pick started from it", () => {
+  const picking = startPicking(openComposer(emptyInspectState));
+  expect(closeComposer(picking)).toMatchObject({
+    composing: false,
+    open: false,
+    returnsToComposer: false,
+  });
+});
+
 test("a resumed comment keeps its words, and its element only on the same Page", () => {
   const saved = {
     ...emptyInspectState,

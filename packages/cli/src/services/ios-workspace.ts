@@ -94,6 +94,10 @@ import {
   staleInstructionElement,
 } from "./native-instruction-element.ts";
 import {
+  scrubPurgedInstructions,
+  withoutPurgedInstructions,
+} from "./native-instruction-purge.ts";
+import {
   nativeRunDirectory,
   nativeRunSummary,
   writeNativeRunSummary,
@@ -527,6 +531,26 @@ export const makeIosWorkspaceLayer = (options: {
 
       const registry = AtomRegistry.make();
       const sessions = new Map<AgentSessionId, Session>();
+      const purgedRecording = (recordingId: string) =>
+        Schema.decodeUnknownEffect(TeachingRecordingId)(recordingId).pipe(
+          Effect.flatMap((id) => store.read(id)),
+          Effect.map(({ cleanup }) => cleanup._tag === "purged"),
+          Effect.orElseSucceed(() => false)
+        );
+      /** Drops purged recordings' comments from every persisted summary. */
+      const scrubComments = (recordingId?: TeachingRecordingId) =>
+        scrubPurgedInstructions({
+          decode: Schema.decodeUnknownEffect(
+            Schema.fromJsonString(IosWorkspaceSummary)
+          ),
+          directory: path.join(options.root(), ".ios-workspace"),
+          fs,
+          purged: purgedRecording,
+          recordingId,
+        });
+      // A purge this process did not see, made by another process or by a
+      // Cleanup retry, may have left a summary's comments behind.
+      yield* scrubComments();
       const receiptSalt = randomUUID();
       const startLock = Semaphore.makeUnsafe(1);
       const starts = new Map<
@@ -568,10 +592,21 @@ export const makeIosWorkspaceLayer = (options: {
         });
       const persist = (session: Session) =>
         Effect.gen(function* persistSummary() {
-          const summary = {
-            ...state(session).summary,
-            preparation: session.run.state(),
-          };
+          const { recordingId } = state(session).summary;
+          const cleanup =
+            recordingId === null
+              ? null
+              : yield* store.read(recordingId).pipe(
+                  Effect.map((manifest) => manifest.cleanup),
+                  Effect.orElseSucceed(() => null)
+                );
+          const summary = withoutPurgedInstructions(
+            {
+              ...state(session).summary,
+              preparation: session.run.state(),
+            },
+            cleanup
+          );
           update(session, (current) => ({ ...current, summary }));
           yield* io(
             fs.makeDirectory(path.dirname(session.summaryFile), {
@@ -625,7 +660,9 @@ export const makeIosWorkspaceLayer = (options: {
             ...recording,
             boundary: session.boundary.pending()?.boundary ?? null,
             field: current.field,
-            instructions: current.summary.instructions ?? [],
+            instructions:
+              withoutPurgedInstructions(current.summary, recording.cleanup)
+                .instructions ?? [],
             observation:
               captured === null
                 ? null
@@ -2212,9 +2249,12 @@ export const makeIosWorkspaceLayer = (options: {
                     ...value,
                     observation: null,
                     observations: [],
+                    summary: { ...value.summary, instructions: [] },
                   }));
+                  yield* persist(owned);
                 }
               }
+              yield* scrubComments(summary.recordingId);
             }
             return yield* snapshot(session);
           }
@@ -2599,7 +2639,9 @@ export const makeIosWorkspaceLayer = (options: {
                 ? "This process can read the retained Summary but does not own its device. Open the owning Workspace to drive it."
                 : summary.error,
             field: null,
-            instructions: summary.instructions ?? [],
+            instructions:
+              withoutPurgedInstructions(summary, recording.cleanup)
+                .instructions ?? [],
             observation: null,
             phase:
               summary.phase === "running" ||
@@ -2652,6 +2694,7 @@ export const makeIosWorkspaceLayer = (options: {
                     ...command,
                     recordingId: summary.recordingId,
                   }).pipe(Effect.provideService(TeachingRecordingStore, store));
+                  yield* scrubComments(summary.recordingId);
                 }
                 return yield* snapshotPersisted(summary);
               });

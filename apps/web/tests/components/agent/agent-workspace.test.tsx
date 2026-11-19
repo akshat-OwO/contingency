@@ -2728,6 +2728,25 @@ test("Escape cancels a pick before it closes the comment", async () => {
   });
 });
 
+test("Close comment cancels a pick", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
+  await user.click(
+    within(composer).getByRole("button", { name: /Attach element/u })
+  );
+  const hint = "Click an element to attach it to the comment";
+  expect(screen.getByText(hint)).toBeVisible();
+  await user.click(
+    within(composer).getByRole("button", { name: "Close comment" })
+  );
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  expect(screen.queryByText(hint)).toBeNull();
+});
+
 test("reads earlier comments back in the composer", async () => {
   const user = userEvent.setup();
   renderWorkspace(

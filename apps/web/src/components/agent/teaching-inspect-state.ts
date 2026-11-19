@@ -95,12 +95,19 @@ export const openComposer = (state: InspectState): InspectState => ({
   returnsToComposer: false,
 });
 
-/** The draft and the attached element survive closing, so nothing is lost. */
+/**
+ * The draft and the attached element survive closing, so nothing is lost. A
+ * pick started from the comment ends with it, so the next press on the Page
+ * reaches the Page.
+ */
 export const closeComposer = (state: InspectState): InspectState => ({
   ...state,
   composing: false,
   error: undefined,
   highlighted: undefined,
+  hovered: undefined,
+  open: false,
+  returnsToComposer: false,
 });
 
 /**

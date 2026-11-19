@@ -1909,6 +1909,13 @@ for (const optional of [false, true]) {
           );
           expect(verified.cleanup?._tag).toBe("purged");
           expect(verified.observation).toBeNull();
+          // Cleanup leaves no copy of the comments beside the summaries.
+          const summaries = path.join(root, ".android-workspace");
+          for (const name of yield* fs.readDirectory(summaries)) {
+            expect(
+              yield* fs.readFileString(path.join(summaries, name))
+            ).not.toContain("Return to Home; use only public fixture text.");
+          }
           // Cleanup deletes the Dry Run's screens but not what they were, so
           // its Run Summary can say they were deleted, here and after restart.
           const purgedShots = yield* workspace.keyframes(prepared.id);
@@ -1933,6 +1940,28 @@ for (const optional of [false, true]) {
           );
           expect(reopened.captureState?._tag).toBe("verified");
           expect(reopened.cleanup?._tag).toBe("purged");
+          expect(reopened.instructions).toEqual([]);
+          // A summary another process wrote before the purge loses its
+          // comments when this one starts.
+          const planted = path.join(summaries, "planted.json");
+          // Copy the dry run's real summary so it decodes, then add a comment.
+          const dryRunSummary = yield* fs.readFileString(
+            path.join(summaries, `${prepared.id}.json`)
+          );
+          yield* fs.writeFileString(
+            planted,
+            dryRunSummary.replace(
+              '"instructions": []',
+              `"instructions": [{"at":"2026-01-01T00:00:00.000Z","id":"planted","target":null,"text":"Planted comment."}]`
+            )
+          );
+          expect(yield* fs.readFileString(planted)).toContain(
+            "Planted comment."
+          );
+          yield* Effect.scoped(restart());
+          expect(yield* fs.readFileString(planted)).not.toContain(
+            "Planted comment."
+          );
           const store = yield* TeachingRecordingStore;
           expect(
             yield* fs.exists(

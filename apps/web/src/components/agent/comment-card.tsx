@@ -4,7 +4,7 @@ import {
   MousePointer2Icon,
   XIcon,
 } from "lucide-react";
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { elapsedLabel } from "@/components/agent/teaching-recording-state";
@@ -37,15 +37,22 @@ const useElapsed = (startedAt: string | undefined) => {
   return startedAt === undefined ? undefined : elapsedLabel(startedAt, now);
 };
 
-const fallbackAnchor: CSSProperties = { bottom: 88, right: EDGE };
+/** Where the card sits, in pixels from the window's bottom right. */
+interface Anchor {
+  readonly bottom: number;
+  readonly maxHeight?: string;
+  readonly right: number;
+}
+
+const fallbackAnchor: Anchor = { bottom: 88, right: EDGE };
 
 /**
  * Where the card sits: above the Session status island it opens from, with
  * their right edges aligned. The island moves with the stage, DevTools and
  * the window, so the card follows its box rather than a fixed corner.
  */
-const useStatusIslandAnchor = (open: boolean): CSSProperties => {
-  const [anchor, setAnchor] = useState<CSSProperties>(fallbackAnchor);
+const useStatusIslandAnchor = (open: boolean): Anchor => {
+  const [anchor, setAnchor] = useState<Anchor>(fallbackAnchor);
   useLayoutEffect(() => {
     if (!open) {
       return;
@@ -85,6 +92,48 @@ const useStatusIslandAnchor = (open: boolean): CSSProperties => {
     };
   }, [open]);
   return anchor;
+};
+
+/** The gap between the comment card and the side card to its left. */
+const ASIDE_GAP = 12;
+
+/**
+ * The side card sits to the comment's left. When the stage narrows, as when
+ * DevTools docks, there may be no room for it there, so the comment moves
+ * left only as far as both cards need to stay in the window.
+ */
+const useAsideFit = (
+  anchor: Anchor,
+  card: RefObject<HTMLDivElement | null>,
+  aside: RefObject<HTMLDivElement | null>,
+  hasAside: boolean
+): Anchor => {
+  const [right, setRight] = useState<number | undefined>();
+  useLayoutEffect(() => {
+    const anchored = anchor.right;
+    if (!hasAside) {
+      setRight(undefined);
+      return;
+    }
+    const measure = () => {
+      const cardWidth = card.current?.offsetWidth ?? 0;
+      const asideWidth = aside.current?.offsetWidth ?? 0;
+      const room =
+        window.innerWidth - EDGE - cardWidth - ASIDE_GAP - asideWidth;
+      setRight(Math.max(EDGE, Math.min(anchored, Math.floor(room))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (aside.current !== null) {
+      observer.observe(aside.current);
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [anchor.right, aside, card, hasAside]);
+  return right === undefined ? anchor : { ...anchor, right };
 };
 
 /** Something attached to the comment: an element or a scan. */
@@ -322,6 +371,10 @@ export const CommentCard = ({
   readonly tools?: ReactNode;
 }) => {
   const anchor = useStatusIslandAnchor(open);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLDivElement>(null);
+  const hasAside = aside !== undefined && aside !== null;
+  const placed = useAsideFit(anchor, cardRef, asideRef, hasAside);
   const elapsed = useElapsed(open ? startedAt : undefined);
   const { picking } = attach;
   return (
@@ -335,7 +388,7 @@ export const CommentCard = ({
             attach.onCancel();
             return;
           }
-          if (aside !== undefined && aside !== null && onCloseAside) {
+          if (hasAside && onCloseAside) {
             details.cancel();
             onCloseAside();
             fieldRef.current?.focus();
@@ -356,9 +409,10 @@ export const CommentCard = ({
         onDragOver={onDragOver}
         onDrop={onDrop}
         ref={popupRef}
-        style={anchor}
+        style={placed}
       >
         <div
+          ref={cardRef}
           className="island bg-island-solid shadow-island-lift animate-in fade-in-0 zoom-in-95 flex min-h-0 flex-1 origin-bottom-right flex-col overflow-clip rounded-[18px] duration-200 motion-reduce:animate-none"
           data-picking={picking || undefined}
           data-slot="comment-card"
@@ -486,14 +540,15 @@ export const CommentCard = ({
             />
           </div>
         </div>
-        {aside === undefined || aside === null ? null : (
+        {hasAside ? (
           <div
             className="absolute right-[calc(100%+12px)] bottom-0 flex max-w-[calc(100vw-2rem)] flex-col"
+            ref={asideRef}
             style={{ maxHeight: anchor.maxHeight }}
           >
             {aside}
           </div>
-        )}
+        ) : null}
       </DialogPopup>
     </Dialog>
   );
