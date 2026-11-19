@@ -213,6 +213,12 @@ export const emptyTakeoverForm: TakeoverForm = {
   value: "",
 };
 
+/** Names the Takeover a Takeover Variable form belongs to. */
+export const takeoverKey = (session: AgentSessionSnapshot) =>
+  takesTakeoverVariable(session)
+    ? `${session.id}:${session.takeover?.requestedAt ?? "user"}`
+    : `${session.id}:none`;
+
 const takeoverVariableRequest = (
   session: AgentSessionSnapshot
 ): DockRequest | undefined =>

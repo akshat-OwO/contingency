@@ -17,6 +17,7 @@ import {
   dockRequests,
   emptyTakeoverForm,
   staysCollapsed,
+  takeoverKey,
 } from "./dock-requests-state";
 import type { DockRequest, TakeoverForm } from "./dock-requests-state";
 import { DryRunVariables } from "./dry-run-variables";
@@ -93,10 +94,14 @@ export const DockRequests = ({
   );
   const [collapsedKeys, setCollapsedKeys] = useAtom(collapsedAtom);
   // The tier stays mounted while collapsed, so it keeps the Takeover
-  // Variable's typed name and Entered list across a fold.
-  const [takeoverAtom] = useState(() =>
-    Atom.make<TakeoverForm>(emptyTakeoverForm)
+  // Variable's draft and Entered list across a fold. Each Takeover gets its
+  // own form: returning control lets the old one go.
+  const [takeoverForms] = useState(() =>
+    Atom.family((_takeover: string) =>
+      Atom.make<TakeoverForm>(emptyTakeoverForm)
+    )
   );
+  const takeoverAtom = takeoverForms(takeoverKey(session));
   // Mounted here, the atom outlives the card: an unsubscribed atom resets.
   useAtomMount(takeoverAtom);
   const requests = dockRequests(session);
