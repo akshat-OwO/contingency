@@ -274,6 +274,13 @@ export const EyeOffIcon = () => (
   </Icon>
 );
 
+export const EyeIcon = () => (
+  <Icon>
+    <path d="M3 12c0-2 4-7 9-7s9 5 9 7-4 7-9 7-9-5-9-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+);
+
 export const RecordIcon = () => (
   <Icon>
     <circle cx="12" cy="12" r="8" />

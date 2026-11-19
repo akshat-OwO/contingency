@@ -7,8 +7,9 @@ import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
-  AnsweredVariable,
+  AnsweredVariables,
   RequestHeader,
+  RequestNote,
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
@@ -54,6 +55,7 @@ const SecretVariable = ({
       }}
       onValueChange={setValue}
       pending={pending}
+      private
       supplyLabel={`Supply ${variable.name}`}
       value={value}
     />
@@ -78,18 +80,11 @@ export const DryRunVariables = ({
     return null;
   }
   return (
-    <section aria-label="Dry Run Variables" className="space-y-2">
+    <section aria-label="Dry Run Variables" className="space-y-3">
       <RequestHeader
-        action={
-          <>
-            <span className="text-muted-foreground hidden text-xs @xl:inline">
-              Values are visible in journey evidence
-            </span>
-            {collapse}
-          </>
-        }
+        action={collapse}
         badge={
-          <span className="text-muted-foreground text-xs tabular-nums">
+          <span className="tabular-nums">
             {waiting.length} of {variables.length} needed
           </span>
         }
@@ -98,7 +93,8 @@ export const DryRunVariables = ({
         }
         title="Dry Run Variables"
       />
-      <div className="space-y-2.5">
+      <RequestNote>Values are visible in journey evidence.</RequestNote>
+      <div className="space-y-3.5">
         {waiting.map((variable) => (
           <SecretVariable
             key={variable.name}
@@ -107,17 +103,13 @@ export const DryRunVariables = ({
           />
         ))}
       </div>
-      {supplied.length === 0 ? null : (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {supplied.map((variable) => (
-            <AnsweredVariable
-              key={variable.name}
-              label={variable.name}
-              status="supplied"
-            />
-          ))}
-        </div>
-      )}
+      <AnsweredVariables
+        answers={supplied.map((variable) => ({
+          key: variable.name,
+          label: variable.name,
+          status: "supplied",
+        }))}
+      />
     </section>
   );
 };

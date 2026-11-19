@@ -88,6 +88,18 @@ import {
 import { DEVICE_STAGE_NEXT, EraseDevice, NativeCanvas } from "./native";
 import type { DeviceCanvas, DeviceStage, RailPlace } from "./native";
 import {
+  QuestionCard,
+  REQUEST_STATES,
+  RequestStateContext,
+  VariableCard,
+} from "./requests";
+import type {
+  QuestionItem,
+  RequestState,
+  VariableGroup,
+  VariableItem,
+} from "./requests";
+import {
   DecisionBar,
   RunSummary,
   SummaryDock,
@@ -128,18 +140,18 @@ type Request =
     }
   | {
       readonly id: string;
-      readonly kind: "input";
+      readonly kind: "variables";
       readonly title: string;
       readonly detail: string;
-      readonly field: string;
-      readonly secret?: boolean;
+      readonly group: VariableGroup;
+      readonly items: readonly VariableItem[];
     }
   | {
       readonly id: string;
       readonly kind: "question";
       readonly title: string;
       readonly detail: string;
-      readonly choices: readonly string[];
+      readonly questions: readonly QuestionItem[];
     };
 
 interface Session {
@@ -185,24 +197,94 @@ const REQUEST_SAMPLES: readonly WithoutId<Request>[] = [
     title: "Allow the agent to visit a new host?",
   },
   {
-    detail: "The Flow asks for it at the sign-in step.",
-    field: "promo_code",
-    kind: "input",
-    title: "The agent needs a value for promo_code",
+    detail: "Setup sign-in",
+    group: "setup",
+    items: [
+      {
+        name: "ADMIN_EMAIL",
+        purpose: "Signs in to the staging admin before recording.",
+        refusable: true,
+      },
+      { name: "ADMIN_PASSWORD", refusable: true },
+      { answer: "supplied", name: "STORE_URL", refusable: true },
+    ],
+    kind: "variables",
+    title: "Setup Variables",
   },
   {
-    detail: "Secrets are used for this Dry Run only and never saved.",
-    field: "password",
-    kind: "input",
-    secret: true,
-    title: "Enter the password for qa@shop.localhost",
+    detail: "Dry Run secret",
+    group: "dry-run",
+    items: [
+      { name: "PASSWORD", refusable: false },
+      { answer: "supplied", name: "OTP_SEED", refusable: false },
+    ],
+    kind: "variables",
+    title: "Dry Run Variables",
   },
   {
-    choices: ["Starter", "Pro"],
-    detail:
-      "The document says the account starts on Free, but the app only offers Starter and Pro.",
+    detail: "Prerequisite inputs",
+    group: "prerequisite",
+    items: [
+      {
+        name: "login/PASSWORD",
+        purpose: "The login Flow runs first to sign in.",
+        refusable: true,
+      },
+      { answer: "refused", name: "login/OTP", refusable: true },
+    ],
+    kind: "variables",
+    title: "Prerequisite Variables",
+  },
+  {
+    detail: "Runtime input",
+    group: "runtime",
+    items: [{ name: "PROMO_CODE", refusable: true }],
+    kind: "variables",
+    title: "Runtime Variables",
+  },
+  {
+    detail: "Example inputs",
+    group: "example",
+    items: [{ name: "public-login/PASSWORD", refusable: true }],
+    kind: "variables",
+    title: "Example private inputs",
+  },
+  {
+    detail: "Guided Run",
     kind: "question",
+    questions: [
+      {
+        answer: { by: "user", text: "Use the staging store, not production." },
+        id: "q0",
+        text: "Which store should the account be created in?",
+      },
+      {
+        id: "q1",
+        text: "The document says the account starts on Free, but the app only offers Starter and Pro. Which plan should it start on?",
+      },
+    ],
     title: "Which plan should the new account start on?",
+  },
+  {
+    detail: "Guided Run",
+    kind: "question",
+    questions: [
+      {
+        id: "q2",
+        proposal: {
+          kind: "Browser Check",
+          lines: [
+            ["Request", "POST /api/accounts"],
+            ["Expect", "status = 201"],
+            ["When", "After Create account"],
+          ],
+          reason:
+            "Creating the account should call the accounts API once and succeed.",
+        },
+        text: "Add a check that account creation succeeds?",
+      },
+    ],
+    title: "Add a check that account creation succeeds?",
   },
 ];
 
@@ -259,7 +341,7 @@ const SEED: readonly Session[] = [
     platform: "ios",
     since: now - 305_000,
     control: "agent",
-    requests: [{ ...REQUEST_SAMPLES[4], id: "r-seed-3" } as Request],
+    requests: [{ ...REQUEST_SAMPLES[7], id: "r-seed-3" } as Request],
     status: "running",
     step: [3, 7],
   },
@@ -1574,19 +1656,10 @@ const StatusIsland = ({
   );
 };
 
-const eyebrow = (r: Request) =>
-  r.kind === "boundary"
-    ? "Execution Boundary"
-    : r.kind === "question"
-      ? "Guided Run question"
-      : r.secret
-        ? "Dry Run secret"
-        : "Input needed";
-
 const REQUEST_ICON = {
   boundary: ShieldIcon,
-  input: KeyIcon,
   question: QuestionIcon,
+  variables: KeyIcon,
 } as const;
 
 const RequestTier = ({
@@ -1594,13 +1667,14 @@ const RequestTier = ({
   collapsed,
   onCollapse,
   onResolve,
+  onUpdate,
 }: {
   readonly session: Session;
   readonly collapsed: boolean;
   readonly onCollapse: (collapsed: boolean) => void;
   readonly onResolve: (request: Request, refused: boolean) => void;
+  readonly onUpdate: (request: Request) => void;
 }) => {
-  const [answer, setAnswer] = useState("");
   const first = session.requests[0];
   if (!first) return null;
   const count = session.requests.length;
@@ -1620,11 +1694,73 @@ const RequestTier = ({
       </Button>
     );
   }
+  const collapse = (
+    <IconButton
+      className="icon-btn small"
+      label="Collapse requests"
+      onClick={() => onCollapse(true)}
+    >
+      <MinimizeIcon />
+    </IconButton>
+  );
+  const more =
+    count > 1 ? (
+      <p className="request-more mono">+{count - 1} more after this</p>
+    ) : null;
+  if (first.kind === "variables") {
+    return (
+      <section
+        aria-label="Requests"
+        className="request island"
+        data-kind="variables"
+      >
+        <VariableCard
+          collapse={collapse}
+          group={first.group}
+          items={first.items}
+          onAnswer={(name, answer) => {
+            const items = first.items.map((item) =>
+              item.name === name ? { ...item, answer } : item
+            );
+            if (items.every((item) => item.answer !== undefined)) {
+              onResolve(first, false);
+            } else {
+              onUpdate({ ...first, items });
+            }
+          }}
+        />
+        {more}
+      </section>
+    );
+  }
+  if (first.kind === "question") {
+    return (
+      <section
+        aria-label="Requests"
+        className="request island"
+        data-kind="question"
+      >
+        <QuestionCard
+          closed={false}
+          collapse={collapse}
+          onAnswer={(id, answer) => {
+            const questions = first.questions.map((q) =>
+              q.id === id ? { ...q, answer } : q
+            );
+            // Every question answered: the agent has what it asked for.
+            if (questions.every((q) => q.answer !== undefined)) {
+              onResolve(first, false);
+            } else {
+              onUpdate({ ...first, questions });
+            }
+          }}
+          questions={first.questions}
+        />
+        {more}
+      </section>
+    );
+  }
   const takeover = session.control === "user";
-  const send = () => {
-    if (answer.trim() === "") return;
-    onResolve(first, false);
-  };
   return (
     <section
       aria-label="Requests"
@@ -1637,106 +1773,32 @@ const RequestTier = ({
         </span>
         <div className="request-head">
           <span className="eyebrow">
-            {eyebrow(first)}
+            Execution Boundary
             {count > 1 ? <span className="mono"> · 1 of {count}</span> : null}
           </span>
           <h2>{first.title}</h2>
         </div>
-        <IconButton
-          className="icon-btn small"
-          label="Collapse requests"
-          onClick={() => onCollapse(true)}
-        >
-          <MinimizeIcon />
-        </IconButton>
+        {collapse}
       </header>
       <p className="request-detail">{first.detail}</p>
-      {first.kind === "boundary" ? (
-        <>
-          <div className="request-target mono">{first.target}</div>
-          <div className="request-actions">
-            {takeover ? (
-              <span className="hint grow">
-                Return control to allow. You can still refuse.
-              </span>
-            ) : null}
-            <Button
-              className="btn ghosty"
-              onClick={() => onResolve(first, true)}
-            >
-              Refuse
-            </Button>
-            <Button
-              className="btn"
-              disabled={takeover}
-              onClick={() => onResolve(first, false)}
-            >
-              Allow
-            </Button>
-          </div>
-        </>
-      ) : null}
-      {first.kind === "input" ? (
-        <form
-          className="request-actions"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
+      <div className="request-target mono">{first.target}</div>
+      <div className="request-actions">
+        {takeover ? (
+          <span className="hint grow">
+            Return control to allow. You can still refuse.
+          </span>
+        ) : null}
+        <Button className="btn ghosty" onClick={() => onResolve(first, true)}>
+          Refuse
+        </Button>
+        <Button
+          className="btn"
+          disabled={takeover}
+          onClick={() => onResolve(first, false)}
         >
-          <Input
-            aria-label={first.field}
-            autoComplete="off"
-            autoFocus
-            className="input mono grow"
-            onChange={(e) => setAnswer(e.currentTarget.value)}
-            placeholder={first.field}
-            type={first.secret ? "password" : "text"}
-            value={answer}
-          />
-          <Button className="btn" disabled={answer.trim() === ""} type="submit">
-            Send
-          </Button>
-        </form>
-      ) : null}
-      {first.kind === "question" ? (
-        <form
-          className="request-answers"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <div className="choices">
-            {first.choices.map((c) => (
-              <Button
-                className="pill-btn floating"
-                key={c}
-                onClick={() => onResolve(first, false)}
-              >
-                {c}
-              </Button>
-            ))}
-          </div>
-          <div className="request-actions">
-            <Input
-              aria-label="Answer"
-              autoComplete="off"
-              className="input grow"
-              onChange={(e) => setAnswer(e.currentTarget.value)}
-              placeholder="Or answer in your own words"
-              value={answer}
-            />
-            <Button
-              className="btn"
-              disabled={answer.trim() === ""}
-              type="submit"
-            >
-              Send answer
-            </Button>
-          </div>
-        </form>
-      ) : null}
+          Allow
+        </Button>
+      </div>
     </section>
   );
 };
@@ -2229,6 +2291,14 @@ const SessionView = ({
             collapsed={collapsed}
             key={session.requests[0]?.id}
             onCollapse={(c) => transition(() => setCollapsed(c))}
+            onUpdate={(request) =>
+              onPatch((s) => ({
+                ...s,
+                requests: s.requests.map((r) =>
+                  r.id === request.id ? request : r
+                ),
+              }))
+            }
             onResolve={(request, refused) => {
               onPatch((s) => ({
                 ...s,
@@ -2256,6 +2326,7 @@ const SessionView = ({
 
 const App = () => {
   useNow();
+  const [requestState, setRequestState] = useState<RequestState>("live");
   const [sessions, setSessions] = useState<Session[]>(() =>
     SEED.map((s) => ({ ...s }))
   );
@@ -2487,267 +2558,282 @@ const App = () => {
 
   return (
     <OptionsContext.Provider value={options}>
-      <TeachingProvider>
-        <FlowsNav.Provider
-          value={{ here: view.name === "flows", morphBack, open: openFlows }}
-        >
-          <div className="desktop-gate" role="alert">
-            <div className="island gate-card">
-              <WatcherMark className="brand-mark big" />
-              <h1>Open Contingency on a desktop</h1>
-              <p>
-                The Workspace drives browsers, emulators and simulators side by
-                side. It needs a screen at least 1024 pixels wide.
-              </p>
-            </div>
-          </div>
-          <div className="app">
-            {view.name === "flows" ? (
-              <FlowsPage
-                actions={<Actions />}
-                empty={catalogEmpty}
-                nav={
-                  <TopNav
-                    current={undefined}
-                    onHome={home}
-                    onOpen={(id) => open(id)}
-                    sessions={sessions}
-                  />
-                }
-                onEnded={(run) =>
-                  transition(() => setView({ name: "ended", run }))
-                }
-                onReview={(recording) =>
-                  transition(() => setView({ name: "review", recording }))
-                }
-                onRun={(run) =>
-                  setView({ flow: view.flow, name: "flows", run })
-                }
-                onSelect={(flow) => setView({ flow, name: "flows" })}
-                run={view.run}
-                selected={view.flow}
-                sessionFlow={fromSession}
-              />
-            ) : view.name === "review" ? (
-              <EndedView
-                dock={dock}
-                device={device}
-                flow={REVIEWS[view.recording]?.flow ?? view.recording}
-                key={view.recording}
-                mode="review"
-                onDone={() =>
-                  transition(() =>
-                    setView({
-                      flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
-                      name: "flows",
-                    })
-                  )
-                }
-                onHome={home}
-                onOpen={(id) => open(id)}
-                platform={REVIEWS[view.recording]?.platform ?? "web"}
-                recording={view.recording}
-                run={runById(REVIEWS[view.recording]?.run ?? "")}
-                sessions={sessions}
-              />
-            ) : view.name === "ended" ? (
-              <EndedView
-                dock={dock}
-                device={device}
-                flow={runById(view.run)?.flows[0] ?? view.run}
-                key={view.run}
-                mode="device"
-                onDone={() =>
-                  transition(() =>
-                    setView({
-                      flow: flowOfRun(view.run),
-                      name: "flows",
-                      run: view.run,
-                    })
-                  )
-                }
-                onHome={home}
-                onOpen={(id) => open(id)}
-                platform={runById(view.run)?.platform ?? "android"}
-                recording={undefined}
-                run={runById(view.run)}
-                sessions={sessions}
-              />
-            ) : current ? (
-              <SessionView
-                dock={dock}
-                device={device}
-                onDone={() => closeSession(current.id)}
-                onReconnect={connect}
-                stage={stage}
-                notice={notice}
-                onNotice={setNotice}
-                onPatch={(fn) => patch(current.id, fn)}
-                onHome={home}
-                onOpen={(id) => open(id)}
-                session={current}
-                sessions={sessions}
-              />
-            ) : (
-              <Home
-                expanded={expanded}
-                flow={flow}
-                setFlow={setFlow}
-                onCollapse={collapse}
-                onExpand={expand}
-                onOpen={open}
-                onStart={(platform, flow, form) => {
-                  const id = `n${Date.now()}`;
-                  transition(
-                    () => {
-                      setSessions((all) => [
-                        {
-                          activity: "Teaching",
-                          flow,
-                          id,
-                          platform,
-                          requests: [],
-                          since: Date.now(),
-                          status: "ready",
-                        },
-                        ...all,
-                      ]);
-                      setView({ id, name: "session" });
-                      setReturnTo(id);
-                      setExpanded(null);
-                    },
-                    { element: form, name: "stage" }
-                  );
-                  connect();
-                }}
-                returnTo={returnTo}
-                returning={returning}
-                sessions={sessions}
-              />
-            )}
-            {view.name === "review" || view.name === "ended" ? (
-              <div aria-live="polite" className="notices">
-                {notice ? (
-                  <div
-                    className="notice island"
-                    data-tone={notice.tone}
-                    key={notice.id}
-                    role="status"
-                  >
-                    <span aria-hidden="true" className="notice-mark">
-                      {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
-                    </span>
-                    {notice.text}
-                  </div>
-                ) : null}
+      <RequestStateContext.Provider value={requestState}>
+        <TeachingProvider>
+          <FlowsNav.Provider
+            value={{ here: view.name === "flows", morphBack, open: openFlows }}
+          >
+            <div className="desktop-gate" role="alert">
+              <div className="island gate-card">
+                <WatcherMark className="brand-mark big" />
+                <h1>Open Contingency on a desktop</h1>
+                <p>
+                  The Workspace drives browsers, emulators and simulators side
+                  by side. It needs a screen at least 1024 pixels wide.
+                </p>
               </div>
-            ) : null}
-            <Scaffold
-              canEnd={
-                current !== undefined &&
-                !current.ended &&
-                ENDS_WITH[current.id] !== undefined
-              }
-              onEnd={() => {
-                if (current) endRun(current.id);
-              }}
-              summary={current?.ended?.summary}
-              onSummary={() => {
-                if (!current?.ended) return;
-                const order: SummaryState[] = ["ready", "writing", "missing"];
-                const next =
-                  order[(order.indexOf(current.ended.summary) + 1) % 3] ??
-                  "ready";
-                patch(current.id, (s) => ({
-                  ...s,
-                  ended: s.ended && { ...s.ended, summary: next },
-                }));
-              }}
-              review={
-                view.name === "review"
-                  ? decisions[view.recording]
-                  : current?.ended && current.recording
-                    ? decisions[current.recording]
-                    : undefined
-              }
-              onReview={() => {
-                const rec =
-                  view.name === "review" ? view.recording : current?.recording;
-                if (!rec) return;
-                const order: Decision[] = [
-                  "pending",
-                  "rejected",
-                  "verified",
-                  "cleanup-failed",
-                ];
-                transition(() =>
-                  setDecisions((all) => ({
-                    ...all,
-                    [rec]:
-                      order[
-                        (order.indexOf(all[rec] ?? "pending") + 1) %
-                          order.length
-                      ] ?? "pending",
-                  }))
-                );
-              }}
-              cleanupFails={cleanupFails}
-              onCleanup={() => setCleanupFails(!cleanupFails)}
-              onSessions={(on) => {
-                transition(() => {
-                  setSessions(on ? SEED.map((s) => ({ ...s })) : []);
-                  setView({ name: "home" });
-                });
-              }}
-              sessionsOn={sessions.length > 0}
-              inSession={current !== undefined}
-              inFlows={view.name === "flows"}
-              catalogEmpty={catalogEmpty}
-              onCatalog={() => transition(() => setCatalogEmpty(!catalogEmpty))}
-              side={side}
-              onSide={() =>
-                transition(() => setSide(side === "right" ? "left" : "right"))
-              }
-              onRequest={() => {
-                if (!current) return;
-                const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
-                setSample(sample + 1);
-                if (next)
+            </div>
+            <div className="app">
+              {view.name === "flows" ? (
+                <FlowsPage
+                  actions={<Actions />}
+                  empty={catalogEmpty}
+                  nav={
+                    <TopNav
+                      current={undefined}
+                      onHome={home}
+                      onOpen={(id) => open(id)}
+                      sessions={sessions}
+                    />
+                  }
+                  onEnded={(run) =>
+                    transition(() => setView({ name: "ended", run }))
+                  }
+                  onReview={(recording) =>
+                    transition(() => setView({ name: "review", recording }))
+                  }
+                  onRun={(run) =>
+                    setView({ flow: view.flow, name: "flows", run })
+                  }
+                  onSelect={(flow) => setView({ flow, name: "flows" })}
+                  run={view.run}
+                  selected={view.flow}
+                  sessionFlow={fromSession}
+                />
+              ) : view.name === "review" ? (
+                <EndedView
+                  dock={dock}
+                  device={device}
+                  flow={REVIEWS[view.recording]?.flow ?? view.recording}
+                  key={view.recording}
+                  mode="review"
+                  onDone={() =>
+                    transition(() =>
+                      setView({
+                        flow: `local:${REVIEWS[view.recording]?.flow ?? ""}`,
+                        name: "flows",
+                      })
+                    )
+                  }
+                  onHome={home}
+                  onOpen={(id) => open(id)}
+                  platform={REVIEWS[view.recording]?.platform ?? "web"}
+                  recording={view.recording}
+                  run={runById(REVIEWS[view.recording]?.run ?? "")}
+                  sessions={sessions}
+                />
+              ) : view.name === "ended" ? (
+                <EndedView
+                  dock={dock}
+                  device={device}
+                  flow={runById(view.run)?.flows[0] ?? view.run}
+                  key={view.run}
+                  mode="device"
+                  onDone={() =>
+                    transition(() =>
+                      setView({
+                        flow: flowOfRun(view.run),
+                        name: "flows",
+                        run: view.run,
+                      })
+                    )
+                  }
+                  onHome={home}
+                  onOpen={(id) => open(id)}
+                  platform={runById(view.run)?.platform ?? "android"}
+                  recording={undefined}
+                  run={runById(view.run)}
+                  sessions={sessions}
+                />
+              ) : current ? (
+                <SessionView
+                  dock={dock}
+                  device={device}
+                  onDone={() => closeSession(current.id)}
+                  onReconnect={connect}
+                  stage={stage}
+                  notice={notice}
+                  onNotice={setNotice}
+                  onPatch={(fn) => patch(current.id, fn)}
+                  onHome={home}
+                  onOpen={(id) => open(id)}
+                  session={current}
+                  sessions={sessions}
+                />
+              ) : (
+                <Home
+                  expanded={expanded}
+                  flow={flow}
+                  setFlow={setFlow}
+                  onCollapse={collapse}
+                  onExpand={expand}
+                  onOpen={open}
+                  onStart={(platform, flow, form) => {
+                    const id = `n${Date.now()}`;
+                    transition(
+                      () => {
+                        setSessions((all) => [
+                          {
+                            activity: "Teaching",
+                            flow,
+                            id,
+                            platform,
+                            requests: [],
+                            since: Date.now(),
+                            status: "ready",
+                          },
+                          ...all,
+                        ]);
+                        setView({ id, name: "session" });
+                        setReturnTo(id);
+                        setExpanded(null);
+                      },
+                      { element: form, name: "stage" }
+                    );
+                    connect();
+                  }}
+                  returnTo={returnTo}
+                  returning={returning}
+                  sessions={sessions}
+                />
+              )}
+              {view.name === "review" || view.name === "ended" ? (
+                <div aria-live="polite" className="notices">
+                  {notice ? (
+                    <div
+                      className="notice island"
+                      data-tone={notice.tone}
+                      key={notice.id}
+                      role="status"
+                    >
+                      <span aria-hidden="true" className="notice-mark">
+                        {notice.tone === "ok" ? <CheckIcon /> : <CloseIcon />}
+                      </span>
+                      {notice.text}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <Scaffold
+                canEnd={
+                  current !== undefined &&
+                  !current.ended &&
+                  ENDS_WITH[current.id] !== undefined
+                }
+                onEnd={() => {
+                  if (current) endRun(current.id);
+                }}
+                summary={current?.ended?.summary}
+                onSummary={() => {
+                  if (!current?.ended) return;
+                  const order: SummaryState[] = ["ready", "writing", "missing"];
+                  const next =
+                    order[(order.indexOf(current.ended.summary) + 1) % 3] ??
+                    "ready";
                   patch(current.id, (s) => ({
                     ...s,
-                    requests: [
-                      ...s.requests,
-                      { ...next, id: `r${Date.now()}` } as Request,
-                    ],
+                    ended: s.ended && { ...s.ended, summary: next },
                   }));
-              }}
-              onNotice={() =>
-                setNotice("That gesture did not go through.", "error")
-              }
-              stage={
-                current && !current.ended
-                  ? current.platform === "web"
-                    ? stage
-                    : deviceStage
-                  : undefined
-              }
-              onStage={() =>
-                current?.platform === "web"
-                  ? setStage((s) => STAGE_NEXT[s])
-                  : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
-              }
-              rail={
-                current && !current.ended && current.platform !== "web"
-                  ? rail
-                  : undefined
-              }
-              onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
-              onOptions={setOptions}
-              options={options}
-            />
-          </div>
-        </FlowsNav.Provider>
-      </TeachingProvider>
+                }}
+                review={
+                  view.name === "review"
+                    ? decisions[view.recording]
+                    : current?.ended && current.recording
+                      ? decisions[current.recording]
+                      : undefined
+                }
+                onReview={() => {
+                  const rec =
+                    view.name === "review"
+                      ? view.recording
+                      : current?.recording;
+                  if (!rec) return;
+                  const order: Decision[] = [
+                    "pending",
+                    "rejected",
+                    "verified",
+                    "cleanup-failed",
+                  ];
+                  transition(() =>
+                    setDecisions((all) => ({
+                      ...all,
+                      [rec]:
+                        order[
+                          (order.indexOf(all[rec] ?? "pending") + 1) %
+                            order.length
+                        ] ?? "pending",
+                    }))
+                  );
+                }}
+                cleanupFails={cleanupFails}
+                onCleanup={() => setCleanupFails(!cleanupFails)}
+                onSessions={(on) => {
+                  transition(() => {
+                    setSessions(on ? SEED.map((s) => ({ ...s })) : []);
+                    setView({ name: "home" });
+                  });
+                }}
+                sessionsOn={sessions.length > 0}
+                inSession={current !== undefined}
+                inFlows={view.name === "flows"}
+                catalogEmpty={catalogEmpty}
+                onCatalog={() =>
+                  transition(() => setCatalogEmpty(!catalogEmpty))
+                }
+                side={side}
+                onSide={() =>
+                  transition(() => setSide(side === "right" ? "left" : "right"))
+                }
+                requestState={requestState}
+                onRequestState={() =>
+                  setRequestState(
+                    REQUEST_STATES[
+                      (REQUEST_STATES.indexOf(requestState) + 1) %
+                        REQUEST_STATES.length
+                    ] ?? "live"
+                  )
+                }
+                onRequest={() => {
+                  if (!current) return;
+                  const next = REQUEST_SAMPLES[sample % REQUEST_SAMPLES.length];
+                  setSample(sample + 1);
+                  if (next)
+                    patch(current.id, (s) => ({
+                      ...s,
+                      requests: [
+                        ...s.requests,
+                        { ...next, id: `r${Date.now()}` } as Request,
+                      ],
+                    }));
+                }}
+                onNotice={() =>
+                  setNotice("That gesture did not go through.", "error")
+                }
+                stage={
+                  current && !current.ended
+                    ? current.platform === "web"
+                      ? stage
+                      : deviceStage
+                    : undefined
+                }
+                onStage={() =>
+                  current?.platform === "web"
+                    ? setStage((s) => STAGE_NEXT[s])
+                    : setDeviceStage((s) => DEVICE_STAGE_NEXT[s])
+                }
+                rail={
+                  current && !current.ended && current.platform !== "web"
+                    ? rail
+                    : undefined
+                }
+                onRail={() => setRail(rail === "beside" ? "edge" : "beside")}
+                onOptions={setOptions}
+                options={options}
+              />
+            </div>
+          </FlowsNav.Provider>
+        </TeachingProvider>
+      </RequestStateContext.Provider>
     </OptionsContext.Provider>
   );
 };
@@ -2820,6 +2906,8 @@ const Scaffold = ({
   side,
   onSide,
   onRequest,
+  requestState,
+  onRequestState,
   onNotice,
   options,
   onOptions,
@@ -2855,6 +2943,8 @@ const Scaffold = ({
   readonly side: "left" | "right";
   readonly onSide: () => void;
   readonly onRequest: () => void;
+  readonly requestState: RequestState;
+  readonly onRequestState: () => void;
   readonly onNotice: () => void;
   readonly stage: StageState | DeviceStage | undefined;
   readonly onStage: () => void;
@@ -2923,6 +3013,9 @@ const Scaffold = ({
           </button>
           <button onClick={onRequest} type="button">
             + Request
+          </button>
+          <button onClick={onRequestState} type="button">
+            Request state: {requestState}
           </button>
           <button onClick={onNotice} type="button">
             Notice

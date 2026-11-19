@@ -27,8 +27,9 @@ export const RuntimeVariables = ({
   return (
     <WorkspaceVariables
       collapse={collapse}
-      description="Supply or refuse Variables here. Values are visible in journey evidence."
+      description="Values are visible in journey evidence."
       heading="Runtime Variables"
+      masked={false}
       session={session}
     />
   );

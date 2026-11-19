@@ -2283,6 +2283,13 @@ test.each(["confirm", "reject"] as const)(
     expect(
       within(region).getByText("The document requests a cart scan")
     ).toBeVisible();
+    // The proposal reads as a short list, not its JSON.
+    expect(
+      within(region)
+        .getAllByRole("term")
+        .map((term) => term.textContent)
+    ).toEqual(["Scan", "Id"]);
+    expect(within(region).getByText("accessibility, start")).toBeVisible();
     expect(within(region).queryByRole("textbox")).toBeNull();
     expect(rpc.instructionCalls).toHaveLength(0);
     await user.click(
@@ -2296,6 +2303,47 @@ test.each(["confirm", "reject"] as const)(
     });
   }
 );
+
+test("sends a Guided Run answer with Command+Enter and marks an empty one", async () => {
+  const user = userEvent.setup();
+  const question = {
+    actor: "agent",
+    at: "2026-08-31T00:00:02.000Z",
+    dialogue: { _tag: "question" },
+    id: "question-keys",
+    target: null,
+    text: "Which item should I add?",
+  };
+  renderWorkspace(
+    resultFor([
+      {
+        ...teachingRecording,
+        origin: "guided-run",
+        teaching: {
+          actionCount: 0,
+          instructionCount: 1,
+          instructions: [question],
+        },
+      },
+    ]),
+    session.id
+  );
+  const field = await screen.findByRole("textbox", {
+    name: "Answer: Which item should I add?",
+  });
+  await user.click(field);
+  await user.keyboard("{Meta>}{Enter}{/Meta}");
+  expect(field).toHaveAttribute("aria-invalid", "true");
+  expect(field).toHaveAccessibleDescription("Write an answer first.");
+  expect(rpc.instructionCalls).toHaveLength(0);
+  await user.type(field, "One anvil");
+  expect(field).not.toHaveAttribute("aria-invalid");
+  await user.keyboard("{Meta>}{Enter}{/Meta}");
+  await waitFor(() => expect(rpc.instructionCalls).toHaveLength(1));
+  expect(rpc.instructionCalls[0]).toMatchObject({
+    payload: { questionId: question.id, text: "One anvil" },
+  });
+});
 
 test("preserves unsent Guided Run answers across request collapse", async () => {
   const user = userEvent.setup();
@@ -2447,7 +2495,7 @@ test("clears a Guided Run draft when an agent relays the answer", async () => {
       })
     )
   );
-  expect(screen.getByText("User answer relayed by agent")).toBeVisible();
+  expect(screen.getByText(/relayed by the agent/u)).toBeVisible();
   // A later snapshot can omit the answer. The answered draft must already be gone.
   view.rerender(renderQuestions(decodeSnapshot(guided)));
   expect(
@@ -3237,7 +3285,10 @@ test("asks for setup Variables in the dock and folds them out of the browser's w
   // The request sits in the Requests island, not a card floating over the page.
   const request = within(dock).getByRole("region", { name: "Setup Variables" });
   expect(request).toHaveTextContent("1 of 2 needed");
-  expect(request).toHaveTextContent("STORE_EMAIL supplied");
+  expect(request).toHaveTextContent("Values are visible in journey evidence.");
+  expect(
+    within(request).getByRole("list", { name: "Answered" })
+  ).toHaveTextContent("STORE_EMAIL supplied");
 
   const supply = within(request).getByRole("button", {
     name: "Supply STORE_PASSWORD",

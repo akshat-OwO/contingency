@@ -10,8 +10,9 @@ import { KeyRoundIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
-  AnsweredVariable,
+  AnsweredVariables,
   RequestHeader,
+  RequestNote,
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
@@ -19,11 +20,13 @@ import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const PrerequisiteVariable = ({
-  sessionId,
   decision,
+  masked,
+  sessionId,
 }: {
-  readonly sessionId: AgentSessionId;
   readonly decision: AgentPendingDecision;
+  readonly masked: boolean;
+  readonly sessionId: AgentSessionId;
 }) => {
   const { agentDryRunVariableAnswerMutation } = useRpcDependencies();
   const answer = useAtomSet(agentDryRunVariableAnswerMutation, {
@@ -68,6 +71,7 @@ const PrerequisiteVariable = ({
       }}
       onValueChange={(value) => setState((current) => ({ ...current, value }))}
       pending={state.pending}
+      private={masked}
       purpose={decision.scopeSummary}
       refuseLabel={`Refuse ${label}`}
       supplyLabel={`Supply ${label}`}
@@ -85,12 +89,15 @@ export const WorkspaceVariables = ({
   collapse,
   description,
   heading,
+  masked,
   session,
 }: {
   /** The tier's collapse control, when this is its first request. */
   readonly collapse?: React.ReactNode;
   readonly description: string;
   readonly heading: string;
+  /** Whether the values are private, so typed masked. */
+  readonly masked: boolean;
   readonly session: AgentSessionSnapshot;
 }) => {
   const pending = session.pendingDecisions.filter(
@@ -115,14 +122,12 @@ export const WorkspaceVariables = ({
     return null;
   }
   return (
-    <section aria-label={heading} className="space-y-2">
+    <section aria-label={heading} className="space-y-3">
       <RequestHeader
         action={collapse}
         badge={
-          pending.length === 0 ? null : (
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {pending.length} needed
-            </span>
+          pending.length === 0 ? undefined : (
+            <span className="tabular-nums">{pending.length} needed</span>
           )
         }
         icon={
@@ -130,27 +135,24 @@ export const WorkspaceVariables = ({
         }
         title={heading}
       />
-      <p className="text-muted-foreground text-xs text-pretty">{description}</p>
-      <div className="space-y-2.5">
+      <RequestNote>{description}</RequestNote>
+      <div className="space-y-3.5">
         {pending.map((decision) => (
           <PrerequisiteVariable
-            key={decision.pendingDecisionId}
-            sessionId={session.id}
             decision={decision}
+            key={decision.pendingDecisionId}
+            masked={masked}
+            sessionId={session.id}
           />
         ))}
       </div>
-      {answers.length === 0 ? null : (
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          {answers.map((answer) => (
-            <AnsweredVariable
-              key={JSON.stringify([answer.flowName, answer.name])}
-              label={`${answer.flowName}/${answer.name}`}
-              status={answer.lastAnswer ?? ""}
-            />
-          ))}
-        </div>
-      )}
+      <AnsweredVariables
+        answers={answers.map((answer) => ({
+          key: JSON.stringify([answer.flowName, answer.name]),
+          label: `${answer.flowName}/${answer.name}`,
+          status: answer.lastAnswer ?? "",
+        }))}
+      />
     </section>
   );
 };
@@ -164,8 +166,9 @@ export const DryRunPrerequisiteVariables = ({
 }) => (
   <WorkspaceVariables
     collapse={collapse}
-    description="Supply or refuse private prerequisite inputs here. The agent sees their status, never their values."
+    description="The agent sees whether you answered, never the value."
     heading="Prerequisite Variables"
+    masked
     session={session}
   />
 );
@@ -179,8 +182,9 @@ export const ExampleVariables = ({
 }) => (
   <WorkspaceVariables
     collapse={collapse}
-    description="Supply or refuse this Example's private inputs here. The demo account accepts any password of at least 8 characters. The agent sees their status, never their values."
+    description="The demo account takes any password of 8 or more characters. The agent sees whether you answered, never the value."
     heading="Example private inputs"
+    masked
     session={session}
   />
 );
