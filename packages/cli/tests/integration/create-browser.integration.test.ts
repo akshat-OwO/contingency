@@ -511,6 +511,50 @@ it.live("reports a loading tab until Stop ends its load", () =>
   }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
 );
 
+/**
+ * A popup is adopted after its load has started, so its tab reports loading
+ * from the document's readiness rather than a start event it never heard.
+ */
+it.live("reports a popup that is already loading when it opens", () =>
+  Effect.gen(function* popupLoading() {
+    const browser = yield* CreateBrowser;
+    const fixtures = yield* fixtureServer;
+    const sessionId = yield* browser.create("create-popup-loading", viewport);
+    yield* browser.open(
+      sessionId,
+      fixtures.url("cart.html"),
+      draftEmulation("default", viewport)
+    );
+    const watching = yield* Deferred.make<true>();
+    yield* browser.stream(sessionId).pipe(
+      Stream.tap(() => Deferred.succeed(watching, true)),
+      Stream.runDrain,
+      Effect.forkScoped
+    );
+    yield* Deferred.await(watching);
+    const opener = yield* browser.activePage(sessionId);
+    yield* Effect.promise(() =>
+      opener.evaluate(
+        `window.open(${JSON.stringify(fixtures.url("slow.html"))}, "_blank")`
+      )
+    );
+    const opened = yield* awaitTabs(browser, sessionId, (tabs) =>
+      tabs.some((tab) => tab.title === "Slow" && tab.loading)
+    );
+    const popup = opened.find((tab) => tab.title === "Slow");
+    expect(popup).toBeDefined();
+    const tabId = BrowserTabId.make(popup?.tabId ?? "missing");
+
+    yield* browser.switchTab(sessionId, tabId);
+    yield* browser.navigate(sessionId, "stop");
+    const stopped = yield* awaitTabs(browser, sessionId, (tabs) =>
+      tabs.some((tab) => tab.tabId === tabId && !tab.loading)
+    );
+    expect(stopped.find((tab) => tab.tabId === tabId)?.active).toBe(true);
+    yield* browser.close(sessionId);
+  }).pipe(Effect.scoped, Effect.provide(CreateBrowserIntegrationLive))
+);
+
 it.live("applies an opened profile to every tab in an existing session", () =>
   Effect.gen(function* multiTabUserAgent() {
     const browser = yield* CreateBrowser;

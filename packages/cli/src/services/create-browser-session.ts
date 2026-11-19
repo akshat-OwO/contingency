@@ -633,7 +633,9 @@ export const trackPageTitle = (
  * from when the top document starts loading until it stops, whether it
  * finished, failed, or was stopped. Embedded Frames load on their own, so only
  * the top document's events count. Its frame id is read before the Page
- * domain reports anything, so no event arrives before it is known.
+ * domain reports anything, so no event arrives before it is known. A popup is
+ * adopted after its load has started, so a Page that reports no event yet
+ * starts from its document's own readiness.
  */
 export const trackPageLoading = (
   session: CreateSession,
@@ -645,33 +647,47 @@ export const trackPageLoading = (
       "Could not observe the Page loading",
       () => cdp.send("Page.getFrameTree")
     );
+    let reported = false;
+    const apply = (loading: boolean) => {
+      const state = readSessionState(session);
+      if (!state.pageIds.has(page) || state.loading.has(page) === loading) {
+        return;
+      }
+      updateSessionState(session, (current) => {
+        const pages = new Set(current.loading);
+        if (loading) {
+          pages.add(page);
+        } else {
+          pages.delete(page);
+        }
+        return { ...current, loading: pages };
+      });
+      publishTabs(session);
+    };
     const report =
       (loading: boolean) =>
       ({ frameId }: { readonly frameId: string }) => {
-        const state = readSessionState(session);
-        if (
-          frameId !== frameTree.frame.id ||
-          !state.pageIds.has(page) ||
-          state.loading.has(page) === loading
-        ) {
-          return;
+        if (frameId === frameTree.frame.id) {
+          reported = true;
+          apply(loading);
         }
-        updateSessionState(session, (current) => {
-          const pages = new Set(current.loading);
-          if (loading) {
-            pages.add(page);
-          } else {
-            pages.delete(page);
-          }
-          return { ...current, loading: pages };
-        });
-        publishTabs(session);
       };
     cdp.on("Page.frameStartedLoading", report(true));
     cdp.on("Page.frameStoppedLoading", report(false));
     yield* tryBrowser("Could not observe the Page loading", () =>
       cdp.send("Page.enable")
     );
+    const { result } = yield* tryBrowser(
+      "Could not observe the Page loading",
+      () =>
+        cdp.send("Runtime.evaluate", {
+          expression: "document.readyState",
+          returnByValue: true,
+        })
+    );
+    if (!reported && result.value !== "complete") {
+      apply(true);
+    }
   });
 
 /**
