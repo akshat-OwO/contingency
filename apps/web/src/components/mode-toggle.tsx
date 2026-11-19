@@ -74,19 +74,30 @@ const ModeToggle = ({ className }: { readonly className?: string }) => {
           }}
           value={choice}
         >
-          {CHOICES.map(({ Icon, label, value }) => (
-            <DropdownMenuRadioItem closeOnSelect key={value} value={value}>
-              <Icon aria-hidden="true" />
-              {label}
-              {value === "system" && systemTheme !== undefined ? (
-                <span className="text-muted-foreground/80 ml-auto text-xs font-normal">
-                  {/* Read as "System, Light now"; the gap separates it. */}
-                  <span className="sr-only">,</span>{" "}
-                  {systemTheme === "dark" ? "Dark now" : "Light now"}
-                </span>
-              ) : null}
-            </DropdownMenuRadioItem>
-          ))}
+          {CHOICES.map(({ Icon, label, value }) => {
+            const now =
+              value === "system" && systemTheme !== undefined
+                ? `${systemTheme === "dark" ? "Dark" : "Light"} now`
+                : undefined;
+            return (
+              <DropdownMenuRadioItem
+                // A flex row reads its parts with spaces between them, so
+                // System names its hint itself: "System, Light now".
+                aria-label={now === undefined ? undefined : `${label}, ${now}`}
+                closeOnSelect
+                key={value}
+                value={value}
+              >
+                <Icon aria-hidden="true" />
+                {label}
+                {now === undefined ? null : (
+                  <span className="text-muted-foreground/80 ml-auto text-xs font-normal">
+                    {now}
+                  </span>
+                )}
+              </DropdownMenuRadioItem>
+            );
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
