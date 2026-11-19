@@ -1983,6 +1983,10 @@ const cmdFixtureServe = async () => {
       response.end("name,total\nanvil,3\n");
       return;
     }
+    if (pathname === "/never-answered.png") {
+      // Held open so slow-load.html never finishes loading on its own.
+      return;
+    }
     if (pathname === "/cart-added" || pathname === "/cart-viewed") {
       response.writeHead(204);
       response.end();

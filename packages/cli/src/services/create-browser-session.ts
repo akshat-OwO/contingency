@@ -77,6 +77,8 @@ export interface CreateSessionState {
   readonly locale: string | undefined;
   readonly lastStreamId: BrowserStreamId | undefined;
   readonly devtools: ReadonlyMap<BrowserTabId, TabDevtools>;
+  /** The Pages whose top document is loading. */
+  readonly loading: ReadonlySet<Page>;
   readonly pageIds: ReadonlyMap<Page, BrowserTabId>;
   /**
    * The session's explicit website permission decisions — granted or denied,
@@ -238,6 +240,7 @@ export const tabs = (session: CreateSession): readonly BrowserTab[] => {
   return [...state.pageIds].map(([page, tabId]) => ({
     active: page === state.activePage,
     label: null,
+    loading: state.loading.has(page),
     tabId,
     title: state.titles.get(page) ?? "",
     type: "page",
@@ -622,6 +625,52 @@ export const trackPageTitle = (
         source: TITLE_OBSERVER,
         worldName: TITLE_WORLD,
       })
+    );
+  });
+
+/**
+ * Keep a Page's loading state current, as a browser's Stop button follows it:
+ * from when the top document starts loading until it stops, whether it
+ * finished, failed, or was stopped. Embedded Frames load on their own, so only
+ * the top document's events count. Its frame id is read before the Page
+ * domain reports anything, so no event arrives before it is known.
+ */
+export const trackPageLoading = (
+  session: CreateSession,
+  page: Page
+): Effect.Effect<void, BrowserRpcErrorType> =>
+  Effect.gen(function* observePageLoading() {
+    const cdp = yield* requireEmulationSession(session, page);
+    const { frameTree } = yield* tryBrowser(
+      "Could not observe the Page loading",
+      () => cdp.send("Page.getFrameTree")
+    );
+    const report =
+      (loading: boolean) =>
+      ({ frameId }: { readonly frameId: string }) => {
+        const state = readSessionState(session);
+        if (
+          frameId !== frameTree.frame.id ||
+          !state.pageIds.has(page) ||
+          state.loading.has(page) === loading
+        ) {
+          return;
+        }
+        updateSessionState(session, (current) => {
+          const pages = new Set(current.loading);
+          if (loading) {
+            pages.add(page);
+          } else {
+            pages.delete(page);
+          }
+          return { ...current, loading: pages };
+        });
+        publishTabs(session);
+      };
+    cdp.on("Page.frameStartedLoading", report(true));
+    cdp.on("Page.frameStoppedLoading", report(false));
+    yield* tryBrowser("Could not observe the Page loading", () =>
+      cdp.send("Page.enable")
     );
   });
 

@@ -327,6 +327,20 @@ export const agentBrowserNavigateMutation = ContingencyRpcClient.mutation(
   "agent.browser.navigate"
 );
 /**
+ * Stop loading, on the navigation RPC but in an atom of its own: writing an
+ * atom again interrupts the call it has in flight, and the navigation Stop
+ * ends must stay in flight to settle as the user's.
+ */
+export const agentBrowserStopLoadingMutation = ContingencyRpcClient.runtime.fn(
+  ({ payload }: { readonly payload: { readonly sessionId: AgentSessionId } }) =>
+    ContingencyRpcClient.use((client) =>
+      client("agent.browser.navigate", {
+        action: { type: "stop" },
+        sessionId: payload.sessionId,
+      })
+    )
+);
+/**
  * Browser setup tooling in the Workspace. Every call is addressed by Agent
  * Session id: the Agent Session owns the browser, and its lower-level session
  * id never leaves the server process (ADR 0038).

@@ -174,6 +174,15 @@ export const AgentHistoryAction = Schema.Struct({
   type: Schema.Literal("history"),
 });
 export type AgentHistoryAction = typeof AgentHistoryAction.Type;
+/**
+ * Stop the Page loading, as a browser's Stop button does. Only the user sends
+ * it, from the Workspace device bar: it is no step of a Flow, so the agent's
+ * actions leave it out.
+ */
+export const AgentStopLoadingAction = Schema.Struct({
+  type: Schema.Literal("stop"),
+});
+export type AgentStopLoadingAction = typeof AgentStopLoadingAction.Type;
 export const AgentClickAction = withRef({ type: Schema.Literal("click") });
 export const AgentHoverAction = withRef({ type: Schema.Literal("hover") });
 export const AgentFillAction = withRef({

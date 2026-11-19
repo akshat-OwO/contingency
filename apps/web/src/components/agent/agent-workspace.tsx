@@ -34,6 +34,7 @@ import {
   LoaderCircleIcon,
   LockKeyholeIcon,
   RotateCwIcon,
+  XIcon,
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -110,6 +111,7 @@ import {
   sessionGesture,
   sessionStartGestureAtom,
   sessionDeleteGestureAtom,
+  stopLoadingGestureAtom,
   useWorkspaceGesture,
 } from "@/components/agent/workspace-gesture";
 import type { WorkspaceGesture } from "@/components/agent/workspace-gesture";
@@ -538,21 +540,27 @@ const useAddressStartsVisible = (address: string) => {
  * The browser's history buttons and address, which lead the device bar. A
  * pending navigation makes the address read-only rather than disabled:
  * disabling a focused field drops focus, and a refused navigation should
- * leave the keyboard where the user was typing.
+ * leave the keyboard where the user was typing. While the Page loads, Reload
+ * reads Stop loading, as a browser's does, and stays enabled while the
+ * navigation it stops is pending.
  */
 const AgentBrowserNavigation = ({
   address,
+  loading,
   navigationPending,
   onAddressChange,
   onAddressSubmit,
   onNavigate,
+  onStopLoading,
   readOnly,
 }: {
   readonly address: string;
+  readonly loading: boolean;
   readonly navigationPending: boolean;
   readonly onAddressChange: (address: string) => void;
   readonly onAddressSubmit: (event: FormEvent<HTMLFormElement>) => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
+  readonly onStopLoading: () => void;
   readonly readOnly: boolean;
 }) => {
   const addressRef = useAddressStartsVisible(address);
@@ -587,15 +595,15 @@ const AgentBrowserNavigation = ({
           <ArrowRightIcon />
         </Button>
         <Button
-          aria-label="Reload page"
+          aria-label={loading ? "Stop loading" : "Reload page"}
           className={islandControlClassName}
-          disabled={navigationDisabled}
-          onClick={() => onNavigate("reload")}
+          disabled={loading ? readOnly : navigationDisabled}
+          onClick={loading ? onStopLoading : () => onNavigate("reload")}
           size="icon-sm"
           type="button"
           variant="ghost"
         >
-          <RotateCwIcon />
+          {loading ? <XIcon /> : <RotateCwIcon />}
         </Button>
       </div>
       <form className="min-w-0 flex-1" onSubmit={onAddressSubmit}>
@@ -651,9 +659,11 @@ const AgentLiveView = ({
   notices,
   onDismissBotProtectionBlock,
   onNavigate,
+  onStopLoading,
   recording,
   session,
   state,
+  stopLoading,
   topBar,
 }: {
   readonly canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -677,14 +687,18 @@ const AgentLiveView = ({
   ) => void;
   readonly onDismissBotProtectionBlock: () => void;
   readonly onNavigate: (action: "back" | "forward" | "reload") => void;
+  readonly onStopLoading: () => void;
   readonly recording: boolean;
   readonly session: AgentSessionSnapshot;
   readonly state: AgentViewState;
+  /** Stop loading's gesture, whose refusal shows where navigation's does. */
+  readonly stopLoading: WorkspaceGesture;
 }) => {
   // An ended session's browser is gone: its last frame is a picture.
   const ended = !isLiveAgentSessionPhase(session.phase);
   const readOnly = ended || session.controller !== "user";
   const browserStreamError = ended ? undefined : state.browserStreamError;
+  const navigationError = navigation.error ?? stopLoading.error;
   /*
     What the agent is waiting on (an Execution Boundary, input requests) is
     the dock's own first tier, not a notice: it sits above the status line it
@@ -715,10 +729,12 @@ const AgentLiveView = ({
         browserControls={
           <AgentBrowserNavigation
             address={state.address}
+            loading={!ended && state.pageLoading}
             navigationPending={navigation.pending}
             onAddressChange={onAddressChange}
             onAddressSubmit={onAddressSubmit}
             onNavigate={onNavigate}
+            onStopLoading={onStopLoading}
             readOnly={readOnly}
           />
         }
@@ -754,13 +770,13 @@ const AgentLiveView = ({
           readOnly={readOnly}
           recording={recording}
         />
-        {navigation.error === undefined ? null : (
+        {navigationError === undefined ? null : (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3">
             <p
               className="island bg-island-solid text-destructive pointer-events-auto max-w-xl rounded-xl px-3 py-1.5 text-xs"
               role="alert"
             >
-              {navigation.error}
+              {navigationError}
             </p>
           </div>
         )}
@@ -820,6 +836,7 @@ const useAgentView = (
     agentBrowserInputMutation,
     agentBrowserElementInspectMutation,
     agentBrowserNavigateMutation,
+    agentBrowserStopLoadingMutation,
     agentReturnControlMutation,
     agentSessionStartMutation,
     agentSessionCloseMutation,
@@ -858,6 +875,9 @@ const useAgentView = (
     mode: "promise",
   });
   const navigateBrowser = useAtomSet(agentBrowserNavigateMutation, {
+    mode: "promise",
+  });
+  const stopBrowserLoading = useAtomSet(agentBrowserStopLoadingMutation, {
     mode: "promise",
   });
   const startTeachingRecording = useAtomSet(
@@ -954,6 +974,9 @@ const useAgentView = (
   );
   const navigationGesture = useWorkspaceGesture(
     sessionGesture(navigationGestureAtom, selectedSessionId)
+  );
+  const stopLoadingGesture = useWorkspaceGesture(
+    sessionGesture(stopLoadingGestureAtom, selectedSessionId)
   );
   const commentGesture = useWorkspaceGesture(
     sessionGesture(commentGestureAtom, selectedSessionId)
@@ -1343,6 +1366,7 @@ const useAgentView = (
       browserStreamError: undefined,
       consoleEntries: [],
       frameReady: false,
+      pageLoading: false,
       phase: "switching",
       streamConnected: false,
       viewportHeight: 0,
@@ -1411,6 +1435,16 @@ const useAgentView = (
                   }));
                   return;
                 }
+                if (event.type === "tabs") {
+                  const loading =
+                    event.tabs.find(({ active }) => active)?.loading ?? false;
+                  setState((current) =>
+                    current.pageLoading === loading
+                      ? current
+                      : { ...current, pageLoading: loading }
+                  );
+                  return;
+                }
                 if (event.type === "url") {
                   inspectPageVersionRef.current += 1;
                   setState((current) => ({
@@ -1453,6 +1487,7 @@ const useAgentView = (
           setState((current) => ({
             ...current,
             browserStreamError: errorMessage(outcome.failure),
+            pageLoading: false,
             phase: "live",
             streamConnected: false,
           }));
@@ -2074,6 +2109,23 @@ const useAgentView = (
     runNavigation({ action, type: "history" });
   };
 
+  /**
+   * Its own gesture and RPC atom, because the navigation it stops is still in
+   * flight and must settle as the user's navigation.
+   */
+  const stopLoading = () => {
+    const sessionId = activeSessionRef.current;
+    if (sessionId === null) {
+      return;
+    }
+    stopLoadingGesture.dispatch(
+      Effect.tryPromise({
+        catch: errorMessage,
+        try: () => stopBrowserLoading({ payload: { sessionId } }),
+      }).pipe(Effect.asVoid)
+    );
+  };
+
   const submitAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const url = navigationUrl(state.address);
@@ -2390,6 +2442,7 @@ const useAgentView = (
       navigation: navigationGesture,
       recording: recordingGesture,
       start: startGesture,
+      stopLoading: stopLoadingGesture,
     },
     highlightComment,
     hoverInspect,
@@ -2412,6 +2465,7 @@ const useAgentView = (
     setScan,
     setScanMenu,
     state,
+    stopLoading,
     submitAddress,
     submitComment,
   };
@@ -2661,9 +2715,11 @@ const BrowserWorkspace = ({
             onClearConsole={view.clearConsole}
             onDismissBotProtectionBlock={view.dismissBotProtectionBlock}
             onNavigate={view.navigate}
+            onStopLoading={view.stopLoading}
             recording={recording}
             session={session}
             state={state}
+            stopLoading={view.gestures.stopLoading}
           />
         </WorkspaceLayout>
         {session.activity === "teaching" &&

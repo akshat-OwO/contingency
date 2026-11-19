@@ -37,6 +37,7 @@ import type {
   Viewport,
   AgentHistoryAction,
   AgentNavigateAction,
+  AgentStopLoadingAction,
   BrowserInput,
   AgentBrowserAction,
   AgentBrowserSnapshot,
@@ -103,6 +104,7 @@ import {
   Cause,
   Clock,
   Context,
+  Deferred,
   Duration,
   Effect,
   Exit,
@@ -559,13 +561,13 @@ export interface AgentSessionService {
     input: BrowserInput
   ) => Effect.Effect<void, AgentSessionError>;
   /**
-   * Address-bar and history navigation during Takeover. The user drives the
-   * same browser the agent does, so navigation is refused for the same reason
-   * raw input is: control is exclusive.
+   * Address-bar and history navigation during Takeover, and Stop. The user
+   * drives the same browser the agent does, so navigation is refused for the
+   * same reason raw input is: control is exclusive.
    */
   readonly userNavigate: (
     sessionId: AgentSessionId,
-    action: AgentNavigateAction | AgentHistoryAction
+    action: AgentNavigateAction | AgentHistoryAction | AgentStopLoadingAction
   ) => Effect.Effect<AgentSessionSnapshot, AgentSessionError>;
   readonly snapshot: (
     sessionId: AgentSessionId,
@@ -1374,6 +1376,12 @@ interface ActionControl {
   inFlight: InFlightAction | undefined;
   /** One agent action at a time, so Takeover always has one fiber to stop. */
   readonly lock: Semaphore.Semaphore;
+  /**
+   * Settles the user's address or history navigation in flight. A stopped
+   * load never fires `load`, so without it the navigation would hold the lock
+   * until its timeout and then report the Stop as a failure.
+   */
+  userNavigation: Deferred.Deferred<true> | undefined;
 }
 
 /** What one snapshot write answers with, and the map it leaves behind. */
@@ -4082,6 +4090,7 @@ const makeAgentSession = (
                         closing: false,
                         inFlight: undefined,
                         lock: Semaphore.makeUnsafe(1),
+                        userNavigation: undefined,
                       },
                       diagnostics: { reader: undefined },
                       downloads: [],
@@ -9325,6 +9334,18 @@ const makeAgentSession = (
               )
             );
           }
+          if (action.type === "stop") {
+            // The navigation being stopped holds the control lock until it
+            // settles, so Stop never waits for the lock. It settles that
+            // navigation before the browser stops, so the abort a stop causes
+            // cannot read as the navigation failing.
+            const navigation = record.control.userNavigation;
+            if (navigation !== undefined) {
+              yield* Deferred.succeed(navigation, true);
+            }
+            yield* browser.navigate(record.browserSessionId, "stop");
+            return (yield* requireLiveRecord(sessionId)).snapshot;
+          }
           yield* afterUserInput(sessionId, Effect.void);
           const page = yield* record.agentBrowser.active();
           const capturedAction =
@@ -9345,7 +9366,21 @@ const makeAgentSession = (
           // second click races the first, and Playwright cancels the pending
           // navigation: both attempts report success and the page never moves.
           const outcome = yield* record.control.lock.withPermit(
-            Effect.result(page.perform(action))
+            Effect.gen(function* navigateUntilStopped() {
+              const stopped = yield* Deferred.make<true>();
+              record.control.userNavigation = stopped;
+              return yield* Effect.raceFirst(
+                page.perform(action),
+                Deferred.await(stopped)
+              ).pipe(
+                Effect.result,
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    record.control.userNavigation = undefined;
+                  })
+                )
+              );
+            })
           );
           const at = now().toISOString();
           if (Result.isFailure(outcome)) {

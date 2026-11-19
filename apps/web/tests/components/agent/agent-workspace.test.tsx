@@ -1,6 +1,7 @@
 import {
   AgentSessionSnapshot,
   BrowserStreamId,
+  BrowserTabId,
   FrameSequence,
 } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
@@ -80,6 +81,8 @@ const rpc = vi.hoisted(() => ({
   navigateFailure: undefined satisfies unknown,
   /* A navigation settles only once the test opens this gate. */
   navigateGate: Promise.resolve(true),
+  /* The navigations that answered, so a test sees one was not cut short. */
+  navigateSettled: [] satisfies unknown[],
   privateInputCalls: [] satisfies unknown[],
   recordingResult: null satisfies unknown,
   renameCalls: [] satisfies unknown[],
@@ -92,6 +95,7 @@ const rpc = vi.hoisted(() => ({
   startRecordingCalls: [] satisfies unknown[],
   startSessionCalls: [] satisfies unknown[],
   startedSession: {} satisfies unknown,
+  stopLoadingCalls: [] satisfies unknown[],
   stopRecordingCalls: [] satisfies unknown[],
   takeoverCalls: [] satisfies unknown[],
   takeoverFailure: undefined satisfies unknown,
@@ -166,12 +170,23 @@ const rpcOverrides = {
       rpc.navigateCalls.push(payload);
     }).pipe(
       Effect.andThen(Effect.promise(() => rpc.navigateGate)),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          rpc.navigateSettled.push(payload);
+        })
+      ),
       Effect.andThen(
         rpc.navigateFailure === undefined
           ? Effect.succeed({})
           : Effect.fail(rpc.navigateFailure)
       )
     )
+  ),
+  agentBrowserStopLoadingMutation: Atom.fn(<Payload,>(payload: Payload) =>
+    Effect.sync(() => {
+      rpc.stopLoadingCalls.push(payload);
+      return {};
+    })
   ),
   agentReturnControlMutation: Atom.fn(<Payload,>(payload: Payload) =>
     Effect.sync(() => {
@@ -662,6 +677,7 @@ afterEach(async () => {
   rpc.closeGate = Promise.resolve(true);
   rpc.navigateFailure = undefined;
   rpc.navigateGate = Promise.resolve(true);
+  rpc.navigateSettled = [];
   rpc.closeSettled = 0;
   rpc.discardCalls = [];
   rpc.endedRunSummaryCalls = [];
@@ -672,6 +688,7 @@ afterEach(async () => {
   rpc.setupAnswerCalls = [];
   rpc.startSessionCalls = [];
   rpc.navigateCalls = [];
+  rpc.stopLoadingCalls = [];
   rpc.returnControlCalls = [];
   rpc.startRecordingCalls = [];
   rpc.stopRecordingCalls = [];
@@ -2001,6 +2018,100 @@ test("offers browser navigation only while the user holds the browser", async ()
       sessionId: session.id,
     },
   });
+});
+
+/** Open the browser stream, and hand the test what the stream would push. */
+const pushBrowserEvents = () => {
+  const opened =
+    Promise.withResolvers<Parameters<typeof runAgentBrowserStream>[1]>();
+  vi.spyOn(rpcOverrides, "runAgentBrowserStream").mockImplementation(
+    (_sessionId, onEvent) => {
+      opened.resolve(onEvent);
+      return Effect.never;
+    }
+  );
+  return async (loading: boolean) => {
+    const push = await opened.promise;
+    act(() => {
+      Effect.runSync(
+        push({
+          tabs: [
+            {
+              active: true,
+              label: null,
+              loading,
+              tabId: BrowserTabId.make("tab-dashboard"),
+              title: "Dashboard",
+              type: "page",
+              url: "https://example.com/dashboard",
+            },
+          ],
+          timestamp: 0,
+          type: "tabs",
+        })
+      );
+    });
+  };
+};
+
+test("turns Reload page into Stop loading while the page loads", async () => {
+  const user = userEvent.setup();
+  rpc.navigateCalls.length = 0;
+  const gate = Promise.withResolvers<boolean>();
+  rpc.navigateGate = gate.promise;
+  const pushLoading = pushBrowserEvents();
+  renderWorkspace(resultFor([takenOverSession]), session.id);
+  const navigation = await screen.findByRole("group", {
+    name: "Browser navigation",
+  });
+  await user.click(
+    within(navigation).getByRole("button", { name: "Reload page" })
+  );
+  await pushLoading(true);
+  // The reload is still pending, and Stop is what ends it.
+  const stop = within(navigation).getByRole("button", {
+    name: "Stop loading",
+  });
+  expect(stop).toBeEnabled();
+  expect(
+    within(navigation).queryByRole("button", { name: "Reload page" })
+  ).toBeNull();
+  await user.click(stop);
+  await waitFor(() => {
+    expect(rpc.stopLoadingCalls).toHaveLength(1);
+  });
+  expect(rpc.stopLoadingCalls).toMatchObject([
+    { payload: { sessionId: session.id } },
+  ]);
+  await pushLoading(false);
+  expect(
+    within(navigation).getByRole("button", { name: "Reload page" })
+  ).toBeVisible();
+  expect(
+    within(navigation).queryByRole("button", { name: "Stop loading" })
+  ).toBeNull();
+  // Stop left the reload in flight, so it settles rather than being cut off.
+  gate.resolve(true);
+  await waitFor(() => {
+    expect(rpc.navigateSettled).toMatchObject([
+      { payload: { action: { action: "reload", type: "history" } } },
+    ]);
+  });
+  expect(
+    within(navigation).getByRole("button", { name: "Reload page" })
+  ).toBeEnabled();
+});
+
+test("shows a load the agent started without letting the watcher stop it", async () => {
+  const pushLoading = pushBrowserEvents();
+  renderWorkspace(resultFor([session]), session.id);
+  const navigation = await screen.findByRole("group", {
+    name: "Browser navigation",
+  });
+  await pushLoading(true);
+  expect(
+    within(navigation).getByRole("button", { name: "Stop loading" })
+  ).toBeDisabled();
 });
 
 test("navigates to a typed address during Takeover", async () => {

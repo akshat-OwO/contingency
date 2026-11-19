@@ -11,6 +11,7 @@ import {
   applyEmulationToPage,
   publishTabs,
   reportCallbackFailure,
+  trackPageLoading,
   trackPageTitle,
   updateSessionState,
 } from "./create-browser-session.ts";
@@ -78,11 +79,13 @@ export const initializePage = (
         const pageIds = new Map(state.pageIds);
         const devtools = new Map(state.devtools);
         const titles = new Map(state.titles);
+        const loading = new Set(state.loading);
         pageIds.delete(page);
         devtools.delete(tabId);
         titles.delete(page);
+        loading.delete(page);
         const [nextPage] = pageIds.keys();
-        const nextState = { ...state, devtools, pageIds, titles };
+        const nextState = { ...state, devtools, loading, pageIds, titles };
         const updatedState =
           state.activePage === page && nextPage !== undefined
             ? { ...nextState, activePage: nextPage }
@@ -101,6 +104,9 @@ export const initializePage = (
   // other one, because the session emulates one device in one environment.
   Effect.runFork(
     reportCallbackFailure(session, applyEmulationToPage(session, page))
+  );
+  Effect.runFork(
+    reportCallbackFailure(session, trackPageLoading(session, page))
   );
   Effect.runFork(reportCallbackFailure(session, trackPageTitle(session, page)));
   publishTabs(session);

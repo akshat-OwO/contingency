@@ -192,9 +192,13 @@ export interface CreateBrowserService {
     sessionId: SessionId
   ) => Effect.Effect<readonly BrowserTab[], BrowserRpcErrorType>;
   readonly list: () => Effect.Effect<readonly SessionId[]>;
+  /**
+   * Move the active tab through its history, reload it, or stop its load the
+   * way a browser's Stop button does.
+   */
   readonly navigate: (
     sessionId: SessionId,
-    action: "back" | "forward" | "reload"
+    action: "back" | "forward" | "reload" | "stop"
   ) => Effect.Effect<void, BrowserRpcErrorType>;
   readonly newTab: (
     sessionId: SessionId
