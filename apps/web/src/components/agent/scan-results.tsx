@@ -48,13 +48,21 @@ const reportHref = (
     : `/agent-runs/${encodeURIComponent(run.runId)}/scans/${encodeURIComponent(report.id)}`;
 
 const Report = ({
+  attempt,
   report,
   run,
 }: {
+  /** Set when the requirement was retried, so each attempt keeps its status. */
+  readonly attempt: number | undefined;
   readonly report: ScanReport;
   readonly run: TaskAgentRunState | TaskAgentRunSummary;
 }) => (
   <>
+    {attempt === undefined ? null : (
+      <DetailRowTitle status={STATUS[report.status]} tone={toneOf(report)}>
+        <span className="text-muted-foreground text-xs">Attempt {attempt}</span>
+      </DetailRowTitle>
+    )}
     <p className="mt-1 text-pretty">{report.summary}</p>
     {report.durationMs === undefined &&
     report.reportPath === undefined ? null : (
@@ -132,8 +140,13 @@ export const ScanResults = ({
                   Outside the requested scope: {requirement.outsideScope}
                 </p>
               )}
-              {reports.map((report) => (
-                <Report key={report.id} report={report} run={run} />
+              {reports.map((report, index) => (
+                <Report
+                  attempt={reports.length > 1 ? index + 1 : undefined}
+                  key={report.id}
+                  report={report}
+                  run={run}
+                />
               ))}
             </DetailRow>
           );
