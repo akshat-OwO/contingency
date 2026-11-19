@@ -3908,6 +3908,50 @@ test("takes over a Guided Run and enters a private Variable before returning", a
   await waitFor(() => expect(rpc.returnControlCalls).toHaveLength(1));
 });
 
+test("a new Takeover starts the Takeover Variable empty", async () => {
+  const user = userEvent.setup();
+  const guided = {
+    ...teachingRecording,
+    controller: "user",
+    origin: "guided-run",
+    phase: "takeover",
+    takeover: {
+      reason: "Finishing the sign-in myself.",
+      requestedAt: "2026-08-31T00:00:03.000Z",
+      requestedBy: "user",
+    },
+  };
+  renderWorkspace(resultFor([guided]), session.id);
+  const value = await screen.findByLabelText("Variable value");
+  await user.type(screen.getByLabelText("Variable name"), "PASSWORD");
+  await user.type(value, "unsent-draft");
+  // Control goes back to the agent, then the user takes over again, all in
+  // one mounted Workspace.
+  rpc.sessionsResult = resultFor([
+    {
+      ...guided,
+      controller: "agent",
+      phase: "running",
+      takeover: null,
+      updatedAt: "2026-08-31T00:00:05.000Z",
+    },
+  ]);
+  await refreshWorkspace();
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Variable value")).toBeNull()
+  );
+  rpc.sessionsResult = resultFor([
+    {
+      ...guided,
+      takeover: { ...guided.takeover, requestedAt: "2026-08-31T00:00:09.000Z" },
+      updatedAt: "2026-08-31T00:00:09.000Z",
+    },
+  ]);
+  await refreshWorkspace();
+  expect(await screen.findByLabelText("Variable value")).toHaveValue("");
+  expect(screen.getByLabelText("Variable name")).toHaveValue("");
+});
+
 test("a Guided recording names a requested takeover and reports a failed one above the stage", async () => {
   const user = userEvent.setup();
   rpc.takeoverFailure = new Error("The agent session refused the Takeover.");
