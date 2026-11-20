@@ -66,6 +66,27 @@ export ECOMMERCE_URL=...
 
 `fixture start` is an alias. Pages live under `.cursor/skills/verify-contingency/fixtures/ecommerce/`.
 
+## Seed
+
+`seed` puts the instance into every Workspace state the #744 prototype walks through, using data from the real server, so an agent can compare prod with the prototype (#785). Run it after `launch`, `ecommerce start` and `mcp start`:
+
+```sh
+"$CONTROL" seed
+```
+
+It drives the paths a user and an agent use: MCP operations through the broker, Workspace clicks through the driver, and Flow files written to the isolated Catalog Root. Nothing in `apps/web` is mocked. Stdout is the manifest, also saved as `$CONTINGENCY_VERIFY_DIR/seed/manifest.json`: one entry per state, with its `surface`, `status`, the Workspace `url`, any `actions` that open the state there, the `ready` handle, and its `prototype` counterpart (a path and actions on the prototype server, and the approved `review/` PNG where one exists). A state that the real server can't reach on demand has status `unreached` and a `reason`; a state whose build failed has status `failed`, and the command exits 2.
+
+Running `seed` again keeps every entry whose session or Run still stands, rebuilds the others, and prints the same manifest. `--only <state,...>` seeds those states and the states they depend on. `run-ended` is consumed by one capture, because the Workspace keeps an ended Run's last frame only while it watches the Run end; the next `seed` starts a fresh one. `seed reset` forgets the manifest. `cleanup` removes the manifest with the rest of the isolated state.
+
+Capture every reached state, and its prototype counterpart when the prototype is served:
+
+```sh
+(cd docs/prototypes/744-workspace-design-direction && vp dev --config vite.config.mjs)   # serves http://127.0.0.1:4744/
+"$CONTROL" seed capture --prototype http://127.0.0.1:4744/
+```
+
+For each state, `seed capture` saves `<state>.prod.aria.txt`, `<state>.prod-light.png` and `<state>.prod-dark.png` under `artifacts/seed/` (or `--path`), and the same three as `<state>.prototype.*`. It switches themes by emulating the system color scheme, so client-held state survives the switch. It hides the prototype's scaffold strip before each screenshot. `captures.json` records each result. Stop the prototype server when the comparison is done.
+
 ## Drive
 
 Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
@@ -79,7 +100,12 @@ Commands are literal. Prefer the feature file's `--role` / `--name` pairs.
 "$CONTROL" browser scroll-check --session-id <teaching-session-id> --record --path scrolling/check
 "$CONTROL" browser snapshot --aria --path workspace/entry.aria.txt
 "$CONTROL" browser screenshot --path workspace/entry.png
+"$CONTROL" browser color-scheme --scheme dark
+"$CONTROL" browser settle
+"$CONTROL" browser hide --selector .scaffold
 ```
+
+`browser color-scheme` clears the saved theme and emulates the system scheme, so the page follows `System` without reloading. `browser settle` waits for the page's finite animations to end. `browser hide` hides scaffolding that isn't under review.
 
 ### Two surfaces in Workspace
 
@@ -175,6 +201,8 @@ export ECOMMERCE_URL=...            # from ecommerce stdout
 "$CONTROL" mcp start
 "$CONTROL" mcp tools --name agent_code_execute
 "$CONTROL" mcp call --tool agent_sessions_get
+"$CONTROL" seed
+"$CONTROL" seed capture --prototype http://127.0.0.1:4744/
 vpx .cursor/skills/verify-contingency/bin/task-proof.mjs
 "$CONTROL" mcp stop
 "$CONTROL" cleanup

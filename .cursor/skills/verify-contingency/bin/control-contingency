@@ -80,6 +80,12 @@ Commands:
   browser procedure-check --flow-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>  (a button target answers the file chooser it opens)
   browser download --role <role> --name <name> --path <file> [--partial]
+  browser color-scheme --scheme <light|dark>
+  browser settle
+  browser hide --selector <css>
+  seed [--only <state,...>]
+  seed capture [--only <state,...>] [--prototype <url>] [--path <directory>]
+  seed reset
   cli -- <contingency args...>
   ecommerce start
   fixture start
@@ -290,6 +296,17 @@ const loadEcommercePages = () => {
   }
   return pages;
 };
+
+/** Waits for the page's finite animations and view transitions to end. */
+const settleAnimations = (page) =>
+  page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined))
+    )
+  );
 
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
@@ -1055,6 +1072,46 @@ const runPageAction = async (page, appUrl, action, flags) => {
         })
       );
     }
+    case "color-scheme": {
+      // Follows the System theme: the saved choice is cleared and the page's
+      // `prefers-color-scheme` is emulated, so a capture reads both themes
+      // without reloading a page whose state is held by the client.
+      const scheme = flags.scheme;
+      if (scheme !== "light" && scheme !== "dark") {
+        throw new Error("browser color-scheme needs --scheme light|dark.");
+      }
+      await page.evaluate(() => {
+        try {
+          localStorage.removeItem("contingency-theme");
+        } catch {
+          // A page without storage still follows the emulated scheme.
+        }
+      });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.waitForFunction(
+        (expected) => matchMedia(`(prefers-color-scheme: ${expected})`).matches,
+        scheme
+      );
+      await settleAnimations(page);
+      return scheme;
+    }
+    case "hide": {
+      // Hides scaffolding that is not part of the page under review, such as
+      // a prototype's control strip, before a screenshot.
+      if (typeof flags.selector !== "string") {
+        throw new Error("browser hide needs --selector.");
+      }
+      await page.addStyleTag({
+        content: `${flags.selector} { visibility: hidden !important; }`,
+      });
+      return "";
+    }
+    case "settle": {
+      // Waits for the page's finite animations and view transitions to end, so
+      // a screenshot shows the resting state rather than a frame mid-motion.
+      await settleAnimations(page);
+      return "";
+    }
     case "snapshot": {
       if (flags.aria !== true && flags.aria !== "true") {
         throw new Error("browser snapshot currently supports --aria only.");
@@ -1549,6 +1606,8 @@ const cmdCleanup = async () => {
     recursive: true,
   });
   rmSync(instance.stateDir, { force: true, recursive: true });
+  // The seed manifest names sessions and Runs that lived in that state.
+  rmSync(path.join(directory, "seed"), { force: true, recursive: true });
   rmSync(file, { force: true });
   process.stdout.write(
     `cleaned ${directory} (evidence under ${defaultArtifacts} is untouched)\n`
@@ -1968,6 +2027,17 @@ const cmdFixtureServe = async () => {
       response.end("Fixture service unavailable");
       return;
     }
+    // Answers the way Cloudflare's block page does, so the Workspace shows
+    // its bot protection notice (`features/workspace.md#bot-protection-notice`).
+    if (pathname === "/bot-protection") {
+      response.writeHead(403, {
+        "content-type": "text/html",
+        expires: "Thu, 01 Jan 1970 00:00:01 GMT",
+        server: "cloudflare",
+      });
+      response.end("<!doctype html><title>Attention Required</title><h1>Sorry, you have been blocked</h1>");
+      return;
+    }
     if (pathname.startsWith("/browser-check-scalar/")) {
       const mismatch = searchParams.has("mismatch");
       const values = mismatch
@@ -2335,6 +2405,17 @@ const main = async () => {
       fail("browser needs an action.");
     }
     await cmdBrowser(action, parseArgs(argv.slice(2)).flags);
+    return;
+  }
+  if (command === "seed") {
+    // Seeding and capture live in seed.mjs; it reads this instance's state.
+    const child = spawn(
+      process.execPath,
+      [path.join(here, "seed.mjs"), ...argv.slice(1)],
+      { env: { ...process.env, CONTINGENCY_VERIFY_DIR: verifyDir() }, stdio: "inherit" }
+    );
+    const code = await new Promise((resolve) => child.once("exit", resolve));
+    process.exitCode = code ?? 1;
     return;
   }
   if (command === "cli") {

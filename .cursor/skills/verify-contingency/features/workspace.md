@@ -74,12 +74,13 @@ Workspace watches Teaching and Interactive Runs owned by the local `web` or `mcp
 - `agent-private-variables` enters a reusable account and password plus a runtime OTP with literals in the Teaching Timeline and references in the saved Flow.
 - `agent-variable-spread-otp` verifies complete page-managed code distribution, including missing length metadata and delayed handlers, while partial entry fails and populated segments remain withheld.
 - `workspace-browser-setup` configures the MCP-owned browser during teaching setup: identity, viewport, Emulation environment, and the console, network, and storage panels for the tab the session is showing. The live canvas is a device stage: the frame keeps the applied viewport and only re-zooms when a panel or the Run Summary takes room.
+- `workspace-seeded-states` seeds every Workspace state the #744 prototype covers from the real server with `control-contingency seed`, and captures each beside its prototype counterpart with `seed capture` (#785).
 - `workspace-flows-page` opens the read-only Flows page at `/flow` from the `Flows` link in the top-right island, in every session state, including `Recording`; the session keeps running. It lists the local Catalog Root's Group tree, the user's `~/.contingency` behind the `Global` filter, each Flow's files, Runs, and Teaching Recordings, and Runs without one Flow at the root, and shows the selected Run's Run Summary inline. A flow still being taught holds a `Being taught` row. No MCP tool reads the global root (ADR 0051).
 - `workspace-bot-protection` names the site and the HTTP status when a site's bot protection (Cloudflare today) refuses a request from the session's browser, and dismisses on request.
 
 ## How to get to it (user POV)
 
-- Choose the `Workspace` link in primary navigation.
+- Choose `Contingency home` in the `Workspace` navigation island.
 - Open `/` directly.
 - Open the URL printed by `contingency mcp`: `http://127.0.0.1:<port>/`.
 - Follow an MCP client's local Workspace link that includes `?session=<id>`.
@@ -107,6 +108,16 @@ Preconditions:
 - **Proof (web home).** Run `control-contingency browser goto --path /`, wait for the heading, then `control-contingency browser snapshot --aria --path workspace/home-web.aria.txt` and `control-contingency browser screenshot --path workspace/home-web.png`, in light and dark (`Change color theme`, then `menuitemradio` `Light` or `Dark`). The menu opens below its island and checks the saved choice; `System` reads `System, Light now` or `System, Dark now`, and choosing it clears the saved choice so the OS theme applies. Repeat after starting a session and returning home, so the `In progress` shelf shows, and with the start card open.
 - **Proof (desktop gate).** Run `control-contingency browser resize --width 390 --height 844`, then `control-contingency browser screenshot --path workspace/gate-390.png` and `control-contingency browser snapshot --aria --path workspace/gate-390.aria.txt`. The snapshot holds only the `alert` with heading `Open Contingency on a desktop`; no dock, tile, or session is rendered. Every Workspace view below 1024px is this notice, so narrow-width checks start at 1024px. Return to desktop with `control-contingency browser resize --width 1440 --height 900`.
 - **Proof (MCP empty).** After `mcp start`, capture the empty MCP state. Run `control-contingency browser goto --url "$mcpUrl"`, wait for the home heading, then `control-contingency browser snapshot --aria --path workspace/empty-mcp.aria.txt` and `control-contingency browser screenshot --path workspace/empty-mcp.png`.
+
+### Seeded states and prototype review
+
+Preconditions: `launch`, `ecommerce start` and `mcp start` on one verify directory. For the comparison, the #744 prototype is served from `docs/prototypes/744-workspace-design-direction` with `vp dev --config vite.config.mjs`.
+
+- **Seed.** Run `control-contingency seed`. Require every entry in the printed manifest to be `reached` or `unreached`, with no `failed`. Each reached entry names a live session, a persisted Run or recording, or a page on the MCP or web process. The web process owns no sessions, so `home-empty` and `chrome-unknown-session` open there.
+- **Reseed.** Run `control-contingency seed` again. Require `kept` on stderr for every session-backed entry, `derived` for the rest, and the same manifest, except for a `run-ended` that a capture consumed.
+- **Capture.** Run `control-contingency seed capture --prototype http://127.0.0.1:4744/`. Require `prod captured` and `prototype captured` for each reached state in `artifacts/seed/captures.json`.
+- **Compare.** For each state, set `<state>.prod-<theme>.png` beside `<state>.prototype-<theme>.png` and the approved `review/` PNG the manifest names, and diff `<state>.prod.aria.txt` against `<state>.prototype.aria.txt`. The prototype's sample data differs, so compare the Workspace chrome, not the page in the canvas. Record each difference with the surface, state, what differs, the evidence files and the owning file.
+- **Clean up.** Stop the prototype server, then run `control-contingency cleanup`. Require `$CONTINGENCY_VERIFY_DIR/seed` to be gone and `artifacts/seed/` to remain.
 
 ### CLI shutdown
 
@@ -493,7 +504,7 @@ Preconditions: launch, doctor, ecommerce, and MCP, as for the combined task proo
 
 ### Bot protection notice
 
-Preconditions: a live Teaching session, and a local page that answers one request the way Cloudflare's block page does: `403`, `server: cloudflare`, `content-type: text/html`, and `expires: Thu, 01 Jan 1970 00:00:01 GMT`.
+Preconditions: a live Teaching session, and a local page that answers one request the way Cloudflare's block page does: `403`, `server: cloudflare`, `content-type: text/html`, and `expires: Thu, 01 Jan 1970 00:00:01 GMT`. The ecommerce fixture serves one at `/bot-protection`.
 
 - **Trigger the block.** Fill `Browser address` with the page's URL and press Enter. An `alert` appears at the top centre of the stage reading `<host> blocked this browser` and naming Cloudflare and the status. It is a toned notice, not a destructive one, and stays above any transient notice until dismissed.
 - **Dismiss it.** Run `control-contingency browser click --role button --name "Dismiss bot protection notice"`. The alert is gone from the next ARIA snapshot.
