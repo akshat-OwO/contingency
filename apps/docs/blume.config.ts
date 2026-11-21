@@ -14,7 +14,7 @@ const geist = {
 /**
  * The human-readable `/docs` site, built from the CLI's packaged Markdown
  * (`scripts/stage.ts`) and served by every Contingency web server. Theme
- * tokens follow the Workspace's shadcn values in `apps/web/src/styles.css`.
+ * tokens follow the Workspace's theme values in `apps/web/src/styles.css`.
  */
 export default defineConfig({
   ai: { openInChat: false },

@@ -192,7 +192,7 @@
   @media (prefers-reduced-motion: reduce) {
     /*
      * Reduced motion keeps the fades but drops the travel: anything that
-     * slides, zooms, spins in, or blurs in through tw-animate-css or a Base UI
+     * slides, zooms, spins in, or blurs in through tw-animate-css or a UI SDK
      * transition only cross-fades.
      */
     *,
