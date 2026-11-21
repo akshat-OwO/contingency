@@ -200,18 +200,51 @@ export const openAndroidStartCard = async (
     "--partial"
   );
   await fill("Search installed apps", selection.environment.appId);
-  // Reading installed apps pulls each APK's label; a freshly booted device is slow.
-  await control(
-    "browser",
-    "wait",
-    "--role",
-    "button",
-    "--name",
-    selection.environment.appId,
-    "--partial",
-    "--timeout-ms",
-    "180000"
-  );
+  // Reading installed apps pulls each APK's label; a freshly booted device is
+  // slow. An app that updates mid-listing fails the whole listing (a
+  // pre-existing discovery race), so retry the listing, never setup.
+  const shows = (...args) =>
+    control("browser", "wait", ...args).then(
+      () => true,
+      () => false
+    );
+  const listingDeadline = Date.now() + 300_000;
+  for (let refreshes = 0; ;) {
+    assert.ok(Date.now() < listingDeadline, "Installed apps did not list.");
+    if (
+      await shows(
+        "--role",
+        "button",
+        "--name",
+        selection.environment.appId,
+        "--partial",
+        "--timeout-ms",
+        "5000"
+      )
+    ) {
+      break;
+    }
+    const failed =
+      (await shows(
+        "--text",
+        "Could not read APK metadata",
+        "--partial",
+        "--timeout-ms",
+        "500"
+      )) ||
+      (await shows(
+        "--text",
+        "Android discovery failed",
+        "--partial",
+        "--timeout-ms",
+        "500"
+      ));
+    if (failed) {
+      refreshes += 1;
+      assert.ok(refreshes <= 5, "The installed-app listing kept failing.");
+      await click("Refresh devices");
+    }
+  }
   await click(selection.environment.appId, true);
   // Starting data, permissions, Variables and conditions sit in Setup.
   await click("Setup", true);

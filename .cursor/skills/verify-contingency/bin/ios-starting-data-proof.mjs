@@ -142,8 +142,26 @@ const simulatorField = page.getByRole("combobox", {
 });
 /** Opens the Simulator field and picks the option whose name matches. */
 const pickSimulator = async (pattern, timeout = 60_000) => {
-  await simulatorField.click({ timeout });
-  await page.getByRole("option", { name: pattern }).click({ timeout });
+  // A refreshed simulator list re-renders the field and closes its listbox,
+  // so open it again until the option shows.
+  const option = page.getByRole("option", { name: pattern });
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    await simulatorField.click({ timeout });
+    const shown = await option.waitFor({ timeout: 10_000 }).then(
+      () => true,
+      () => false
+    );
+    if (shown) {
+      await option.click({ timeout: 10_000 });
+      return;
+    }
+    assert.ok(Date.now() < deadline, `No simulator option ${pattern}.`);
+    // Escape with the listbox already closed would close the start card.
+    if ((await simulatorField.getAttribute("aria-expanded")) === "true") {
+      await page.keyboard.press("Escape");
+    }
+  }
 };
 /** The hint row under the Simulator field, for the simulator it shows. */
 const hint = (name) => page.getByRole("group", { exact: true, name });

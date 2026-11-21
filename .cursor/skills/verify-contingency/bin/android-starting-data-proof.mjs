@@ -139,7 +139,9 @@ const pickDevice = async (pattern, timeout = 60_000) => {
     return false;
   }
   await deviceField.click();
-  const option = page.getByRole("option", { name: pattern });
+  // A device adb reports offline lists as a disabled option; wait for it to
+  // be enabled, or let the caller refresh.
+  const option = page.getByRole("option", { disabled: false, name: pattern });
   if (
     await option.waitFor({ timeout }).then(
       () => true,
