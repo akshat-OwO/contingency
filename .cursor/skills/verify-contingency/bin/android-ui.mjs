@@ -203,11 +203,14 @@ export const openAndroidStartCard = async (
   // Reading installed apps pulls each APK's label; a freshly booted device is
   // slow. An app that updates mid-listing fails the whole listing (a
   // pre-existing discovery race), so retry the listing, never setup.
-  const shows = (...args) =>
-    control("browser", "wait", ...args).then(
-      () => true,
-      () => false
-    );
+  const shows = async (...args) => {
+    try {
+      await control("browser", "wait", ...args);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const listingDeadline = Date.now() + 300_000;
   for (let refreshes = 0; ;) {
     assert.ok(Date.now() < listingDeadline, "Installed apps did not list.");

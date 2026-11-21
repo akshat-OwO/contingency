@@ -81,6 +81,18 @@ export const ThemeMenu = () => {
     query.addEventListener("change", follow);
     return () => query.removeEventListener("change", follow);
   }, [choice]);
+  // Like prod's next-themes: a change to the saved choice in another tab, or
+  // a capture resetting it to System, updates this tab's menu and palette.
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY) return;
+      const next = readChoice();
+      applyChoice(next);
+      setChoice(next);
+    };
+    addEventListener("storage", sync);
+    return () => removeEventListener("storage", sync);
+  }, []);
   const choose = (next: ThemeChoice) => {
     const commit = () => {
       try {

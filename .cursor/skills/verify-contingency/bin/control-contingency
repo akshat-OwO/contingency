@@ -1093,10 +1093,10 @@ const runPageAction = async (page, appUrl, action, flags) => {
         } catch {
           // A page without storage still follows the emulated scheme.
         }
-        // The Workspace's next-themes returns to System on a storage event
-        // for its key; the prototype follows System once `data-theme` goes.
+        // Both the Workspace (next-themes) and the prototype's theme menu
+        // return to System on a storage event for their key, so the palette
+        // and the checked menu item agree.
         window.dispatchEvent(new StorageEvent("storage", { key, newValue: null }));
-        delete document.documentElement.dataset.theme;
       }, "contingency-theme");
       await page
         .waitForFunction(

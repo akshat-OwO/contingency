@@ -214,15 +214,19 @@ test("keeps a picked emulator chosen when it comes back under a new serial", asy
   const [emulator] = await Effect.runPromise(discovery.devices);
   const other = { ...emulator, avd: "Pixel_8", serial: "emulator-5556" };
   let rebooted = false;
+  let reused = false;
+  const stranger = { ...emulator, avd: "Pixel_7", serial: "emulator-5554" };
   render(
     <Card
       discovery={{
         ...discovery,
-        devices: Effect.sync(() =>
-          rebooted
-            ? [{ ...emulator, serial: "emulator-5558" }, other]
-            : [emulator, other]
-        ),
+        devices: Effect.sync(() => {
+          if (!rebooted) {
+            return [emulator, other];
+          }
+          const moved = { ...emulator, serial: "emulator-5558" };
+          return reused ? [stranger, moved, other] : [moved, other];
+        }),
       }}
     />
   );
@@ -230,6 +234,13 @@ test("keeps a picked emulator chosen when it comes back under a new serial", asy
   await user.click(field);
   await user.click(await screen.findByRole("option", { name: /Pixel_9/u }));
   rebooted = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  expect(
+    await screen.findByText("Running · emulator-5558 · API 36")
+  ).toBeVisible();
+  expect(field).toHaveTextContent("Pixel_9");
+  // Another AVD takes the old serial: the pick stays with its AVD.
+  reused = true;
   await user.click(screen.getByRole("button", { name: "Refresh devices" }));
   expect(
     await screen.findByText("Running · emulator-5558 · API 36")

@@ -171,7 +171,10 @@ export const pickedSerial = (
   if (pick === null) {
     return null;
   }
-  if (listed.some((entry) => entry.serial === pick.serial)) {
+  // An emulator is its AVD: a serial another AVD now holds is not the pick.
+  const same = (entry: AndroidDiscoveredDevice) =>
+    pick.avd === null || entry.avd === pick.avd;
+  if (listed.some((entry) => entry.serial === pick.serial && same(entry))) {
     return pick.serial;
   }
   const booted =
