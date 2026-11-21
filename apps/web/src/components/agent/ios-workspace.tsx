@@ -1177,12 +1177,14 @@ export const IosWorkspace = ({
       runIosWorkspaceCommand(command).pipe(
         Effect.tap((next) =>
           Effect.sync(() => {
+            // The change still counts for the session that sent it, which the
+            // stage keeps until the route returns there.
+            onApplied?.();
             // The route moved on while this ran: it no longer shows the result.
             if (routeRef.current !== route && routeRef.current !== next.id) {
               return;
             }
             apply(next);
-            onApplied?.();
           })
         ),
         Effect.asVoid,

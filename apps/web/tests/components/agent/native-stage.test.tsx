@@ -412,7 +412,12 @@ test("a late Apply for one session does not count on the session shown next", as
   act(onApplied);
   expect(within(card).queryByText(/Applied:/u)).toBeNull();
   expect(settings.textContent).toBe("");
-  // Back on A, its own change still counts.
+  // B changes a setting of its own, which leaves A's in place.
+  await user.click(within(card).getByRole("radio", { name: "Dark" }));
+  const onAppliedB = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onAppliedB);
+  act(onAppliedB);
+  // Back on A, its own change still counts, and B's does not.
   rerender(stage("s-a"));
   expect(within(card).getByText("Applied: 12.97, 77.59")).toBeVisible();
   expect(settings.textContent).toBe("1");

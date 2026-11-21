@@ -1051,12 +1051,13 @@ export const AndroidWorkspace = ({
     return runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>
         Effect.sync(() => {
-          // The route moved on while this ran: it no longer shows the result,
-          // so the session now shown must not count it either.
+          // The route moved on while this ran: it no longer shows the result.
           if (routeRef.current === route || routeRef.current === session.id) {
             setState((current) => applySnapshot(current, session));
-            onApplied?.();
           }
+          // The change still counts for the session that sent it, which the
+          // stage keeps until the route returns there.
+          onApplied?.();
           refresh();
         })
       ),

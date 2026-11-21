@@ -265,25 +265,26 @@ const noChangedSettings: ChangedSettings = new Set();
 
 /**
  * The settings the shown session changed, and how to add one. The stage stays
- * mounted when the route switches sessions, so each change names its session
- * and another session reads none of them, even from a late response.
+ * mounted when the route switches sessions, so changes are kept per session:
+ * a late response counts for the session that sent it, never the one shown,
+ * and each session keeps its own when the route returns to it.
  */
 const useChangedSettings = (
   sessionId: string
 ): readonly [ChangedSettings, (setting: "appearance" | "location") => void] => {
   const [changedAtom] = useState(() =>
-    Atom.make({ owner: sessionId, settings: noChangedSettings })
+    Atom.make<ReadonlyMap<string, ChangedSettings>>(new Map())
   );
-  const [held, setHeld] = useAtom(changedAtom);
+  const [bySession, setBySession] = useAtom(changedAtom);
   return [
-    held.owner === sessionId ? held.settings : noChangedSettings,
+    bySession.get(sessionId) ?? noChangedSettings,
     (setting) =>
-      setHeld((current) => ({
-        owner: sessionId,
-        settings: new Set(
-          current.owner === sessionId ? current.settings : noChangedSettings
-        ).add(setting),
-      })),
+      setBySession((current) =>
+        new Map(current).set(
+          sessionId,
+          new Set(current.get(sessionId)).add(setting)
+        )
+      ),
   ];
 };
 
