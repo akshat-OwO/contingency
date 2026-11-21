@@ -424,6 +424,7 @@ const Catalog = ({
           className="text-muted-foreground size-[15px] shrink-0"
         />
         <Input
+          variant="compact"
           aria-label="Search Flows"
           className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           onChange={(event) => {
@@ -1200,7 +1201,6 @@ const RunList = ({
           }}
           size="xs"
           type="button"
-          variant="island"
         >
           <ChevronDownIcon
             aria-hidden="true"

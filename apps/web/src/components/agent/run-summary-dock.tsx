@@ -114,6 +114,7 @@ export const RunSummaryPill = () => {
   }
   return (
     <Button
+      size="md"
       aria-expanded={false}
       // The name keeps the visible text, so the verdict is read out too.
       aria-label={

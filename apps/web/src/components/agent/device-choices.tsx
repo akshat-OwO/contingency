@@ -315,14 +315,14 @@ export const DeviceChoices = ({
           placeholder="Choose a device"
           value={current?.id ?? null}
         >
-          <SelectTrigger aria-label={label} variant="island">
+          <SelectTrigger aria-label={label}>
             <SelectValue className="min-w-0">
               {current === undefined ? null : (
                 <span className="truncate">{deviceLabel(current)}</span>
               )}
             </SelectValue>
           </SelectTrigger>
-          <SelectContent variant="island">
+          <SelectContent>
             {shown.map((device) => (
               <SelectItem
                 disabled={device.status._tag === "unavailable"}

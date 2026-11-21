@@ -143,7 +143,6 @@ const RevealValue = ({
     size="icon-sm"
     title={shown ? "Hide value" : "Show value"}
     type="button"
-    variant="island"
   >
     {shown ? <EyeOffIcon /> : <EyeIcon />}
   </Button>
@@ -348,7 +347,6 @@ export const VariableField = ({
             spellCheck={false}
             type={masked && !view.shown ? "password" : "text"}
             value={value}
-            variant="island"
           />
           {masked ? (
             <RevealValue
@@ -362,9 +360,9 @@ export const VariableField = ({
           ) : null}
         </div>
         <Button
+          variant="primary"
           aria-label={supplyLabel}
           disabled={locked || value === ""}
-          size="island"
           type="submit"
         >
           <PendingLabel idle="Supply" pending={pending} working="Supplying" />
@@ -375,9 +373,7 @@ export const VariableField = ({
             className="bg-island-hover shadow-[inset_0_0_0_1px_var(--island-border)]"
             disabled={locked}
             onClick={onRefuse}
-            size="island"
             type="button"
-            variant="island"
           >
             Refuse
           </Button>

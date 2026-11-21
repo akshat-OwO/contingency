@@ -82,6 +82,7 @@ export const AndroidRequests = ({
               action={
                 <>
                   <Button
+                    variant="primary"
                     disabled={
                       pending ||
                       (decision.kind === "confirmation" &&
@@ -321,6 +322,7 @@ export const NativeSessionSelect = ({
             return (
               <div className="flex items-center gap-1" key={session.id}>
                 <Button
+                  size="md"
                   aria-label={name}
                   aria-pressed={shown}
                   className="hover:bg-island-hover aria-pressed:bg-island-hover grid h-auto min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal"
@@ -373,6 +375,7 @@ export const NativeSessionSelect = ({
           <>
             <hr className="border-island-border mx-1 my-1.5 border-t" />
             <Button
+              size="md"
               className="hover:bg-island-hover h-[34px] w-full justify-start gap-[7px] rounded-xl px-3 text-sm font-medium"
               onClick={() => {
                 setOpen(false);
@@ -630,6 +633,7 @@ export const NativeDoneButton = ({
 }) =>
   quiet ? (
     <Button
+      size="md"
       className="text-foreground ring-island-border ring-1 ring-inset"
       onClick={onDone}
       type="button"
@@ -638,7 +642,7 @@ export const NativeDoneButton = ({
       Done
     </Button>
   ) : (
-    <Button onClick={onDone} type="button">
+    <Button size="md" variant="primary" onClick={onDone} type="button">
       Done
     </Button>
   );

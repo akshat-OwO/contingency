@@ -210,6 +210,7 @@ export const RecordingViewer = ({
             ) : null}
             {cleanupKept ? (
               <Button
+                size="md"
                 className="w-full rounded-[10px] text-[13px]"
                 disabled={pending}
                 onClick={() => {

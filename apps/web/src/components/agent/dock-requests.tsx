@@ -183,7 +183,6 @@ export const DockRequests = ({
       size="icon-xs"
       title="Collapse requests"
       type="button"
-      variant="island"
     >
       <MinusIcon className="size-4" />
     </Button>
@@ -235,6 +234,7 @@ export const DockRequests = ({
       </Activity>
       {next === undefined ? null : (
         <Button
+          size="md"
           aria-label={`+${more} more after this. Show ${next.title}`}
           className="text-muted-foreground hover:text-foreground ml-11 h-auto justify-self-start p-0 font-mono text-xs font-normal"
           onClick={() => setSetAside(setAsideAfter(requests, setAside, shown))}

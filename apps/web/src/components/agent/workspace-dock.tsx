@@ -135,6 +135,7 @@ export const DockSessionSelect = ({
             return (
               <div key={session.id} className="flex items-center gap-1">
                 <Button
+                  size="md"
                   aria-label={label}
                   aria-pressed={current}
                   className="hover:bg-island-hover aria-pressed:bg-island-hover grid h-auto min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal"
@@ -186,6 +187,7 @@ export const DockSessionSelect = ({
             <hr className="border-island-border mx-1 my-1.5 border-t" />
             {/* A new session of any platform starts on the Workspace home. */}
             <Button
+              size="md"
               className="hover:bg-island-hover h-[34px] w-full justify-start gap-[7px] rounded-xl px-3 text-sm font-medium"
               onClick={() => {
                 setOpen(false);

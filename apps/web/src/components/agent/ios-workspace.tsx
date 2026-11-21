@@ -464,6 +464,7 @@ const IosDecisions = ({
               action={
                 <>
                   <Button
+                    variant="primary"
                     disabled={pending}
                     onClick={() => decide(true)}
                     size="xs"
@@ -623,7 +624,12 @@ export const IosRecovery = ({
   readonly pending: boolean;
   readonly onRecover: (command: "recover") => void;
 }) => (
-  <Button disabled={pending} onClick={() => onRecover("recover")}>
+  <Button
+    size="md"
+    variant="primary"
+    disabled={pending}
+    onClick={() => onRecover("recover")}
+  >
     {refusal?.recovery === "go-home" ? "Go Home" : "Recover selected simulator"}
   </Button>
 );
@@ -710,6 +716,8 @@ const IosDockControls = ({
       )}
       {primary === null ? null : (
         <Button
+          size="md"
+          variant="primary"
           className={nativeActionClassName(primary.gesture)}
           aria-label={primary.accessibleName}
           disabled={
@@ -1073,7 +1081,7 @@ const IosNoSession = ({
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={onStart} size="lg">
+        <Button variant="primary" onClick={onStart} size="lg">
           <SmartphoneIcon />
           Start an iOS session
         </Button>

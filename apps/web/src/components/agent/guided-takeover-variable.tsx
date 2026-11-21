@@ -124,7 +124,6 @@ const PrivateVariableForm = ({
             placeholder="PROMO_CODE"
             spellCheck={false}
             value={state.name}
-            variant="island"
           />
           {state.invalid ? (
             <RequestInvalid id={nameMessageId}>
@@ -153,14 +152,13 @@ const PrivateVariableForm = ({
               spellCheck={false}
               type="text"
               value={state.value}
-              variant="island"
             />
             <Button
+              variant="primary"
               aria-busy={state.pending || undefined}
               disabled={
                 state.pending || state.name === "" || state.value === ""
               }
-              size="island"
               type="submit"
             >
               {state.pending ? (

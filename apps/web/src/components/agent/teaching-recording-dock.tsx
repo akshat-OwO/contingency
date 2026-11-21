@@ -366,6 +366,7 @@ export const TeachingRecordingDock = ({
             }}
           >
             <Input
+              variant="compact"
               aria-label="Flow name"
               className="h-8 min-w-0 flex-1"
               onChange={(event) => setRename(event.target.value)}
@@ -465,6 +466,8 @@ export const TeachingRecordingDock = ({
       {control}
       {action === null ? null : (
         <Button
+          size="md"
+          variant="primary"
           // When the actions wrap, the primary one keeps the end of its line.
           className={actionClassName(action.gesture)}
           aria-label={action.accessibleName}

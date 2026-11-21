@@ -96,6 +96,7 @@ export const LocationFields = ({
         <label className="block min-w-0 space-y-1 text-xs">
           <span>Latitude</span>
           <Input
+            variant="compact"
             aria-label="Latitude"
             className={cn(devtoolsFieldClassName, "font-mono tabular-nums")}
             disabled={disabled}
@@ -108,6 +109,7 @@ export const LocationFields = ({
         <label className="block min-w-0 space-y-1 text-xs">
           <span>Longitude</span>
           <Input
+            variant="compact"
             aria-label="Longitude"
             className={cn(devtoolsFieldClassName, "font-mono tabular-nums")}
             disabled={disabled}

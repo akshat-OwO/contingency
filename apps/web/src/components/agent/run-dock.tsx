@@ -233,6 +233,7 @@ const DismissButton = ({
 }) =>
   backToTeaching ? (
     <Button
+      size="md"
       className="text-foreground ring-island-border ring-1 ring-inset"
       onClick={onDismiss}
       type="button"
@@ -241,7 +242,7 @@ const DismissButton = ({
       Back to Teaching
     </Button>
   ) : (
-    <Button onClick={onDismiss} type="button">
+    <Button size="md" variant="primary" onClick={onDismiss} type="button">
       Done
     </Button>
   );
@@ -339,6 +340,7 @@ export const RunDock = ({
       )}
       {control.action === null ? null : (
         <Button
+          size="md"
           className={cn(
             "ml-auto",
             // Taking control is the quiet offer while the agent drives; the
@@ -349,7 +351,7 @@ export const RunDock = ({
           disabled={controlPending}
           onClick={onControl}
           type="button"
-          variant={control.action === "Take control" ? "ghost" : "default"}
+          variant={control.action === "Take control" ? "ghost" : "primary"}
         >
           {control.action}
         </Button>

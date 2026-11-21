@@ -95,7 +95,6 @@ const ScanTools = ({
             disabled={pending}
             size="island-icon"
             type="button"
-            variant="island"
           />
         }
       >
@@ -114,21 +113,21 @@ const ScanTools = ({
         {openTimespan === undefined ? (
           (["reload", "navigation", "timespan"] as const).map((mode) => (
             <Button
+              size="md"
               className="justify-start"
               key={mode}
               onClick={() => selectScan(mode)}
               type="button"
-              variant="island"
             >
               {scanLabels[mode]}
             </Button>
           ))
         ) : (
           <Button
+            size="md"
             className="justify-start"
             onClick={() => selectScan("timespan", true)}
             type="button"
-            variant="island"
           >
             <SquareIcon />
             End timespan
@@ -143,7 +142,6 @@ const ScanTools = ({
       onClick={() => selectScan("accessibility")}
       size="island-icon"
       type="button"
-      variant="island"
     >
       <SparklesIcon aria-hidden="true" />
     </Button>
@@ -424,7 +422,6 @@ export const CommentComposer = ({
             }}
             size="island-icon"
             type="button"
-            variant="island"
           >
             <DatabaseIcon aria-hidden="true" />
           </Button>
