@@ -196,7 +196,6 @@ const ActionDetailsToggle = ({
     onClick={onToggle}
     size="xs"
     type="button"
-    variant="island"
   >
     <ChevronRightIcon
       aria-hidden="true"
@@ -339,11 +338,11 @@ export const ExecutionBoundary = ({
           }}
           size="island-lg"
           type="button"
-          variant="island"
         >
           Refuse
         </Button>
         <Button
+          variant="primary"
           disabled={
             pending === undefined ||
             session.controller !== "agent" ||

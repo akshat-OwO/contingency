@@ -98,6 +98,7 @@ export const ScreenElements = ({
           className="text-muted-foreground size-3.5 shrink-0"
         />
         <Input
+          variant="compact"
           aria-label="Filter screen elements"
           className="h-7 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
           onChange={(event) => setQuery(event.currentTarget.value)}
@@ -154,6 +155,7 @@ export const ScreenElements = ({
                 return (
                   <li key={node.target}>
                     <Button
+                      size="md"
                       aria-label={`${verb} ${label}`}
                       className="w-full justify-start gap-2 px-1.5 font-normal"
                       disabled={disabled}

@@ -92,9 +92,9 @@ export const DemoTeachingPassword = ({
             required
             type="text"
             value={state.value}
-            variant="island"
           />
           <Button
+            variant="primary"
             disabled={state.pending || state.value.length < 8}
             size="island-lg"
             type="submit"

@@ -838,6 +838,7 @@ const PlayerControls = ({
         <SkipGlyph direction="back" />
       </DockButton>
       <Button
+        variant="primary"
         aria-label={playback.playing ? "Pause" : "Play"}
         className="mx-0.5"
         onClick={playback.toggle}

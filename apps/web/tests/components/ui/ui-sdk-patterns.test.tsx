@@ -612,4 +612,3 @@ test("Textarea is a native multi-line textbox named by its Field", async () => {
   await user.type(textarea, "a{Enter}b");
   expect(textarea).toHaveValue("a\nb");
 });
-

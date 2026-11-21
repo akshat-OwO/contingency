@@ -258,17 +258,23 @@ const LocationPermissionDialogContent = ({
         </fieldset>
 
         <DialogFooter className="mt-2 sm:flex-row sm:justify-end">
-          <Button onClick={onCancel} type="button" variant="outline">
+          <Button size="md" onClick={onCancel} type="button" variant="outline">
             Cancel
           </Button>
           <Button
+            size="md"
             onClick={() => onApply("denied", scope)}
             type="button"
             variant="secondary"
           >
             Apply without permission
           </Button>
-          <Button onClick={() => onApply("granted", scope)} type="button">
+          <Button
+            size="md"
+            variant="primary"
+            onClick={() => onApply("granted", scope)}
+            type="button"
+          >
             Apply and grant location
           </Button>
         </DialogFooter>
@@ -414,12 +420,13 @@ const PermissionControls = ({
           value={choice}
         >
           <SelectTrigger
+            variant="compact"
             aria-label="Permission"
             className={cn(devtoolsFieldClassName, "flex-1")}
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent align="start">
+          <SelectContent variant="compact" align="start">
             {DECIDABLE_PERMISSIONS.map((name) => (
               <SelectItem key={name} value={name}>
                 {name}
@@ -497,6 +504,7 @@ const ScaleControlContent = ({
       <span>{label} (%)</span>
       <div className="flex gap-1.5">
         <Input
+          variant="compact"
           aria-label={label}
           className={cn(devtoolsFieldClassName, "font-mono")}
           type="number"
@@ -686,6 +694,7 @@ const EmulationPanelContent = ({
             <label className="block space-y-1 text-xs">
               <span>Locale</span>
               <Input
+                variant="compact"
                 aria-label="Locale"
                 className={cn(devtoolsFieldClassName, "font-mono")}
                 disabled={disabled}
@@ -703,6 +712,7 @@ const EmulationPanelContent = ({
             <label className="block space-y-1 text-xs">
               <span>Time zone</span>
               <Input
+                variant="compact"
                 aria-label="Time zone"
                 className={cn(devtoolsFieldClassName, "font-mono")}
                 disabled={disabled}

@@ -437,7 +437,7 @@ export const RunSummaryFrame = ({
       {/* Its sections sit one level under the summary's level 3 title. */}
       <DetailHeadingLevel value={4}>
         <Tabs className="gap-3" defaultValue="checks">
-          <TabsList aria-label="Run Summary sections" variant="segmented">
+          <TabsList aria-label="Run Summary sections">
             <TabsTrigger value="checks">
               {checksTab}
               {failing ? (
@@ -782,6 +782,7 @@ export const FlowDecisionButtons = ({
 }: FlowDecisionActions) => (
   <div className="grid grid-cols-2 gap-2">
     <Button
+      size="md"
       className="w-full rounded-[10px] text-[13px]"
       disabled={pending}
       onClick={onReject}
@@ -791,6 +792,8 @@ export const FlowDecisionButtons = ({
       Reject flow
     </Button>
     <Button
+      size="md"
+      variant="primary"
       className="w-full rounded-[10px] text-[13px]"
       disabled={pending}
       onClick={onVerify}

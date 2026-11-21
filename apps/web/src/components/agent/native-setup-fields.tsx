@@ -34,10 +34,10 @@ export const Choice = ({
       }
     }}
   >
-    <SelectTrigger aria-label={label} className="w-full" variant="island">
+    <SelectTrigger aria-label={label} className="w-full">
       <SelectValue />
     </SelectTrigger>
-    <SelectContent variant="island">
+    <SelectContent>
       {items.map((item) => (
         <SelectItem key={item.value} value={item.value}>
           {item.label}
@@ -115,7 +115,6 @@ export const ConditionInput = ({
         }
         placeholder={placeholder}
         value={value.name}
-        variant="island"
       />
     </div>
   </div>

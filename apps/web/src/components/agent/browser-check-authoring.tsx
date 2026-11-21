@@ -157,6 +157,7 @@ const CompactSelect = <T extends string>({
     value={value}
   >
     <SelectTrigger
+      variant="compact"
       aria-label={label}
       className="h-8 w-full min-w-0 rounded-[10px] text-xs"
       size="sm"
@@ -167,7 +168,7 @@ const CompactSelect = <T extends string>({
         }
       </SelectValue>
     </SelectTrigger>
-    <SelectContent align="start" variant="island">
+    <SelectContent align="start">
       {options.map(([option, text]) => (
         <SelectItem key={option} value={option}>
           {text}
@@ -190,6 +191,7 @@ const BrowserSourceEditor = ({
       <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
         <Field label="Method">
           <Input
+            variant="compact"
             aria-label="Request method"
             className={inputClassName}
             value={check.request.method}
@@ -207,6 +209,7 @@ const BrowserSourceEditor = ({
         </Field>
         <Field label="Path">
           <Input
+            variant="compact"
             aria-label="Request path"
             className={inputClassName}
             placeholder="/api/orders/:id"
@@ -224,6 +227,7 @@ const BrowserSourceEditor = ({
       </div>
       <Field label="Origin">
         <Input
+          variant="compact"
           aria-label="Request origin"
           className={inputClassName}
           value={check.request.origin}
@@ -239,6 +243,7 @@ const BrowserSourceEditor = ({
       <div className="grid grid-cols-2 gap-2">
         <Field label="Query constraints">
           <Input
+            variant="compact"
             aria-label="Query constraints"
             className={inputClassName}
             defaultValue={JSON.stringify(check.request.query)}
@@ -285,6 +290,7 @@ const BrowserSourceEditor = ({
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,13rem)] gap-2">
         <Field label="Name">
           <Input
+            variant="compact"
             aria-label="Storage check name"
             className={inputClassName}
             value={check.name}
@@ -318,6 +324,7 @@ const BrowserSourceEditor = ({
       >
         <Field label="Origin">
           <Input
+            variant="compact"
             aria-label="Storage check origin"
             className={inputClassName}
             value={check.origin}
@@ -412,7 +419,6 @@ export const BrowserAttachmentChip = ({
         onClick={onRemove}
         size="icon-xs"
         type="button"
-        variant="island"
       >
         <XIcon />
       </Button>
@@ -484,7 +490,6 @@ export const BrowserAttachmentEditor = ({
           onClick={onClose}
           size="icon-sm"
           type="button"
-          variant="island"
         >
           <XIcon />
         </Button>
@@ -515,6 +520,7 @@ export const BrowserAttachmentEditor = ({
             <div className="grid grid-cols-2 gap-2">
               <Field label="When">
                 <Input
+                  variant="compact"
                   aria-label="Check timing"
                   className={cn(inputClassName, "font-sans")}
                   value={check.when}
@@ -525,6 +531,7 @@ export const BrowserAttachmentEditor = ({
               </Field>
               <Field label="Timeout (ms)">
                 <Input
+                  variant="compact"
                   aria-label="Check timeout"
                   className={inputClassName}
                   type="number"
@@ -549,6 +556,7 @@ export const BrowserAttachmentEditor = ({
             {fields ? (
               <Field label="Array item path">
                 <Input
+                  variant="compact"
                   aria-label="Array item path"
                   className={inputClassName}
                   defaultValue={JSON.stringify(check.expectation.itemPath)}
@@ -581,6 +589,7 @@ export const BrowserAttachmentEditor = ({
                 >
                   {fields ? (
                     <Input
+                      variant="compact"
                       aria-label={`Field path ${index + 1}`}
                       className={inputClassName}
                       defaultValue={JSON.stringify(predicate.path)}
@@ -616,6 +625,7 @@ export const BrowserAttachmentEditor = ({
                     <span />
                   ) : (
                     <Input
+                      variant="compact"
                       aria-label={`Expected value ${index + 1}`}
                       className={inputClassName}
                       defaultValue={JSON.stringify(predicate.expected)}
@@ -644,7 +654,6 @@ export const BrowserAttachmentEditor = ({
                       }
                       size="icon-xs"
                       type="button"
-                      variant="island"
                     >
                       <XIcon />
                     </Button>
@@ -670,7 +679,6 @@ export const BrowserAttachmentEditor = ({
               }
               size="sm"
               type="button"
-              variant="island"
             >
               Add predicate to this item
             </Button>
@@ -693,9 +701,7 @@ export const BrowserAttachmentEditor = ({
         <Button
           className="hover:bg-destructive/10 hover:text-destructive"
           onClick={onRemove}
-          size="island"
           type="button"
-          variant="island"
         >
           <Trash2Icon aria-hidden="true" />
           Remove attachment

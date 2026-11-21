@@ -56,7 +56,6 @@ export const BotProtectionNotice = ({
       onClick={onDismiss}
       size="icon-sm"
       type="button"
-      variant="island"
     >
       <XIcon aria-hidden="true" />
     </Button>

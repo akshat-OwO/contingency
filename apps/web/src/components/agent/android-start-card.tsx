@@ -511,10 +511,12 @@ const PreparationConfirmation = ({
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="outline" onClick={() => onCancel()}>
+        <Button size="md" variant="outline" onClick={() => onCancel()}>
           Cancel
         </Button>
         <Button
+          size="md"
+          variant="primary"
           disabled={pending || confirmation?.fingerprint !== fingerprint}
           onClick={onConfirm}
         >

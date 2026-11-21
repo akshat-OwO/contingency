@@ -13,15 +13,13 @@ import { cn } from "@/lib/utils";
  * UI SDK popovers render in place on the browser's top layer, so there is no
  * Portal or Positioner part. `Popover` adds no element of its own.
  */
-function Popover(props: React.ComponentProps<typeof PopoverPrimitive>) {
-  return <PopoverPrimitive {...props} />;
-}
+const Popover = (props: React.ComponentProps<typeof PopoverPrimitive>) => (
+  <PopoverPrimitive {...props} />
+);
 
-function PopoverTrigger(
+const PopoverTrigger = (
   props: React.ComponentProps<typeof PopoverPrimitiveTrigger>
-) {
-  return <PopoverPrimitiveTrigger {...props} />;
-}
+) => <PopoverPrimitiveTrigger {...props} />;
 
 type PrimitiveAnchor = NonNullable<
   React.ComponentProps<typeof PopoverPrimitiveContent>["anchor"]
@@ -35,6 +33,7 @@ type PrimitiveAnchor = NonNullable<
 const anchorOf = (
   anchor: PrimitiveAnchor | (() => Element | null) | undefined
 ): PrimitiveAnchor | null =>
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tells the two typed forms of the prop apart; nothing here is external input.
   typeof anchor === "function"
     ? {
         getBoundingClientRect: () =>
@@ -42,7 +41,7 @@ const anchorOf = (
       }
     : (anchor ?? null);
 
-function PopoverContent({
+const PopoverContent = ({
   anchor,
   className,
   positionerClassName,
@@ -58,62 +57,54 @@ function PopoverContent({
    */
   readonly positionerClassName?: string;
   readonly className?: string;
-}) {
-  return (
-    <PopoverPrimitiveContent
-      align={align}
-      anchor={anchorOf(anchor)}
-      side={side}
-      sideOffset={sideOffset}
-      // Every Workspace popover is an island (#744): opaque, on the island's
-      // edge, shadow and 22px radius. More contrast gives it a defined edge.
-      className={cn(
-        "bg-island-solid text-popover-foreground border-island-border shadow-island contrast-more:border-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 m-0 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-(--island-radius) border p-2.5 text-sm outline-hidden duration-100",
-        positionerClassName,
-        className
-      )}
-      {...props}
-    />
-  );
-}
+}) => (
+  <PopoverPrimitiveContent
+    align={align}
+    anchor={anchorOf(anchor)}
+    side={side}
+    sideOffset={sideOffset}
+    // Every Workspace popover is an island (#744): opaque, on the island's
+    // edge, shadow and 22px radius. More contrast gives it a defined edge.
+    className={cn(
+      "bg-island-solid text-popover-foreground border-island-border shadow-island contrast-more:border-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 m-0 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-(--island-radius) border p-2.5 text-sm outline-hidden duration-100",
+      positionerClassName,
+      className
+    )}
+    {...props}
+  />
+);
 
-function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="popover-header"
-      className={cn("flex flex-col gap-0.5 text-sm", className)}
-      {...props}
-    />
-  );
-}
+const PopoverHeader = ({
+  className,
+  ...props
+}: React.ComponentProps<"div">) => (
+  <div
+    data-slot="popover-header"
+    className={cn("flex flex-col gap-0.5 text-sm", className)}
+    {...props}
+  />
+);
 
-function PopoverTitle({
+const PopoverTitle = ({
   className,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitiveTitle> & {
   readonly className?: string;
-}) {
-  return (
-    <PopoverPrimitiveTitle
-      className={cn("font-medium", className)}
-      {...props}
-    />
-  );
-}
+}) => (
+  <PopoverPrimitiveTitle className={cn("font-medium", className)} {...props} />
+);
 
-function PopoverDescription({
+const PopoverDescription = ({
   className,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitiveDescription> & {
   readonly className?: string;
-}) {
-  return (
-    <PopoverPrimitiveDescription
-      className={cn("text-muted-foreground", className)}
-      {...props}
-    />
-  );
-}
+}) => (
+  <PopoverPrimitiveDescription
+    className={cn("text-muted-foreground", className)}
+    {...props}
+  />
+);
 
 export {
   Popover,

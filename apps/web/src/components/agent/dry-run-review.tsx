@@ -101,7 +101,7 @@ export const DryRunReview = ({
           }
         >
           <Link
-            className={buttonVariants({ variant: "default" })}
+            className={buttonVariants({ size: "md", variant: "primary" })}
             search={{ run: undefined, session: undefined }}
             to="/"
           >

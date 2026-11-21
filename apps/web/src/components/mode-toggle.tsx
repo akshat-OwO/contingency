@@ -65,7 +65,7 @@ const ModeToggle = ({ className }: { readonly className?: string }) => {
         <MoonIcon className="absolute scale-95 rotate-90 opacity-0 transition-[opacity,transform] motion-reduce:transition-none dark:scale-100 dark:rotate-0 dark:opacity-100" />
       </DropdownMenuTrigger>
       {/* Like the session switcher: clear the island, then a gap of its own. */}
-      <DropdownMenuContent align="end" sideOffset={14} variant="island">
+      <DropdownMenuContent align="end" sideOffset={14}>
         <DropdownMenuRadioGroup
           onValueChange={(value) => {
             if (isThemeChoice(value)) {

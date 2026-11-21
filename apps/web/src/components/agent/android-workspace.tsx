@@ -253,7 +253,12 @@ export const AndroidEmptyState = ({
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button disabled={pending} onClick={onStartNew} size="lg">
+          <Button
+            variant="primary"
+            disabled={pending}
+            onClick={onStartNew}
+            size="lg"
+          >
             <SmartphoneIcon />
             Start an Android session
           </Button>
@@ -483,6 +488,8 @@ const AndroidDockControls = ({
       )}
       {primary === null ? null : (
         <Button
+          size="md"
+          variant="primary"
           className={nativeActionClassName(primary.gesture)}
           aria-label={primary.accessibleName}
           disabled={pending}

@@ -102,6 +102,7 @@ export const FieldVariableCard = ({
         ) : null}
         <div className="grid gap-1.5">
           <Input
+            variant="compact"
             aria-label="Variable name"
             className="h-8 font-mono"
             maxLength={128}
@@ -112,6 +113,7 @@ export const FieldVariableCard = ({
             value={name}
           />
           <Button
+            variant="primary"
             disabled={disabled || !VARIABLE_NAME.test(name)}
             size="sm"
             type="submit"

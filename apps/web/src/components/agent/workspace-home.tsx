@@ -302,7 +302,7 @@ const WebStartCard = ({
             }}
             value={viewport}
           >
-            <SelectTrigger aria-labelledby={`${ids}-viewport`} variant="island">
+            <SelectTrigger aria-labelledby={`${ids}-viewport`}>
               <SelectValue>
                 {selected === undefined ? null : (
                   <span className="flex w-full items-center justify-between gap-3">
@@ -314,7 +314,7 @@ const WebStartCard = ({
                 )}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent variant="island">
+            <SelectContent>
               {webViewportPresets.map((preset) => (
                 <SelectItem
                   key={preset.id}
@@ -353,7 +353,6 @@ const WebStartCard = ({
             placeholder="https://example.com"
             spellCheck={false}
             value={startingPage}
-            variant="island"
           />
           <p className="text-muted-foreground text-xs" id={`${ids}-page-hint`}>
             {pageProblem ?? "Optional. A blank page opens without one."}

@@ -145,6 +145,7 @@ export const BrowserDeviceBar = ({
         value={presetId}
       >
         <SelectTrigger
+          variant="compact"
           aria-label="Device"
           className="hover:bg-island-hover h-[34px] shrink-0 gap-1.5 rounded-xl border-transparent bg-transparent shadow-none dark:bg-transparent pointer-coarse:data-[size=sm]:h-9 [&_svg:not([class*='size-'])]:size-3.5"
           size="sm"
@@ -154,7 +155,7 @@ export const BrowserDeviceBar = ({
             {selectedPreset?.name ?? "Responsive"}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent align="start" className="w-64">
+        <SelectContent variant="compact" align="start" className="w-64">
           <SelectItem value={RESPONSIVE_PRESET_ID}>Responsive</SelectItem>
           {presetGroups.map((group) => (
             <SelectGroup key={group.kind}>

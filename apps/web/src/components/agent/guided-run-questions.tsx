@@ -345,8 +345,8 @@ const QuestionAnswer = ({
               The agent reads this answer.
             </span>
             <Button
+              variant="primary"
               disabled={state.pending || state.text.trim() === ""}
-              size="island"
               title="Send answer (⌘↵)"
               type="submit"
             >
@@ -374,16 +374,14 @@ const QuestionAnswer = ({
           className="bg-island-hover shadow-[inset_0_0_0_1px_var(--island-border)]"
           disabled={state.pending}
           onClick={() => submit("reject")}
-          size="island"
           type="button"
-          variant="island"
         >
           Reject check
         </Button>
         <Button
+          variant="primary"
           disabled={state.pending}
           onClick={() => submit("confirm")}
-          size="island"
           type="button"
         >
           <PendingLabel

@@ -287,7 +287,6 @@ const EarlierComments = ({
                 onClick={() => onEdit(comment.id)}
                 size="xs"
                 type="button"
-                variant="island"
               >
                 Edit
               </Button>
@@ -449,7 +448,6 @@ export const CommentCard = ({
               size="icon-sm"
               title="Close comment"
               type="button"
-              variant="island"
             >
               <XIcon />
             </Button>
@@ -510,9 +508,7 @@ export const CommentCard = ({
                   ? undefined
                   : `${attach.attached ? "Change element" : "Attach element"} (${attach.shortcut})`
               }
-              size="island"
               type="button"
-              variant="island"
             >
               <MousePointer2Icon aria-hidden="true" />
               {attach.attached ? "Change element" : "Attach element"}
@@ -520,6 +516,8 @@ export const CommentCard = ({
             {tools}
             <span className="flex-1" />
             <Button
+              size="md"
+              variant="primary"
               className="h-[34px] shrink-0 rounded-[11px] pr-2 pl-3.5"
               disabled={!canSubmit}
               onClick={onSubmit}

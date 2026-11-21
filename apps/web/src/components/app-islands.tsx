@@ -88,7 +88,12 @@ export const AppIslands = () => (
 
 /** The one way out of a page that has nothing to show. */
 export const GoToWorkspace = () => (
-  <HomeLink className={cn(buttonVariants({ size: "island-lg" }), "mt-3")}>
+  <HomeLink
+    className={cn(
+      buttonVariants({ size: "island-lg", variant: "primary" }),
+      "mt-3"
+    )}
+  >
     Go to the Workspace
   </HomeLink>
 );

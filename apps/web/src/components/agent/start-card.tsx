@@ -107,7 +107,6 @@ export const FlowNameField = ({
         required
         spellCheck={false}
         value={name}
-        variant="island"
       />
       {problem === null ? null : (
         <p className="text-destructive text-xs" id={`${ids}-problem`}>
@@ -228,13 +227,13 @@ export const StartCard = ({
             onClick={onClose}
             size="island-icon"
             title="Back to platforms"
-            variant="island"
           >
             <XIcon aria-hidden="true" />
           </Button>
         </header>
         {children}
         <Button
+          variant="primary"
           aria-describedby={submitDescribedBy}
           className="mt-1.5 w-full"
           disabled={submitDisabled}
@@ -259,7 +258,6 @@ export const StartCard = ({
             <Button
               key={other}
               onClick={() => onOtherPlatform(other)}
-              size="island"
               variant="floating"
             >
               <PlatformIcon platform={other} />

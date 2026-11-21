@@ -395,6 +395,7 @@ const WebStorageInlineAdd = ({
     >
       <Field invalid={draft.fieldError !== undefined}>
         <Input
+          variant="compact"
           aria-label="New storage key"
           className="h-7 font-mono text-xs md:text-xs"
           onChange={(event) =>
@@ -422,6 +423,7 @@ const WebStorageInlineAdd = ({
         )}
       </Field>
       <Input
+        variant="compact"
         aria-label="New storage value"
         className="h-7 font-mono text-xs md:text-xs"
         onChange={(event) =>
@@ -608,6 +610,7 @@ const CookieDetail = ({
           <Field invalid={form.fieldError !== undefined}>
             <FieldLabel>Name</FieldLabel>
             <Input
+              variant="compact"
               disabled={readOnly || form.identity !== undefined}
               onBlur={() => {
                 onFocusChange(false);
@@ -648,6 +651,7 @@ const CookieDetail = ({
           <Field>
             <FieldLabel>Domain</FieldLabel>
             <Input
+              variant="compact"
               disabled={readOnly}
               onBlur={() => {
                 onFocusChange(false);
@@ -664,6 +668,7 @@ const CookieDetail = ({
           <Field>
             <FieldLabel>Path</FieldLabel>
             <Input
+              variant="compact"
               disabled={readOnly}
               onBlur={() => {
                 onFocusChange(false);
@@ -716,10 +721,10 @@ const CookieDetail = ({
               }
               value={form.sameSite ?? sameSiteUnsetValue}
             >
-              <SelectTrigger aria-label="SameSite" size="sm">
+              <SelectTrigger variant="compact" aria-label="SameSite" size="sm">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent variant="compact">
                 <SelectItem value={sameSiteUnsetValue}>—</SelectItem>
                 <SelectItem value="Strict">Strict</SelectItem>
                 <SelectItem value="Lax">Lax</SelectItem>
@@ -736,6 +741,7 @@ const CookieDetail = ({
               Cancel
             </Button>
             <Button
+              variant="primary"
               disabled={mutationsLocked}
               onClick={() => {
                 onSave(form);
@@ -748,6 +754,7 @@ const CookieDetail = ({
           </>
         ) : (
           <Button
+            variant="primary"
             disabled={mutationsLocked}
             onClick={onEdit}
             size="sm"
@@ -1079,6 +1086,7 @@ const StoragePanelChrome = ({
         <div className="relative">
           <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
           <Input
+            variant="compact"
             aria-label="Search storage"
             className={cn(devtoolsFieldClassName, "pl-7")}
             onBlur={() =>
