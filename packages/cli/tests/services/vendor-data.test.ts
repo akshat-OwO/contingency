@@ -4,14 +4,16 @@ import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import {
   reviewVendorData,
   writeVendorDataManifest,
 } from "../../src/packaging/vendor-data.ts";
+import { vendorDisplayTransport } from "../../src/packaging/vendor-display-transport.ts";
 import { vendorPackages } from "../../src/packaging/vendor-packages.ts";
+import { androidStreamRelease } from "../../src/services/android-stream-contract.ts";
 
 const require = createRequire(
   realpathSync(path.resolve("node_modules/lighthouse/package.json"))
@@ -369,4 +371,53 @@ it.effect("ships mediabunny's ESM modules without its bundles", () =>
       expect(loaded, name).toHaveProperty(name, expect.any(Function));
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+it.effect(
+  "vendors expo-device-hub display transport and recorder modules with all imports",
+  () =>
+    Effect.gen(function* displayTransport() {
+      const fs = yield* FileSystem.FileSystem;
+      const output = yield* fs.makeTempDirectoryScoped({
+        prefix: "vendor-display-transport-",
+      });
+      yield* vendorPackages(["mediabunny"], process.cwd(), output);
+      yield* vendorDisplayTransport(process.cwd(), output);
+      const cliManifest = Schema.decodeUnknownSync(
+        Schema.Struct({
+          devDependencies: Schema.Record(Schema.String, Schema.String),
+        })
+      )(JSON.parse(yield* fs.readFileString(path.resolve("package.json"))));
+      expect(cliManifest.devDependencies["expo-device-hub"]).toBe(
+        androidStreamRelease.hub
+      );
+      const hubRoot = path.join(output, "node_modules/expo-device-hub");
+      expect(yield* fs.exists(path.join(hubRoot, "LICENSE"))).toBe(true);
+      expect(
+        yield* fs.exists(path.join(hubRoot, "vendor/serve-emu/LICENSE"))
+      ).toBe(true);
+      expect(
+        yield* fs.exists(path.join(hubRoot, "vendor/serve-emu/dist/server.js"))
+      ).toBe(false);
+      yield* fs.writeFileString(
+        path.join(output, "entry.mjs"),
+        [
+          'export { startScrcpy, startScrcpyControl } from "expo-device-hub/vendor/serve-emu/dist/scrcpy.js";',
+          'export { startGrpcSession } from "expo-device-hub/vendor/serve-emu/dist/grpc-session.js";',
+          'export { ScreenRecording } from "expo-device-hub/vendor/serve-emu/dist/screen-recording.js";',
+          "",
+        ].join("\n")
+      );
+      const loaded = yield* Effect.promise(
+        () => import(path.join(output, "entry.mjs"))
+      );
+      for (const name of [
+        "startScrcpy",
+        "startScrcpyControl",
+        "startGrpcSession",
+        "ScreenRecording",
+      ]) {
+        expect(loaded, name).toHaveProperty(name, expect.any(Function));
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

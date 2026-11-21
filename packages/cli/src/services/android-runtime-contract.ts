@@ -27,11 +27,11 @@ export const androidCapabilities: readonly PlatformCapability[] = [
 export const androidHelperRelease = {
   api: "2",
   packageName: "com.callstack.agentdevice.snapshothelper",
-  sha256: "79175080eb71f444224c844a599e75e839d6456790eb96d175fc887f85237a12",
+  sha256: "c45471e02f0bf6af287467cbb6746f71934fdcc64d0f43cf1d9bd4a2e14d2a3c",
   signingCertificateSha256:
     "f5dc3a7bf83a1b17312c222cd89a2f781230f34a7a407e6033fa28adf0b3cf48",
-  version: "0.21.25",
-  versionCode: 21_025,
+  version: "0.21.41",
+  versionCode: 21_041,
 } as const;
 
 /** A selection is supplied by the user, never inferred from device count. */

@@ -1,16 +1,17 @@
 {
-  "capturedAt": "2026-11-09T17:30:17.714Z",
+  "capturedAt": "2026-11-21T14:32:20.921Z",
   "nodes": [
     {
       "index": 0,
       "type": "Application",
+      "role": "UIApplication",
       "kind": "application",
       "label": "Contingency Widgets",
       "rect": {
         "x": 0,
-        "height": 874,
+        "y": 0,
         "width": 402,
-        "y": 0
+        "height": 874
       },
       "enabled": true,
       "hittable": false,
@@ -20,13 +21,14 @@
     {
       "index": 1,
       "type": "NavigationBar",
+      "role": "UINavigationBar",
       "kind": "navigation-bar",
       "identifier": "List",
       "rect": {
         "x": 0,
-        "height": 54,
+        "y": 62,
         "width": 402,
-        "y": 62
+        "height": 54
       },
       "enabled": true,
       "hittable": true,
@@ -37,13 +39,14 @@
     {
       "index": 2,
       "type": "StaticText",
+      "role": "UILabel",
       "kind": "text",
       "label": "List",
       "rect": {
         "x": 186.33333333333334,
-        "height": 20.66666666666667,
+        "y": 73.66666666666666,
         "width": 29,
-        "y": 73.66666666666666
+        "height": 20.66666666666667
       },
       "enabled": true,
       "hittable": true,
@@ -54,13 +57,14 @@
     {
       "index": 3,
       "type": "Button",
+      "role": "_UIButtonBarButton",
       "kind": "button",
       "label": "Edit",
       "rect": {
         "x": 327.6666666666667,
-        "height": 36,
+        "y": 66,
         "width": 54.333333333333314,
-        "y": 66
+        "height": 36
       },
       "enabled": true,
       "hittable": true,
@@ -71,13 +75,14 @@
     {
       "index": 4,
       "type": "StaticText",
+      "role": "UILabel",
       "kind": "text",
       "label": "Last action: Continue",
       "rect": {
         "x": 20,
-        "height": 20.33333333333333,
+        "y": 123.99999999999999,
         "width": 161.33333333333334,
-        "y": 123.99999999999999
+        "height": 20.33333333333333
       },
       "enabled": true,
       "hittable": true,
@@ -88,12 +93,13 @@
     {
       "index": 5,
       "type": "Table",
+      "role": "UITableView",
       "kind": "table",
       "rect": {
         "x": 0,
-        "height": 638.6666666666667,
+        "y": 152.33333333333331,
         "width": 402,
-        "y": 152.33333333333331
+        "height": 638.6666666666667
       },
       "enabled": true,
       "hittable": true,
@@ -104,13 +110,15 @@
     {
       "index": 6,
       "type": "StaticText",
+      "role": "UITableSectionPart",
+      "subrole": "UIAccessibilityElement",
       "kind": "text",
       "label": "Pinned",
       "rect": {
         "x": 0,
-        "height": 55.33333206176758,
+        "y": 152.33333333333331,
         "width": 402,
-        "y": 152.33333333333331
+        "height": 55.33333206176758
       },
       "enabled": true,
       "hittable": true,
@@ -121,12 +129,14 @@
     {
       "index": 7,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
         "x": 20,
-        "height": 62,
+        "y": 207.6666653951009,
         "width": 362,
-        "y": 207.6666653951009
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -137,13 +147,14 @@
     {
       "index": 8,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Anvil",
       "rect": {
         "x": 36,
-        "height": 20.333333333333343,
+        "y": 216.6666653951009,
         "width": 36.66666666666666,
-        "y": 216.6666653951009
+        "height": 20.333333333333343
       },
       "enabled": true,
       "hittable": true,
@@ -154,13 +165,14 @@
     {
       "index": 9,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$7.00",
       "rect": {
         "x": 36,
-        "height": 18,
+        "y": 239.9999987284342,
         "width": 38,
-        "y": 239.9999987284342
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -171,13 +183,14 @@
     {
       "index": 10,
       "type": "Button",
+      "role": "_UITableCellAccessoryButton",
       "kind": "button",
       "label": "chevron",
       "rect": {
         "x": 351.6666666666667,
-        "height": 14,
+        "y": 231.6666653951009,
         "width": 10.333333333333314,
-        "y": 231.6666653951009
+        "height": 14
       },
       "enabled": false,
       "hittable": false,
@@ -188,12 +201,14 @@
     {
       "index": 11,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
         "x": 20,
-        "height": 62,
+        "y": 269.6666653951009,
         "width": 362,
-        "y": 269.6666653951009
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -204,13 +219,14 @@
     {
       "index": 12,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Rocket skates",
       "rect": {
+        "x": 35.99999999999999,
         "y": 278.6666653951009,
-        "height": 20.333333333333314,
         "width": 106.33333333333331,
-        "x": 35.99999999999999
+        "height": 20.333333333333314
       },
       "enabled": true,
       "hittable": true,
@@ -221,13 +237,14 @@
     {
       "index": 13,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$14.00",
       "rect": {
+        "x": 36,
         "y": 301.9999987284342,
-        "height": 18,
         "width": 47,
-        "x": 36
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -238,13 +255,14 @@
     {
       "index": 14,
       "type": "Button",
+      "role": "_UITableCellAccessoryButton",
       "kind": "button",
       "label": "chevron",
       "rect": {
         "x": 351.6666666666667,
         "y": 293.6666653951009,
-        "height": 14,
-        "width": 10.333333333333314
+        "width": 10.333333333333314,
+        "height": 14
       },
       "enabled": false,
       "hittable": false,
@@ -255,13 +273,15 @@
     {
       "index": 15,
       "type": "StaticText",
+      "role": "UITableSectionPart",
+      "subrole": "UIAccessibilityElement",
       "kind": "text",
       "label": "All products",
       "rect": {
         "x": 0,
-        "height": 38,
+        "y": 348.99999745686847,
         "width": 402,
-        "y": 348.99999745686847
+        "height": 38
       },
       "enabled": true,
       "hittable": true,
@@ -272,12 +292,14 @@
     {
       "index": 16,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
         "x": 20,
-        "height": 62,
         "y": 386.99999745686847,
-        "width": 362
+        "width": 362,
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -288,13 +310,14 @@
     {
       "index": 17,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 1",
       "rect": {
         "x": 36,
-        "height": 20.333333333333314,
         "y": 395.99999745686847,
-        "width": 72.33333333333333
+        "width": 72.33333333333333,
+        "height": 20.333333333333314
       },
       "enabled": true,
       "hittable": true,
@@ -305,13 +328,14 @@
     {
       "index": 18,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$7.00",
       "rect": {
         "x": 36,
-        "height": 18,
         "y": 419.3333307902018,
-        "width": 38
+        "width": 38,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -322,12 +346,14 @@
     {
       "index": 19,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
         "x": 20,
-        "height": 62,
         "y": 448.99999745686847,
-        "width": 362
+        "width": 362,
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -338,13 +364,14 @@
     {
       "index": 20,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 2",
       "rect": {
-        "height": 20.333333333333314,
-        "y": 457.99999745686847,
         "x": 36,
-        "width": 74.66666666666667
+        "y": 457.99999745686847,
+        "width": 74.66666666666667,
+        "height": 20.333333333333314
       },
       "enabled": true,
       "hittable": true,
@@ -355,13 +382,14 @@
     {
       "index": 21,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$14.00",
       "rect": {
-        "height": 18,
-        "y": 481.3333307902018,
         "x": 36,
-        "width": 47
+        "y": 481.3333307902018,
+        "width": 47,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -372,12 +400,14 @@
     {
       "index": 22,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
-        "height": 61.99999999999994,
-        "y": 510.99999745686847,
         "x": 20,
-        "width": 362
+        "y": 510.99999745686847,
+        "width": 362,
+        "height": 61.99999999999994
       },
       "enabled": true,
       "hittable": true,
@@ -388,13 +418,14 @@
     {
       "index": 23,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 3",
       "rect": {
-        "height": 20.33333333333337,
-        "y": 519.9999974568684,
         "x": 36,
-        "width": 75
+        "y": 519.9999974568684,
+        "width": 75,
+        "height": 20.33333333333337
       },
       "enabled": true,
       "hittable": true,
@@ -405,13 +436,14 @@
     {
       "index": 24,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$21.00",
       "rect": {
-        "height": 18,
-        "y": 543.3333307902018,
         "x": 36,
-        "width": 46.66666666666666
+        "y": 543.3333307902018,
+        "width": 46.66666666666666,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -422,12 +454,14 @@
     {
       "index": 25,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
-        "height": 62,
-        "y": 572.9999974568684,
         "x": 20,
-        "width": 362
+        "y": 572.9999974568684,
+        "width": 362,
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -438,13 +472,14 @@
     {
       "index": 26,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 4",
       "rect": {
-        "height": 20.33333333333337,
-        "y": 581.9999974568684,
         "x": 36,
-        "width": 75.33333333333333
+        "y": 581.9999974568684,
+        "width": 75.33333333333333,
+        "height": 20.33333333333337
       },
       "enabled": true,
       "hittable": true,
@@ -455,13 +490,14 @@
     {
       "index": 27,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$28.00",
       "rect": {
-        "height": 18,
-        "y": 605.3333307902018,
         "x": 36,
-        "width": 49
+        "y": 605.3333307902018,
+        "width": 49,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -472,12 +508,14 @@
     {
       "index": 28,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
-        "height": 62,
-        "y": 634.9999974568684,
         "x": 20,
-        "width": 362
+        "y": 634.9999974568684,
+        "width": 362,
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
@@ -488,13 +526,14 @@
     {
       "index": 29,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 5",
       "rect": {
-        "width": 75,
         "x": 36,
-        "height": 20.33333333333337,
-        "y": 643.9999974568684
+        "y": 643.9999974568684,
+        "width": 75,
+        "height": 20.33333333333337
       },
       "enabled": true,
       "hittable": true,
@@ -505,13 +544,14 @@
     {
       "index": 30,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$35.00",
       "rect": {
         "x": 36,
-        "height": 18,
         "y": 667.3333307902019,
-        "width": 49
+        "width": 49,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -522,10 +562,12 @@
     {
       "index": 31,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
-        "y": 696.9999974568684,
         "x": 20,
+        "y": 696.9999974568684,
         "width": 362,
         "height": 62
       },
@@ -538,11 +580,12 @@
     {
       "index": 32,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 6",
       "rect": {
-        "y": 705.9999974568684,
         "x": 36,
+        "y": 705.9999974568684,
         "width": 75.33333333333333,
         "height": 20.33333333333337
       },
@@ -555,11 +598,12 @@
     {
       "index": 33,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "$42.00",
       "rect": {
-        "y": 729.3333307902019,
         "x": 36,
+        "y": 729.3333307902019,
         "width": 49.33333333333334,
         "height": 18
       },
@@ -572,12 +616,14 @@
     {
       "index": 34,
       "type": "Cell",
+      "role": "UITableViewCellAccessibilityElement",
+      "subrole": "UIAccessibilityElement",
       "kind": "cell",
       "rect": {
         "x": 20,
+        "y": 758.9999974568684,
         "width": 362,
-        "height": 32.000002543131586,
-        "y": 758.9999974568684
+        "height": 32.000002543131586
       },
       "enabled": true,
       "hittable": true,
@@ -588,13 +634,14 @@
     {
       "index": 35,
       "type": "StaticText",
+      "role": "UITableViewLabel",
       "kind": "text",
       "label": "Product 7",
       "rect": {
-        "height": 20.33333333333337,
         "x": 36,
+        "y": 767.9999974568684,
         "width": 74,
-        "y": 767.9999974568684
+        "height": 20.33333333333337
       },
       "enabled": true,
       "hittable": true,
@@ -605,12 +652,13 @@
     {
       "index": 36,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
       "label": "Vertical scroll bar, 7 pages",
       "value": "0%",
       "rect": {
-        "y": 152.33333333333331,
         "x": 369,
+        "y": 152.33333333333331,
         "width": 30,
         "height": 638.6666666666667
       },
@@ -623,14 +671,15 @@
     {
       "index": 37,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
       "label": "Horizontal scroll bar, 1 page",
       "value": "0%",
       "rect": {
-        "height": 30,
         "x": 0,
+        "y": 758,
         "width": 402,
-        "y": 758
+        "height": 30
       },
       "enabled": true,
       "hittable": true,
@@ -641,13 +690,14 @@
     {
       "index": 38,
       "type": "Other",
+      "role": "UITableViewHeaderFooterView",
       "kind": "other",
       "label": "Pinned",
       "rect": {
-        "height": 55.33333206176758,
         "x": 20,
+        "y": 152.33333333333331,
         "width": 362,
-        "y": 152.33333333333331
+        "height": 55.33333206176758
       },
       "enabled": true,
       "hittable": true,
@@ -658,12 +708,13 @@
     {
       "index": 39,
       "type": "Other",
+      "role": "UITableViewHeaderFooterView",
       "kind": "other",
       "label": "All products",
       "rect": {
-        "width": 362,
         "x": 20,
         "y": 348.99999745686847,
+        "width": 362,
         "height": 38
       },
       "enabled": true,
@@ -675,12 +726,13 @@
     {
       "index": 40,
       "type": "TabBar",
+      "role": "UITabBar",
       "kind": "tab-bar",
       "label": "Tab Bar",
       "rect": {
-        "width": 402,
         "x": 0,
         "y": 791,
+        "width": 402,
         "height": 83
       },
       "enabled": true,
@@ -692,12 +744,13 @@
     {
       "index": 41,
       "type": "Button",
+      "role": "_UITabButton",
       "kind": "button",
       "label": "Controls",
       "rect": {
-        "width": 94,
         "x": 68,
         "y": 795,
+        "width": 94,
         "height": 54
       },
       "enabled": true,
@@ -709,13 +762,14 @@
     {
       "index": 42,
       "type": "Image",
+      "role": "UIImageView",
       "kind": "image",
       "label": "edit",
       "identifier": "slider.horizontal.3",
       "rect": {
-        "width": 29.333333333333343,
         "x": 100,
         "y": 802.6666666666666,
+        "width": 29.333333333333343,
         "height": 24
       },
       "enabled": true,
@@ -727,12 +781,13 @@
     {
       "index": 43,
       "type": "Button",
+      "role": "_UITabButton",
       "kind": "button",
       "label": "List",
       "rect": {
-        "width": 94,
         "x": 154,
         "y": 795,
+        "width": 94,
         "height": 54
       },
       "enabled": true,
@@ -745,13 +800,14 @@
     {
       "index": 44,
       "type": "Image",
+      "role": "UIImageView",
       "kind": "image",
       "label": "List",
       "identifier": "list.bullet",
       "rect": {
-        "width": 29.333333333333343,
         "x": 186,
         "y": 804.3333333333334,
+        "width": 29.333333333333343,
         "height": 21
       },
       "enabled": true,
@@ -763,12 +819,13 @@
     {
       "index": 45,
       "type": "Button",
+      "role": "_UITabButton",
       "kind": "button",
       "label": "Web",
       "rect": {
-        "width": 94,
         "x": 240,
         "y": 795,
+        "width": 94,
         "height": 54
       },
       "enabled": true,
@@ -780,13 +837,14 @@
     {
       "index": 46,
       "type": "Image",
+      "role": "UIImageView",
       "kind": "image",
       "label": "Globe",
       "identifier": "globe",
       "rect": {
-        "width": 27.333333333333314,
         "x": 273,
         "y": 801.3333333333334,
+        "width": 27.333333333333314,
         "height": 27.33333333333337
       },
       "enabled": true,

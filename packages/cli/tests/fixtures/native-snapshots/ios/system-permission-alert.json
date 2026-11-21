@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-09T17:31:51.614Z",
+  "capturedAt": "2026-11-21T14:33:18.535Z",
   "nodes": [
     {
       "index": 0,
@@ -7,13 +7,13 @@
       "kind": "alert",
       "label": "Allow “Calendar” to use your location?",
       "rect": {
-        "x": 41,
+        "height": 326,
         "y": 288,
-        "width": 320,
-        "height": 326
+        "x": 41,
+        "width": 320
       },
       "enabled": true,
-      "hittable": true,
+      "hittable": false,
       "depth": 0,
       "ref": "e1"
     },
@@ -23,10 +23,10 @@
       "kind": "button",
       "label": "Allow Once",
       "rect": {
-        "x": 57,
+        "height": 48,
         "y": 438,
-        "width": 288,
-        "height": 48
+        "x": 57,
+        "width": 288
       },
       "enabled": true,
       "hittable": true,
@@ -40,10 +40,10 @@
       "kind": "button",
       "label": "Allow While Using App",
       "rect": {
+        "height": 48,
         "y": 494,
-        "width": 288,
         "x": 57,
-        "height": 48
+        "width": 288
       },
       "enabled": true,
       "hittable": true,
@@ -57,10 +57,10 @@
       "kind": "button",
       "label": "Don’t Allow",
       "rect": {
+        "height": 48,
         "y": 550,
         "x": 57,
-        "width": 288,
-        "height": 48
+        "width": 288
       },
       "enabled": true,
       "hittable": true,
@@ -74,10 +74,10 @@
       "kind": "text",
       "label": "Allow “Calendar” to use your location?",
       "rect": {
-        "y": 310,
-        "width": 260,
         "height": 42.333333333333314,
-        "x": 71
+        "y": 310,
+        "x": 71,
+        "width": 260
       },
       "enabled": true,
       "hittable": false,
@@ -91,10 +91,10 @@
       "kind": "text",
       "label": "Your location is used for time to leave alerts, to improve location searches, and to suggest event locations.",
       "rect": {
-        "y": 359.6666666666667,
-        "width": 260,
         "height": 58,
-        "x": 71
+        "y": 359.6666666666667,
+        "x": 71,
+        "width": 260
       },
       "enabled": true,
       "hittable": false,

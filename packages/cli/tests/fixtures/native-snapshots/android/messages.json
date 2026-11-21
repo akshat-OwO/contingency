@@ -1,19 +1,18 @@
 {
-  "capturedAt": "2026-11-09T17:37:44.883Z",
+  "capturedAt": "2026-11-21T14:29:53.388Z",
   "nodes": [
     {
       "index": 0,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "12:14",
-      "value": "12:14",
-      "contentDescription": "12:14 AM",
+      "label": "7:59",
+      "contentDescription": "7:59 PM",
       "identifier": "com.android.systemui:id/clock",
       "rect": {
         "x": 11,
-        "y": 41,
-        "width": 160,
-        "height": 59
+        "y": 49,
+        "width": 104,
+        "height": 43
       },
       "enabled": true,
       "selected": false,
@@ -28,11 +27,11 @@
       "index": 1,
       "type": "android.widget.ImageView",
       "kind": "image",
-      "label": "Android System notification: ",
+      "label": "Security & privacy notification: ",
       "rect": {
-        "x": 171,
+        "x": 115,
         "y": 0,
-        "width": 67,
+        "width": 58,
         "height": 142
       },
       "enabled": true,
@@ -51,10 +50,10 @@
       "label": "Wifi signal full.",
       "identifier": "com.android.systemui:id/wifi_signal",
       "rect": {
-        "x": 840,
-        "y": 44,
-        "width": 53,
-        "height": 53
+        "x": 891,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
@@ -67,14 +66,15 @@
     },
     {
       "index": 3,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "label": "Airplane mode.",
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "T-Mobile, three bars.",
+      "identifier": "com.android.systemui:id/mobile_combo",
       "rect": {
-        "x": 907,
-        "y": 37,
-        "width": 54,
-        "height": 67
+        "x": 930,
+        "y": 42,
+        "width": 39,
+        "height": 58
       },
       "enabled": true,
       "selected": false,
@@ -87,34 +87,55 @@
     },
     {
       "index": 4,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "label": "Battery charging, 100 percent.",
-      "identifier": "com.android.systemui:id/battery",
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.systemui:id/mobile_signal",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 930,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 0,
+      "depth": 1,
+      "parentIndex": 3,
       "bundleId": "com.android.systemui",
       "ref": "e5"
     },
     {
       "index": 5,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
       "type": "android.widget.ImageView",
       "kind": "image",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
       },
       "enabled": true,
       "selected": false,
@@ -122,19 +143,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 4,
+      "parentIndex": 5,
       "bundleId": "com.android.systemui",
-      "ref": "e6"
+      "ref": "e7"
     },
     {
-      "index": 6,
+      "index": 7,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -143,17 +164,17 @@
       "visibleToUser": true,
       "depth": 0,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e7"
+      "ref": "e8"
     },
     {
-      "index": 7,
+      "index": 8,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -161,26 +182,6 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 6,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e8"
-    },
-    {
-      "index": 8,
-      "type": "android.widget.FrameLayout",
-      "kind": "group",
-      "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 2,
       "parentIndex": 7,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e9"
@@ -189,19 +190,18 @@
       "index": 9,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/action_bar_root",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 3,
+      "depth": 2,
       "parentIndex": 8,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e10"
@@ -210,19 +210,19 @@
       "index": 10,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "android:id/content",
+      "identifier": "com.google.android.apps.messaging:id/action_bar_root",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 4,
+      "depth": 3,
       "parentIndex": 9,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e11"
@@ -231,19 +231,19 @@
       "index": 11,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/fragment_container",
+      "identifier": "android:id/content",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 5,
+      "depth": 4,
       "parentIndex": 10,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e12"
@@ -252,19 +252,19 @@
       "index": 12,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/express_sign_in_layout",
+      "identifier": "com.google.android.apps.messaging:id/fragment_container",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 6,
+      "depth": 5,
       "parentIndex": 11,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e13"
@@ -273,19 +273,19 @@
       "index": 13,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/express_sign_in_layout_internal",
+      "identifier": "com.google.android.apps.messaging:id/express_sign_in_layout",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 7,
+      "depth": 6,
       "parentIndex": 12,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e14"
@@ -294,19 +294,19 @@
       "index": 14,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/express_sign_in_internal_view",
+      "identifier": "com.google.android.apps.messaging:id/express_sign_in_layout_internal",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 8,
+      "depth": 7,
       "parentIndex": 13,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e15"
@@ -315,124 +315,12 @@
       "index": 15,
       "type": "android.widget.FrameLayout",
       "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/main_container",
-      "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 9,
-      "parentIndex": 14,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e16"
-    },
-    {
-      "index": 16,
-      "type": "android.widget.ScrollView",
-      "kind": "scroll-area",
-      "identifier": "com.google.android.apps.messaging:id/scrollable_container",
-      "rect": {
-        "x": 0,
-        "y": 1973,
-        "width": 1080,
-        "height": 451
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 10,
-      "parentIndex": 15,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e17"
-    },
-    {
-      "index": 17,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "identifier": "com.google.android.apps.messaging:id/footer_container",
-      "rect": {
-        "x": 0,
-        "y": 1994,
-        "width": 1080,
-        "height": 430
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 15,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e18"
-    },
-    {
-      "index": 18,
-      "type": "android.widget.Button",
-      "kind": "button",
-      "label": "Sign In",
-      "value": "Sign In",
-      "identifier": "com.google.android.apps.messaging:id/sign_in_button",
-      "rect": {
-        "x": 330,
-        "y": 2036,
-        "width": 420,
-        "height": 131
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 11,
-      "parentIndex": 17,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e19"
-    },
-    {
-      "index": 19,
-      "type": "android.widget.Button",
-      "kind": "button",
-      "label": "Use Messages without an account",
-      "value": "Use Messages without an account",
-      "identifier": "com.google.android.apps.messaging:id/secondary_action_button",
-      "rect": {
-        "x": 42,
-        "y": 2167,
-        "width": 996,
-        "height": 131
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 11,
-      "parentIndex": 17,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e20"
-    },
-    {
-      "index": 20,
-      "type": "androidx.compose.ui.platform.ComposeView",
-      "kind": "composeview",
-      "identifier": "com.google.android.apps.messaging:id/compose_view",
+      "identifier": "com.google.android.apps.messaging:id/express_sign_in_internal_view",
       "rect": {
         "x": 0,
         "y": 142,
         "width": 1080,
-        "height": 1610
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -440,19 +328,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 13,
+      "parentIndex": 14,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e21"
+      "ref": "e16"
     },
     {
-      "index": 21,
-      "type": "android.widget.ScrollView",
-      "kind": "scroll-area",
+      "index": 16,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "com.google.android.apps.messaging:id/main_container",
       "rect": {
-        "x": 53,
-        "y": 195,
-        "width": 974,
-        "height": 1557
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -460,14 +349,144 @@
       "password": false,
       "visibleToUser": true,
       "depth": 9,
-      "parentIndex": 20,
+      "parentIndex": 15,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "android.widget.ScrollView",
+      "kind": "scroll-area",
+      "identifier": "com.google.android.apps.messaging:id/scrollable_container",
+      "rect": {
+        "x": 0,
+        "y": 1983,
+        "width": 1080,
+        "height": 441
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 10,
+      "parentIndex": 16,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "identifier": "com.google.android.apps.messaging:id/footer_container",
+      "rect": {
+        "x": 0,
+        "y": 2004,
+        "width": 1080,
+        "height": 420
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 16,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "android.widget.Button",
+      "kind": "button",
+      "label": "Sign In",
+      "identifier": "com.google.android.apps.messaging:id/sign_in_button",
+      "rect": {
+        "x": 330,
+        "y": 2046,
+        "width": 420,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 11,
+      "parentIndex": 18,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "android.widget.Button",
+      "kind": "button",
+      "label": "Use Messages without an account",
+      "identifier": "com.google.android.apps.messaging:id/secondary_action_button",
+      "rect": {
+        "x": 42,
+        "y": 2172,
+        "width": 996,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 11,
+      "parentIndex": 18,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "androidx.compose.ui.platform.ComposeView",
+      "kind": "composeview",
+      "identifier": "com.google.android.apps.messaging:id/compose_view",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 1620
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 8,
+      "parentIndex": 14,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e22"
     },
     {
       "index": 22,
-      "type": "androidx.compose.ui.viewinterop.AndroidViewHolder",
-      "kind": "androidviewholder",
+      "type": "android.widget.ScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 53,
+        "y": 195,
+        "width": 974,
+        "height": 1567
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 9,
+      "parentIndex": 21,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "kex",
+      "kind": "kex",
       "rect": {
         "x": 331,
         "y": 216,
@@ -480,12 +499,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 21,
+      "parentIndex": 22,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e23"
+      "ref": "e24"
     },
     {
-      "index": 23,
+      "index": 24,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "label": "Google Messages",
@@ -501,12 +520,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 11,
-      "parentIndex": 22,
+      "parentIndex": 23,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e24"
+      "ref": "e25"
     },
     {
-      "index": 24,
+      "index": 25,
       "type": "android.widget.ImageView",
       "kind": "image",
       "identifier": "com.google.android.apps.messaging:id/logo",
@@ -522,16 +541,15 @@
       "password": false,
       "visibleToUser": true,
       "depth": 12,
-      "parentIndex": 23,
+      "parentIndex": 24,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e25"
+      "ref": "e26"
     },
     {
-      "index": 25,
+      "index": 26,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Messages",
-      "value": "Messages",
       "identifier": "com.google.android.apps.messaging:id/product_name",
       "rect": {
         "x": 519,
@@ -545,16 +563,15 @@
       "password": false,
       "visibleToUser": true,
       "depth": 12,
-      "parentIndex": 23,
+      "parentIndex": 24,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e26"
+      "ref": "e27"
     },
     {
-      "index": 26,
+      "index": 27,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Welcome!",
-      "value": "Welcome!",
       "rect": {
         "x": 276,
         "y": 365,
@@ -567,29 +584,7 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 21,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e27"
-    },
-    {
-      "index": 27,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Sign into your Google account to get the very best of Messages",
-      "value": "Sign into your Google account to get the very best of Messages",
-      "rect": {
-        "x": 70,
-        "y": 518,
-        "width": 940,
-        "height": 258
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 21,
+      "parentIndex": 22,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e28"
     },
@@ -597,34 +592,11 @@
       "index": 28,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Chat with Gemini in Messages (Available in select regions)",
-      "value": "Chat with Gemini in Messages (Available in select regions)",
+      "label": "Sign into your Google account to get the very best of Messages",
       "rect": {
-        "x": 316,
-        "y": 1007,
-        "width": 606,
-        "height": 222
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 21,
-      "bundleId": "com.google.android.apps.messaging",
-      "ref": "e29"
-    },
-    {
-      "index": 29,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Sync chats across your devices",
-      "value": "Sync chats across your devices",
-      "rect": {
-        "x": 316,
-        "y": 1334,
-        "width": 606,
+        "x": 70,
+        "y": 518,
+        "width": 940,
         "height": 148
       },
       "enabled": true,
@@ -633,21 +605,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 21,
+      "parentIndex": 22,
       "bundleId": "com.google.android.apps.messaging",
-      "ref": "e30"
+      "ref": "e29"
     },
     {
-      "index": 30,
+      "index": 29,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Google and your carrier will periodically verify your device info to enable Google services. Carrier rates apply.",
-      "value": "Google and your carrier will periodically verify your device info to enable Google services. Carrier rates apply.",
+      "label": "Chat with Gemini in Messages (Available in select regions)",
       "rect": {
-        "x": 53,
-        "y": 1640,
-        "width": 974,
-        "height": 112
+        "x": 316,
+        "y": 897,
+        "width": 606,
+        "height": 106
       },
       "enabled": true,
       "selected": false,
@@ -655,9 +626,72 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 21,
+      "parentIndex": 22,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e30"
+    },
+    {
+      "index": 30,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Sync chats across your devices",
+      "rect": {
+        "x": 316,
+        "y": 1129,
+        "width": 508,
+        "height": 53
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 22,
       "bundleId": "com.google.android.apps.messaging",
       "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Securely back up and restore messages",
+      "rect": {
+        "x": 316,
+        "y": 1308,
+        "width": 606,
+        "height": 106
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 22,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Google and your carrier will periodically verify your device info to enable Google services. Carrier rates apply.",
+      "rect": {
+        "x": 53,
+        "y": 1614,
+        "width": 974,
+        "height": 84
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 22,
+      "bundleId": "com.google.android.apps.messaging",
+      "ref": "e33"
     }
   ],
   "platform": "android",

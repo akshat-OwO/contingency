@@ -6,7 +6,7 @@ export { AndroidStreamPacket } from "@contingency/protocol";
  * dashboard and its session recorder are never loaded.
  */
 export const androidStreamRelease = {
-  hub: "0.15.3",
+  hub: "0.26.1",
   scrcpy: "4.0",
   sha256: "84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a",
 } as const;

@@ -1,19 +1,18 @@
 {
-  "capturedAt": "2026-11-09T17:37:26.168Z",
+  "capturedAt": "2026-11-21T14:29:37.645Z",
   "nodes": [
     {
       "index": 0,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "12:14",
-      "value": "12:14",
-      "contentDescription": "12:14 AM",
+      "label": "7:59",
+      "contentDescription": "7:59 PM",
       "identifier": "com.android.systemui:id/clock",
       "rect": {
         "x": 11,
-        "y": 41,
-        "width": 160,
-        "height": 59
+        "y": 49,
+        "width": 104,
+        "height": 43
       },
       "enabled": true,
       "selected": false,
@@ -28,11 +27,11 @@
       "index": 1,
       "type": "android.widget.ImageView",
       "kind": "image",
-      "label": "Android System notification: ",
+      "label": "Security & privacy notification: ",
       "rect": {
-        "x": 171,
+        "x": 115,
         "y": 0,
-        "width": 67,
+        "width": 58,
         "height": 142
       },
       "enabled": true,
@@ -51,10 +50,10 @@
       "label": "Wifi signal full.",
       "identifier": "com.android.systemui:id/wifi_signal",
       "rect": {
-        "x": 840,
-        "y": 44,
-        "width": 53,
-        "height": 53
+        "x": 891,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
@@ -67,14 +66,15 @@
     },
     {
       "index": 3,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "label": "Airplane mode.",
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "T-Mobile, three bars.",
+      "identifier": "com.android.systemui:id/mobile_combo",
       "rect": {
-        "x": 907,
-        "y": 37,
-        "width": 54,
-        "height": 67
+        "x": 930,
+        "y": 42,
+        "width": 39,
+        "height": 58
       },
       "enabled": true,
       "selected": false,
@@ -87,34 +87,55 @@
     },
     {
       "index": 4,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "label": "Battery charging, 100 percent.",
-      "identifier": "com.android.systemui:id/battery",
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.systemui:id/mobile_signal",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 930,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 0,
+      "depth": 1,
+      "parentIndex": 3,
       "bundleId": "com.android.systemui",
       "ref": "e5"
     },
     {
       "index": 5,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
       "type": "android.widget.ImageView",
       "kind": "image",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
       },
       "enabled": true,
       "selected": false,
@@ -122,19 +143,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 4,
+      "parentIndex": 5,
       "bundleId": "com.android.systemui",
-      "ref": "e6"
+      "ref": "e7"
     },
     {
-      "index": 6,
+      "index": 7,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -143,17 +164,17 @@
       "visibleToUser": true,
       "depth": 0,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e7"
+      "ref": "e8"
     },
     {
-      "index": 7,
+      "index": 8,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -161,20 +182,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 6,
+      "parentIndex": 7,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e8"
+      "ref": "e9"
     },
     {
-      "index": 8,
+      "index": 9,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "identifier": "android:id/content",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -182,19 +203,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 2,
-      "parentIndex": 7,
+      "parentIndex": 8,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e9"
+      "ref": "e10"
     },
     {
-      "index": 9,
+      "index": 10,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -202,19 +223,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 3,
-      "parentIndex": 8,
+      "parentIndex": 9,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e10"
+      "ref": "e11"
     },
     {
-      "index": 10,
+      "index": 11,
       "type": "android.widget.HorizontalScrollView",
       "kind": "horizontalscrollview",
       "rect": {
         "x": 24,
-        "y": 96,
+        "y": 142,
         "width": 1032,
-        "height": 126
+        "height": 80
       },
       "enabled": true,
       "selected": false,
@@ -223,26 +244,6 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 4,
-      "parentIndex": 9,
-      "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e11"
-    },
-    {
-      "index": 11,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "rect": {
-        "x": 24,
-        "y": 96,
-        "width": 1032,
-        "height": 126
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 5,
       "parentIndex": 10,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e12"
@@ -251,81 +252,99 @@
       "index": 12,
       "type": "android.widget.LinearLayout",
       "kind": "group",
-      "label": "Controls",
       "rect": {
         "x": 24,
-        "y": 96,
-        "width": 344,
-        "height": 126
+        "y": 142,
+        "width": 1032,
+        "height": 80
       },
       "enabled": true,
       "selected": false,
-      "roleDescription": "Tab",
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "hittable": true,
-      "depth": 6,
+      "depth": 5,
       "parentIndex": 11,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e13"
     },
     {
       "index": 13,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "CONTROLS",
-      "value": "CONTROLS",
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Controls",
       "rect": {
-        "x": 72,
-        "y": 130,
-        "width": 248,
-        "height": 58
+        "x": 24,
+        "y": 142,
+        "width": 344,
+        "height": 80
       },
       "enabled": true,
       "selected": false,
+      "roleDescription": "Tab",
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 7,
+      "hittable": true,
+      "depth": 6,
       "parentIndex": 12,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e14"
     },
     {
       "index": 14,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "label": "List",
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "CONTROLS",
       "rect": {
-        "x": 368,
-        "y": 96,
-        "width": 344,
-        "height": 126
+        "x": 90,
+        "y": 142,
+        "width": 211,
+        "height": 42
       },
       "enabled": true,
-      "selected": true,
-      "roleDescription": "Tab",
+      "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "hittable": true,
-      "depth": 6,
-      "parentIndex": 11,
+      "depth": 7,
+      "parentIndex": 13,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e15"
     },
     {
       "index": 15,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "List",
+      "rect": {
+        "x": 368,
+        "y": 142,
+        "width": 344,
+        "height": 80
+      },
+      "enabled": true,
+      "selected": true,
+      "roleDescription": "Tab",
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 12,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e16"
+    },
+    {
+      "index": 16,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "LIST",
-      "value": "LIST",
       "rect": {
-        "x": 481,
-        "y": 125,
-        "width": 118,
-        "height": 68
+        "x": 497,
+        "y": 142,
+        "width": 85,
+        "height": 42
       },
       "enabled": true,
       "selected": true,
@@ -333,20 +352,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 7,
-      "parentIndex": 14,
+      "parentIndex": 15,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e16"
+      "ref": "e17"
     },
     {
-      "index": 16,
+      "index": 17,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "label": "Web",
       "rect": {
         "x": 712,
-        "y": 96,
+        "y": 142,
         "width": 344,
-        "height": 126
+        "height": 80
       },
       "enabled": true,
       "selected": false,
@@ -356,21 +375,20 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 11,
+      "parentIndex": 12,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e17"
+      "ref": "e18"
     },
     {
-      "index": 17,
+      "index": 18,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "WEB",
-      "value": "WEB",
       "rect": {
-        "x": 826,
-        "y": 125,
-        "width": 116,
-        "height": 68
+        "x": 842,
+        "y": 142,
+        "width": 84,
+        "height": 42
       },
       "enabled": true,
       "selected": false,
@@ -378,12 +396,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 7,
-      "parentIndex": 16,
+      "parentIndex": 17,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e18"
+      "ref": "e19"
     },
     {
-      "index": 18,
+      "index": 19,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
@@ -398,21 +416,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 4,
-      "parentIndex": 9,
+      "parentIndex": 10,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e19"
+      "ref": "e20"
     },
     {
-      "index": 19,
+      "index": 20,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Last action: Continue",
-      "value": "Last action: Continue",
       "rect": {
         "x": 24,
         "y": 222,
         "width": 1032,
-        "height": 68
+        "height": 51
       },
       "enabled": true,
       "selected": false,
@@ -420,19 +437,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 5,
-      "parentIndex": 18,
+      "parentIndex": 19,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e20"
+      "ref": "e21"
     },
     {
-      "index": 20,
+      "index": 21,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
         "x": 24,
-        "y": 290,
+        "y": 273,
         "width": 1032,
-        "height": 194
+        "height": 162
       },
       "enabled": true,
       "selected": false,
@@ -441,29 +458,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 5,
-      "parentIndex": 18,
-      "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e21"
-    },
-    {
-      "index": 21,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Anvil",
-      "value": "Anvil",
-      "rect": {
-        "x": 24,
-        "y": 314,
-        "width": 1032,
-        "height": 78
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 6,
-      "parentIndex": 20,
+      "parentIndex": 19,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e22"
     },
@@ -471,13 +466,12 @@
       "index": 22,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "$7.00",
-      "value": "$7.00",
+      "label": "Anvil",
       "rect": {
         "x": 24,
-        "y": 392,
+        "y": 297,
         "width": 1032,
-        "height": 68
+        "height": 63
       },
       "enabled": true,
       "selected": false,
@@ -485,19 +479,40 @@
       "password": false,
       "visibleToUser": true,
       "depth": 6,
-      "parentIndex": 20,
+      "parentIndex": 21,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e23"
     },
     {
       "index": 23,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "$7.00",
+      "rect": {
+        "x": 24,
+        "y": 360,
+        "width": 1032,
+        "height": 51
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 21,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e24"
+    },
+    {
+      "index": 24,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
         "x": 24,
-        "y": 484,
+        "y": 435,
         "width": 1032,
-        "height": 194
+        "height": 162
       },
       "enabled": true,
       "selected": false,
@@ -506,29 +521,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 5,
-      "parentIndex": 18,
-      "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e24"
-    },
-    {
-      "index": 24,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Rocket skates",
-      "value": "Rocket skates",
-      "rect": {
-        "x": 24,
-        "y": 508,
-        "width": 1032,
-        "height": 78
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 6,
-      "parentIndex": 23,
+      "parentIndex": 19,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e25"
     },
@@ -536,13 +529,12 @@
       "index": 25,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "$14.00",
-      "value": "$14.00",
+      "label": "Rocket skates",
       "rect": {
         "x": 24,
-        "y": 586,
+        "y": 459,
         "width": 1032,
-        "height": 68
+        "height": 63
       },
       "enabled": true,
       "selected": false,
@@ -550,17 +542,38 @@
       "password": false,
       "visibleToUser": true,
       "depth": 6,
-      "parentIndex": 23,
+      "parentIndex": 24,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e26"
     },
     {
       "index": 26,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "$14.00",
+      "rect": {
+        "x": 24,
+        "y": 522,
+        "width": 1032,
+        "height": 51
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 6,
+      "parentIndex": 24,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e27"
+    },
+    {
+      "index": 27,
       "type": "android.widget.ListView",
       "kind": "list",
       "rect": {
         "x": 24,
-        "y": 678,
+        "y": 597,
         "width": 1032,
         "height": 1200
       },
@@ -571,31 +584,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 5,
-      "parentIndex": 18,
-      "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e27"
-    },
-    {
-      "index": 27,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Product 1",
-      "value": "Product 1",
-      "identifier": "android:id/text1",
-      "rect": {
-        "x": 24,
-        "y": 678,
-        "width": 1032,
-        "height": 126
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 19,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e28"
     },
@@ -603,12 +592,11 @@
       "index": 28,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 2",
-      "value": "Product 2",
+      "label": "Product 1",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 807,
+        "y": 597,
         "width": 1032,
         "height": 126
       },
@@ -619,7 +607,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e29"
     },
@@ -627,12 +615,11 @@
       "index": 29,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 3",
-      "value": "Product 3",
+      "label": "Product 2",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 936,
+        "y": 726,
         "width": 1032,
         "height": 126
       },
@@ -643,7 +630,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e30"
     },
@@ -651,12 +638,11 @@
       "index": 30,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 4",
-      "value": "Product 4",
+      "label": "Product 3",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1065,
+        "y": 855,
         "width": 1032,
         "height": 126
       },
@@ -667,7 +653,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e31"
     },
@@ -675,12 +661,11 @@
       "index": 31,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 5",
-      "value": "Product 5",
+      "label": "Product 4",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1194,
+        "y": 984,
         "width": 1032,
         "height": 126
       },
@@ -691,7 +676,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e32"
     },
@@ -699,12 +684,11 @@
       "index": 32,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 6",
-      "value": "Product 6",
+      "label": "Product 5",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1323,
+        "y": 1113,
         "width": 1032,
         "height": 126
       },
@@ -715,7 +699,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e33"
     },
@@ -723,12 +707,11 @@
       "index": 33,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 7",
-      "value": "Product 7",
+      "label": "Product 6",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1452,
+        "y": 1242,
         "width": 1032,
         "height": 126
       },
@@ -739,7 +722,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e34"
     },
@@ -747,12 +730,11 @@
       "index": 34,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 8",
-      "value": "Product 8",
+      "label": "Product 7",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1581,
+        "y": 1371,
         "width": 1032,
         "height": 126
       },
@@ -763,7 +745,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e35"
     },
@@ -771,12 +753,11 @@
       "index": 35,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 9",
-      "value": "Product 9",
+      "label": "Product 8",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1710,
+        "y": 1500,
         "width": 1032,
         "height": 126
       },
@@ -787,7 +768,7 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
       "ref": "e36"
     },
@@ -795,12 +776,34 @@
       "index": 36,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Product 10",
-      "value": "Product 10",
+      "label": "Product 9",
       "identifier": "android:id/text1",
       "rect": {
         "x": 24,
-        "y": 1839,
+        "y": 1629,
+        "width": 1032,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 6,
+      "parentIndex": 27,
+      "bundleId": "dev.contingency.physicalfixture",
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Product 10",
+      "identifier": "android:id/text1",
+      "rect": {
+        "x": 24,
+        "y": 1758,
         "width": 1032,
         "height": 39
       },
@@ -811,9 +814,9 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 6,
-      "parentIndex": 26,
+      "parentIndex": 27,
       "bundleId": "dev.contingency.physicalfixture",
-      "ref": "e37"
+      "ref": "e38"
     }
   ],
   "platform": "android",

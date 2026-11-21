@@ -354,6 +354,56 @@ it.effect(
     })
 );
 
+it.effect(
+  "reports secure_window when capture itself fails on a secure window between checks",
+  () =>
+    Effect.gen(function* refuseSecureCaptureFailure() {
+      const { backend, input } = yield* makeFixture();
+      let secure = false;
+      let screenCheckFails: "none" | "secure" | "disconnected" = "none";
+      const runtime = yield* adaptAndroidRuntime({
+        backend: {
+          ...backend,
+          capture: () =>
+            secure
+              ? Effect.fail(platformRuntimeError("runtime_failed"))
+              : backend.capture(),
+          requireVisibleScreen: () => {
+            if (screenCheckFails === "secure") {
+              return Effect.fail(platformRuntimeError("secure_window"));
+            }
+            if (screenCheckFails === "disconnected") {
+              return Effect.fail(platformRuntimeError("device_disconnected"));
+            }
+            return Effect.void;
+          },
+        },
+        startup: input,
+      });
+      yield* runtime.observe();
+      // Android 11 screencap fails on FLAG_SECURE before the post-capture check runs.
+      secure = true;
+      screenCheckFails = "secure";
+      expect((yield* Effect.flip(runtime.observe())).code).toBe(
+        "secure_window"
+      );
+      expect(runtime.state()).toMatchObject({
+        failure: { code: "secure_window" },
+        observationId: null,
+        phase: "paused",
+      });
+      // Non-secure visibility failures do not hide the original capture failure.
+      secure = false;
+      screenCheckFails = "none";
+      yield* runtime.recover();
+      secure = true;
+      screenCheckFails = "disconnected";
+      expect((yield* Effect.flip(runtime.observe())).code).toBe(
+        "runtime_failed"
+      );
+    })
+);
+
 it.effect("does not replay a failed dispatched action", () =>
   Effect.gen(function* uncertainDispatch() {
     const { backend, commands, input } = yield* makeFixture();

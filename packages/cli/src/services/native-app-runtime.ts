@@ -131,14 +131,29 @@ export const adaptNativeAppRuntime = <
         yield* input.backend.validate();
         validatedAt = now;
       }
-      const captured = yield* input.backend.capture().pipe(
+      const attempt = yield* input.backend.capture().pipe(
         Effect.retry({
           schedule: Schedule.spaced(CAPTURE_SETTLE_SPACING).pipe(
             Schedule.upTo({ duration: CAPTURE_SETTLE_WINDOW })
           ),
           while: (cause) => cause.code === "capture_incomplete",
-        })
+        }),
+        Effect.result
       );
+      if (attempt._tag === "Failure") {
+        // Android 11 refuses screencap on FLAG_SECURE before post-capture
+        // checks run, so verify visibility on capture failure too.
+        const visibility = yield* (
+          input.backend.requireVisibleScreen?.() ?? Effect.void
+        ).pipe(Effect.result);
+        return yield* Effect.fail(
+          visibility._tag === "Failure" &&
+            visibility.failure.code === "secure_window"
+            ? visibility.failure
+            : attempt.failure
+        );
+      }
+      const captured = attempt.success;
       // A capture of a secure window is not evidence, whatever the cadence.
       yield* input.backend.requireVisibleScreen?.() ?? Effect.void;
       const foreground = input.foreground?.(captured);

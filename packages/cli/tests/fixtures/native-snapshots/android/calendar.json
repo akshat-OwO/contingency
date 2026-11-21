@@ -1,19 +1,18 @@
 {
-  "capturedAt": "2026-11-09T17:37:38.152Z",
+  "capturedAt": "2026-11-21T14:29:46.978Z",
   "nodes": [
     {
       "index": 0,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "12:14",
-      "value": "12:14",
-      "contentDescription": "12:14 AM",
+      "label": "7:59",
+      "contentDescription": "7:59 PM",
       "identifier": "com.android.systemui:id/clock",
       "rect": {
         "x": 11,
-        "y": 41,
-        "width": 160,
-        "height": 59
+        "y": 49,
+        "width": 104,
+        "height": 43
       },
       "enabled": true,
       "selected": false,
@@ -28,11 +27,11 @@
       "index": 1,
       "type": "android.widget.ImageView",
       "kind": "image",
-      "label": "Android System notification: ",
+      "label": "Security & privacy notification: ",
       "rect": {
-        "x": 171,
+        "x": 115,
         "y": 0,
-        "width": 67,
+        "width": 58,
         "height": 142
       },
       "enabled": true,
@@ -51,10 +50,10 @@
       "label": "Wifi signal full.",
       "identifier": "com.android.systemui:id/wifi_signal",
       "rect": {
-        "x": 840,
-        "y": 44,
-        "width": 53,
-        "height": 53
+        "x": 891,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
@@ -67,14 +66,15 @@
     },
     {
       "index": 3,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "label": "Airplane mode.",
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "T-Mobile, three bars.",
+      "identifier": "com.android.systemui:id/mobile_combo",
       "rect": {
-        "x": 907,
-        "y": 37,
-        "width": 54,
-        "height": 67
+        "x": 930,
+        "y": 42,
+        "width": 39,
+        "height": 58
       },
       "enabled": true,
       "selected": false,
@@ -87,15 +87,36 @@
     },
     {
       "index": 4,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.systemui:id/mobile_signal",
+      "rect": {
+        "x": 930,
+        "y": 51,
+        "width": 39,
+        "height": 39
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 3,
+      "bundleId": "com.android.systemui",
+      "ref": "e5"
+    },
+    {
+      "index": 5,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "label": "Battery charging, 100 percent.",
       "identifier": "com.android.systemui:id/battery",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
       },
       "enabled": true,
       "selected": false,
@@ -104,17 +125,17 @@
       "visibleToUser": true,
       "depth": 0,
       "bundleId": "com.android.systemui",
-      "ref": "e5"
+      "ref": "e6"
     },
     {
-      "index": 5,
+      "index": 6,
       "type": "android.widget.ImageView",
       "kind": "image",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
       },
       "enabled": true,
       "selected": false,
@@ -122,12 +143,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 4,
+      "parentIndex": 5,
       "bundleId": "com.android.systemui",
-      "ref": "e6"
+      "ref": "e7"
     },
     {
-      "index": 6,
+      "index": 7,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "rect": {
@@ -143,10 +164,10 @@
       "visibleToUser": true,
       "depth": 0,
       "bundleId": "com.google.android.gms",
-      "ref": "e7"
+      "ref": "e8"
     },
     {
-      "index": 7,
+      "index": 8,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
@@ -161,12 +182,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 6,
+      "parentIndex": 7,
       "bundleId": "com.google.android.gms",
-      "ref": "e8"
+      "ref": "e9"
     },
     {
-      "index": 8,
+      "index": 9,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "identifier": "android:id/content",
@@ -182,12 +203,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 2,
-      "parentIndex": 7,
+      "parentIndex": 8,
       "bundleId": "com.google.android.gms",
-      "ref": "e9"
+      "ref": "e10"
     },
     {
-      "index": 9,
+      "index": 10,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "rect": {
@@ -202,12 +223,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 3,
-      "parentIndex": 8,
+      "parentIndex": 9,
       "bundleId": "com.google.android.gms",
-      "ref": "e10"
+      "ref": "e11"
     },
     {
-      "index": 10,
+      "index": 11,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "identifier": "com.google.android.gms:id/glif_layout",
@@ -223,12 +244,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 4,
-      "parentIndex": 9,
+      "parentIndex": 10,
       "bundleId": "com.google.android.gms",
-      "ref": "e11"
+      "ref": "e12"
     },
     {
-      "index": 11,
+      "index": 12,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "identifier": "com.google.android.gms:id/suc_layout_status",
@@ -244,12 +265,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 5,
-      "parentIndex": 10,
+      "parentIndex": 11,
       "bundleId": "com.google.android.gms",
-      "ref": "e12"
+      "ref": "e13"
     },
     {
-      "index": 12,
+      "index": 13,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "identifier": "com.google.android.gms:id/sud_layout_template_content",
@@ -265,12 +286,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 6,
-      "parentIndex": 11,
+      "parentIndex": 12,
       "bundleId": "com.google.android.gms",
-      "ref": "e13"
+      "ref": "e14"
     },
     {
-      "index": 13,
+      "index": 14,
       "type": "android.widget.ScrollView",
       "kind": "scroll-area",
       "identifier": "com.google.android.gms:id/sud_scroll_view",
@@ -287,12 +308,12 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 7,
-      "parentIndex": 12,
+      "parentIndex": 13,
       "bundleId": "com.google.android.gms",
-      "ref": "e14"
+      "ref": "e15"
     },
     {
-      "index": 14,
+      "index": 15,
       "type": "android.widget.ImageView",
       "kind": "image",
       "identifier": "com.google.android.gms:id/sud_layout_icon",
@@ -308,22 +329,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 13,
+      "parentIndex": 14,
       "bundleId": "com.google.android.gms",
-      "ref": "e15"
+      "ref": "e16"
     },
     {
-      "index": 15,
+      "index": 16,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Checking info…",
-      "value": "Checking info…",
       "identifier": "com.google.android.gms:id/suc_layout_title",
       "rect": {
         "x": 120,
         "y": 415,
         "width": 954,
-        "height": 93
+        "height": 85
       },
       "enabled": true,
       "selected": false,
@@ -332,18 +352,18 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 13,
+      "parentIndex": 14,
       "bundleId": "com.google.android.gms",
-      "ref": "e16"
+      "ref": "e17"
     },
     {
-      "index": 16,
+      "index": 17,
       "type": "android.widget.ProgressBar",
       "kind": "progressbar",
       "identifier": "com.google.android.gms:id/progress_bar",
       "rect": {
         "x": 187,
-        "y": 1090,
+        "y": 1086,
         "width": 819,
         "height": 693
       },
@@ -353,9 +373,9 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 13,
+      "parentIndex": 14,
       "bundleId": "com.google.android.gms",
-      "ref": "e17"
+      "ref": "e18"
     }
   ],
   "platform": "android",

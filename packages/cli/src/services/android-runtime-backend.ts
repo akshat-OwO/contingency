@@ -410,7 +410,7 @@ export const acquireAndroidBackend = (
           readFile(
             path.join(
               packageRoot,
-              "android/snapshot-helper/dist/agent-device-android-snapshot-helper-0.21.25.manifest.json"
+              `android/snapshot-helper/dist/agent-device-android-snapshot-helper-${androidHelperRelease.version}.manifest.json`
             ),
             "utf-8"
           ),
@@ -419,7 +419,7 @@ export const acquireAndroidBackend = (
     );
     const apk = path.join(
       packageRoot,
-      "android/snapshot-helper/dist/agent-device-android-snapshot-helper-0.21.25.apk"
+      `android/snapshot-helper/dist/agent-device-android-snapshot-helper-${androidHelperRelease.version}.apk`
     );
     const bytes = yield* io(() => readFile(apk), "helper_incompatible");
     if (createHash("sha256").update(bytes).digest("hex") !== manifest.sha256) {
@@ -653,7 +653,9 @@ export const acquireAndroidBackend = (
               }
             }
             const target = (node: SnapshotNode) =>
-              `@${node.ref.replace(/^@/u, "")}~s${generation}`;
+              node.ref === undefined
+                ? ""
+                : `@${node.ref.replace(/^@/u, "")}~s${generation}`;
             const id = randomUUID();
             const screenshotPath = path.join(
               directory,
@@ -680,11 +682,15 @@ export const acquireAndroidBackend = (
               generation,
               id,
               nodes: snapshot.nodes.map((node, index) => {
+                const ref = target(node);
+                const interaction = androidNodeInteraction(node);
                 const observed: AndroidObservation["nodes"][number] = {
-                  ...androidNodeInteraction(node),
+                  ...interaction,
+                  editable: ref !== "" && interaction.editable,
+                  hittable: ref !== "" && interaction.hittable,
                   name: androidNodeName(snapshot.nodes, index),
                   packageName: node.bundleId ?? null,
-                  target: target(node),
+                  target: ref,
                 };
                 if (node.rect === undefined) {
                   return observed;
