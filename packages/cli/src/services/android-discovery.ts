@@ -50,8 +50,9 @@ export interface CachedAppMetadata {
 
 export interface AndroidAppMetadataCache {
   readonly load: () => Effect.Effect<ReadonlyMap<string, CachedAppMetadata>>;
+  /** Merges newly verified entries into the persisted cache. */
   readonly save: (
-    entries: ReadonlyMap<string, CachedAppMetadata>
+    updates: ReadonlyMap<string, CachedAppMetadata>
   ) => Effect.Effect<void>;
 }
 
@@ -230,60 +231,92 @@ export const noopAndroidAppMetadataCache: AndroidAppMetadataCache = {
 export const makeFileAndroidAppMetadataCache = (
   filePath: string = defaultAndroidAppMetadataCachePath(),
   maxEntries: number = MAX_CACHE_ENTRIES
-): AndroidAppMetadataCache => ({
-  load: () =>
-    Effect.promise(async () => {
-      try {
-        const raw = await readFile(filePath, "utf-8");
-        const parsed: unknown = JSON.parse(raw);
-        const decoded = Schema.decodeUnknownOption(
-          AndroidAppMetadataCacheFileSchema
-        )(parsed);
-        if (Option.isNone(decoded)) {
-          return new Map<string, CachedAppMetadata>();
-        }
-        return new Map<string, CachedAppMetadata>(
-          Object.entries(decoded.value.entries)
-        );
-      } catch {
+): AndroidAppMetadataCache => {
+  const readDiskEntries = async (): Promise<Map<string, CachedAppMetadata>> => {
+    try {
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      const decoded = Schema.decodeUnknownOption(
+        AndroidAppMetadataCacheFileSchema
+      )(parsed);
+      if (Option.isNone(decoded)) {
         return new Map<string, CachedAppMetadata>();
       }
-    }),
-  save: (entries) =>
-    Effect.promise(async () => {
-      try {
-        const bounded = [...entries.entries()]
-          .toSorted((a, b) => b[1].updatedAt - a[1].updatedAt)
-          .slice(0, maxEntries);
-        const payload = {
-          entries: Object.fromEntries(bounded),
-          version: 1 as const,
-        };
-        const dir = path.dirname(filePath);
-        await mkdir(dir, { recursive: true });
-        const temporary = path.join(
-          dir,
-          `.android-app-metadata.${process.pid}.${Date.now()}.tmp`
-        );
-        try {
-          await writeFile(temporary, JSON.stringify(payload), {
-            encoding: "utf-8",
-            mode: 0o600,
-          });
-          await rename(temporary, filePath);
-        } catch (error) {
-          try {
-            await rm(temporary, { force: true });
-          } catch {
-            // Best-effort temp cleanup.
-          }
-          throw error;
+      return new Map<string, CachedAppMetadata>(
+        Object.entries(decoded.value.entries)
+      );
+    } catch {
+      return new Map<string, CachedAppMetadata>();
+    }
+  };
+
+  let writeSequence = 0;
+  let pendingWrite: Promise<void> = Promise.resolve();
+  const serializeWrite = (task: () => Promise<void>) => {
+    const previous = pendingWrite;
+    const run = async () => {
+      await previous;
+      await task();
+    };
+    const next = run();
+    pendingWrite = next;
+    return next;
+  };
+
+  return {
+    load: () => Effect.promise(readDiskEntries),
+    save: (updates) =>
+      Effect.promise(async () => {
+        if (updates.size === 0) {
+          return;
         }
-      } catch {
-        // Best-effort cache write; never fail discovery.
-      }
-    }),
-});
+        await serializeWrite(async () => {
+          try {
+            const merged = await readDiskEntries();
+            for (const [key, entry] of updates) {
+              const existing = merged.get(key);
+              if (
+                existing === undefined ||
+                entry.updatedAt >= existing.updatedAt
+              ) {
+                merged.set(key, entry);
+              }
+            }
+            const bounded = [...merged.entries()]
+              .toSorted((a, b) => b[1].updatedAt - a[1].updatedAt)
+              .slice(0, maxEntries);
+            const payload = {
+              entries: Object.fromEntries(bounded),
+              version: 1 as const,
+            };
+            const dir = path.dirname(filePath);
+            await mkdir(dir, { recursive: true });
+            writeSequence += 1;
+            const temporary = path.join(
+              dir,
+              `.android-app-metadata.${process.pid}.${Date.now()}.${writeSequence}.tmp`
+            );
+            try {
+              await writeFile(temporary, JSON.stringify(payload), {
+                encoding: "utf-8",
+                mode: 0o600,
+              });
+              await rename(temporary, filePath);
+            } catch (error) {
+              try {
+                await rm(temporary, { force: true });
+              } catch {
+                // Best-effort temp cleanup.
+              }
+              throw error;
+            }
+          } catch {
+            // Best-effort cache write; never fail discovery.
+          }
+        });
+      }),
+  };
+};
 
 const metadataCacheKey = (
   fingerprint: string,
@@ -648,7 +681,7 @@ export const makeAndroidDiscovery = (
           cacheEntries
         );
 
-        let cacheDirty = false;
+        const verifiedUpdates = new Map<string, CachedAppMetadata>();
         let enrichmentStopped = false;
 
         const resolveApkPath = (item: PendingEnrichment) =>
@@ -775,13 +808,14 @@ export const makeAndroidDiscovery = (
               apk,
               resolvedVersionCode
             );
-            cacheEntries.set(key, {
+            const entry: CachedAppMetadata = {
               label: decoded.value.label,
               updatedAt: Date.now(),
               versionCode: decoded.value.versionCode,
               versionName: decoded.value.versionName,
-            });
-            cacheDirty = true;
+            };
+            cacheEntries.set(key, entry);
+            verifiedUpdates.set(key, entry);
             return {
               _tag: "metadata" as const,
               label: decoded.value.label,
@@ -807,10 +841,13 @@ export const makeAndroidDiscovery = (
           Stream.filter(
             (event): event is AndroidDiscoveredAppsEvent => event !== null
           ),
-          // Persist already-verified metadata even when the subscriber cancels early.
+          // Persist only this stream's newly verified entries, merged with any
+          // concurrent stream's writes, even when the subscriber cancels early.
           Stream.ensuring(
             Effect.suspend(() =>
-              cacheDirty ? cache.save(cacheEntries) : Effect.void
+              verifiedUpdates.size > 0
+                ? cache.save(verifiedUpdates)
+                : Effect.void
             )
           )
         );

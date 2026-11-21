@@ -368,13 +368,38 @@ it.effect(
 
         yield* Deferred.await(firstMetadataSeen);
         yield* Deferred.await(secondApkStarted);
-        // Cancel while dev.two is still pending; dev.one's verified label must be persisted.
+
+        // Let a second overlapping stream finish and persist a distinct label
+        // before canceling the first stream.
+        const secondDiscovery = makeAndroidDiscovery({
+          adb: (args) =>
+            Effect.sync(() => {
+              const command = args.slice(2).join(" ");
+              if (command.includes("query-activities")) {
+                return "dev.three/.Main";
+              }
+              if (command.includes("pm list packages")) {
+                return "package:/data/app/three/base.apk=dev.three versionCode:3";
+              }
+              return properties.get(command) ?? "";
+            }),
+          cache,
+          readApk: () =>
+            Effect.succeed(
+              "package: name='dev.three' versionCode='3' versionName='3.0'\napplication-label:'App Three'"
+            ),
+        });
+        expect(yield* secondDiscovery.apps(device)).toMatchObject([
+          { label: "App Three", package: "dev.three" },
+        ]);
+
+        // Cancel stream A while dev.two is still pending; both verified labels must remain on disk.
         yield* Fiber.interrupt(fiber);
 
         const saved = yield* cache.load();
-        expect([...saved.values()].map((entry) => entry.label)).toEqual([
-          "App One",
-        ]);
+        expect(
+          [...saved.values()].map((entry) => entry.label).toSorted()
+        ).toEqual(["App One", "App Three"]);
       })
     )
 );
