@@ -269,3 +269,73 @@ test("a link to a session with no record says it is gone and selects nothing", a
   expect(screen.queryByText("The Android session did not answer")).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Agent Session" })).toBeNull();
 });
+
+test("a setting the device accepts after the route moved on counts for its own session", async () => {
+  const user = userEvent.setup();
+  const live = (id: string, flow: string): AndroidWorkspaceSnapshot => ({
+    ...completed,
+    completedAt: null,
+    controller: "user",
+    emulation: { appearance: "light", orientation: "portrait" },
+    flowName: FlowName.make(flow),
+    id: AgentSessionId.make(id),
+    kind: "dry-run",
+    phase: "running",
+    preparation: {
+      differences: [],
+      evidence: [{ type: "observation" }],
+      pending: [],
+      phase: "ready",
+    },
+  });
+  const snapshots = new Map([
+    ["agent-a", live("agent-a", "flow-a")],
+    ["agent-b", live("agent-b", "flow-b")],
+  ]);
+  const gate = Effect.runSync(Deferred.make<true>());
+  const command = (next: AndroidWorkspaceCommand) =>
+    Effect.gen(function* answer() {
+      const id = "sessionId" in next ? next.sessionId : "";
+      const current = snapshots.get(id);
+      if (current === undefined) {
+        return yield* Effect.fail(
+          makeBrowserRpcError("agent_session_not_found", "No such session.")
+        );
+      }
+      if (next._tag !== "emulate") {
+        return current;
+      }
+      // A's device answers only after the route has moved to B.
+      yield* Deferred.await(gate);
+      const applied: AndroidWorkspaceSnapshot = {
+        ...current,
+        emulation: { appearance: "dark", orientation: "portrait" },
+        revision: current.revision + 1,
+      };
+      snapshots.set(id, applied);
+      return applied;
+    });
+  const { rerender } = render(routed("agent-a", command));
+  const settings = await screen.findByRole("button", {
+    name: "Device settings",
+  });
+  await user.click(settings);
+  await user.click(await screen.findByRole("radio", { name: "Dark" }));
+  rerender(routed("agent-b", command));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("combobox", { name: "Agent Session" })
+    ).toHaveTextContent("flow-b")
+  );
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  // B never changed a setting, so it shows no badge.
+  expect(
+    screen.getByRole("button", { name: "Device settings" }).textContent
+  ).toBe("");
+  rerender(routed("agent-a", command));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Device settings" }).textContent
+    ).toBe("1")
+  );
+});
