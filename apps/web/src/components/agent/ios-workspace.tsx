@@ -378,6 +378,7 @@ const IosMirror = ({
       onKey={onDeviceKey}
       pick={pick}
       comments={comments}
+      sessionId={session.id}
       platform="iOS"
       stream={{
         device: iosDeviceName(session.selection.device),

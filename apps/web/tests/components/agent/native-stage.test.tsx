@@ -113,6 +113,7 @@ const renderStage = (props: Partial<Parameters<typeof NativeStage>[0]> = {}) =>
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
       {...props}
@@ -197,6 +198,7 @@ test("Stream diagnostics shows frames that arrive after it opens", async () => {
         onEmulate={vi.fn()}
         onKey={vi.fn()}
         platform="Android"
+        sessionId="s-a"
         // A new stream object each render, as the device's parent gives it.
         stream={stream({ state, stats: () => counts })}
         takeover={false}
@@ -280,6 +282,7 @@ test("losing control closes the cards only the person in control can use", async
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
     >
@@ -349,6 +352,7 @@ test("Device settings counts only what this session changed", async () => {
       onEmulate={onEmulate}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
     >
@@ -359,6 +363,59 @@ test("Device settings counts only what this session changed", async () => {
   expect(
     screen.getByRole("button", { name: "Device settings" }).textContent
   ).toBe("1");
+});
+
+test("a late Apply for one session does not count on the session shown next", async () => {
+  const user = userEvent.setup();
+  const onEmulate = vi.fn<EmulateDevice>();
+  const located = {
+    appearance: "light",
+    location: { latitude: 12.97, longitude: 77.59 },
+    orientation: "portrait",
+  } as const;
+  const stage = (sessionId: string) => (
+    <NativeStage
+      canAct
+      emulation={located}
+      frame={{ height: 2424, width: 1080 }}
+      lockedReason={undefined}
+      observation={observation}
+      onActivate={vi.fn()}
+      onEmulate={onEmulate}
+      onKey={vi.fn()}
+      platform="Android"
+      sessionId={sessionId}
+      stream={stream()}
+      takeover={false}
+    >
+      <canvas aria-label="Live device display" />
+    </NativeStage>
+  );
+  const { rerender } = render(stage("s-a"));
+  const settings = screen.getByRole("button", { name: "Device settings" });
+  await user.click(settings);
+  const card = screen.getByRole("region", { name: "Device settings" });
+  const location = within(card).getByRole("group", { name: "Location" });
+  await user.type(
+    within(location).getByRole("textbox", { name: "Latitude" }),
+    "12.97"
+  );
+  await user.type(
+    within(location).getByRole("textbox", { name: "Longitude" }),
+    "77.59"
+  );
+  await user.click(within(location).getByRole("button", { name: "Apply" }));
+  const onApplied = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onApplied);
+  // The route moves to session B before A's device answers.
+  rerender(stage("s-b"));
+  act(onApplied);
+  expect(within(card).queryByText(/Applied:/u)).toBeNull();
+  expect(settings.textContent).toBe("");
+  // Back on A, its own change still counts.
+  rerender(stage("s-a"));
+  expect(within(card).getByText("Applied: 12.97, 77.59")).toBeVisible();
+  expect(settings.textContent).toBe("1");
 });
 
 test("the Field Variable card and the cards sit beside the frame, not on it", async () => {
@@ -412,6 +469,7 @@ test("the frame keeps room for the cards beside it", async () => {
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
     >
@@ -443,6 +501,7 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
           onKey={vi.fn()}
           pick={commentPick(comment, setComment)}
           platform="iOS"
+          sessionId="s-a"
           stream={stream({ format: "JPEG" })}
           takeover={false}
         >

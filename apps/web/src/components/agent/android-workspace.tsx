@@ -1043,14 +1043,19 @@ export const AndroidWorkspace = ({
       instructionPending: false,
     }));
   }, [gesture.error, gesture.pending, instructionPending, setState]);
-  const run = (command: AndroidWorkspaceCommand): GestureRun => {
+  const run = (
+    command: AndroidWorkspaceCommand,
+    onApplied?: () => void
+  ): GestureRun => {
     const route = routeRef.current;
     return runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>
         Effect.sync(() => {
-          // The route moved on while this ran: it no longer shows the result.
+          // The route moved on while this ran: it no longer shows the result,
+          // so the session now shown must not count it either.
           if (routeRef.current === route || routeRef.current === session.id) {
             setState((current) => applySnapshot(current, session));
+            onApplied?.();
           }
           refresh();
         })
@@ -1060,11 +1065,7 @@ export const AndroidWorkspace = ({
     );
   };
   const mutate: Mutate = (command, onApplied) =>
-    gesture.dispatch(
-      onApplied === undefined
-        ? run(command)
-        : run(command).pipe(Effect.tap(() => Effect.sync(onApplied)))
-    );
+    gesture.dispatch(run(command, onApplied));
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (

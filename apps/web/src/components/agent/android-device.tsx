@@ -264,6 +264,30 @@ export type ChangedSettings = ReadonlySet<"appearance" | "location">;
 const noChangedSettings: ChangedSettings = new Set();
 
 /**
+ * The settings the shown session changed, and how to add one. The stage stays
+ * mounted when the route switches sessions, so each change names its session
+ * and another session reads none of them, even from a late response.
+ */
+const useChangedSettings = (
+  sessionId: string
+): readonly [ChangedSettings, (setting: "appearance" | "location") => void] => {
+  const [changedAtom] = useState(() =>
+    Atom.make({ owner: sessionId, settings: noChangedSettings })
+  );
+  const [held, setHeld] = useAtom(changedAtom);
+  return [
+    held.owner === sessionId ? held.settings : noChangedSettings,
+    (setting) =>
+      setHeld((current) => ({
+        owner: sessionId,
+        settings: new Set(
+          current.owner === sessionId ? current.settings : noChangedSettings
+        ).add(setting),
+      })),
+  ];
+};
+
+/**
  * How many settings this session changed away from the device's own: dark
  * appearance and a location. What the device already reported is its
  * environment, not a change, so it counts for nothing.
@@ -696,6 +720,7 @@ export const NativeStage = ({
   onKey,
   pick,
   platform,
+  sessionId,
   stream,
   takeover,
 }: {
@@ -715,6 +740,8 @@ export const NativeStage = ({
   /** The recording's comment pins, while Teaching records. */
   readonly comments?: NativeCommentPins | undefined;
   readonly platform: "Android" | "iOS";
+  /** The session shown, which owns the settings it changed. */
+  readonly sessionId: string;
   readonly stream: NativeStream;
   readonly takeover: boolean;
 }) => {
@@ -722,8 +749,7 @@ export const NativeStage = ({
   const [card, setCard] = useAtom(cardAtom);
   const [highlightAtom] = useState(() => Atom.make<ScreenBox | null>(null));
   const [highlight, setHighlight] = useAtom(highlightAtom);
-  const [changedAtom] = useState(() => Atom.make(noChangedSettings));
-  const [changed, setChanged] = useAtom(changedAtom);
+  const [changed, addChanged] = useChangedSettings(sessionId);
   const [since] = useState(() => performance.now());
   const active = activePick(pick, observation, setHighlight);
   const stage = useRef<HTMLElement>(null);
@@ -838,12 +864,7 @@ export const NativeStage = ({
                     const tag = change._tag;
                     onEmulate(
                       change,
-                      tag === "orientation"
-                        ? undefined
-                        : () =>
-                            setChanged((current): ChangedSettings =>
-                              new Set(current).add(tag)
-                            )
+                      tag === "orientation" ? undefined : () => addChanged(tag)
                     );
                   }}
                   platform={platform}
@@ -1055,6 +1076,7 @@ export const AndroidDevice = ({
       pick={pick}
       comments={comments}
       platform="Android"
+      sessionId={sessionId}
       stream={{
         device,
         format: "H.264",
