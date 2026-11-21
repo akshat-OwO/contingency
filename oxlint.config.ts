@@ -9,8 +9,7 @@ const jsPlugins = selectJsPlugins(["react-doctor"]);
 
 const uiSdkAdr = "docs/adr/0086-workspace-ui-is-built-on-ui-sdk.md";
 
-// Libraries UI SDK replaces. Only `apps/web/src/components/ui/` may still use
-// them, and only until each primitive migrates.
+// Libraries UI SDK replaces. Nothing in the repo may import them.
 const replacedUiLibraries = [
   "@base-ui/react",
   "@shadcn/react",
@@ -24,27 +23,13 @@ const replacedUiLibraries = [
   "input-otp",
 ];
 
-// Files outside `components/ui/` that still import a replaced library. The
-// sub-issue that migrates a file removes it from this list.
-const uiMigrationExceptions: readonly {
-  readonly allow: readonly string[];
-  readonly files: readonly string[];
-}[] = [];
+const replacedUiImports = replacedUiLibraries.map((name) => ({
+  group: [name, `${name}/**`],
+  message: `UI SDK replaces ${name}. Import from @/components/ui/* instead. See ${uiSdkAdr}.`,
+}));
 
-const restrictedUiImports = ({
-  allow = new Set<string>(),
-  allowUiSdkTesting = false,
-} = {}) => [
-  ...replacedUiLibraries.flatMap((name) =>
-    allow.has(name)
-      ? []
-      : [
-          {
-            group: [name, `${name}/**`],
-            message: `UI SDK replaces ${name}. Import from @/components/ui/* instead. See ${uiSdkAdr}.`,
-          },
-        ]
-  ),
+const restrictedUiImports = ({ allowUiSdkTesting = false } = {}) => [
+  ...replacedUiImports,
   {
     group: [
       "@ui-sdk/**",
@@ -71,7 +56,6 @@ export default defineConfig({
   extends: [core, tanstack, tanstackJsPlugins, antiSlop, jsPlugins],
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
-    "apps/web/src/components/ui/**",
     // Throwaway design prototypes are not production source.
     "docs/prototypes/**",
     "apps/web/src/routeTree.gen.ts",
@@ -102,15 +86,13 @@ export default defineConfig({
         ],
       },
     },
-    ...uiMigrationExceptions.map(({ allow, files }) => ({
-      files,
+    {
+      // The facade is the one place that builds on UI SDK.
+      files: ["apps/web/src/components/ui/**"],
       rules: {
-        "no-restricted-imports": [
-          "error",
-          { patterns: restrictedUiImports({ allow: new Set(allow) }) },
-        ],
+        "no-restricted-imports": ["error", { patterns: replacedUiImports }],
       },
-    })),
+    },
     {
       files: [
         "packages/cli/src/services/recorder-events.ts",
