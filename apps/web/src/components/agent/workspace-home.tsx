@@ -4,6 +4,7 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Clock, Effect, Fiber, Schedule } from "effect";
 import { CheckIcon, CircleAlertIcon, HandIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import { WatcherMark } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
@@ -234,10 +235,6 @@ const PLATFORMS_WITHOUT_IOS: readonly HomePlatform[] = ["web", "android"];
 /** The digit key that opens each tile, in the order the tiles are offered. */
 const TILE_KEYS: readonly string[] = ["1", "2", "3"];
 
-/** Targets where a digit is typed or picks an option, not a platform. */
-const TYPING_TARGET =
-  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="listbox"], [role="menu"], [role="dialog"], [role="alertdialog"]';
-
 const GlyphBox = ({ platform }: { readonly platform: HomePlatform }) => (
   <span className="bg-island-hover text-foreground grid size-8 place-items-center rounded-[10px] shadow-[inset_0_0_0_1px_var(--island-border)]">
     <PlatformIcon className="size-[17px]" platform={platform} />
@@ -450,7 +447,8 @@ const SessionCard = ({
 
 /**
  * The platform tiles, each with the digit key that opens it. The keys work
- * while the tiles show, except where a digit is typed or picks an option.
+ * only while focus is on a tile, so a bare digit pressed anywhere else on the
+ * home does nothing (WCAG 2.1.4).
  */
 const PlatformTiles = ({
   onOpen,
@@ -462,40 +460,22 @@ const PlatformTiles = ({
   /** The tile the last card folds back into. */
   readonly returning: HomeCard | null;
 }) => {
-  const list = useRef<HTMLUListElement>(null);
-  const open = useRef(onOpen);
-  useEffect(() => {
-    open.current = onOpen;
-  });
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.repeat ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      const platform = platforms[TILE_KEYS.indexOf(event.key)];
-      if (
-        platform === undefined ||
-        (event.target instanceof Element &&
-          event.target.closest(TYPING_TARGET) !== null)
-      ) {
-        return;
-      }
-      event.preventDefault();
-      open.current(
-        platform,
-        list.current?.querySelector<HTMLElement>(`[data-tile="${platform}"]`) ??
-          null
-      );
-    };
-    globalThis.addEventListener("keydown", onKeyDown);
-    return () => globalThis.removeEventListener("keydown", onKeyDown);
-  }, [platforms]);
+  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+    const platform = platforms[TILE_KEYS.indexOf(event.key)];
+    if (platform === undefined) {
+      return;
+    }
+    event.preventDefault();
+    onOpen(
+      platform,
+      event.currentTarget.querySelector<HTMLElement>(
+        `[data-tile="${platform}"]`
+      )
+    );
+  };
   return (
     <ul
       aria-label="Start a session"
@@ -503,7 +483,7 @@ const PlatformTiles = ({
         "grid w-full gap-3.5",
         platforms.length === 3 ? "grid-cols-3" : "grid-cols-2"
       )}
-      ref={list}
+      onKeyDown={onKeyDown}
     >
       {platforms.map((platform, index) => (
         <li key={platform}>

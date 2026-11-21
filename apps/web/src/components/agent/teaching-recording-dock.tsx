@@ -21,6 +21,7 @@ import {
   sessionWaitsOnUserAtom,
   WAITING_ON_YOU_SENTENCE,
 } from "@/components/agent/agent-workspace-state";
+import { useRunSummaryCollapsed } from "@/components/agent/run-summary-dock";
 import { ShortcutKbd } from "@/components/agent/teaching-comment-composer";
 import type { ShortcutPlatform } from "@/components/agent/teaching-comment-shortcuts";
 import { ariaKeyShortcuts } from "@/components/agent/teaching-comment-shortcuts";
@@ -314,9 +315,14 @@ export const TeachingRecordingDock = ({
     phase
   );
   const waiting = useAtomValue(sessionWaitsOnUserAtom);
+  const summaryCollapsed = useRunSummaryCollapsed();
+  // While the summary is folded away, its Flow decision is too, so the
+  // island offers Verify flow and Reject flow again.
   const { action, secondaries } = islandActions(
     presentation,
-    flowDecisionDocked === true && captureState._tag === "dry-run-passed"
+    flowDecisionDocked === true &&
+      !summaryCollapsed &&
+      captureState._tag === "dry-run-passed"
   );
   const badge = guidedBadge(
     origin,

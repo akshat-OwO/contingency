@@ -1077,25 +1077,74 @@ const runPageAction = async (page, appUrl, action, flags) => {
       );
     }
     case "color-scheme": {
-      // Follows the System theme: the saved choice is cleared and the page's
-      // `prefers-color-scheme` is emulated, so a capture reads both themes
-      // without reloading a page whose state is held by the client.
+      // Follows the System theme without reloading a page whose state is held
+      // by the client: the saved choice is cleared, each app is told it is
+      // gone, and the page's `prefers-color-scheme` is emulated. The capture
+      // then checks the theme the page actually renders, so a screenshot is
+      // never named for a theme the page did not apply.
       const scheme = flags.scheme;
       if (scheme !== "light" && scheme !== "dark") {
         throw new Error("browser color-scheme needs --scheme light|dark.");
       }
-      await page.evaluate(() => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.evaluate((key) => {
         try {
-          localStorage.removeItem("contingency-theme");
+          localStorage.removeItem(key);
         } catch {
           // A page without storage still follows the emulated scheme.
         }
-      });
-      await page.emulateMedia({ colorScheme: scheme });
-      await page.waitForFunction(
-        (expected) => matchMedia(`(prefers-color-scheme: ${expected})`).matches,
-        scheme
-      );
+        // The Workspace's next-themes returns to System on a storage event
+        // for its key; the prototype follows System once `data-theme` goes.
+        window.dispatchEvent(new StorageEvent("storage", { key, newValue: null }));
+        delete document.documentElement.dataset.theme;
+      }, "contingency-theme");
+      await page
+        .waitForFunction(
+          (expected) => {
+            const surfaces = [
+              document.body,
+              ...document.querySelectorAll("body > *, #root > *, #root > * > *"),
+            ];
+            // Computed colours come back as rgb() or, for Tailwind v4 tokens,
+            // oklch()/oklab(); both give a lightness to compare.
+            const lightness = (color) => {
+              const ok = color.match(
+                /okl(?:ch|ab)\(([\d.]+)(%?)[^/)]*(?:\/\s*([\d.]+)(%?))?/u
+              );
+              if (ok !== null) {
+                const alpha =
+                  ok[3] === undefined
+                    ? 1
+                    : Number(ok[3]) / (ok[4] === "%" ? 100 : 1);
+                return alpha === 0
+                  ? null
+                  : Number(ok[1]) / (ok[2] === "%" ? 100 : 1);
+              }
+              const rgb = color.match(
+                /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/u
+              );
+              if (rgb === null || Number(rgb[4] ?? 1) === 0) {
+                return null;
+              }
+              const [r, g, b] = [rgb[1], rgb[2], rgb[3]].map(Number);
+              return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            };
+            for (const surface of surfaces) {
+              const value = lightness(getComputedStyle(surface).backgroundColor);
+              if (value !== null) {
+                return value < 0.5 === (expected === "dark");
+              }
+            }
+            return false;
+          },
+          scheme,
+          { timeout: 10_000 }
+        )
+        .catch(() => {
+          throw new Error(
+            `browser color-scheme: the page did not render the ${scheme} theme.`
+          );
+        });
       await settleAnimations(page);
       return scheme;
     }

@@ -870,25 +870,19 @@ test("sends the starting page and a phone's Emulation from the start card", asyn
   });
 });
 
-test("opens a tile's start card with its digit key", async () => {
+test("opens a tile's start card with its digit key while a tile has focus", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([]));
   await screen.findByRole("list", { name: "Start a session" });
+  // Focus elsewhere on the home: a bare digit opens nothing (WCAG 2.1.4).
+  await user.keyboard("1");
+  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
+  screen.getByRole("button", { name: "Start a Web session" }).focus();
   // A key with a modifier, or one no tile has, opens nothing.
   await user.keyboard("{Control>}1{/Control}3");
   expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
-  await user.keyboard("1");
-  const name = screen.getByRole("textbox", { name: "Flow name" });
-  expect(screen.getByRole("form", { name: "Teach on Web" })).toBeVisible();
-  // Typed into a field, a digit is text, not a shortcut.
-  await user.clear(name);
-  await user.type(name, "flow-2{Escape}");
-  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
   await user.keyboard("2");
   expect(screen.getByRole("form", { name: "Teach on Android" })).toBeVisible();
-  expect(screen.getByRole("textbox", { name: "Flow name" })).toHaveValue(
-    "flow-2"
-  );
 });
 
 test("closes the start card with Escape and keeps the Flow name", async () => {
@@ -4075,6 +4069,62 @@ test("keeps a Dry Run Summary by recording ID after Teaching has closed", async 
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(
     screen.queryByRole("heading", { name: "Teach a new Flow" })
+  ).toBeNull();
+});
+
+test("keeps a passed Dry Run's decision in one place as its summary collapses", async () => {
+  const user = userEvent.setup();
+  const taskDryRun = {
+    ...endedTaskSummary,
+    purpose: {
+      flowName: "add-anvil",
+      kind: "dry-run",
+      recordingId: "recording-add-anvil",
+      takeoverOccurred: false,
+    },
+  };
+  renderWorkspace(
+    resultFor([
+      {
+        ...dryRunPassedSession,
+        captureState: {
+          ...dryRunPassedSession.captureState,
+          dryRunSummary: taskDryRun,
+        },
+      },
+    ]),
+    session.id
+  );
+  const decision = await screen.findByRole("region", { name: "Flow decision" });
+  const status = screen.getByRole("region", { name: "Session status" });
+  // The summary's foot holds the decision while it is open (#757).
+  expect(
+    within(decision).getByRole("button", { name: "Verify flow" })
+  ).toBeVisible();
+  expect(
+    within(status).queryByRole("button", { name: "Verify flow" })
+  ).toBeNull();
+  // Collapsed, the decision goes back to the status island.
+  await user.click(
+    screen.getByRole("button", { name: "Collapse Dry Run Summary" })
+  );
+  expect(
+    await within(status).findByRole("button", { name: "Verify flow" })
+  ).toBeVisible();
+  expect(
+    within(status).getByRole("button", { name: "Reject flow" })
+  ).toBeVisible();
+  // Open again, it leaves the island.
+  await user.click(
+    within(status).getByRole("button", { name: /^Expand Dry Run Summary/u })
+  );
+  expect(
+    await within(
+      await screen.findByRole("region", { name: "Flow decision" })
+    ).findByRole("button", { name: "Verify flow" })
+  ).toBeVisible();
+  expect(
+    within(status).queryByRole("button", { name: "Verify flow" })
   ).toBeNull();
 });
 

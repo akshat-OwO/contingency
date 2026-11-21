@@ -1228,12 +1228,12 @@ const unreached = [
   [
     "native-android",
     "Native session canvas",
-    "Pass --android with a running emulator. Native seeding is not built yet.",
+    "Native seeding is not built yet; compare Android states by hand.",
   ],
   [
     "native-ios",
     "Native session canvas",
-    "Pass --ios with a booted simulator. Native seeding is not built yet.",
+    "Native seeding is not built yet; compare iOS states by hand.",
   ],
 ];
 

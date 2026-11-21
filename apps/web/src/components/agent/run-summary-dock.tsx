@@ -49,6 +49,13 @@ export const usePublishRunSummaryVerdict = (verdict: SummaryVerdict): void => {
   }, [label, publish, tone]);
 };
 
+/**
+ * Whether the docked summary is folded into its pill. Anything the summary
+ * holds, such as its Flow decision, is out of reach until it opens again.
+ */
+export const useRunSummaryCollapsed = (): boolean =>
+  useContext(RunSummaryDockContext)?.collapsed ?? false;
+
 /** The morph still running, if any; a newer one replaces it. */
 let currentMorph: ViewTransition | undefined;
 

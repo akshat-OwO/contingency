@@ -182,6 +182,61 @@ test("waits for a choice when more than one device is ready", async () => {
   ).toBeEnabled();
 });
 
+test("asks for a new choice when the picked device leaves, rather than taking another", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  const other = { ...emulator, avd: "Pixel_8", serial: "emulator-5556" };
+  let pickedGone = false;
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.sync(() => (pickedGone ? [other] : [emulator, other])),
+      }}
+    />
+  );
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  await user.click(field);
+  await user.click(await screen.findByRole("option", { name: /Pixel_9/u }));
+  expect(field).toHaveTextContent("Pixel_9");
+  pickedGone = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  // The only device left is not the one the user picked.
+  expect(await screen.findByText("Choose a device")).toBeVisible();
+  expect(field).not.toHaveTextContent("Pixel_8");
+  expect(
+    screen.getByRole("textbox", { name: "Search installed apps" })
+  ).toBeDisabled();
+});
+
+test("keeps a picked emulator chosen when it comes back under a new serial", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  const other = { ...emulator, avd: "Pixel_8", serial: "emulator-5556" };
+  let rebooted = false;
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.sync(() =>
+          rebooted
+            ? [{ ...emulator, serial: "emulator-5558" }, other]
+            : [emulator, other]
+        ),
+      }}
+    />
+  );
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  await user.click(field);
+  await user.click(await screen.findByRole("option", { name: /Pixel_9/u }));
+  rebooted = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  expect(
+    await screen.findByText("Running · emulator-5558 · API 36")
+  ).toBeVisible();
+  expect(field).toHaveTextContent("Pixel_9");
+});
+
 test("offers the .apk upload before a device is chosen", async () => {
   const user = userEvent.setup({ pointerEventsCheck: 0 });
   const [emulator] = await Effect.runPromise(discovery.devices);

@@ -152,6 +152,37 @@ export const chosenSerial = (
   return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
 };
 
+/** The device the user picked, by serial and, for an emulator, its AVD. */
+export interface AndroidDevicePick {
+  readonly avd: string | null;
+  readonly serial: string;
+}
+
+/**
+ * The listed serial of the user's pick. A stopped emulator boots under a new
+ * serial, so its AVD finds it again. `"missing"` means the pick is no longer
+ * listed at all; the card then waits for a new choice rather than falling
+ * back to whichever device happens to be ready (#786).
+ */
+export const pickedSerial = (
+  listed: readonly AndroidDiscoveredDevice[],
+  pick: AndroidDevicePick | null
+): string | null | "missing" => {
+  if (pick === null) {
+    return null;
+  }
+  if (listed.some((entry) => entry.serial === pick.serial)) {
+    return pick.serial;
+  }
+  const booted =
+    pick.avd === null
+      ? undefined
+      : listed.find(
+          (entry) => entry.avd === pick.avd && unavailableReason(entry) === null
+        );
+  return booted?.serial ?? "missing";
+};
+
 /** The Android selection the start card's choices declare. */
 export const setupSelection = ({
   app,

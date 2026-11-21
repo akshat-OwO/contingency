@@ -39,12 +39,16 @@ import {
   androidDeviceChoice,
   chosenSerial,
   deviceRelease,
+  pickedSerial,
   preparationDescription,
   selectable,
   setupMissing,
   setupSelection,
 } from "./android-setup-state";
-import type { AndroidCondition } from "./android-setup-state";
+import type {
+  AndroidCondition,
+  AndroidDevicePick,
+} from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
 import {
   DeviceChoices,
@@ -80,7 +84,7 @@ type Loaded<Value> =
 
 interface SetupForm {
   readonly app: string | null;
-  readonly device: string | null;
+  readonly device: AndroidDevicePick | null;
   readonly privateInput: boolean;
   readonly permissions: Readonly<Record<string, "grant" | "revoke">>;
   readonly outcome: AndroidCondition;
@@ -758,12 +762,8 @@ export const AndroidStartCard = ({
     setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
-  // A stopped emulator's entry goes once it boots under a new serial, so a
-  // pick that is no longer listed chooses as if nothing were picked.
-  const picked = listed.some((entry) => entry.serial === form.device)
-    ? form.device
-    : null;
-  const chosen = chosenSerial(listed, picked);
+  const picked = pickedSerial(listed, form.device);
+  const chosen = picked === "missing" ? null : chosenSerial(listed, picked);
   const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
@@ -902,7 +902,12 @@ export const AndroidStartCard = ({
               setForm((current) => ({
                 ...current,
                 app: null,
-                device: serial,
+                device: {
+                  avd:
+                    listed.find((entry) => entry.serial === serial)?.avd ??
+                    null,
+                  serial,
+                },
                 ...CLEARED_CONDITIONS,
               }))
             }
