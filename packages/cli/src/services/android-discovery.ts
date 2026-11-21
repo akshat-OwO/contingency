@@ -637,6 +637,9 @@ export const makeAndroidDiscovery = (
           "--show-versioncode",
         ]);
         const installed = parseInstalledPackages(installedOutput);
+        // Re-verify device identity before publishing the fast snapshot.
+        yield* verifyIdentity();
+
         const cacheEntries = new Map(yield* cache.load());
         const { initialApps, pending } = yield* buildInitialInventory(
           device.fingerprint,
@@ -646,7 +649,7 @@ export const makeAndroidDiscovery = (
         );
 
         let cacheDirty = false;
-        let buildToolsMissing = false;
+        let enrichmentStopped = false;
 
         const resolveApkPath = (item: PendingEnrichment) =>
           Effect.gen(function* findApk() {
@@ -675,7 +678,7 @@ export const makeAndroidDiscovery = (
             Effect.matchEffect({
               onFailure: (firstError) => {
                 if (firstError.code === "android_build_tools_missing") {
-                  buildToolsMissing = true;
+                  enrichmentStopped = true;
                   return Effect.fail(firstError);
                 }
                 return io.readApk(device.serial, apk);
@@ -684,11 +687,32 @@ export const makeAndroidDiscovery = (
             })
           );
 
+        const verifyIdentityBeforePublish = () =>
+          requireAndroidDeviceIdentity(device, (args) =>
+            adb(args).pipe(
+              Effect.mapError(() => platformRuntimeError("device_disconnected"))
+            )
+          ).pipe(
+            Effect.matchEffect({
+              onFailure: (cause) => {
+                if (cause.code === "device_disconnected") {
+                  enrichmentStopped = true;
+                  return Effect.succeed(false);
+                }
+                return Effect.fail(failure("android_device_unauthorized"));
+              },
+              onSuccess: () => Effect.succeed(true),
+            })
+          );
+
         const enrichOne = (
           item: PendingEnrichment
-        ): Effect.Effect<AndroidDiscoveredAppsEvent | null> =>
+        ): Effect.Effect<
+          AndroidDiscoveredAppsEvent | null,
+          AndroidDiscoveryError
+        > =>
           Effect.gen(function* enrichPackage() {
-            if (buildToolsMissing) {
+            if (enrichmentStopped) {
               return null;
             }
             const apk = yield* resolveApkPath(item);
@@ -704,6 +728,10 @@ export const makeAndroidDiscovery = (
               )
             );
             if (cachedByResolvedApk !== undefined) {
+              const verified = yield* verifyIdentityBeforePublish();
+              if (!verified) {
+                return null;
+              }
               return {
                 _tag: "metadata" as const,
                 label: cachedByResolvedApk.label,
@@ -734,6 +762,11 @@ export const makeAndroidDiscovery = (
               versionName: resolvedVersionName,
             });
             if (Option.isNone(decoded)) {
+              return null;
+            }
+            // Re-verify device identity before caching or publishing this entry.
+            const verified = yield* verifyIdentityBeforePublish();
+            if (!verified) {
               return null;
             }
             const key = metadataCacheKey(
@@ -773,41 +806,16 @@ export const makeAndroidDiscovery = (
           Stream.mapEffect(enrichOne, { concurrency: ENRICHMENT_CONCURRENCY }),
           Stream.filter(
             (event): event is AndroidDiscoveredAppsEvent => event !== null
+          ),
+          // Persist already-verified metadata even when the subscriber cancels early.
+          Stream.ensuring(
+            Effect.suspend(() =>
+              cacheDirty ? cache.save(cacheEntries) : Effect.void
+            )
           )
         );
 
-        const finalizeStream: Stream.Stream<
-          AndroidDiscoveredAppsEvent,
-          AndroidDiscoveryError
-        > = Stream.fromEffect(
-          Effect.gen(function* finalizeDiscovery() {
-            if (cacheDirty) {
-              yield* cache.save(cacheEntries);
-            }
-            // Refuse results if identity changed during the inventory; ignore
-            // transient disconnects after an already-verified snapshot.
-            yield* requireAndroidDeviceIdentity(device, (args) =>
-              adb(args).pipe(
-                Effect.mapError(() =>
-                  platformRuntimeError("device_disconnected")
-                )
-              )
-            ).pipe(
-              Effect.matchEffect({
-                onFailure: (cause) =>
-                  cause.code === "device_disconnected"
-                    ? Effect.void
-                    : Effect.fail(failure("android_device_unauthorized")),
-                onSuccess: () => Effect.void,
-              })
-            );
-          })
-        ).pipe(Stream.drain);
-
-        return snapshotStream.pipe(
-          Stream.concat(enrichmentStream),
-          Stream.concat(finalizeStream)
-        );
+        return snapshotStream.pipe(Stream.concat(enrichmentStream));
       })
     );
 

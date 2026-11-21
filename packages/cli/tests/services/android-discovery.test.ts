@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { AndroidWorkspaceObservation } from "@contingency/protocol";
+import type { AndroidDiscoveredAppsEvent } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Stream } from "effect";
 
@@ -207,10 +208,12 @@ it.effect(
 );
 
 it.effect(
-  "refuses inventory results when the selected identity changes during discovery",
+  "refuses inventory results without emitting events or writing cache when identity changes during discovery",
   () =>
     Effect.gen(function* changedDuringDiscovery() {
       let captures = 0;
+      let cacheWrites = 0;
+      const events: AndroidDiscoveredAppsEvent[] = [];
       const discovery = makeAndroidDiscovery({
         adb: (args) =>
           Effect.sync(() => {
@@ -218,8 +221,8 @@ it.effect(
             if (command.includes("query-activities")) {
               return "dev.fixture/.Home";
             }
-            if (command.startsWith("shell pm path")) {
-              return "package:/data/app/fixture/base.apk";
+            if (command.includes("pm list packages")) {
+              return "package:/data/app/fixture/base.apk=dev.fixture versionCode:42";
             }
             if (command === "shell getprop ro.build.fingerprint") {
               captures += 1;
@@ -227,15 +230,153 @@ it.effect(
             }
             return properties.get(command) ?? "";
           }),
+        cache: {
+          load: () => Effect.succeed(new Map()),
+          save: () =>
+            Effect.sync(() => {
+              cacheWrites += 1;
+            }),
+        },
         readApk: () =>
           Effect.succeed(
             "package: name='dev.fixture' versionCode='42' versionName='1.2'\napplication-label:'Fixture'"
           ),
       });
-      expect((yield* Effect.flip(discovery.apps(device))).code).toBe(
-        "android_device_unauthorized"
+      const error = yield* Effect.flip(
+        discovery.appsStream(device).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              events.push(event);
+            })
+          )
+        )
       );
+      expect(error.code).toBe("android_device_unauthorized");
+      expect(events).toEqual([]);
+      expect(cacheWrites).toBe(0);
     })
+);
+
+it.effect(
+  "refuses enrichment updates and skips caching if identity drifts after snapshot",
+  () =>
+    Effect.gen(function* changedDuringEnrichment() {
+      let captures = 0;
+      let cacheWrites = 0;
+      const events: AndroidDiscoveredAppsEvent[] = [];
+      const discovery = makeAndroidDiscovery({
+        adb: (args) =>
+          Effect.sync(() => {
+            const command = args.slice(2).join(" ");
+            if (command.includes("query-activities")) {
+              return "dev.fixture/.Home";
+            }
+            if (command.includes("pm list packages")) {
+              return "package:/data/app/fixture/base.apk=dev.fixture versionCode:42";
+            }
+            if (command === "shell getprop ro.build.fingerprint") {
+              captures += 1;
+              // First two checks pass (before & after fast inventory), third fails before publishing metadata.
+              return captures <= 2 ? "build" : "changed";
+            }
+            return properties.get(command) ?? "";
+          }),
+        cache: {
+          load: () => Effect.succeed(new Map()),
+          save: () =>
+            Effect.sync(() => {
+              cacheWrites += 1;
+            }),
+        },
+        readApk: () =>
+          Effect.succeed(
+            "package: name='dev.fixture' versionCode='42' versionName='1.2'\napplication-label:'Fixture'"
+          ),
+      });
+      const error = yield* Effect.flip(
+        discovery.appsStream(device).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              events.push(event);
+            })
+          )
+        )
+      );
+      expect(error.code).toBe("android_device_unauthorized");
+      // Snapshot was verified, but the drifted metadata update is neither emitted nor cached.
+      expect(events.map((event) => event._tag)).toEqual(["snapshot"]);
+      expect(cacheWrites).toBe(0);
+    })
+);
+
+it.effect(
+  "persists already-verified cache entries when a subscriber cancels during enrichment",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* saveOnCancel() {
+        const dir = yield* Effect.acquireRelease(
+          Effect.promise(() =>
+            mkdtemp(path.join(tmpdir(), "discovery-cancel-cache-"))
+          ),
+          (owned) =>
+            Effect.promise(() => rm(owned, { force: true, recursive: true }))
+        );
+        const cache = makeFileAndroidAppMetadataCache(
+          path.join(dir, "cache.json"),
+          10
+        );
+        const firstMetadataSeen = yield* Deferred.make<boolean>();
+        const secondApkStarted = yield* Deferred.make<boolean>();
+        const releaseSecondApk = yield* Deferred.make<string>();
+
+        const discovery = makeAndroidDiscovery({
+          adb: (args) =>
+            Effect.sync(() => {
+              const command = args.slice(2).join(" ");
+              if (command.includes("query-activities")) {
+                return "dev.one/.Main\ndev.two/.Main";
+              }
+              if (command.includes("pm list packages")) {
+                return [
+                  "package:/data/app/one/base.apk=dev.one versionCode:1",
+                  "package:/data/app/two/base.apk=dev.two versionCode:2",
+                ].join("\n");
+              }
+              return properties.get(command) ?? "";
+            }),
+          cache,
+          readApk: (_serial, apk) => {
+            if (apk.includes("/one/")) {
+              return Effect.succeed(
+                "package: name='dev.one' versionCode='1' versionName='1.0'\napplication-label:'App One'"
+              );
+            }
+            return Deferred.succeed(secondApkStarted, true).pipe(
+              Effect.andThen(Deferred.await(releaseSecondApk))
+            );
+          },
+        });
+
+        const fiber = yield* discovery.appsStream(device).pipe(
+          Stream.runForEach((event) =>
+            event._tag === "metadata" && event.package === "dev.one"
+              ? Deferred.succeed(firstMetadataSeen, true).pipe(Effect.asVoid)
+              : Effect.void
+          ),
+          Effect.forkChild
+        );
+
+        yield* Deferred.await(firstMetadataSeen);
+        yield* Deferred.await(secondApkStarted);
+        // Cancel while dev.two is still pending; dev.one's verified label must be persisted.
+        yield* Fiber.interrupt(fiber);
+
+        const saved = yield* cache.load();
+        expect([...saved.values()].map((entry) => entry.label)).toEqual([
+          "App One",
+        ]);
+      })
+    )
 );
 
 it.effect(
@@ -642,7 +783,7 @@ it.effect(
             const command = args.slice(2).join(" ");
             if (command === "get-state") {
               stateChecks += 1;
-              return stateChecks === 1 ? "device" : "offline";
+              return stateChecks <= 2 ? "device" : "offline";
             }
             if (command.includes("query-activities")) {
               return "com.android.settings/.Settings";
