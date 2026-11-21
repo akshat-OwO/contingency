@@ -409,9 +409,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         ownedDevicesValue((devices) => devices.eraseState),
       "android.apps.list": ({ device }) =>
         androidDiscovery
-          .apps(device)
+          .appsStream(device)
           .pipe(
-            Effect.mapError((cause) =>
+            Stream.mapError((cause) =>
               makeBrowserRpcError("agent_session_unavailable", cause.message)
             )
           ),

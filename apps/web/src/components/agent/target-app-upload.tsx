@@ -15,6 +15,7 @@ import {
   ComboboxLabel,
   ComboboxList,
 } from "@/components/ui/combobox";
+import { createComboboxController } from "@/components/ui/combobox-controller";
 import {
   FileInput,
   FileInputDropzone,
@@ -299,22 +300,46 @@ export const InstalledAppPicker = ({
   readonly selected: string | null;
 }) => {
   const ids = useId();
+  const [controller] = useState(() => createComboboxController<string>());
   const listed = apps._tag === "loaded" ? apps.apps : [];
+  const selectedOption =
+    selected === null ? undefined : listed.find((app) => app.id === selected);
+  const previousSelected = useRef<{
+    readonly id: string;
+    readonly label: string;
+  } | null>(null);
+  useEffect(() => {
+    if (selectedOption === undefined) {
+      previousSelected.current = null;
+      return;
+    }
+    const previous = previousSelected.current;
+    previousSelected.current = {
+      id: selectedOption.id,
+      label: selectedOption.label,
+    };
+    if (
+      previous !== null &&
+      previous.id === selectedOption.id &&
+      previous.label !== selectedOption.label &&
+      !controller.isOpen() &&
+      controller.getQuery() === previous.label
+    ) {
+      controller.setQuery(selectedOption.label);
+    }
+  }, [controller, selectedOption]);
   const statusId = `${ids}-status`;
   return (
     <div className="grid min-w-0 grid-cols-1 gap-1.5">
       <Combobox
+        controller={controller}
         disabled={apps._tag !== "loaded"}
         onValueChange={(value: string | null) => {
           if (value !== null) {
             onSelect(value);
           }
         }}
-        value={
-          selected !== null && listed.some((app) => app.id === selected)
-            ? selected
-            : null
-        }
+        value={selectedOption === undefined ? null : selectedOption.id}
       >
         <ComboboxLabel>Target App</ComboboxLabel>
         <ComboboxInput

@@ -1,17 +1,19 @@
 import {
+  applyAndroidDiscoveredAppsEvent,
   describeFlowName,
   FlowName,
   startingDataOf,
 } from "@contingency/protocol";
 import type {
   AndroidDiscoveredApp,
+  AndroidDiscoveredAppsEvent,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
   StartingData,
   UploadedAndroidApp,
 } from "@contingency/protocol";
 import { useAtom } from "@effect/atom-react";
-import { Effect, Fiber, Option, Schema } from "effect";
+import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { Atom } from "effect/reactivity";
 import { LoaderCircleIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -111,6 +113,50 @@ const failure = (cause: unknown) =>
     Option.map((value) => value.message),
     Option.getOrElse(() => "The host did not answer.")
   );
+
+/** Streams launchable apps and merges progressive metadata updates in place. */
+const useReadApps = (
+  stream: Stream.Stream<AndroidDiscoveredAppsEvent, unknown> | null,
+  key: string
+) => {
+  const [resultAtom] = useState(() =>
+    Atom.make<Loaded<AndroidDiscoveredApp>>({ _tag: "loading" })
+  );
+  const [result, setResult] = useAtom(resultAtom);
+  useEffect(() => {
+    if (stream === null) {
+      return;
+    }
+    setResult({ _tag: "loading" });
+    const fiber = Effect.runFork(
+      stream.pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() =>
+            setResult((current) => ({
+              _tag: "loaded",
+              value: applyAndroidDiscoveredAppsEvent(
+                current._tag === "loaded" ? current.value : [],
+                event
+              ),
+            }))
+          )
+        ),
+        Effect.tapError((cause) =>
+          Effect.sync(() =>
+            setResult({ _tag: "failed", message: failure(cause) })
+          )
+        ),
+        Effect.ignore
+      )
+    );
+    return () => {
+      Effect.runFork(Fiber.interrupt(fiber));
+    };
+    // The key names the stream; the stream value is rebuilt every render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, setResult]);
+  return result;
+};
 
 /** Runs a read once per key and keeps its latest answer. */
 const useRead = <Value,>(
@@ -399,7 +445,7 @@ const targetApp = (
 export interface AndroidSetupDiscovery {
   readonly apps: (
     device: AndroidWorkspaceSelection["device"]
-  ) => Effect.Effect<readonly AndroidDiscoveredApp[], unknown>;
+  ) => Stream.Stream<AndroidDiscoveredAppsEvent, unknown>;
   readonly boot: (avd: string) => Effect.Effect<unknown, unknown>;
   readonly devices: Effect.Effect<readonly AndroidDiscoveredDevice[], unknown>;
   readonly discard: (id: string) => Effect.Effect<unknown>;
@@ -658,7 +704,7 @@ export const AndroidStartCard = ({
   const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
-  const loadedApps = useRead(
+  const loadedApps = useReadApps(
     device === null ? null : discovery.apps(device),
     device === null ? "none" : `${device.serial}-${refresh}`
   );

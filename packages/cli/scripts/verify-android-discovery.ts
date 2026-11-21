@@ -6,10 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { ContingencyRpcs } from "@contingency/protocol";
+import {
+  ContingencyRpcs,
+  foldAndroidDiscoveredAppsEvents,
+} from "@contingency/protocol";
 import { NodeRuntime } from "@effect/platform-node";
 import { NodeWS } from "@effect/platform-node/NodeSocket";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Stream } from "effect";
 import { RpcClient, RpcSerialization } from "effect/rpc";
 import { Socket } from "effect/socket";
 
@@ -81,7 +84,12 @@ const program = Effect.scoped(
           entry.state === "device"
       )
     );
-    const apps = yield* client("android.apps.list", { device });
+    const events = yield* Stream.runCollect(
+      client("android.apps.list", { device })
+    );
+    assert.ok(events.length > 0);
+    assert.equal(events[0]?._tag, "snapshot");
+    const apps = foldAndroidDiscoveredAppsEvents(events);
     assert.ok(apps.length > 0);
     assert.ok(
       apps.every(
@@ -99,9 +107,11 @@ const program = Effect.scoped(
       );
     }
     const refusal = yield* Effect.flip(
-      client("android.apps.list", {
-        device: { ...device, fingerprint: "deliberately-mismatched" },
-      })
+      Stream.runCollect(
+        client("android.apps.list", {
+          device: { ...device, fingerprint: "deliberately-mismatched" },
+        })
+      )
     );
     const after = yield* Effect.promise(() => state(serial));
     assert.deepEqual(after, before);

@@ -111,6 +111,61 @@ export const AndroidDiscoveredApp = Schema.Struct({
 });
 export type AndroidDiscoveredApp = typeof AndroidDiscoveredApp.Type;
 
+/**
+ * Progressive Android app discovery events: a fast initial snapshot of all
+ * launchable packages, followed by incremental label/version updates as
+ * uncached APKs resolve in the background.
+ */
+// oxlint-disable-next-line eslint/no-redeclare
+export const AndroidDiscoveredAppsEvent = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal("snapshot"),
+    apps: Schema.Array(AndroidDiscoveredApp),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("metadata"),
+    label: Schema.String,
+    package: text,
+    versionCode: text,
+    versionName: Schema.String,
+  }),
+]);
+export type AndroidDiscoveredAppsEvent = typeof AndroidDiscoveredAppsEvent.Type;
+
+/**
+ * Applies one discovery stream event to the current app list without
+ * reordering rows, so progressive label updates never shift the picker.
+ */
+export const applyAndroidDiscoveredAppsEvent = (
+  current: readonly AndroidDiscoveredApp[],
+  event: AndroidDiscoveredAppsEvent
+): readonly AndroidDiscoveredApp[] => {
+  if (event._tag === "snapshot") {
+    return event.apps;
+  }
+  return current.map((app) =>
+    app.package === event.package
+      ? {
+          ...app,
+          label: event.label,
+          versionCode: event.versionCode,
+          versionName: event.versionName,
+        }
+      : app
+  );
+};
+
+/** Folds a sequence of discovery stream events into the settled app list. */
+export const foldAndroidDiscoveredAppsEvents = (
+  events: Iterable<AndroidDiscoveredAppsEvent>
+): readonly AndroidDiscoveredApp[] => {
+  let current: readonly AndroidDiscoveredApp[] = [];
+  for (const event of events) {
+    current = applyAndroidDiscoveredAppsEvent(current, event);
+  }
+  return current;
+};
+
 // oxlint-disable-next-line eslint/no-redeclare
 export const AndroidWorkspaceObservation = Schema.Struct({
   capturedAt: text,
